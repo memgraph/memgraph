@@ -391,6 +391,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(std::string *uuid, Replication
     indices_constraints = std::move(recovered_snapshot->indices_constraints);
     snapshot_timestamp = recovered_snapshot->snapshot_info.start_timestamp;
     repl_storage_state.epoch_.SetEpoch(std::move(recovered_snapshot->snapshot_info.epoch_id));
+    recovery_info.last_commit_timestamp = snapshot_timestamp;
 
     if (!utils::DirExists(wal_directory_)) {
       // Apply data dependant meta structures now after all graph data has been loaded

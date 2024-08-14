@@ -104,6 +104,12 @@ uint64_t ReplicateCurrentWal(const utils::UUID &main_uuid, const InMemoryStorage
   return response.current_commit_timestamp;
 }
 
+bool ReplicateDurableTimestamp(const utils::UUID &main_uuid, const utils::UUID &uuid, rpc::Client &client,
+                               uint64_t last_durable_timestamp) {
+  auto stream = client.Stream<replication::DurableTimestampRpc>(main_uuid, uuid, last_durable_timestamp);
+  return stream.AwaitResponse().success;
+}
+
 /// This method tries to find the optimal path for recovering a single replica.
 /// Based on the last commit transferred to replica it tries to update the
 /// replica using durability files - WALs and Snapshots. WAL files are much
@@ -134,12 +140,14 @@ std::vector<RecoveryStep> GetRecoverySteps(uint64_t replica_commit, utils::FileR
   // This lock is also necessary to force the missed transaction to finish.
   std::optional<uint64_t> current_wal_seq_num;
   std::optional<uint64_t> current_wal_from_timestamp;
+  uint64_t last_durable_timestamp;
 
   std::unique_lock transaction_guard(
       storage->engine_lock_);  // Hold the storage lock so the current wal file cannot be changed
   (void)locker_acc.AddPath(storage->recovery_.wal_directory_);  // Protect all WALs from being deleted
 
   if (storage->wal_file_) {
+    last_durable_timestamp = storage->wal_file_->ToTimestamp();
     current_wal_seq_num.emplace(storage->wal_file_->SequenceNumber());
     current_wal_from_timestamp.emplace(storage->wal_file_->FromTimestamp());
     // No need to hold the lock since the current WAL is present and we can simply skip them
@@ -175,12 +183,14 @@ std::vector<RecoveryStep> GetRecoverySteps(uint64_t replica_commit, utils::FileR
     const auto lock_success = locker_acc.AddPath(latest_snapshot->path);
     MG_ASSERT(!lock_success.HasError(), "Tried to lock a non-existent snapshot path.");
     recovery_steps.emplace_back(std::in_place_type_t<RecoverySnapshot>{}, std::move(latest_snapshot->path));
+    last_durable_timestamp = std::max(last_durable_timestamp, latest_snapshot->start_timestamp);
   };
 
   // Check if we need the snapshot or if the WAL chain is enough
   if (!wal_files->empty()) {
     // Find WAL chain that contains the replica's commit timestamp
     auto wal_chain_it = wal_files->rbegin();
+    bool covered_by_wals = false;
     auto prev_seq{wal_chain_it->seq_num};
     for (; wal_chain_it != wal_files->rend(); ++wal_chain_it) {
       if (prev_seq - wal_chain_it->seq_num > 1) {
@@ -197,18 +207,29 @@ std::vector<RecoveryStep> GetRecoverySteps(uint64_t replica_commit, utils::FileR
             }
             if (wal_chain_it == wal_files->rbegin()) break;
           }
-          // Add snapshot to recovery steps
-          add_snapshot();
         }
         break;
       }
 
-      if (wal_chain_it->to_timestamp <= replica_commit) {
-        // Got to a WAL that is older than what we need to recover the replica
+      if (wal_chain_it->from_timestamp <= replica_commit + 1) {
+        // Got to the oldest necessary WAL file
+        covered_by_wals = true;
         break;
       }
 
       prev_seq = wal_chain_it->seq_num;
+    }
+
+    // Finished the WAL chain; we have to have a WAL that is older than replica OR a snapshot
+    if (!covered_by_wals) {
+      // WALs do not cover the replica; add snapshot (if not added)
+      if (recovery_steps.empty()) {
+        // Add snapshot to recovery steps
+        add_snapshot();
+      } else {
+        MG_ASSERT(std::holds_alternative<RecoverySnapshot>(recovery_steps.back()),
+                  "First recovery step is not RecoverySnapshot!");
+      }
     }
 
     // Copy and lock the chain part we need, from oldest to newest
@@ -231,11 +252,14 @@ std::vector<RecoveryStep> GetRecoverySteps(uint64_t replica_commit, utils::FileR
     }
   }
 
-  // In all cases, if we have a current wal file we need to use it
+  // If we have a current wal file we need to use it
   if (current_wal_seq_num) {
     // NOTE: File not handled directly, so no need to lock it
     recovery_steps.emplace_back(RecoveryCurrentWal{*current_wal_seq_num});
   }
+
+  // In all cases we update the last durable timestamp
+  recovery_steps.emplace_back(RecoveryDurableTimestamp{last_durable_timestamp});
 
   return recovery_steps;
 }

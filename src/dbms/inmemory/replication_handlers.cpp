@@ -113,6 +113,11 @@ void InMemoryReplicationHandlers::Register(dbms::DbmsHandler *dbms_handler, repl
         spdlog::debug("Received CurrentWalRpc");
         InMemoryReplicationHandlers::CurrentWalHandler(dbms_handler, data.uuid_, req_reader, res_builder);
       });
+  server.rpc_server_.Register<storage::replication::DurableTimestampRpc>(
+      [&data, dbms_handler](auto *req_reader, auto *res_builder) {
+        spdlog::debug("Received DurableTimestampRpc");
+        InMemoryReplicationHandlers::DurableTimestampHandler(dbms_handler, data.uuid_, req_reader, res_builder);
+      });
   server.rpc_server_.Register<storage::replication::TimestampRpc>(
       [&data, dbms_handler](auto *req_reader, auto *res_builder) {
         spdlog::debug("Received TimestampRpc");
@@ -298,6 +303,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
     storage->vertex_id_ = recovery_info.next_vertex_id;
     storage->edge_id_ = recovery_info.next_edge_id;
     storage->timestamp_ = std::max(storage->timestamp_, recovery_info.next_timestamp);
+    storage->repl_storage_state_.last_commit_timestamp_ = recovery_info.next_timestamp - 1;
 
     spdlog::trace("Recovering indices and constraints from snapshot.");
     memgraph::storage::durability::RecoverIndicesAndStats(recovered_snapshot.indices_constraints.indices,
@@ -473,6 +479,40 @@ void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_hand
   storage::replication::CurrentWalRes res{true, storage->repl_storage_state_.last_commit_timestamp_.load()};
   slk::Save(res, res_builder);
   spdlog::debug("Replication recovery from current WAL ended successfully, replica is now up to date!");
+}
+
+void InMemoryReplicationHandlers::DurableTimestampHandler(dbms::DbmsHandler *dbms_handler,
+                                                          const std::optional<utils::UUID> &current_main_uuid,
+                                                          slk::Reader *req_reader, slk::Builder *res_builder) {
+  storage::replication::DurableTimestampReq req;
+  slk::Load(&req, req_reader);
+  auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
+  if (!db_acc) {
+    storage::replication::DurableTimestampRes res{false};
+    slk::Save(res, res_builder);
+    return;
+  }
+
+  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::CurrentWalReq::kType.name);
+    storage::replication::DurableTimestampRes res{false};
+    slk::Save(res, res_builder);
+    return;
+  }
+
+  storage::replication::Decoder decoder(req_reader);
+
+  auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
+
+  auto old_val = storage->repl_storage_state_.last_commit_timestamp_.load();
+  while (
+      old_val < req.last_durable_timestamp &&
+      !storage->repl_storage_state_.last_commit_timestamp_.compare_exchange_weak(old_val, req.last_durable_timestamp)) {
+  }
+
+  storage::replication::DurableTimestampRes res{true};
+  slk::Save(res, res_builder);
+  spdlog::debug("Replica's durable timestamp updated successfully!");
 }
 
 void InMemoryReplicationHandlers::LoadWal(storage::InMemoryStorage *storage, storage::replication::Decoder *decoder) {

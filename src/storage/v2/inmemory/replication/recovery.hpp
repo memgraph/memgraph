@@ -28,6 +28,9 @@ replication::SnapshotRes TransferSnapshot(const utils::UUID &main_uuid, const ut
 uint64_t ReplicateCurrentWal(const utils::UUID &main_uuid, const InMemoryStorage *storage, rpc::Client &client,
                              durability::WalFile const &wal_file);
 
+bool ReplicateDurableTimestamp(const utils::UUID &main_uuid, const utils::UUID &uuid, rpc::Client &client,
+                               uint64_t last_durable_timestamp);
+
 auto GetRecoverySteps(uint64_t replica_commit, utils::FileRetainer::FileLocker *file_locker,
                       const InMemoryStorage *storage) -> std::vector<RecoveryStep>;
 

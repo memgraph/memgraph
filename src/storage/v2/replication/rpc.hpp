@@ -210,6 +210,35 @@ struct TimestampRes {
 
 using TimestampRpc = rpc::RequestResponse<TimestampReq, TimestampRes>;
 
+struct DurableTimestampReq {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(DurableTimestampReq *self, memgraph::slk::Reader *reader);
+  static void Save(const DurableTimestampReq &self, memgraph::slk::Builder *builder);
+  DurableTimestampReq() = default;
+  explicit DurableTimestampReq(const utils::UUID &main_uuid, const utils::UUID &uuid, uint64_t last_durable_timestamp)
+      : main_uuid(main_uuid), uuid{uuid}, last_durable_timestamp{last_durable_timestamp} {}
+
+  utils::UUID main_uuid;
+  utils::UUID uuid;
+  uint64_t last_durable_timestamp;
+};
+
+struct DurableTimestampRes {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(DurableTimestampRes *self, memgraph::slk::Reader *reader);
+  static void Save(const DurableTimestampRes &self, memgraph::slk::Builder *builder);
+  DurableTimestampRes() = default;
+  explicit DurableTimestampRes(bool success) : success(success) {}
+
+  bool success;
+};
+
+using DurableTimestampRpc = rpc::RequestResponse<DurableTimestampReq, DurableTimestampRes>;
+
 struct ForceResetStorageReq {
   static const utils::TypeInfo kType;
   static const utils::TypeInfo &GetTypeInfo() { return kType; }
@@ -244,6 +273,14 @@ using ForceResetStorageRpc = rpc::RequestResponse<ForceResetStorageReq, ForceRes
 
 // SLK serialization declarations
 namespace memgraph::slk {
+
+void Save(const memgraph::storage::replication::DurableTimestampRes &self, memgraph::slk::Builder *builder);
+
+void Load(memgraph::storage::replication::DurableTimestampRes *self, memgraph::slk::Reader *reader);
+
+void Save(const memgraph::storage::replication::DurableTimestampReq &self, memgraph::slk::Builder *builder);
+
+void Load(memgraph::storage::replication::DurableTimestampReq *self, memgraph::slk::Reader *reader);
 
 void Save(const memgraph::storage::replication::TimestampRes &self, memgraph::slk::Builder *builder);
 

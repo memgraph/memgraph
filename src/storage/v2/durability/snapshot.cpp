@@ -3065,8 +3065,11 @@ void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, co
       if (info.uuid != uuid) continue;
       wal_files.emplace_back(info.seq_num, info.from_timestamp, info.to_timestamp, item.path());
     } catch (const RecoveryFailure &e) {
-      spdlog::warn("Found a corrupt WAL file {} because of: {}. WAL file will be deleted.", item.path(), e.what());
-      file_retainer->DeleteFile(item.path());
+      // TODO If we want to do this we need a way to protect current wal file
+      // We can't get the engine lock here
+      // Maybe the file locker can help us. Careful, in any case we don't really want to delete it by accident.
+      // spdlog::warn("Found a corrupt WAL file {} because of: {}. WAL file will be deleted.", item.path(), e.what());
+      // file_retainer->DeleteFile(item.path());
     }
   }
 
@@ -3599,6 +3602,13 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
   if (old_snapshot_files.size() == storage->config_.durability.snapshot_retention_count - 1 &&
       utils::DirExists(wal_directory)) {
     EnsureNecessaryWalFilesExist(wal_directory, uuid, std::move(old_snapshot_files), transaction, file_retainer);
+  }
+
+  // Update last_commit_timestamp
+  auto old_val = storage->repl_storage_state_.last_commit_timestamp_.load();
+  while (old_val < transaction->start_timestamp &&
+         !storage->repl_storage_state_.last_commit_timestamp_.compare_exchange_weak(old_val,
+                                                                                    transaction->start_timestamp)) {
   }
 }
 

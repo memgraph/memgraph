@@ -351,6 +351,15 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, memgraph:
                     spdlog::debug("Cannot recover using current wal file {}", client_.name_);
                   }
                 },
+                [this, &replica_commit, mem_storage, &rpcClient,
+                 main_uuid = main_uuid_](RecoveryDurableTimestamp const &req) {
+                  spdlog::debug("Sending last durable timestamp to {}", client_.name_);
+                  if (ReplicateDurableTimestamp(main_uuid, mem_storage->uuid(), rpcClient,
+                                                req.last_durable_timestamp)) {
+                    replica_commit = req.last_durable_timestamp;
+                  }
+                  spdlog::debug("Replica commit after updating last durable timestamp: {}", replica_commit);
+                },
                 [](auto const &in) {
                   static_assert(always_false_v<decltype(in)>, "Missing type from variant visitor");
                 },
