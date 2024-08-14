@@ -685,4 +685,5 @@ def test_merge_nodes_pass_when_having_create_delete(switch):
 
 
 if __name__ == "__main__":
+    common.setup_db()
     sys.exit(pytest.main([__file__, "-rA"]))
