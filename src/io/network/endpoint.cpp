@@ -67,8 +67,25 @@ std::ostream &operator<<(std::ostream &os, const Endpoint &endpoint) {
 
 std::optional<std::tuple<std::string, uint16_t, Endpoint::IpFamily>> Endpoint::TryResolveAddress(
     std::string_view address, uint16_t port) {
+  using RetValue = std::tuple<std::string, uint16_t, Endpoint::IpFamily>;
+
+  auto const process_ipv4_family = [](addrinfo *socket_addr, uint16_t port) -> RetValue {
+    char buffer[INET_ADDRSTRLEN];
+    auto *socket_address_ipv4 = reinterpret_cast<struct sockaddr_in *>(socket_addr->ai_addr);
+    inet_ntop(socket_addr->ai_family, &(socket_address_ipv4->sin_addr), buffer, sizeof(buffer));
+    return std::tuple{std::string{buffer}, port, Endpoint::IpFamily::IP4};
+  };
+
+  auto const process_ipv6_family = [](addrinfo *socket_addr, uint16_t port) -> RetValue {
+    char buffer[INET6_ADDRSTRLEN];
+    auto *socket_address_ipv6 = reinterpret_cast<sockaddr_in6 *>(socket_addr->ai_addr);
+    inet_ntop(socket_addr->ai_family, &(socket_address_ipv6->sin6_addr), buffer, sizeof(buffer));
+    return std::tuple{std::string{buffer}, port, Endpoint::IpFamily::IP6};
+  };
+
   auto const parse_ip_family =
-      [&address, &port](auto family) -> std::optional<std::tuple<std::string, uint16_t, Endpoint::IpFamily>> {
+      [&address, &port](std::function<RetValue(addrinfo *, uint16_t)> const &processing_fn,
+                        auto family) -> std::optional<std::tuple<std::string, uint16_t, Endpoint::IpFamily>> {
     addrinfo hints{
         .ai_flags = AI_PASSIVE,     // fill with IPv4 or IPv6
         .ai_family = family,        // IPv4 or IPv6
@@ -85,35 +102,26 @@ std::optional<std::tuple<std::string, uint16_t, Endpoint::IpFamily>> Endpoint::T
       throw NetworkError("Couldn't resolve address: {}", address);
     }
 
-    for (auto *socket_addr = info; socket_addr != nullptr; socket_addr = socket_addr->ai_next) {
-      switch (socket_addr->ai_family) {
-        case AF_UNSPEC:
-          break;
-        case AF_INET: {
-          char buffer[INET_ADDRSTRLEN];
-          auto *socket_address_ipv4 = reinterpret_cast<struct sockaddr_in *>(socket_addr->ai_addr);
-          inet_ntop(socket_addr->ai_family, &(socket_address_ipv4->sin_addr), buffer, sizeof(buffer));
-          return std::tuple{std::string{buffer}, port, Endpoint::IpFamily::IP4};
-        }
-        case AF_INET6: {
-          char buffer[INET6_ADDRSTRLEN];
-          auto *socket_address_ipv6 = reinterpret_cast<sockaddr_in6 *>(socket_addr->ai_addr);
-          inet_ntop(socket_addr->ai_family, &(socket_address_ipv6->sin6_addr), buffer, sizeof(buffer));
-          return std::tuple{std::string{buffer}, port, Endpoint::IpFamily::IP6};
-        }
-        default:
-          throw std::runtime_error("Can't parse result.");
+    auto *socket_addr = info;
+    while (socket_addr != nullptr) {
+      if (family != socket_addr->ai_family) {
+        spdlog::trace("Skipping the entry with address family: {} different from {}", socket_addr->ai_family, family);
+        socket_addr = socket_addr->ai_next;
+        continue;
       }
+      return processing_fn(socket_addr, port);
     }
 
     return std::nullopt;
   };
 
-  auto ip_v4_family = parse_ip_family(AF_INET);
+  spdlog::trace("Trying to resolve ipv4 address family.");
+  auto ip_v4_family = parse_ip_family(process_ipv4_family, AF_INET);
   if (ip_v4_family.has_value()) {
     return std::move(*ip_v4_family);
   }
-  return parse_ip_family(AF_INET6);
+  spdlog::trace("Failed to resolve ipv4 address family, trying to resolve ipv6 address family.");
+  return parse_ip_family(process_ipv6_family, AF_INET6);
 }
 
 std::optional<Endpoint> Endpoint::ParseAndCreateSocketOrAddress(std::string_view address,
