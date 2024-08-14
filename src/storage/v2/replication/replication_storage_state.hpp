@@ -105,6 +105,8 @@ struct ReplicationStorageState {
   std::deque<std::pair<std::string, uint64_t>> history;
   std::atomic<uint64_t> last_durable_timestamp_{kTimestampInitialId};
 
+  std::atomic_bool broken_data_chain_{false};  //!< True if recovered via a snapshot and no older WALs exist
+
   // We create ReplicationClient using unique_ptr so we can move
   // newly created client into the vector.
   // We cannot move the client directly because it contains ThreadPool

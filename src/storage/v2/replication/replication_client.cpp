@@ -118,7 +118,8 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
   spdlog::trace("Current timestamp on replica {}: {}", client_.name_, current_commit_timestamp);
   spdlog::trace("Current timestamp on main: {}", replStorageState.last_durable_timestamp_.load());
   replica_state_.WithLock([&](auto &state) {
-    if (current_commit_timestamp == replStorageState.last_durable_timestamp_.load()) {
+    // ldt can be larger on replica due to snapshots
+    if (current_commit_timestamp >= replStorageState.last_durable_timestamp_.load()) {
       spdlog::debug("Replica '{}' up to date", client_.name_);
       state = replication::ReplicaState::READY;
     } else {
@@ -384,7 +385,8 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, memgraph:
     // By adding this lock, we can avoid that, and go to RECOVERY immediately.
     const auto last_durable_timestamp = storage->repl_storage_state_.last_durable_timestamp_.load();
     SPDLOG_INFO("Replica {} timestamp: {}, Last commit: {}", client_.name_, replica_commit, last_durable_timestamp);
-    if (last_durable_timestamp == replica_commit) {
+    // ldt can be larger on replica due to a snapshot
+    if (last_durable_timestamp <= replica_commit) {
       replica_state_.WithLock([name = client_.name_](auto &val) {
         spdlog::trace("Replica {} set to ready", name);
         val = replication::ReplicaState::READY;

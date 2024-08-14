@@ -226,7 +226,8 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
     storage->wal_seq_num_ = req.seq_num;
   }
 
-  if (req.previous_commit_timestamp != repl_storage_state.last_durable_timestamp_.load()) {
+  // last_durable_timestamp could be set by snashot; so we cannot guarantee exactly what's the previous timestamp
+  if (req.previous_commit_timestamp > repl_storage_state.last_durable_timestamp_.load()) {
     // Empty the stream
     bool transaction_complete = false;
     while (!transaction_complete) {
@@ -304,6 +305,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
     storage->edge_id_ = recovery_info.next_edge_id;
     storage->timestamp_ = std::max(storage->timestamp_, recovery_info.next_timestamp);
     storage->repl_storage_state_.last_durable_timestamp_ = recovery_info.next_timestamp - 1;
+    storage->repl_storage_state_.broken_data_chain_ = true;
 
     spdlog::trace("Recovering indices and constraints from snapshot.");
     memgraph::storage::durability::RecoverIndicesAndStats(recovered_snapshot.indices_constraints.indices,

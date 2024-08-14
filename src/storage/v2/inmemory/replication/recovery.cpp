@@ -17,6 +17,7 @@
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/replication/recovery.hpp"
+#include "storage/v2/transaction.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/uuid.hpp"
 #include "utils/variant_helpers.hpp"
@@ -140,7 +141,7 @@ std::vector<RecoveryStep> GetRecoverySteps(uint64_t replica_commit, utils::FileR
   // This lock is also necessary to force the missed transaction to finish.
   std::optional<uint64_t> current_wal_seq_num;
   std::optional<uint64_t> current_wal_from_timestamp;
-  uint64_t last_durable_timestamp;
+  uint64_t last_durable_timestamp{kTimestampInitialId};
 
   std::unique_lock transaction_guard(
       storage->engine_lock_);  // Hold the storage lock so the current wal file cannot be changed
@@ -178,12 +179,22 @@ std::vector<RecoveryStep> GetRecoverySteps(uint64_t replica_commit, utils::FileR
     latest_snapshot.emplace(std::move(snapshot_files.back()));
   }
 
-  auto add_snapshot = [&]() {
+  auto add_snapshot = [&](std::vector<durability::WalDurabilityInfo>::reverse_iterator *wal_chain_it = {}) {
     if (!latest_snapshot) return;
     const auto lock_success = locker_acc.AddPath(latest_snapshot->path);
     MG_ASSERT(!lock_success.HasError(), "Tried to lock a non-existent snapshot path.");
     recovery_steps.emplace_back(std::in_place_type_t<RecoverySnapshot>{}, std::move(latest_snapshot->path));
     last_durable_timestamp = std::max(last_durable_timestamp, latest_snapshot->start_timestamp);
+    // Update what's the last wal file needed
+    if (!wal_chain_it) return;
+    for (; *wal_chain_it != wal_files->rbegin(); --(*wal_chain_it)) {
+      if ((*wal_chain_it)->to_timestamp >= latest_snapshot->start_timestamp) {
+        // Got to the newest necessary WAL file
+        break;
+      }
+    }
+    MG_ASSERT((*wal_chain_it)->from_timestamp <= latest_snapshot->start_timestamp,
+              "WAL file chain does not cover the missing data.");
   };
 
   // Check if we need the snapshot or if the WAL chain is enough
@@ -195,19 +206,8 @@ std::vector<RecoveryStep> GetRecoverySteps(uint64_t replica_commit, utils::FileR
     for (; wal_chain_it != wal_files->rend(); ++wal_chain_it) {
       if (prev_seq - wal_chain_it->seq_num > 1) {
         // Broken chain, must have a snapshot that covers the missing commits
-        if (wal_chain_it->from_timestamp > replica_commit) {
-          // Chain does not go far enough, check the snapshot
-          MG_ASSERT(latest_snapshot, "Missing snapshot, while the WAL chain does not cover enough time.");
-          // Check for a WAL file that connects the snapshot to the chain
-          for (;; --wal_chain_it) {
-            // Going from the newest WAL files, find the first one that has a from_timestamp older than the snapshot
-            // NOTE: It could be that the only WAL needed is the current one
-            if (wal_chain_it->from_timestamp <= latest_snapshot->start_timestamp) {
-              break;
-            }
-            if (wal_chain_it == wal_files->rbegin()) break;
-          }
-        }
+        // Useful chain start from the previous (newer) wal file
+        --wal_chain_it;
         break;
       }
 
@@ -220,14 +220,18 @@ std::vector<RecoveryStep> GetRecoverySteps(uint64_t replica_commit, utils::FileR
       prev_seq = wal_chain_it->seq_num;
     }
 
+    // The WAL chain could be complete, but the first WAL could have a != 0 timestamp; check for the 0 sequence number
+    covered_by_wals |= wal_chain_it->seq_num == 0;
+
     // Finished the WAL chain; we have to have a WAL that is older than replica OR a snapshot
     if (!covered_by_wals) {
+      MG_ASSERT(latest_snapshot, "Missing snapshot, while the WAL chain does not cover enough time.");
       // WALs do not cover the replica; add snapshot (if not added)
       if (recovery_steps.empty()) {
         // Add snapshot to recovery steps
-        add_snapshot();
+        add_snapshot(&wal_chain_it);
       } else {
-        MG_ASSERT(std::holds_alternative<RecoverySnapshot>(recovery_steps.back()),
+        MG_ASSERT(std::holds_alternative<RecoverySnapshot>(recovery_steps.front()),
                   "First recovery step is not RecoverySnapshot!");
       }
     }
@@ -235,7 +239,8 @@ std::vector<RecoveryStep> GetRecoverySteps(uint64_t replica_commit, utils::FileR
     // Copy and lock the chain part we need, from oldest to newest
     RecoveryWals rw{};
     rw.reserve(std::distance(wal_files->rbegin(), wal_chain_it));
-    for (auto wal_it = wal_chain_it.base(); wal_it != wal_files->end(); ++wal_it) {
+    auto wal_it = (wal_chain_it == wal_files->rend()) ? wal_files->begin() : wal_chain_it.base() - 1;
+    for (; wal_it != wal_files->end(); ++wal_it) {
       const auto lock_success = locker_acc.AddPath(wal_it->path);
       MG_ASSERT(!lock_success.HasError(), "Tried to lock a nonexistant WAL path.");
       rw.emplace_back(std::move(wal_it->path));
@@ -258,8 +263,8 @@ std::vector<RecoveryStep> GetRecoverySteps(uint64_t replica_commit, utils::FileR
     recovery_steps.emplace_back(RecoveryCurrentWal{*current_wal_seq_num});
   }
 
-  // In all cases we update the last durable timestamp
-  recovery_steps.emplace_back(RecoveryDurableTimestamp{last_durable_timestamp});
+  // // In all cases we update the last durable timestamp
+  // recovery_steps.emplace_back(RecoveryDurableTimestamp{last_durable_timestamp});
 
   return recovery_steps;
 }

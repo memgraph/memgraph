@@ -986,8 +986,23 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
         auto const durability_commit_timestamp =
             reparg.desired_commit_timestamp.has_value() ? *reparg.desired_commit_timestamp : *commit_timestamp_;
         if (is_main_or_replica_write) {
-          could_replicate_all_sync_replicas =
-              mem_storage->AppendToWal(transaction_, durability_commit_timestamp, std::move(db_acc));
+          // We have created a WAL file
+          // If recovered from a snapshot, we need to create a new one now so we can guarantee we have at least one
+          // delta older than the snapshot
+          if (mem_storage->repl_storage_state_.broken_data_chain_) {
+            could_replicate_all_sync_replicas =
+                mem_storage->AppendToWal(transaction_, durability_commit_timestamp, db_acc);
+            mem_storage->repl_storage_state_.broken_data_chain_ = false;  // Optimistically marking as resolved
+            std::thread([mem_storage, db_acc] {
+              // Force MAIN in any case
+              const auto res =
+                  mem_storage->CreateSnapshot(memgraph::replication_coordination_glue::ReplicationRole::MAIN);
+              mem_storage->repl_storage_state_.broken_data_chain_ = res.HasError();
+            }).detach();
+          } else {
+            could_replicate_all_sync_replicas =
+                mem_storage->AppendToWal(transaction_, durability_commit_timestamp, std::move(db_acc));
+          }
 
           // TODO: release lock, and update all deltas to have a local copy of the commit timestamp
           MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
