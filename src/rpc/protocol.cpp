@@ -33,8 +33,10 @@ void Session::Execute() {
   spdlog::trace("[RpcServer] session started");
   auto ret = slk::CheckStreamComplete(input_stream_->data(), input_stream_->size());
   if (ret.status == slk::StreamStatus::INVALID) {
+    spdlog::trace("[RpcServer] received invalid SLK stream");
     throw SessionException("Received an invalid SLK stream!");
   } else if (ret.status == slk::StreamStatus::PARTIAL) {
+    spdlog::trace("[RpcServer] received partial SLK stream");
     input_stream_->Resize(ret.stream_size);
     return;
   }
