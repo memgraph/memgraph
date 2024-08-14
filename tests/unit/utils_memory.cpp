@@ -114,7 +114,7 @@ TEST(MonotonicBufferResource, AllocationOverCapacity) {
     memgraph::utils::MonotonicBufferResource mem(1000, &test_mem);
     CheckAllocation(&mem, 24, 1);
     EXPECT_EQ(test_mem.new_count_, 1);
-    CheckAllocation(&mem, 976);
+    CheckAllocation(&mem, 985, 1);
     EXPECT_EQ(test_mem.new_count_, 2);
     EXPECT_EQ(test_mem.delete_count_, 0);
     mem.Release();
