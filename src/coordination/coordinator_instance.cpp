@@ -1301,7 +1301,7 @@ auto CoordinatorInstance::ChooseMostUpToDateInstance(std::span<InstanceNameDbHis
 
         std::ranges::for_each(instance_default_db_history | ranges::views::reverse,
                               [&instance_name = instance_name](const auto &epoch_history_it) {
-                                spdlog::debug("Instance {}: epoch {}, last_commit_timestamp: {}", instance_name,
+                                spdlog::debug("Instance {}: epoch {}, last_durable_timestamp: {}", instance_name,
                                               std::get<0>(epoch_history_it), std::get<1>(epoch_history_it));
                               });
 

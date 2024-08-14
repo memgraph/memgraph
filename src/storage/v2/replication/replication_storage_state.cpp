@@ -86,11 +86,11 @@ void ReplicationStorageState::TrackLatestHistory() {
   if (history.size() == kEpochHistoryRetention) {
     history.pop_front();
   }
-  history.emplace_back(epoch_.id(), last_commit_timestamp_);
+  history.emplace_back(epoch_.id(), last_durable_timestamp_);
 }
 
 void ReplicationStorageState::AddEpochToHistoryForce(std::string prev_epoch) {
-  history.emplace_back(std::move(prev_epoch), last_commit_timestamp_);
+  history.emplace_back(std::move(prev_epoch), last_durable_timestamp_);
 }
 
 }  // namespace memgraph::storage

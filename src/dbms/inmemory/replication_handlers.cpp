@@ -174,7 +174,7 @@ void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handl
     return;
   }
   auto const *storage = db_acc->get()->storage();
-  storage::replication::HeartbeatRes res{true, storage->repl_storage_state_.last_commit_timestamp_.load(),
+  storage::replication::HeartbeatRes res{true, storage->repl_storage_state_.last_durable_timestamp_.load(),
                                          std::string{storage->repl_storage_state_.epoch_.id()}};
   slk::Save(res, res_builder);
 }
@@ -226,7 +226,7 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
     storage->wal_seq_num_ = req.seq_num;
   }
 
-  if (req.previous_commit_timestamp != repl_storage_state.last_commit_timestamp_.load()) {
+  if (req.previous_commit_timestamp != repl_storage_state.last_durable_timestamp_.load()) {
     // Empty the stream
     bool transaction_complete = false;
     while (!transaction_complete) {
@@ -237,7 +237,7 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
           storage::durability::kVersion);  // TODO: Check if we are always using the latest version when replicating
     }
 
-    storage::replication::AppendDeltasRes res{false, repl_storage_state.last_commit_timestamp_.load()};
+    storage::replication::AppendDeltasRes res{false, repl_storage_state.last_durable_timestamp_.load()};
     slk::Save(res, res_builder);
     return;
   }
@@ -246,7 +246,7 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
       storage, &decoder,
       storage::durability::kVersion);  // TODO: Check if we are always using the latest version when replicating
 
-  storage::replication::AppendDeltasRes res{true, repl_storage_state.last_commit_timestamp_.load()};
+  storage::replication::AppendDeltasRes res{true, repl_storage_state.last_durable_timestamp_.load()};
   slk::Save(res, res_builder);
   spdlog::debug("Replication recovery from append deltas finished, replica is now up to date!");
 }
@@ -303,7 +303,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
     storage->vertex_id_ = recovery_info.next_vertex_id;
     storage->edge_id_ = recovery_info.next_edge_id;
     storage->timestamp_ = std::max(storage->timestamp_, recovery_info.next_timestamp);
-    storage->repl_storage_state_.last_commit_timestamp_ = recovery_info.next_timestamp - 1;
+    storage->repl_storage_state_.last_durable_timestamp_ = recovery_info.next_timestamp - 1;
 
     spdlog::trace("Recovering indices and constraints from snapshot.");
     memgraph::storage::durability::RecoverIndicesAndStats(recovered_snapshot.indices_constraints.indices,
@@ -317,7 +317,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
   }
   storage_guard.unlock();
 
-  storage::replication::SnapshotRes res{true, storage->repl_storage_state_.last_commit_timestamp_.load()};
+  storage::replication::SnapshotRes res{true, storage->repl_storage_state_.last_durable_timestamp_.load()};
   slk::Save(res, res_builder);
 
   spdlog::trace("Deleting old snapshot files due to snapshot recovery.");
@@ -381,7 +381,7 @@ void InMemoryReplicationHandlers::ForceResetStorageHandler(dbms::DbmsHandler *db
   // Fine since we will force push when reading from WAL just random epoch with 0 timestamp, as it should be if it
   // acted as MAIN before
   storage->repl_storage_state_.epoch_.SetEpoch(std::string(utils::UUID{}));
-  storage->repl_storage_state_.last_commit_timestamp_ = 0;
+  storage->repl_storage_state_.last_durable_timestamp_ = 0;
 
   storage->repl_storage_state_.history.clear();
   storage->vertex_id_ = 0;
@@ -392,7 +392,7 @@ void InMemoryReplicationHandlers::ForceResetStorageHandler(dbms::DbmsHandler *db
   storage->vertices_.run_gc();
   storage->edges_.run_gc();
 
-  storage::replication::ForceResetStorageRes res{true, storage->repl_storage_state_.last_commit_timestamp_.load()};
+  storage::replication::ForceResetStorageRes res{true, storage->repl_storage_state_.last_durable_timestamp_.load()};
   slk::Save(res, res_builder);
 
   spdlog::trace("Deleting old snapshot files.");
@@ -445,7 +445,7 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
     LoadWal(storage, &decoder);
   }
 
-  storage::replication::WalFilesRes res{true, storage->repl_storage_state_.last_commit_timestamp_.load()};
+  storage::replication::WalFilesRes res{true, storage->repl_storage_state_.last_durable_timestamp_.load()};
   slk::Save(res, res_builder);
   spdlog::debug("Replication recovery from WAL files ended successfully, replica is now up to date!");
 }
@@ -476,7 +476,7 @@ void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_hand
 
   LoadWal(storage, &decoder);
 
-  storage::replication::CurrentWalRes res{true, storage->repl_storage_state_.last_commit_timestamp_.load()};
+  storage::replication::CurrentWalRes res{true, storage->repl_storage_state_.last_durable_timestamp_.load()};
   slk::Save(res, res_builder);
   spdlog::debug("Replication recovery from current WAL ended successfully, replica is now up to date!");
 }
@@ -504,10 +504,10 @@ void InMemoryReplicationHandlers::DurableTimestampHandler(dbms::DbmsHandler *dbm
 
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
 
-  auto old_val = storage->repl_storage_state_.last_commit_timestamp_.load();
-  while (
-      old_val < req.last_durable_timestamp &&
-      !storage->repl_storage_state_.last_commit_timestamp_.compare_exchange_weak(old_val, req.last_durable_timestamp)) {
+  auto old_val = storage->repl_storage_state_.last_durable_timestamp_.load();
+  while (old_val < req.last_durable_timestamp &&
+         !storage->repl_storage_state_.last_durable_timestamp_.compare_exchange_weak(old_val,
+                                                                                     req.last_durable_timestamp)) {
   }
 
   storage::replication::DurableTimestampRes res{true};
@@ -585,7 +585,7 @@ void InMemoryReplicationHandlers::TimestampHandler(dbms::DbmsHandler *dbms_handl
 
   // TODO: this handler is agnostic of InMemory, move to be reused by on-disk
   auto const *storage = db_acc->get()->storage();
-  storage::replication::TimestampRes res{true, storage->repl_storage_state_.last_commit_timestamp_.load()};
+  storage::replication::TimestampRes res{true, storage->repl_storage_state_.last_durable_timestamp_.load()};
   slk::Save(res, res_builder);
 }
 
@@ -621,7 +621,7 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
 
   uint64_t current_delta_idx = 0;  // tracks over how many deltas we iterated, includes also skipped deltas.
   uint64_t applied_deltas = 0;     // Non-skipped deltas
-  auto max_delta_timestamp = storage->repl_storage_state_.last_commit_timestamp_.load();
+  auto max_delta_timestamp = storage->repl_storage_state_.last_durable_timestamp_.load();
   auto current_durable_commit_timestamp = max_delta_timestamp;
   for (bool transaction_complete = false; !transaction_complete; ++current_delta_idx) {
     const auto [delta_timestamp, delta] = ReadDelta(decoder);
@@ -1047,7 +1047,7 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
 
   if (commit_timestamp_and_accessor) throw utils::BasicException("Did not finish the transaction!");
 
-  storage->repl_storage_state_.last_commit_timestamp_ = max_delta_timestamp;
+  storage->repl_storage_state_.last_durable_timestamp_ = max_delta_timestamp;
 
   spdlog::debug("Applied {} deltas", applied_deltas);
   return current_delta_idx;

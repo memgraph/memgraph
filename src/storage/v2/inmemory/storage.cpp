@@ -154,9 +154,9 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       vertex_id_ = info->next_vertex_id;
       edge_id_ = info->next_edge_id;
       timestamp_ = std::max(timestamp_, info->next_timestamp);
-      if (info->last_commit_timestamp) {
-        repl_storage_state_.last_commit_timestamp_ = *info->last_commit_timestamp;
-        spdlog::trace("Recovering last commit timestamp {}", *info->last_commit_timestamp);
+      if (info->last_durable_timestamp) {
+        repl_storage_state_.last_durable_timestamp_ = *info->last_durable_timestamp;
+        spdlog::trace("Recovering last durable timestamp {}", *info->last_durable_timestamp);
       }
     }
   } else if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
@@ -992,10 +992,10 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
           // TODO: release lock, and update all deltas to have a local copy of the commit timestamp
           MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
           transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
-          // Replica can only update the last commit timestamp with
+          // Replica can only update the last durable timestamp with
           // the commits received from main.
-          // Update the last commit timestamp
-          mem_storage->repl_storage_state_.last_commit_timestamp_.store(durability_commit_timestamp);
+          // Update the last durable timestamp
+          mem_storage->repl_storage_state_.last_durable_timestamp_.store(durability_commit_timestamp);
         }
 
         // Install the new point index, if needed

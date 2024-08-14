@@ -391,7 +391,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(std::string *uuid, Replication
     indices_constraints = std::move(recovered_snapshot->indices_constraints);
     snapshot_timestamp = recovered_snapshot->snapshot_info.start_timestamp;
     repl_storage_state.epoch_.SetEpoch(std::move(recovered_snapshot->snapshot_info.epoch_id));
-    recovery_info.last_commit_timestamp = snapshot_timestamp;
+    recovery_info.last_durable_timestamp = snapshot_timestamp;
 
     if (!utils::DirExists(wal_directory_)) {
       // Apply data dependant meta structures now after all graph data has been loaded
@@ -502,7 +502,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(std::string *uuid, Replication
         recovery_info.next_edge_id = std::max(recovery_info.next_edge_id, info.next_edge_id);
         recovery_info.next_timestamp = std::max(recovery_info.next_timestamp, info.next_timestamp);
 
-        recovery_info.last_commit_timestamp = info.last_commit_timestamp;
+        recovery_info.last_durable_timestamp = info.last_durable_timestamp;
 
         if (recovery_info.next_timestamp != 0) {
           last_loaded_timestamp.emplace(recovery_info.next_timestamp - 1);
@@ -536,7 +536,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(std::string *uuid, Replication
   memgraph::metrics::Measure(memgraph::metrics::SnapshotRecoveryLatency_us,
                              std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed()).count());
   spdlog::trace("Set epoch id: {}  with commit timestamp {}", std::string(repl_storage_state.epoch_.id()),
-                repl_storage_state.last_commit_timestamp_);
+                repl_storage_state.last_durable_timestamp_);
 
   std::for_each(repl_storage_state.history.begin(), repl_storage_state.history.end(), [](auto &history) {
     spdlog::trace("epoch id: {}  with commit timestamp {}", std::string(history.first), history.second);

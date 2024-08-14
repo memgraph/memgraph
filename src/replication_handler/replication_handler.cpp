@@ -225,9 +225,9 @@ bool ReplicationHandler::DoReplicaToMainPromotion(const utils::UUID &main_uuid) 
     auto *storage = db_acc->storage();
     storage->repl_storage_state_.epoch_ = epoch;
 
-    // Durability is tracking last commit timestamp from MAIN, whereas timestamp_ is dependent on MVCC
+    // Durability is tracking last durable timestamp from MAIN, whereas timestamp_ is dependent on MVCC
     // We need to take bigger timestamp not to lose durability ordering
-    storage->timestamp_ = std::max(storage->timestamp_, storage->repl_storage_state_.last_commit_timestamp_.load());
+    storage->timestamp_ = std::max(storage->timestamp_, storage->repl_storage_state_.last_durable_timestamp_.load());
   });
 
   // STEP 4) Resume TTL
@@ -285,7 +285,8 @@ auto ReplicationHandler::GetDatabasesHistories() -> replication_coordination_glu
 
     std::vector<std::pair<std::string, uint64_t>> history = utils::fmap(repl_storage_state.history);
 
-    history.emplace_back(std::string(repl_storage_state.epoch_.id()), repl_storage_state.last_commit_timestamp_.load());
+    history.emplace_back(std::string(repl_storage_state.epoch_.id()),
+                         repl_storage_state.last_durable_timestamp_.load());
     replication_coordination_glue::DatabaseHistory repl{
         .db_uuid = utils::UUID{db_acc->storage()->uuid()}, .history = history, .name = std::string(db_acc->name())};
     results.emplace_back(repl);

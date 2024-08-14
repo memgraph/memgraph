@@ -40,8 +40,9 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
 
   auto &replStorageState = storage->repl_storage_state_;
 
-  auto hb_stream{client_.rpc_client_.Stream<replication::HeartbeatRpc>(
-      main_uuid_, storage->uuid(), replStorageState.last_commit_timestamp_, std::string{replStorageState.epoch_.id()})};
+  auto hb_stream{client_.rpc_client_.Stream<replication::HeartbeatRpc>(main_uuid_, storage->uuid(),
+                                                                       replStorageState.last_durable_timestamp_,
+                                                                       std::string{replStorageState.epoch_.id()})};
   const auto replica = hb_stream.AwaitResponse();
 
 #ifdef MG_ENTERPRISE       // Multi-tenancy is only supported in enterprise
@@ -61,9 +62,9 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
   // we need then just to check commit timestamp
   if (replica.epoch_id != replStorageState.epoch_.id() && replica.current_commit_timestamp != kTimestampInitialId) {
     spdlog::trace(
-        "REPLICA: epoch UUID: {} and last_commit_timestamp: {}; MAIN: epoch UUID {} and last_commit_timestamp {}",
+        "REPLICA: epoch UUID: {} and last_durable_timestamp: {}; MAIN: epoch UUID {} and last_durable_timestamp {}",
         std::string(replica.epoch_id), replica.current_commit_timestamp, std::string(replStorageState.epoch_.id()),
-        replStorageState.last_commit_timestamp_);
+        replStorageState.last_durable_timestamp_);
     auto const &history = replStorageState.history;
     const auto epoch_info_iter = std::find_if(history.crbegin(), history.crend(), [&](const auto &main_epoch_info) {
       return main_epoch_info.first == replica.epoch_id;
@@ -73,7 +74,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
       spdlog::info("Couldn't find epoch {} in MAIN, setting branching point", std::string(replica.epoch_id));
       branching_point = 0;
     } else if (epoch_info_iter->second < replica.current_commit_timestamp) {
-      spdlog::info("Found epoch {} on MAIN with last_commit_timestamp {}, REPLICA's last_commit_timestamp {}",
+      spdlog::info("Found epoch {} on MAIN with last_durable_timestamp {}, REPLICA's last_durable_timestamp {}",
                    std::string(epoch_info_iter->first), epoch_info_iter->second, replica.current_commit_timestamp);
       branching_point = epoch_info_iter->second;
     }
@@ -115,9 +116,9 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
 
   current_commit_timestamp = replica.current_commit_timestamp;
   spdlog::trace("Current timestamp on replica {}: {}", client_.name_, current_commit_timestamp);
-  spdlog::trace("Current timestamp on main: {}", replStorageState.last_commit_timestamp_.load());
+  spdlog::trace("Current timestamp on main: {}", replStorageState.last_durable_timestamp_.load());
   replica_state_.WithLock([&](auto &state) {
-    if (current_commit_timestamp == replStorageState.last_commit_timestamp_.load()) {
+    if (current_commit_timestamp == replStorageState.last_durable_timestamp_.load()) {
       spdlog::debug("Replica '{}' up to date", client_.name_);
       state = replication::ReplicaState::READY;
     } else {
@@ -141,7 +142,7 @@ TimestampInfo ReplicationStorageClient::GetTimestampInfo(Storage const *storage)
     const auto response = stream.AwaitResponse();
     const auto is_success = response.success;
 
-    auto main_time_stamp = storage->repl_storage_state_.last_commit_timestamp_.load();
+    auto main_time_stamp = storage->repl_storage_state_.last_durable_timestamp_.load();
     info.current_timestamp_of_replica = response.current_commit_timestamp;
     info.current_number_of_timestamp_behind_main = response.current_commit_timestamp - main_time_stamp;
 
@@ -377,13 +378,13 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, memgraph:
     // transaction and THEN we set the state to READY in the first thread,
     // we set this lock before checking the timestamp.
     // We will detect that the state is invalid during the next commit,
-    // because replication::AppendDeltasRpc sends the last commit timestamp which
-    // replica checks if it's the same last commit timestamp it received
+    // because replication::AppendDeltasRpc sends the last durable timestamp which
+    // replica checks if it's the same last durable timestamp it received
     // and we will go to recovery.
     // By adding this lock, we can avoid that, and go to RECOVERY immediately.
-    const auto last_commit_timestamp = storage->repl_storage_state_.last_commit_timestamp_.load();
-    SPDLOG_INFO("Replica {} timestamp: {}, Last commit: {}", client_.name_, replica_commit, last_commit_timestamp);
-    if (last_commit_timestamp == replica_commit) {
+    const auto last_durable_timestamp = storage->repl_storage_state_.last_durable_timestamp_.load();
+    SPDLOG_INFO("Replica {} timestamp: {}, Last commit: {}", client_.name_, replica_commit, last_durable_timestamp);
+    if (last_durable_timestamp == replica_commit) {
       replica_state_.WithLock([name = client_.name_](auto &val) {
         spdlog::trace("Replica {} set to ready", name);
         val = replication::ReplicaState::READY;
@@ -413,7 +414,7 @@ ReplicaStream::ReplicaStream(Storage *storage, rpc::Client &rpc_client, const ui
                              utils::UUID main_uuid)
     : storage_{storage},
       stream_(rpc_client.Stream<replication::AppendDeltasRpc>(
-          main_uuid, storage->uuid(), storage->repl_storage_state_.last_commit_timestamp_.load(), current_seq_num)),
+          main_uuid, storage->uuid(), storage->repl_storage_state_.last_durable_timestamp_.load(), current_seq_num)),
       main_uuid_(main_uuid) {
   replication::Encoder encoder{stream_.GetBuilder()};
   encoder.WriteString(storage->repl_storage_state_.epoch_.id());

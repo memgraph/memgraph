@@ -103,7 +103,7 @@ struct ReplicationStorageState {
   // Each value consists of the epoch id along the last commit belonging to that
   // epoch.
   std::deque<std::pair<std::string, uint64_t>> history;
-  std::atomic<uint64_t> last_commit_timestamp_{kTimestampInitialId};
+  std::atomic<uint64_t> last_durable_timestamp_{kTimestampInitialId};
 
   // We create ReplicationClient using unique_ptr so we can move
   // newly created client into the vector.
