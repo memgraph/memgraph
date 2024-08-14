@@ -61,7 +61,7 @@ macro(add_external_project_arg_parse pos prefix)
   set(options NO_C_COMPILER)
   set(one_value_kwargs SOURCE_DIR BUILD_IN_SOURCE CMAKE_PREFIX_PATH)
   set(multi_value_kwargs CMAKE_ARGS DEPENDS INSTALL_COMMAND BUILD_COMMAND
-          CONFIGURE_COMMAND BUILD_BYPRODUCTS)
+          CONFIGURE_COMMAND BUILD_BYPRODUCTS BYPRODUCTS)
   cmake_parse_arguments(PARSE_ARGV ${pos} "${prefix}" "${options}" "${one_value_kwargs}" "${multi_value_kwargs}")
 endmacro()
 
@@ -89,6 +89,14 @@ macro(add_external_project_impl name)
     set(KW_CMAKE_PREFIX_PATH "${MG_TOOLCHAIN_ROOT}")
   endif ()
 
+  if (DEFINED library_location)
+    if (DEFINED KW_BYPRODUCTS)
+      set(KW_BYPRODUCTS ${KW_BYPRODUCTS} ${library_location})
+    else ()
+      set(KW_BYPRODUCTS ${library_location})
+    endif ()
+  endif ()
+
   ExternalProject_Add(${name}-proj DEPENDS ${KW_DEPENDS}
       PREFIX ${source_dir} SOURCE_DIR ${source_dir}
       BUILD_IN_SOURCE ${build_in_source}
@@ -97,11 +105,13 @@ macro(add_external_project_impl name)
       CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release
       -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
       -DCMAKE_INSTALL_PREFIX=${source_dir}
-      $<$<BOOL:KW_CMAKE_PREFIX_PATH>:"-DCMAKE_PREFIX_PATH=${KW_CMAKE_PREFIX_PATH}">
+      $<$<BOOL:KW_CMAKE_PREFIX_PATH>:-DCMAKE_PREFIX_PATH="${KW_CMAKE_PREFIX_PATH}">
       ${KW_CMAKE_ARGS}
       INSTALL_COMMAND ${KW_INSTALL_COMMAND}
       BUILD_COMMAND ${KW_BUILD_COMMAND}
-      BUILD_BYPRODUCTS ${KW_BUILD_BYPRODUCTS})
+      BUILD_BYPRODUCTS ${KW_BUILD_BYPRODUCTS}
+      BYPRODUCTS ${KW_BYPRODUCTS}
+  )
 endmacro()
 
 # Calls `ExternalProject_Add(${name}-proj` with default arguments for cmake
@@ -149,11 +159,10 @@ import_external_library(antlr4 STATIC
   SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/antlr4/runtime/Cpp
   CMAKE_ARGS # http://stackoverflow.com/questions/37096062/get-a-basic-c-program-to-compile-using-clang-on-ubuntu-16/38385967#38385967
   -DWITH_LIBCXX=OFF # because of debian bug
-  -DCMAKE_SKIP_INSTALL_ALL_DEPENDENCY=true
+  -DCMAKE_SKIP_INSTALL_ALL_DEPENDENCY=true # only build antlr4_static
   -DCMAKE_CXX_STANDARD=20
   -DANTLR_BUILD_CPP_TESTS=OFF
-  BUILD_COMMAND $(MAKE) antlr4_static
-  INSTALL_COMMAND $(MAKE) install)
+  BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --target antlr4_static)
 
 # Setup google benchmark.
 import_external_library(benchmark STATIC
@@ -173,7 +182,13 @@ add_subdirectory(rapidcheck EXCLUDE_FROM_ALL)
 
 # setup google test
 add_external_project(gtest SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/googletest
-  CMAKE_ARGS -DCMAKE_INSTALL_LIBDIR=lib)
+  CMAKE_ARGS -DCMAKE_INSTALL_LIBDIR=lib
+    BYPRODUCTS
+    <INSTALL_DIR>/lib/libgtest.a
+    <INSTALL_DIR>/lib/libgtest_main.a
+    <INSTALL_DIR>/lib/libgmock.a
+    <INSTALL_DIR>/lib/libgmock_main.a
+)
 set(GTEST_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/googletest/include
   CACHE PATH "Path to gtest and gmock include directory" FORCE)
 set(GMOCK_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/googletest/lib/libgmock.a
@@ -204,8 +219,8 @@ import_external_library(rocksdb STATIC
   -DWITH_TESTS=OFF
   -DGFLAGS_NOTHREADS=OFF
   -DCMAKE_INSTALL_LIBDIR=lib
-  -DCMAKE_SKIP_INSTALL_ALL_DEPENDENCY=true
-  BUILD_COMMAND $(MAKE) rocksdb)
+  -DCMAKE_SKIP_INSTALL_ALL_DEPENDENCY=true # only build rocksdb
+  BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --target rocksdb)
 
 # Setup libbcrypt
 import_external_library(libbcrypt STATIC
@@ -232,7 +247,7 @@ add_external_project(mgconsole
   SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/mgconsole
   CMAKE_ARGS
   -DCMAKE_INSTALL_PREFIX:PATH=${CMAKE_BINARY_DIR}
-  BUILD_COMMAND $(MAKE) mgconsole)
+  BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --target mgconsole)
 
 add_custom_target(mgconsole DEPENDS mgconsole-proj)
 
@@ -253,7 +268,10 @@ import_external_library(librdkafka STATIC
   -DWITH_SSL=ON
 
   # If we want SASL, we need to install it on build machines
-  -DWITH_SASL=OFF)
+  -DWITH_SASL=OFF
+  BYPRODUCTS
+    <INSTALL_DIR>/lib/librdkafka++.a
+)
 target_link_libraries(librdkafka INTERFACE ${OPENSSL_LIBRARIES} ZLIB::ZLIB)
 
 import_library(librdkafka++ STATIC
@@ -262,6 +280,8 @@ import_library(librdkafka++ STATIC
 )
 target_link_libraries(librdkafka++ INTERFACE librdkafka)
 
+
+# Setup protobuf
 set(PROTOBUF_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/protobuf/lib)
 import_external_library(protobuf STATIC
   ${PROTOBUF_ROOT}/lib/libprotobuf.a
@@ -270,7 +290,7 @@ import_external_library(protobuf STATIC
   CONFIGURE_COMMAND true)
 
 import_external_library(pulsar STATIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/pulsar/pulsar-client-cpp/lib/libpulsarwithdeps.a
+  ${CMAKE_CURRENT_SOURCE_DIR}/pulsar/install/lib/libpulsar.a
   ${CMAKE_CURRENT_SOURCE_DIR}/pulsar/install/include
   BUILD_IN_SOURCE 1
   CONFIGURE_COMMAND cmake pulsar-client-cpp
@@ -283,13 +303,17 @@ import_external_library(pulsar STATIC
   -DLINK_STATIC=ON
   -DPROTOC_PATH=${PROTOBUF_ROOT}/bin/protoc
   -DBOOST_ROOT=${BOOST_ROOT}
-  "-DCMAKE_PREFIX_PATH=$<$<BOOL:${MG_TOOLCHAIN_ROOT}>:${MG_TOOLCHAIN_ROOT}${LIST_SEP}>${PROTOBUF_ROOT}"
+  -DCMAKE_PREFIX_PATH="$<$<BOOL:${MG_TOOLCHAIN_ROOT}>:${MG_TOOLCHAIN_ROOT}${LIST_SEP}>${PROTOBUF_ROOT}"
   -DProtobuf_INCLUDE_DIRS=${PROTOBUF_ROOT}/include
   -DBUILD_PYTHON_WRAPPER=OFF
   -DBUILD_PERF_TOOLS=OFF
   -DUSE_LOG4CXX=OFF
-  BUILD_COMMAND $(MAKE) pulsarStaticWithDeps)
+  BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --target pulsarStatic
+)
+
+find_package(Snappy REQUIRED)
 add_dependencies(pulsar-proj protobuf)
+target_link_libraries(pulsar INTERFACE protobuf Snappy::snappy)
 
 if(${MG_ARCH} STREQUAL "ARM64")
   set(MG_LIBRDTSC_CMAKE_ARGS -DLIBRDTSC_ARCH_x86=OFF -DLIBRDTSC_ARCH_ARM64=ON)
@@ -299,7 +323,7 @@ import_external_library(librdtsc STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/librdtsc/lib/librdtsc.a
   ${CMAKE_CURRENT_SOURCE_DIR}/librdtsc/include
   CMAKE_ARGS ${MG_LIBRDTSC_CMAKE_ARGS}
-  BUILD_COMMAND $(MAKE) rdtsc)
+  BUILD_COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --target rdtsc)
 
 # setup ctre
 import_header_library(ctre ${CMAKE_CURRENT_SOURCE_DIR})
@@ -331,7 +355,11 @@ set(MGCXX_TEXT_SEARCH_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx/lib/libmgcxx_tex
   CACHE FILEPATH "Path to mgcxx text search library" FORCE)
 add_external_project(mgcxx
   SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx
-  CMAKE_ARGS -DENABLE_TESTS=OFF)
+  CMAKE_ARGS -DENABLE_TESTS=OFF
+  BYPRODUCTS
+    <INSTALL_DIR>/lib/libmgcxx_text_search.a
+    <INSTALL_DIR>/lib/libtantivy_text_search.a
+)
 mark_as_advanced(MGCXX_INCLUDE_DIR TANTIVY_TEXT_SEARCH_LIBRARY MGCXX_TEXT_SEARCH_LIBRARY)
 import_library(tantivy_text_search STATIC ${TANTIVY_TEXT_SEARCH_LIBRARY} ${MGCXX_INCLUDE_DIR} mgcxx-proj)
 import_library(mgcxx_text_search STATIC ${MGCXX_TEXT_SEARCH_LIBRARY} ${MGCXX_INCLUDE_DIR} mgcxx-proj)
