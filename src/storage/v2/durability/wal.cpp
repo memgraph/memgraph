@@ -187,6 +187,8 @@ constexpr WalDeltaData::Type MarkerToWalDeltaDataType(Marker marker) {
     case Marker::TYPE_ZONED_TEMPORAL_DATA:
     case Marker::TYPE_PROPERTY_VALUE:
     case Marker::TYPE_ENUM:
+    case Marker::TYPE_POINT_2D:
+    case Marker::TYPE_POINT_3D:
     case Marker::SECTION_VERTEX:
     case Marker::SECTION_EDGE:
     case Marker::SECTION_MAPPER:
@@ -608,14 +610,13 @@ bool operator==(const WalDeltaData &a, const WalDeltaData &b) {
       return a.operation_label_stats.label == b.operation_label_stats.label &&
              a.operation_label_stats.stats == b.operation_label_stats.stats;
 
-    case WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE:
-    case WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP:
     case WalDeltaData::Type::TEXT_INDEX_CREATE:
-      return a.operation_text.index_name == b.operation_text.index_name &&
-             a.operation_text.label == b.operation_text.label;
     case WalDeltaData::Type::TEXT_INDEX_DROP:
       return a.operation_text.index_name == b.operation_text.index_name &&
              a.operation_text.label == b.operation_text.label;
+
+    case WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE:
+    case WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP:
     case WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE:
     case WalDeltaData::Type::EXISTENCE_CONSTRAINT_DROP:
       return a.operation_label_property.label == b.operation_label_property.label &&

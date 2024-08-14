@@ -14,6 +14,7 @@
 #include <utility>
 
 #include "query/config.hpp"
+#include "query/database_access.hpp"
 #include "query/frontend/semantic/required_privileges.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/frontend/stripped.hpp"

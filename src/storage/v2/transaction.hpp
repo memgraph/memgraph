@@ -31,7 +31,6 @@
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_info_cache.hpp"
 #include "storage/v2/view.hpp"
-#include "utils/bond.hpp"
 #include "utils/pmr/list.hpp"
 
 #include <rocksdb/utilities/transaction.h>
@@ -85,6 +84,7 @@ struct Transaction {
 
   uint64_t transaction_id{};
   uint64_t start_timestamp{};
+  std::optional<uint64_t> original_start_timestamp{};
   // The `Transaction` object is stack allocated, but the `commit_timestamp`
   // must be heap allocated because `Delta`s have a pointer to it, and that
   // pointer must stay valid after the `Transaction` is moved into

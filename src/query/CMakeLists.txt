@@ -1,51 +1,3 @@
-set(mg_query_sources
-    frontend/ast/ast.cpp
-    frontend/semantic/symbol.cpp
-    plan/operator_type_info.cpp
-    common.cpp
-    cypher_query_interpreter.cpp
-    dump.cpp
-    frontend/ast/cypher_main_visitor.cpp
-    frontend/ast/pretty_print.cpp
-    frontend/parsing.cpp
-    frontend/semantic/required_privileges.cpp
-    frontend/semantic/symbol_generator.cpp
-    frontend/stripped.cpp
-    interpret/awesome_memgraph_functions.cpp
-    interpret/eval.cpp
-    interpreter.cpp
-    metadata.cpp
-    plan/hint_provider.cpp
-    plan/operator.cpp
-    plan/preprocess.cpp
-    plan/pretty_print.cpp
-    plan/profile.cpp
-    plan/read_write_type_checker.cpp
-    plan/rewrite/index_lookup.cpp
-    plan/rewrite/enum.hpp
-    plan/rewrite/general.cpp
-    plan/rewrite/range.cpp
-    plan/rule_based_planner.cpp
-    plan/variable_start_planner.cpp
-    procedure/mg_procedure_impl.cpp
-    procedure/mg_procedure_helpers.cpp
-    procedure/module.cpp
-    procedure/py_module.cpp
-    procedure/callable_alias_mapper.cpp
-    serialization/property_value.cpp
-    stream/streams.cpp
-    stream/sources.cpp
-    stream/common.cpp
-    trigger.cpp
-    trigger_context.cpp
-    typed_value.cpp
-    graph.cpp
-    db_accessor.cpp
-    auth_query_handler.cpp
-    interpreter_context.cpp
-    query_user.cpp
-)
-
 # cmake target for our C++ API
 add_library(mg-cpp-api INTERFACE)
 target_sources(mg-cpp-api
@@ -70,9 +22,66 @@ set_target_properties(mg-module-support  PROPERTIES
     OUTPUT_NAME "memgraph_module_support"
 )
 
-add_library(mg-query STATIC ${mg_query_sources})
-target_link_libraries(mg-query PRIVATE mg-cpp-api)
-target_link_libraries(mg-query PUBLIC dl
+add_library(mg-query STATIC)
+target_sources(mg-query
+    PRIVATE
+    frontend/ast/ast.cpp
+    frontend/semantic/symbol.cpp
+    plan/operator_type_info.cpp
+    common.cpp
+    cypher_query_interpreter.cpp
+    dump.cpp
+    frontend/ast/cypher_main_visitor.cpp
+    frontend/ast/pretty_print.cpp
+    frontend/parsing.cpp
+    frontend/semantic/required_privileges.cpp
+    frontend/semantic/symbol_generator.cpp
+    frontend/stripped.cpp
+    interpret/awesome_memgraph_functions.cpp
+    interpret/eval.cpp
+    interpreter.cpp
+    metadata.cpp
+    plan/hint_provider.cpp
+    plan/operator.cpp
+    plan/preprocess.cpp
+    plan/pretty_print.cpp
+    plan/profile.cpp
+    plan/read_write_type_checker.cpp
+    plan/rewrite/index_lookup.cpp
+    plan/rewrite/general.cpp
+    plan/rewrite/range.cpp
+    plan/rule_based_planner.cpp
+    plan/variable_start_planner.cpp
+    procedure/mg_procedure_impl.cpp
+    procedure/mg_procedure_helpers.cpp
+    procedure/module.cpp
+    procedure/py_module.cpp
+    procedure/callable_alias_mapper.cpp
+    serialization/property_value.cpp
+    stream/streams.cpp
+    stream/sources.cpp
+    stream/common.cpp
+    trigger.cpp
+    trigger_context.cpp
+    typed_value.cpp
+    graph.cpp
+    db_accessor.cpp
+    auth_query_handler.cpp
+    interpreter_context.cpp
+    query_user.cpp
+    time_to_live/time_to_live.cpp
+
+    PUBLIC
+    FILE_SET HEADERS
+    FILES
+    plan/rewrite/enum.hpp
+    string_helpers.hpp
+)
+
+
+target_link_libraries(mg-query
+    PUBLIC
+    dl
     cppitertools
     rangev3
     Python3::Python
@@ -89,7 +98,9 @@ target_link_libraries(mg-query PUBLIC dl
     mg-dbms
     mg-events
     PRIVATE
-    mg-module-support)
+    mg-module-support
+    mg-cpp-api
+)
 
 if(NOT "${MG_PYTHON_PATH}" STREQUAL "")
     set(Python3_ROOT_DIR "${MG_PYTHON_PATH}")

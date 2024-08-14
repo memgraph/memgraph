@@ -27,6 +27,7 @@ memgraphCypherKeyword : cypherKeyword
                       | ALTER
                       | ANALYZE
                       | ASYNC
+                      | AT
                       | AUTH
                       | BAD
                       | BATCH_INTERVAL
@@ -57,13 +58,16 @@ memgraphCypherKeyword : cypherKeyword
                       | DENY
                       | DIRECTORY
                       | DO
+                      | DISABLE
                       | DROP
                       | DUMP
                       | DURABILITY
                       | EDGE
                       | EDGE_TYPES
+                      | ENABLE
                       | ENUM
                       | ENUMS
+                      | EVERY
                       | EXECUTE
                       | FAILOVER
                       | FOR
@@ -102,9 +106,12 @@ memgraphCypherKeyword : cypherKeyword
                       | NO
                       | NODE_LABELS
                       | NOTHING
+                      | OF_TOKEN
+                      | ON_DISK_TRANSACTIONAL
                       | NULLIF
                       | ON_DISK_TRANSACTIONAL
                       | PASSWORD
+                      | PERIODIC
                       | PORT
                       | PRIVILEGES
                       | PULSAR
@@ -120,6 +127,8 @@ memgraphCypherKeyword : cypherKeyword
                       | REVOKE
                       | ROLE
                       | ROLES
+                      | ROWS
+                      | QUOTE
                       | SCHEMA
                       | SERVER
                       | SERVICE_URL
@@ -148,6 +157,7 @@ memgraphCypherKeyword : cypherKeyword
                       | TRANSFORM
                       | TRIGGER
                       | TRIGGERS
+                      | TTL
                       | UNCOMMITTED
                       | UNLOCK
                       | UNREGISTER
@@ -203,9 +213,10 @@ query : cypherQuery
       | alterEnumRemoveValueQuery
       | dropEnumQuery
       | showSchemaInfoQuery
+      | ttlQuery
       ;
 
-cypherQuery : ( usingStatement )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
+cypherQuery : ( preQueryDirectives )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
 
 authQuery : createRole
           | dropRole
@@ -277,9 +288,9 @@ updateClause : set
 
 foreach :  FOREACH '(' variable IN expression '|' updateClause+  ')' ;
 
-usingStatement: USING usingStatementItem ( ',' usingStatementItem )* ;
+preQueryDirectives: USING preQueryDirective ( ',' preQueryDirective )* ;
 
-usingStatementItem: hopsLimit | indexHints ;
+preQueryDirective: hopsLimit | indexHints  | periodicCommit ;
 
 hopsLimit: HOPS LIMIT literal ;
 
@@ -287,7 +298,11 @@ indexHints: INDEX indexHint ( ',' indexHint )* ;
 
 indexHint: ':' labelName ( '(' propertyKeyName ')' )? ;
 
-callSubquery : CALL '{' cypherQuery '}' ;
+periodicCommit : PERIODIC COMMIT periodicCommitNumber=literal ;
+
+periodicSubquery : IN TRANSACTIONS OF_TOKEN periodicCommitNumber=literal ROWS ;
+
+callSubquery : CALL '{' cypherQuery '}' ( periodicSubquery )? ;
 
 streamQuery : checkStream
             | createStream
@@ -615,3 +630,12 @@ alterEnumRemoveValueQuery: ALTER ENUM enumName REMOVE VALUE removed_value=enumVa
 dropEnumQuery: DROP ENUM enumName ;
 
 showSchemaInfoQuery : SHOW SCHEMA INFO ;
+
+stopTtlQuery: ( DISABLE | STOP ) TTL ;
+
+startTtlQuery: ENABLE TTL ( ( EVERY period=literal ) ( AT time=literal )?
+                           | ( AT time=literal ) ( EVERY period=literal )? )? ;
+
+ttlQuery: stopTtlQuery
+        | startTtlQuery
+        ;

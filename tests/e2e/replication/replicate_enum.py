@@ -232,6 +232,8 @@ def test_enum_replication(connection):
     replica_2_enums = get_enums(cursor_replica2)
     assert replica_2_enums == [("Location", ["York", "Zagreb", "New York"])]
 
+    execute_and_fetch_all(cursor, "USING PERIODIC COMMIT 1 UNWIND range(1, 3) AS x CREATE (:A {id: x})")
+
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

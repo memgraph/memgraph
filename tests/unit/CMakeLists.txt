@@ -270,6 +270,9 @@ target_link_libraries(${test_prefix}skip_list mg-utils)
 add_unit_test(small_vector.cpp)
 target_link_libraries(${test_prefix}small_vector mg-utils)
 
+add_unit_test(utils_mask_sensitive_information.cpp)
+target_link_libraries(${test_prefix}utils_mask_sensitive_information mg-utils fmt)
+
 add_unit_test(utils_file_locker.cpp)
 target_link_libraries(${test_prefix}utils_file_locker mg-utils fmt)
 
@@ -289,7 +292,7 @@ add_unit_test(utils_settings.cpp)
 target_link_libraries(${test_prefix}utils_settings mg-utils mg-settings)
 
 add_unit_test(utils_temporal utils_temporal.cpp)
-target_link_libraries(${test_prefix}utils_temporal mg-utils)
+target_link_libraries(${test_prefix}utils_temporal mg-utils mg-flags)
 
 add_unit_test(utils_java_string_formatter.cpp)
 target_link_libraries(${test_prefix}utils_java_string_formatter mg-utils)
@@ -305,6 +308,9 @@ target_link_libraries(${test_prefix}utils_static_vector mg::utils)
 
 add_unit_test(exponential_backoff exponential_backoff.cpp)
 target_link_libraries(${test_prefix}exponential_backoff mg-utils lib::rangev3)
+
+add_unit_test(utils_compressor.cpp)
+target_link_libraries(${test_prefix}utils_compressor mg-utils)
 
 # Test mg-storage-v2
 add_unit_test(commit_log_v2.cpp)
@@ -355,7 +361,7 @@ target_link_libraries(${test_prefix}storage_v2_indices mg-storage-v2 mg-utils)
 add_unit_test(storage_v2_name_id_mapper.cpp)
 target_link_libraries(${test_prefix}storage_v2_name_id_mapper mg-storage-v2)
 
-add_unit_test(storage_v2_property_store.cpp)
+add_unit_test_with_custom_main(storage_v2_property_store.cpp)
 target_link_libraries(${test_prefix}storage_v2_property_store mg-storage-v2 fmt)
 
 add_unit_test(storage_v2_wal_file.cpp)
@@ -510,4 +516,11 @@ if(MG_ENTERPRISE)
 add_unit_test(replication_instance_connector.cpp)
 target_link_libraries(${test_prefix}replication_instance_connector gflags mg-coordination mg-repl_coord_glue)
 target_include_directories(${test_prefix}replication_instance_connector PRIVATE ${CMAKE_SOURCE_DIR}/include)
+endif()
+
+# Test time to live
+if(MG_ENTERPRISE)
+add_unit_test(ttl.cpp)
+target_link_libraries(${test_prefix}ttl mg-query)
+target_include_directories(${test_prefix}ttl PRIVATE ${CMAKE_SOURCE_DIR}/include)
 endif()

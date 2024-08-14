@@ -129,15 +129,16 @@ class Apply;
 class IndexedJoin;
 class HashJoin;
 class RollUpApply;
+class PeriodicCommit;
+class PeriodicSubquery;
 
-using LogicalOperatorCompositeVisitor =
-    utils::CompositeVisitor<Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel, ScanAllByLabelPropertyRange,
-                            ScanAllByLabelPropertyValue, ScanAllByLabelProperty, ScanAllById, ScanAllByEdgeType,
-                            ScanAllByEdgeTypeProperty, ScanAllByEdgeId, Expand, ExpandVariable, ConstructNamedPath,
-                            Filter, Produce, Delete, SetProperty, SetProperties, SetLabels, RemoveProperty,
-                            RemoveLabels, EdgeUniquenessFilter, Accumulate, Aggregate, Skip, Limit, OrderBy, Merge,
-                            Optional, Unwind, Distinct, Union, Cartesian, CallProcedure, LoadCsv, Foreach, EmptyResult,
-                            EvaluatePatternFilter, Apply, IndexedJoin, HashJoin, RollUpApply>;
+using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
+    Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel, ScanAllByLabelPropertyRange, ScanAllByLabelPropertyValue,
+    ScanAllByLabelProperty, ScanAllById, ScanAllByEdgeType, ScanAllByEdgeTypeProperty, ScanAllByEdgeId, Expand,
+    ExpandVariable, ConstructNamedPath, Filter, Produce, Delete, SetProperty, SetProperties, SetLabels, RemoveProperty,
+    RemoveLabels, EdgeUniquenessFilter, Accumulate, Aggregate, Skip, Limit, OrderBy, Merge, Optional, Unwind, Distinct,
+    Union, Cartesian, CallProcedure, LoadCsv, Foreach, EmptyResult, EvaluatePatternFilter, Apply, IndexedJoin, HashJoin,
+    RollUpApply, PeriodicCommit, PeriodicSubquery>;
 
 using LogicalOperatorLeafVisitor = utils::LeafVisitor<Once>;
 
@@ -1391,6 +1392,8 @@ class Delete : public memgraph::query::plan::LogicalOperator {
   /// Whether the vertex should be detached before deletion. If not detached,
   ///            and has connections, an error is raised when deleting edges.
   bool detach_;
+  // when buffer size is reached, delete will be triggered
+  Expression *buffer_size_{nullptr};
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<Delete>();
@@ -1400,6 +1403,8 @@ class Delete : public memgraph::query::plan::LogicalOperator {
       object->expressions_[i3] = expressions_[i3] ? expressions_[i3]->Clone(storage) : nullptr;
     }
     object->detach_ = detach_;
+    object->buffer_size_ = buffer_size_ ? buffer_size_->Clone(storage) : nullptr;
+
     return object;
   }
 
@@ -1415,7 +1420,8 @@ class Delete : public memgraph::query::plan::LogicalOperator {
     const Delete &self_;
     const UniqueCursorPtr input_cursor_;
     DeleteBuffer buffer_;
-    bool delete_executed_{false};
+    std::optional<uint64_t> buffer_size_;
+    uint64_t pulled_{0};
 
     void UpdateDeleteBuffer(Frame &, ExecutionContext &);
   };
@@ -2489,8 +2495,6 @@ class CallProcedure : public memgraph::query::plan::LogicalOperator {
   bool is_write_;
   int64_t procedure_id_;
   bool void_procedure_;
-  mutable utils::MonotonicBufferResource monotonic_memory{1024UL * 1024UL};
-  utils::MemoryResource *memory_resource = &monotonic_memory;
 
   std::string ToString() const override {
     return fmt::format("CallProcedure<{0}> {{{1}}}", procedure_name_,
@@ -2766,6 +2770,67 @@ class RollUpApply : public memgraph::query::plan::LogicalOperator {
   std::shared_ptr<memgraph::query::plan::LogicalOperator> list_collection_branch_;
   Symbol result_symbol_;
   Symbol list_collection_symbol_;
+};
+
+class PeriodicCommit : public memgraph::query::plan::LogicalOperator {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  PeriodicCommit() = default;
+  PeriodicCommit(std::shared_ptr<LogicalOperator> &&input, Expression *commit_frequency);
+
+  bool HasSingleInput() const override { return true; }
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
+
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+  std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+  std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
+
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
+    auto object = std::make_unique<PeriodicCommit>();
+    object->input_ = input_ ? input_->Clone(storage) : nullptr;
+    object->commit_frequency_ = commit_frequency_;
+    return object;
+  }
+
+  std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
+  Expression *commit_frequency_;
+};
+
+/// Applies symbols from both output branches.
+class PeriodicSubquery : public memgraph::query::plan::LogicalOperator {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  PeriodicSubquery() = default;
+
+  PeriodicSubquery(const std::shared_ptr<LogicalOperator> input, const std::shared_ptr<LogicalOperator> subquery,
+                   Expression *commit_frequency, bool subquery_has_return);
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+  std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+
+  bool HasSingleInput() const override { return true; }
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
+
+  std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
+  std::shared_ptr<memgraph::query::plan::LogicalOperator> subquery_;
+  Expression *commit_frequency_{nullptr};
+  bool subquery_has_return_;
+
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
+    auto object = std::make_unique<PeriodicSubquery>();
+    object->input_ = input_ ? input_->Clone(storage) : nullptr;
+    object->subquery_ = subquery_ ? subquery_->Clone(storage) : nullptr;
+    object->subquery_has_return_ = subquery_has_return_;
+    object->commit_frequency_ = commit_frequency_;
+    return object;
+  }
 };
 
 }  // namespace plan

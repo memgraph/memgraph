@@ -34,6 +34,7 @@ constexpr std::string_view TemporalTypeToString(const TemporalType type) {
 }
 
 struct TemporalData {
+  // For localdatetime use system time (UTC microseconds since epoch)
   explicit TemporalData(TemporalType type, int64_t microseconds);
 
   auto operator<=>(const TemporalData &) const = default;

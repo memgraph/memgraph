@@ -99,15 +99,15 @@ bool LastCommittedVersionHasLabelProperty(const Vertex &vertex, LabelId label, c
         if (delta->label.value == label) {
           MG_ASSERT(!has_label, "Invalid database state!");
           has_label = true;
-          break;
         }
+        break;
       }
       case Delta::Action::REMOVE_LABEL: {
         if (delta->label.value == label) {
           MG_ASSERT(has_label, "Invalid database state!");
           has_label = false;
-          break;
         }
+        break;
       }
       case Delta::Action::ADD_IN_EDGE:
       case Delta::Action::ADD_OUT_EDGE:

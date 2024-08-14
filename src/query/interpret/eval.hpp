@@ -32,6 +32,7 @@
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/typed_value.hpp"
 #include "spdlog/spdlog.h"
+#include "storage/v2/point.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "utils/cast.hpp"
 #include "utils/exceptions.hpp"
@@ -576,6 +577,61 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       }
       return std::nullopt;
     };
+    auto maybe_point2d = [this](const auto &point_2d, const auto &prop_name) -> std::optional<TypedValue> {
+      auto is_wgs = point_2d.crs() == storage::CoordinateReferenceSystem::WGS84_2d;
+      if (prop_name == "x") {
+        return TypedValue(point_2d.x(), ctx_->memory);
+      }
+      if (prop_name == "longitude") {
+        if (!is_wgs) throw QueryRuntimeException("Use x instead of longitude for cartesian point types");
+        return TypedValue(point_2d.x(), ctx_->memory);
+      }
+      if (prop_name == "y") {
+        return TypedValue(point_2d.y(), ctx_->memory);
+      }
+      if (prop_name == "latitude") {
+        if (!is_wgs) throw QueryRuntimeException("Use y instead of latitude for cartesian point types");
+        return TypedValue(point_2d.y(), ctx_->memory);
+      }
+      if (prop_name == "crs") {
+        return TypedValue(storage::CrsToString(point_2d.crs()), ctx_->memory);
+      }
+      if (prop_name == "srid") {
+        return TypedValue(storage::CrsToSrid(point_2d.crs()).value_of(), ctx_->memory);
+      }
+      return std::nullopt;
+    };
+    auto maybe_point3d = [this](const auto &point_3d, const auto &prop_name) -> std::optional<TypedValue> {
+      auto is_wgs = point_3d.crs() == storage::CoordinateReferenceSystem::WGS84_3d;
+      if (prop_name == "x") {
+        return TypedValue(point_3d.x(), ctx_->memory);
+      }
+      if (prop_name == "longitude") {
+        if (!is_wgs) throw QueryRuntimeException("Use x instead of longitude for cartesian point types");
+        return TypedValue(point_3d.x(), ctx_->memory);
+      }
+      if (prop_name == "y") {
+        return TypedValue(point_3d.y(), ctx_->memory);
+      }
+      if (prop_name == "latitude") {
+        if (!is_wgs) throw QueryRuntimeException("Use y instead of latitude for cartesian point types");
+        return TypedValue(point_3d.y(), ctx_->memory);
+      }
+      if (prop_name == "z") {
+        return TypedValue(point_3d.z(), ctx_->memory);
+      }
+      if (prop_name == "height") {
+        if (!is_wgs) throw QueryRuntimeException("Use z instead of height for cartesian point types");
+        return TypedValue(point_3d.z(), ctx_->memory);
+      }
+      if (prop_name == "crs") {
+        return TypedValue(storage::CrsToString(point_3d.crs()), ctx_->memory);
+      }
+      if (prop_name == "srid") {
+        return TypedValue(storage::CrsToSrid(point_3d.crs()).value_of(), ctx_->memory);
+      }
+      return std::nullopt;
+    };
     auto maybe_graph = [this](const auto &graph, const auto &prop_name) -> std::optional<TypedValue> {
       if (prop_name == "nodes") {
         utils::pmr::vector<TypedValue> vertices(ctx_->memory);
@@ -661,10 +717,10 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       case TypedValue::Type::LocalDateTime: {
         const auto &prop_name = property_lookup.property_.name;
         const auto &ldt = expression_result_ptr->ValueLocalDateTime();
-        if (auto date_field = maybe_date(ldt.date, prop_name); date_field) {
+        if (auto date_field = maybe_date(ldt.date(), prop_name); date_field) {
           return std::move(*date_field);
         }
-        if (auto lt_field = maybe_local_time(ldt.local_time, prop_name); lt_field) {
+        if (auto lt_field = maybe_local_time(ldt.local_time(), prop_name); lt_field) {
           return TypedValue(*lt_field, ctx_->memory);
         }
         throw QueryRuntimeException("Invalid property name {} for LocalDateTime", prop_name);
@@ -676,6 +732,22 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
           return TypedValue(*zdt_field, ctx_->memory);
         }
         throw QueryRuntimeException("Invalid property name {} for ZonedDateTime", prop_name);
+      }
+      case TypedValue::Type::Point2d: {
+        const auto &prop_name = property_lookup.property_.name;
+        const auto &point_2d = expression_result_ptr->ValuePoint2d();
+        if (auto point_2d_field = maybe_point2d(point_2d, prop_name); point_2d_field) {
+          return TypedValue(*point_2d_field, ctx_->memory);
+        }
+        throw QueryRuntimeException("Invalid property name {} for Point2d", prop_name);
+      }
+      case TypedValue::Type::Point3d: {
+        const auto &prop_name = property_lookup.property_.name;
+        const auto &point_3d = expression_result_ptr->ValuePoint3d();
+        if (auto point_3d_field = maybe_point3d(point_3d, prop_name); point_3d_field) {
+          return TypedValue(*point_3d_field, ctx_->memory);
+        }
+        throw QueryRuntimeException("Invalid property name {} for Point3d", prop_name);
       }
       case TypedValue::Type::Graph: {
         const auto &prop_name = property_lookup.property_.name;
@@ -747,8 +819,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       }
       case TypedValue::Type::LocalDateTime: {
         const auto &ldt = expression_result.ValueLocalDateTime();
-        const auto &date = ldt.date;
-        const auto &lt = ldt.local_time;
+        const auto &date = ldt.date();
+        const auto &lt = ldt.local_time();
         result.emplace("year", TypedValue(date.year, ctx_->memory));
         result.emplace("month", TypedValue(date.month, ctx_->memory));
         result.emplace("day", TypedValue(date.day, ctx_->memory));
@@ -761,6 +833,21 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       }
       case TypedValue::Type::ZonedDateTime: {
         throw QueryRuntimeException("Can't coerce `{}` to Map.", expression_result.ValueZonedDateTime().ToString());
+      }
+      case TypedValue::Type::Point2d: {
+        auto const &point_2d = expression_result.ValuePoint2d();
+        result.emplace("x", TypedValue(point_2d.x(), ctx_->memory));
+        result.emplace("y", TypedValue(point_2d.y(), ctx_->memory));
+        result.emplace("srid", TypedValue(storage::CrsToSrid(point_2d.crs()).value_of(), ctx_->memory));
+        return TypedValue(result, ctx_->memory);
+      }
+      case TypedValue::Type::Point3d: {
+        auto const &point_3d = expression_result.ValuePoint3d();
+        result.emplace("x", TypedValue(point_3d.x(), ctx_->memory));
+        result.emplace("y", TypedValue(point_3d.y(), ctx_->memory));
+        result.emplace("z", TypedValue(point_3d.z(), ctx_->memory));
+        result.emplace("srid", TypedValue(storage::CrsToSrid(point_3d.crs()).value_of(), ctx_->memory));
+        return TypedValue(result, ctx_->memory);
       }
       case TypedValue::Type::Graph: {
         const auto &graph = expression_result.ValueGraph();
@@ -783,7 +870,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       }
       default:
         throw QueryRuntimeException(
-            "Only nodes, edges, maps, temporal types and graphs have properties to be looked up.");
+            "Only nodes, edges, maps, temporal types, points, and graphs have properties to be looked up.");
     }
   }
 
@@ -1273,11 +1360,19 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 /// @param what - Name of what's getting evaluated. Used for user feedback (via
 ///               exception) when the evaluated value is not an int.
 /// @throw QueryRuntimeException if expression doesn't evaluate to an int.
-int64_t EvaluateInt(ExpressionEvaluator *evaluator, Expression *expr, std::string_view what);
+int64_t EvaluateInt(ExpressionVisitor<TypedValue> &eval, Expression *expr, std::string_view what);
+
+/// A helper function for evaluating an expression that's an uint.
+///
+/// @param what - Name of what's getting evaluated. Used for user feedback (via
+///               exception) when the evaluated value is not an uint.
+/// @throw QueryRuntimeException if expression doesn't evaluate to an uint.
+std::optional<int64_t> EvaluateUint(ExpressionVisitor<TypedValue> &eval, Expression *expr, std::string_view what);
 
 std::optional<int64_t> EvaluateHopsLimit(ExpressionVisitor<TypedValue> &eval, Expression *expr);
+std::optional<int64_t> EvaluateCommitFrequency(ExpressionVisitor<TypedValue> &eval, Expression *expr);
+std::optional<int64_t> EvaluateDeleteBufferSize(ExpressionVisitor<TypedValue> &eval, Expression *expr);
 
 std::optional<size_t> EvaluateMemoryLimit(ExpressionVisitor<TypedValue> &eval, Expression *memory_limit,
                                           size_t memory_scale);
-
 }  // namespace memgraph::query
