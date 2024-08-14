@@ -180,7 +180,7 @@ void CoordinatorLogStore::write_at(uint64_t index, ptr<log_entry> &entry) {
 
 ptr<std::vector<ptr<log_entry>>> CoordinatorLogStore::log_entries(uint64_t start, uint64_t end) {
   auto ret = cs_new<std::vector<ptr<log_entry>>>();
-  ret->reserve(end - start - 1);
+  ret->reserve(end - start);
 
   for (uint64_t i = start; i < end; i++) {
     ptr<log_entry> src;
@@ -200,7 +200,7 @@ ptr<std::vector<ptr<log_entry>>> CoordinatorLogStore::log_entries(uint64_t start
 
 std::vector<std::pair<int64_t, ptr<log_entry>>> CoordinatorLogStore::GetAllEntriesRange(uint64_t start, uint64_t end) {
   std::vector<std::pair<int64_t, ptr<log_entry>>> entries;
-  entries.reserve(end - start - 1);
+  entries.reserve(end - start);
 
   for (uint64_t i = start; i < end; i++) {
     ptr<log_entry> src;
