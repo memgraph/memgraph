@@ -148,6 +148,7 @@ class MemgraphInstanceRunner:
         if not skip_auth:
             self.execute_setup_queries(conn, setup_queries)
         assert self.is_running(), "The Memgraph process died!"
+        print(f"Memgraph started with PID {self.proc_mg.pid}")
 
     def is_running(self):
         if self.proc_mg is None:
@@ -162,6 +163,7 @@ class MemgraphInstanceRunner:
 
         pid = self.proc_mg.pid
         try:
+            print(f"Killing Memgraph process with PID {pid}")
             os.kill(pid, SIGNAL_SIGTERM)
         except os.OSError:
             assert False

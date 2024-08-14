@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -117,6 +117,7 @@ StreamInfo CheckStreamComplete(const uint8_t *data, size_t size) {
   size_t found_segments = 0;
   size_t data_size = 0;
 
+  // Position in the  *data
   size_t pos = 0;
   while (true) {
     SegmentSize len = 0;
@@ -129,6 +130,8 @@ StreamInfo CheckStreamComplete(const uint8_t *data, size_t size) {
       break;
     }
 
+    // I expect now that stream must contain len on first position, and on each new postion there must be len which
+    // represents num of bytes
     if (pos + len > size) {
       return {StreamStatus::PARTIAL, pos + kSegmentMaxTotalSize, data_size};
     }

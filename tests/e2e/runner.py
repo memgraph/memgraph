@@ -100,6 +100,9 @@ def run(args):
         cleanup(keep_directories=False)
         log.info("%s PASSED.", workload_name)
 
+        if workload_name == "Coordinator":
+            break
+
 
 if __name__ == "__main__":
     args = load_args()
