@@ -41,6 +41,7 @@ struct hash<memgraph::utils::small_vector<memgraph::storage::LabelId>> {
 };
 }  // namespace std
 
+// TODO Add namespace schema_info
 namespace memgraph::storage {
 
 using find_edge_f = std::function<std::optional<EdgeAccessor>(Gid, View)>;
@@ -104,6 +105,10 @@ struct Tracking {
   void CleanUp();
 
   void Print(NameIdMapper &name_id_mapper);
+
+  nlohmann::json ToJson(NameIdMapper &name_id_mapper);
+
+  // friend void from_json(const nlohmann::json &j, Tracking &info);
 
   std::unordered_map<v_key_type, TrackingInfo> vertex_state_;
   std::unordered_map<EdgeType, TrackingInfo, EdgeType::hasher> edge_state_;
@@ -214,7 +219,7 @@ class TransactionEdgeHandler {
   std::map<PropertyId, PropertyValue> GetPostProperties(const EdgeRef &edge_ref) const;
 
   Tracking &tracking_;
-  std::unordered_set<Gid> handled_edges;
+  std::unordered_set<Gid> handled_edges{};
   uint64_t commit_timestamp_{-1UL};
   bool properties_on_edges_{false};
 };
@@ -378,6 +383,10 @@ struct SchemaInfo {
   void CleanUp() { tracking_.CleanUp(); }
 
   void Print(NameIdMapper &name_id_mapper) { tracking_.Print(name_id_mapper); }
+
+  auto ToJson(NameIdMapper &name_id_mapper) { return tracking_.ToJson(name_id_mapper); }
+
+  // friend void from_json(const nlohmann::json &j, SchemaInfo &info);
 
   void ProcessVertex(VertexHandler &vertex_handler, TransactionEdgeHandler &edge_handler);
 

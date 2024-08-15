@@ -993,8 +993,8 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
           mem_storage->schema_info_.ProcessTransaction(
               transaction_, mem_storage->config_.salient.items.properties_on_edges,
               [this](Gid gid, View view) mutable { return FindEdge(gid, view); });
-          mem_storage->schema_info_.CleanUp();
-          mem_storage->schema_info_.Print(*mem_storage->name_id_mapper_);
+          // mem_storage->schema_info_.CleanUp();
+          // mem_storage->schema_info_.Print(*mem_storage->name_id_mapper_);
 
           // TODO: release lock, and update all deltas to have a local copy of the commit timestamp
           MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");

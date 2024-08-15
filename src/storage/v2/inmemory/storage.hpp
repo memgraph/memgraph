@@ -614,6 +614,7 @@ class InMemoryStorage final : public Storage {
   // A way to tell async operation to stop
   std::stop_source stop_source;
 
+ public:
   SchemaInfo schema_info_;
 };
 

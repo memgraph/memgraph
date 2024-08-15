@@ -66,56 +66,79 @@ void Tracking::CleanUp() {
 }
 
 void Tracking::Print(NameIdMapper &name_id_mapper) {
-  std::cout << "\n\nSCHEMA INFO\n\n";
-  std::cout << "******* VERTEX INFO *******\n";
+  std::cout << "SCHEMA INFO\n";
+  std::cout << ToJson(name_id_mapper) << std::endl;
+}
+
+nlohmann::json Tracking::ToJson(NameIdMapper &name_id_mapper) {
+  auto json = nlohmann::json::object();
+
+  // Handle NODES
+  const auto &[nodes_itr, _] = json.emplace("nodes", nlohmann::json::array());
+  auto &nodes = nodes_itr.value();
   for (const auto &[labels, info] : vertex_state_) {
-    std::cout << "[";
+    auto node = nlohmann::json::object();
+    const auto &[labels_itr, _] = node.emplace("labels", nlohmann::json::array_t{});
     for (const auto l : labels) {
-      std::cout << name_id_mapper.IdToName(l.AsUint()) << ", ";
+      labels_itr->emplace_back(name_id_mapper.IdToName(l.AsUint()));
     }
-    std::cout << "]:\n";
-    std::cout << "\t" << info.n << "\n";
+    node.emplace("count", info.n);
+    const auto &[prop_itr, __] = node.emplace("properties", nlohmann::json::array_t{});
     for (const auto &[p, info] : info.properties) {
-      std::cout << "\t" << name_id_mapper.IdToName(p.AsUint()) << ": " << info.n << "\n";
-      std::cout << "\ttypes:\n";
+      nlohmann::json::object_t property_info;
+      property_info.emplace("key", name_id_mapper.IdToName(p.AsUint()));
+      property_info.emplace("count", info.n);
+      const auto &[types_itr, _] = property_info.emplace("types", nlohmann::json::array_t{});
       for (const auto &type : info.types) {
-        std::cout << "\t\t" << type.first << ": " << type.second << std::endl;
+        nlohmann::json::object_t type_info;
+        std::stringstream ss;
+        ss << type.first;
+        type_info.emplace("type", ss.str());
+        type_info.emplace("count", type.second);
+        types_itr->second.emplace_back(std::move(type_info));
       }
+      prop_itr->emplace_back(std::move(property_info));
     }
-    std::cout << "\n";
+    nodes.emplace_back(std::move(node));
   }
-  std::cout << "\n******** EDGE INFO ********\n";
+
+  // Handle EDGES
+  const auto &[edges_itr, _b] = json.emplace("edges", nlohmann::json::array());
+  auto &edges = edges_itr.value();
   for (const auto &[edge_type, info] : edge_state_) {
-    std::cout << "[";
+    auto edge = nlohmann::json::object();
 
-    std::cout << edge_type.type.AsUint() << ", ";
-
-    std::cout << "[";
+    edge.emplace("type", name_id_mapper.IdToName(edge_type.type.AsUint()));
+    const auto &[out_labels_itr, _] = edge.emplace("start_node_labels", nlohmann::json::array_t{});
     for (const auto l : edge_type.from_v_type) {
-      std::cout << name_id_mapper.IdToName(l.AsUint()) << ", ";
+      out_labels_itr->emplace_back(name_id_mapper.IdToName(l.AsUint()));
     }
-    std::cout << "], ";
-
-    std::cout << "[";
+    const auto &[in_labels_itr, _b] = edge.emplace("end_node_labels", nlohmann::json::array_t{});
     for (const auto l : edge_type.to_v_type) {
-      std::cout << name_id_mapper.IdToName(l.AsUint()) << ", ";
+      in_labels_itr->emplace_back(name_id_mapper.IdToName(l.AsUint()));
     }
-    std::cout << "]";
 
-    std::cout << "]:\n";
-
-    std::cout << "\t" << info.n << "\n";
+    edge.emplace("count", info.n);
+    const auto &[prop_itr, __] = edge.emplace("properties", nlohmann::json::array_t{});
     for (const auto &[p, info] : info.properties) {
-      std::cout << "\t" << name_id_mapper.IdToName(p.AsUint()) << ": " << info.n << "\n";
-      std::cout << "\ttypes:\n";
+      nlohmann::json::object_t property_info;
+      property_info.emplace("key", name_id_mapper.IdToName(p.AsUint()));
+      property_info.emplace("count", info.n);
+      const auto &[types_itr, _] = property_info.emplace("types", nlohmann::json::array_t{});
       for (const auto &type : info.types) {
-        std::cout << "\t\t" << type.first << ": " << type.second << std::endl;
+        nlohmann::json::object_t type_info;
+        std::stringstream ss;
+        ss << type.first;
+        type_info.emplace("type", ss.str());
+        type_info.emplace("count", type.second);
+        types_itr->second.emplace_back(std::move(type_info));
       }
+      prop_itr->emplace_back(std::move(property_info));
     }
-    std::cout << "\n";
+    edges.emplace_back(std::move(edge));
   }
 
-  std::cout << "\n\n";
+  return json;
 }
 
 utils::small_vector<LabelId> GetPreLabels(const Vertex &vertex, uint64_t commit_timestamp) {
