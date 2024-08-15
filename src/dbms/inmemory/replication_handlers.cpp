@@ -211,19 +211,16 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
     repl_storage_state.AddEpochToHistoryForce(prev_epoch);
   }
 
+  // We do not care about incoming sequence numbers, after a snapshot recovery, the sequence number is 0
+  // This is because the snapshots completely wipes the storage and durability
+  // It is also the first recovery step, so the WAL chain needs to restart from 0, otherwise the instance won't be
+  // able to recover from durable data
   if (storage->wal_file_) {
-    if (req.seq_num > storage->wal_file_->SequenceNumber() ||
-        *maybe_epoch_id != storage->repl_storage_state_.epoch_.id()) {
+    if (*maybe_epoch_id != storage->repl_storage_state_.epoch_.id()) {
       storage->wal_file_->FinalizeWal();
       storage->wal_file_.reset();
-      storage->wal_seq_num_ = req.seq_num;
-      spdlog::trace("Finalized WAL file");
-    } else {
-      MG_ASSERT(storage->wal_file_->SequenceNumber() == req.seq_num, "Invalid sequence number of current wal file");
-      storage->wal_seq_num_ = req.seq_num + 1;
+      spdlog::trace("Current WAL file finalized successfully");
     }
-  } else {
-    storage->wal_seq_num_ = req.seq_num;
   }
 
   // last_durable_timestamp could be set by snashot; so we cannot guarantee exactly what's the previous timestamp
@@ -537,15 +534,14 @@ void InMemoryReplicationHandlers::LoadWal(storage::InMemoryStorage *storage, sto
       storage->repl_storage_state_.AddEpochToHistoryForce(prev_epoch);
     }
 
+    // We do not care about incoming sequence numbers, after a snapshot recovery, the sequence number is 0
+    // This is because the snapshots completely wipes the storage and durability
+    // It is also the first recovery step, so the WAL chain needs to restart from 0, otherwise the instance won't be
+    // able to recover from durable data
     if (storage->wal_file_) {
-      if (storage->wal_file_->SequenceNumber() != wal_info.seq_num) {
-        storage->wal_file_->FinalizeWal();
-        storage->wal_seq_num_ = wal_info.seq_num;
-        storage->wal_file_.reset();
-        spdlog::trace("WAL file {} finalized successfully", *maybe_wal_path);
-      }
-    } else {
-      storage->wal_seq_num_ = wal_info.seq_num;
+      storage->wal_file_->FinalizeWal();
+      storage->wal_file_.reset();
+      spdlog::trace("WAL file {} finalized successfully", *maybe_wal_path);
     }
     spdlog::trace("Loading WAL deltas from {}", *maybe_wal_path);
     storage::durability::Decoder wal;

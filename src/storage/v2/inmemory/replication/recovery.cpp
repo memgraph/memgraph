@@ -211,17 +211,17 @@ std::vector<RecoveryStep> GetRecoverySteps(uint64_t replica_commit, utils::FileR
         break;
       }
 
+      prev_seq = wal_chain_it->seq_num;
+
       if (wal_chain_it->from_timestamp <= replica_commit + 1) {
         // Got to the oldest necessary WAL file
         covered_by_wals = true;
         break;
       }
-
-      prev_seq = wal_chain_it->seq_num;
     }
 
     // The WAL chain could be complete, but the first WAL could have a != 0 timestamp; check for the 0 sequence number
-    covered_by_wals |= wal_chain_it->seq_num == 0;
+    covered_by_wals |= prev_seq == 0;
 
     // Finished the WAL chain; we have to have a WAL that is older than replica OR a snapshot
     if (!covered_by_wals) {

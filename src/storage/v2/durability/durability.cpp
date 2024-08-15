@@ -120,8 +120,10 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
     if (!item.is_regular_file()) continue;
     try {
       auto info = ReadWalInfo(item.path());
-      spdlog::trace("Getting wal file with following info: uuid: {}, epoch id: {}, from timestamp {}, to_timestamp {} ",
-                    info.uuid, info.epoch_id, info.from_timestamp, info.to_timestamp);
+      spdlog::trace(
+          "Getting wal file with following info: uuid: {}, epoch id: {}, from timestamp {}, to_timestamp {}, sequence "
+          "number {} ",
+          info.uuid, info.epoch_id, info.from_timestamp, info.to_timestamp, info.seq_num);
       if ((uuid.empty() || info.uuid == uuid) && (!current_seq_num || info.seq_num < *current_seq_num)) {
         wal_files.emplace_back(info.seq_num, info.from_timestamp, info.to_timestamp, std::move(info.uuid),
                                std::move(info.epoch_id), item.path());
