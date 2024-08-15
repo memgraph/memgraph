@@ -15,7 +15,7 @@ string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
 add_library(example_c SHARED example.c)
 target_include_directories(example_c PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_compile_options(example_c PRIVATE -Wall)
-target_link_libraries(example_c PRIVATE -static-libgcc -static-libstdc++)
+target_link_libraries(example_c PRIVATE -static-libgcc)
 # Strip C example in release build.
 if (lower_build_type STREQUAL "release")
   add_custom_command(TARGET example_c POST_BUILD
