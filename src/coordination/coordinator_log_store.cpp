@@ -148,7 +148,7 @@ ptr<log_entry> CoordinatorLogStore::last_entry() const {
 uint64_t CoordinatorLogStore::append(ptr<log_entry> &entry) {
   auto const clone = MakeClone(entry);
   auto lock = std::lock_guard{logs_lock_};
-  uint64_t next_slot = GetNextSlot();
+  uint64_t const next_slot = GetNextSlot();
 
   if (durability_) {
     bool const is_entry_with_biggest_id = true;

@@ -118,7 +118,8 @@ bool CoordinatorStateMachine::HandleMigration(LogStoreVersion stored_version) {
   if (kActiveVersion == LogStoreVersion::kV2) {
     if (stored_version == LogStoreVersion::kV1) {
       return durability_->Put(kLastCommitedIdx, std::to_string(last_committed_idx_));
-    } else if (stored_version == LogStoreVersion::kV2) {
+    }
+    if (stored_version == LogStoreVersion::kV2) {
       auto maybe_last_commited_idx = durability_->Get(kLastCommitedIdx);
       if (!maybe_last_commited_idx.has_value()) {
         logger_.Log(
@@ -139,16 +140,13 @@ bool CoordinatorStateMachine::HandleMigration(LogStoreVersion stored_version) {
       logger_.Log(nuraft_log_level::TRACE,
                   fmt::format("Restored last committed index from disk: {}", last_committed_idx_));
       return true;
-    } else {
-      throw CoordinatorStateMachineVersionMigrationException("Unexpected log store version {} for active version v2.",
-                                                             static_cast<int>(stored_version));
     }
-  } else {
-    throw CoordinatorStateMachineVersionMigrationException("Unexpected log store version {} for active version {}.",
-                                                           static_cast<int>(stored_version),
-                                                           static_cast<int>(kActiveVersion));
+    throw CoordinatorStateMachineVersionMigrationException("Unexpected log store version {} for active version v2.",
+                                                           static_cast<int>(stored_version));
   }
-  return false;
+  throw CoordinatorStateMachineVersionMigrationException("Unexpected log store version {} for active version {}.",
+                                                         static_cast<int>(stored_version),
+                                                         static_cast<int>(kActiveVersion));
 }
 
 auto CoordinatorStateMachine::MainExists() const -> bool { return cluster_state_.MainExists(); }
