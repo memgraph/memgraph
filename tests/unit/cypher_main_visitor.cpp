@@ -5032,8 +5032,129 @@ TEST_P(CypherMainVisitorTest, DropEnumQuery) {
   }
 }
 
+TEST_P(CypherMainVisitorTest, TopLevelPeriodicCommitQuery) {
+  auto &ast_generator = *GetParam();
+  {
+    const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("USING PERIODIC COMMIT 10 CREATE (n);"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_TRUE(query->pre_query_directives_.commit_frequency_);
+
+    ast_generator.CheckLiteral(query->pre_query_directives_.commit_frequency_, 10);
+  }
+
+  { ASSERT_THROW(ast_generator.ParseQuery("USING PERIODIC COMMIT 'a' CREATE (n);"), SyntaxException); }
+
+  { ASSERT_THROW(ast_generator.ParseQuery("USING PERIODIC COMMIT -1 CREATE (n);"), SyntaxException); }
+
+  { ASSERT_THROW(ast_generator.ParseQuery("USING PERIODIC COMMIT 3.0 CREATE (n);"), SyntaxException); }
+
+  {
+    ASSERT_THROW(ast_generator.ParseQuery("USING PERIODIC COMMIT 10, PERIODIC COMMIT 10 CREATE (n);"), SyntaxException);
+  }
+}
+
+TEST_P(CypherMainVisitorTest, NestedPeriodicCommitQuery) {
+  auto &ast_generator = *GetParam();
+  {
+    const auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("UNWIND range(1, 100) as x CALL { CREATE () } IN TRANSACTIONS OF 10 ROWS;"));
+
+    ASSERT_NE(query, nullptr);
+    ASSERT_TRUE(query->single_query_);
+
+    auto *single_query = query->single_query_;
+
+    ASSERT_EQ(single_query->clauses_.size(), 2U);
+
+    auto *call_subquery = dynamic_cast<CallSubquery *>(single_query->clauses_[1]);
+    const auto *nested_query = dynamic_cast<CypherQuery *>(call_subquery->cypher_query_);
+
+    ASSERT_TRUE(nested_query);
+    ASSERT_TRUE(nested_query->pre_query_directives_.commit_frequency_);
+
+    ast_generator.CheckLiteral(nested_query->pre_query_directives_.commit_frequency_, 10);
+  }
+
+  {
+    ASSERT_THROW(ast_generator.ParseQuery("UNWIND range(1, 100) as x CALL { CREATE () } IN TRANSACTIONS OF 'a' ROWS;"),
+                 SyntaxException);
+  }
+
+  {
+    ASSERT_THROW(ast_generator.ParseQuery("UNWIND range(1, 100) as x CALL { CREATE () } IN TRANSACTIONS OF -1 ROWS;"),
+                 SyntaxException);
+  }
+
+  {
+    ASSERT_THROW(ast_generator.ParseQuery("UNWIND range(1, 100) as x CALL { CREATE () } IN TRANSACTIONS OF 3.0 ROWS;"),
+                 SyntaxException);
+  }
+}
+
 TEST_P(CypherMainVisitorTest, ShowSchemaInfoQuery) {
   auto &ast_generator = *GetParam();
   const auto *query = dynamic_cast<ShowSchemaInfoQuery *>(ast_generator.ParseQuery("SHOW SCHEMA INFO;"));
   ASSERT_NE(query, nullptr);
+}
+
+TEST_P(CypherMainVisitorTest, TtlQuery) {
+  auto &ast_generator = *GetParam();
+  {
+    const auto *query = dynamic_cast<TtlQuery *>(ast_generator.ParseQuery("DISABLE TTL;"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_EQ(query->type_, TtlQuery::Type::DISABLE);
+  }
+  {
+    const auto *query = dynamic_cast<TtlQuery *>(ast_generator.ParseQuery("STOP TTL;"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_EQ(query->type_, TtlQuery::Type::STOP);
+  }
+  {
+    const auto *query = dynamic_cast<TtlQuery *>(ast_generator.ParseQuery("ENABLE TTL;"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_EQ(query->type_, TtlQuery::Type::ENABLE);
+    ASSERT_EQ(query->period_, nullptr);
+    ASSERT_EQ(query->specific_time_, nullptr);
+  }
+  {
+    const auto *query = dynamic_cast<TtlQuery *>(ast_generator.ParseQuery("ENABLE TTL AT \"01:23:45\";"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_EQ(query->type_, TtlQuery::Type::ENABLE);
+    ASSERT_EQ(query->period_, nullptr);
+    ASSERT_NE(query->specific_time_, nullptr);
+    auto st = ast_generator.LiteralValue(query->specific_time_);
+    ASSERT_TRUE(st.IsString() && st.ValueString() == "01:23:45");
+  }
+  {
+    const auto *query =
+        dynamic_cast<TtlQuery *>(ast_generator.ParseQuery("ENABLE TTL AT \"21:09:53\" EVERY \"3h18s\";"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_EQ(query->type_, TtlQuery::Type::ENABLE);
+    ASSERT_NE(query->period_, nullptr);
+    ASSERT_NE(query->specific_time_, nullptr);
+    auto p = ast_generator.LiteralValue(query->period_);
+    ASSERT_TRUE(p.IsString() && p.ValueString() == "3h18s");
+    auto st = ast_generator.LiteralValue(query->specific_time_);
+    ASSERT_TRUE(st.IsString() && st.ValueString() == "21:09:53");
+  }
+  {
+    const auto *query = dynamic_cast<TtlQuery *>(ast_generator.ParseQuery("ENABLE TTL EVERY \"5m10s\";"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_EQ(query->type_, TtlQuery::Type::ENABLE);
+    ASSERT_NE(query->period_, nullptr);
+    ASSERT_EQ(query->specific_time_, nullptr);
+    auto p = ast_generator.LiteralValue(query->period_);
+    ASSERT_TRUE(p.IsString() && p.ValueString() == "5m10s");
+  }
+  {
+    const auto *query = dynamic_cast<TtlQuery *>(ast_generator.ParseQuery("ENABLE TTL EVERY \"56m\" AT \"16:45:00\";"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_EQ(query->type_, TtlQuery::Type::ENABLE);
+    ASSERT_NE(query->period_, nullptr);
+    ASSERT_NE(query->specific_time_, nullptr);
+    auto p = ast_generator.LiteralValue(query->period_);
+    ASSERT_TRUE(p.IsString() && p.ValueString() == "56m");
+    auto st = ast_generator.LiteralValue(query->specific_time_);
+    ASSERT_TRUE(st.IsString() && st.ValueString() == "16:45:00");
+  }
 }

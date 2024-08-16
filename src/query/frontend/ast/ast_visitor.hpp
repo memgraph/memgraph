@@ -121,6 +121,7 @@ class AlterEnumUpdateValueQuery;
 class AlterEnumRemoveValueQuery;
 class DropEnumQuery;
 class ShowSchemaInfoQuery;
+class TtlQuery;
 
 using TreeCompositeVisitor = utils::CompositeVisitor<
     SingleQuery, CypherUnion, NamedExpression, OrOperator, XorOperator, AndOperator, NotOperator, AdditionOperator,
@@ -162,6 +163,6 @@ class QueryVisitor
                             TransactionQueueQuery, StorageModeQuery, AnalyzeGraphQuery, MultiDatabaseQuery,
                             ShowDatabasesQuery, EdgeImportModeQuery, CoordinatorQuery, DropGraphQuery, CreateEnumQuery,
                             ShowEnumsQuery, AlterEnumAddValueQuery, AlterEnumUpdateValueQuery,
-                            AlterEnumRemoveValueQuery, DropEnumQuery, ShowSchemaInfoQuery> {};
+                            AlterEnumRemoveValueQuery, DropEnumQuery, ShowSchemaInfoQuery, TtlQuery> {};
 
 }  // namespace memgraph::query

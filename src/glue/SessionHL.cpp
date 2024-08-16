@@ -156,12 +156,15 @@ void SessionHL::TryDefaultDB() {
     // Failed to get default db, connect without db
     interpreter_.ResetDB();
   }
-#endif
   auto db = GetCurrentDB();
   if (db.empty())
     implicit_db_.reset();
   else
     implicit_db_.emplace(std::move(db));
+#else
+  // Community has to connect to the default database
+  interpreter_.SetCurrentDB();
+#endif
 }
 
 // This is called on connection establishment
@@ -175,6 +178,10 @@ bool SessionHL::Authenticate(const std::string &username, const std::string &pas
       if (user_or_role.has_value()) {
         user_or_role_ = AuthChecker::GenQueryUser(auth_, *user_or_role);
         interpreter_.SetUser(AuthChecker::GenQueryUser(auth_, *user_or_role));
+        interpreter_.SetSessionInfo(
+            UUID(),
+            interpreter_.user_or_role_->username().has_value() ? interpreter_.user_or_role_->username().value() : "",
+            GetLoginTimestamp());
       } else {
         res = false;
       }
@@ -182,6 +189,7 @@ bool SessionHL::Authenticate(const std::string &username, const std::string &pas
       // No access control -> give empty user
       user_or_role_ = AuthChecker::GenQueryUser(auth_, std::nullopt);
       interpreter_.SetUser(AuthChecker::GenQueryUser(auth_, std::nullopt));
+      interpreter_.SetSessionInfo(UUID(), "", GetLoginTimestamp());
     }
   }
 
@@ -256,8 +264,8 @@ std::pair<std::vector<std::string>, std::optional<int>> SessionHL::Interpret(con
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     auto &db = interpreter_.current_db_.db_acc_;
     const auto username = user_or_role_ ? (user_or_role_->username() ? *user_or_role_->username() : "") : "";
-    audit_log_->Record(endpoint_.address().to_string(), username, query, params,
-                       db ? db->get()->name() : "no known database");
+    audit_log_->Record(fmt::format("{}:{}", endpoint_.address().to_string(), std::to_string(endpoint_.port())),
+                       username, query, params, db ? db->get()->name() : "");
   }
 #endif
   try {

@@ -389,6 +389,7 @@ class DeltaGenerator final {
         case memgraph::storage::durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_DROP:
           data.operation_label_property.label = label;
           data.operation_label_property.property = *properties.begin();
+          break;
         case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_SET:
           data.operation_label_property_stats.label = label;
           data.operation_label_property_stats.property = *properties.begin();

@@ -67,6 +67,7 @@ TEST_F(AuthWithStorage, Authenticate) {
   ASSERT_TRUE(auth->HasUsers());
 
   ASSERT_TRUE(auth->Authenticate("test", "123"));
+  ASSERT_TRUE(auth->Authenticate("test", ""));
 
   user->UpdatePassword("123");
   auth->SaveUser(*user);
@@ -76,11 +77,40 @@ TEST_F(AuthWithStorage, Authenticate) {
   ASSERT_EQ(auth->Authenticate("test", "456"), std::nullopt);
   ASSERT_NE(auth->Authenticate("test", "123"), std::nullopt);
 
+  const auto bcrpyt_hash = HashPassword("456", PasswordHashAlgorithm::BCRYPT);
+  user->UpdateHash(bcrpyt_hash);
+  auth->SaveUser(*user);
+
+  ASSERT_NE(auth->Authenticate("test", "456"), std::nullopt);
+
+  ASSERT_EQ(auth->Authenticate("test", "123"), std::nullopt);
+  ASSERT_NE(auth->Authenticate("test", "456"), std::nullopt);
+
+  const auto sha256_hash = HashPassword("789", PasswordHashAlgorithm::SHA256);
+  user->UpdateHash(sha256_hash);
+  auth->SaveUser(*user);
+
+  ASSERT_NE(auth->Authenticate("test", "789"), std::nullopt);
+
+  ASSERT_EQ(auth->Authenticate("test", "456"), std::nullopt);
+  ASSERT_NE(auth->Authenticate("test", "789"), std::nullopt);
+
+  const auto sha256_mul_hash = HashPassword("012", PasswordHashAlgorithm::SHA256_MULTIPLE);
+  user->UpdateHash(sha256_mul_hash);
+  auth->SaveUser(*user);
+
+  ASSERT_NE(auth->Authenticate("test", "012"), std::nullopt);
+
+  ASSERT_EQ(auth->Authenticate("test", "567"), std::nullopt);
+  ASSERT_NE(auth->Authenticate("test", "012"), std::nullopt);
+
   user->UpdatePassword();
   auth->SaveUser(*user);
 
   ASSERT_NE(auth->Authenticate("test", "123"), std::nullopt);
   ASSERT_NE(auth->Authenticate("test", "456"), std::nullopt);
+  ASSERT_NE(auth->Authenticate("test", "789"), std::nullopt);
+  ASSERT_NE(auth->Authenticate("test", "012"), std::nullopt);
 
   ASSERT_EQ(auth->Authenticate("nonexistant", "123"), std::nullopt);
 }
@@ -341,7 +371,7 @@ TEST_F(AuthWithStorage, UserPasswordCreation) {
     auto user = auth->AddUser("test");
     ASSERT_TRUE(user);
     ASSERT_TRUE(auth->Authenticate("test", "123"));
-    ASSERT_TRUE(auth->Authenticate("test", "456"));
+    ASSERT_TRUE(auth->Authenticate("test", ""));
     ASSERT_TRUE(auth->RemoveUser(user->username()));
   }
 
@@ -350,6 +380,23 @@ TEST_F(AuthWithStorage, UserPasswordCreation) {
     ASSERT_TRUE(user);
     ASSERT_TRUE(auth->Authenticate("test", "123"));
     ASSERT_FALSE(auth->Authenticate("test", "456"));
+    ASSERT_TRUE(auth->RemoveUser(user->username()));
+  }
+
+  {
+    auto user =
+        auth->AddUser("test", "sha256:d74ff0ee8da3b9806b18c877dbf29bbde50b5bd8e4dad7a3a725000feb82e8f1" /* pass */);
+    ASSERT_TRUE(user);
+    ASSERT_TRUE(auth->Authenticate("test", "pass"));
+    ASSERT_FALSE(auth->Authenticate("test", "word"));
+    ASSERT_TRUE(auth->RemoveUser(user->username()));
+  }
+
+  {
+    auto user = auth->AddUser("test", "bcrypt:$2a$12$laGNZfDIHu3t6jGr4Xm9i.siwQ78xfEb2VgXNqNGBV8FEbpHgNiQS" /* pass */);
+    ASSERT_TRUE(user);
+    ASSERT_TRUE(auth->Authenticate("test", "pass"));
+    ASSERT_FALSE(auth->Authenticate("test", "word"));
     ASSERT_TRUE(auth->RemoveUser(user->username()));
   }
 }

@@ -11,11 +11,17 @@
 
 #pragma once
 
+#include <gflags/gflags.h>
+#include <cstdint>
 #include <map>
 #include <set>
 
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
+#include "utils/compressor.hpp"
+
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_bool(storage_property_store_compression_enabled);
 
 namespace memgraph::storage {
 
@@ -118,6 +124,9 @@ class PropertyStore {
  private:
   template <typename TContainer>
   bool DoInitProperties(const TContainer &properties);
+
+  template <typename Func>
+  auto WithReader(Func &&func) const;
 
   uint8_t buffer_[sizeof(uint32_t) + sizeof(uint8_t *)];
 };

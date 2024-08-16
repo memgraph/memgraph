@@ -14,12 +14,13 @@
 #include <iostream>
 #include <limits>
 #include <optional>
+#include <ratio>
 #include <sstream>
 
 #include <gtest/gtest.h>
 
+#include "timezone_handler.hpp"
 #include "utils/exceptions.hpp"
-#include "utils/memory.hpp"
 #include "utils/temporal.hpp"
 
 namespace {
@@ -130,11 +131,11 @@ TEST(TemporalTest, LocalTimeMicrosecondsSinceEpochConversion) {
   check_microseconds(memgraph::utils::LocalTimeParameters{14, 8, 55, 321, 452});
 }
 
-TEST(TemporalTest, LocalDateTimeMicrosecondsSinceEpochConversion) {
+static void test_LocalDateTimeMicrosecondsSinceEpochConversion(int64_t us_offset = 0) {
   const auto check_microseconds = [](const memgraph::utils::DateParameters date_parameters,
                                      const memgraph::utils::LocalTimeParameters &local_time_parameters) {
     memgraph::utils::LocalDateTime initial_local_date_time{date_parameters, local_time_parameters};
-    const auto microseconds = initial_local_date_time.MicrosecondsSinceEpoch();
+    const auto microseconds = initial_local_date_time.SysMicrosecondsSinceEpoch();
     memgraph::utils::LocalDateTime new_local_date_time{microseconds};
     ASSERT_EQ(initial_local_date_time, new_local_date_time);
   };
@@ -150,27 +151,47 @@ TEST(TemporalTest, LocalDateTimeMicrosecondsSinceEpochConversion) {
     memgraph::utils::LocalDateTime local_date_time(memgraph::utils::DateParameters{1970, 1, 1},
                                                    memgraph::utils::LocalTimeParameters{0, 0, 0, 0, 0});
     ASSERT_EQ(local_date_time.MicrosecondsSinceEpoch(), 0);
+    ASSERT_EQ(local_date_time.SysMicrosecondsSinceEpoch(), 0 - us_offset);
   }
   {
     memgraph::utils::LocalDateTime local_date_time(memgraph::utils::DateParameters{1970, 1, 1},
                                                    memgraph::utils::LocalTimeParameters{0, 0, 0, 0, 1});
     ASSERT_GT(local_date_time.MicrosecondsSinceEpoch(), 0);
+    ASSERT_GT(local_date_time.SysMicrosecondsSinceEpoch(), 0 - us_offset);
   }
   {
     memgraph::utils::LocalTimeParameters local_time_parameters{12, 10, 40, 42, 42};
     memgraph::utils::LocalDateTime local_date_time{memgraph::utils::DateParameters{1970, 1, 1}, local_time_parameters};
     ASSERT_EQ(local_date_time.MicrosecondsSinceEpoch(),
               memgraph::utils::LocalTime{local_time_parameters}.MicrosecondsSinceEpoch());
+    ASSERT_EQ(local_date_time.SysMicrosecondsSinceEpoch(),
+              memgraph::utils::LocalTime{local_time_parameters}.MicrosecondsSinceEpoch() - us_offset);
   }
   {
     memgraph::utils::LocalDateTime local_date_time(memgraph::utils::DateParameters{1910, 1, 1},
                                                    memgraph::utils::LocalTimeParameters{0, 0, 0, 0, 0});
+    const auto sys_diff =
+        std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::sys_days(
+                std::chrono::year_month_day(std::chrono::year{1910}, std::chrono::month{1}, std::chrono::day{1}))
+                .time_since_epoch())
+            .count();
     ASSERT_LT(local_date_time.MicrosecondsSinceEpoch(), 0);
+    ASSERT_EQ(local_date_time.MicrosecondsSinceEpoch(), sys_diff);
+    ASSERT_EQ(local_date_time.SysMicrosecondsSinceEpoch(), sys_diff - us_offset);
   }
   {
     memgraph::utils::LocalDateTime local_date_time(memgraph::utils::DateParameters{2021, 1, 1},
                                                    memgraph::utils::LocalTimeParameters{0, 0, 0, 0, 0});
+    const auto sys_diff =
+        std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::sys_days(
+                std::chrono::year_month_day(std::chrono::year{2021}, std::chrono::month{1}, std::chrono::day{1}))
+                .time_since_epoch())
+            .count();
     ASSERT_GT(local_date_time.MicrosecondsSinceEpoch(), 0);
+    ASSERT_EQ(local_date_time.MicrosecondsSinceEpoch(), sys_diff);
+    ASSERT_EQ(local_date_time.SysMicrosecondsSinceEpoch(), sys_diff - us_offset);
   }
   {
     // Assert ordering for dates prior the unix epoch.
@@ -178,7 +199,21 @@ TEST(TemporalTest, LocalDateTimeMicrosecondsSinceEpochConversion) {
     memgraph::utils::LocalDateTime ldt({1969, 12, 31}, {0, 0, 0});
     memgraph::utils::LocalDateTime ldt2({1969, 12, 31}, {23, 59, 59});
     ASSERT_LT(ldt.MicrosecondsSinceEpoch(), ldt2.MicrosecondsSinceEpoch());
+    ASSERT_LT(ldt.SysMicrosecondsSinceEpoch(), ldt2.SysMicrosecondsSinceEpoch());
   }
+}
+
+// Default (UTC) timezone
+TEST(TemporalTest, LocalDateTimeMicrosecondsSinceEpochConversion) {
+  test_LocalDateTimeMicrosecondsSinceEpochConversion();
+}
+
+TEST(TemporalTest, LocalDateTimeMicrosecondsSinceEpochConversionTZ) {
+  HandleTimezone htz;
+  htz.Set("Europe/Rome");
+  test_LocalDateTimeMicrosecondsSinceEpochConversion(htz.GetOffset_us());
+  htz.Set("America/Los_Angeles");
+  test_LocalDateTimeMicrosecondsSinceEpochConversion(htz.GetOffset_us());
 }
 
 TEST(TemporalTest, ZonedDateTimeMicrosecondsSinceEpochConversion) {
@@ -250,38 +285,70 @@ TEST(TemporalTest, ZonedDateTimeDescriptionInGap) {
   std::cout << s.ToString() << std::endl;
 }
 
-TEST(TemporalTest, DurationConversion) {
-  {
-    memgraph::utils::Duration duration{{.minute = 123.25}};
-    const auto microseconds = duration.microseconds;
-    memgraph::utils::LocalDateTime local_date_time{microseconds};
-    ASSERT_EQ(local_date_time.date.year, 1970);
-    ASSERT_EQ(local_date_time.date.month, 1);
-    ASSERT_EQ(local_date_time.date.day, 1);
-    ASSERT_EQ(local_date_time.local_time.hour, 2);
-    ASSERT_EQ(local_date_time.local_time.minute, 3);
-    ASSERT_EQ(local_date_time.local_time.second, 15);
-  };
+void test_DurationConversion(int64_t us_offset = 0) {
+  memgraph::utils::Duration duration{{.minute = 123.25}};
+  const auto microseconds = duration.microseconds;
+  std::cout << microseconds << std::endl;
+  std::cout << "\t" << us_offset << std::endl;
+  std::cout << "\t"
+            << "\t" << (microseconds + us_offset) << std::endl;
+  memgraph::utils::LocalDateTime local_date_time{microseconds - us_offset};  // system time
+  ASSERT_EQ(local_date_time.date().year, 1970);                              // local time
+  ASSERT_EQ(local_date_time.date().month, 1);
+  ASSERT_EQ(local_date_time.date().day, 1);
+  ASSERT_EQ(local_date_time.local_time().hour, 2);
+  ASSERT_EQ(local_date_time.local_time().minute, 3);
+  ASSERT_EQ(local_date_time.local_time().second, 15);
 }
 
-TEST(TemporalTest, LocalDateTimeToDate) {
+TEST(TemporalTest, DurationConversion) { test_DurationConversion(); }
+
+TEST(TemporalTest, DurationConversionTZ) {
+  HandleTimezone htz;
+  htz.Set("Europe/Rome");
+  test_DurationConversion(htz.GetOffset_us());
+  htz.Set("America/Los_Angeles");
+  test_DurationConversion(htz.GetOffset_us());
+}
+
+void test_LocalDateTimeToDate() {
   memgraph::utils::LocalDateTime local_date_time{memgraph::utils::DateParameters{2020, 11, 22},
                                                  memgraph::utils::LocalTimeParameters{13, 21, 40, 123, 456}};
-  memgraph::utils::Date date{local_date_time.date};
+  memgraph::utils::Date date{local_date_time.date()};
   ASSERT_EQ(date.year, 2020);
   ASSERT_EQ(date.month, 11);
   ASSERT_EQ(date.day, 22);
 }
 
-TEST(TemporalTest, LocalDateTimeToLocalTime) {
+TEST(TemporalTest, LocalDateTimeToDate) { test_LocalDateTimeToDate(); }
+
+TEST(TemporalTest, LocalDateTimeToDateTZ) {
+  HandleTimezone htz;
+  htz.Set("Europe/Rome");
+  test_LocalDateTimeToDate();
+  htz.Set("America/Los_Angeles");
+  test_LocalDateTimeToDate();
+}
+
+void test_LocalDateTimeToLocalTime() {
   memgraph::utils::LocalDateTime local_date_time{memgraph::utils::DateParameters{2020, 11, 22},
                                                  memgraph::utils::LocalTimeParameters{13, 21, 40, 123, 456}};
-  memgraph::utils::LocalTime local_time{local_date_time.local_time};
+  memgraph::utils::LocalTime local_time{local_date_time.local_time()};
   ASSERT_EQ(local_time.hour, 13);
   ASSERT_EQ(local_time.minute, 21);
   ASSERT_EQ(local_time.second, 40);
   ASSERT_EQ(local_time.millisecond, 123);
   ASSERT_EQ(local_time.microsecond, 456);
+}
+
+TEST(TemporalTest, LocalDateTimeToLocalTime) { test_LocalDateTimeToLocalTime(); }
+
+TEST(TemporalTest, LocalDateTimeToLocalTimeTZ) {
+  HandleTimezone htz;
+  htz.Set("Europe/Rome");
+  test_LocalDateTimeToLocalTime();
+  htz.Set("America/Los_Angeles");
+  test_LocalDateTimeToLocalTime();
 }
 
 namespace {
@@ -348,7 +415,7 @@ TEST(TemporalTest, LocalTimeParsing) {
   ASSERT_THROW(memgraph::utils::ParseLocalTimeParameters("1920:21"), memgraph::utils::BasicException);
 }
 
-TEST(TemporalTest, LocalDateTimeParsing) {
+void test_LocalDateTimeParsing() {
   const auto check_local_date_time_combinations = [](const auto &dates, const auto &local_times, const bool is_valid) {
     for (const auto &[date_string, date_parameters] : dates) {
       for (const auto &[local_time_string, local_time_parameters] : local_times) {
@@ -366,6 +433,16 @@ TEST(TemporalTest, LocalDateTimeParsing) {
   check_local_date_time_combinations(parsing_test_dates_extended, parsing_test_local_time_extended, true);
   check_local_date_time_combinations(parsing_test_dates_basic, parsing_test_local_time_extended, false);
   check_local_date_time_combinations(parsing_test_dates_extended, parsing_test_local_time_basic, false);
+}
+
+TEST(TemporalTest, LocalDateTimeParsing) { test_LocalDateTimeParsing(); }
+
+TEST(TemporalTest, LocalDateTimeParsingTZ) {
+  HandleTimezone htz;
+  htz.Set("Europe/Rome");
+  test_LocalDateTimeParsing();
+  htz.Set("America/Los_Angeles");
+  test_LocalDateTimeParsing();
 }
 
 TEST(TemporalTest, ZonedDateTimeParsing) {
@@ -547,7 +624,7 @@ TEST(TemporalTest, PrintDuration) {
   ASSERT_EQ(stream.view(), "P-10DT-3H-30M-33.100050S");
 }
 
-TEST(TemporalTest, PrintLocalDateTime) {
+void test_PrintLocalDateTime() {
   const auto unix_epoch = memgraph::utils::Date(memgraph::utils::DateParameters{1970, 1, 1});
   const auto lt = memgraph::utils::LocalTime({13, 2, 40, 100, 50});
   memgraph::utils::LocalDateTime ldt(unix_epoch, lt);
@@ -555,6 +632,16 @@ TEST(TemporalTest, PrintLocalDateTime) {
   stream << ldt;
   ASSERT_TRUE(stream);
   ASSERT_EQ(stream.view(), "1970-01-01T13:02:40.100050");
+}
+
+TEST(TemporalTest, PrintLocalDateTime) { test_PrintLocalDateTime(); }
+
+TEST(TemporalTest, PrintLocalDateTimeTZ) {
+  HandleTimezone htz;
+  htz.Set("Europe/Rome");
+  test_PrintLocalDateTime();
+  htz.Set("America/Los_Angeles");
+  test_PrintLocalDateTime();
 }
 
 TEST(TemporalTest, PrintZonedDateTime) {
@@ -769,7 +856,7 @@ TEST(TemporalTest, DateDelta) {
   ASSERT_EQ(unix_epoch - one_year_after_unix_epoch, memgraph::utils::Duration({.day = -365}));
 }
 
-TEST(TemporalTest, LocalDateTimeAdditionSubtraction) {
+void test_LocalDateTimeAdditionSubtraction() {
   const auto unix_epoch = memgraph::utils::LocalDateTime({1970, 1, 1}, {.hour = 12});
   auto one_day_after_unix_epoch = unix_epoch + memgraph::utils::Duration({.hour = 24});
   auto one_day_after_unix_epoch_symmetrical = memgraph::utils::Duration({.hour = 24}) + unix_epoch;
@@ -795,6 +882,16 @@ TEST(TemporalTest, LocalDateTimeAdditionSubtraction) {
                memgraph::utils::BasicException);
 }
 
+TEST(TemporalTest, LocalDateTimeAdditionSubtraction) { test_LocalDateTimeAdditionSubtraction(); }
+
+TEST(TemporalTest, LocalDateTimeAdditionSubtractionTZ) {
+  HandleTimezone htz;
+  htz.Set("Europe/Rome");
+  test_LocalDateTimeAdditionSubtraction();
+  htz.Set("America/Los_Angeles");
+  test_LocalDateTimeAdditionSubtraction();
+}
+
 TEST(TemporalTest, ZonedDateTimeAdditionSubtraction) {
   using namespace memgraph::utils;
 
@@ -807,7 +904,7 @@ TEST(TemporalTest, ZonedDateTimeAdditionSubtraction) {
   EXPECT_EQ(zdt - one_day, ZonedDateTime({{2024, 3, 21}, {12, 00, 00}, Timezone("Europe/Zagreb")}));
 }
 
-TEST(TemporalTest, LocalDateTimeDelta) {
+void test_LocalDateTimeDelta() {
   const auto unix_epoch = memgraph::utils::LocalDateTime({1970, 1, 1}, {1, 1, 1});
   const auto one_year_after_unix_epoch = memgraph::utils::LocalDateTime({1971, 2, 1}, {12, 1, 1});
   const auto two_years_after_unix_epoch = memgraph::utils::LocalDateTime({1972, 2, 1}, {1, 1, 1, 20, 34});
@@ -815,6 +912,16 @@ TEST(TemporalTest, LocalDateTimeDelta) {
   ASSERT_EQ(unix_epoch - one_year_after_unix_epoch, memgraph::utils::Duration({.day = -396, .hour = -11}));
   ASSERT_EQ(two_years_after_unix_epoch - unix_epoch,
             memgraph::utils::Duration({.day = 761, .millisecond = 20, .microsecond = 34}));
+}
+
+TEST(TemporalTest, LocalDateTimeDelta) { test_LocalDateTimeDelta(); }
+
+TEST(TemporalTest, LocalDateTimeDeltaTZ) {
+  HandleTimezone htz;
+  htz.Set("Europe/Rome");
+  test_LocalDateTimeDelta();
+  htz.Set("America/Los_Angeles");
+  test_LocalDateTimeDelta();
 }
 
 TEST(TemporalTest, ZonedDateTimeDelta) {
@@ -856,7 +963,7 @@ TEST(TemporalTest, LocalTimeConvertsToString) {
   ASSERT_EQ(lt4_expected_str, lt4.ToString());
 }
 
-TEST(TemporalTest, LocalDateTimeConvertsToString) {
+void test_LocalDateTimeConvertsToString() {
   const auto ldt1 = memgraph::utils::LocalDateTime({1970, 1, 2}, {23, 02, 59});
   const std::string ldt1_expected_str = "1970-01-02T23:02:59.000000";
   const auto ldt2 = memgraph::utils::LocalDateTime({1970, 1, 2}, {23, 02, 59, 456, 123});
@@ -867,6 +974,16 @@ TEST(TemporalTest, LocalDateTimeConvertsToString) {
   ASSERT_EQ(ldt1_expected_str, ldt1.ToString());
   ASSERT_EQ(ldt2_expected_str, ldt2.ToString());
   ASSERT_EQ(ldt3_expected_str, ldt3.ToString());
+}
+
+TEST(TemporalTest, LocalDateTimeConvertsToString) { test_LocalDateTimeConvertsToString(); }
+
+TEST(TemporalTest, LocalDateTimeConvertsToStringTZ) {
+  HandleTimezone htz;
+  htz.Set("Europe/Rome");
+  test_LocalDateTimeConvertsToString();
+  htz.Set("America/Los_Angeles");
+  test_LocalDateTimeConvertsToString();
 }
 
 TEST(TemporalTest, ZonedDateTimeConvertsToString) {

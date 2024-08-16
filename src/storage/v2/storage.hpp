@@ -42,6 +42,7 @@
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertices_iterable.hpp"
+#include "utils/compressor.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/event_gauge.hpp"
 #include "utils/event_histogram.hpp"
@@ -93,6 +94,8 @@ struct StorageInfo {
   IsolationLevel isolation_level;
   bool durability_snapshot_enabled;
   bool durability_wal_enabled;
+  bool property_store_compression_enabled;
+  utils::CompressionLevel property_store_compression_level;
 };
 
 struct EventInfo {
@@ -118,6 +121,8 @@ static inline nlohmann::json ToJson(const StorageInfo &info) {
   res["isolation_level"] = storage::IsolationLevelToString(info.isolation_level);
   res["durability"] = {{"snapshot_enabled", info.durability_snapshot_enabled},
                        {"WAL_enabled", info.durability_wal_enabled}};
+  res["property_store_compression_enabled"] = info.property_store_compression_enabled;
+  res["property_store_compression_level"] = utils::CompressionLevelToString(info.property_store_compression_level);
 
   return res;
 }
@@ -284,6 +289,10 @@ class Storage {
     // NOLINTNEXTLINE(google-default-arguments)
     virtual utils::BasicResult<StorageManipulationError, void> Commit(CommitReplArgs reparg = {},
                                                                       DatabaseAccessProtector db_acc = {}) = 0;
+
+    // NOLINTNEXTLINE(google-default-arguments)
+    virtual utils::BasicResult<StorageManipulationError, void> PeriodicCommit(CommitReplArgs reparg = {},
+                                                                              DatabaseAccessProtector db_acc = {}) = 0;
 
     virtual void Abort() = 0;
 

@@ -230,6 +230,12 @@ bool ReplicationHandler::DoReplicaToMainPromotion(const utils::UUID &main_uuid) 
     storage->timestamp_ = std::max(storage->timestamp_, storage->repl_storage_state_.last_commit_timestamp_.load());
   });
 
+  // STEP 4) Resume TTL
+  dbms_handler_.ForEach([](dbms::DatabaseAccess db_acc) {
+    auto &ttl = db_acc->ttl();
+    ttl.Resume();
+  });
+
   return true;
 };
 
@@ -315,7 +321,7 @@ auto ReplicationHandler::ShowReplicas() const -> utils::BasicResult<query::ShowR
         auto *storage = db_acc->storage();
         // ATM we only support IN_MEMORY_TRANSACTIONAL
         if (storage->storage_mode_ != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) return;
-        if (!full_info && storage->name() == dbms::kDefaultDB) return;
+        if (!full_info && storage->name() != dbms::kDefaultDB) return;
         [[maybe_unused]] auto ok =
             storage->repl_storage_state_.WithClient(replica.name_, [&](storage::ReplicationStorageClient &client) {
               auto ts_info = client.GetTimestampInfo(storage);

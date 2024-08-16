@@ -64,6 +64,7 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
     switch (info_query.info_type_) {
       case SystemInfoQuery::InfoType::STORAGE:
       case SystemInfoQuery::InfoType::BUILD:
+      case SystemInfoQuery::InfoType::ACTIVE_USERS:
         AddPrivilege(AuthQuery::Privilege::STATS);
         break;
     }
@@ -134,6 +135,13 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
   void Visit(AlterEnumAddValueQuery & /*enum_query*/) override { AddPrivilege(AuthQuery::Privilege::CREATE); }
 
   void Visit(AlterEnumUpdateValueQuery & /*enum_query*/) override { AddPrivilege(AuthQuery::Privilege::CREATE); }
+
+  void Visit(TtlQuery & /*ttl_query*/) override {
+    AddPrivilege(AuthQuery::Privilege::CONFIG);
+    AddPrivilege(AuthQuery::Privilege::INDEX);
+    AddPrivilege(AuthQuery::Privilege::MATCH);
+    AddPrivilege(AuthQuery::Privilege::DELETE);
+  }
 
   void Visit(AlterEnumRemoveValueQuery & /*enum_query*/) override { AddPrivilege(AuthQuery::Privilege::DELETE); }
 

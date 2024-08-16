@@ -19,6 +19,7 @@
 #include <mutex>
 #include <optional>
 #include <system_error>
+#include <type_traits>
 #include <utility>
 
 #include "auth/auth.hpp"
@@ -65,6 +66,8 @@ struct Statistics {
   uint64_t isolation_levels[3];  //!< Number of databases in each isolation level [SNAPSHOT, READ_COMM, READ_UNC]
   uint64_t snapshot_enabled;     //!< Number of databases with snapshots enabled
   uint64_t wal_enabled;          //!< Number of databases with WAL enabled
+  uint64_t property_store_compression_enabled;   //!< Number of databases with property store compression enabled
+  uint64_t property_store_compression_level[3];  //!< Number of databases with each compression level [LOW, MID, HIGH]
 };
 
 static inline nlohmann::json ToJson(const Statistics &stats) {
@@ -85,6 +88,11 @@ static inline nlohmann::json ToJson(const Statistics &stats) {
                              {storage::IsolationLevelToString((storage::IsolationLevel)1), stats.isolation_levels[1]},
                              {storage::IsolationLevelToString((storage::IsolationLevel)2), stats.isolation_levels[2]}};
   res["durability"] = {{"snapshot_enabled", stats.snapshot_enabled}, {"WAL_enabled", stats.wal_enabled}};
+  res["property_store_compression_enabled"] = stats.property_store_compression_enabled;
+  res["property_store_compression_level"] = {
+      {utils::CompressionLevelToString(utils::CompressionLevel::LOW), stats.property_store_compression_level[0]},
+      {utils::CompressionLevelToString(utils::CompressionLevel::MID), stats.property_store_compression_level[1]},
+      {utils::CompressionLevelToString(utils::CompressionLevel::HIGH), stats.property_store_compression_level[2]}};
 
   return res;
 }
@@ -317,6 +325,11 @@ class DbmsHandler {
         ++stats.isolation_levels[(int)storage_info.isolation_level];
         stats.snapshot_enabled += storage_info.durability_snapshot_enabled;
         stats.wal_enabled += storage_info.durability_wal_enabled;
+        stats.property_store_compression_enabled += storage_info.property_store_compression_enabled;
+
+        using underlying_type = std::underlying_type_t<utils::CompressionLevel>;
+        ++stats.property_store_compression_level[static_cast<underlying_type>(
+            storage_info.property_store_compression_level)];
       }
     }
     return stats;
@@ -393,6 +406,25 @@ class DbmsHandler {
       }
     }
   }
+
+#ifdef MG_ENTERPRISE
+  /**
+   * @brief Restore TTL of all currently defined databases.
+   *
+   * @param ic global InterpreterContext
+   */
+  void RestoreTTL(query::InterpreterContext *ic) {
+    auto wr = std::lock_guard{lock_};
+    for (auto &[_, db_gk] : db_handler_) {
+      auto db_acc = db_gk.access();
+      if (db_acc) {
+        auto *db = db_acc->get();
+        spdlog::debug("Restoring TTL for database \"{}\"", db->name());
+        db->ttl().Restore(*db_acc, ic);
+      }
+    }
+  }
+#endif
 
   /**
    * @brief todo

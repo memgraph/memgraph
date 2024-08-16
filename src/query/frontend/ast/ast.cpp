@@ -180,8 +180,8 @@ constexpr utils::TypeInfo query::Query::kType{utils::TypeId::AST_QUERY, "Query",
 
 constexpr utils::TypeInfo query::IndexHint::kType{utils::TypeId::AST_INDEX_HINT, "IndexHint", &query::Tree::kType};
 
-constexpr utils::TypeInfo query::UsingStatement::kType{utils::TypeId::AST_USING_STATEMENT, "UsingStatement",
-                                                       &query::Tree::kType};
+constexpr utils::TypeInfo query::PreQueryDirectives::kType{utils::TypeId::AST_PRE_QUERY_DIRECTIVES,
+                                                           "PreQueryDirectives", &query::Tree::kType};
 
 constexpr utils::TypeInfo query::CypherQuery::kType{utils::TypeId::AST_CYPHER_QUERY, "CypherQuery",
                                                     &query::Query::kType};
@@ -339,5 +339,7 @@ constexpr utils::TypeInfo query::DropEnumQuery::kType{utils::TypeId::AST_DROP_EN
 
 constexpr utils::TypeInfo query::ShowSchemaInfoQuery::kType{utils::TypeId::AST_SHOW_SCHEMA_INFO_QUERY,
                                                             "ShowSchemaInfoQuery", &query::Query::kType};
+
+constexpr utils::TypeInfo query::TtlQuery::kType{utils::TypeId::AST_TTL_QUERY, "TtlQuery", &query::Query::kType};
 
 }  // namespace memgraph

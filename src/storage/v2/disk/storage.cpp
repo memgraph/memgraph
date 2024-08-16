@@ -889,6 +889,8 @@ StorageInfo DiskStorage::GetInfo() {
       config_.durability.snapshot_on_exit;
   info.durability_wal_enabled =
       config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+  info.property_store_compression_enabled = config_.salient.items.property_store_compression_enabled;
+  info.property_store_compression_level = config_.salient.property_store_compression_level;
   return info;
 }
 
@@ -1839,6 +1841,12 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
 
   return {};
 }
+
+// NOLINTNEXTLINE(google-default-arguments)
+utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::PeriodicCommit(
+    CommitReplArgs /*reparg*/, DatabaseAccessProtector /*db_acc*/) {
+  throw utils::NotYetImplemented("Periodic commit is not yet supported using on-disk storage mode.");
+};
 
 std::vector<std::pair<std::string, std::string>> DiskStorage::SerializeVerticesForLabelIndex(LabelId label) {
   std::vector<std::pair<std::string, std::string>> vertices_to_be_indexed;
