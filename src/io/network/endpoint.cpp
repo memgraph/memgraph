@@ -86,7 +86,7 @@ std::optional<std::tuple<std::string, uint16_t, Endpoint::IpFamily>> Endpoint::T
   auto const parse_ip_family =
       [&address, &port](std::function<RetValue(addrinfo *, uint16_t)> const &processing_fn,
                         auto family) -> std::optional<std::tuple<std::string, uint16_t, Endpoint::IpFamily>> {
-    addrinfo hints{
+    addrinfo const hints{
         .ai_flags = AI_PASSIVE,     // fill with IPv4 or IPv6
         .ai_family = family,        // IPv4 or IPv6
         .ai_socktype = SOCK_STREAM  // TCP socket
@@ -99,7 +99,8 @@ std::optional<std::tuple<std::string, uint16_t, Endpoint::IpFamily>> Endpoint::T
     }};
     auto status = getaddrinfo(std::string(address).c_str(), std::to_string(port).c_str(), &hints, &info);
     if (status != 0) {
-      throw NetworkError("Couldn't resolve address: {}", address);
+      spdlog::trace("Couldn't resolve address: {} in family {}", address, family);
+      return std::nullopt;
     }
 
     auto *socket_addr = info;
