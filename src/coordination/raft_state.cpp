@@ -69,7 +69,6 @@ RaftState::RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb
     auto const durability_store = std::make_shared<kvstore::KVStore>(log_store_path);
 
     log_store_durability.durability_store_ = durability_store;
-    log_store_durability.active_log_store_version_ = kActiveVersion;
     log_store_durability.stored_log_store_version_ = static_cast<LogStoreVersion>(
         GetOrSetDefaultVersion(*durability_store, kLogStoreVersion, static_cast<int>(kActiveVersion), logger_wrapper));
     state_manager_config.log_store_durability_ = log_store_durability;
@@ -78,29 +77,42 @@ RaftState::RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb
   state_machine_ = cs_new<CoordinatorStateMachine>(logger_wrapper, log_store_durability);
   state_manager_ = cs_new<CoordinatorStateManager>(state_manager_config, logger_wrapper, observer);
 
-  auto last_commit_index_snapshot = state_machine_->last_commit_index();
+  auto const last_commit_index_snapshot = [this]() -> uint64_t {
+    if (auto const last_snapshot = state_machine_->last_snapshot(); last_snapshot != nullptr) {
+      return last_snapshot->get_last_log_idx();
+    }
+    return 0;
+  }();  // iile
+
   auto log_store = state_manager_->load_log_store();
 
   if (!log_store) {
     return;
   }
 
-  auto const next_slot_commit_index_logs = log_store->next_slot();
-  spdlog::trace("Last commit index from snapshot: {}, last commit index from logs: {}", last_commit_index_snapshot,
-                next_slot_commit_index_logs - 1);
-  auto cntr = last_commit_index_snapshot + 1;
-  auto log_entries = log_store->log_entries(cntr, next_slot_commit_index_logs);
-  // TODO(antoniofilipovic) Ranges iota
-  for (auto &log_entry : *log_entries) {
-    spdlog::trace("Applying log entry from log store with index {}", cntr);
-    if (log_entry->get_val_type() == nuraft::log_val_type::conf) {
-      auto cluster_config = state_manager_->load_config();
-      state_machine_->commit_config(cntr, cluster_config);
-      cntr++;
+  auto const last_committed_index_state_machine_{state_machine_->last_commit_index()};
+  spdlog::trace("Last commited index from snapshot: {}, last commited index in state machine: {}",
+                last_commit_index_snapshot, last_committed_index_state_machine_);
+  auto *coordinator_log_store = static_cast<CoordinatorLogStore *>(log_store.get());
+  auto log_entries =
+      coordinator_log_store->GetAllEntriesRange(last_commit_index_snapshot, last_committed_index_state_machine_ + 1);
+
+  for (auto const &entry : log_entries) {
+    if (entry.second == nullptr) {
+      spdlog::error("Log entry for id {} is nullptr", entry.first);
       continue;
     }
-    state_machine_->commit(cntr, log_entry->get_buf());
-    cntr++;
+    spdlog::trace("Applying log entry from log store with index {}", entry.first);
+    if (entry.second->get_val_type() == nuraft::log_val_type::conf) {
+      auto cluster_config = state_manager_->load_config();
+      state_machine_->commit_config(entry.first, cluster_config);
+    } else {
+      state_machine_->commit(entry.first, entry.second->get_buf());
+    }
+  }
+
+  if (log_store_durability.stored_log_store_version_ != kActiveVersion) {
+    log_store_durability.durability_store_->Put(kLogStoreVersion, std::to_string(static_cast<int>(kActiveVersion)));
   }
 }
 
