@@ -23,7 +23,7 @@
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 #include "query/plan/pretty_print.hpp"
-#include "query/plan/rewrite/edge_type_index_lookup.hpp"
+#include "query/plan/rewrite/edge_index_lookup.hpp"
 #include "query/plan/rewrite/enum.hpp"
 #include "query/plan/rewrite/index_lookup.hpp"
 #include "query/plan/rewrite/join.hpp"
@@ -62,8 +62,8 @@ class PostProcessor final {
                                                     context->ast_storage, context->db, index_hints_);
     auto join_plan =
         RewriteWithJoinRewriter(std::move(index_lookup_plan), context->symbol_table, context->ast_storage, context->db);
-    // auto edge_index_plan = RewriteWithEdgeTypeIndexRewriter(std::move(join_plan), context->symbol_table,
-    //                                                         context->ast_storage, context->db);
+    auto edge_index_plan =
+        RewriteWithEdgeIndexRewriter(std::move(join_plan), context->symbol_table, context->ast_storage, context->db);
     auto periodic_delete_plan =
         RewritePeriodicDelete(std::move(join_plan), context->symbol_table, context->ast_storage, context->db);
     return periodic_delete_plan;
