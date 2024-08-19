@@ -94,6 +94,7 @@ class ScanAllByLabelPropertyRange;
 class ScanAllByLabelPropertyValue;
 class ScanAllByLabelProperty;
 class ScanAllById;
+class ScanAllByEdge;
 class ScanAllByEdgeType;
 class ScanAllByEdgeTypeProperty;
 class ScanAllByEdgeId;
@@ -134,11 +135,11 @@ class PeriodicSubquery;
 
 using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
     Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel, ScanAllByLabelPropertyRange, ScanAllByLabelPropertyValue,
-    ScanAllByLabelProperty, ScanAllById, ScanAllByEdgeType, ScanAllByEdgeTypeProperty, ScanAllByEdgeId, Expand,
-    ExpandVariable, ConstructNamedPath, Filter, Produce, Delete, SetProperty, SetProperties, SetLabels, RemoveProperty,
-    RemoveLabels, EdgeUniquenessFilter, Accumulate, Aggregate, Skip, Limit, OrderBy, Merge, Optional, Unwind, Distinct,
-    Union, Cartesian, CallProcedure, LoadCsv, Foreach, EmptyResult, EvaluatePatternFilter, Apply, IndexedJoin, HashJoin,
-    RollUpApply, PeriodicCommit, PeriodicSubquery>;
+    ScanAllByLabelProperty, ScanAllById, ScanAllByEdge, ScanAllByEdgeType, ScanAllByEdgeTypeProperty, ScanAllByEdgeId,
+    Expand, ExpandVariable, ConstructNamedPath, Filter, Produce, Delete, SetProperty, SetProperties, SetLabels,
+    RemoveProperty, RemoveLabels, EdgeUniquenessFilter, Accumulate, Aggregate, Skip, Limit, OrderBy, Merge, Optional,
+    Unwind, Distinct, Union, Cartesian, CallProcedure, LoadCsv, Foreach, EmptyResult, EvaluatePatternFilter, Apply,
+    IndexedJoin, HashJoin, RollUpApply, PeriodicCommit, PeriodicSubquery>;
 
 using LogicalOperatorLeafVisitor = utils::LeafVisitor<Once>;
 
@@ -591,6 +592,33 @@ class ScanAllByLabel : public memgraph::query::plan::ScanAll {
     object->output_symbol_ = output_symbol_;
     object->view_ = view_;
     object->label_ = label_;
+    return object;
+  }
+};
+
+class ScanAllByEdge : public memgraph::query::plan::ScanAll {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  ScanAllByEdge() = default;
+  ScanAllByEdge(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
+                storage::View view = storage::View::OLD);
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+  std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+
+  bool HasSingleInput() const override { return true; }
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
+
+  std::string ToString() const override { return fmt::format("ScanAllByEdge ({})", output_symbol_.name()); }
+
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
+    auto object = std::make_unique<ScanAllByEdge>();
+    object->input_ = input_ ? input_->Clone(storage) : nullptr;
+    object->output_symbol_ = output_symbol_;
+    object->view_ = view_;
     return object;
   }
 };
