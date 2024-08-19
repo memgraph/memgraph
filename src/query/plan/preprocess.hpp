@@ -152,6 +152,7 @@ struct Expansion {
   NodeAtom *node2 = nullptr;
   // ExpansionGroupId represents a distinct part of the matching which is not tied to any other symbols.
   ExpansionGroupId expansion_group_id = ExpansionGroupId();
+  bool expand_from_edge{false};
 };
 
 struct PatternComprehensionMatching;
@@ -485,8 +486,8 @@ struct Matching {
   std::vector<std::unordered_set<Symbol>> edge_symbols;
   /// Information on used filter expressions while matching.
   Filters filters;
-  /// Maps node symbols to expansions which bind them.
-  std::unordered_map<Symbol, std::set<size_t>> node_symbol_to_expansions{};
+  /// Maps atom symbols to expansions which bind them.
+  std::unordered_map<Symbol, std::set<size_t>> atom_symbol_to_expansions{};
   /// Tracker of the total number of expansion groups for correct assigning of expansion group IDs
   size_t number_of_expansion_groups{0};
   /// Maps every node symbol to its expansion group ID

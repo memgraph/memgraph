@@ -703,6 +703,27 @@ class RuleBasedPlanner {
       std::vector<Symbol> &new_symbols, std::unordered_map<Symbol, std::vector<Symbol>> &named_paths, Filters &filters,
       storage::View view) {
     const auto &node1_symbol = symbol_table.at(*expansion.node1->identifier_);
+    if (expansion.expand_from_edge) {
+      const auto &node2_symbol = symbol_table.at(*expansion.node2->identifier_);
+      const auto &edge_symbol = symbol_table.at(*expansion.edge->identifier_);
+      // We have just bound this symbol, so generate ScanAll which fills it.
+      last_op = std::make_unique<ScanAllByEdge>(std::move(last_op), node1_symbol, view);
+
+      new_symbols.emplace_back(node1_symbol);
+      new_symbols.emplace_back(edge_symbol);
+      new_symbols.emplace_back(node2_symbol);
+
+      bound_symbols.insert(node1_symbol);
+      bound_symbols.insert(edge_symbol);
+      bound_symbols.insert(node2_symbol);
+
+      last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table);
+      last_op = impl::GenNamedPaths(std::move(last_op), bound_symbols, named_paths);
+      last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table);
+
+      return last_op;
+    }
+
     if (bound_symbols.insert(node1_symbol).second) {
       // We have just bound this symbol, so generate ScanAll which fills it.
       last_op = std::make_unique<ScanAll>(std::move(last_op), node1_symbol, view);

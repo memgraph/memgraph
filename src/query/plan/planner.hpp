@@ -28,6 +28,7 @@
 #include "query/plan/rewrite/index_lookup.hpp"
 #include "query/plan/rewrite/join.hpp"
 #include "query/plan/rewrite/periodic_delete.hpp"
+#include "query/plan/rewrite/plan_validator.hpp"
 #include "query/plan/rule_based_planner.hpp"
 #include "query/plan/variable_start_planner.hpp"
 #include "query/plan/vertex_count_cache.hpp"
@@ -61,12 +62,14 @@ class PostProcessor final {
                                                     context->ast_storage, context->db, index_hints_);
     auto join_plan =
         RewriteWithJoinRewriter(std::move(index_lookup_plan), context->symbol_table, context->ast_storage, context->db);
-    auto edge_index_plan = RewriteWithEdgeTypeIndexRewriter(std::move(join_plan), context->symbol_table,
-                                                            context->ast_storage, context->db);
+    // auto edge_index_plan = RewriteWithEdgeTypeIndexRewriter(std::move(join_plan), context->symbol_table,
+    //                                                         context->ast_storage, context->db);
     auto periodic_delete_plan =
-        RewritePeriodicDelete(std::move(edge_index_plan), context->symbol_table, context->ast_storage, context->db);
+        RewritePeriodicDelete(std::move(join_plan), context->symbol_table, context->ast_storage, context->db);
     return periodic_delete_plan;
   }
+
+  bool IsValidPlan(const std::unique_ptr<LogicalOperator> &plan) { return query::plan::ValidatePlan(*plan); }
 
   template <class TVertexCounts>
   PlanCost EstimatePlanCost(const std::unique_ptr<LogicalOperator> &plan, TVertexCounts *vertex_counts,
@@ -117,10 +120,15 @@ auto MakeLogicalPlan(TPlanningContext *context, TPlanPostProcess *post_process, 
   std::optional<ProcessedPlan> curr_plan;
   if (use_variable_planner) {
     auto plans = MakeLogicalPlanForSingleQuery<VariableStartPlanner>(query_parts, context);
+    bool valid_plan_found = false;
     for (auto plan : plans) {
       // Plans are generated lazily and the current plan will disappear, so
       // it's ok to move it.
       auto rewritten_plan = post_process->Rewrite(std::move(plan), context);
+      if (post_process->IsValidPlan(rewritten_plan)) {
+        continue;
+      }
+      valid_plan_found = true;
       auto plan_cost = post_process->EstimatePlanCost(rewritten_plan, &vertex_counts, *context->symbol_table);
       // if we have a plan that uses index hints, we reject all the plans that don't use index hinting because we want
       // to force the plan using the index hints to be executed
@@ -139,6 +147,8 @@ auto MakeLogicalPlan(TPlanningContext *context, TPlanPostProcess *post_process, 
         total_cost = plan_cost.cost;
       }
     }
+
+    MG_ASSERT(valid_plan_found, "Could not create a valid query plan!");
   } else {
     auto plan = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(query_parts, context);
     auto rewritten_plan = post_process->Rewrite(std::move(plan), context);

@@ -110,6 +110,7 @@ extern const Event ScanAllByLabelPropertyRangeOperator;
 extern const Event ScanAllByLabelPropertyValueOperator;
 extern const Event ScanAllByLabelPropertyOperator;
 extern const Event ScanAllByIdOperator;
+extern const Event ScanAllByEdgeOperator;
 extern const Event ScanAllByEdgeTypeOperator;
 extern const Event ScanAllByEdgeTypePropertyOperator;
 extern const Event ScanAllByEdgeIdOperator;
@@ -655,6 +656,23 @@ UniqueCursorPtr ScanAllByLabel::MakeCursor(utils::MemoryResource *mem) const {
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
                                                                 view_, std::move(vertices), "ScanAllByLabel");
+}
+
+ScanAllByEdge::ScanAllByEdge(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::View view)
+    : ScanAll(input, output_symbol, view) {}
+
+ACCEPT_WITH_INPUT(ScanAllByEdge)
+
+UniqueCursorPtr ScanAllByEdge::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgeOperator);
+
+  throw utils::NotYetImplemented("Sequential scan over edges!");
+}
+
+std::vector<Symbol> ScanAllByEdge::ModifiedSymbols(const SymbolTable &table) const {
+  auto symbols = input_->ModifiedSymbols(table);
+  symbols.emplace_back(output_symbol_);
+  return symbols;
 }
 
 ScanAllByEdgeType::ScanAllByEdgeType(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
