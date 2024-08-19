@@ -73,6 +73,9 @@ void Tracking::Print(NameIdMapper &name_id_mapper) {
 nlohmann::json Tracking::ToJson(NameIdMapper &name_id_mapper) {
   auto json = nlohmann::json::object();
 
+  // Clean up unused stats
+  CleanUp();
+
   // Handle NODES
   const auto &[nodes_itr, _] = json.emplace("nodes", nlohmann::json::array());
   auto &nodes = nodes_itr.value();

@@ -100,7 +100,16 @@ struct Tracking {
     return vertex_state_[key];
   }
 
-  TrackingInfo &operator[](const EdgeType &key) { return edge_state_[key]; }
+  TrackingInfo &operator[](const EdgeType &key) {
+    auto [id, from, to] = key;
+    if (!std::is_sorted(from.begin(), from.end())) {
+      std::sort(from.begin(), from.end());
+    }
+    if (!std::is_sorted(to.begin(), to.end())) {
+      std::sort(to.begin(), to.end());
+    }
+    return edge_state_[{id, from, to}];
+  }
 
   void CleanUp();
 
@@ -254,7 +263,7 @@ class VertexHandler {
       remove_property_.emplace(key, value);
     }
     // Still holding on to the property after commit?
-    if (vertex_.properties.HasProperty(key)) {
+    if (!vertex_.deleted && vertex_.properties.HasProperty(key)) {
       add_property_.try_emplace(key, vertex_.properties.GetProperty(key));
     }
   }
@@ -324,7 +333,7 @@ class EdgeHandler {
       remove_property_.emplace(key, value);
     }
     // Still holding on to the property after commit?
-    if (edge_.properties.HasProperty(key)) {
+    if (!edge_.deleted && edge_.properties.HasProperty(key)) {
       // We are going in order from newest to oldest; so we only want the first hit (latest value)
       add_property_.try_emplace(key, edge_.properties.GetProperty(key));
     }
