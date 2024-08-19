@@ -63,6 +63,10 @@ class Memgraph:
         if self.args.storage_snapshot_on_exit:
             database_args += ["--storage-snapshot-on-exit"]
 
+        # SHOW SCHEMA INFO has to enable edge metadata (or edge index); otherwise it is unusable
+        database_args += ["--storage-properties-on-edges"]
+        database_args += ["--storage-enable-edges-metadata"]
+
         # find executable path
         runner_bin = self.args.runner_bin
 
