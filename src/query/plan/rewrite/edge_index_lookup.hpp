@@ -12,7 +12,7 @@
 /// @file
 /// This file provides a plan rewriter which replaces `ScanAll` and `Expand`
 /// operations with `ScanAllByEdgeType` if possible. The public entrypoint is
-/// `RewriteWithEdgeTypeIndexRewriter`.
+/// `RewriteWithEdgeIndexRewriter`.
 
 #pragma once
 
@@ -36,9 +36,9 @@ namespace memgraph::query::plan {
 namespace impl {
 
 template <class TDbAccessor>
-class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
+class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
  public:
-  EdgeTypeIndexRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db)
+  EdgeIndexRewriter(SymbolTable *symbol_table, AstStorage *ast_storage, TDbAccessor *db)
       : symbol_table_(symbol_table), ast_storage_(ast_storage), db_(db) {}
 
   using HierarchicalLogicalOperatorVisitor::PostVisit;
@@ -643,9 +643,7 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool is_simple_expand_ = true;
 
-  bool DefaultPreVisit() override {
-    throw utils::NotYetImplemented("Operator not yet covered by EdgeTypeIndexRewriter");
-  }
+  bool DefaultPreVisit() override { throw utils::NotYetImplemented("Operator not yet covered by EdgeIndexRewriter"); }
 
   std::unique_ptr<ScanAll> GenEdgeTypeScan(const Expand &expand) {
     const auto &input = expand.input();
@@ -689,7 +687,7 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
   }
 
   void RewriteBranch(std::shared_ptr<LogicalOperator> *branch) {
-    EdgeTypeIndexRewriter<TDbAccessor> rewriter(symbol_table_, ast_storage_, db_);
+    EdgeIndexRewriter<TDbAccessor> rewriter(symbol_table_, ast_storage_, db_);
     (*branch)->Accept(rewriter);
     if (rewriter.new_root_) {
       *branch = rewriter.new_root_;
@@ -700,10 +698,10 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 }  // namespace impl
 
 template <class TDbAccessor>
-std::unique_ptr<LogicalOperator> RewriteWithEdgeTypeIndexRewriter(std::unique_ptr<LogicalOperator> root_op,
-                                                                  SymbolTable *symbol_table, AstStorage *ast_storage,
-                                                                  TDbAccessor *db) {
-  impl::EdgeTypeIndexRewriter<TDbAccessor> rewriter(symbol_table, ast_storage, db);
+std::unique_ptr<LogicalOperator> RewriteWithEdgeIndexRewriter(std::unique_ptr<LogicalOperator> root_op,
+                                                              SymbolTable *symbol_table, AstStorage *ast_storage,
+                                                              TDbAccessor *db) {
+  impl::EdgeIndexRewriter<TDbAccessor> rewriter(symbol_table, ast_storage, db);
   root_op->Accept(rewriter);
   return root_op;
 }
