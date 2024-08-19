@@ -302,7 +302,9 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
     storage->edge_id_ = recovery_info.next_edge_id;
     storage->timestamp_ = std::max(storage->timestamp_, recovery_info.next_timestamp);
     storage->repl_storage_state_.last_durable_timestamp_ = recovery_info.next_timestamp - 1;
-    storage->repl_storage_state_.broken_data_chain_ = true;
+
+    // Reset WAL chain
+    storage->wal_seq_num_ = 0;
 
     spdlog::trace("Recovering indices and constraints from snapshot.");
     memgraph::storage::durability::RecoverIndicesAndStats(recovered_snapshot.indices_constraints.indices,
