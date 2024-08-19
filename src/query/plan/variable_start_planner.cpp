@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,6 +17,7 @@
 
 #include "utils/flag_validation.hpp"
 #include "utils/logging.hpp"
+#include "utils/typeinfo.hpp"
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_uint64(query_max_plans, 1000U, "Maximum number of generated plans for a query.",
@@ -27,16 +28,17 @@ namespace memgraph::query::plan::impl {
 namespace {
 
 // Add applicable expansions for `node_symbol` to `next_expansions`. These
-// expansions are removed from `node_symbol_to_expansions`, while
+// expansions are removed from `atom_symbol_to_expansions`, while
 // `seen_expansions` and `expanded_symbols` are populated with new data.
-void AddNextExpansions(const Symbol &node_symbol, const Matching &matching, const SymbolTable &symbol_table,
+void AddNextExpansions(const Symbol &atom_symbol, const Matching &matching, const SymbolTable &symbol_table,
                        std::unordered_set<Symbol> &expanded_symbols,
-                       std::unordered_map<Symbol, std::set<size_t>> &node_symbol_to_expansions,
+                       std::unordered_map<Symbol, std::set<size_t>> &atom_symbol_to_expansions,
                        std::unordered_set<size_t> &seen_expansions, std::queue<Expansion> &next_expansions) {
-  auto node_to_expansions_it = node_symbol_to_expansions.find(node_symbol);
-  if (node_to_expansions_it == node_symbol_to_expansions.end()) {
+  auto atom_to_expansions_it = atom_symbol_to_expansions.find(atom_symbol);
+  if (atom_to_expansions_it == atom_symbol_to_expansions.end()) {
     return;
   }
+
   // Returns true if the expansion is a regular expand or if it is a variable
   // path expand, but with bound symbols used inside the range expression.
   auto can_expand = [&](auto &expansion) {
@@ -53,26 +55,35 @@ void AddNextExpansions(const Symbol &node_symbol, const Matching &matching, cons
     }
     return true;
   };
-  auto &node_expansions = node_to_expansions_it->second;
-  auto node_expansions_it = node_expansions.begin();
-  while (node_expansions_it != node_to_expansions_it->second.end()) {
-    auto expansion_id = *node_expansions_it;
+
+  auto &atom_expansions = atom_to_expansions_it->second;
+  auto atom_expansions_it = atom_expansions.begin();
+  while (atom_expansions_it != atom_to_expansions_it->second.end()) {
+    auto expansion_id = *atom_expansions_it;
     if (seen_expansions.find(expansion_id) != seen_expansions.end()) {
       // Skip and erase seen (already expanded) expansions.
-      node_expansions_it = node_expansions.erase(node_expansions_it);
+      atom_expansions_it = atom_expansions.erase(atom_expansions_it);
       continue;
     }
     auto expansion = matching.expansions[expansion_id];
     if (!can_expand(expansion)) {
       // Skip but save expansions which need other symbols for later.
-      ++node_expansions_it;
+      ++atom_expansions_it;
       continue;
     }
-    if (symbol_table.at(*expansion.node1->identifier_) != node_symbol) {
+
+    if (symbol_table.at(*expansion.node1->identifier_) != atom_symbol) {
       // We are not expanding from node1, so flip the expansion.
-      DMG_ASSERT(expansion.node2 && symbol_table.at(*expansion.node2->identifier_) == node_symbol,
-                 "Expected node_symbol to be bound in node2");
-      if (expansion.edge->type_ != EdgeAtom::Type::BREADTH_FIRST && !expansion.edge->filter_lambda_.accumulated_path) {
+      bool is_expanding_from_node2 = symbol_table.at(*expansion.node2->identifier_) == atom_symbol;
+      bool is_expanding_from_edge = symbol_table.at(*expansion.edge->identifier_) == atom_symbol;
+
+      DMG_ASSERT(expansion.node2 && (is_expanding_from_node2 || is_expanding_from_edge),
+                 "Expected node_symbol or edge_symbol to be bound");
+
+      // if we are expanding from an edge, we will not do any change, but at some point need to throw
+      // as expanding from edge in a path is invalid
+      if (is_expanding_from_node2 && expansion.edge->type_ != EdgeAtom::Type::BREADTH_FIRST &&
+          !expansion.edge->filter_lambda_.accumulated_path) {
         // BFS must *not* be flipped. Doing that changes the BFS results.
         // When filter lambda uses accumulated path, path must not be flipped.
         std::swap(expansion.node1, expansion.node2);
@@ -83,6 +94,7 @@ void AddNextExpansions(const Symbol &node_symbol, const Matching &matching, cons
         }
       }
     }
+
     seen_expansions.insert(expansion_id);
     expanded_symbols.insert(symbol_table.at(*expansion.node1->identifier_));
     if (expansion.edge) {
@@ -90,10 +102,10 @@ void AddNextExpansions(const Symbol &node_symbol, const Matching &matching, cons
       expanded_symbols.insert(symbol_table.at(*expansion.node2->identifier_));
     }
     next_expansions.emplace(std::move(expansion));
-    node_expansions_it = node_expansions.erase(node_expansions_it);
+    atom_expansions_it = atom_expansions.erase(atom_expansions_it);
   }
-  if (node_expansions.empty()) {
-    node_symbol_to_expansions.erase(node_to_expansions_it);
+  if (atom_expansions.empty()) {
+    atom_symbol_to_expansions.erase(atom_to_expansions_it);
   }
 }
 
@@ -101,19 +113,22 @@ void AddNextExpansions(const Symbol &node_symbol, const Matching &matching, cons
 // the chain can no longer be continued, a different starting node is picked
 // among remaining expansions and the process continues. This is done until all
 // matching.expansions are used.
-std::vector<Expansion> ExpansionsFrom(const NodeAtom *start_node, const Matching &matching,
+std::vector<Expansion> ExpansionsFrom(const PatternAtom *start_atom, const Matching &matching,
                                       const SymbolTable &symbol_table) {
-  // Make a copy of node_symbol_to_expansions, because we will modify it as
+  spdlog::trace(fmt::format("Expansion from: {}", symbol_table.at(*start_atom->identifier_).name()));
+  // Make a copy of atom_symbol_to_expansions, because we will modify it as
   // expansions are chained.
-  auto node_symbol_to_expansions = matching.node_symbol_to_expansions;
+  auto atom_symbol_to_expansions = matching.atom_symbol_to_expansions;
   std::unordered_set<size_t> seen_expansions;
   std::queue<Expansion> next_expansions;
-  std::unordered_set<Symbol> expanded_symbols({symbol_table.at(*start_node->identifier_)});
-  auto add_next_expansions = [&](const auto *node) {
-    AddNextExpansions(symbol_table.at(*node->identifier_), matching, symbol_table, expanded_symbols,
-                      node_symbol_to_expansions, seen_expansions, next_expansions);
+  std::unordered_set<Symbol> expanded_symbols({symbol_table.at(*start_atom->identifier_)});
+
+  auto add_next_expansions = [&](const auto *atom) {
+    AddNextExpansions(symbol_table.at(*atom->identifier_), matching, symbol_table, expanded_symbols,
+                      atom_symbol_to_expansions, seen_expansions, next_expansions);
   };
-  add_next_expansions(start_node);
+
+  add_next_expansions(start_atom);
   // Potential optimization: expansions and next_expansions could be merge into
   // a single vector and an index could be used to determine from which should
   // additional expansions be added.
@@ -121,13 +136,16 @@ std::vector<Expansion> ExpansionsFrom(const NodeAtom *start_node, const Matching
   while (!next_expansions.empty()) {
     auto expansion = next_expansions.front();
     next_expansions.pop();
+    if (expansions.empty() && utils::Downcast<EdgeAtom>(const_cast<PatternAtom *>(start_atom))) {
+      expansion.expand_from_edge = true;
+    }
     expansions.emplace_back(expansion);
     add_next_expansions(expansion.node1);
     if (expansion.node2) {
       add_next_expansions(expansion.node2);
     }
   }
-  if (!node_symbol_to_expansions.empty()) {
+  if (!atom_symbol_to_expansions.empty()) {
     // We could pick a new starting expansion, but to avoid runtime
     // complexity, simply append the remaining expansions. They should have the
     // correct order, since the original expansions were verified during
@@ -144,17 +162,20 @@ std::vector<Expansion> ExpansionsFrom(const NodeAtom *start_node, const Matching
 
 // Collect all unique nodes from expansions. Uniqueness is determined by
 // symbol uniqueness.
-auto ExpansionNodes(const std::vector<Expansion> &expansions, const SymbolTable &symbol_table) {
-  std::unordered_set<NodeAtom *, NodeSymbolHash, NodeSymbolEqual> nodes(expansions.size(), NodeSymbolHash(symbol_table),
-                                                                        NodeSymbolEqual(symbol_table));
+auto ExpansionAtoms(const std::vector<Expansion> &expansions, const SymbolTable &symbol_table) {
+  std::unordered_set<PatternAtom *, PatternAtomSymbolHash, PatternAtomSymbolEqual> graph_atoms(
+      expansions.size(), PatternAtomSymbolHash(symbol_table), PatternAtomSymbolEqual(symbol_table));
   for (const auto &expansion : expansions) {
     // TODO: Handle labels and properties from different node atoms.
-    nodes.insert(expansion.node1);
+    graph_atoms.insert(expansion.node1);
+    if (expansion.edge) {
+      graph_atoms.insert(expansion.edge);
+    }
     if (expansion.node2) {
-      nodes.insert(expansion.node2);
+      graph_atoms.insert(expansion.node2);
     }
   }
-  return nodes;
+  return graph_atoms;
 }
 
 FilterMatching ToFilterMatching(Matching &matching) {
@@ -162,7 +183,7 @@ FilterMatching ToFilterMatching(Matching &matching) {
   filter_matching.expansions = matching.expansions;
   filter_matching.edge_symbols = matching.edge_symbols;
   filter_matching.filters = matching.filters;
-  filter_matching.node_symbol_to_expansions = matching.node_symbol_to_expansions;
+  filter_matching.atom_symbol_to_expansions = matching.atom_symbol_to_expansions;
   filter_matching.named_paths = matching.named_paths;
   filter_matching.expansion_symbols = matching.expansion_symbols;
 
@@ -172,7 +193,9 @@ FilterMatching ToFilterMatching(Matching &matching) {
 }  // namespace
 
 VaryMatchingStart::VaryMatchingStart(Matching matching, const SymbolTable &symbol_table)
-    : matching_(matching), symbol_table_(symbol_table), nodes_(ExpansionNodes(matching.expansions, symbol_table)) {}
+    : matching_(matching),
+      symbol_table_(symbol_table),
+      graph_atoms_(ExpansionAtoms(matching.expansions, symbol_table)) {}
 
 VaryMatchingStart::iterator::iterator(VaryMatchingStart *self, bool is_done)
     : self_(self),
@@ -181,35 +204,35 @@ VaryMatchingStart::iterator::iterator(VaryMatchingStart *self, bool is_done)
       // should stay the same. This also produces a matching for the case
       // when there are no nodes.
       current_matching_(self->matching_) {
-  if (!self_->nodes_.empty()) {
+  if (!self_->graph_atoms_.empty()) {
     // Overwrite the original matching expansions with the new ones by
     // generating it from the first start node.
-    start_nodes_it_ = self_->nodes_.begin();
-    current_matching_.expansions = ExpansionsFrom(**start_nodes_it_, self_->matching_, self_->symbol_table_);
+    start_atoms_it_ = self_->graph_atoms_.begin();
+    current_matching_.expansions = ExpansionsFrom(**start_atoms_it_, self_->matching_, self_->symbol_table_);
   }
-  DMG_ASSERT(start_nodes_it_ || self_->nodes_.empty(),
-             "start_nodes_it_ should only be nullopt when self_->nodes_ is empty");
+  DMG_ASSERT(start_atoms_it_ || self_->graph_atoms_.empty(),
+             "start_atoms_it_ should only be nullopt when self_->graph_atoms_ is empty");
   if (is_done) {
-    start_nodes_it_ = self_->nodes_.end();
+    start_atoms_it_ = self_->graph_atoms_.end();
   }
 }
 
 VaryMatchingStart::iterator &VaryMatchingStart::iterator::operator++() {
-  if (!start_nodes_it_) {
-    DMG_ASSERT(self_->nodes_.empty(), "start_nodes_it_ should only be nullopt when self_->nodes_ is empty");
-    start_nodes_it_ = self_->nodes_.end();
+  if (!start_atoms_it_) {
+    DMG_ASSERT(self_->graph_atoms_.empty(), "start_atoms_it_ should only be nullopt when self_->graph_atoms_ is empty");
+    start_atoms_it_ = self_->graph_atoms_.end();
   }
-  if (*start_nodes_it_ == self_->nodes_.end()) {
+  if (*start_atoms_it_ == self_->graph_atoms_.end()) {
     return *this;
   }
-  ++*start_nodes_it_;
-  // start_nodes_it_ can become equal to `end` and we shouldn't dereference
+  ++*start_atoms_it_;
+  // start_atoms_it_ can become equal to `end` and we shouldn't dereference
   // iterator in that case.
-  if (*start_nodes_it_ == self_->nodes_.end()) {
+  if (*start_atoms_it_ == self_->graph_atoms_.end()) {
     return *this;
   }
-  const auto &start_node = **start_nodes_it_;
-  current_matching_.expansions = ExpansionsFrom(start_node, self_->matching_, self_->symbol_table_);
+  const auto &start_atom = **start_atoms_it_;
+  current_matching_.expansions = ExpansionsFrom(start_atom, self_->matching_, self_->symbol_table_);
   return *this;
 }
 

@@ -314,6 +314,9 @@ class EdgeTypeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PreVisit(ScanAllByEdge & /*unused*/) override { return true; }
+  bool PostVisit(ScanAllByEdge & /*unused*/) override { return true; }
+
   bool PreVisit(ScanAllByEdgeType &op) override {
     prev_ops_.push_back(&op);
     return true;
