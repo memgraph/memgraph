@@ -1561,9 +1561,8 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
     storage::LabelId label, storage::PropertyId property) {
   MG_ASSERT(unique_guard_.owns_lock(), "Creating point index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
-  auto *mem_label_property_index =
-      static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
-  if (!mem_label_property_index->CreatePointIndex(label, property, in_memory->vertices_.access())) {
+  auto &point_index = in_memory->indices_.point_index_;
+  if (!point_index.CreatePointIndex(label, property, in_memory->vertices_.access())) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::point_index_create, label, property);
@@ -1576,9 +1575,8 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
     storage::LabelId label, storage::PropertyId property) {
   MG_ASSERT(unique_guard_.owns_lock(), "Dropping point index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
-  auto *mem_label_property_index =
-      static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
-  if (!mem_label_property_index->DropPointIndex(label, property)) {
+  auto &point_index = in_memory->indices_.point_index_;
+  if (!point_index.DropPointIndex(label, property)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::point_index_drop, label, property);

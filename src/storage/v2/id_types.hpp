@@ -12,6 +12,7 @@
 #pragma once
 
 #include <charconv>
+#include <compare>
 #include <functional>
 #include <string>
 #include <system_error>
@@ -23,32 +24,29 @@
 
 namespace memgraph::storage {
 
-#define STORAGE_DEFINE_ID_TYPE(name, type_store, type_conv, parse)                                            \
-  class name final {                                                                                          \
-   private:                                                                                                   \
-    explicit name(type_store id) : id_(id) {}                                                                 \
-                                                                                                              \
-   public:                                                                                                    \
-    /* Default constructor to allow serialization or preallocation. */                                        \
-    name() = default;                                                                                         \
-                                                                                                              \
-    static name FromUint(type_store id) { return name{id}; }                                                  \
-    static name FromInt(type_conv id) { return name{utils::MemcpyCast<type_store>(id)}; }                     \
-    type_store AsUint() const { return id_; }                                                                 \
-    type_conv AsInt() const { return utils::MemcpyCast<type_conv>(id_); }                                     \
-    static name FromString(std::string_view id) { return name{parse(id)}; }                                   \
-    std::string ToString() const { return std::to_string(id_); }                                              \
-                                                                                                              \
-   private:                                                                                                   \
-    type_store id_;                                                                                           \
-  };                                                                                                          \
-  static_assert(std::is_trivially_copyable_v<name>, "storage::" #name " must be trivially copyable!");        \
-  inline bool operator==(const name &first, const name &second) { return first.AsUint() == second.AsUint(); } \
-  inline bool operator!=(const name &first, const name &second) { return first.AsUint() != second.AsUint(); } \
-  inline bool operator<(const name &first, const name &second) { return first.AsUint() < second.AsUint(); }   \
-  inline bool operator>(const name &first, const name &second) { return first.AsUint() > second.AsUint(); }   \
-  inline bool operator<=(const name &first, const name &second) { return first.AsUint() <= second.AsUint(); } \
-  inline bool operator>=(const name &first, const name &second) { return first.AsUint() >= second.AsUint(); }
+#define STORAGE_DEFINE_ID_TYPE(name, type_store, type_conv, parse)                                      \
+  class name final {                                                                                    \
+   private:                                                                                             \
+    explicit name(type_store id) : id_{id} {}                                                           \
+                                                                                                        \
+   public:                                                                                              \
+    /* Default constructor to allow serialization or preallocation. */                                  \
+    name() = default;                                                                                   \
+                                                                                                        \
+    static name FromUint(type_store id) { return name{id}; }                                            \
+    static name FromInt(type_conv id) { return name{utils::MemcpyCast<type_store>(id)}; }               \
+    type_store AsUint() const { return id_; }                                                           \
+    type_conv AsInt() const { return utils::MemcpyCast<type_conv>(id_); }                               \
+    static name FromString(std::string_view id) { return name{parse(id)}; }                             \
+    std::string ToString() const { return std::to_string(id_); }                                        \
+    friend bool operator==(const name &first, const name &second) { return first.id_ == second.id_; }   \
+    friend bool operator<(const name &first, const name &second) { return first.id_ < second.id_; }     \
+    friend auto operator<=>(const name &first, const name &second) { return first.id_ <=> second.id_; } \
+                                                                                                        \
+   private:                                                                                             \
+    type_store id_;                                                                                     \
+  };                                                                                                    \
+  static_assert(std::is_trivially_copyable_v<name>, "storage::" #name " must be trivially copyable!");
 
 STORAGE_DEFINE_ID_TYPE(Gid, uint64_t, int64_t, utils::ParseStringToUint64);
 STORAGE_DEFINE_ID_TYPE(LabelId, uint32_t, int32_t, utils::ParseStringToUint32);
