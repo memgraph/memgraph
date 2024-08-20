@@ -43,10 +43,6 @@ class InMemoryReplicationHandlers {
   static void CurrentWalHandler(dbms::DbmsHandler *dbms_handler, const std::optional<utils::UUID> &current_main_uuid,
                                 slk::Reader *req_reader, slk::Builder *res_builder);
 
-  static void DurableTimestampHandler(dbms::DbmsHandler *dbms_handler,
-                                      const std::optional<utils::UUID> &current_main_uuid, slk::Reader *req_reader,
-                                      slk::Builder *res_builder);
-
   static void TimestampHandler(dbms::DbmsHandler *dbms_handler, const std::optional<utils::UUID> &current_main_uuid,
                                slk::Reader *req_reader, slk::Builder *res_builder);
 

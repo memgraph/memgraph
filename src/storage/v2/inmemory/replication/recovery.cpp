@@ -105,12 +105,6 @@ uint64_t ReplicateCurrentWal(const utils::UUID &main_uuid, const InMemoryStorage
   return response.current_commit_timestamp;
 }
 
-bool ReplicateDurableTimestamp(const utils::UUID &main_uuid, const utils::UUID &uuid, rpc::Client &client,
-                               uint64_t last_durable_timestamp) {
-  auto stream = client.Stream<replication::DurableTimestampRpc>(main_uuid, uuid, last_durable_timestamp);
-  return stream.AwaitResponse().success;
-}
-
 /// This method tries to find the optimal path for recovering a single replica.
 /// Based on the last commit transferred to replica it tries to update the
 /// replica using durability files - WALs and Snapshots. WAL files are much
@@ -262,9 +256,6 @@ std::vector<RecoveryStep> GetRecoverySteps(uint64_t replica_commit, utils::FileR
     // NOTE: File not handled directly, so no need to lock it
     recovery_steps.emplace_back(RecoveryCurrentWal{*current_wal_seq_num});
   }
-
-  // // In all cases we update the last durable timestamp
-  // recovery_steps.emplace_back(RecoveryDurableTimestamp{last_durable_timestamp});
 
   return recovery_steps;
 }

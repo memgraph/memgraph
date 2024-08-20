@@ -23,11 +23,6 @@ struct RecoveryCurrentWal {
   explicit RecoveryCurrentWal(const uint64_t current_wal_seq_num) : current_wal_seq_num(current_wal_seq_num) {}
   uint64_t current_wal_seq_num;
 };
-struct RecoveryDurableTimestamp {
-  explicit RecoveryDurableTimestamp(const uint64_t last_durable_timestamp)
-      : last_durable_timestamp(last_durable_timestamp) {}
-  uint64_t last_durable_timestamp;
-};
-using RecoveryStep = std::variant<RecoverySnapshot, RecoveryWals, RecoveryCurrentWal, RecoveryDurableTimestamp>;
+using RecoveryStep = std::variant<RecoverySnapshot, RecoveryWals, RecoveryCurrentWal>;
 
 }  // namespace memgraph::storage
