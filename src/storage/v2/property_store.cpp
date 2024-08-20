@@ -118,25 +118,7 @@ constexpr uint32_t SizeToByteSize(Size size) {
   }
 }
 
-// All of these values must have the lowest 4 bits set to zero because they are
-// used to store two `Size` values as described in the comment above.
-enum class Type : uint8_t {
-  EMPTY = 0x00,  // Special value used to indicate end of buffer.
-  NONE = 0x10,   // NONE used instead of NULL because NULL is defined to
-                 // something...
-  BOOL = 0x20,
-  INT = 0x30,
-  DOUBLE = 0x40,
-  STRING = 0x50,
-  LIST = 0x60,
-  MAP = 0x70,
-  TEMPORAL_DATA = 0x80,
-  ZONED_TEMPORAL_DATA = 0x90,
-  OFFSET_ZONED_TEMPORAL_DATA = 0xA0,
-  ENUM = 0xB0,
-  POINT_2D = 0xC0,
-  POINT_3D = 0xD0,
-};
+using Type = PropertyStoreType;
 
 const uint8_t kMaskType = 0xf0;
 const uint8_t kMaskIdSize = 0x0c;
@@ -2102,6 +2084,27 @@ void PropertyStore::SetBuffer(const std::string_view buffer) {
   if (buffer_info.storage_mode == StorageMode::BUFFER) {
     SetSizeData(buffer_, view.size_bytes(), view.data());
   }
+}
+
+std::vector<PropertyId> PropertyStore::PropertiesOfTypes(std::span<Type const> types) const {
+  auto get_properties = [&](Reader &reader) {
+    std::vector<PropertyId> props;
+    while (true) {
+      auto metadata = reader.ReadMetadata();
+      if (!metadata) break;
+
+      auto property_id = reader.ReadUint(metadata->id_size);
+      if (!property_id) break;
+
+      if (utils::Contains(types, metadata->type)) {
+        props.emplace_back(PropertyId::FromUint(*property_id));
+      }
+
+      if (!SkipPropertyValue(&reader, metadata->type, metadata->payload_size)) break;
+    }
+    return props;
+  };
+  return WithReader(get_properties);
 }
 
 }  // namespace memgraph::storage

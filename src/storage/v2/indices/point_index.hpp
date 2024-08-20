@@ -13,6 +13,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/point.hpp"
 #include "storage/v2/vertex.hpp"
+#include "utils/skip_list.hpp"
 #include "utils/synchronized.hpp"
 
 #include <boost/geometry.hpp>

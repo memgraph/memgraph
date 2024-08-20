@@ -25,6 +25,26 @@ DECLARE_bool(storage_property_store_compression_enabled);
 
 namespace memgraph::storage {
 
+// All of these values must have the lowest 4 bits set to zero because they are
+// used to store two `Size` values as described in the comment above.
+enum class PropertyStoreType : uint8_t {
+  EMPTY = 0x00,  // Special value used to indicate end of buffer.
+  NONE = 0x10,   // NONE used instead of NULL because NULL is defined to
+                 // something...
+  BOOL = 0x20,
+  INT = 0x30,
+  DOUBLE = 0x40,
+  STRING = 0x50,
+  LIST = 0x60,
+  MAP = 0x70,
+  TEMPORAL_DATA = 0x80,
+  ZONED_TEMPORAL_DATA = 0x90,
+  OFFSET_ZONED_TEMPORAL_DATA = 0xA0,
+  ENUM = 0xB0,
+  POINT_2D = 0xC0,
+  POINT_3D = 0xD0,
+};
+
 class PropertyStore {
   static_assert(std::endian::native == std::endian::little,
                 "PropertyStore supports only architectures using little-endian.");
@@ -82,6 +102,8 @@ class PropertyStore {
   /// of this function is O(n).
   /// @throw std::bad_alloc
   std::map<PropertyId, PropertyValue> Properties() const;
+
+  std::vector<PropertyId> PropertiesOfTypes(std::span<PropertyStoreType const> types) const;
 
   /// Set a property value and return `true` if insertion took place. `false` is
   /// returned if assignment took place. The time complexity of this function is

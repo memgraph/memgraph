@@ -44,10 +44,8 @@ struct Collector {
   void UpdateOnAddLabel(LabelId label, Vertex *vertex) {
     if (tracked_changes_.empty()) return;
 
-    // TODO: put the Point2d/Point3d filter into the the Properties method, eg.
-    // vertex->properties.PropertiesOfTypes<TYPE::Point_2d, TYPE::Point_3d>()
-    for (auto [prop, value] : vertex->properties.Properties()) {
-      if (!value.IsPoint2d() || !value.IsPoint3d()) continue;
+    constexpr auto all_point_types = std::array{PropertyStoreType::POINT_2D, PropertyStoreType::POINT_3D};
+    for (auto prop : vertex->properties.PropertiesOfTypes(all_point_types)) {
       auto k = LabelPropKey{label, prop};
       auto it = tracked_changes_.find(k);
       if (it != tracked_changes_.end()) {
