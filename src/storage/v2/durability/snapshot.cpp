@@ -3606,12 +3606,6 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
 
   // We are not updating ldt here; we are only updating it when recovering from snapshot (because there is no other
   // timestamp to use) and we are relaxing the ts checks on replica
-  // // Update last_durable_timestamp
-  // auto old_val = storage->repl_storage_state_.last_durable_timestamp_.load();
-  // while (old_val < transaction->start_timestamp &&
-  //        !storage->repl_storage_state_.last_durable_timestamp_.compare_exchange_weak(old_val,
-  //                                                                                    transaction->start_timestamp)) {
-  // }
 }
 
 }  // namespace memgraph::storage::durability
