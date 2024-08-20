@@ -172,22 +172,35 @@ void VertexHandler::PreProcess() {
   // TODO: Do only what is necessary
   pre_labels_ = vertex_.labels;
   pre_properties_ = vertex_.properties.Properties();
-  pre_in_edges_ = vertex_.in_edges;
-  pre_out_edges_ = vertex_.out_edges;
 
   ApplyDeltasForRead(delta, commit_timestamp_, [this](const Delta &delta) {
     // clang-format off
         DeltaDispatch(delta, utils::ChainedOverloaded{
           Properties_ActionMethod(pre_properties_),
           Labels_ActionMethod(pre_labels_),
-          Edges_ActionMethod<EdgeDirection::OUT>(pre_out_edges_, {/* all edge types */}, {/* all destinations */}),
-          Edges_ActionMethod<EdgeDirection::IN>(pre_in_edges_, {/* all edge types */}, {/* all destinations */}),
         });
     // clang-format on
   });
 }
 
 Delta *VertexHandler::NextDelta(const Delta *delta) const { return ::NextDelta(delta, commit_timestamp_); }
+
+void VertexHandler::ProcessRemainingPreEdges() {
+  const auto *delta = vertex_.delta;
+  DMG_ASSERT(delta, "Handling a vertex without deltas");
+
+  pre_remaining_in_edges_ = vertex_.in_edges;
+  pre_remaining_out_edges_ = vertex_.out_edges;
+
+  ApplyDeltasForRead(delta, commit_timestamp_, [this](const Delta &delta) {
+    // clang-format off
+      DeltaDispatch(delta, utils::ChainedOverloaded{
+        RemainingEdges_ActionMethod<EdgeDirection::OUT>(pre_remaining_out_edges_),
+        RemainingEdges_ActionMethod<EdgeDirection::IN>(pre_remaining_in_edges_),
+      });
+    // clang-format on
+  });
+}
 
 void VertexHandler::PostProcess(TransactionEdgeHandler &edge_handler) {
   if (label_update_) {
@@ -204,17 +217,16 @@ void VertexHandler::PostProcess(TransactionEdgeHandler &edge_handler) {
     }
 
     // Update existing edges
+    // Need to process the delta chain and figure out the in/out edges at start (minus edges that get deleted, this is
+    // handled in a different way)
+    ProcessRemainingPreEdges();
     // There could be multiple label changes or changes from both ends; so make a list of unique edges to update
     // Move edges to the new labels
-    for (const auto &out_edge : pre_out_edges_) {
-      if (!GetsDeleted<kOutEdge>(out_edge)) {
-        edge_handler.UpdateExistingEdge<kOutEdge>(out_edge, PreLabels(), PostLabels());
-      }
+    for (const auto &out_edge : pre_remaining_out_edges_) {
+      edge_handler.UpdateExistingEdge<kOutEdge>(out_edge, PreLabels(), PostLabels());
     }
-    for (const auto &in_edge : pre_in_edges_) {
-      if (!GetsDeleted<kInEdge>(in_edge)) {
-        edge_handler.UpdateExistingEdge<kInEdge>(in_edge, PreLabels(), PostLabels());
-      }
+    for (const auto &in_edge : pre_remaining_in_edges_) {
+      edge_handler.UpdateExistingEdge<kInEdge>(in_edge, PreLabels(), PostLabels());
     }
   }
 
@@ -273,18 +285,13 @@ void SchemaInfo::ProcessVertex(VertexHandler &vertex_handler, TransactionEdgeHan
       }
       case Delta::Action::ADD_OUT_EDGE: {
         // This delta covers both vertices; we can update count in place
-        if (vertex_handler.ExistingOutEdge(delta->vertex_edge)) {
-          tx_edge_handler.RemoveExistingEdge(delta, vertex_handler.PreLabels());
-        } else {
-          // Remove from temporary edges
-          tx_edge_handler.RemoveNewEdge(delta, vertex_handler.PostLabels());
-        }
+        tx_edge_handler.RemoveEdge(delta, vertex_handler.PreLabels());
         break;
       }
       case Delta::Action::REMOVE_OUT_EDGE: {
         // This delta covers both vertices; we can update count in place
         // New edge; add to the final labels
-        tx_edge_handler.AddNewEdge(delta, vertex_handler.PostLabels());
+        tx_edge_handler.AddEdge(delta, vertex_handler.PostLabels());
         break;
       }
       case Delta::Action::ADD_IN_EDGE:

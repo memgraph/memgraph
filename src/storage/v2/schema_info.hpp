@@ -30,6 +30,7 @@
 #include "storage/v2/vertex.hpp"
 #include "utils/logging.hpp"
 #include "utils/small_vector.hpp"
+#include "utils/variant_helpers.hpp"
 
 namespace std {
 template <>
@@ -49,6 +50,30 @@ using find_edge_f = std::function<std::optional<EdgeAccessor>(Gid, View)>;
 utils::small_vector<LabelId> GetPreLabels(const Vertex &vertex, uint64_t commit_timestamp);
 
 Gid GetEdgeGid(const EdgeRef &edge_ref, bool properties_on_edges);
+
+template <EdgeDirection dir>
+auto RemainingEdges_ActionMethod(utils::small_vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> &edges) {
+  // clang-format off
+  using enum Delta::Action;
+  return utils::Overloaded{
+      // If we see ADD, that means that this edge got removed (we are not interested in those)
+      // ActionMethod <(dir == EdgeDirection::IN) ? ADD_IN_EDGE : ADD_OUT_EDGE> (
+      //     [&](Delta const &delta) {
+      //     }
+      // ),
+      // If we see REMOVE, that means that this is a new edge that was added during the transaction
+      ActionMethod <(dir == EdgeDirection::IN) ? REMOVE_IN_EDGE : REMOVE_OUT_EDGE> (
+          [&](Delta const &delta) {
+              auto it = std::find(edges.begin(), edges.end(),
+                            std::tuple{delta.vertex_edge.edge_type, delta.vertex_edge.vertex, delta.vertex_edge.edge});
+              DMG_ASSERT(it != edges.end(), "Invalid database state!");
+              *it = edges.back();
+              edges.pop_back();
+          }
+      )
+  };
+  // clang-format on
+}
 
 struct TrackingInfo {
   int n{0};
@@ -136,80 +161,89 @@ class TransactionEdgeHandler {
     // Labels can only move, creation or deletion is handled via other deltas
 
     const auto edge_type = std::get<0>(edge);
-    const auto *other_vertex = std::get<1>(edge);
+    auto *other_vertex = std::get<1>(edge);
     const auto edge_ref = std::get<2>(edge);
 
     if (ShouldHandleEdge(edge_ref)) {
       const auto &post_other_labels = other_vertex->labels;
-      const auto pre_other_labels = GetPreLabels(*other_vertex, commit_timestamp_);
+      auto plc_itr = pre_labels_cache_.find(other_vertex);
+      if (plc_itr == pre_labels_cache_.end()) {
+        const auto [itr, _] = pre_labels_cache_.emplace(other_vertex, GetPreLabels(*other_vertex, commit_timestamp_));
+        plc_itr = itr;
+      }
       const auto pre_edge_properties = GetPreProperties(edge_ref);
       const auto post_edge_properties = GetPostProperties(edge_ref);
 
       if constexpr (OutEdge) {
-        --tracking_[{edge_type, pre_labels, pre_other_labels}].n;
+        auto &tracking_pre_info = tracking_[{edge_type, pre_labels, plc_itr->second}];
+        --tracking_pre_info.n;
         for (const auto &[key, val] : pre_edge_properties) {
-          --tracking_[{edge_type, pre_labels, pre_other_labels}].properties[key].n;
-          --tracking_[{edge_type, pre_labels, pre_other_labels}].properties[key].types[val.type()];
+          auto &prop_info = tracking_pre_info.properties[key];
+          --prop_info.n;
+          --prop_info.types[val.type()];
         }
-        ++tracking_[{edge_type, post_labels, post_other_labels}].n;
+        auto &tracking_post_info = tracking_[{edge_type, post_labels, post_other_labels}];
+        ++tracking_post_info.n;
         for (const auto &[key, val] : pre_edge_properties) {
-          ++tracking_[{edge_type, post_labels, post_other_labels}].properties[key].n;
-          ++tracking_[{edge_type, post_labels, post_other_labels}].properties[key].types[val.type()];
+          auto &prop_info = tracking_post_info.properties[key];
+          ++prop_info.n;
+          ++prop_info.types[val.type()];
         }
       } else {
-        --tracking_[{edge_type, pre_other_labels, pre_labels}].n;
+        auto &tracking_pre_info = tracking_[{edge_type, plc_itr->second, pre_labels}];
+        --tracking_pre_info.n;
         for (const auto &[key, val] : post_edge_properties) {
-          --tracking_[{edge_type, pre_other_labels, pre_labels}].properties[key].n;
-          --tracking_[{edge_type, pre_other_labels, pre_labels}].properties[key].types[val.type()];
+          auto &prop_info = tracking_pre_info.properties[key];
+          --prop_info.n;
+          --prop_info.types[val.type()];
         }
-        ++tracking_[{edge_type, post_other_labels, post_labels}].n;
+        auto &tracking_post_info = tracking_[{edge_type, post_other_labels, post_labels}];
+        ++tracking_post_info.n;
         for (const auto &[key, val] : post_edge_properties) {
-          ++tracking_[{edge_type, post_other_labels, post_labels}].properties[key].n;
-          ++tracking_[{edge_type, post_other_labels, post_labels}].properties[key].types[val.type()];
+          auto &prop_info = tracking_post_info.properties[key];
+          ++prop_info.n;
+          ++prop_info.types[val.type()];
         }
       }
     }
   }
 
-  void RemoveExistingEdge(const Delta *delta, const auto &pre_labels) {
+  void RemoveEdge(const Delta *delta, const auto &pre_labels) {
     DMG_ASSERT(delta->action == Delta::Action::ADD_OUT_EDGE, "Trying to remove edge using the wrong delta");
 
-    // Update only the first time
-    if (ShouldHandleEdge(delta->vertex_edge.edge)) {
-      const auto pre_other_labels = GetPreLabels(*delta->vertex_edge.vertex, commit_timestamp_);
-      --tracking_[{delta->vertex_edge.edge_type, pre_labels, pre_other_labels}].n;
-      for (const auto &[key, val] : GetPreProperties(delta->vertex_edge.edge)) {
-        --tracking_[{delta->vertex_edge.edge_type, pre_labels, pre_other_labels}].properties[key].n;
-        --tracking_[{delta->vertex_edge.edge_type, pre_labels, pre_other_labels}].properties[key].types[val.type()];
-      }
+    // Already flagged to be removed
+    if (remove_edges_.find(delta->vertex_edge.edge) != remove_edges_.end()) return;
+
+    // Block edge loop from updating
+    ShouldHandleEdge(delta->vertex_edge.edge);
+    auto plc_itr = pre_labels_cache_.find(delta->vertex_edge.vertex);
+    if (plc_itr == pre_labels_cache_.end()) {
+      const auto [itr, _] = pre_labels_cache_.emplace(delta->vertex_edge.vertex,
+                                                      GetPreLabels(*delta->vertex_edge.vertex, commit_timestamp_));
+      plc_itr = itr;
     }
+    remove_edges_.emplace(delta->vertex_edge.edge,
+                          Tracking::EdgeType{delta->vertex_edge.edge_type, pre_labels, plc_itr->second});
   }
 
-  void AddNewEdge(const Delta *delta, const auto &post_labels) {
+  void AddEdge(const Delta *delta, const auto &post_labels) {
     DMG_ASSERT(delta->action == Delta::Action::REMOVE_OUT_EDGE, "Trying to add edge using the wrong delta");
 
-    // Update inplace, but block edge loop from updating
-    ShouldHandleEdge(delta->vertex_edge.edge);
-    ++tracking_[{delta->vertex_edge.edge_type, post_labels, delta->vertex_edge.vertex->labels}].n;
-    for (const auto &[key, val] : GetPostProperties(delta->vertex_edge.edge)) {
-      ++tracking_[{delta->vertex_edge.edge_type, post_labels, delta->vertex_edge.vertex->labels}].properties[key].n;
-      ++tracking_[{delta->vertex_edge.edge_type, post_labels, delta->vertex_edge.vertex->labels}]
-            .properties[key]
-            .types[val.type()];
+    // ADD is processed after all REMOVEs, so just remove from the set
+    const auto erased = remove_edges_.erase(delta->vertex_edge.edge);
+    if (erased != 0) {
+      // This edge will be erased in the future, no need to add it at all
+      return;
     }
-  }
-
-  void RemoveNewEdge(const Delta *delta, const auto &post_labels) {
-    DMG_ASSERT(delta->action == Delta::Action::ADD_OUT_EDGE, "Trying to remove edge using the wrong delta");
 
     // Update inplace, but block edge loop from updating
     ShouldHandleEdge(delta->vertex_edge.edge);
-    --tracking_[{delta->vertex_edge.edge_type, post_labels, delta->vertex_edge.vertex->labels}].n;
+    auto &tracking_info = tracking_[{delta->vertex_edge.edge_type, post_labels, delta->vertex_edge.vertex->labels}];
+    ++tracking_info.n;
     for (const auto &[key, val] : GetPostProperties(delta->vertex_edge.edge)) {
-      --tracking_[{delta->vertex_edge.edge_type, post_labels, delta->vertex_edge.vertex->labels}].properties[key].n;
-      --tracking_[{delta->vertex_edge.edge_type, post_labels, delta->vertex_edge.vertex->labels}]
-            .properties[key]
-            .types[val.type()];
+      auto &prop_info = tracking_info.properties[key];
+      ++prop_info.n;
+      ++prop_info.types[val.type()];
     }
   }
 
@@ -223,6 +257,18 @@ class TransactionEdgeHandler {
     return emplaced;
   }
 
+  void PostVertexProcess() {
+    for (const auto &[ref, info] : remove_edges_) {
+      auto &tracking_info = tracking_[info];
+      --tracking_info.n;
+      for (const auto &[key, val] : GetPostProperties(ref)) {
+        auto &prop_info = tracking_info.properties[key];
+        --prop_info.n;
+        --prop_info.types[val.type()];
+      }
+    }
+  }
+
  private:
   std::map<PropertyId, PropertyValue> GetPreProperties(const EdgeRef &edge_ref) const;
   std::map<PropertyId, PropertyValue> GetPostProperties(const EdgeRef &edge_ref) const;
@@ -231,6 +277,23 @@ class TransactionEdgeHandler {
   std::unordered_set<Gid> handled_edges{};
   uint64_t commit_timestamp_{-1UL};
   bool properties_on_edges_{false};
+
+  struct EdgeRefHasher {
+    size_t operator()(const EdgeRef &ref) const {
+      size_t combined_hash = 0;
+      auto element_hash = [&combined_hash](const auto &elem) {
+        size_t element_hash = std::hash<std::decay_t<decltype(elem)>>{}(elem);
+        combined_hash ^= element_hash + 0x9e3779b9 + (combined_hash << 6) + (combined_hash >> 2);
+      };
+
+      // GID/pointer already unique, no need to combine
+      element_hash(static_cast<void *>(ref.ptr));  // Both are uint64
+      return combined_hash;
+    }
+  };
+
+  std::unordered_map<Vertex *, utils::small_vector<LabelId>> pre_labels_cache_;
+  std::unordered_map<EdgeRef, Tracking::EdgeType, EdgeRefHasher> remove_edges_;
 };
 
 class VertexHandler {
@@ -268,11 +331,7 @@ class VertexHandler {
     }
   }
 
-  bool ExistingOutEdge(auto &vertex_edge) {
-    return std::find(pre_out_edges_.begin(), pre_out_edges_.end(),
-                     std::tuple<EdgeTypeId, Vertex *, EdgeRef>{vertex_edge.edge_type, vertex_edge.vertex,
-                                                               vertex_edge.edge}) != pre_out_edges_.end();
-  }
+  void ProcessRemainingPreEdges();
 
   template <bool OutEdge>
   bool GetsDeleted(auto &edge_identifier) const {
@@ -296,8 +355,8 @@ class VertexHandler {
   std::shared_lock<decltype(vertex_.lock)> guard_;
   decltype(vertex_.labels) pre_labels_;
   decltype(vertex_.properties.Properties()) pre_properties_;
-  decltype(vertex_.in_edges) pre_in_edges_;
-  decltype(vertex_.out_edges) pre_out_edges_;
+  decltype(vertex_.in_edges) pre_remaining_in_edges_;
+  decltype(vertex_.out_edges) pre_remaining_out_edges_;
 
   bool label_update_{false};
   bool vertex_added_{false};
@@ -375,6 +434,7 @@ struct SchemaInfo {
         ProcessVertex(vertex_handler, tx_edge_handler);
       }
     }
+    tx_edge_handler.PostVertexProcess();
     // Handle edges only after vertices are handled
     // Here we will handle only edge property changes
     // Other edge changes are handled by vertex deltas
