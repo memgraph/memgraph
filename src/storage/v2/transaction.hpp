@@ -40,6 +40,33 @@ namespace memgraph::storage {
 const uint64_t kTimestampInitialId = 0;
 const uint64_t kTransactionInitialId = 1ULL << 63U;
 
+struct Collector {
+  void UpdateOnAddLabel(LabelId label, Vertex *vertex) {
+    if (tracked_changes_.empty()) return;
+
+    // TODO: put the Point2d/Point3d filter into the the Properties method, eg.
+    // vertex->properties.PropertiesOfTypes<TYPE::Point_2d, TYPE::Point_3d>()
+    for (auto [prop, value] : vertex->properties.Properties()) {
+      if (!value.IsPoint2d() || !value.IsPoint3d()) continue;
+      auto k = LabelPropKey{label, prop};
+      auto it = tracked_changes_.find(k);
+      if (it != tracked_changes_.end()) {
+        it->second.insert(vertex);
+      }
+    }
+  }
+  void UpdateOnRemoveLabel(LabelId label, Vertex *vertex) {
+    // TODO
+  }
+
+  void UpdateOnSetProperty(PropertyId prop_id, PropertyValue const &value, Vertex *vertex) {
+    // TODO
+  }
+
+ private:
+  std::unordered_map<LabelPropKey, std::unordered_set<Vertex *>> tracked_changes_;
+};
+
 struct Transaction {
   Transaction(uint64_t transaction_id, uint64_t start_timestamp, IsolationLevel isolation_level,
               StorageMode storage_mode, bool edge_import_mode_active, bool has_constraints)
@@ -82,6 +109,21 @@ struct Transaction {
 
   bool RemoveModifiedEdge(const Gid &gid) { return modified_edges_.erase(gid) > 0U; }
 
+  /// To update any collectors for commit time processing
+  void UpdateOnAddLabel(LabelId label, Vertex *vertex) {
+    collector_.UpdateOnAddLabel(label, vertex);
+    manyDeltasCache.Invalidate(vertex, label);
+  }
+  void UpdateOnRemoveLabel(LabelId label, Vertex *vertex) {
+    collector_.UpdateOnRemoveLabel(label, vertex);
+    manyDeltasCache.Invalidate(vertex, label);
+  }
+
+  void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex) {
+    collector_.UpdateOnSetProperty(property, value, vertex);
+    manyDeltasCache.Invalidate(vertex, property);
+  }
+
   uint64_t transaction_id{};
   uint64_t start_timestamp{};
   std::optional<uint64_t> original_start_timestamp{};
@@ -122,6 +164,7 @@ struct Transaction {
   bool scanned_all_vertices_ = false;
   std::set<LabelId> introduced_new_label_index_;
   std::set<EdgeTypeId> introduced_new_edge_type_index_;
+  Collector collector_;
 };
 
 inline bool operator==(const Transaction &first, const Transaction &second) {

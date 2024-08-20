@@ -19,6 +19,7 @@
 #include <type_traits>
 #include <utils/exceptions.hpp>
 
+#include <boost/functional/hash.hpp>
 #include "utils/cast.hpp"
 #include "utils/string.hpp"
 
@@ -55,6 +56,18 @@ STORAGE_DEFINE_ID_TYPE(EdgeTypeId, uint32_t, int32_t, utils::ParseStringToUint32
 
 #undef STORAGE_DEFINE_ID_TYPE
 
+struct LabelPropKey {
+  LabelPropKey(LabelId const &label, PropertyId const &property) : label_(label), property_(property) {}
+  friend auto operator<=>(LabelPropKey const &, LabelPropKey const &) = default;
+
+  auto label() const -> LabelId { return label_; }
+  auto property() const -> PropertyId { return property_; }
+
+ private:
+  LabelId label_;
+  PropertyId property_;
+};
+
 }  // namespace memgraph::storage
 
 namespace std {
@@ -77,6 +90,16 @@ struct hash<memgraph::storage::PropertyId> {
 template <>
 struct hash<memgraph::storage::EdgeTypeId> {
   size_t operator()(const memgraph::storage::EdgeTypeId &id) const noexcept { return id.AsUint(); }
+};
+
+template <>
+struct hash<memgraph::storage::LabelPropKey> {
+  size_t operator()(const memgraph::storage::LabelPropKey &lpk) const noexcept {
+    std::size_t seed = 0;
+    boost::hash_combine(seed, lpk.label().AsUint());
+    boost::hash_combine(seed, lpk.property().AsUint());
+    return seed;
+  }
 };
 
 }  // namespace std

@@ -13,10 +13,8 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/point.hpp"
 #include "storage/v2/vertex.hpp"
-#include "utils/skip_list.hpp"
 #include "utils/synchronized.hpp"
 
-#include <boost/functional/hash.hpp>
 #include <boost/geometry.hpp>
 #include <boost/geometry/geometries/point.hpp>
 #include <boost/geometry/index/rtree.hpp>
@@ -25,15 +23,6 @@ namespace bg = boost::geometry;
 namespace bgi = boost::geometry::index;
 
 namespace memgraph::storage {
-
-struct LabelPropKey {
-  LabelPropKey(LabelId const &label, PropertyId const &property) : label_(label), property_(property) {}
-  friend auto operator<=>(LabelPropKey const &, LabelPropKey const &) = default;
-
- private:
-  LabelId label_;
-  PropertyId property_;
-};
 
 struct IndexPointWGS2d {
   explicit IndexPointWGS2d(Point2d point) : rep{point.x(), point.y()} { DMG_ASSERT(IsWGS(point.crs())); }
