@@ -212,11 +212,6 @@ void InMemoryEdgeTypeIndex::Iterable::Iterator::AdvanceUntilValid() {
       continue;
     }
 
-    if (!IsEdgeVisible(index_iterator_->edge, self_->transaction_, self_->view_) || from_vertex->deleted ||
-        to_vertex->deleted) {
-      continue;
-    }
-
     const bool edge_was_deleted = index_iterator_->edge->deleted;
     auto [edge_ref, edge_type, deleted_from_vertex, deleted_to_vertex] = GetEdgeInfo();
     MG_ASSERT(edge_ref != EdgeRef(nullptr), "Invalid database state!");

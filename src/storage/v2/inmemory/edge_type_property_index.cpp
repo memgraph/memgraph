@@ -429,28 +429,44 @@ InMemoryEdgeTypePropertyIndex::Iterable::Iterator &InMemoryEdgeTypePropertyIndex
 
 void InMemoryEdgeTypePropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
   for (; index_iterator_ != self_->index_accessor_.end(); ++index_iterator_) {
-    auto *from_vertex = index_iterator_->from_vertex;
-    auto *to_vertex = index_iterator_->to_vertex;
+    if (index_iterator_->edge == current_edge_.ptr) {
+      continue;
+    }
 
     if (!CanSeeEntityWithTimestamp(index_iterator_->timestamp, self_->transaction_)) {
       continue;
     }
 
-    if (!IsEdgeVisible(index_iterator_->edge, self_->transaction_, self_->view_) || from_vertex->deleted ||
-        to_vertex->deleted) {
+    if (self_->lower_bound_) {
+      if (index_iterator_->value < self_->lower_bound_->value()) {
+        continue;
+      }
+      if (!self_->lower_bound_->IsInclusive() && index_iterator_->value == self_->lower_bound_->value()) {
+        continue;
+      }
+    }
+    if (self_->upper_bound_) {
+      if (self_->upper_bound_->value() < index_iterator_->value) {
+        index_iterator_ = self_->index_accessor_.end();
+        break;
+      }
+      if (!self_->upper_bound_->IsInclusive() && index_iterator_->value == self_->upper_bound_->value()) {
+        index_iterator_ = self_->index_accessor_.end();
+        break;
+      }
+    }
+
+    if (!CurrentEdgeVersionHasProperty(*index_iterator_->edge, self_->property_, index_iterator_->value,
+                                       self_->transaction_, self_->view_)) {
       continue;
     }
 
-    const bool edge_was_deleted = index_iterator_->edge->deleted;
-    auto [edge_ref, edge_type, deleted_from_vertex, deleted_to_vertex] = GetEdgeInfo();
-    MG_ASSERT(edge_ref != EdgeRef(nullptr), "Invalid database state!");
+    auto *from_vertex = index_iterator_->from_vertex;
+    auto *to_vertex = index_iterator_->to_vertex;
+    auto edge_ref = EdgeRef(index_iterator_->edge);
 
-    if (edge_was_deleted) {
-      from_vertex = deleted_from_vertex;
-      to_vertex = deleted_to_vertex;
-    }
-
-    auto accessor = EdgeAccessor{edge_ref, edge_type, from_vertex, to_vertex, self_->storage_, self_->transaction_};
+    auto accessor =
+        EdgeAccessor{edge_ref, self_->edge_type_, from_vertex, to_vertex, self_->storage_, self_->transaction_};
     if (!accessor.IsVisible(self_->view_)) {
       continue;
     }
@@ -459,46 +475,6 @@ void InMemoryEdgeTypePropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
     current_edge_ = edge_ref;
     break;
   }
-}
-
-std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *> InMemoryEdgeTypePropertyIndex::Iterable::Iterator::GetEdgeInfo() {
-  auto *from_vertex = index_iterator_->from_vertex;
-  auto *to_vertex = index_iterator_->to_vertex;
-
-  if (index_iterator_->edge->deleted) {
-    const auto missing_in_edge =
-        VertexDeletedConnectedEdges(from_vertex, index_iterator_->edge, self_->transaction_, self_->view_);
-    const auto missing_out_edge =
-        VertexDeletedConnectedEdges(to_vertex, index_iterator_->edge, self_->transaction_, self_->view_);
-    if (missing_in_edge && missing_out_edge &&
-        std::get<kEdgeRefPos>(*missing_in_edge) == std::get<kEdgeRefPos>(*missing_out_edge)) {
-      return std::make_tuple(std::get<kEdgeRefPos>(*missing_in_edge), std::get<kEdgeTypeIdPos>(*missing_in_edge),
-                             to_vertex, from_vertex);
-    }
-  }
-
-  auto find_edge = [this](const auto &edges) {
-    for (auto edge_it = edges.begin(); edge_it != edges.end(); ++edge_it) {
-      const auto &edge = std::get<kEdgeRefPos>(*edge_it);
-      if (index_iterator_->edge->gid == edge.ptr->gid) {
-        return edge_it;
-      }
-    }
-    return edges.end();
-  };
-
-  auto &from_edges = from_vertex->out_edges;
-  auto from_edge_it = find_edge(from_edges);
-
-  auto &to_edges = to_vertex->in_edges;
-  auto to_edge_it = find_edge(to_edges);
-
-  if (from_edge_it != from_edges.end() && to_edge_it != to_edges.end()) {
-    const auto &edge_ref = std::get<kEdgeRefPos>(*from_edge_it);
-    return std::make_tuple(edge_ref, std::get<kEdgeTypeIdPos>(*from_edge_it), from_vertex, to_vertex);
-  }
-
-  return {EdgeRef(nullptr), EdgeTypeId::FromUint(0U), nullptr, nullptr};
 }
 
 void InMemoryEdgeTypePropertyIndex::RunGC() {

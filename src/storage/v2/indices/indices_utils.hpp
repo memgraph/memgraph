@@ -282,6 +282,58 @@ inline bool CurrentVersionHasLabelProperty(const Vertex &vertex, LabelId label, 
   return exists && !deleted && has_label && current_value_equal_to_value;
 }
 
+// Helper function for iterating through label-property index. Returns true if
+// this transaction can see the given vertex, and the visible version has the
+// given label and property.
+inline bool CurrentEdgeVersionHasProperty(const Edge &edge, PropertyId key, const PropertyValue &value,
+                                          Transaction *transaction, View view) {
+  bool exists = true;
+  bool deleted = false;
+  bool current_value_equal_to_value = value.IsNull();
+  const Delta *delta = nullptr;
+  {
+    auto guard = std::shared_lock{edge.lock};
+    deleted = edge.deleted;
+    current_value_equal_to_value = edge.properties.IsPropertyEqual(key, value);
+    delta = edge.delta;
+  }
+
+  // Checking cache has a cost, only do it if we have any deltas
+  // if we have no deltas then what we already have from the vertex is correct.
+  if (delta && transaction->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
+    // IsolationLevel::READ_COMMITTED would be tricky to propagate invalidation to
+    // so for now only cache for IsolationLevel::SNAPSHOT_ISOLATION
+    // auto const useCache = transaction->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION;
+    // if (useCache) {
+    //   auto const &cache = transaction->manyDeltasCache;
+    //   if (auto resError = HasError(view, cache, &edge, false); resError) return false;
+    //   auto resProp = cache.GetProperty(view, &edge, key);
+    //   if (resProp && resProp->get() == value) return true;
+    // }
+
+    auto const n_processed = ApplyDeltasForRead(transaction, delta, view, [&, key](const Delta &delta) {
+      // clang-format off
+      DeltaDispatch(delta, utils::ChainedOverloaded{
+        Deleted_ActionMethod(deleted),
+        Exists_ActionMethod(exists),
+        PropertyValueMatch_ActionMethod(current_value_equal_to_value, key,value)
+      });
+      // clang-format on
+    });
+
+    // if (useCache && n_processed >= FLAGS_delta_chain_cache_threshold) {
+    //   auto &cache = transaction->manyDeltasCache;
+    //   cache.StoreExists(view, &edge, exists);
+    //   cache.StoreDeleted(view, &edge, deleted);
+    //   if (current_value_equal_to_value) {
+    //     cache.StoreProperty(view, &edge, key, value);
+    //   }
+    // }
+  }
+
+  return exists && !deleted && current_value_equal_to_value;
+}
+
 template <typename TIndexAccessor>
 inline void TryInsertLabelIndex(Vertex &vertex, LabelId label, TIndexAccessor &index_accessor) {
   if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
