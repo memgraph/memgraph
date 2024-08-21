@@ -40,6 +40,12 @@ class SymbolTable;
 
 namespace plan {
 
+// Custom pipe operator to chain functions
+template <typename T, typename F>
+auto operator|(T &&value, F &&func) -> decltype(func(std::forward<T>(value))) {
+  return func(std::forward<T>(value));
+}
+
 class PostProcessor final {
   Parameters parameters_;
 
@@ -56,17 +62,15 @@ class PostProcessor final {
 
   template <class TPlanningContext>
   std::unique_ptr<LogicalOperator> Rewrite(std::unique_ptr<LogicalOperator> plan, TPlanningContext *context) {
-    auto enum_constants_plan =
-        RewriteEnumAccess(std::move(plan), context->symbol_table, context->ast_storage, context->db);
-    auto index_lookup_plan = RewriteWithIndexLookup(std::move(enum_constants_plan), context->symbol_table,
-                                                    context->ast_storage, context->db, index_hints_);
-    auto join_plan =
-        RewriteWithJoinRewriter(std::move(index_lookup_plan), context->symbol_table, context->ast_storage, context->db);
-    auto edge_index_plan =
-        RewriteWithEdgeIndexRewriter(std::move(join_plan), context->symbol_table, context->ast_storage, context->db);
-    auto periodic_delete_plan =
-        RewritePeriodicDelete(std::move(join_plan), context->symbol_table, context->ast_storage, context->db);
-    return periodic_delete_plan;
+    auto &ast = context->ast_storage;
+    auto &symbol_table = context->symbol_table;
+    auto &db = context->db;
+
+    return std::move(plan) | [&](auto p) { return RewriteEnumAccess(std::move(p), symbol_table, ast, db); } |
+           [&](auto p) { return RewriteWithIndexLookup(std::move(p), symbol_table, ast, db, index_hints_); } |
+           [&](auto p) { return RewriteWithJoinRewriter(std::move(p), symbol_table, ast, db); } |
+           [&](auto p) { return RewriteWithEdgeIndexRewriter(std::move(p), symbol_table, ast, db); } |
+           [&](auto p) { return RewritePeriodicDelete(std::move(p), symbol_table, ast, db); };
   }
 
   bool IsValidPlan(const std::unique_ptr<LogicalOperator> &plan) { return query::plan::ValidatePlan(*plan); }

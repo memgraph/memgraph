@@ -706,7 +706,7 @@ class RuleBasedPlanner {
     if (expansion.expand_from_edge) {
       const auto &node2_symbol = symbol_table.at(*expansion.node2->identifier_);
       const auto &edge_symbol = symbol_table.at(*expansion.edge->identifier_);
-      // We have just bound this symbol, so generate ScanAll which fills it.
+
       last_op = std::make_unique<ScanAllByEdge>(std::move(last_op), node1_symbol, view);
 
       new_symbols.emplace_back(node1_symbol);
