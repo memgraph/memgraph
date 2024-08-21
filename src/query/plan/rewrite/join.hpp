@@ -122,6 +122,16 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PreVisit(ScanAllByEdgeTypePropertyValue &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByEdgeTypePropertyValue &scan) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
   bool PreVisit(Expand &op) override {
     prev_ops_.push_back(&op);
     return true;
