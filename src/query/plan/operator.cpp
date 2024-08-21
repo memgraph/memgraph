@@ -567,10 +567,10 @@ class ScanAllCursor : public Cursor {
 };
 
 template <typename TEdgesFun>
-class ScanAllByEdgeTypeCursor : public Cursor {
+class ScanAllByEdgeCursor : public Cursor {
  public:
-  explicit ScanAllByEdgeTypeCursor(const ScanAll &self, Symbol output_symbol, UniqueCursorPtr input_cursor,
-                                   storage::View view, TEdgesFun get_edges, const char *op_name)
+  explicit ScanAllByEdgeCursor(const ScanAll &self, Symbol output_symbol, UniqueCursorPtr input_cursor,
+                               storage::View view, TEdgesFun get_edges, const char *op_name)
       : self_(self),
         output_symbol_(std::move(output_symbol)),
         input_cursor_(std::move(input_cursor)),
@@ -584,18 +584,18 @@ class ScanAllByEdgeTypeCursor : public Cursor {
 
     AbortCheck(context);
 
-    while (!vertices_ || vertices_it_.value() == vertices_end_it_.value()) {
+    while (!edges_ || edges_it_.value() == edges_end_it_.value()) {
       if (!input_cursor_->Pull(frame, context)) return false;
       auto next_vertices = get_edges_(frame, context);
       if (!next_vertices) continue;
 
-      vertices_.emplace(std::move(next_vertices.value()));
-      vertices_it_.emplace(vertices_.value().begin());
-      vertices_end_it_.emplace(vertices_.value().end());
+      edges_.emplace(std::move(next_vertices.value()));
+      edges_it_.emplace(edges_.value().begin());
+      edges_end_it_.emplace(edges_.value().end());
     }
 
-    frame[output_symbol_] = *vertices_it_.value();
-    ++vertices_it_.value();
+    frame[output_symbol_] = *edges_it_.value();
+    ++edges_it_.value();
     return true;
   }
 
@@ -603,9 +603,9 @@ class ScanAllByEdgeTypeCursor : public Cursor {
 
   void Reset() override {
     input_cursor_->Reset();
-    vertices_ = std::nullopt;
-    vertices_it_ = std::nullopt;
-    vertices_end_it_ = std::nullopt;
+    edges_ = std::nullopt;
+    edges_it_ = std::nullopt;
+    edges_end_it_ = std::nullopt;
   }
 
  private:
@@ -614,9 +614,9 @@ class ScanAllByEdgeTypeCursor : public Cursor {
   const UniqueCursorPtr input_cursor_;
   storage::View view_;
   TEdgesFun get_edges_;
-  std::optional<typename std::result_of<TEdgesFun(Frame &, ExecutionContext &)>::type::value_type> vertices_;
-  std::optional<decltype(vertices_.value().begin())> vertices_it_;
-  std::optional<decltype(vertices_.value().end())> vertices_end_it_;
+  std::optional<typename std::result_of<TEdgesFun(Frame &, ExecutionContext &)>::type::value_type> edges_;
+  std::optional<decltype(edges_.value().begin())> edges_it_;
+  std::optional<decltype(edges_.value().end())> edges_end_it_;
   const char *op_name_;
 };
 
@@ -693,8 +693,8 @@ UniqueCursorPtr ScanAllByEdgeType::MakeCursor(utils::MemoryResource *mem) const 
     return std::make_optional(db->Edges(view_, edge_type_));
   };
 
-  return MakeUniqueCursorPtr<ScanAllByEdgeTypeCursor<decltype(edges)>>(
-      mem, *this, output_symbol_, input_->MakeCursor(mem), view_, std::move(edges), "ScanAllByEdgeType");
+  return MakeUniqueCursorPtr<ScanAllByEdgeCursor<decltype(edges)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
+                                                                   view_, std::move(edges), "ScanAllByEdgeType");
 }
 
 std::vector<Symbol> ScanAllByEdgeType::ModifiedSymbols(const SymbolTable &table) const {
@@ -718,7 +718,7 @@ UniqueCursorPtr ScanAllByEdgeTypeProperty::MakeCursor(utils::MemoryResource *mem
     return std::make_optional(db->Edges(view_, edge_type_, property_));
   };
 
-  return MakeUniqueCursorPtr<ScanAllByEdgeTypeCursor<decltype(get_edges)>>(
+  return MakeUniqueCursorPtr<ScanAllByEdgeCursor<decltype(get_edges)>>(
       mem, *this, output_symbol_, input_->MakeCursor(mem), view_, std::move(get_edges), "ScanAllByEdgeTypeProperty");
 }
 
@@ -751,7 +751,7 @@ UniqueCursorPtr ScanAllByEdgeTypePropertyValue::MakeCursor(utils::MemoryResource
     return std::make_optional(db->Edges(view_, edge_type_, property_, storage::PropertyValue(value)));
   };
 
-  return MakeUniqueCursorPtr<ScanAllByEdgeTypeCursor<decltype(get_edges)>>(
+  return MakeUniqueCursorPtr<ScanAllByEdgeCursor<decltype(get_edges)>>(
       mem, *this, output_symbol_, input_->MakeCursor(mem), view_, std::move(get_edges),
       "ScanAllByEdgeTypePropertyValue");
 }
@@ -919,8 +919,8 @@ UniqueCursorPtr ScanAllByEdgeId::MakeCursor(utils::MemoryResource *mem) const {
     if (!maybe_edge) return std::nullopt;
     return std::vector<EdgeAccessor>{*maybe_edge};
   };
-  return MakeUniqueCursorPtr<ScanAllByEdgeTypeCursor<decltype(edges)>>(
-      mem, *this, output_symbol_, input_->MakeCursor(mem), view_, std::move(edges), "ScanAllByEdgeId");
+  return MakeUniqueCursorPtr<ScanAllByEdgeCursor<decltype(edges)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
+                                                                   view_, std::move(edges), "ScanAllByEdgeId");
 }
 
 std::vector<Symbol> ScanAllByEdgeId::ModifiedSymbols(const SymbolTable &table) const {
