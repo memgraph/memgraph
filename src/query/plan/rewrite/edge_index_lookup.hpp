@@ -717,6 +717,12 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     if (found_index) {
       // Copy the property filter and then erase it from filters.
       const auto prop_filter = *found_index->filter.property_filter;
+      if (prop_filter.type_ != PropertyFilter::Type::REGEX_MATCH) {
+        // Remove the original expression from Filter operation only if it's not
+        // a regex match. In such a case we need to perform the matching even
+        // after we've scanned the index.
+        filter_exprs_for_removal_.insert(found_index->filter.expression);
+      }
       filters_.EraseFilter(found_index->filter);
       if (FoundIndexWithFilteredLabel(found_index.value())) {
         std::vector<Expression *> removed_expressions;
