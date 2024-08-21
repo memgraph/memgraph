@@ -12,12 +12,9 @@
 /// @file
 #pragma once
 
-#include <fmt/core.h>
-
 #include "cppitertools/imap.hpp"
 #include "cppitertools/slice.hpp"
 #include "gflags/gflags.h"
-#include "spdlog/spdlog.h"
 
 #include "query/plan/rule_based_planner.hpp"
 
@@ -326,8 +323,6 @@ class VariableStartPlanner {
       varying_query_matchings.emplace_back(single_query_part, symbol_table);
     }
 
-    spdlog::trace(fmt::format("Query matchings size: {}", varying_query_matchings.size()));
-
     return iter::slice(MakeCartesianProduct(std::move(varying_query_matchings)), 0UL, FLAGS_query_max_plans);
   }
 
@@ -382,7 +377,6 @@ class VariableStartPlanner {
 
           RuleBasedPlanner<TPlanningContext> rule_planner(context);
           context->bound_symbols.clear();
-          spdlog::trace("Returned a plan!");
           return rule_planner.Plan(reconstructed_query_parts);
         },
         VaryQueryMatching(query_parts, *context_->symbol_table));

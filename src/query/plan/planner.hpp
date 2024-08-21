@@ -129,7 +129,7 @@ auto MakeLogicalPlan(TPlanningContext *context, TPlanPostProcess *post_process, 
       // Plans are generated lazily and the current plan will disappear, so
       // it's ok to move it.
       auto rewritten_plan = post_process->Rewrite(std::move(plan), context);
-      if (post_process->IsValidPlan(rewritten_plan)) {
+      if (!post_process->IsValidPlan(rewritten_plan)) {
         continue;
       }
       valid_plan_found = true;
