@@ -33,10 +33,16 @@ PRE_VISIT(RemoveLabels, RWType::W, true)
 
 PRE_VISIT(ScanAll, RWType::R, true)
 PRE_VISIT(ScanAllByLabel, RWType::R, true)
-PRE_VISIT(ScanAllByLabelPropertyRange, RWType::R, true)
-PRE_VISIT(ScanAllByLabelPropertyValue, RWType::R, true)
 PRE_VISIT(ScanAllByLabelProperty, RWType::R, true)
+PRE_VISIT(ScanAllByLabelPropertyValue, RWType::R, true)
+PRE_VISIT(ScanAllByLabelPropertyRange, RWType::R, true)
 PRE_VISIT(ScanAllById, RWType::R, true)
+
+PRE_VISIT(ScanAllByEdge, RWType::R, true)
+PRE_VISIT(ScanAllByEdgeType, RWType::R, true)
+PRE_VISIT(ScanAllByEdgeTypeProperty, RWType::R, true)
+PRE_VISIT(ScanAllByEdgeTypePropertyValue, RWType::R, true)
+PRE_VISIT(ScanAllByEdgeId, RWType::R, true)
 
 PRE_VISIT(Expand, RWType::R, true)
 PRE_VISIT(ExpandVariable, RWType::R, true)
