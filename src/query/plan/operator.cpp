@@ -659,8 +659,11 @@ UniqueCursorPtr ScanAllByLabel::MakeCursor(utils::MemoryResource *mem) const {
                                                                 view_, std::move(vertices), "ScanAllByLabel");
 }
 
-ScanAllByEdge::ScanAllByEdge(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::View view)
-    : ScanAll(input, output_symbol, view) {}
+ScanAllByEdge::ScanAllByEdge(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
+                             const std::vector<storage::EdgeTypeId> &edge_types, storage::View view)
+    : ScanAll(input, output_symbol, view) {
+  edge_types_ = edge_types;
+}
 
 ACCEPT_WITH_INPUT(ScanAllByEdge)
 
@@ -727,13 +730,9 @@ std::vector<Symbol> ScanAllByEdgeTypeProperty::ModifiedSymbols(const SymbolTable
 
 ScanAllByEdgeTypePropertyValue::ScanAllByEdgeTypePropertyValue(const std::shared_ptr<LogicalOperator> &input,
                                                                Symbol output_symbol, storage::EdgeTypeId edge_type,
-                                                               storage::PropertyId property, std::string property_name,
-                                                               Expression *expression, storage::View view)
-    : ScanAll(input, output_symbol, view),
-      edge_type_(edge_type),
-      property_(property),
-      property_name_(std::move(property_name)),
-      expression_(expression) {}
+                                                               storage::PropertyId property, Expression *expression,
+                                                               storage::View view)
+    : ScanAll(input, output_symbol, view), edge_type_(edge_type), property_(property), expression_(expression) {}
 
 ACCEPT_WITH_INPUT(ScanAllByEdgeTypePropertyValue)
 
@@ -768,13 +767,11 @@ std::vector<Symbol> ScanAllByEdgeTypePropertyValue::ModifiedSymbols(const Symbol
 
 ScanAllByLabelPropertyRange::ScanAllByLabelPropertyRange(const std::shared_ptr<LogicalOperator> &input,
                                                          Symbol output_symbol, storage::LabelId label,
-                                                         storage::PropertyId property, std::string property_name,
-                                                         std::optional<Bound> lower_bound,
+                                                         storage::PropertyId property, std::optional<Bound> lower_bound,
                                                          std::optional<Bound> upper_bound, storage::View view)
     : ScanAll(input, output_symbol, view),
       label_(label),
       property_(property),
-      property_name_(std::move(property_name)),
       lower_bound_(lower_bound),
       upper_bound_(upper_bound) {
   MG_ASSERT(lower_bound_ || upper_bound_, "Only one bound can be left out");
@@ -831,13 +828,9 @@ UniqueCursorPtr ScanAllByLabelPropertyRange::MakeCursor(utils::MemoryResource *m
 
 ScanAllByLabelPropertyValue::ScanAllByLabelPropertyValue(const std::shared_ptr<LogicalOperator> &input,
                                                          Symbol output_symbol, storage::LabelId label,
-                                                         storage::PropertyId property, std::string property_name,
-                                                         Expression *expression, storage::View view)
-    : ScanAll(input, output_symbol, view),
-      label_(label),
-      property_(property),
-      property_name_(std::move(property_name)),
-      expression_(expression) {
+                                                         storage::PropertyId property, Expression *expression,
+                                                         storage::View view)
+    : ScanAll(input, output_symbol, view), label_(label), property_(property), expression_(expression) {
   DMG_ASSERT(expression, "Expression is not optional.");
 }
 
@@ -862,12 +855,8 @@ UniqueCursorPtr ScanAllByLabelPropertyValue::MakeCursor(utils::MemoryResource *m
 }
 
 ScanAllByLabelProperty::ScanAllByLabelProperty(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
-                                               storage::LabelId label, storage::PropertyId property,
-                                               std::string property_name, storage::View view)
-    : ScanAll(input, output_symbol, view),
-      label_(label),
-      property_(property),
-      property_name_(std::move(property_name)) {}
+                                               storage::LabelId label, storage::PropertyId property, storage::View view)
+    : ScanAll(input, output_symbol, view), label_(label), property_(property) {}
 
 ACCEPT_WITH_INPUT(ScanAllByLabelProperty)
 
