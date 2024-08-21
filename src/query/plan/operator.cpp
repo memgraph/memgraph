@@ -113,6 +113,7 @@ extern const Event ScanAllByIdOperator;
 extern const Event ScanAllByEdgeOperator;
 extern const Event ScanAllByEdgeTypeOperator;
 extern const Event ScanAllByEdgeTypePropertyOperator;
+extern const Event ScanAllByEdgeTypePropertyValueOperator;
 extern const Event ScanAllByEdgeIdOperator;
 extern const Event ExpandOperator;
 extern const Event ExpandVariableOperator;
@@ -707,7 +708,7 @@ ScanAllByEdgeTypeProperty::ScanAllByEdgeTypeProperty(const std::shared_ptr<Logic
 ACCEPT_WITH_INPUT(ScanAllByEdgeTypeProperty)
 
 UniqueCursorPtr ScanAllByEdgeTypeProperty::MakeCursor(utils::MemoryResource *mem) const {
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgeTypeOperator);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgeTypePropertyOperator);
 
   const auto get_edges = [this](Frame &, ExecutionContext &context) {
     auto *db = context.db_accessor;
@@ -719,6 +720,44 @@ UniqueCursorPtr ScanAllByEdgeTypeProperty::MakeCursor(utils::MemoryResource *mem
 }
 
 std::vector<Symbol> ScanAllByEdgeTypeProperty::ModifiedSymbols(const SymbolTable &table) const {
+  auto symbols = input_->ModifiedSymbols(table);
+  symbols.emplace_back(output_symbol_);
+  return symbols;
+}
+
+ScanAllByEdgeTypePropertyValue::ScanAllByEdgeTypePropertyValue(const std::shared_ptr<LogicalOperator> &input,
+                                                               Symbol output_symbol, storage::EdgeTypeId edge_type,
+                                                               storage::PropertyId property, std::string property_name,
+                                                               Expression *expression, storage::View view)
+    : ScanAll(input, output_symbol, view),
+      edge_type_(edge_type),
+      property_(property),
+      property_name_(std::move(property_name)),
+      expression_(expression) {}
+
+ACCEPT_WITH_INPUT(ScanAllByEdgeTypePropertyValue)
+
+UniqueCursorPtr ScanAllByEdgeTypePropertyValue::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgeTypePropertyValueOperator);
+
+  const auto get_edges = [this](Frame &frame, ExecutionContext &context)
+      -> std::optional<decltype(context.db_accessor->Edges(view_, edge_type_, property_, storage::PropertyValue()))> {
+    auto *db = context.db_accessor;
+    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_);
+    auto value = expression_->Accept(evaluator);
+    if (value.IsNull()) return std::nullopt;
+    if (!value.IsPropertyValue()) {
+      throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
+    }
+    return std::make_optional(db->Edges(view_, edge_type_, property_, storage::PropertyValue(value)));
+  };
+
+  return MakeUniqueCursorPtr<ScanAllByEdgeTypeCursor<decltype(get_edges)>>(
+      mem, *this, output_symbol_, input_->MakeCursor(mem), view_, std::move(get_edges),
+      "ScanAllByEdgeTypePropertyValue");
+}
+
+std::vector<Symbol> ScanAllByEdgeTypePropertyValue::ModifiedSymbols(const SymbolTable &table) const {
   auto symbols = input_->ModifiedSymbols(table);
   symbols.emplace_back(output_symbol_);
   return symbols;

@@ -691,6 +691,46 @@ class ScanAllByEdgeTypeProperty : public memgraph::query::plan::ScanAll {
   }
 };
 
+class ScanAllByEdgeTypePropertyValue : public memgraph::query::plan::ScanAll {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  ScanAllByEdgeTypePropertyValue() = default;
+  ScanAllByEdgeTypePropertyValue(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
+                                 storage::EdgeTypeId edge_type, storage::PropertyId property, std::string property_name,
+                                 Expression *expression, storage::View view = storage::View::OLD);
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+  std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+
+  bool HasSingleInput() const override { return true; }
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
+
+  std::string ToString() const override {
+    return fmt::format("ScanAllByEdgeTypePropertyValue ({0} :{1} {{{2}}})", output_symbol_.name(),
+                       dba_->EdgeTypeToName(edge_type_), dba_->PropertyToName(property_));
+  }
+
+  storage::EdgeTypeId edge_type_;
+  storage::PropertyId property_;
+  std::string property_name_;
+  Expression *expression_;
+
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
+    auto object = std::make_unique<ScanAllByEdgeTypePropertyValue>();
+    object->input_ = input_ ? input_->Clone(storage) : nullptr;
+    object->output_symbol_ = output_symbol_;
+    object->view_ = view_;
+    object->edge_type_ = edge_type_;
+    object->property_ = property_;
+    object->property_name_ = property_name_;
+    object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
+    return object;
+  }
+};
+
 /// Behaves like @c ScanAll, but produces only vertices with given label and
 /// property value which is inside a range (inclusive or exlusive).
 ///

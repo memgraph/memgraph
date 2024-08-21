@@ -1654,7 +1654,27 @@ EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, Vie
 EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, PropertyId property, View view) {
   auto *mem_edge_type_property_index =
       static_cast<InMemoryEdgeTypePropertyIndex *>(storage_->indices_.edge_type_property_index_.get());
-  return EdgesIterable(mem_edge_type_property_index->Edges(edge_type, property, view, storage_, &transaction_));
+  return EdgesIterable(mem_edge_type_property_index->Edges(edge_type, property, std::nullopt, std::nullopt, view,
+                                                           storage_, &transaction_));
+}
+
+EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, PropertyId property,
+                                                       const PropertyValue &value, View view) {
+  auto *mem_edge_type_property_index =
+      static_cast<InMemoryEdgeTypePropertyIndex *>(storage_->indices_.edge_type_property_index_.get());
+  return EdgesIterable(mem_edge_type_property_index->Edges(edge_type, property, utils::MakeBoundInclusive(value),
+                                                           utils::MakeBoundInclusive(value), view, storage_,
+                                                           &transaction_));
+}
+
+EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, PropertyId property,
+                                                       const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+                                                       const std::optional<utils::Bound<PropertyValue>> &upper_bound,
+                                                       View view) {
+  auto *mem_edge_type_property_index =
+      static_cast<InMemoryEdgeTypePropertyIndex *>(storage_->indices_.edge_type_property_index_.get());
+  return EdgesIterable(mem_edge_type_property_index->Edges(edge_type, property, lower_bound, upper_bound, view,
+                                                           storage_, &transaction_));
 }
 
 std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdge(Gid gid, View view) {

@@ -198,7 +198,13 @@ class Storage {
 
     virtual EdgesIterable Edges(EdgeTypeId edge_type, View view) = 0;
 
-    virtual EdgesIterable Edges(EdgeTypeId edge_type, PropertyId proeprty, View view) = 0;
+    virtual EdgesIterable Edges(EdgeTypeId edge_type, PropertyId property, View view) = 0;
+
+    virtual EdgesIterable Edges(EdgeTypeId edge_type, PropertyId property, const PropertyValue &value, View view) = 0;
+
+    virtual EdgesIterable Edges(EdgeTypeId edge_type, PropertyId property,
+                                const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+                                const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) = 0;
 
     virtual Result<std::optional<VertexAccessor>> DeleteVertex(VertexAccessor *vertex);
 
@@ -220,9 +226,16 @@ class Storage {
                                             const std::optional<utils::Bound<PropertyValue>> &lower,
                                             const std::optional<utils::Bound<PropertyValue>> &upper) const = 0;
 
-    virtual uint64_t ApproximateEdgeCount(EdgeTypeId id) const = 0;
+    virtual uint64_t ApproximateEdgeCount(EdgeTypeId edge_type) const = 0;
 
-    virtual uint64_t ApproximateEdgeCount(EdgeTypeId id, PropertyId property) const = 0;
+    virtual uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property) const = 0;
+
+    virtual uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property,
+                                          const PropertyValue &value) const = 0;
+
+    virtual uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property,
+                                          const std::optional<utils::Bound<PropertyValue>> &lower,
+                                          const std::optional<utils::Bound<PropertyValue>> &upper) const = 0;
 
     virtual std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const = 0;
 

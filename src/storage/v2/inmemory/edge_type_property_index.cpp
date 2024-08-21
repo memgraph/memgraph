@@ -209,7 +209,39 @@ uint64_t InMemoryEdgeTypePropertyIndex::ApproximateEdgeCount(EdgeTypeId edge_typ
   if (auto it = index_.find({edge_type, property}); it != index_.end()) {
     return it->second.size();
   }
+
   return 0U;
+}
+
+uint64_t InMemoryEdgeTypePropertyIndex::ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property,
+                                                             const PropertyValue &value) const {
+  auto it = index_.find({edge_type, property});
+  MG_ASSERT(it != index_.end(), "Index for edge type {} and property {} doesn't exist", edge_type.AsUint(),
+            property.AsUint());
+  auto acc = it->second.access();
+  if (!value.IsNull()) {
+    // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
+    return acc.estimate_count(value, utils::SkipListLayerForCountEstimation(acc.size()));
+  }
+  // The value `Null` won't ever appear in the index because it indicates that
+  // the property shouldn't exist. Instead, this value is used as an indicator
+  // to estimate the average number of equal elements in the list (for any
+  // given value).
+  return acc.estimate_average_number_of_equals(
+      [](const auto &first, const auto &second) { return first.value == second.value; },
+      // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
+      utils::SkipListLayerForAverageEqualsEstimation(acc.size()));
+}
+
+uint64_t InMemoryEdgeTypePropertyIndex::ApproximateEdgeCount(
+    EdgeTypeId edge_type, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower,
+    const std::optional<utils::Bound<PropertyValue>> &upper) const {
+  auto it = index_.find({edge_type, property});
+  MG_ASSERT(it != index_.end(), "Index for edge type {} and property {} doesn't exist", edge_type.AsUint(),
+            property.AsUint());
+  auto acc = it->second.access();
+  // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
+  return acc.estimate_range_count(lower, upper, utils::SkipListLayerForCountEstimation(acc.size()));
 }
 
 void InMemoryEdgeTypePropertyIndex::UpdateOnEdgeModification(Vertex *old_from, Vertex *old_to, Vertex *new_from,
@@ -230,9 +262,155 @@ void InMemoryEdgeTypePropertyIndex::UpdateOnEdgeModification(Vertex *old_from, V
 
 void InMemoryEdgeTypePropertyIndex::DropGraphClearIndices() { index_.clear(); }
 
-InMemoryEdgeTypePropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor, View view,
-                                                  Storage *storage, Transaction *transaction)
-    : index_accessor_(std::move(index_accessor)), view_(view), storage_(storage), transaction_(transaction) {}
+// These constants represent the smallest possible value of each type that is
+// contained in a `PropertyValue`. Note that numbers (integers and doubles) are
+// treated as the same "type" in `PropertyValue`.
+const PropertyValue kSmallestBool = PropertyValue(false);
+// NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
+static_assert(-std::numeric_limits<double>::infinity() < std::numeric_limits<int64_t>::min());
+const PropertyValue kSmallestNumber = PropertyValue(-std::numeric_limits<double>::infinity());
+const PropertyValue kSmallestString = PropertyValue("");
+const PropertyValue kSmallestList = PropertyValue(std::vector<PropertyValue>());
+const PropertyValue kSmallestMap = PropertyValue(PropertyValue::map_t{});
+const PropertyValue kSmallestTemporalData =
+    PropertyValue(TemporalData{static_cast<TemporalType>(0), std::numeric_limits<int64_t>::min()});
+const PropertyValue kSmallestZonedTemporalData = PropertyValue(
+    ZonedTemporalData{static_cast<ZonedTemporalType>(0), utils::AsSysTime(std::numeric_limits<int64_t>::min()),
+                      utils::Timezone(std::chrono::minutes{-utils::MAX_OFFSET_MINUTES})});
+const PropertyValue kSmallestEnum = PropertyValue(Enum{EnumTypeId{0}, EnumValueId{0}});
+const PropertyValue kSmallestPoint2d = PropertyValue(Point2d{CoordinateReferenceSystem::WGS84_2d, -180, -90});
+const PropertyValue kSmallestPoint3d =
+    PropertyValue(Point3d{CoordinateReferenceSystem::WGS84_3d, -180, -90, -std::numeric_limits<double>::infinity()});
+
+InMemoryEdgeTypePropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor, EdgeTypeId edge_type,
+                                                  PropertyId property,
+                                                  const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+                                                  const std::optional<utils::Bound<PropertyValue>> &upper_bound,
+                                                  View view, Storage *storage, Transaction *transaction)
+    : index_accessor_(std::move(index_accessor)),
+      edge_type_(edge_type),
+      property_(property),
+      lower_bound_(lower_bound),
+      upper_bound_(upper_bound),
+      view_(view),
+      storage_(storage),
+      transaction_(transaction) {
+  // We have to fix the bounds that the user provided to us. If the user
+  // provided only one bound we should make sure that only values of that type
+  // are returned by the iterator. We ensure this by supplying either an
+  // inclusive lower bound of the same type, or an exclusive upper bound of the
+  // following type. If neither bound is set we yield all items in the index.
+
+  // First we statically verify that our assumptions about the `PropertyValue`
+  // type ordering holds.
+  static_assert(PropertyValue::Type::Bool < PropertyValue::Type::Int);
+  static_assert(PropertyValue::Type::Int < PropertyValue::Type::Double);
+  static_assert(PropertyValue::Type::Double < PropertyValue::Type::String);
+  static_assert(PropertyValue::Type::String < PropertyValue::Type::List);
+  static_assert(PropertyValue::Type::List < PropertyValue::Type::Map);
+
+  // Remove any bounds that are set to `Null` because that isn't a valid value.
+  if (lower_bound_ && lower_bound_->value().IsNull()) {
+    lower_bound_ = std::nullopt;
+  }
+  if (upper_bound_ && upper_bound_->value().IsNull()) {
+    upper_bound_ = std::nullopt;
+  }
+
+  // Check whether the bounds are of comparable types if both are supplied.
+  if (lower_bound_ && upper_bound_ && !AreComparableTypes(lower_bound_->value().type(), upper_bound_->value().type())) {
+    bounds_valid_ = false;
+    return;
+  }
+
+  // Set missing bounds.
+  if (lower_bound_ && !upper_bound_) {
+    // Here we need to supply an upper bound. The upper bound is set to an
+    // exclusive lower bound of the following type.
+    switch (lower_bound_->value().type()) {
+      case PropertyValue::Type::Null:
+        // This shouldn't happen because of the nullopt-ing above.
+        LOG_FATAL("Invalid database state!");
+        break;
+      case PropertyValue::Type::Bool:
+        upper_bound_ = utils::MakeBoundExclusive(kSmallestNumber);
+        break;
+      case PropertyValue::Type::Int:
+      case PropertyValue::Type::Double:
+        // Both integers and doubles are treated as the same type in
+        // `PropertyValue` and they are interleaved when sorted.
+        upper_bound_ = utils::MakeBoundExclusive(kSmallestString);
+        break;
+      case PropertyValue::Type::String:
+        upper_bound_ = utils::MakeBoundExclusive(kSmallestList);
+        break;
+      case PropertyValue::Type::List:
+        upper_bound_ = utils::MakeBoundExclusive(kSmallestMap);
+        break;
+      case PropertyValue::Type::Map:
+        upper_bound_ = utils::MakeBoundExclusive(kSmallestTemporalData);
+        break;
+      case PropertyValue::Type::TemporalData:
+        upper_bound_ = utils::MakeBoundExclusive(kSmallestZonedTemporalData);
+        break;
+      case PropertyValue::Type::ZonedTemporalData:
+        upper_bound_ = utils::MakeBoundExclusive(kSmallestEnum);
+        break;
+      case PropertyValue::Type::Enum:
+        upper_bound_ = utils::MakeBoundExclusive(kSmallestPoint2d);
+        break;
+      case PropertyValue::Type::Point2d:
+        upper_bound_ = utils::MakeBoundExclusive(kSmallestPoint3d);
+        break;
+      case PropertyValue::Type::Point3d:
+        // This is the last type in the order so we leave the upper bound empty.
+        break;
+    }
+  }
+  if (upper_bound_ && !lower_bound_) {
+    // Here we need to supply a lower bound. The lower bound is set to an
+    // inclusive lower bound of the current type.
+    switch (upper_bound_->value().type()) {
+      case PropertyValue::Type::Null:
+        // This shouldn't happen because of the nullopt-ing above.
+        LOG_FATAL("Invalid database state!");
+        break;
+      case PropertyValue::Type::Bool:
+        lower_bound_ = utils::MakeBoundInclusive(kSmallestBool);
+        break;
+      case PropertyValue::Type::Int:
+      case PropertyValue::Type::Double:
+        // Both integers and doubles are treated as the same type in
+        // `PropertyValue` and they are interleaved when sorted.
+        lower_bound_ = utils::MakeBoundInclusive(kSmallestNumber);
+        break;
+      case PropertyValue::Type::String:
+        lower_bound_ = utils::MakeBoundInclusive(kSmallestString);
+        break;
+      case PropertyValue::Type::List:
+        lower_bound_ = utils::MakeBoundInclusive(kSmallestList);
+        break;
+      case PropertyValue::Type::Map:
+        lower_bound_ = utils::MakeBoundInclusive(kSmallestMap);
+        break;
+      case PropertyValue::Type::TemporalData:
+        lower_bound_ = utils::MakeBoundInclusive(kSmallestTemporalData);
+        break;
+      case PropertyValue::Type::ZonedTemporalData:
+        lower_bound_ = utils::MakeBoundInclusive(kSmallestZonedTemporalData);
+        break;
+      case PropertyValue::Type::Enum:
+        lower_bound_ = utils::MakeBoundInclusive(kSmallestEnum);
+        break;
+      case PropertyValue::Type::Point2d:
+        lower_bound_ = utils::MakeBoundExclusive(kSmallestPoint2d);
+        break;
+      case PropertyValue::Type::Point3d:
+        lower_bound_ = utils::MakeBoundExclusive(kSmallestPoint3d);
+        break;
+    }
+  }
+}
 
 InMemoryEdgeTypePropertyIndex::Iterable::Iterator::Iterator(Iterable *self,
                                                             utils::SkipList<Entry>::Iterator index_iterator)
@@ -329,13 +507,14 @@ void InMemoryEdgeTypePropertyIndex::RunGC() {
   }
 }
 
-InMemoryEdgeTypePropertyIndex::Iterable InMemoryEdgeTypePropertyIndex::Edges(EdgeTypeId edge_type, PropertyId property,
-                                                                             View view, Storage *storage,
-                                                                             Transaction *transaction) {
-  const auto it = index_.find({edge_type, property});
-  MG_ASSERT(it != index_.end(), "Index for edge-type {} and property {} doesn't exist", edge_type.AsUint(),
+InMemoryEdgeTypePropertyIndex::Iterable InMemoryEdgeTypePropertyIndex::Edges(
+    EdgeTypeId edge_type, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
+    Transaction *transaction) {
+  auto it = index_.find({edge_type, property});
+  MG_ASSERT(it != index_.end(), "Index for edge type {} and property {} doesn't exist", edge_type.AsUint(),
             property.AsUint());
-  return {it->second.access(), view, storage, transaction};
+  return {it->second.access(), edge_type, property, lower_bound, upper_bound, view, storage, transaction};
 }
 
 }  // namespace memgraph::storage

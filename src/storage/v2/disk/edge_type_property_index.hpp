@@ -28,6 +28,12 @@ class DiskEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
 
   uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property) const override;
 
+  uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property, const PropertyValue &value) const override;
+
+  uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property,
+                                const std::optional<utils::Bound<PropertyValue>> &lower,
+                                const std::optional<utils::Bound<PropertyValue>> &upper) const override;
+
   void UpdateOnEdgeModification(Vertex *old_from, Vertex *old_to, Vertex *new_from, Vertex *new_to, EdgeRef edge_ref,
                                 EdgeTypeId edge_type, PropertyId property, const Transaction &tx) override;
 

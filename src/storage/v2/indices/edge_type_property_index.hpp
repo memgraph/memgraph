@@ -39,6 +39,13 @@ class EdgeTypePropertyIndex {
 
   virtual uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property) const = 0;
 
+  virtual uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property,
+                                        const PropertyValue &value) const = 0;
+
+  virtual uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property,
+                                        const std::optional<utils::Bound<PropertyValue>> &lower,
+                                        const std::optional<utils::Bound<PropertyValue>> &upper) const = 0;
+
   virtual void UpdateOnEdgeModification(Vertex *old_from, Vertex *old_to, Vertex *new_from, Vertex *new_to,
                                         EdgeRef edge_ref, EdgeTypeId edge_type, PropertyId property,
                                         const Transaction &tx) = 0;
