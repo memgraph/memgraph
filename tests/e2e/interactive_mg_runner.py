@@ -43,7 +43,7 @@ from typing import Optional
 
 import yaml
 
-from memgraph import MemgraphInstanceRunner, extract_bolt_port
+from memgraph import MemgraphInstanceRunner, extract_bolt_port, extract_management_port
 
 log = logging.getLogger("memgraph.tests.e2e")
 
@@ -129,6 +129,11 @@ def _start_instance(
     assert not is_port_in_use(
         bolt_port
     ), f"If this raises, you are trying to start an instance on a port {bolt_port} used by the running instance."
+    management_port = extract_management_port(args)
+    if management_port:
+        assert not is_port_in_use(
+            management_port
+        ), f"If this raises, you are trying to start with coordinator management port {management_port} which is already in use."
 
     log_file_path = os.path.join(BUILD_DIR, "logs", log_file)
 

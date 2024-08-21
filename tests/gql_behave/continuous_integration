@@ -177,6 +177,8 @@ def main():
             "--stats-file",
             suite["stats_file"],
             suite["test_suite"],
+            "--storage-mode",
+            suite_storage_mode,
         ]
 
         # The exit code isn't checked here because the `behave` framework

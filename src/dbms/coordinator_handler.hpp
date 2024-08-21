@@ -43,7 +43,7 @@ class CoordinatorHandler {
 
   auto DemoteInstanceToReplica(std::string_view instance_name) -> coordination::DemoteInstanceCoordinatorStatus;
 
-  auto ForceResetClusterState() -> coordination::ForceResetClusterStateStatus;
+  auto ForceResetClusterState() -> coordination::ReconcileClusterStateStatus;
 
   auto ShowInstances() const -> std::vector<coordination::InstanceStatus>;
 

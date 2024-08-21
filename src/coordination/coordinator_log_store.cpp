@@ -38,9 +38,6 @@ ptr<log_entry> MakeClone(const ptr<log_entry> &entry) {
 
 CoordinatorLogStore::CoordinatorLogStore(LoggerWrapper logger, std::optional<LogStoreDurability> log_store_durability)
     : logger_(logger) {
-  ptr<buffer> buf = buffer::alloc(sizeof(uint64_t));
-  logs_[0] = cs_new<log_entry>(0, buf);
-
   if (log_store_durability) {
     durability_ = log_store_durability->durability_store_;
   }
@@ -51,14 +48,13 @@ CoordinatorLogStore::CoordinatorLogStore(LoggerWrapper logger, std::optional<Log
     return;
   }
 
-  MG_ASSERT(HandleVersionMigration(log_store_durability->stored_log_store_version_,
-                                   log_store_durability->active_log_store_version_),
+  MG_ASSERT(HandleVersionMigration(log_store_durability->stored_log_store_version_),
             "Couldn't handle version migration");
 }
 
-bool CoordinatorLogStore::HandleVersionMigration(memgraph::coordination::LogStoreVersion stored_version,
-                                                 memgraph::coordination::LogStoreVersion active_version) {
-  if (stored_version == active_version && stored_version == LogStoreVersion::kV1) {
+bool CoordinatorLogStore::HandleVersionMigration(memgraph::coordination::LogStoreVersion stored_version) {
+  if (kActiveVersion == LogStoreVersion::kV2 &&
+      (stored_version == LogStoreVersion::kV1 || stored_version == LogStoreVersion::kV2)) {
     auto const maybe_last_log_entry = durability_->Get(kLastLogEntry);
     auto const maybe_start_idx = durability_->Get(kStartIdx);
     bool is_first_start{false};
@@ -86,7 +82,11 @@ bool CoordinatorLogStore::HandleVersionMigration(memgraph::coordination::LogStor
     for (auto const id : std::ranges::iota_view{start_idx_.load(), last_log_entry + 1}) {
       auto const entry = durability_->Get(fmt::format("{}{}", kLogEntryPrefix, id));
 
-      MG_ASSERT(entry.has_value(), "Missing entry with id {} in range [{}:{}]", id, start_idx_.load(), last_log_entry);
+      if (!entry.has_value()) {
+        logger_.Log(nuraft_log_level::TRACE,
+                    fmt::format("Missing entry with id {} in range [{}:{}]", id, start_idx_.load(), last_log_entry));
+        continue;
+      }
 
       auto const j = nlohmann::json::parse(entry.value());
       auto const term = j.at(kLogEntryTermKey).get<int>();
@@ -102,9 +102,6 @@ bool CoordinatorLogStore::HandleVersionMigration(memgraph::coordination::LogStor
     return true;
   }
 
-  // Handle migration from older versions to newer ones.
-  // Currently we only have one version so we don't need to do anything.
-
   return false;
 }
 
@@ -113,7 +110,7 @@ CoordinatorLogStore::~CoordinatorLogStore() = default;
 auto CoordinatorLogStore::FindOrDefault_(uint64_t index) const -> ptr<log_entry> {
   auto entry = logs_.find(index);
   if (entry == logs_.end()) {
-    entry = logs_.find(0);
+    return cs_new<log_entry>(0, buffer::alloc(sizeof(uint64_t)));
   }
   return entry->second;
 }
@@ -133,14 +130,16 @@ void CoordinatorLogStore::DeleteLogs(uint64_t start, uint64_t end) {
 
 uint64_t CoordinatorLogStore::next_slot() const {
   auto lock = std::lock_guard{logs_lock_};
-  return start_idx_ + logs_.size() - 1;
+  return GetNextSlot();
 }
+
+auto CoordinatorLogStore::GetNextSlot() const -> uint64_t { return start_idx_ + logs_.size(); }
 
 uint64_t CoordinatorLogStore::start_index() const { return start_idx_; }
 
 ptr<log_entry> CoordinatorLogStore::last_entry() const {
   auto lock = std::lock_guard{logs_lock_};
-  uint64_t const next_slot = start_idx_ + logs_.size() - 1;
+  uint64_t const next_slot = GetNextSlot();
   auto const last_src = FindOrDefault_(next_slot - 1);
 
   return MakeClone(last_src);
@@ -149,10 +148,10 @@ ptr<log_entry> CoordinatorLogStore::last_entry() const {
 uint64_t CoordinatorLogStore::append(ptr<log_entry> &entry) {
   auto const clone = MakeClone(entry);
   auto lock = std::lock_guard{logs_lock_};
-  uint64_t next_slot = start_idx_ + logs_.size() - 1;
+  uint64_t const next_slot = GetNextSlot();
 
   if (durability_) {
-    bool const is_entry_with_biggest_id = next_slot == start_idx_ + logs_.size() - 1;
+    bool const is_entry_with_biggest_id = true;
     StoreEntryToDisk(clone, next_slot, is_entry_with_biggest_id);
   }
 
@@ -170,32 +169,53 @@ void CoordinatorLogStore::write_at(uint64_t index, ptr<log_entry> &entry) {
   while (itr != logs_.end()) {
     itr = logs_.erase(itr);
   }
-  logs_[index] = clone;
-
+  bool const is_entry_with_biggest_id = index == GetNextSlot();
   if (durability_) {
-    bool const is_entry_with_biggest_id = index >= start_idx_ - logs_.size() - 1;
     StoreEntryToDisk(clone, index, is_entry_with_biggest_id);
+  }
+  if (index != 0) [[likely]] {
+    logs_[index] = clone;
   }
 }
 
 ptr<std::vector<ptr<log_entry>>> CoordinatorLogStore::log_entries(uint64_t start, uint64_t end) {
   auto ret = cs_new<std::vector<ptr<log_entry>>>();
-  ret->resize(end - start);
+  ret->reserve(end - start);
 
-  for (uint64_t i = start, curr_index = 0; i < end; i++, curr_index++) {
+  for (uint64_t i = start; i < end; i++) {
     ptr<log_entry> src;
     {
       auto lock = std::lock_guard{logs_lock_};
       auto const entry = logs_.find(i);
       if (entry == logs_.end()) {
-        spdlog::error("Could not find entry at index {}", i);
+        spdlog::trace("Could not find entry at index {}", i);
         return nullptr;
       }
       src = entry->second;
     }
-    (*ret)[curr_index] = MakeClone(src);
+    ret->emplace_back(MakeClone(src));
   }
   return ret;
+}
+
+std::vector<std::pair<int64_t, ptr<log_entry>>> CoordinatorLogStore::GetAllEntriesRange(uint64_t start, uint64_t end) {
+  std::vector<std::pair<int64_t, ptr<log_entry>>> entries;
+  entries.reserve(end - start);
+
+  for (uint64_t i = start; i < end; i++) {
+    ptr<log_entry> src;
+    {
+      auto lock = std::lock_guard{logs_lock_};
+      auto const entry = logs_.find(i);
+      if (entry == logs_.end()) {
+        spdlog::trace("Could not find entry at index {}", i);
+        continue;
+      }
+      src = entry->second;
+    }
+    entries.emplace_back(i, MakeClone(src));
+  }
+  return entries;
 }
 
 ptr<log_entry> CoordinatorLogStore::entry_at(uint64_t index) {
@@ -219,9 +239,13 @@ ptr<buffer> CoordinatorLogStore::pack(uint64_t index, int32 cnt) {
     ptr<log_entry> le = nullptr;
     {
       auto lock = std::lock_guard{logs_lock_};
-      le = logs_[i];
+      if (auto elem = logs_.find(i); elem != logs_.end()) {
+        le = elem->second;
+      } else if (index == 0) {
+        le = FindOrDefault_(0);
+      }
     }
-    MG_ASSERT(le.get(), "Could not find log entry at index {}", i);
+    MG_ASSERT(le != nullptr, "Could not find log entry at index {}", i);
     auto buf = le->serialize();
     size_total += buf->size();
     logs.push_back(buf);
@@ -252,9 +276,13 @@ void CoordinatorLogStore::apply_pack(uint64_t index, buffer &pack) {
     ptr<log_entry> le = log_entry::deserialize(*buf_local);
     {
       auto lock = std::lock_guard{logs_lock_};
-      logs_[cur_idx] = le;
+      // This needs to be before we update logs_ as we change NextSlot once we insert log into in-memory logs_
+      bool const is_entry_with_biggest_id = cur_idx >= GetNextSlot();
+      if (cur_idx != 0) [[likely]] {
+        logs_[cur_idx] = le;
+      }
+
       if (durability_) {
-        bool const is_entry_with_biggest_id = cur_idx >= start_idx_ + logs_.size() - 1;
         StoreEntryToDisk(le, cur_idx, is_entry_with_biggest_id);
       }
     }

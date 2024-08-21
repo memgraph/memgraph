@@ -2090,19 +2090,17 @@ void PropertyStore::SetBuffer(const std::string_view buffer) {
     return;
   }
 
-  uint32_t size = 0;
-  uint8_t *data = nullptr;
-  size = buffer.size();
-  if (buffer.size() == sizeof(buffer_) - 1) {  // use local buffer
-    buffer_[0] = kUseLocalBuffer;
-    data = &buffer_[1];
-  } else {
-    data = new uint8_t[size];
-    SetSizeData(buffer_, size, data);
-  }
+  auto size = buffer.size();
+  auto buffer_info = SetupBuffer(buffer_, size);
+  auto view = buffer_info.view;
 
   for (uint i = 0; i < size; ++i) {
-    data[i] = static_cast<uint8_t>(buffer[i]);
+    view[i] = static_cast<uint8_t>(buffer[i]);
+  }
+
+  // Make buffer perminant
+  if (buffer_info.storage_mode == StorageMode::BUFFER) {
+    SetSizeData(buffer_, view.size_bytes(), view.data());
   }
 }
 

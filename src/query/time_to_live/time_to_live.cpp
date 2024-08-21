@@ -70,17 +70,18 @@ void TTL::Setup_(TDbAccess db_acc, InterpreterContext *interpreter_context) {
   auto TTL = [interpreter = std::move(interpreter)]() {
     memgraph::query::DiscardValueResultStream result_stream;
     bool finished = false;
+    // Using microseconds to be aligned with timestamp() query, could just use seconds
+    const auto now = std::chrono::system_clock::now();
+    const auto now_us = std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch());
+    spdlog::trace("Running TTL at {}", now);
     while (!finished) {
-      // Using microseconds to be aligned with timestamp() query, could just use seconds
-      const auto now =
-          std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch());
       try {
         interpreter->BeginTransaction();
         auto prepare_result =
             interpreter->Prepare("MATCH (n:TTL) WHERE n.ttl < $now WITH n LIMIT $batch DETACH DELETE n;",
-                                 [now](auto) {
+                                 [now_us](auto) {
                                    UserParameters params;
-                                   params.emplace("now", now.count());
+                                   params.emplace("now", now_us.count());
                                    params.emplace("batch", 10000);
                                    return params;
                                  },
@@ -98,11 +99,13 @@ void TTL::Setup_(TDbAccess db_acc, InterpreterContext *interpreter_context) {
         };
         const auto n_deleted = get_value("nodes-deleted");
         finished = !pull_res.at("has_more").ValueBool() && n_deleted == 0;
-        spdlog::trace("Commit TTL transaction");
+        spdlog::trace("Committing TTL batch transaction");
         interpreter->CommitTransaction();
+        const auto n_edges_deleted = get_value("relationships-deleted");
+        spdlog::trace("Committed TTL batch deleted {} vertices and {} edges", n_deleted, n_edges_deleted);
         // Telemetry
         memgraph::metrics::IncrementCounter(memgraph::metrics::DeletedNodes, n_deleted);
-        memgraph::metrics::IncrementCounter(memgraph::metrics::DeletedEdges, get_value("relationships-deleted"));
+        memgraph::metrics::IncrementCounter(memgraph::metrics::DeletedEdges, n_edges_deleted);
       } catch (const TransactionSerializationException &e) {
         spdlog::trace("TTL serialization error; Aborting and retrying...");
         interpreter->Abort();  // Retry later
@@ -128,6 +131,7 @@ void TTL::Setup_(TDbAccess db_acc, InterpreterContext *interpreter_context) {
       }
       std::this_thread::yield();
     }
+    spdlog::trace("Finished TTL run from {}", now);
   };
 
   DMG_ASSERT(info_.period, "Period has to be defined for TTL");

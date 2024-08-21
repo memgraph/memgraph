@@ -3,6 +3,29 @@
 pushd () { command pushd "$@" > /dev/null; }
 popd () { command popd "$@" > /dev/null; }
 
+declare -a pids=()
+
+function cleanup() {
+    for pid in "${pids[@]}"; do
+        if kill -0 "$pid" 2>/dev/null; then
+            echo "Stopping background process with PID $pid (it was still running)"
+            kill "$pid"
+            wait "$pid" 2>/dev/null
+        fi
+    done
+}
+
+trap cleanup EXIT INT TERM
+
+function check_ports_unused() {
+    for port in "$@"; do
+        if nc -z -w 1 localhost "$port" >/dev/null 2>&1; then
+            echo "Port $port is in use."
+            exit 1
+        fi
+    done
+}
+
 function wait_for_server {
     port=$1
     while ! nc -z -w 1 localhost $port; do
@@ -26,6 +49,7 @@ mkdir -p $tmpdir
 binary_dir="$DIR/../../build"
 
 # Start instance_1
+check_ports_unused 7687 10011
 $binary_dir/memgraph \
     --bolt-port=7687 \
     --data-directory=$tmpdir/instance_1/ \
@@ -39,8 +63,10 @@ $binary_dir/memgraph \
 
 pid_instance_1=$!
 wait_for_server 7687
+pids+=($pid_instance_1)
 
 # Start instance_2
+check_ports_unused 7688 10012
 $binary_dir/memgraph \
     --bolt-port=7688 \
     --data-directory=$tmpdir/instance_2 \
@@ -54,8 +80,10 @@ $binary_dir/memgraph \
 
 pid_instance_2=$!
 wait_for_server 7688
+pids+=($pid_instance_2)
 
 # Start instance_3
+check_ports_unused 7689 10013
 $binary_dir/memgraph \
     --bolt-port=7689 \
     --data-directory=$tmpdir/instance_3 \
@@ -69,9 +97,11 @@ $binary_dir/memgraph \
 
 pid_instance_3=$!
 wait_for_server 7689
+pids+=($pid_instance_3)
 
 
 # Start coordinator_1
+check_ports_unused 7690 10121 10111
 $binary_dir/memgraph \
     --bolt-port=7690 \
     --data-directory=$tmpdir/coordinator_1 \
@@ -88,8 +118,10 @@ $binary_dir/memgraph \
 
 pid_coordinator_1=$!
 wait_for_server 7690
+pids+=($pid_coordinator_1)
 
 # Start coordinator_2
+check_ports_unused 7691 10122 10112
 $binary_dir/memgraph \
     --bolt-port=7691 \
     --data-directory=$tmpdir/coordinator_2 \
@@ -106,8 +138,10 @@ $binary_dir/memgraph \
 
 pid_coordinator_2=$!
 wait_for_server 7691
+pids+=($pid_coordinator_2)
 
 # Start coordinator_3
+check_ports_unused 7692 10123 10113
 $binary_dir/memgraph \
     --bolt-port=7692 \
     --data-directory=$tmpdir/coordinator_3 \
@@ -124,6 +158,7 @@ $binary_dir/memgraph \
 
 pid_coordinator_3=$!
 wait_for_server 7692
+pids+=($pid_coordinator_3)
 
 sleep 5
 

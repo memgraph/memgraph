@@ -453,7 +453,12 @@ def test_even_number_coords(use_durability):
     interactive_mg_runner.kill(inner_instances_description, "coordinator_2")
 
     # 5
-    # no leader, we get default output
+
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(coord_cursor_3, "SET INSTANCE instance_3 TO MAIN;")
+
+    assert "Couldn't set instance to main as cluster didn't accept start of action!" in str(e.value)
+
     follower_data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "unknown", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "unknown", "follower"),
@@ -466,17 +471,11 @@ def test_even_number_coords(use_durability):
 
     mg_sleep_and_assert(follower_data, show_instances_coord3)
 
-    with pytest.raises(Exception) as e:
-        execute_and_fetch_all(coord_cursor_3, "SET INSTANCE instance_3 TO MAIN;")
-
-    assert "Couldn't set instance to main since coordinator is not a leader!" in str(e.value)
-
     # 6
     interactive_mg_runner.start(inner_instances_description, "coordinator_1")
     interactive_mg_runner.start(inner_instances_description, "coordinator_2")
 
     # 7
-    leader_coord_instance_3_demoted = find_instance_and_assert_instances(instance_role="leader", num_coordinators=3)
 
     leader_data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
@@ -488,9 +487,16 @@ def test_even_number_coords(use_durability):
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "replica"),
     ]
 
+    leader_coord_instance_3_demoted = find_instance_and_assert_instances(instance_role="leader", num_coordinators=3)
+
+    main_instance_3_demoted = find_instance_and_assert_instances(instance_role="main", num_coordinators=3)
+
     assert leader_coord_instance_3_demoted is not None, "Leader not found"
 
+    assert main_instance_3_demoted is not None, "Main not found"
+
     leader_data = update_tuple_value(leader_data, leader_coord_instance_3_demoted, 0, -1, "leader")
+    leader_data = update_tuple_value(leader_data, main_instance_3_demoted, 0, -1, "main")
 
     port_mappings = {
         "coordinator_1": 7690,
@@ -498,22 +504,6 @@ def test_even_number_coords(use_durability):
         "coordinator_3": 7692,
         "coordinator_4": 7693,
     }
-
-    for coord, port in port_mappings.items():
-        coord_cursor = connect(host="localhost", port=port).cursor()
-
-        def show_instances():
-            return ignore_elapsed_time_from_results(
-                sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
-            )
-
-        mg_sleep_and_assert(leader_data, show_instances)
-
-    coord_cursor_leader = connect(host="localhost", port=port_mappings[leader_coord_instance_3_demoted]).cursor()
-
-    execute_and_fetch_all(coord_cursor_leader, "SET INSTANCE instance_3 TO MAIN;")
-
-    leader_data = update_tuple_value(leader_data, "instance_3", 0, -1, "main")
 
     for coord, port in port_mappings.items():
         coord_cursor = connect(host="localhost", port=port).cursor()
@@ -1913,149 +1903,38 @@ def test_force_reset_works_after_failed_registration():
     data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "replica"),
-    ]
-
-    mg_sleep_and_assert(data, show_instances_coord3)
-    mg_sleep_and_assert(data, show_instances_coord1)
-    mg_sleep_and_assert(data, show_instances_coord2)
-
-    vertex_count = 10
-    for _ in range(vertex_count):
-        execute_and_fetch_all(instance_1_cursor, "CREATE ();")
-
-    def get_vertex_count_func(cursor):
-        def get_vertex_count():
-            return execute_and_fetch_all(cursor, "MATCH (n) RETURN count(n)")[0][0]
-
-        return get_vertex_count
-
-    instance_1_cursor = connect(port=7687, host="localhost").cursor()
-    instance_2_cursor = connect(port=7688, host="localhost").cursor()
-
-    mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_1_cursor))
-    mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_2_cursor))
-    mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_3_cursor))
-
-    interactive_mg_runner.stop_all(keep_directories=False)
-
-
-def test_force_reset_works_after_failed_registration_and_main_down():
-    # Goal of this test is to check when action fails, that force reset happens
-    # and everything works correctly when MAIN is down (needs to be demoted)
-    # 1. Start all instances.
-    # 2. Check everything works correctly
-    # 3. Kill main
-    # 4. Try to register instance which doesn't exist
-    # 4. Enter force reset
-    # 5. Check that everything works correctly with two instances
-    # 6. Start main instance
-    # 7. Check that main is correctly demoted to replica
-
-    # 1
-    temp_dir = tempfile.TemporaryDirectory()
-    temp_dir_name = temp_dir.name
-
-    inner_instances_description = get_instances_description_no_setup(
-        temp_dir_name, test_name="test_force_reset_works_after_failed_registration_and_main_down"
-    )
-
-    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
-
-    coord_cursor_3 = connect(host="localhost", port=7692).cursor()
-    for query in get_default_setup_queries():
-        execute_and_fetch_all(coord_cursor_3, query)
-
-    # 2
-
-    def show_instances_coord3():
-        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCES;"))))
-
-    coord_cursor_1 = connect(host="localhost", port=7690).cursor()
-
-    def show_instances_coord1():
-        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;"))))
-
-    coord_cursor_2 = connect(host="localhost", port=7691).cursor()
-
-    def show_instances_coord2():
-        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
-
-    data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "follower"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
-    ]
-
-    mg_sleep_and_assert(data, show_instances_coord3)
-    mg_sleep_and_assert(data, show_instances_coord1)
-    mg_sleep_and_assert(data, show_instances_coord2)
-
-    instance_3_cursor = connect(host="localhost", port=7689).cursor()
-
-    def show_replicas():
-        return sorted(list(execute_and_fetch_all(instance_3_cursor, "SHOW REPLICAS;")))
-
-    replicas = [
-        (
-            "instance_1",
-            "localhost:10001",
-            "sync",
-            {"behind": None, "status": "ready", "ts": 0},
-            {"memgraph": {"behind": 0, "status": "ready", "ts": 0}},
-        ),
-        (
-            "instance_2",
-            "localhost:10002",
-            "sync",
-            {"behind": None, "status": "ready", "ts": 0},
-            {"memgraph": {"behind": 0, "status": "ready", "ts": 0}},
-        ),
-    ]
-    mg_sleep_and_assert_collection(replicas, show_replicas)
-
-    def get_vertex_count_func(cursor):
-        def get_vertex_count():
-            return execute_and_fetch_all(cursor, "MATCH (n) RETURN count(n)")[0][0]
-
-        return get_vertex_count
-
-    vertex_count = 0
-    instance_1_cursor = connect(port=7687, host="localhost").cursor()
-    instance_2_cursor = connect(port=7688, host="localhost").cursor()
-
-    mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_1_cursor))
-    mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_2_cursor))
-
-    with pytest.raises(Exception) as e:
-        execute_and_fetch_all(
-            coord_cursor_3,
-            "REGISTER INSTANCE instance_4 WITH CONFIG {'bolt_server': 'localhost:7680', 'management_server': 'localhost:10050', 'replication_server': 'localhost:10051'};",
-        )
-
-    # This will trigger force reset and choosing of new instance as MAIN
-    data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "replica"),
     ]
 
+    leader_name = find_instance_and_assert_instances(instance_role="leader", num_coordinators=3)
+
+    main_name = find_instance_and_assert_instances(instance_role="main", num_coordinators=3)
+
+    assert leader_name is not None, "leader is None"
+    assert main_name is not None, "Main is None"
+
+    data = update_tuple_value(data, leader_name, 0, -1, "leader")
+    data = update_tuple_value(data, main_name, 0, -1, "main")
+
     mg_sleep_and_assert(data, show_instances_coord3)
     mg_sleep_and_assert(data, show_instances_coord1)
     mg_sleep_and_assert(data, show_instances_coord2)
 
+    def get_port(instance_name):
+        mappings = {
+            "instance_1": 7687,
+            "instance_2": 7688,
+            "instance_3": 7689,
+        }
+        return mappings[instance_name]
+
+    instance_main_cursor = connect(port=get_port(main_name), host="localhost").cursor()
     vertex_count = 10
     for _ in range(vertex_count):
-        execute_and_fetch_all(instance_1_cursor, "CREATE ();")
+        execute_and_fetch_all(instance_main_cursor, "CREATE ();")
 
     def get_vertex_count_func(cursor):
         def get_vertex_count():
@@ -2063,12 +1942,9 @@ def test_force_reset_works_after_failed_registration_and_main_down():
 
         return get_vertex_count
 
-    instance_1_cursor = connect(port=7687, host="localhost").cursor()
-    instance_2_cursor = connect(port=7688, host="localhost").cursor()
-
-    mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_1_cursor))
-    mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_2_cursor))
-    mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_3_cursor))
+    for instance in ["instance_1", "instance_2", "instance_3"]:
+        cursor = connect(port=get_port(instance), host="localhost").cursor()
+        mg_sleep_and_assert(vertex_count, get_vertex_count_func(cursor))
 
     interactive_mg_runner.stop_all(keep_directories=False)
 
@@ -2176,15 +2052,25 @@ def test_force_reset_works_after_failed_registration_and_replica_down():
         )
 
     # 5
-    # This will trigger force reset and choosing of new instance as MAIN
+    # This will trigger verify and correct cluster state, where we shouldn't choose new MAIN
     data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "follower"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "down", "unknown"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "replica"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
+
+    leader_name = "coordinator_3"
+
+    main_name = "instance_3"
+
+    assert leader_name is not None, "leader is None"
+    assert main_name is not None, "Main is None"
+
+    data = update_tuple_value(data, leader_name, 0, -1, "leader")
+    data = update_tuple_value(data, main_name, 0, -1, "main")
 
     mg_sleep_and_assert(data, show_instances_coord3)
     mg_sleep_and_assert(data, show_instances_coord1)
@@ -2199,20 +2085,40 @@ def test_force_reset_works_after_failed_registration_and_replica_down():
     data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "follower"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "replica"),
     ]
+
+    data = update_tuple_value(data, leader_name, 0, -1, "leader")
+    data = update_tuple_value(data, main_name, 0, -1, "main")
 
     mg_sleep_and_assert(data, show_instances_coord3)
     mg_sleep_and_assert(data, show_instances_coord1)
     mg_sleep_and_assert(data, show_instances_coord2)
 
+    def get_port(instance_name):
+        mappings = {
+            "instance_1": 7687,
+            "instance_2": 7688,
+            "instance_3": 7689,
+        }
+        return mappings[instance_name]
+
+    main_cursor = connect(port=get_port(main_name), host="localhost").cursor()
+
     def show_replicas():
-        return sorted(list(execute_and_fetch_all(instance_1_cursor, "SHOW REPLICAS;")))
+        return sorted(list(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;")))
 
     replicas = [
+        (
+            "instance_1",
+            "localhost:10001",
+            "sync",
+            {"behind": None, "status": "ready", "ts": 0},
+            {"memgraph": {"behind": 0, "status": "ready", "ts": 0}},
+        ),
         (
             "instance_2",
             "localhost:10002",
@@ -2228,13 +2134,14 @@ def test_force_reset_works_after_failed_registration_and_replica_down():
             {"memgraph": {"behind": 0, "status": "ready", "ts": 0}},
         ),
     ]
+    replicas = [replica for replica in replicas if replica[0] != main_name]
     mg_sleep_and_assert_collection(replicas, show_replicas)
 
     # 8
 
     vertex_count = 10
     for _ in range(vertex_count):
-        execute_and_fetch_all(instance_1_cursor, "CREATE ();")
+        execute_and_fetch_all(main_cursor, "CREATE ();")
 
     def get_vertex_count_func(cursor):
         def get_vertex_count():
@@ -2242,12 +2149,9 @@ def test_force_reset_works_after_failed_registration_and_replica_down():
 
         return get_vertex_count
 
-    instance_1_cursor = connect(port=7687, host="localhost").cursor()
-    instance_2_cursor = connect(port=7688, host="localhost").cursor()
-
-    mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_1_cursor))
-    mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_2_cursor))
-    mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_3_cursor))
+    for instance in ["instance_1", "instance_2", "instance_3"]:
+        cursor = connect(port=get_port(instance), host="localhost").cursor()
+        mg_sleep_and_assert(vertex_count, get_vertex_count_func(cursor))
 
     interactive_mg_runner.stop_all(keep_directories=False)
 
@@ -2369,14 +2273,14 @@ def test_force_reset_works_after_failed_registration_and_2_coordinators_down():
     interactive_mg_runner.start(inner_instances_description, "coordinator_2")
 
     # 7
-
+    # main must be the same after leader election as before, we can't demote old main
     leader_data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "down", "follower"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "replica"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
 
     leader_name = find_instance_and_assert_instances(
@@ -2400,19 +2304,19 @@ def test_force_reset_works_after_failed_registration_and_2_coordinators_down():
     mg_sleep_and_assert(leader_data, show_instances_coord2)
 
     def show_replicas():
-        return sorted(list(execute_and_fetch_all(instance_1_cursor, "SHOW REPLICAS;")))
+        return sorted(list(execute_and_fetch_all(instance_3_cursor, "SHOW REPLICAS;")))
 
     replicas = [
         (
-            "instance_2",
-            "localhost:10002",
+            "instance_1",
+            "localhost:10001",
             "sync",
             {"behind": None, "status": "ready", "ts": 0},
             {"memgraph": {"behind": 0, "status": "ready", "ts": 0}},
         ),
         (
-            "instance_3",
-            "localhost:10003",
+            "instance_2",
+            "localhost:10002",
             "sync",
             {"behind": None, "status": "ready", "ts": 0},
             {"memgraph": {"behind": 0, "status": "ready", "ts": 0}},
@@ -2424,7 +2328,7 @@ def test_force_reset_works_after_failed_registration_and_2_coordinators_down():
 
     vertex_count = 10
     for _ in range(vertex_count):
-        execute_and_fetch_all(instance_1_cursor, "CREATE ();")
+        execute_and_fetch_all(instance_3_cursor, "CREATE ();")
 
     def get_vertex_count_func(cursor):
         def get_vertex_count():
@@ -2432,12 +2336,17 @@ def test_force_reset_works_after_failed_registration_and_2_coordinators_down():
 
         return get_vertex_count
 
-    instance_1_cursor = connect(port=7687, host="localhost").cursor()
-    instance_2_cursor = connect(port=7688, host="localhost").cursor()
+    def get_port(instance_name):
+        mappings = {
+            "instance_1": 7687,
+            "instance_2": 7688,
+            "instance_3": 7689,
+        }
+        return mappings[instance_name]
 
-    mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_1_cursor))
-    mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_2_cursor))
-    mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_3_cursor))
+    for instance in ["instance_1", "instance_2", "instance_3"]:
+        cursor = connect(port=get_port(instance), host="localhost").cursor()
+        mg_sleep_and_assert(vertex_count, get_vertex_count_func(cursor))
 
     interactive_mg_runner.stop_all(keep_directories=False)
 
@@ -3018,9 +2927,9 @@ def test_coordinator_user_action_force_reset_works():
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "replica"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
 
     mg_sleep_and_assert(data, show_instances_coord3)
@@ -3061,6 +2970,7 @@ def test_all_coords_down_resume():
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
 
     def show_instances_coord1():
+        coord_cursor_1 = connect(host="localhost", port=7690).cursor()
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;"))))
 
     coord_cursor_2 = connect(host="localhost", port=7691).cursor()
@@ -3095,31 +3005,33 @@ def test_all_coords_down_resume():
 
     # 5
 
-    # TODO(antoniofilipovic) - update when merged with master
-    leader_data_1 = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
+    leader_data = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "down", "follower"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "replica"),
     ]
 
-    leader_data_2 = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "leader"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "down", "follower"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
-    ]
+    wait_for_status_change(show_instances_coord1, {"coordinator_1", "coordinator_2"}, "leader")
+
+    leader = find_instance_and_assert_instances(
+        instance_role="leader", num_coordinators=3, coord_ids_to_skip_validation={3}
+    )
+
+    main = find_instance_and_assert_instances(
+        instance_role="main", num_coordinators=3, coord_ids_to_skip_validation={3}
+    )
+    leader_data = update_tuple_value(leader_data, leader, 0, -1, "leader")
+    leader_data = update_tuple_value(leader_data, main, 0, -1, "main")
 
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
     coord_cursor_2 = connect(host="localhost", port=7691).cursor()
 
-    mg_sleep_and_assert_multiple([leader_data_1, leader_data_2], [show_instances_coord1, show_instances_coord2])
+    mg_sleep_and_assert(leader_data, show_instances_coord1)
 
-    mg_sleep_and_assert_multiple([leader_data_1, leader_data_2], [show_instances_coord1, show_instances_coord2])
+    mg_sleep_and_assert(leader_data, show_instances_coord2)
 
     # 6
     interactive_mg_runner.kill(inner_instances_description, "instance_3")
@@ -3127,37 +3039,31 @@ def test_all_coords_down_resume():
 
     # 7
 
-    leader_data_1 = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
+    leader_data = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "follower"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
     ]
 
-    leader_data_2 = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "leader"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "follower"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
-    ]
+    wait_for_status_change(show_instances_coord1, {"instance_3"}, "unknown")
+
+    leader = find_instance_and_assert_instances(instance_role="leader", num_coordinators=3)
+
+    main = find_instance_and_assert_instances(instance_role="main", num_coordinators=3)
+
+    leader_data = update_tuple_value(leader_data, leader, 0, -1, "leader")
+    leader_data = update_tuple_value(leader_data, main, 0, -1, "main")
 
     coord_cursor_3 = connect(host="localhost", port=7692).cursor()
 
-    mg_sleep_and_assert_multiple(
-        [leader_data_1, leader_data_2], [show_instances_coord1, show_instances_coord2, show_instances_coord3]
-    )
+    mg_sleep_and_assert(leader_data, show_instances_coord1)
 
-    mg_sleep_and_assert_multiple(
-        [leader_data_1, leader_data_2], [show_instances_coord1, show_instances_coord2, show_instances_coord3]
-    )
+    mg_sleep_and_assert(leader_data, show_instances_coord2)
 
-    mg_sleep_and_assert_multiple(
-        [leader_data_1, leader_data_2], [show_instances_coord1, show_instances_coord2, show_instances_coord3]
-    )
+    mg_sleep_and_assert(leader_data, show_instances_coord3)
 
     interactive_mg_runner.stop_all(keep_directories=False)
 
@@ -3434,11 +3340,4 @@ def test_first_coord_restarts():
 
 
 if __name__ == "__main__":
-    sys.exit(
-        pytest.main(
-            [
-                __file__,
-                "-rA",
-            ]
-        )
-    )
+    sys.exit(pytest.main([__file__, "-rA"]))

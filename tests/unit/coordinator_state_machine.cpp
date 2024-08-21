@@ -73,6 +73,33 @@ class CoordinatorStateMachineTest : public ::testing::Test {
   uint16_t const replication_port = 30001;
 };
 
+class CoordinatorStateMachineTestParam : public ::testing::TestWithParam<memgraph::coordination::LogStoreVersion> {
+ public:
+  struct PrintLogVersionToInt {
+    std::string operator()(const testing::TestParamInfo<memgraph::coordination::LogStoreVersion> &info) {
+      return std::to_string(static_cast<int>(info.param));
+    }
+  };
+
+ protected:
+  void SetUp() override {
+    if (!std::filesystem::exists(test_folder_)) return;
+    std::filesystem::remove_all(test_folder_);
+  }
+
+  void TearDown() override {
+    if (!std::filesystem::exists(test_folder_)) return;
+    std::filesystem::remove_all(test_folder_);
+  }
+
+  std::filesystem::path test_folder_{std::filesystem::temp_directory_path() /
+                                     "MG_tests_unit_coordinator_state_machine"};
+
+  uint16_t const bolt_port = 9687;
+  uint16_t const mgt_port = 30112;
+  uint16_t const replication_port = 30001;
+};
+
 TEST_F(CoordinatorStateMachineTest, SerializeRegisterReplicationInstance) {
   auto config = CoordinatorToReplicaConfig{
       .instance_name = "instance3",
@@ -154,10 +181,12 @@ TEST_F(CoordinatorStateMachineTest, SerializeUpdateUUID) {
   ASSERT_EQ(bs.get_str(), expected.dump());
 }
 
-TEST_F(CoordinatorStateMachineTest, SerializeDeserializeSnapshot) {
+TEST_P(CoordinatorStateMachineTestParam, SerializeDeserializeSnapshot) {
   ptr<cluster_config> old_config;
   using memgraph::coordination::Logger;
   using memgraph::coordination::LoggerWrapper;
+
+  const memgraph::coordination::LogStoreVersion version = GetParam();
 
   Logger logger("");
   LoggerWrapper my_logger(&logger);
@@ -165,8 +194,7 @@ TEST_F(CoordinatorStateMachineTest, SerializeDeserializeSnapshot) {
   {
     auto kv_store_ = std::make_shared<memgraph::kvstore::KVStore>(path);
 
-    memgraph::coordination::LogStoreDurability log_store_durability{
-        kv_store_, memgraph::coordination::LogStoreVersion::kV1, memgraph::coordination::LogStoreVersion::kV1};
+    memgraph::coordination::LogStoreDurability log_store_durability{kv_store_, version};
     CoordinatorStateMachine state_machine{my_logger, log_store_durability};
     CoordinatorStateManagerConfig config{0,
                                          12345,
@@ -195,8 +223,7 @@ TEST_F(CoordinatorStateMachineTest, SerializeDeserializeSnapshot) {
 
   {
     auto kv_store_ = std::make_shared<memgraph::kvstore::KVStore>(path);
-    memgraph::coordination::LogStoreDurability log_store_durability{
-        kv_store_, memgraph::coordination::LogStoreVersion::kV1, memgraph::coordination::LogStoreVersion::kV1};
+    memgraph::coordination::LogStoreDurability log_store_durability{kv_store_, version};
     CoordinatorStateMachine state_machine{my_logger, log_store_durability};
     auto last_snapshot = state_machine.last_snapshot();
     ASSERT_EQ(last_snapshot->get_last_log_idx(), 1);
@@ -207,3 +234,8 @@ TEST_F(CoordinatorStateMachineTest, SerializeDeserializeSnapshot) {
     });
   }
 }
+
+INSTANTIATE_TEST_SUITE_P(ParameterizedLogStoreVersionTests, CoordinatorStateMachineTestParam,
+                         ::testing::Values(memgraph::coordination::LogStoreVersion::kV1,
+                                           memgraph::coordination::LogStoreVersion::kV2),
+                         CoordinatorStateMachineTestParam::PrintLogVersionToInt());

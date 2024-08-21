@@ -160,5 +160,16 @@ class VersionMigrationException final : public utils::BasicException {
   SPECIALIZE_GET_EXCEPTION_NAME(VersionMigrationException)
 };
 
+class CoordinatorStateMachineVersionMigrationException final : public utils::BasicException {
+ public:
+  explicit CoordinatorStateMachineVersionMigrationException(std::string_view what) noexcept : BasicException(what) {}
+
+  template <class... Args>
+  explicit CoordinatorStateMachineVersionMigrationException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
+      : CoordinatorStateMachineVersionMigrationException(fmt::format(fmt, std::forward<Args>(args)...)) {}
+
+  SPECIALIZE_GET_EXCEPTION_NAME(CoordinatorStateMachineVersionMigrationException)
+};
+
 }  // namespace memgraph::coordination
 #endif
