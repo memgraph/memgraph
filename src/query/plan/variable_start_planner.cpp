@@ -115,7 +115,6 @@ void AddNextExpansions(const Symbol &atom_symbol, const Matching &matching, cons
 // matching.expansions are used.
 std::vector<Expansion> ExpansionsFrom(const PatternAtom *start_atom, const Matching &matching,
                                       const SymbolTable &symbol_table) {
-  spdlog::trace(fmt::format("Expansion from: {}", symbol_table.at(*start_atom->identifier_).name()));
   // Make a copy of atom_symbol_to_expansions, because we will modify it as
   // expansions are chained.
   auto atom_symbol_to_expansions = matching.atom_symbol_to_expansions;

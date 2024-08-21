@@ -566,6 +566,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
   };
 
   storage::EdgeTypeId GetEdgeType(const EdgeTypeIx &edge_type) { return db_->NameToLabel(edge_type.name); }
+  storage::EdgeTypeId GetEdgeType(const LabelIx &edge_type) { return db_->NameToLabel(edge_type.name); }
 
   storage::PropertyId GetProperty(const PropertyIx &prop) { return db_->NameToProperty(prop.name); }
 
@@ -635,48 +636,47 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool DefaultPreVisit() override { throw utils::NotYetImplemented("Operator not yet covered by EdgeIndexRewriter"); }
 
-  // std::unique_ptr<ScanAll> GenScanByEdgeIndex(const ScanAllByEdge &scan) {
-  //   const auto &input = scan.input();
-  //   const auto &edge_symbol = scan.output_symbol_;
-  //   const auto &view = scan.view_;
+  std::unique_ptr<ScanAll> GenScanByEdgeIndex(const ScanAllByEdge &scan) {
+    const auto &input = scan.input();
+    const auto &edge_symbol = scan.output_symbol_;
+    const auto &view = scan.view_;
 
-  //   // Now try to see if we can use label+property index. If not, try to use
-  //   // just the label index.
-  //   const auto edge_types = filters_.FilteredLabels(edge_symbol);
-  //   if (edge_types.empty()) {
-  //     // Without labels, we cannot generate any indexed ScanAll.
-  //     return nullptr;
-  //   }
+    // Now try to see if we can use label+property index. If not, try to use
+    // just the label index.
+    const auto edge_types = filters_.FilteredLabels(edge_symbol);
+    if (edge_types.empty()) {
+      // Without labels, we cannot generate any indexed ScanAll.
+      return nullptr;
+    }
 
-  //   auto found_index = FindBestEdgeTypePropertyIndex(edge_symbol);
-  //   if (found_index) {
-  //     // Copy the property filter and then erase it from filters.
-  //     const auto prop_filter = *found_index->filter.property_filter;
-  //     filters_.EraseFilter(found_index->filter);
-  //     std::vector<Expression *> removed_expressions;
-  //     // filters_.EraseLabelFilter(edge_symbol, found_index->edge_type, &removed_expressions);
-  //     filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
-  //     if (prop_filter.type_ == PropertyFilter::Type::IS_NOT_NULL) {
-  //       return std::make_unique<ScanAllByEdgeTypeProperty>(input, edge_symbol, GetEdgeType(found_index->edge_type),
-  //                                                          GetProperty(prop_filter.property_),
-  //                                                          prop_filter.property_.name, view);
-  //     }
-  //     MG_ASSERT(prop_filter.value_, "Property filter should either have bounds or a value expression.");
-  //     return std::make_unique<ScanAllByEdgeTypePropertyValue>(input, edge_symbol,
-  //     GetEdgeType(found_index->edge_type),
-  //                                                             GetProperty(prop_filter.property_),
-  //                                                             prop_filter.property_.name, prop_filter.value_, view);
-  //   }
+    auto found_index = FindBestEdgeTypePropertyIndex(edge_symbol);
+    if (found_index) {
+      // Copy the property filter and then erase it from filters.
+      const auto prop_filter = *found_index->filter.property_filter;
+      filters_.EraseFilter(found_index->filter);
+      std::vector<Expression *> removed_expressions;
+      // filters_.EraseLabelFilter(edge_symbol, found_index->edge_type, &removed_expressions);
+      filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
+      if (prop_filter.type_ == PropertyFilter::Type::IS_NOT_NULL) {
+        return std::make_unique<ScanAllByEdgeTypeProperty>(input, edge_symbol, GetEdgeType(found_index->edge_type),
+                                                           GetProperty(prop_filter.property_),
+                                                           prop_filter.property_.name, view);
+      }
+      MG_ASSERT(prop_filter.value_, "Property filter should either have bounds or a value expression.");
+      return std::make_unique<ScanAllByEdgeTypePropertyValue>(input, edge_symbol, GetEdgeType(found_index->edge_type),
+                                                              GetProperty(prop_filter.property_),
+                                                              prop_filter.property_.name, prop_filter.value_, view);
+    }
 
-  //   auto maybe_edge_type = FindBestEdgeTypeIndex(edge_types);
-  //   if (!maybe_edge_type) return nullptr;
-  //   const auto &edge_type = *maybe_edge_type;
+    auto maybe_edge_type = FindBestEdgeTypeIndex(edge_types);
+    if (!maybe_edge_type) return nullptr;
+    const auto &edge_type = *maybe_edge_type;
 
-  //   std::vector<Expression *> removed_expressions;
-  //   // filters_.EraseLabelFilter(edge_symbol, edge_type, &removed_expressions);
-  //   filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
-  //   return std::make_unique<ScanAllByEdgeType>(input, edge_symbol, GetEdgeType(edge_type), view);
-  // }
+    std::vector<Expression *> removed_expressions;
+    // filters_.EraseLabelFilter(edge_symbol, edge_type, &removed_expressions);
+    filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
+    return std::make_unique<ScanAllByEdgeType>(input, edge_symbol, GetEdgeType(edge_type), view);
+  }
 
   void SetOnParent(const std::shared_ptr<LogicalOperator> &input) {
     MG_ASSERT(input);
@@ -703,10 +703,9 @@ template <class TDbAccessor>
 std::unique_ptr<LogicalOperator> RewriteWithEdgeIndexRewriter(std::unique_ptr<LogicalOperator> root_op,
                                                               SymbolTable *symbol_table, AstStorage *ast_storage,
                                                               TDbAccessor *db) {
+  impl::EdgeIndexRewriter<TDbAccessor> rewriter(symbol_table, ast_storage, db);
+  root_op->Accept(rewriter);
   return root_op;
-  // impl::EdgeIndexRewriter<TDbAccessor> rewriter(symbol_table, ast_storage, db);
-  // root_op->Accept(rewriter);
-  // return root_op;
 }
 
 }  // namespace memgraph::query::plan
