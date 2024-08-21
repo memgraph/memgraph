@@ -203,6 +203,25 @@ class InteractiveDbAccessor {
     return ReadVertexCount("label '" + label + "' and property '" + property + "' in range " + range_string.str());
   }
 
+  int64_t EdgesCount(memgraph::storage::EdgeTypeId edge_type_id) {
+    auto edge_type = dba_->EdgeTypeToName(edge_type_id);
+    if (edge_type_edge_count_.find(edge_type) == edge_type_edge_count_.end()) {
+      edge_type_edge_count_[edge_type] = ReadVertexCount("edge type '" + edge_type + "'");
+    }
+    return edge_type_edge_count_.at(edge_type);
+  }
+
+  int64_t EdgesCount(memgraph::storage::EdgeTypeId edge_type_id, memgraph::storage::PropertyId property_id) {
+    auto edge_type = dba_->EdgeTypeToName(edge_type_id);
+    auto property = dba_->PropertyToName(property_id);
+    auto key = std::make_pair(edge_type, property);
+    if (edge_type_property_edge_count_.find(key) == edge_type_property_edge_count_.end()) {
+      edge_type_property_edge_count_[key] =
+          ReadVertexCount("edge type '" + edge_type + "' and property '" + property + "'");
+    }
+    return edge_type_property_edge_count_.at(key);
+  }
+
   bool LabelIndexExists(memgraph::storage::LabelId label) { return true; }
 
   bool LabelPropertyIndexExists(memgraph::storage::LabelId label_id, memgraph::storage::PropertyId property_id) {
@@ -329,7 +348,9 @@ class InteractiveDbAccessor {
   int64_t vertices_count_;
   Timer &timer_;
   std::map<std::string, int64_t> label_vertex_count_;
+  std::map<std::string, int64_t> edge_type_edge_count_;
   std::map<std::pair<std::string, std::string>, int64_t> label_property_vertex_count_;
+  std::map<std::pair<std::string, std::string>, int64_t> edge_type_property_edge_count_;
   std::map<std::pair<std::string, std::string>, bool> label_property_index_;
   std::map<std::pair<std::string, std::string>, std::map<memgraph::storage::PropertyValue, int64_t>>
       property_value_vertex_count_;

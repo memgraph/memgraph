@@ -321,6 +321,16 @@ class RuleBasedPlanner {
 
   storage::EdgeTypeId GetEdgeType(EdgeTypeIx edge_type) { return context_->db->NameToEdgeType(edge_type.name); }
 
+  std::vector<storage::EdgeTypeId> GetEdgeTypes(std::vector<EdgeTypeIx> edge_types) {
+    std::vector<storage::EdgeTypeId> transformed_edge_types;
+    transformed_edge_types.reserve(edge_types.size());
+    for (const auto &type : edge_types) {
+      transformed_edge_types.push_back(GetEdgeType(type));
+    }
+
+    return transformed_edge_types;
+  }
+
   std::vector<StorageLabelType> GetLabelIds(const std::vector<QueryLabelType> &labels) {
     std::vector<StorageLabelType> label_ids;
     label_ids.reserve(labels.size());
@@ -706,8 +716,9 @@ class RuleBasedPlanner {
     if (expansion.expand_from_edge) {
       const auto &node2_symbol = symbol_table.at(*expansion.node2->identifier_);
       const auto &edge_symbol = symbol_table.at(*expansion.edge->identifier_);
+      auto edge_types = GetEdgeTypes(expansion.edge->edge_types_);
 
-      last_op = std::make_unique<ScanAllByEdge>(std::move(last_op), node1_symbol, view);
+      last_op = std::make_unique<ScanAllByEdge>(std::move(last_op), edge_symbol, edge_types, view);
 
       new_symbols.emplace_back(node1_symbol);
       new_symbols.emplace_back(edge_symbol);
@@ -763,11 +774,8 @@ class RuleBasedPlanner {
     auto existing_node = utils::Contains(bound_symbols, node_symbol);
     const auto &edge_symbol = symbol_table.at(*edge->identifier_);
     MG_ASSERT(!utils::Contains(bound_symbols, edge_symbol), "Existing edges are not supported");
-    std::vector<storage::EdgeTypeId> edge_types;
-    edge_types.reserve(edge->edge_types_.size());
-    for (const auto &type : edge->edge_types_) {
-      edge_types.push_back(GetEdgeType(type));
-    }
+
+    auto edge_types = GetEdgeTypes(edge->edge_types_);
     if (edge->IsVariable()) {
       std::optional<ExpansionLambda> weight_lambda;
       std::optional<Symbol> total_weight;

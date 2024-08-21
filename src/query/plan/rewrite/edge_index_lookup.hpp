@@ -279,10 +279,10 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
   }
   bool PostVisit(ScanAllByEdge &scan) override {
     prev_ops_.pop_back();
-    // auto indexed_scan = GenScanByEdgeIndex(scan);
-    // if (indexed_scan) {
-    //   SetOnParent(std::move(indexed_scan));
-    // }
+    auto indexed_scan = GenScanByEdgeIndex(scan);
+    if (indexed_scan) {
+      SetOnParent(std::move(indexed_scan));
+    }
     return true;
   }
 
@@ -558,24 +558,38 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
   std::vector<LogicalOperator *> prev_ops_;
   std::optional<FilterInfo> property_filter_;
 
-  struct EdgeTypePropertyIndex {
-    EdgeTypeIx edge_type;
+  struct EdgeTypePropertyIndexInfo {
+    LabelIx edge_type;
     // FilterInfo with PropertyFilter.
     FilterInfo filter;
     int64_t edge_count;
   };
 
-  storage::EdgeTypeId GetEdgeType(const EdgeTypeIx &edge_type) { return db_->NameToLabel(edge_type.name); }
-  storage::EdgeTypeId GetEdgeType(const LabelIx &edge_type) { return db_->NameToLabel(edge_type.name); }
+  storage::EdgeTypeId GetEdgeType(const EdgeTypeIx &edge_type) { return db_->NameToEdgeType(edge_type.name); }
+  storage::EdgeTypeId GetEdgeType(const LabelIx &edge_type) {
+    return storage::EdgeTypeId::FromUint(db_->NameToLabel(edge_type.name).AsUint());
+  }
+
+  std::vector<storage::EdgeTypeId> GetEdgeTypes(const std::unordered_set<LabelIx> &edge_types) {
+    std::vector<storage::EdgeTypeId> transformed_edge_types;
+    transformed_edge_types.reserve(edge_types.size());
+    for (const auto &type : edge_types) {
+      transformed_edge_types.push_back(GetEdgeType(type));
+    }
+
+    return transformed_edge_types;
+  }
 
   storage::PropertyId GetProperty(const PropertyIx &prop) { return db_->NameToProperty(prop.name); }
 
   struct CandidateIndices {
-    std::unordered_map<std::pair<EdgeTypeIx, PropertyIx>, FilterInfo, HashPair> candidate_index_lookup_{};
+    LabelIx edge_type;
+    PropertyIx property;
+    FilterInfo filter;
   };
 
-  CandidateIndices GetCandidateIndices(const Symbol &symbol) {
-    std::unordered_map<std::pair<LabelIx, PropertyIx>, FilterInfo, HashPair> candidate_index_lookup{};
+  std::vector<CandidateIndices> GetCandidateIndices(const Symbol &symbol) {
+    std::vector<CandidateIndices> candidate_indices{};
     for (const auto &edge_type : filters_.FilteredLabels(symbol)) {
       for (const auto &filter : filters_.PropertyFilters(symbol)) {
         if (filter.property_filter->is_symbol_in_value_) {
@@ -590,19 +604,19 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
         if (!db_->EdgeTypePropertyIndexExists(GetEdgeType(edge_type), GetProperty(property))) {
           continue;
         }
-        candidate_index_lookup.insert({std::make_pair(edge_type, property), filter});
+        candidate_indices.push_back({.edge_type = edge_type, .property = property, .filter = filter});
       }
     }
 
-    return CandidateIndices{.candidate_index_lookup_ = candidate_index_lookup};
+    return candidate_indices;
   }
 
-  std::optional<EdgeTypeIx> FindBestEdgeTypeIndex(const std::unordered_set<EdgeTypeIx> &edge_types) {
+  std::optional<LabelIx> FindBestEdgeTypeIndex(const std::unordered_set<LabelIx> &edge_types) {
     MG_ASSERT(!edge_types.empty(), "Trying to find the best edge type without any edge types.");
 
-    std::optional<EdgeTypeIx> best_edge_type;
+    std::optional<LabelIx> best_edge_type;
     for (const auto &edge_type : edge_types) {
-      if (!db_->LabelIndexExists(GetEdgeType(edge_type))) continue;
+      if (!db_->EdgeTypeIndexExists(GetEdgeType(edge_type))) continue;
       if (!best_edge_type) {
         best_edge_type = edge_type;
         continue;
@@ -613,22 +627,20 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     return best_edge_type;
   }
 
-  std::optional<EdgeTypePropertyIndex> FindBestEdgeTypePropertyIndex(const Symbol &symbol) {
+  std::optional<EdgeTypePropertyIndexInfo> FindBestEdgeTypePropertyIndex(const Symbol &symbol) {
     auto candidate_indices = GetCandidateIndices(symbol);
 
-    std::optional<EdgeTypePropertyIndex> found;
-    for (const auto &[edge_property_pair, filter] : candidate_indices) {
-      const auto &[edge_type, maybe_property] = edge_property_pair;
-      auto property = *maybe_property;
-
-      int64_t edge_count = db_->EdgesCount(GetEdgeType(edge_type), GetProperty(property));
+    std::optional<EdgeTypePropertyIndexInfo> found;
+    for (const auto &candidate_index : candidate_indices) {
+      int64_t edge_count =
+          db_->EdgesCount(GetEdgeType(candidate_index.edge_type), GetProperty(candidate_index.property));
       if (!found || edge_count < found->edge_count) {
-        found = EdgeTypePropertyIndex{edge_type, filter, edge_count};
+        found = EdgeTypePropertyIndexInfo{candidate_index.edge_type, candidate_index.filter, edge_count};
         continue;
       }
 
       if (found->edge_count > edge_count) {
-        found = EdgeTypePropertyIndex{edge_type, filter, edge_count};
+        found = EdgeTypePropertyIndexInfo{candidate_index.edge_type, candidate_index.filter, edge_count};
       }
     }
     return found;
@@ -641,11 +653,14 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     const auto &edge_symbol = scan.output_symbol_;
     const auto &view = scan.view_;
 
+    if (!scan.edge_types_.empty()) {
+      return nullptr;
+    }
+
     // Now try to see if we can use label+property index. If not, try to use
     // just the label index.
     const auto edge_types = filters_.FilteredLabels(edge_symbol);
     if (edge_types.empty()) {
-      // Without labels, we cannot generate any indexed ScanAll.
       return nullptr;
     }
 
@@ -655,17 +670,16 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
       const auto prop_filter = *found_index->filter.property_filter;
       filters_.EraseFilter(found_index->filter);
       std::vector<Expression *> removed_expressions;
-      // filters_.EraseLabelFilter(edge_symbol, found_index->edge_type, &removed_expressions);
+      filters_.EraseLabelFilter(edge_symbol, found_index->edge_type, &removed_expressions);
       filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
       if (prop_filter.type_ == PropertyFilter::Type::IS_NOT_NULL) {
         return std::make_unique<ScanAllByEdgeTypeProperty>(input, edge_symbol, GetEdgeType(found_index->edge_type),
-                                                           GetProperty(prop_filter.property_),
-                                                           prop_filter.property_.name, view);
+                                                           GetProperty(prop_filter.property_), view);
       }
       MG_ASSERT(prop_filter.value_, "Property filter should either have bounds or a value expression.");
       return std::make_unique<ScanAllByEdgeTypePropertyValue>(input, edge_symbol, GetEdgeType(found_index->edge_type),
-                                                              GetProperty(prop_filter.property_),
-                                                              prop_filter.property_.name, prop_filter.value_, view);
+                                                              GetProperty(prop_filter.property_), prop_filter.value_,
+                                                              view);
     }
 
     auto maybe_edge_type = FindBestEdgeTypeIndex(edge_types);
@@ -673,7 +687,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     const auto &edge_type = *maybe_edge_type;
 
     std::vector<Expression *> removed_expressions;
-    // filters_.EraseLabelFilter(edge_symbol, edge_type, &removed_expressions);
+    filters_.EraseLabelFilter(edge_symbol, edge_type, &removed_expressions);
     filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
     return std::make_unique<ScanAllByEdgeType>(input, edge_symbol, GetEdgeType(edge_type), view);
   }

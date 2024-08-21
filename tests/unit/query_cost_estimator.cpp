@@ -134,7 +134,7 @@ TEST_F(QueryCostEstimator, ScanAllByLabelCardinality) {
 TEST_F(QueryCostEstimator, ScanAllByLabelPropertyValueConstant) {
   AddVertices(100, 30, 20);
   for (auto *const_val : {Literal(12), Parameter(12)}) {
-    MakeOp<ScanAllByLabelPropertyValue>(nullptr, NextSymbol(), label, property, "property", const_val);
+    MakeOp<ScanAllByLabelPropertyValue>(nullptr, NextSymbol(), label, property, const_val);
     EXPECT_COST(1 * CostParam::MakeScanAllByLabelPropertyValue);
   }
 }
@@ -142,7 +142,7 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertyValueConstant) {
 TEST_F(QueryCostEstimator, ScanAllByLabelPropertyValueConstExpr) {
   AddVertices(100, 30, 20);
   for (auto *const_val : {Literal(12), Parameter(12)}) {
-    MakeOp<ScanAllByLabelPropertyValue>(nullptr, NextSymbol(), label, property, "property",
+    MakeOp<ScanAllByLabelPropertyValue>(nullptr, NextSymbol(), label, property,
                                         // once we make expression const-folding this test case will fail
                                         storage_.Create<UnaryPlusOperator>(const_val));
     EXPECT_COST(20 * CardParam::kFilter * CostParam::MakeScanAllByLabelPropertyValue);
@@ -152,8 +152,7 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertyValueConstExpr) {
 TEST_F(QueryCostEstimator, ScanAllByLabelPropertyRangeUpperConstant) {
   AddVertices(100, 30, 20);
   for (auto *const_val : {Literal(12), Parameter(12)}) {
-    MakeOp<ScanAllByLabelPropertyRange>(nullptr, NextSymbol(), label, property, "property", nullopt,
-                                        InclusiveBound(const_val));
+    MakeOp<ScanAllByLabelPropertyRange>(nullptr, NextSymbol(), label, property, nullopt, InclusiveBound(const_val));
     // cardinality estimation is exact for very small indexes
     EXPECT_COST(13 * CostParam::MakeScanAllByLabelPropertyRange);
   }
@@ -162,8 +161,7 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertyRangeUpperConstant) {
 TEST_F(QueryCostEstimator, ScanAllByLabelPropertyRangeLowerConstant) {
   AddVertices(100, 30, 20);
   for (auto *const_val : {Literal(17), Parameter(17)}) {
-    MakeOp<ScanAllByLabelPropertyRange>(nullptr, NextSymbol(), label, property, "property", InclusiveBound(const_val),
-                                        nullopt);
+    MakeOp<ScanAllByLabelPropertyRange>(nullptr, NextSymbol(), label, property, InclusiveBound(const_val), nullopt);
     // cardinality estimation is exact for very small indexes
     EXPECT_COST(3 * CostParam::MakeScanAllByLabelPropertyRange);
   }
@@ -174,7 +172,7 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertyRangeConstExpr) {
   for (auto *const_val : {Literal(12), Parameter(12)}) {
     auto bound = std::make_optional(
         memgraph::utils::MakeBoundInclusive(static_cast<Expression *>(storage_.Create<UnaryPlusOperator>(const_val))));
-    MakeOp<ScanAllByLabelPropertyRange>(nullptr, NextSymbol(), label, property, "property", bound, nullopt);
+    MakeOp<ScanAllByLabelPropertyRange>(nullptr, NextSymbol(), label, property, bound, nullopt);
     EXPECT_COST(20 * CardParam::kFilter * CostParam::MakeScanAllByLabelPropertyRange);
   }
 }
