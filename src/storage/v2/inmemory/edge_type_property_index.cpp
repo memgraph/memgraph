@@ -417,7 +417,9 @@ InMemoryEdgeTypePropertyIndex::Iterable::Iterator::Iterator(Iterable *self,
     : self_(self),
       index_iterator_(index_iterator),
       current_edge_accessor_(EdgeRef{nullptr}, EdgeTypeId::FromInt(0), nullptr, nullptr, self_->storage_, nullptr),
-      current_edge_(nullptr) {
+      current_edge_(nullptr),
+      current_from_vertex_accessor_(nullptr, self_->storage_, nullptr),
+      current_to_vertex_accessor_(nullptr, self_->storage_, nullptr) {
   AdvanceUntilValid();
 }
 
@@ -473,6 +475,9 @@ void InMemoryEdgeTypePropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
 
     current_edge_accessor_ = accessor;
     current_edge_ = edge_ref;
+    current_from_vertex_accessor_ = VertexAccessor{from_vertex, self_->storage_, self_->transaction_};
+    current_to_vertex_accessor_ = VertexAccessor{to_vertex, self_->storage_, self_->transaction_};
+
     break;
   }
 }

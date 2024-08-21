@@ -21,6 +21,7 @@
 #include "storage/v2/indices/edge_type_property_index.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/vertex_accessor.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/synchronized.hpp"
 
@@ -98,12 +99,13 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
 
      private:
       void AdvanceUntilValid();
-      std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *> GetEdgeInfo();
 
       Iterable *self_;
       utils::SkipList<Entry>::Iterator index_iterator_;
       EdgeAccessor current_edge_accessor_;
       EdgeRef current_edge_{nullptr};
+      VertexAccessor current_from_vertex_accessor_;
+      VertexAccessor current_to_vertex_accessor_;
     };
 
     Iterator begin() { return {this, index_accessor_.begin()}; }

@@ -586,10 +586,10 @@ class ScanAllByEdgeCursor : public Cursor {
 
     while (!edges_ || edges_it_.value() == edges_end_it_.value()) {
       if (!input_cursor_->Pull(frame, context)) return false;
-      auto next_vertices = get_edges_(frame, context);
-      if (!next_vertices) continue;
+      auto next_edges = get_edges_(frame, context);
+      if (!next_edges) continue;
 
-      edges_.emplace(std::move(next_vertices.value()));
+      edges_.emplace(std::move(next_edges.value()));
       edges_it_.emplace(edges_.value().begin());
       edges_end_it_.emplace(edges_.value().end());
     }
