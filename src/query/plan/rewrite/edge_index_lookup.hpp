@@ -730,17 +730,20 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
         filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
       }
       if (prop_filter.type_ == PropertyFilter::Type::IS_NOT_NULL) {
-        return std::make_unique<ScanAllByEdgeTypeProperty>(input, edge_symbol, GetEdgeType(found_index.value()),
+        return std::make_unique<ScanAllByEdgeTypeProperty>(input, edge_symbol, scan.output_from_symbol_,
+                                                           scan.output_to_symbol_, GetEdgeType(found_index.value()),
                                                            GetProperty(prop_filter.property_), view);
       }
       MG_ASSERT(prop_filter.value_, "Property filter should either have bounds or a value expression.");
       return std::make_unique<ScanAllByEdgeTypePropertyValue>(
-          input, edge_symbol, GetEdgeType(*found_index), GetProperty(prop_filter.property_), prop_filter.value_, view);
+          input, edge_symbol, scan.output_from_symbol_, scan.output_to_symbol_, GetEdgeType(*found_index),
+          GetProperty(prop_filter.property_), prop_filter.value_, view);
     }
 
     // if no edge type property index found, we try to see if we can add an index from the relationship
     if (edge_type_from_relationship.has_value() && db_->EdgeTypeIndexExists(edge_type_from_relationship.value())) {
-      return std::make_unique<ScanAllByEdgeType>(input, edge_symbol, edge_type_from_relationship.value(), view);
+      return std::make_unique<ScanAllByEdgeType>(input, edge_symbol, scan.output_from_symbol_, scan.output_to_symbol_,
+                                                 edge_type_from_relationship.value(), view);
     }
 
     // if there was no edge type found in the relationship, then see in the filters if any
@@ -751,7 +754,8 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     std::vector<Expression *> removed_expressions;
     filters_.EraseLabelFilter(edge_symbol, edge_type, &removed_expressions);
     filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
-    return std::make_unique<ScanAllByEdgeType>(input, edge_symbol, GetEdgeType(edge_type), view);
+    return std::make_unique<ScanAllByEdgeType>(input, edge_symbol, scan.output_from_symbol_, scan.output_to_symbol_,
+                                               GetEdgeType(edge_type), view);
   }
 
   void SetOnParent(const std::shared_ptr<LogicalOperator> &input) {

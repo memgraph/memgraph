@@ -567,10 +567,10 @@ class ScanAllCursor : public Cursor {
 };
 
 template <typename TEdgesFun>
-class ScanAllByEdgeCursor : public Cursor {
+class ScanAllByEdgeIdCursor : public Cursor {
  public:
-  explicit ScanAllByEdgeCursor(const ScanAll &self, Symbol output_symbol, UniqueCursorPtr input_cursor,
-                               storage::View view, TEdgesFun get_edges, const char *op_name)
+  explicit ScanAllByEdgeIdCursor(const ScanAll &self, Symbol output_symbol, UniqueCursorPtr input_cursor,
+                                 storage::View view, TEdgesFun get_edges, const char *op_name)
       : self_(self),
         output_symbol_(std::move(output_symbol)),
         input_cursor_(std::move(input_cursor)),
@@ -620,6 +620,68 @@ class ScanAllByEdgeCursor : public Cursor {
   const char *op_name_;
 };
 
+template <typename TEdgesFun>
+class ScanAllByEdgeCursor : public Cursor {
+ public:
+  explicit ScanAllByEdgeCursor(const ScanAll &self, Symbol output_symbol, Symbol output_from_symbol,
+                               Symbol output_to_symbol, UniqueCursorPtr input_cursor, storage::View view,
+                               TEdgesFun get_edges, const char *op_name)
+      : self_(self),
+        output_symbol_(std::move(output_symbol)),
+        output_from_symbol_(std::move(output_from_symbol)),
+        output_to_symbol_(std::move(output_to_symbol)),
+        input_cursor_(std::move(input_cursor)),
+        view_(view),
+        get_edges_(std::move(get_edges)),
+        op_name_(op_name) {}
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
+    SCOPED_PROFILE_OP_BY_REF(self_);
+
+    AbortCheck(context);
+
+    while (!edges_ || edges_it_.value() == edges_end_it_.value()) {
+      if (!input_cursor_->Pull(frame, context)) return false;
+      auto next_edges = get_edges_(frame, context);
+      if (!next_edges) continue;
+
+      edges_.emplace(std::move(next_edges.value()));
+      edges_it_.emplace(edges_.value().begin());
+      edges_end_it_.emplace(edges_.value().end());
+    }
+
+    EdgeTripletAccessor triplet = *edges_it_.value();
+    frame[output_symbol_] = triplet.Edge();
+    frame[output_from_symbol_] = triplet.From();
+    frame[output_to_symbol_] = triplet.To();
+    ++edges_it_.value();
+    return true;
+  }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void Reset() override {
+    input_cursor_->Reset();
+    edges_ = std::nullopt;
+    edges_it_ = std::nullopt;
+    edges_end_it_ = std::nullopt;
+  }
+
+ private:
+  const ScanAll &self_;
+  const Symbol output_symbol_;
+  const Symbol output_from_symbol_;
+  const Symbol output_to_symbol_;
+  const UniqueCursorPtr input_cursor_;
+  storage::View view_;
+  TEdgesFun get_edges_;
+  std::optional<typename std::result_of<TEdgesFun(Frame &, ExecutionContext &)>::type::value_type> edges_;
+  std::optional<decltype(edges_.value().begin())> edges_it_;
+  std::optional<decltype(edges_.value().end())> edges_end_it_;
+  const char *op_name_;
+};
+
 ScanAll::ScanAll(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::View view)
     : input_(input ? input : std::make_shared<Once>()), output_symbol_(std::move(output_symbol)), view_(view) {}
 
@@ -660,8 +722,11 @@ UniqueCursorPtr ScanAllByLabel::MakeCursor(utils::MemoryResource *mem) const {
 }
 
 ScanAllByEdge::ScanAllByEdge(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
+                             Symbol output_from_symbol, Symbol output_to_symbol,
                              const std::vector<storage::EdgeTypeId> &edge_types, storage::View view)
-    : ScanAll(input, output_symbol, view) {
+    : ScanAll(input, output_symbol, view),
+      output_from_symbol_(std::move(output_from_symbol)),
+      output_to_symbol_(std::move(output_to_symbol)) {
   edge_types_ = edge_types;
 }
 
@@ -676,12 +741,18 @@ UniqueCursorPtr ScanAllByEdge::MakeCursor(utils::MemoryResource *mem) const {
 std::vector<Symbol> ScanAllByEdge::ModifiedSymbols(const SymbolTable &table) const {
   auto symbols = input_->ModifiedSymbols(table);
   symbols.emplace_back(output_symbol_);
+  symbols.emplace_back(output_from_symbol_);
+  symbols.emplace_back(output_to_symbol_);
   return symbols;
 }
 
 ScanAllByEdgeType::ScanAllByEdgeType(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
-                                     storage::EdgeTypeId edge_type, storage::View view)
-    : ScanAll(input, output_symbol, view), edge_type_(edge_type) {}
+                                     Symbol output_from_symbol, Symbol output_to_symbol, storage::EdgeTypeId edge_type,
+                                     storage::View view)
+    : ScanAll(input, output_symbol, view),
+      edge_type_(edge_type),
+      output_from_symbol_(std::move(output_from_symbol)),
+      output_to_symbol_(std::move(output_to_symbol)) {}
 
 ACCEPT_WITH_INPUT(ScanAllByEdgeType)
 
@@ -693,20 +764,28 @@ UniqueCursorPtr ScanAllByEdgeType::MakeCursor(utils::MemoryResource *mem) const 
     return std::make_optional(db->Edges(view_, edge_type_));
   };
 
-  return MakeUniqueCursorPtr<ScanAllByEdgeCursor<decltype(edges)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
-                                                                   view_, std::move(edges), "ScanAllByEdgeType");
+  return MakeUniqueCursorPtr<ScanAllByEdgeCursor<decltype(edges)>>(mem, *this, output_symbol_, output_from_symbol_,
+                                                                   output_to_symbol_, input_->MakeCursor(mem), view_,
+                                                                   std::move(edges), "ScanAllByEdgeType");
 }
 
 std::vector<Symbol> ScanAllByEdgeType::ModifiedSymbols(const SymbolTable &table) const {
   auto symbols = input_->ModifiedSymbols(table);
   symbols.emplace_back(output_symbol_);
+  symbols.emplace_back(output_from_symbol_);
+  symbols.emplace_back(output_to_symbol_);
   return symbols;
 }
 
 ScanAllByEdgeTypeProperty::ScanAllByEdgeTypeProperty(const std::shared_ptr<LogicalOperator> &input,
-                                                     Symbol output_symbol, storage::EdgeTypeId edge_type,
+                                                     Symbol output_symbol, Symbol output_from_symbol,
+                                                     Symbol output_to_symbol, storage::EdgeTypeId edge_type,
                                                      storage::PropertyId property, storage::View view)
-    : ScanAll(input, output_symbol, view), edge_type_(edge_type), property_(property) {}
+    : ScanAll(input, output_symbol, view),
+      edge_type_(edge_type),
+      property_(property),
+      output_from_symbol_(std::move(output_from_symbol)),
+      output_to_symbol_(std::move(output_to_symbol)) {}
 
 ACCEPT_WITH_INPUT(ScanAllByEdgeTypeProperty)
 
@@ -719,20 +798,29 @@ UniqueCursorPtr ScanAllByEdgeTypeProperty::MakeCursor(utils::MemoryResource *mem
   };
 
   return MakeUniqueCursorPtr<ScanAllByEdgeCursor<decltype(get_edges)>>(
-      mem, *this, output_symbol_, input_->MakeCursor(mem), view_, std::move(get_edges), "ScanAllByEdgeTypeProperty");
+      mem, *this, output_symbol_, output_from_symbol_, output_to_symbol_, input_->MakeCursor(mem), view_,
+      std::move(get_edges), "ScanAllByEdgeTypeProperty");
 }
 
 std::vector<Symbol> ScanAllByEdgeTypeProperty::ModifiedSymbols(const SymbolTable &table) const {
   auto symbols = input_->ModifiedSymbols(table);
   symbols.emplace_back(output_symbol_);
+  symbols.emplace_back(output_from_symbol_);
+  symbols.emplace_back(output_to_symbol_);
   return symbols;
 }
 
 ScanAllByEdgeTypePropertyValue::ScanAllByEdgeTypePropertyValue(const std::shared_ptr<LogicalOperator> &input,
-                                                               Symbol output_symbol, storage::EdgeTypeId edge_type,
+                                                               Symbol output_symbol, Symbol output_from_symbol,
+                                                               Symbol output_to_symbol, storage::EdgeTypeId edge_type,
                                                                storage::PropertyId property, Expression *expression,
                                                                storage::View view)
-    : ScanAll(input, output_symbol, view), edge_type_(edge_type), property_(property), expression_(expression) {}
+    : ScanAll(input, output_symbol, view),
+      edge_type_(edge_type),
+      property_(property),
+      expression_(expression),
+      output_from_symbol_(std::move(output_from_symbol)),
+      output_to_symbol_(std::move(output_to_symbol)) {}
 
 ACCEPT_WITH_INPUT(ScanAllByEdgeTypePropertyValue)
 
@@ -752,13 +840,15 @@ UniqueCursorPtr ScanAllByEdgeTypePropertyValue::MakeCursor(utils::MemoryResource
   };
 
   return MakeUniqueCursorPtr<ScanAllByEdgeCursor<decltype(get_edges)>>(
-      mem, *this, output_symbol_, input_->MakeCursor(mem), view_, std::move(get_edges),
-      "ScanAllByEdgeTypePropertyValue");
+      mem, *this, output_symbol_, output_from_symbol_, output_to_symbol_, input_->MakeCursor(mem), view_,
+      std::move(get_edges), "ScanAllByEdgeTypePropertyValue");
 }
 
 std::vector<Symbol> ScanAllByEdgeTypePropertyValue::ModifiedSymbols(const SymbolTable &table) const {
   auto symbols = input_->ModifiedSymbols(table);
   symbols.emplace_back(output_symbol_);
+  symbols.emplace_back(output_from_symbol_);
+  symbols.emplace_back(output_to_symbol_);
   return symbols;
 }
 
@@ -919,8 +1009,8 @@ UniqueCursorPtr ScanAllByEdgeId::MakeCursor(utils::MemoryResource *mem) const {
     if (!maybe_edge) return std::nullopt;
     return std::vector<EdgeAccessor>{*maybe_edge};
   };
-  return MakeUniqueCursorPtr<ScanAllByEdgeCursor<decltype(edges)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
-                                                                   view_, std::move(edges), "ScanAllByEdgeId");
+  return MakeUniqueCursorPtr<ScanAllByEdgeIdCursor<decltype(edges)>>(
+      mem, *this, output_symbol_, input_->MakeCursor(mem), view_, std::move(edges), "ScanAllByEdgeId");
 }
 
 std::vector<Symbol> ScanAllByEdgeId::ModifiedSymbols(const SymbolTable &table) const {

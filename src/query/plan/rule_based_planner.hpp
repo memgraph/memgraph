@@ -718,7 +718,8 @@ class RuleBasedPlanner {
       const auto &edge_symbol = symbol_table.at(*expansion.edge->identifier_);
       auto edge_types = GetEdgeTypes(expansion.edge->edge_types_);
 
-      last_op = std::make_unique<ScanAllByEdge>(std::move(last_op), edge_symbol, edge_types, view);
+      last_op = std::make_unique<ScanAllByEdge>(std::move(last_op), edge_symbol, node1_symbol, node2_symbol, edge_types,
+                                                view);
 
       new_symbols.emplace_back(node1_symbol);
       new_symbols.emplace_back(edge_symbol);

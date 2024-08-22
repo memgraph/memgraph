@@ -196,10 +196,10 @@ InMemoryEdgeTypeIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index
 InMemoryEdgeTypeIndex::Iterable::Iterator::Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator)
     : self_(self),
       index_iterator_(index_iterator),
-      current_edge_accessor_(EdgeRef{nullptr}, EdgeTypeId::FromInt(0), nullptr, nullptr, self_->storage_, nullptr),
       current_edge_(nullptr),
-      current_from_vertex_accessor_(nullptr, self_->storage_, nullptr),
-      current_to_vertex_accessor_(nullptr, self_->storage_, nullptr) {
+      current_accessor_(
+          EdgeAccessor(EdgeRef{nullptr}, EdgeTypeId::FromInt(0), nullptr, nullptr, self_->storage_, nullptr),
+          VertexAccessor(nullptr, self_->storage_, nullptr), VertexAccessor(nullptr, self_->storage_, nullptr)) {
   AdvanceUntilValid();
 }
 
@@ -225,10 +225,11 @@ void InMemoryEdgeTypeIndex::Iterable::Iterator::AdvanceUntilValid() {
       continue;
     }
 
-    current_edge_accessor_ = accessor;
     current_edge_ = edge_ref;
-    current_from_vertex_accessor_ = VertexAccessor{from_vertex, self_->storage_, self_->transaction_};
-    current_to_vertex_accessor_ = VertexAccessor{to_vertex, self_->storage_, self_->transaction_};
+    auto from_vertex_acc = VertexAccessor{from_vertex, self_->storage_, self_->transaction_};
+    auto to_vertex_acc = VertexAccessor{to_vertex, self_->storage_, self_->transaction_};
+    current_accessor_ = EdgeTripletAccessor{accessor, from_vertex_acc, to_vertex_acc};
+
     break;
   }
 }

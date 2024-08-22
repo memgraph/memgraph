@@ -605,8 +605,9 @@ class ScanAllByEdge : public memgraph::query::plan::ScanAll {
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   ScanAllByEdge() = default;
-  ScanAllByEdge(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
-                const std::vector<storage::EdgeTypeId> &edge_types, storage::View view = storage::View::OLD);
+  ScanAllByEdge(const std::shared_ptr<LogicalOperator> &input, Symbol output_edge_symbol, Symbol output_from_symbol,
+                Symbol output_to_symbol, const std::vector<storage::EdgeTypeId> &edge_types,
+                storage::View view = storage::View::OLD);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
@@ -618,6 +619,8 @@ class ScanAllByEdge : public memgraph::query::plan::ScanAll {
   std::string ToString() const override { return fmt::format("ScanAllByEdge ({})", output_symbol_.name()); }
 
   std::vector<storage::EdgeTypeId> edge_types_{};
+  Symbol output_from_symbol_;
+  Symbol output_to_symbol_;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<ScanAllByEdge>();
@@ -625,6 +628,8 @@ class ScanAllByEdge : public memgraph::query::plan::ScanAll {
     object->output_symbol_ = output_symbol_;
     object->view_ = view_;
     object->edge_types_ = edge_types_;
+    object->output_from_symbol_ = output_from_symbol_;
+    object->output_to_symbol_ = output_to_symbol_;
     return object;
   }
 };
@@ -635,8 +640,8 @@ class ScanAllByEdgeType : public memgraph::query::plan::ScanAll {
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   ScanAllByEdgeType() = default;
-  ScanAllByEdgeType(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::EdgeTypeId edge_type,
-                    storage::View view = storage::View::OLD);
+  ScanAllByEdgeType(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, Symbol output_from_symbol,
+                    Symbol output_to_symbol, storage::EdgeTypeId edge_type, storage::View view = storage::View::OLD);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
@@ -650,6 +655,8 @@ class ScanAllByEdgeType : public memgraph::query::plan::ScanAll {
   }
 
   storage::EdgeTypeId edge_type_;
+  Symbol output_from_symbol_;
+  Symbol output_to_symbol_;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<ScanAllByEdgeType>();
@@ -657,6 +664,8 @@ class ScanAllByEdgeType : public memgraph::query::plan::ScanAll {
     object->output_symbol_ = output_symbol_;
     object->view_ = view_;
     object->edge_type_ = edge_type_;
+    object->output_from_symbol_ = output_from_symbol_;
+    object->output_to_symbol_ = output_to_symbol_;
     return object;
   }
 };
@@ -668,8 +677,8 @@ class ScanAllByEdgeTypeProperty : public memgraph::query::plan::ScanAll {
 
   ScanAllByEdgeTypeProperty() = default;
   ScanAllByEdgeTypeProperty(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
-                            storage::EdgeTypeId edge_type, storage::PropertyId property,
-                            storage::View view = storage::View::OLD);
+                            Symbol output_from_symbol, Symbol output_to_symbol, storage::EdgeTypeId edge_type,
+                            storage::PropertyId property, storage::View view = storage::View::OLD);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
@@ -685,6 +694,8 @@ class ScanAllByEdgeTypeProperty : public memgraph::query::plan::ScanAll {
 
   storage::EdgeTypeId edge_type_;
   storage::PropertyId property_;
+  Symbol output_from_symbol_;
+  Symbol output_to_symbol_;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<ScanAllByEdgeTypeProperty>();
@@ -693,6 +704,8 @@ class ScanAllByEdgeTypeProperty : public memgraph::query::plan::ScanAll {
     object->view_ = view_;
     object->edge_type_ = edge_type_;
     object->property_ = property_;
+    object->output_from_symbol_ = output_from_symbol_;
+    object->output_to_symbol_ = output_to_symbol_;
     return object;
   }
 };
@@ -704,7 +717,8 @@ class ScanAllByEdgeTypePropertyValue : public memgraph::query::plan::ScanAll {
 
   ScanAllByEdgeTypePropertyValue() = default;
   ScanAllByEdgeTypePropertyValue(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
-                                 storage::EdgeTypeId edge_type, storage::PropertyId property, Expression *expression,
+                                 Symbol output_from_symbol, Symbol output_to_symbol, storage::EdgeTypeId edge_type,
+                                 storage::PropertyId property, Expression *expression,
                                  storage::View view = storage::View::OLD);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
@@ -722,6 +736,8 @@ class ScanAllByEdgeTypePropertyValue : public memgraph::query::plan::ScanAll {
   storage::EdgeTypeId edge_type_;
   storage::PropertyId property_;
   Expression *expression_;
+  Symbol output_from_symbol_;
+  Symbol output_to_symbol_;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<ScanAllByEdgeTypePropertyValue>();
@@ -731,6 +747,8 @@ class ScanAllByEdgeTypePropertyValue : public memgraph::query::plan::ScanAll {
     object->edge_type_ = edge_type_;
     object->property_ = property_;
     object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
+    object->output_from_symbol_ = output_to_symbol_;
+    object->output_to_symbol_ = output_from_symbol_;
     return object;
   }
 };

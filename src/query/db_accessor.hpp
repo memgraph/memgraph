@@ -20,7 +20,7 @@
 #include "memory/query_memory_control.hpp"
 #include "query/exceptions.hpp"
 #include "query/hops_limit.hpp"
-#include "storage/v2/edge_accessor.hpp"
+#include "storage/v2/edge_triplet_accessor.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
@@ -250,6 +250,22 @@ inline VertexAccessor EdgeAccessor::DeletedEdgeFromVertex() const {
 
 inline bool EdgeAccessor::IsCycle() const { return To() == From(); }
 
+class EdgeTripletAccessor final {
+ public:
+  storage::EdgeTripletAccessor impl_;
+
+  explicit EdgeTripletAccessor(storage::EdgeTripletAccessor impl) : impl_(impl) {}
+
+  EdgeAccessor Edge() const { return EdgeAccessor(impl_.edge_); }
+
+  VertexAccessor From() const { return VertexAccessor(impl_.from_vertex_); }
+
+  VertexAccessor To() const { return VertexAccessor(impl_.to_vertex_); }
+
+  bool operator==(const EdgeTripletAccessor &e) const noexcept { return impl_ == e.impl_; }
+  bool operator!=(const EdgeTripletAccessor &e) const noexcept { return !(*this == e); }
+};
+
 class SubgraphVertexAccessor final {
  public:
   query::VertexAccessor impl_;
@@ -378,25 +394,25 @@ class VerticesIterable final {
 };
 
 class EdgesIterable final {
-  std::variant<storage::EdgesIterable, std::unordered_set<EdgeAccessor, std::hash<EdgeAccessor>, std::equal_to<void>,
-                                                          utils::Allocator<EdgeAccessor>> *>
+  std::variant<storage::EdgesIterable, std::unordered_set<EdgeTripletAccessor, std::hash<EdgeTripletAccessor>,
+                                                          std::equal_to<void>, utils::Allocator<EdgeTripletAccessor>> *>
       iterable_;
 
  public:
   class Iterator final {
     std::variant<storage::EdgesIterable::Iterator,
-                 std::unordered_set<EdgeAccessor, std::hash<EdgeAccessor>, std::equal_to<void>,
-                                    utils::Allocator<EdgeAccessor>>::iterator>
+                 std::unordered_set<EdgeTripletAccessor, std::hash<EdgeTripletAccessor>, std::equal_to<void>,
+                                    utils::Allocator<EdgeTripletAccessor>>::iterator>
         it_;
 
    public:
     explicit Iterator(storage::EdgesIterable::Iterator it) : it_(std::move(it)) {}
-    explicit Iterator(std::unordered_set<EdgeAccessor, std::hash<EdgeAccessor>, std::equal_to<void>,
-                                         utils::Allocator<EdgeAccessor>>::iterator it)
+    explicit Iterator(std::unordered_set<EdgeTripletAccessor, std::hash<EdgeTripletAccessor>, std::equal_to<void>,
+                                         utils::Allocator<EdgeTripletAccessor>>::iterator it)
         : it_(it) {}
 
-    EdgeAccessor operator*() const {
-      return std::visit([](auto &it_) { return EdgeAccessor(*it_); }, it_);
+    EdgeTripletAccessor operator*() const {
+      return std::visit([](auto &it_) { return EdgeTripletAccessor(*it_); }, it_);
     }
 
     Iterator &operator++() {
@@ -410,16 +426,18 @@ class EdgesIterable final {
   };
 
   explicit EdgesIterable(storage::EdgesIterable iterable) : iterable_(std::move(iterable)) {}
-  explicit EdgesIterable(std::unordered_set<EdgeAccessor, std::hash<EdgeAccessor>, std::equal_to<void>,
-                                            utils::Allocator<EdgeAccessor>> *edges)
+  explicit EdgesIterable(std::unordered_set<EdgeTripletAccessor, std::hash<EdgeTripletAccessor>, std::equal_to<void>,
+                                            utils::Allocator<EdgeTripletAccessor>> *edges)
       : iterable_(edges) {}
 
   Iterator begin() {
     return std::visit(
         memgraph::utils::Overloaded{
             [](storage::EdgesIterable &iterable_) { return Iterator(iterable_.begin()); },
-            [](std::unordered_set<EdgeAccessor, std::hash<EdgeAccessor>, std::equal_to<void>,
-                                  utils::Allocator<EdgeAccessor>> *iterable_) { return Iterator(iterable_->begin()); }},
+            [](std::unordered_set<EdgeTripletAccessor, std::hash<EdgeTripletAccessor>, std::equal_to<void>,
+                                  utils::Allocator<EdgeTripletAccessor>> *iterable_) {
+              return Iterator(iterable_->begin());
+            }},
         iterable_);
   }
 
@@ -427,8 +445,10 @@ class EdgesIterable final {
     return std::visit(
         memgraph::utils::Overloaded{
             [](storage::EdgesIterable &iterable_) { return Iterator(iterable_.end()); },
-            [](std::unordered_set<EdgeAccessor, std::hash<EdgeAccessor>, std::equal_to<void>,
-                                  utils::Allocator<EdgeAccessor>> *iterable_) { return Iterator(iterable_->end()); }},
+            [](std::unordered_set<EdgeTripletAccessor, std::hash<EdgeTripletAccessor>, std::equal_to<void>,
+                                  utils::Allocator<EdgeTripletAccessor>> *iterable_) {
+              return Iterator(iterable_->end());
+            }},
         iterable_);
   }
 };
