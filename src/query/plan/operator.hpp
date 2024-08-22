@@ -634,7 +634,7 @@ class ScanAllByEdge : public memgraph::query::plan::ScanAll {
   }
 };
 
-class ScanAllByEdgeType : public memgraph::query::plan::ScanAll {
+class ScanAllByEdgeType : public memgraph::query::plan::ScanAllByEdge {
  public:
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
@@ -651,26 +651,19 @@ class ScanAllByEdgeType : public memgraph::query::plan::ScanAll {
   void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
 
   std::string ToString() const override {
-    return fmt::format("ScanAllByEdgeType ({} :{})", output_symbol_.name(), dba_->EdgeTypeToName(edge_type_));
+    return fmt::format("ScanAllByEdgeType ({} :{})", output_symbol_.name(), dba_->EdgeTypeToName(edge_types_[0]));
   }
-
-  storage::EdgeTypeId edge_type_;
-  Symbol output_from_symbol_;
-  Symbol output_to_symbol_;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<ScanAllByEdgeType>();
     object->input_ = input_ ? input_->Clone(storage) : nullptr;
     object->output_symbol_ = output_symbol_;
     object->view_ = view_;
-    object->edge_type_ = edge_type_;
-    object->output_from_symbol_ = output_from_symbol_;
-    object->output_to_symbol_ = output_to_symbol_;
     return object;
   }
 };
 
-class ScanAllByEdgeTypeProperty : public memgraph::query::plan::ScanAll {
+class ScanAllByEdgeTypeProperty : public memgraph::query::plan::ScanAllByEdge {
  public:
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
@@ -689,28 +682,22 @@ class ScanAllByEdgeTypeProperty : public memgraph::query::plan::ScanAll {
 
   std::string ToString() const override {
     return fmt::format("ScanAllByEdgeTypeProperty ({0} :{1} {{{2}}})", output_symbol_.name(),
-                       dba_->EdgeTypeToName(edge_type_), dba_->PropertyToName(property_));
+                       dba_->EdgeTypeToName(edge_types_[0]), dba_->PropertyToName(property_));
   }
 
-  storage::EdgeTypeId edge_type_;
   storage::PropertyId property_;
-  Symbol output_from_symbol_;
-  Symbol output_to_symbol_;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<ScanAllByEdgeTypeProperty>();
     object->input_ = input_ ? input_->Clone(storage) : nullptr;
     object->output_symbol_ = output_symbol_;
     object->view_ = view_;
-    object->edge_type_ = edge_type_;
     object->property_ = property_;
-    object->output_from_symbol_ = output_from_symbol_;
-    object->output_to_symbol_ = output_to_symbol_;
     return object;
   }
 };
 
-class ScanAllByEdgeTypePropertyValue : public memgraph::query::plan::ScanAll {
+class ScanAllByEdgeTypePropertyValue : public memgraph::query::plan::ScanAllByEdge {
  public:
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
@@ -730,25 +717,19 @@ class ScanAllByEdgeTypePropertyValue : public memgraph::query::plan::ScanAll {
 
   std::string ToString() const override {
     return fmt::format("ScanAllByEdgeTypePropertyValue ({0} :{1} {{{2}}})", output_symbol_.name(),
-                       dba_->EdgeTypeToName(edge_type_), dba_->PropertyToName(property_));
+                       dba_->EdgeTypeToName(edge_types_[0]), dba_->PropertyToName(property_));
   }
 
-  storage::EdgeTypeId edge_type_;
   storage::PropertyId property_;
   Expression *expression_;
-  Symbol output_from_symbol_;
-  Symbol output_to_symbol_;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<ScanAllByEdgeTypePropertyValue>();
     object->input_ = input_ ? input_->Clone(storage) : nullptr;
     object->output_symbol_ = output_symbol_;
     object->view_ = view_;
-    object->edge_type_ = edge_type_;
     object->property_ = property_;
     object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
-    object->output_from_symbol_ = output_to_symbol_;
-    object->output_to_symbol_ = output_from_symbol_;
     return object;
   }
 };
