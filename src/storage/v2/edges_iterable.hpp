@@ -63,7 +63,7 @@ class EdgesIterable final {
 
     ~Iterator();
 
-    EdgeTripletAccessor const &operator*() const;
+    EdgeAccessor const &operator*() const;
 
     Iterator &operator++();
 

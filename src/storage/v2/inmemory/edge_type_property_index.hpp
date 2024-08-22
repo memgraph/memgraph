@@ -16,7 +16,7 @@
 #include <utility>
 
 #include "storage/v2/constraints/constraints.hpp"
-#include "storage/v2/edge_triplet_accessor.hpp"
+#include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/edge_type_property_index.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
@@ -90,7 +90,7 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
      public:
       Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator);
 
-      EdgeTripletAccessor const &operator*() const { return current_accessor_; }
+      EdgeAccessor const &operator*() const { return current_accessor_; }
 
       bool operator==(const Iterator &other) const { return index_iterator_ == other.index_iterator_; }
       bool operator!=(const Iterator &other) const { return index_iterator_ != other.index_iterator_; }
@@ -103,7 +103,7 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
       Iterable *self_;
       utils::SkipList<Entry>::Iterator index_iterator_;
       EdgeRef current_edge_{nullptr};
-      EdgeTripletAccessor current_accessor_;
+      EdgeAccessor current_accessor_;
     };
 
     Iterator begin() { return {this, index_accessor_.begin()}; }

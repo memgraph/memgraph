@@ -821,7 +821,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         std::vector<memgraph::storage::EdgeAccessor> edges;
         edges.reserve(kNumBaseEdges / 2);
         for (auto edge : acc->Edges(et1, memgraph::storage::View::OLD)) {
-          edges.push_back(edge.Edge());
+          edges.push_back(edge);
         }
         ASSERT_EQ(edges.size(), kNumBaseEdges / 2);
       }
@@ -834,7 +834,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         std::vector<memgraph::storage::EdgeAccessor> edges;
         edges.reserve(kNumBaseEdges / 2);
         for (auto edge : acc->Edges(et1, property_id, memgraph::storage::View::OLD)) {
-          edges.push_back(edge.Edge());
+          edges.push_back(edge);
         }
         ASSERT_EQ(edges.size(), kNumBaseEdges / 2);
       }

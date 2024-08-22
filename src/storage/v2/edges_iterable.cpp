@@ -169,7 +169,7 @@ void EdgesIterable::Iterator::Destroy() noexcept {
   }
 }
 
-EdgeTripletAccessor const &EdgesIterable::Iterator::operator*() const {
+EdgeAccessor const &EdgesIterable::Iterator::operator*() const {
   switch (type_) {
     case Type::BY_EDGE_TYPE_IN_MEMORY:
       return *in_memory_edges_by_edge_type_;

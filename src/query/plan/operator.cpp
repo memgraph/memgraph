@@ -651,10 +651,10 @@ class ScanAllByEdgeCursor : public Cursor {
       edges_end_it_.emplace(edges_.value().end());
     }
 
-    EdgeTripletAccessor triplet = *edges_it_.value();
-    frame[output_symbol_] = triplet.Edge();
-    frame[output_from_symbol_] = triplet.From();
-    frame[output_to_symbol_] = triplet.To();
+    EdgeAccessor edge = *edges_it_.value();
+    frame[output_symbol_] = edge;
+    frame[output_from_symbol_] = edge.From();
+    frame[output_to_symbol_] = edge.To();
     ++edges_it_.value();
     return true;
   }
