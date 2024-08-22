@@ -10,8 +10,10 @@
 // licenses/APL.txt.
 
 #include "storage/v2/schema_info.hpp"
+#include <mutex>
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex_info_helpers.hpp"
 #include "utils/variant_helpers.hpp"
 
@@ -28,11 +30,11 @@ template <typename TCallback>
 inline void ApplyDeltasForRead(const memgraph::storage::Delta *delta, uint64_t current_commit_timestamp,
                                const TCallback &callback) {
   while (true) {
+    if (delta == nullptr || delta->timestamp->load(std::memory_order_acquire) != current_commit_timestamp) break;
     // This delta must be applied, call the callback.
     callback(*delta);
     // Move to the next delta in this transaction.
     auto *older = delta->next.load(std::memory_order_acquire);
-    if (older == nullptr || older->timestamp->load(std::memory_order_acquire) != current_commit_timestamp) break;
     delta = older;
   }
 }
@@ -42,13 +44,28 @@ memgraph::storage::Delta *NextDelta(const memgraph::storage::Delta *delta, uint6
   if (older == nullptr || older->timestamp->load(std::memory_order_acquire) != commit_timestamp) return {};
   return older;
 }
+
+template <typename TCallback>
+inline void ApplyUncommittedDeltasForRead(const memgraph::storage::Delta *delta, const TCallback &callback) {
+  while (true) {
+    // Break when delta is not part of a transaction (it's timestamp is not equal to transaction id)
+    if (delta == nullptr ||
+        delta->timestamp->load(std::memory_order_acquire) < memgraph::storage::kTransactionInitialId)
+      break;
+    // This delta must be applied, call the callback.
+    callback(*delta);
+    // Move to the next delta in this transaction.
+    auto *older = delta->next.load(std::memory_order_acquire);
+    delta = older;
+  }
+}
 }  // namespace
 
 namespace memgraph::storage {
 
 void Tracking::CleanUp() {
   // Erase all elements that don't have any vertices associated
-  std::erase_if(vertex_state_, [](auto &elem) { return elem.second.n <= 0; });
+  std::erase_if(vertex_state_, [](auto &elem) { return elem.second.N() <= 0; });
   for (auto &[_, val] : vertex_state_) {
     std::erase_if(val.properties, [](auto &elem) { return elem.second.n <= 0; });
     for (auto &[_, val] : val.properties) {
@@ -56,7 +73,7 @@ void Tracking::CleanUp() {
     }
   }
   // Edge state cleanup
-  std::erase_if(edge_state_, [](auto &elem) { return elem.second.n <= 0; });
+  std::erase_if(edge_state_, [](auto &elem) { return elem.second.N() <= 0; });
   for (auto &[_, val] : edge_state_) {
     std::erase_if(val.properties, [](auto &elem) { return elem.second.n <= 0; });
     for (auto &[_, val] : val.properties) {
@@ -65,12 +82,12 @@ void Tracking::CleanUp() {
   }
 }
 
-void Tracking::Print(NameIdMapper &name_id_mapper) {
+void Tracking::Print(NameIdMapper &name_id_mapper, bool properties_on_edges) {
   std::cout << "SCHEMA INFO\n";
-  std::cout << ToJson(name_id_mapper) << std::endl;
+  std::cout << ToJson(name_id_mapper, properties_on_edges) << std::endl;
 }
 
-nlohmann::json Tracking::ToJson(NameIdMapper &name_id_mapper) {
+nlohmann::json Tracking::ToJson(NameIdMapper &name_id_mapper, bool properties_on_edges) {
   auto json = nlohmann::json::object();
 
   // Clean up unused stats
@@ -85,7 +102,7 @@ nlohmann::json Tracking::ToJson(NameIdMapper &name_id_mapper) {
     for (const auto l : labels) {
       labels_itr->emplace_back(name_id_mapper.IdToName(l.AsUint()));
     }
-    node.emplace("count", info.n);
+    node.emplace("count", info.N());
     const auto &[prop_itr, __] = node.emplace("properties", nlohmann::json::array_t{});
     for (const auto &[p, info] : info.properties) {
       nlohmann::json::object_t property_info;
@@ -108,7 +125,58 @@ nlohmann::json Tracking::ToJson(NameIdMapper &name_id_mapper) {
   // Handle EDGES
   const auto &[edges_itr, _b] = json.emplace("edges", nlohmann::json::array());
   auto &edges = edges_itr.value();
-  for (const auto &[edge_type, info] : edge_state_) {
+  std::unordered_map<EdgeType, TrackingEdgeInfo, EdgeType::hasher> final_edge_state;
+
+  // From tracking to temporary json-like structure
+  for (const auto &[edge_id, info] : edge_state_) {
+    // We are already locked on the edge; no where else can the edge and vertex be locked at the same time
+    // Lock the to/from in order of GID
+    // Get their labels as seen at time of commit
+    // const auto sum_edges = info.N();
+    for (const auto [edge_ref, from_to] : info.edges) {
+      const auto [from_v, to_v] = from_to;
+      // TODO: Need to apply deltas...
+      // This is called out-side a transaction
+      auto from_lock = std::unique_lock(from_v->lock, std::defer_lock);
+      auto to_lock = std::unique_lock(to_v->lock, std::defer_lock);
+
+      // Lock in order of GID
+      if (from_v->gid == to_v->gid) {
+        from_lock.lock();
+      } else if (from_v->gid > to_v->gid) {
+        to_lock.lock();
+        from_lock.lock();
+      } else {
+        from_lock.lock();
+        to_lock.lock();
+      }
+
+      // Apply deltas to get last commited labels
+      // TODO: Cache
+      const auto from_labels = GetCommittedLabels(*from_v);
+      const auto to_labels = GetCommittedLabels(*to_v);
+
+      from_lock.unlock();
+      if (to_lock.owns_lock()) to_lock.unlock();
+
+      const auto edge_type = EdgeType{edge_id, from_labels, to_labels};
+      auto &state = final_edge_state[edge_type];
+
+      // There are not other points where the edge is locked at the same time vertices are locked; no need to lock in
+      // order
+      auto edge_lock = std::unique_lock(to_v->lock);
+      const auto edge_properties = GetCommittedProperties(edge_ref, properties_on_edges);
+      edge_lock.unlock();
+      for (const auto &[key, val] : edge_properties) {
+        ++state.properties[key].n;
+        ++state.properties[key].types[val.type()];
+      }
+      ++state.n;
+    }
+  }
+
+  // From temporary structure to json
+  for (const auto &[edge_type, info] : final_edge_state) {
     auto edge = nlohmann::json::object();
 
     edge.emplace("type", name_id_mapper.IdToName(edge_type.type.AsUint()));
@@ -158,6 +226,38 @@ utils::small_vector<LabelId> GetPreLabels(const Vertex &vertex, uint64_t commit_
   return pre_labels;
 }
 
+std::map<PropertyId, PropertyValue> GetCommittedProperties(const EdgeRef &edge_ref, bool properties_on_edges) {
+  std::map<PropertyId, PropertyValue> properties;
+  if (properties_on_edges) {
+    const auto *edge = edge_ref.ptr;
+    properties = edge->properties.Properties();
+    if (edge->delta) {
+      ApplyUncommittedDeltasForRead(edge->delta, [&properties](const Delta &delta) {
+        // clang-format off
+        DeltaDispatch(delta, utils::ChainedOverloaded{
+          Properties_ActionMethod(properties)
+        });
+        // clang-format on
+      });
+    }
+  }
+  return properties;
+}
+
+utils::small_vector<LabelId> GetCommittedLabels(const Vertex &vertex) {
+  auto pre_labels = vertex.labels;
+  if (vertex.delta) {
+    ApplyUncommittedDeltasForRead(vertex.delta, [&pre_labels](const Delta &delta) {
+      // clang-format off
+        DeltaDispatch(delta, utils::ChainedOverloaded{
+          Labels_ActionMethod(pre_labels)
+        });
+      // clang-format on
+    });
+  }
+  return pre_labels;
+}
+
 Gid GetEdgeGid(const EdgeRef &edge_ref, bool properties_on_edges) {
   if (properties_on_edges) {
     return edge_ref.ptr->gid;
@@ -185,23 +285,6 @@ void VertexHandler::PreProcess() {
 
 Delta *VertexHandler::NextDelta(const Delta *delta) const { return ::NextDelta(delta, commit_timestamp_); }
 
-void VertexHandler::ProcessRemainingPreEdges() {
-  const auto *delta = vertex_.delta;
-  DMG_ASSERT(delta, "Handling a vertex without deltas");
-
-  pre_remaining_in_edges_ = vertex_.in_edges;
-  pre_remaining_out_edges_ = vertex_.out_edges;
-
-  ApplyDeltasForRead(delta, commit_timestamp_, [this](const Delta &delta) {
-    // clang-format off
-      DeltaDispatch(delta, utils::ChainedOverloaded{
-        RemainingEdges_ActionMethod<EdgeDirection::OUT>(pre_remaining_out_edges_),
-        RemainingEdges_ActionMethod<EdgeDirection::IN>(pre_remaining_in_edges_),
-      });
-    // clang-format on
-  });
-}
-
 void VertexHandler::PostProcess(TransactionEdgeHandler &edge_handler) {
   if (label_update_) {
     // Move all info as is at the start
@@ -214,19 +297,6 @@ void VertexHandler::PostProcess(TransactionEdgeHandler &edge_handler) {
       const auto post_properties = vertex_.properties.Properties();
       ++tracking_[PostLabels()].n;
       add_property_.insert(post_properties.begin(), post_properties.end());
-    }
-
-    // Update existing edges
-    // Need to process the delta chain and figure out the in/out edges at start (minus edges that get deleted, this is
-    // handled in a different way)
-    ProcessRemainingPreEdges();
-    // There could be multiple label changes or changes from both ends; so make a list of unique edges to update
-    // Move edges to the new labels
-    for (const auto &out_edge : pre_remaining_out_edges_) {
-      edge_handler.UpdateExistingEdge<kOutEdge>(out_edge, PreLabels(), PostLabels());
-    }
-    for (const auto &in_edge : pre_remaining_in_edges_) {
-      edge_handler.UpdateExistingEdge<kInEdge>(in_edge, PreLabels(), PostLabels());
     }
   }
 
@@ -291,7 +361,7 @@ void SchemaInfo::ProcessVertex(VertexHandler &vertex_handler, TransactionEdgeHan
       case Delta::Action::REMOVE_OUT_EDGE: {
         // This delta covers both vertices; we can update count in place
         // New edge; add to the final labels
-        tx_edge_handler.AddEdge(delta, vertex_handler.PostLabels());
+        tx_edge_handler.AddEdge(delta, vertex_handler.PostLabels(), &vertex_handler.vertex_);
         break;
       }
       case Delta::Action::ADD_IN_EDGE:
@@ -340,13 +410,13 @@ std::map<PropertyId, PropertyValue> TransactionEdgeHandler::GetPostProperties(co
 void EdgeHandler::PostProcess() {
   // We are only removing properties that have existed before transaction
   for (const auto &[id, val] : remove_property_) {
-    --tracking_[edge_type_].properties[id].n;
-    --tracking_[edge_type_].properties[id].types[val.type()];
+    --tracking_[edge_type_.type].properties[id].n;
+    --tracking_[edge_type_.type].properties[id].types[val.type()];
   }
   // Add the new (or updated) properties
   for (const auto &[id, val] : add_property_) {
-    ++tracking_[edge_type_].properties[id].n;
-    ++tracking_[edge_type_].properties[id].types[val.type()];
+    ++tracking_[edge_type_.type].properties[id].n;
+    ++tracking_[edge_type_.type].properties[id].types[val.type()];
   }
 }
 
