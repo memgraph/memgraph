@@ -110,6 +110,13 @@ bool PlanPrinter::PreVisit(query::plan::ScanAllByEdgeTypePropertyValue &op) {
   return true;
 }
 
+bool PlanPrinter::PreVisit(query::plan::ScanAllByEdgeTypePropertyRange &op) {
+  op.dba_ = dba_;
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
+  op.dba_ = nullptr;
+  return true;
+}
+
 bool PlanPrinter::PreVisit(query::plan::Expand &op) {
   op.dba_ = dba_;
   WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
@@ -567,6 +574,22 @@ bool PlanToJsonVisitor::PreVisit(ScanAllByEdgeTypePropertyValue &op) {
   self["edge_type"] = ToJson(op.edge_types_[0], *dba_);
   self["property"] = ToJson(op.property_, *dba_);
   self["expression"] = ToJson(op.expression_, *dba_);
+  self["output_symbol"] = ToJson(op.output_symbol_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(ScanAllByEdgeTypePropertyRange &op) {
+  json self;
+  self["name"] = "ScanAllByEdgeTypePropertyRange";
+  self["edge_type"] = ToJson(op.edge_types_[0], *dba_);
+  self["property"] = ToJson(op.property_, *dba_);
+  self["lower_bound"] = op.lower_bound_ ? ToJson(*op.lower_bound_, *dba_) : json();
+  self["upper_bound"] = op.upper_bound_ ? ToJson(*op.upper_bound_, *dba_) : json();
   self["output_symbol"] = ToJson(op.output_symbol_);
 
   op.input_->Accept(*this);

@@ -63,6 +63,10 @@ constexpr utils::TypeInfo query::plan::ScanAllByEdgeTypePropertyValue::kType{
     utils::TypeId::SCAN_ALL_BY_EDGE_TYPE_PROPERTY_VALUE, "ScanAllByEdgeTypePropertyValue",
     &query::plan::ScanAll::kType};
 
+constexpr utils::TypeInfo query::plan::ScanAllByEdgeTypePropertyRange::kType{
+    utils::TypeId::SCAN_ALL_BY_EDGE_TYPE_PROPERTY_RANGE, "ScanAllByEdgeTypePropertyRange",
+    &query::plan::ScanAll::kType};
+
 constexpr utils::TypeInfo query::plan::ScanAllByEdgeId::kType{utils::TypeId::SCAN_ALL_BY_ID, "ScanAllByEdgeId",
                                                               &query::plan::ScanAll::kType};
 

@@ -32,6 +32,8 @@
     "Number of times ScanAllByEdgeTypePropertyOperator operator was used.")                                          \
   M(ScanAllByEdgeTypePropertyValueOperator, Operator,                                                                \
     "Number of times ScanAllByEdgeTypePropertyValueOperator operator was used.")                                     \
+  M(ScanAllByEdgeTypePropertyRangeOperator, Operator,                                                                \
+    "Number of times ScanAllByEdgeTypePropertyRangeOperator operator was used.")                                     \
   M(ScanAllByEdgeIdOperator, Operator, "Number of times ScanAllByEdgeIdOperator operator was used.")                 \
   M(ExpandOperator, Operator, "Number of times Expand operator was used.")                                           \
   M(ExpandVariableOperator, Operator, "Number of times ExpandVariable operator was used.")                           \

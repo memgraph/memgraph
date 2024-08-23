@@ -42,6 +42,7 @@ PRE_VISIT(ScanAllByEdge, RWType::R, true)
 PRE_VISIT(ScanAllByEdgeType, RWType::R, true)
 PRE_VISIT(ScanAllByEdgeTypeProperty, RWType::R, true)
 PRE_VISIT(ScanAllByEdgeTypePropertyValue, RWType::R, true)
+PRE_VISIT(ScanAllByEdgeTypePropertyRange, RWType::R, true)
 PRE_VISIT(ScanAllByEdgeId, RWType::R, true)
 
 PRE_VISIT(Expand, RWType::R, true)

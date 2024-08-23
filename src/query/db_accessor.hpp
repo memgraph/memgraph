@@ -497,6 +497,12 @@ class DbAccessor final {
     return EdgesIterable(accessor_->Edges(edge_type, property, value, view));
   }
 
+  EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type, storage::PropertyId property,
+                      const std::optional<utils::Bound<storage::PropertyValue>> &lower,
+                      const std::optional<utils::Bound<storage::PropertyValue>> &upper) {
+    return EdgesIterable(accessor_->Edges(edge_type, property, lower, upper, view));
+  }
+
   VertexAccessor InsertVertex() { return VertexAccessor(accessor_->CreateVertex()); }
 
   storage::Result<EdgeAccessor> InsertEdge(VertexAccessor *from, VertexAccessor *to,

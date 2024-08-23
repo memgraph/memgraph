@@ -71,6 +71,7 @@ class PlanPrinter : public virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(ScanAllByEdgeType &) override;
   bool PreVisit(ScanAllByEdgeTypeProperty &) override;
   bool PreVisit(ScanAllByEdgeTypePropertyValue &) override;
+  bool PreVisit(ScanAllByEdgeTypePropertyRange &) override;
   bool PreVisit(ScanAllByEdgeId &) override;
 
   bool PreVisit(Expand &) override;
@@ -216,6 +217,7 @@ class PlanToJsonVisitor : public virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(ScanAllByEdgeType &) override;
   bool PreVisit(ScanAllByEdgeTypeProperty &) override;
   bool PreVisit(ScanAllByEdgeTypePropertyValue &) override;
+  bool PreVisit(ScanAllByEdgeTypePropertyRange &) override;
   bool PreVisit(ScanAllByEdgeId &) override;
 
   bool PreVisit(EmptyResult &) override;
