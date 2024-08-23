@@ -133,6 +133,7 @@ STARTS         : S T A R T S ;
 STORAGE        : S T O R A G E ;
 THEN           : T H E N ;
 TRUE           : T R U E ;
+TYPED          : T Y P E D ;
 UNION          : U N I O N ;
 UNIQUE         : U N I Q U E ;
 UNLIMITED      : U N L I M I T E D ;

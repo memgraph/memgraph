@@ -661,3 +661,16 @@ startTtlQuery: ENABLE TTL ( ( EVERY period=literal ) ( AT time=literal )?
 ttlQuery: stopTtlQuery
         | startTtlQuery
         ;
+
+typeConstraintType : BOOLEAN
+             | STRING
+             | INTEGER
+             | FLOAT
+             | DATE
+             | LOCALTIME
+             | LOCALDATETIME
+             | ZONEDDATETIME
+             | DURATION
+             | ENUM
+             | POINT
+             ;

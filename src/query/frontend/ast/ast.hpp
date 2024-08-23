@@ -3178,15 +3178,31 @@ struct Constraint {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const { return kType; }
 
-  enum class Type { EXISTS, UNIQUE, NODE_KEY };
+  enum class Type { EXISTS, UNIQUE, NODE_KEY, TYPE };
+
+  enum class TypeConstraint : uint8_t {
+    STRING,
+    BOOLEAN,
+    INTEGER,
+    FLOAT,
+    DURATION,
+    DATE,
+    LOCALTIME,
+    LOCALDATETIME,
+    ZONEDDATETIME,
+    ENUM,
+    POINT
+  };
 
   memgraph::query::Constraint::Type type;
+  std::optional<TypeConstraint> type_constraint;
   memgraph::query::LabelIx label;
   std::vector<memgraph::query::PropertyIx> properties;
 
   Constraint Clone(AstStorage *storage) const {
     Constraint object;
     object.type = type;
+    object.type_constraint = type_constraint;
     object.label = storage->GetLabelIx(label.name);
     object.properties.resize(properties.size());
     for (auto i = 0; i < object.properties.size(); ++i) {

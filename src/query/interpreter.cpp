@@ -4449,9 +4449,10 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
       constraint_notification.code = NotificationCode::CREATE_CONSTRAINT;
 
       switch (constraint_query->constraint_.type) {
-        case Constraint::Type::NODE_KEY:
+        case Constraint::Type::NODE_KEY: {
           throw utils::NotYetImplemented("Node key constraints");
-        case Constraint::Type::EXISTS:
+        }
+        case Constraint::Type::EXISTS: {
           if (properties.empty() || properties.size() > 1) {
             throw SyntaxException("Exactly one property must be used for existence constraints.");
           }
@@ -4488,7 +4489,8 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
             }
           };
           break;
-        case Constraint::Type::UNIQUE:
+        }
+        case Constraint::Type::UNIQUE: {
           std::set<storage::PropertyId> property_set;
           for (const auto &property : properties) {
             property_set.insert(property);
@@ -4551,6 +4553,10 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
             }
           };
           break;
+        }
+        case Constraint::Type::TYPE: {
+          throw utils::NotYetImplemented("Type constraints");
+        }
       }
     } break;
     case ConstraintQuery::ActionType::DROP: {
@@ -4578,7 +4584,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
             return std::vector<std::vector<TypedValue>>();
           };
           break;
-        case Constraint::Type::UNIQUE:
+        case Constraint::Type::UNIQUE: {
           std::set<storage::PropertyId> property_set;
           for (const auto &property : properties) {
             property_set.insert(property);
@@ -4616,6 +4622,11 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
             }
             return std::vector<std::vector<TypedValue>>();
           };
+          break;
+        }
+        case Constraint::Type::TYPE: {
+          throw utils::NotYetImplemented("Type constraints");
+        }
       }
     } break;
   }

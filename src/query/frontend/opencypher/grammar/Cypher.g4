@@ -37,6 +37,7 @@ constraintQuery : ( CREATE | DROP ) CONSTRAINT ON constraint ;
 constraint : '(' nodeName=variable ':' labelName ')' ASSERT EXISTS '(' constraintPropertyList ')'
            | '(' nodeName=variable ':' labelName ')' ASSERT constraintPropertyList IS UNIQUE
            | '(' nodeName=variable ':' labelName ')' ASSERT '(' constraintPropertyList ')' IS NODE KEY
+           | '(' nodeName=variable ':' labelName ')' ASSERT variable propertyLookup IS TYPED typeConstraintType
            ;
 
 constraintPropertyList : variable propertyLookup ( ',' variable propertyLookup )* ;
@@ -420,6 +421,7 @@ cypherKeyword : ALL
               | STORAGE
               | THEN
               | TRUE
+              | TYPED
               | UNION
               | UNIQUE
               | UNLIMITED
