@@ -2145,6 +2145,8 @@ UniqueConstraints::DeletionStatus DiskStorage::DiskAccessor::DropUniqueConstrain
 
 void DiskStorage::DiskAccessor::DropGraph() {}
 
+PointIndexStorage DiskStorage::empty_point_index_ = PointIndexStorage{};
+
 Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) {
   /// We acquire the transaction engine lock here because we access (and
   /// modify) the transaction engine variables (`transaction_id` and
@@ -2159,8 +2161,13 @@ Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, Stora
     edge_import_mode_active = edge_import_status_ == EdgeImportMode::ACTIVE;
   }
 
-  return {transaction_id, start_timestamp,         isolation_level,
-          storage_mode,   edge_import_mode_active, !constraints_.empty()};
+  return {transaction_id,
+          start_timestamp,
+          isolation_level,
+          storage_mode,
+          edge_import_mode_active,
+          !constraints_.empty(),
+          empty_point_index_.CreatePointIndexContext()};
 }
 
 uint64_t DiskStorage::GetCommitTimestamp() { return timestamp_++; }

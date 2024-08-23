@@ -963,12 +963,21 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
         }
       }
 
+      // Point index update, we track changes relevant to the point index, if this write transcation made any relevant
+      // changes we need to install a new point index for future txns. Here we will the new one if needed.
+      std::optional<PointIndexStorage> new_point_index;
+      if (transaction_.collector_.AnyTrackedChanges()) {
+        // build new point index
+
+        // TODO:
+        //        new_point_index = transaction_.point_index_ctx_.build_for_commit(); // mutate hack
+      }
+
       if (!unique_constraint_violation) {
+        // Durability stage
         [[maybe_unused]] bool const is_main_or_replica_write =
             reparg.IsMain() || reparg.desired_commit_timestamp.has_value();
 
-        // TODO Figure out if we can assert this
-        // DMG_ASSERT(is_main_or_replica_write, "Should only get here on writes");
         // Currently there are queries that write to some subsystem that are allowed on a replica
         // ex. analyze graph stats
         // There are probably others. We not to check all of them and figure out if they are allowed and what are
@@ -996,6 +1005,12 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
           // the commits received from main.
           // Update the last commit timestamp
           mem_storage->repl_storage_state_.last_commit_timestamp_.store(durability_commit_timestamp);
+        }
+
+        // Install the new point index, if one exists, this does not impact on going txns as they have a snapshot of an
+        // index which is correct for their own txn
+        if (new_point_index) {
+          // install new index
         }
 
         // TODO: can and should this be moved earlier?
@@ -1749,12 +1764,22 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
   // `timestamp`) below.
   uint64_t transaction_id = 0;
   uint64_t start_timestamp = 0;
+  std::optional<PointIndexContext> point_index_context;
   {
     auto guard = std::lock_guard{engine_lock_};
     transaction_id = transaction_id_++;
     start_timestamp = timestamp_++;
+    // IMPORTANT: this is retrieved while under the lock so that the index is consistant with the timestamp
+    point_index_context = indices_.point_index_.CreatePointIndexContext();
   }
-  return {transaction_id, start_timestamp, isolation_level, storage_mode, false, !constraints_.empty()};
+  DMG_ASSERT(point_index_context.has_value(), "Expected a value, even if got 0 point indexes");
+  return {transaction_id,
+          start_timestamp,
+          isolation_level,
+          storage_mode,
+          false,
+          !constraints_.empty(),
+          *std::move(point_index_context)};
 }
 
 void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {

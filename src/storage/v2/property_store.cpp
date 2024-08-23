@@ -2091,7 +2091,7 @@ std::vector<PropertyId> PropertyStore::PropertiesOfTypes(std::span<Type const> t
     std::vector<PropertyId> props;
     while (true) {
       auto metadata = reader.ReadMetadata();
-      if (!metadata) break;
+      if (!metadata || metadata->type == Type::EMPTY) break;
 
       auto property_id = reader.ReadUint(metadata->id_size);
       if (!property_id) break;
@@ -2104,6 +2104,44 @@ std::vector<PropertyId> PropertyStore::PropertiesOfTypes(std::span<Type const> t
     }
     return props;
   };
+  return WithReader(get_properties);
+}
+
+std::optional<PropertyValue> PropertyStore::GetPropertyOfTypes(PropertyId property, std::span<Type const> types) const {
+  auto get_properties = [&](Reader &reader) -> std::optional<PropertyValue> {
+    PropertyValue value;
+    while (true) {
+      auto metadata = reader.ReadMetadata();
+      if (!metadata || metadata->type == Type::EMPTY) {
+        return std::nullopt;
+      }
+
+      auto property_id = reader.ReadUint(metadata->id_size);
+      if (!property_id) {
+        return std::nullopt;
+      }
+
+      // found property
+      if (*property_id == property.AsUint()) {
+        // check its the type we are looking for
+        if (!utils::Contains(types, metadata->type)) {
+          return std::nullopt;
+        }
+        if (!DecodePropertyValue(&reader, metadata->type, metadata->payload_size, value)) {
+          return std::nullopt;
+        }
+
+        return value;
+      }
+      // Don't load the value if this isn't the expected property.
+      if (!SkipPropertyValue(&reader, metadata->type, metadata->payload_size)) {
+        return std::nullopt;
+      }
+      if (*property_id > property.AsUint()) return std::nullopt;
+    }
+    return std::nullopt;
+  };
+
   return WithReader(get_properties);
 }
 

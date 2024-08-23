@@ -28,6 +28,7 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
 #include "storage/v2/storage.hpp"
+#include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex_info_cache.hpp"
 #include "storage/v2/vertex_info_helpers.hpp"
 #include "storage/v2/view.hpp"
@@ -39,7 +40,6 @@
 
 namespace memgraph::storage {
 
-namespace detail {
 std::pair<bool, bool> IsVisible(Vertex const *vertex, Transaction const *transaction, View view) {
   bool exists = true;
   bool deleted = false;
@@ -82,11 +82,10 @@ std::pair<bool, bool> IsVisible(Vertex const *vertex, Transaction const *transac
 
   return {exists, deleted};
 }
-}  // namespace detail
 
 std::optional<VertexAccessor> VertexAccessor::Create(Vertex *vertex, Storage *storage, Transaction *transaction,
                                                      View view) {
-  if (const auto [exists, deleted] = detail::IsVisible(vertex, transaction, view); !exists || deleted) {
+  if (const auto [exists, deleted] = memgraph::storage::IsVisible(vertex, transaction, view); !exists || deleted) {
     return std::nullopt;
   }
 
@@ -94,12 +93,12 @@ std::optional<VertexAccessor> VertexAccessor::Create(Vertex *vertex, Storage *st
 }
 
 bool VertexAccessor::IsVisible(const Vertex *vertex, const Transaction *transaction, View view) {
-  const auto [exists, deleted] = detail::IsVisible(vertex, transaction, view);
+  const auto [exists, deleted] = memgraph::storage::IsVisible(vertex, transaction, view);
   return exists && !deleted;
 }
 
 bool VertexAccessor::IsVisible(View view) const {
-  const auto [exists, deleted] = detail::IsVisible(vertex_, transaction_, view);
+  const auto [exists, deleted] = memgraph::storage::IsVisible(vertex_, transaction_, view);
   return exists && (for_deleted_ || !deleted);
 }
 
@@ -268,7 +267,7 @@ Result<utils::small_vector<LabelId>> VertexAccessor::Labels(View view) const {
   return std::move(labels);
 }
 
-Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const PropertyValue &value) {
+Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const PropertyValue &new_value) {
   if (transaction_->edge_import_mode_active) {
     throw query::WriteVertexOperationInEdgeImportModeException();
   }
@@ -280,43 +279,43 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
 
   if (vertex_->deleted) return Error::DELETED_OBJECT;
 
-  PropertyValue current_value;
+  PropertyValue old_value;
   const bool skip_duplicate_write = !storage_->config_.salient.items.delta_on_identical_property_update;
-  auto const set_property_impl = [transaction = transaction_, vertex = vertex_, &value, &property, &current_value,
+  auto const set_property_impl = [transaction = transaction_, vertex = vertex_, &new_value, &property, &old_value,
                                   skip_duplicate_write]() {
-    current_value = vertex->properties.GetProperty(property);
+    old_value = vertex->properties.GetProperty(property);
     // We could skip setting the value if the previous one is the same to the new
     // one. This would save some memory as a delta would not be created as well as
     // avoid copying the value. The reason we are not doing that is because the
     // current code always follows the logical pattern of "create a delta" and
     // "modify in-place". Additionally, the created delta will make other
     // transactions get a SERIALIZATION_ERROR.
-    if (skip_duplicate_write && current_value == value) {
+    if (skip_duplicate_write && old_value == new_value) {
       return true;
     }
 
-    CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, current_value);
-    vertex->properties.SetProperty(property, value);
+    CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, old_value);
+    vertex->properties.SetProperty(property, new_value);
 
     return false;
   };
 
   auto early_exit = utils::AtomicMemoryBlock(set_property_impl);
   if (early_exit) {
-    return std::move(current_value);
+    return std::move(old_value);
   }
 
   if (transaction_->constraint_verification_info) {
-    if (!value.IsNull()) {
+    if (!new_value.IsNull()) {
       transaction_->constraint_verification_info->AddedProperty(vertex_);
     } else {
       transaction_->constraint_verification_info->RemovedProperty(vertex_);
     }
   }
-  storage_->indices_.UpdateOnSetProperty(property, value, vertex_, *transaction_);
-  transaction_->UpdateOnSetProperty(property, value, vertex_);
+  storage_->indices_.UpdateOnSetProperty(property, new_value, vertex_, *transaction_);
+  transaction_->UpdateOnSetProperty(property, old_value, new_value, vertex_);
 
-  return std::move(current_value);
+  return std::move(old_value);
 }
 
 Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
@@ -336,12 +335,12 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
       result = false;
       return;
     }
-    for (const auto &[property, value] : properties) {
+    for (const auto &[property, new_value] : properties) {
       CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, PropertyValue());
-      storage->indices_.UpdateOnSetProperty(property, value, vertex, *transaction);
-      transaction->UpdateOnSetProperty(property, value, vertex);
+      storage->indices_.UpdateOnSetProperty(property, new_value, vertex, *transaction);
+      transaction->UpdateOnSetProperty(property, PropertyValue{}, new_value, vertex);
       if (transaction->constraint_verification_info) {
-        if (!value.IsNull()) {
+        if (!new_value.IsNull()) {
           transaction->constraint_verification_info->AddedProperty(vertex);
         } else {
           transaction->constraint_verification_info->RemovedProperty(vertex);
@@ -380,7 +379,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
       storage->indices_.UpdateOnSetProperty(id, new_value, vertex, *transaction);
       if (skip_duplicate_update && old_value == new_value) continue;
       CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), id, std::move(old_value));
-      transaction->UpdateOnSetProperty(id, new_value, vertex);
+      transaction->UpdateOnSetProperty(id, old_value, new_value, vertex);
       if (transaction->constraint_verification_info) {
         if (!new_value.IsNull()) {
           transaction->constraint_verification_info->AddedProperty(vertex);
@@ -411,10 +410,11 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
     if (!properties.has_value()) {
       return;
     }
-    for (const auto &[property, value] : *properties) {
-      CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, value);
-      storage->indices_.UpdateOnSetProperty(property, PropertyValue(), vertex, *transaction);
-      transaction->UpdateOnSetProperty(property, PropertyValue(), vertex);
+    auto new_value = PropertyValue();
+    for (const auto &[property, old_value] : *properties) {
+      CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, old_value);
+      storage->indices_.UpdateOnSetProperty(property, new_value, vertex, *transaction);
+      transaction->UpdateOnSetProperty(property, old_value, new_value, vertex);
     }
     if (transaction->constraint_verification_info) {
       transaction->constraint_verification_info->RemovedProperty(vertex);
@@ -601,7 +601,7 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
   /// in memory storage should be checked only if something exists before loading from the disk.
   if (transaction_->IsDiskStorage()) {
     auto *disk_storage = static_cast<DiskStorage *>(storage_);
-    const auto [exists, deleted] = detail::IsVisible(vertex_, transaction_, view);
+    const auto [exists, deleted] = memgraph::storage::IsVisible(vertex_, transaction_, view);
     if (!exists) return Error::NONEXISTENT_OBJECT;
     if (deleted) return Error::DELETED_OBJECT;
     bool edges_modified_in_tx = !vertex_->in_edges.empty();
@@ -684,7 +684,7 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
   std::vector<EdgeAccessor> disk_edges{};
   if (transaction_->IsDiskStorage()) {
     auto *disk_storage = static_cast<DiskStorage *>(storage_);
-    const auto [exists, deleted] = detail::IsVisible(vertex_, transaction_, view);
+    const auto [exists, deleted] = memgraph::storage::IsVisible(vertex_, transaction_, view);
     if (!exists) return Error::NONEXISTENT_OBJECT;
     if (deleted) return Error::DELETED_OBJECT;
     bool edges_modified_in_tx = !vertex_->out_edges.empty();

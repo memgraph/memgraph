@@ -20,9 +20,11 @@
 #include "utils/skip_list.hpp"
 
 #include "delta_container.hpp"
+#include "storage/v2/collector.hpp"
 #include "storage/v2/constraint_verification_info.hpp"
 #include "storage/v2/delta.hpp"
 #include "storage/v2/edge.hpp"
+#include "storage/v2/indices/point_index.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/metadata_delta.hpp"
 #include "storage/v2/modified_edge.hpp"
@@ -40,34 +42,10 @@ namespace memgraph::storage {
 const uint64_t kTimestampInitialId = 0;
 const uint64_t kTransactionInitialId = 1ULL << 63U;
 
-struct Collector {
-  void UpdateOnAddLabel(LabelId label, Vertex *vertex) {
-    if (tracked_changes_.empty()) return;
-
-    constexpr auto all_point_types = std::array{PropertyStoreType::POINT_2D, PropertyStoreType::POINT_3D};
-    for (auto prop : vertex->properties.PropertiesOfTypes(all_point_types)) {
-      auto k = LabelPropKey{label, prop};
-      auto it = tracked_changes_.find(k);
-      if (it != tracked_changes_.end()) {
-        it->second.insert(vertex);
-      }
-    }
-  }
-  void UpdateOnRemoveLabel(LabelId label, Vertex *vertex) {
-    // TODO
-  }
-
-  void UpdateOnSetProperty(PropertyId prop_id, PropertyValue const &value, Vertex *vertex) {
-    // TODO
-  }
-
- private:
-  std::unordered_map<LabelPropKey, std::unordered_set<Vertex *>> tracked_changes_;
-};
-
 struct Transaction {
   Transaction(uint64_t transaction_id, uint64_t start_timestamp, IsolationLevel isolation_level,
-              StorageMode storage_mode, bool edge_import_mode_active, bool has_constraints)
+              StorageMode storage_mode, bool edge_import_mode_active, bool has_constraints,
+              PointIndexContext point_index_ctx)
       : transaction_id(transaction_id),
         start_timestamp(start_timestamp),
         command_id(0),
@@ -83,7 +61,9 @@ struct Transaction {
                       : std::nullopt},
         edges_{(storage_mode == StorageMode::ON_DISK_TRANSACTIONAL)
                    ? std::optional<utils::SkipList<Edge>>{std::in_place}
-                   : std::nullopt} {}
+                   : std::nullopt},
+        point_index_ctx_{std::move(point_index_ctx)},
+        collector_{point_index_ctx_.IndexKeys()} {}
 
   Transaction(Transaction &&other) noexcept = default;
 
@@ -117,8 +97,9 @@ struct Transaction {
     manyDeltasCache.Invalidate(vertex, label);
   }
 
-  void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex) {
-    collector_.UpdateOnSetProperty(property, value, vertex);
+  void UpdateOnSetProperty(PropertyId property, const PropertyValue &old_value, const PropertyValue &new_value,
+                           Vertex *vertex) {
+    collector_.UpdateOnSetProperty(property, old_value, new_value, vertex);
     manyDeltasCache.Invalidate(vertex, property);
   }
 
@@ -162,6 +143,8 @@ struct Transaction {
   bool scanned_all_vertices_ = false;
   std::set<LabelId> introduced_new_label_index_;
   std::set<EdgeTypeId> introduced_new_edge_type_index_;
+  PointIndexContext point_index_ctx_;
+  /// ATM, only need to collect for changes regarding point index
   Collector collector_;
 };
 

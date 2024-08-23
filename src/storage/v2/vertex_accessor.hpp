@@ -17,8 +17,8 @@
 
 #include "query/hops_limit.hpp"
 #include "storage/v2/config.hpp"
+#include "storage/v2/edge_direction.hpp"
 #include "storage/v2/result.hpp"
-#include "storage/v2/transaction.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/small_vector.hpp"
 
@@ -29,7 +29,10 @@ class Storage;
 struct Constraints;
 struct Indices;
 struct EdgesVertexAccessorResult;
+struct Transaction;
 using edge_store = utils::small_vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>>;
+
+std::pair<bool, bool> IsVisible(Vertex const *vertex, Transaction const *transaction, View view);
 
 class VertexAccessor final {
  private:
@@ -72,7 +75,7 @@ class VertexAccessor final {
 
   /// Set a property value and return the old value.
   /// @throw std::bad_alloc
-  Result<PropertyValue> SetProperty(PropertyId property, const PropertyValue &value);
+  Result<PropertyValue> SetProperty(PropertyId property, const PropertyValue &new_value);
 
   /// Set property values only if property store is empty. Returns `true` if successully set all values,
   /// `false` otherwise.

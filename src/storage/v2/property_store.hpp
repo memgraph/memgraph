@@ -105,6 +105,8 @@ class PropertyStore {
 
   std::vector<PropertyId> PropertiesOfTypes(std::span<PropertyStoreType const> types) const;
 
+  std::optional<PropertyValue> GetPropertyOfTypes(PropertyId property, std::span<PropertyStoreType const> types) const;
+
   /// Set a property value and return `true` if insertion took place. `false` is
   /// returned if assignment took place. The time complexity of this function is
   /// O(n).

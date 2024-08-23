@@ -420,7 +420,7 @@ class Storage {
     Storage *storage_;
     std::shared_lock<utils::ResourceLock> storage_guard_;
     std::unique_lock<utils::ResourceLock> unique_guard_;  // TODO: Split the accessor into Shared/Unique
-    Transaction transaction_;
+    Transaction transaction_;                             // IMPORTANT: this has to be constructed after the guards
     std::optional<uint64_t> commit_timestamp_;
     bool is_transaction_active_;
 
