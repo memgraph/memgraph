@@ -15,6 +15,7 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex_info_helpers.hpp"
+#include "utils/small_vector.hpp"
 #include "utils/variant_helpers.hpp"
 
 namespace {
@@ -62,6 +63,24 @@ inline void ApplyUncommittedDeltasForRead(const memgraph::storage::Delta *delta,
 }  // namespace
 
 namespace memgraph::storage {
+
+inline auto PropertyTypes_ActionMethod(std::map<PropertyId, PropertyValue::Type> &properties) {
+  using enum Delta::Action;
+  return ActionMethod<SET_PROPERTY>([&](Delta const &delta) {
+    auto it = properties.find(delta.property.key);
+    if (it != properties.end()) {
+      if (delta.property.value->IsNull()) {
+        // remove the property
+        properties.erase(it);
+      } else {
+        // set the value
+        it->second = delta.property.value->type();
+      }
+    } else if (!delta.property.value->IsNull()) {
+      properties.emplace(delta.property.key, delta.property.value->type());
+    }
+  });
+}
 
 void Tracking::CleanUp() {
   // Erase all elements that don't have any vertices associated
@@ -165,11 +184,11 @@ nlohmann::json Tracking::ToJson(NameIdMapper &name_id_mapper, bool properties_on
       // There are not other points where the edge is locked at the same time vertices are locked; no need to lock in
       // order
       auto edge_lock = std::unique_lock(to_v->lock);
-      const auto edge_properties = GetCommittedProperties(edge_ref, properties_on_edges);
+      const auto edge_properties = GetCommittedPropertyTypes(edge_ref, properties_on_edges);
       edge_lock.unlock();
       for (const auto &[key, val] : edge_properties) {
         ++state.properties[key].n;
-        ++state.properties[key].types[val.type()];
+        ++state.properties[key].types[val];
       }
       ++state.n;
     }
@@ -226,16 +245,16 @@ utils::small_vector<LabelId> GetPreLabels(const Vertex &vertex, uint64_t commit_
   return pre_labels;
 }
 
-std::map<PropertyId, PropertyValue> GetCommittedProperties(const EdgeRef &edge_ref, bool properties_on_edges) {
-  std::map<PropertyId, PropertyValue> properties;
+std::map<PropertyId, PropertyValue::Type> GetCommittedPropertyTypes(const EdgeRef &edge_ref, bool properties_on_edges) {
+  std::map<PropertyId, PropertyValue::Type> properties;
   if (properties_on_edges) {
     const auto *edge = edge_ref.ptr;
-    properties = edge->properties.Properties();
+    properties = edge->properties.PropertyTypes();
     if (edge->delta) {
       ApplyUncommittedDeltasForRead(edge->delta, [&properties](const Delta &delta) {
         // clang-format off
         DeltaDispatch(delta, utils::ChainedOverloaded{
-          Properties_ActionMethod(properties)
+          PropertyTypes_ActionMethod(properties)
         });
         // clang-format on
       });
@@ -271,12 +290,12 @@ void VertexHandler::PreProcess() {
 
   // TODO: Do only what is necessary
   pre_labels_ = vertex_.labels;
-  pre_properties_ = vertex_.properties.Properties();
+  pre_properties_ = vertex_.properties.PropertyTypes();
 
   ApplyDeltasForRead(delta, commit_timestamp_, [this](const Delta &delta) {
     // clang-format off
         DeltaDispatch(delta, utils::ChainedOverloaded{
-          Properties_ActionMethod(pre_properties_),
+          PropertyTypes_ActionMethod(pre_properties_),
           Labels_ActionMethod(pre_labels_),
         });
     // clang-format on
@@ -294,7 +313,7 @@ void VertexHandler::PostProcess(TransactionEdgeHandler &edge_handler) {
       remove_property_.insert(pre_properties_.begin(), pre_properties_.end());
     }
     if (!vertex_.deleted) {
-      const auto post_properties = vertex_.properties.Properties();
+      const auto post_properties = vertex_.properties.PropertyTypes();
       ++tracking_[PostLabels()].n;
       add_property_.insert(post_properties.begin(), post_properties.end());
     }
@@ -303,12 +322,12 @@ void VertexHandler::PostProcess(TransactionEdgeHandler &edge_handler) {
   // We are only removing properties that have existed before transaction
   for (const auto &[id, val] : remove_property_) {
     --tracking_[PreLabels()].properties[id].n;
-    --tracking_[PreLabels()].properties[id].types[val.type()];
+    --tracking_[PreLabels()].properties[id].types[val];
   }
   // Add the new (or updated) properties
   for (const auto &[id, val] : add_property_) {
     ++tracking_[PostLabels()].properties[id].n;
-    ++tracking_[PostLabels()].properties[id].types[val.type()];
+    ++tracking_[PostLabels()].properties[id].types[val];
   }
 }
 

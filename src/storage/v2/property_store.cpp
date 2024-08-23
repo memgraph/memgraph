@@ -1815,6 +1815,20 @@ std::map<PropertyId, PropertyValue> PropertyStore::Properties() const {
   return WithReader(get_properties);
 }
 
+std::map<PropertyId, PropertyValue::Type> PropertyStore::PropertyTypes() const {
+  auto get_properties = [&](Reader &reader) {
+    std::map<PropertyId, PropertyValue::Type> props;
+    PropertyValue value;
+    while (true) {
+      auto prop = DecodeAnyProperty(&reader, value);
+      if (!prop) break;
+      props.emplace(*prop, value.type());
+    }
+    return props;
+  };
+  return WithReader(get_properties);
+}
+
 bool PropertyStore::SetProperty(PropertyId property, const PropertyValue &value) {
   uint32_t property_size = 0;
   if (!value.IsNull()) {

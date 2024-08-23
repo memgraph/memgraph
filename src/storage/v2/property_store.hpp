@@ -107,6 +107,10 @@ class PropertyStore {
 
   std::optional<PropertyValue> GetPropertyOfTypes(PropertyId property, std::span<PropertyStoreType const> types) const;
 
+  /// Returns types of properties currently stored.
+  /// @throw std::bad_alloc
+  std::map<PropertyId, PropertyValue::Type> PropertyTypes() const;
+
   /// Set a property value and return `true` if insertion took place. `false` is
   /// returned if assignment took place. The time complexity of this function is
   /// O(n).
