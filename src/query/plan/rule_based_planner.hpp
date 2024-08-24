@@ -713,7 +713,10 @@ class RuleBasedPlanner {
       std::vector<Symbol> &new_symbols, std::unordered_map<Symbol, std::vector<Symbol>> &named_paths, Filters &filters,
       storage::View view) {
     const auto &node1_symbol = symbol_table.at(*expansion.node1->identifier_);
-    if (expansion.expand_from_edge) {
+
+    // we can just perform scanning from an edge if it's a simple edge
+    // we don't take into consideration path expansion as part of edge scanning
+    if (expansion.expand_from_edge && expansion.edge->type_ == EdgeAtom::Type::SINGLE) {
       const auto &node2_symbol = symbol_table.at(*expansion.node2->identifier_);
       const auto &edge_symbol = symbol_table.at(*expansion.edge->identifier_);
       auto edge_types = GetEdgeTypes(expansion.edge->edge_types_);
