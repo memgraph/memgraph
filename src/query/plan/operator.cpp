@@ -593,17 +593,35 @@ class ScanAllByEdgeCursor : public Cursor {
       edges_end_it_.emplace(edges_.value().end());
     }
 
+    auto output_expansion = [this, &frame](const EdgeAccessor &edge, bool reverse) {
+      frame[self_.common_.edge_symbol] = edge;
+      if (!reverse) {
+        frame[self_.common_.node1_symbol] = edge.From();
+        frame[self_.common_.node2_symbol] = edge.To();
+      } else {
+        frame[self_.common_.node1_symbol] = edge.To();
+        frame[self_.common_.node2_symbol] = edge.From();
+      }
+    };
+
     EdgeAccessor edge = *edges_it_.value();
     frame[self_.common_.edge_symbol] = edge;
-    if (self_.common_.direction != EdgeAtom::Direction::IN) {
-      frame[self_.common_.node1_symbol] = edge.From();
-      frame[self_.common_.node2_symbol] = edge.To();
+    if (self_.common_.direction == EdgeAtom::Direction::OUT) {
+      output_expansion(edge, false);
+    } else if (self_.common_.direction == EdgeAtom::Direction::IN) {
+      output_expansion(edge, true);
     } else {
-      frame[self_.common_.node1_symbol] = edge.To();
-      frame[self_.common_.node2_symbol] = edge.From();
+      // both, need to output the edge twice
+      if (!do_reverse_output_) {
+        output_expansion(edge, false);
+        do_reverse_output_ = true;
+        return true;
+      }
+      output_expansion(edge, true);
     }
-    ++edges_it_.value();
 
+    do_reverse_output_ = false;
+    ++edges_it_.value();
     return true;
   }
 
@@ -614,6 +632,7 @@ class ScanAllByEdgeCursor : public Cursor {
     edges_ = std::nullopt;
     edges_it_ = std::nullopt;
     edges_end_it_ = std::nullopt;
+    do_reverse_output_ = false;
   }
 
  private:
@@ -621,10 +640,12 @@ class ScanAllByEdgeCursor : public Cursor {
   const UniqueCursorPtr input_cursor_;
   storage::View view_;
   TEdgesFun get_edges_;
+
   std::optional<typename std::result_of<TEdgesFun(Frame &, ExecutionContext &)>::type::value_type> edges_;
   std::optional<decltype(edges_.value().begin())> edges_it_;
   std::optional<decltype(edges_.value().end())> edges_end_it_;
   const char *op_name_;
+  bool do_reverse_output_{false};
 };
 
 ScanAll::ScanAll(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::View view)
