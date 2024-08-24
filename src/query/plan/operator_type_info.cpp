@@ -71,6 +71,8 @@ constexpr utils::TypeInfo query::plan::ScanAllByEdgeId::kType{utils::TypeId::SCA
                                                               &query::plan::ScanAll::kType};
 
 constexpr utils::TypeInfo query::plan::ExpandCommon::kType{utils::TypeId::EXPAND_COMMON, "ExpandCommon", nullptr};
+constexpr utils::TypeInfo query::plan::ScanByEdgeCommon::kType{utils::TypeId::SCAN_BY_EDGE_COMMON, "ScanByEdgeCommon",
+                                                               nullptr};
 
 constexpr utils::TypeInfo query::plan::Expand::kType{utils::TypeId::EXPAND, "Expand",
                                                      &query::plan::LogicalOperator::kType};

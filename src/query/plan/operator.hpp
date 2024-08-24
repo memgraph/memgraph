@@ -599,14 +599,25 @@ class ScanAllByLabel : public memgraph::query::plan::ScanAll {
   }
 };
 
+struct ScanByEdgeCommon {
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const { return kType; }
+
+  Symbol edge_symbol;
+  Symbol node1_symbol;
+  Symbol node2_symbol;
+  EdgeAtom::Direction direction;
+  std::vector<storage::EdgeTypeId> edge_types;
+};
+
 class ScanAllByEdge : public memgraph::query::plan::ScanAll {
  public:
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   ScanAllByEdge() = default;
-  ScanAllByEdge(const std::shared_ptr<LogicalOperator> &input, Symbol output_edge_symbol, Symbol output_from_symbol,
-                Symbol output_to_symbol, const std::vector<storage::EdgeTypeId> &edge_types,
+  ScanAllByEdge(const std::shared_ptr<LogicalOperator> &input, Symbol edge_symbol, Symbol node1_symbol,
+                Symbol node2_symbol, EdgeAtom::Direction direction, const std::vector<storage::EdgeTypeId> &edge_types,
                 storage::View view = storage::View::OLD);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
@@ -616,20 +627,22 @@ class ScanAllByEdge : public memgraph::query::plan::ScanAll {
   std::shared_ptr<LogicalOperator> input() const override { return input_; }
   void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
 
-  std::string ToString() const override { return fmt::format("ScanAllByEdge ({})", output_symbol_.name()); }
+  std::string ToString() const override {
+    return fmt::format(
+        "ScanAllByEdge ({}){}[{}{}]{}({})", common_.node1_symbol.name(),
+        common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-", common_.edge_symbol.name(),
+        utils::IterableToString(common_.edge_types, "|",
+                                [this](const auto &edge_type) { return ":" + dba_->EdgeTypeToName(edge_type); }),
+        common_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-", common_.node2_symbol.name());
+  }
 
-  std::vector<storage::EdgeTypeId> edge_types_{};
-  Symbol output_from_symbol_;
-  Symbol output_to_symbol_;
+  memgraph::query::plan::ScanByEdgeCommon common_;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<ScanAllByEdge>();
     object->input_ = input_ ? input_->Clone(storage) : nullptr;
-    object->output_symbol_ = output_symbol_;
+    object->common_ = common_;
     object->view_ = view_;
-    object->edge_types_ = edge_types_;
-    object->output_from_symbol_ = output_from_symbol_;
-    object->output_to_symbol_ = output_to_symbol_;
     return object;
   }
 };
@@ -640,8 +653,9 @@ class ScanAllByEdgeType : public memgraph::query::plan::ScanAllByEdge {
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   ScanAllByEdgeType() = default;
-  ScanAllByEdgeType(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, Symbol output_from_symbol,
-                    Symbol output_to_symbol, storage::EdgeTypeId edge_type, storage::View view = storage::View::OLD);
+  ScanAllByEdgeType(const std::shared_ptr<LogicalOperator> &input, Symbol edge_symbol, Symbol node1_symbol,
+                    Symbol node2_symbol, EdgeAtom::Direction direction, storage::EdgeTypeId edge_type,
+                    storage::View view = storage::View::OLD);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
 
@@ -650,15 +664,18 @@ class ScanAllByEdgeType : public memgraph::query::plan::ScanAllByEdge {
   void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
 
   std::string ToString() const override {
-    return fmt::format("ScanAllByEdgeType ({} :{})", output_symbol_.name(), dba_->EdgeTypeToName(edge_types_[0]));
+    return fmt::format(
+        "ScanAllByEdgeType ({}){}[{}{}]{}({})", common_.node1_symbol.name(),
+        common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-", common_.edge_symbol.name(),
+        utils::IterableToString(common_.edge_types, "|",
+                                [this](const auto &edge_type) { return ":" + dba_->EdgeTypeToName(edge_type); }),
+        common_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-", common_.node2_symbol.name());
   }
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<ScanAllByEdgeType>();
     object->input_ = input_ ? input_->Clone(storage) : nullptr;
-    object->output_symbol_ = output_symbol_;
-    object->output_from_symbol_ = output_from_symbol_;
-    object->output_to_symbol_ = output_to_symbol_;
+    object->common_ = common_;
     object->view_ = view_;
     return object;
   }
@@ -670,8 +687,8 @@ class ScanAllByEdgeTypeProperty : public memgraph::query::plan::ScanAllByEdge {
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   ScanAllByEdgeTypeProperty() = default;
-  ScanAllByEdgeTypeProperty(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
-                            Symbol output_from_symbol, Symbol output_to_symbol, storage::EdgeTypeId edge_type,
+  ScanAllByEdgeTypeProperty(const std::shared_ptr<LogicalOperator> &input, Symbol edge_symbol, Symbol node1_symbol,
+                            Symbol node2_symbol, EdgeAtom::Direction direction, storage::EdgeTypeId edge_type,
                             storage::PropertyId property, storage::View view = storage::View::OLD);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
@@ -681,8 +698,13 @@ class ScanAllByEdgeTypeProperty : public memgraph::query::plan::ScanAllByEdge {
   void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
 
   std::string ToString() const override {
-    return fmt::format("ScanAllByEdgeTypeProperty ({0} :{1} {{{2}}})", output_symbol_.name(),
-                       dba_->EdgeTypeToName(edge_types_[0]), dba_->PropertyToName(property_));
+    return fmt::format(
+        "ScanAllByEdgeTypeProperty ({}){}[{}{} {}]{}({})", common_.node1_symbol.name(),
+        common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-", common_.edge_symbol.name(),
+        utils::IterableToString(common_.edge_types, "|",
+                                [this](const auto &edge_type) { return ":" + dba_->EdgeTypeToName(edge_type); }),
+        dba_->PropertyToName(property_), common_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-",
+        common_.node2_symbol.name());
   }
 
   storage::PropertyId property_;
@@ -690,9 +712,7 @@ class ScanAllByEdgeTypeProperty : public memgraph::query::plan::ScanAllByEdge {
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<ScanAllByEdgeTypeProperty>();
     object->input_ = input_ ? input_->Clone(storage) : nullptr;
-    object->output_symbol_ = output_symbol_;
-    object->output_from_symbol_ = output_from_symbol_;
-    object->output_to_symbol_ = output_to_symbol_;
+    object->common_ = common_;
     object->view_ = view_;
     object->property_ = property_;
     return object;
@@ -705,8 +725,8 @@ class ScanAllByEdgeTypePropertyValue : public memgraph::query::plan::ScanAllByEd
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   ScanAllByEdgeTypePropertyValue() = default;
-  ScanAllByEdgeTypePropertyValue(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
-                                 Symbol output_from_symbol, Symbol output_to_symbol, storage::EdgeTypeId edge_type,
+  ScanAllByEdgeTypePropertyValue(const std::shared_ptr<LogicalOperator> &input, Symbol edge_symbol, Symbol node1_symbol,
+                                 Symbol node2_symbol, EdgeAtom::Direction direction, storage::EdgeTypeId edge_type,
                                  storage::PropertyId property, Expression *expression,
                                  storage::View view = storage::View::OLD);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
@@ -717,8 +737,13 @@ class ScanAllByEdgeTypePropertyValue : public memgraph::query::plan::ScanAllByEd
   void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
 
   std::string ToString() const override {
-    return fmt::format("ScanAllByEdgeTypePropertyValue ({0} :{1} {{{2}}})", output_symbol_.name(),
-                       dba_->EdgeTypeToName(edge_types_[0]), dba_->PropertyToName(property_));
+    return fmt::format(
+        "ScanAllByEdgeTypePropertyValue ({}){}[{}{} {}]{}({})", common_.node1_symbol.name(),
+        common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-", common_.edge_symbol.name(),
+        utils::IterableToString(common_.edge_types, "|",
+                                [this](const auto &edge_type) { return ":" + dba_->EdgeTypeToName(edge_type); }),
+        dba_->PropertyToName(property_), common_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-",
+        common_.node2_symbol.name());
   }
 
   storage::PropertyId property_;
@@ -727,9 +752,7 @@ class ScanAllByEdgeTypePropertyValue : public memgraph::query::plan::ScanAllByEd
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<ScanAllByEdgeTypePropertyValue>();
     object->input_ = input_ ? input_->Clone(storage) : nullptr;
-    object->output_symbol_ = output_symbol_;
-    object->output_from_symbol_ = output_from_symbol_;
-    object->output_to_symbol_ = output_to_symbol_;
+    object->common_ = common_;
     object->view_ = view_;
     object->property_ = property_;
     object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
@@ -746,8 +769,8 @@ class ScanAllByEdgeTypePropertyRange : public memgraph::query::plan::ScanAllByEd
   using Bound = utils::Bound<Expression *>;
   ScanAllByEdgeTypePropertyRange() = default;
 
-  ScanAllByEdgeTypePropertyRange(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
-                                 Symbol output_from_symbol, Symbol output_to_symbol, storage::EdgeTypeId edge_type,
+  ScanAllByEdgeTypePropertyRange(const std::shared_ptr<LogicalOperator> &input, Symbol edge_symbol, Symbol node1_symbol,
+                                 Symbol node2_symbol, EdgeAtom::Direction direction, storage::EdgeTypeId edge_type,
                                  storage::PropertyId property, std::optional<Bound> lower_bound,
                                  std::optional<Bound> upper_bound, storage::View view = storage::View::OLD);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
@@ -758,8 +781,13 @@ class ScanAllByEdgeTypePropertyRange : public memgraph::query::plan::ScanAllByEd
   void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
 
   std::string ToString() const override {
-    return fmt::format("ScanAllByEdgeTypePropertyRange ({0} :{1} {{{2}}})", output_symbol_.name(),
-                       dba_->EdgeTypeToName(edge_types_[0]), dba_->PropertyToName(property_));
+    return fmt::format(
+        "ScanAllByEdgeTypePropertyRange ({}){}[{}{} {}]{}({})", common_.node1_symbol.name(),
+        common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-", common_.edge_symbol.name(),
+        utils::IterableToString(common_.edge_types, "|",
+                                [this](const auto &edge_type) { return ":" + dba_->EdgeTypeToName(edge_type); }),
+        dba_->PropertyToName(property_), common_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-",
+        common_.node2_symbol.name());
   }
 
   storage::PropertyId property_;
@@ -769,9 +797,7 @@ class ScanAllByEdgeTypePropertyRange : public memgraph::query::plan::ScanAllByEd
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<ScanAllByEdgeTypePropertyRange>();
     object->input_ = input_ ? input_->Clone(storage) : nullptr;
-    object->output_symbol_ = output_symbol_;
-    object->output_from_symbol_ = output_from_symbol_;
-    object->output_to_symbol_ = output_to_symbol_;
+    object->common_ = common_;
     object->view_ = view_;
     object->property_ = property_;
     if (lower_bound_) {
@@ -978,8 +1004,9 @@ class ScanAllByEdgeId : public memgraph::query::plan::ScanAllByEdge {
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   ScanAllByEdgeId() = default;
-  ScanAllByEdgeId(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, Symbol output_from_symbol,
-                  Symbol output_to_symbol, Expression *expression, storage::View view = storage::View::OLD);
+  ScanAllByEdgeId(const std::shared_ptr<LogicalOperator> &input, Symbol edge_symbol, Symbol node1_symbol,
+                  Symbol node2_symbol, EdgeAtom::Direction direction, Expression *expression,
+                  storage::View view = storage::View::OLD);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
 
@@ -987,16 +1014,14 @@ class ScanAllByEdgeId : public memgraph::query::plan::ScanAllByEdge {
   std::shared_ptr<LogicalOperator> input() const override { return input_; }
   void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
 
-  std::string ToString() const override { return fmt::format("ScanAllByEdgeId ({})", output_symbol_.name()); }
+  std::string ToString() const override { return fmt::format("ScanAllByEdgeId ({})", common_.edge_symbol.name()); }
 
   Expression *expression_;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<ScanAllByEdgeId>();
     object->input_ = input_ ? input_->Clone(storage) : nullptr;
-    object->output_symbol_ = output_symbol_;
-    object->output_from_symbol_ = output_from_symbol_;
-    object->output_to_symbol_ = output_to_symbol_;
+    object->common_ = common_;
     object->view_ = view_;
     object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
     return object;
