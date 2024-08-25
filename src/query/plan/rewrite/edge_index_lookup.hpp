@@ -774,6 +774,10 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
                                                  edge_type_from_relationship.value(), view);
     }
 
+    if (filter_edge_types.empty()) {
+      return nullptr;
+    }
+
     // if there was no edge type found in the relationship, then see in the filters if any
     auto maybe_edge_type = FindBestEdgeTypeIndex(filter_edge_types);
     if (!maybe_edge_type) return nullptr;
