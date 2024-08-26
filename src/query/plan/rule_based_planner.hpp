@@ -713,10 +713,11 @@ class RuleBasedPlanner {
       std::vector<Symbol> &new_symbols, std::unordered_map<Symbol, std::vector<Symbol>> &named_paths, Filters &filters,
       storage::View view) {
     const auto &node1_symbol = symbol_table.at(*expansion.node1->identifier_);
+    const bool is_unseen_node = bound_symbols.insert(node1_symbol).second;
 
     // we can just perform scanning from an edge if it's a simple edge
     // we don't take into consideration path expansion as part of edge scanning
-    if (expansion.expand_from_edge && expansion.edge->type_ == EdgeAtom::Type::SINGLE) {
+    if (is_unseen_node && expansion.expand_from_edge && expansion.edge->type_ == EdgeAtom::Type::SINGLE) {
       const auto &node2_symbol = symbol_table.at(*expansion.node2->identifier_);
       const auto &edge_symbol = symbol_table.at(*expansion.edge->identifier_);
       auto edge_types = GetEdgeTypes(expansion.edge->edge_types_);
@@ -728,7 +729,6 @@ class RuleBasedPlanner {
       new_symbols.emplace_back(edge_symbol);
       new_symbols.emplace_back(node2_symbol);
 
-      bound_symbols.insert(node1_symbol);
       bound_symbols.insert(edge_symbol);
       bound_symbols.insert(node2_symbol);
 
@@ -739,7 +739,7 @@ class RuleBasedPlanner {
       return last_op;
     }
 
-    if (bound_symbols.insert(node1_symbol).second) {
+    if (is_unseen_node) {
       // We have just bound this symbol, so generate ScanAll which fills it.
       last_op = std::make_unique<ScanAll>(std::move(last_op), node1_symbol, view);
       new_symbols.emplace_back(node1_symbol);
