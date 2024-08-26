@@ -178,11 +178,7 @@ void InMemoryEdgeTypePropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active
                                        it->edge == next_it->edge;
       if (redundant_duplicate || vertices_deleted ||
           !AnyVersionHasLabelProperty(*it->edge, specific_index.first.second, it->value,
-                                      oldest_active_start_timestamp) ||
-          !std::ranges::all_of(it->from_vertex->out_edges, [&](const auto &edge) {
-            auto *to_vertex = std::get<InMemoryEdgeTypePropertyIndex::kVertexPos>(edge);
-            return to_vertex != it->to_vertex;
-          })) {
+                                      oldest_active_start_timestamp)) {
         edges_acc.remove(*it);
       }
 
