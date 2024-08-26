@@ -329,7 +329,8 @@ build_memgraph () {
     project_files=$(ls -A1 "$PROJECT_ROOT")
     while IFS= read -r f; do
       # Skip build directory when copying project files
-      if [[ "$f" != "build" ]]; then
+      if [[ "$f" != *"build"* ]]; then
+        echo "Copying $f..."
         docker cp "$PROJECT_ROOT/$f" "$build_container:$MGBUILD_ROOT_DIR/"
       fi
     done <<< "$project_files"
@@ -552,9 +553,13 @@ test_memgraph() {
   local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
   local ACTIVATE_VENV="./setup.sh /opt/toolchain-${toolchain_version}/activate"
   local ACTIVATE_CARGO="source $MGBUILD_HOME_DIR/.cargo/env"
-  local EXPORT_LICENSE="export MEMGRAPH_ENTERPRISE_LICENSE=$enterprise_license"
-  local EXPORT_ORG_NAME="export MEMGRAPH_ORGANIZATION_NAME=$organization_name"
+  local EXPORT_LICENSE="export MEMGRAPH_ENTERPRISE_LICENSE='$enterprise_license'"
+  local EXPORT_ORG_NAME="export MEMGRAPH_ORGANIZATION_NAME='$organization_name'"
   local BUILD_DIR="$MGBUILD_ROOT_DIR/build"
+  running_cmd="$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests && source ve3/bin/activate_e2e && cd $MGBUILD_ROOT_DIR/tests/e2e"
+  echo "$running_cmd"
+  substituted_cmd=$(echo "$running_cmd" | envsubst)
+  echo "$substituted_cmd"
   echo "Running $1 test on $build_container..."
 
   case "$1" in
@@ -651,8 +656,29 @@ test_memgraph() {
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_TOOLCHAIN && cd $MGBUILD_ROOT_DIR/tests/code_analysis && $SETUP_PASSED_ARGS "'&& ./clang_tidy.sh $PASSED_ARGS'
     ;;
     e2e)
-      docker exec -u mg $build_container bash -c "pip install --user networkx && pip3 install --user networkx"
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && cd $MGBUILD_ROOT_DIR/tests && $ACTIVATE_VENV && source ve3/bin/activate_e2e && cd $MGBUILD_ROOT_DIR/tests/e2e "'&& ./run.sh'
+
+
+      substituted_cmd=$(echo "$running_cmd" | envsubst)
+      echo "Local eval_command: $substituted_cmd"
+      IMAGE_NAME="$build_container-e2e"
+
+      if docker images | grep -q "$IMAGE_NAME"; then
+        echo "Image $IMAGE_NAME exists."
+      else
+        echo "Image $IMAGE_NAME does not exist."
+        docker exec -u mg $build_container bash -c "pip install --user networkx && pip3 install --user networkx"
+        #docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && cd $MGBUILD_ROOT_DIR/tests && $ACTIVATE_VENV && source ve3/bin/activate_e2e && cd $MGBUILD_ROOT_DIR/tests/e2e "'&& ./run.sh'
+        docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && cd $MGBUILD_ROOT_DIR/tests && $ACTIVATE_VENV && source ve3/bin/activate_e2e"
+        echo "commiting $build_container to $IMAGE_NAME"
+        docker commit $build_container $IMAGE_NAME
+        echo "done committing $build_container to $IMAGE_NAME"
+      fi
+
+      echo "running ${PROJECT_ROOT}/tools/github/coordinate_e2e_tests.py"
+      python3 -u $PROJECT_ROOT/tools/github/coordinate_e2e_tests.py --image "$IMAGE_NAME" --threads 4 --folder "$PROJECT_ROOT/tests/e2e" --command "$substituted_cmd"
+
+
+
     ;;
     *)
       echo "Error: Unknown test '$1'"
@@ -771,6 +797,12 @@ else
   exit 1
 fi
 echo "Using $docker_compose_cmd"
+
+
+
+run_multiple_memgraphs(){
+  $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml up -d $build_container
+}
 
 ##################################################
 ################# PARSE COMMAND ##################
