@@ -699,7 +699,7 @@ class ScanAllByEdgeTypeProperty : public memgraph::query::plan::ScanAllByEdge {
 
   std::string ToString() const override {
     return fmt::format(
-        "ScanAllByEdgeTypeProperty ({}){}[{}{} {}]{}({})", common_.node1_symbol.name(),
+        "ScanAllByEdgeTypeProperty ({0}){1}[{2}{3} {{{4}}}]{5}({6})", common_.node1_symbol.name(),
         common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-", common_.edge_symbol.name(),
         utils::IterableToString(common_.edge_types, "|",
                                 [this](const auto &edge_type) { return ":" + dba_->EdgeTypeToName(edge_type); }),
@@ -738,7 +738,7 @@ class ScanAllByEdgeTypePropertyValue : public memgraph::query::plan::ScanAllByEd
 
   std::string ToString() const override {
     return fmt::format(
-        "ScanAllByEdgeTypePropertyValue ({}){}[{}{} {}]{}({})", common_.node1_symbol.name(),
+        "ScanAllByEdgeTypePropertyValue ({0}){1}[{2}{3} {{{4}}}]{5}({6})", common_.node1_symbol.name(),
         common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-", common_.edge_symbol.name(),
         utils::IterableToString(common_.edge_types, "|",
                                 [this](const auto &edge_type) { return ":" + dba_->EdgeTypeToName(edge_type); }),
@@ -782,7 +782,7 @@ class ScanAllByEdgeTypePropertyRange : public memgraph::query::plan::ScanAllByEd
 
   std::string ToString() const override {
     return fmt::format(
-        "ScanAllByEdgeTypePropertyRange ({}){}[{}{} {}]{}({})", common_.node1_symbol.name(),
+        "ScanAllByEdgeTypePropertyRange ({0}){1}[{2}{3} {{{4}}}]{5}({6})", common_.node1_symbol.name(),
         common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-", common_.edge_symbol.name(),
         utils::IterableToString(common_.edge_types, "|",
                                 [this](const auto &edge_type) { return ":" + dba_->EdgeTypeToName(edge_type); }),
