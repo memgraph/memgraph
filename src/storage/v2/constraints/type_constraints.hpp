@@ -59,15 +59,13 @@ class TypeConstraints {
   };
 
   [[nodiscard]] static std::optional<ConstraintViolation> ValidateVertexOnConstraint(const Vertex &vertex,
-                                                                                     const LabelId &label,
-                                                                                     const PropertyId &property);
+                                                                                     LabelId label, PropertyId property,
+                                                                                     Type type);
 
-  // [[nodiscard]] static std::optional<ConstraintViolation> ValidateVerticesOnConstraint(
-  //     utils::SkipList<Vertex>::Accessor vertices, LabelId label, PropertyId property,
-  //     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info = std::nullopt);
+  [[nodiscard]] static std::optional<ConstraintViolation> ValidateVerticesOnConstraint(
+      utils::SkipList<Vertex>::Accessor vertices, LabelId label, PropertyId property, Type type);
 
-  // static std::variant<MultipleThreadsConstraintValidation, SingleThreadConstraintValidation> GetCreationFunction(
-  //     const std::optional<durability::ParallelizedSchemaCreationInfo> &);
+  [[nodiscard]] std::optional<ConstraintViolation> Validate(const Vertex &vertex);
 
   bool ConstraintExists(LabelId label, PropertyId property) const;
   bool InsertConstraint(LabelId label, PropertyId property, Type type);

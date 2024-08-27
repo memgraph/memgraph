@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "storage/v2/constraints/constraints.hpp"
+#include "storage/v2/constraints/type_constraints.hpp"
 #include "storage/v2/disk/unique_constraints.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
 
@@ -22,6 +23,7 @@ Constraints::Constraints(const Config &config, StorageMode storage_mode) {
       case StorageMode::IN_MEMORY_TRANSACTIONAL:
       case StorageMode::IN_MEMORY_ANALYTICAL:
         unique_constraints_ = std::make_unique<InMemoryUniqueConstraints>();
+        type_constraints_ = std::make_unique<TypeConstraints>();
         break;
       case StorageMode::ON_DISK_TRANSACTIONAL:
         unique_constraints_ = std::make_unique<DiskUniqueConstraints>(config);

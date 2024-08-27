@@ -10,14 +10,17 @@
 // licenses/APL.txt.
 
 #include "type_constraints.hpp"
+#include <optional>
 #include "storage/v2/property_value.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::storage {
 
-[[nodiscard]] std::optional<ConstraintViolation> TypeConstraints::ValidateVertexOnConstraint(
-    const Vertex &vertex, const LabelId &label, const PropertyId &property) {
+[[nodiscard]] std::optional<ConstraintViolation> TypeConstraints::ValidateVertexOnConstraint(const Vertex &vertex,
+                                                                                             LabelId label,
+                                                                                             PropertyId property,
+                                                                                             Type type) {
   if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
     return std::nullopt;
   }
@@ -26,29 +29,30 @@ namespace memgraph::storage {
     return std::nullopt;
   }
 
-  if (!vertex.deleted && utils::Contains(vertex.labels, label) && !vertex.properties.HasProperty(property)) {
-    return ConstraintViolation{ConstraintViolation::Type::EXISTENCE, label, std::set<PropertyId>{property}};
+  if (TypeConstraints::PropertyValueToType(prop_value) != type) {
+    return ConstraintViolation{ConstraintViolation::Type::TYPE, label, std::set<PropertyId>{property}};
   }
   return std::nullopt;
 }
 
-// std::variant<TypeConstraints::MultipleThreadsConstraintValidation, TypeConstraints::SingleThreadConstraintValidation>
-// TypeConstraints::GetCreationFunction(const std::optional<durability::ParallelizedSchemaCreationInfo> &par_exec_info)
-// {
-//   if (par_exec_info.has_value()) {
-//     return TypeConstraints::MultipleThreadsConstraintValidation{par_exec_info.value()};
-//   }
-//   return TypeConstraints::SingleThreadConstraintValidation{};
-// }
+[[nodiscard]] std::optional<ConstraintViolation> TypeConstraints::Validate(const Vertex &vertex) {
+  for (const auto &[label, type] : constraints_) {
+    if (auto violation = ValidateVertexOnConstraint(vertex, label.first, label.second, type); violation.has_value()) {
+      return violation;
+    }
+  }
+  return std::nullopt;
+}
 
-// [[nodiscard]] std::optional<ConstraintViolation> TypeConstraints::ValidateVerticesOnConstraint(
-//     utils::SkipList<Vertex>::Accessor vertices, LabelId label, PropertyId property,
-//     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info) {
-//   auto calling_existence_validation_function = GetCreationFunction(parallel_exec_info);
-//   return std::visit(
-//       [&vertices, &label, &property](auto &calling_object) { return calling_object(vertices, label, property); },
-//       calling_existence_validation_function);
-// }
+[[nodiscard]] std::optional<ConstraintViolation> TypeConstraints::ValidateVerticesOnConstraint(
+    utils::SkipList<Vertex>::Accessor vertices, LabelId label, PropertyId property, Type type) {
+  for (auto const &vertex : vertices) {
+    if (auto violation = ValidateVertexOnConstraint(vertex, label, property, type); violation.has_value()) {
+      return violation;
+    }
+  }
+  return std::nullopt;
+}
 
 bool TypeConstraints::ConstraintExists(LabelId label, PropertyId property) const {
   return constraints_.contains({label, property});

@@ -839,14 +839,12 @@ class DbAccessor final {
 
   utils::BasicResult<storage::StorageExistenceConstraintDefinitionError, void> CreateTypeConstraint(
       storage::LabelId label, storage::PropertyId property, storage::TypeConstraints::Type type) {
-    throw utils::NotYetImplemented("Not implemented create type constraint");
-    // return accessor_->CreateExistenceConstraint(label, property);
+    return accessor_->CreateTypeConstraint(label, property, type);
   }
 
   utils::BasicResult<storage::StorageExistenceConstraintDroppingError, void> DropTypeConstraint(
       storage::LabelId label, storage::PropertyId property) {
-    throw utils::NotYetImplemented("Not implemented type constraint");
-    // return accessor_->DropExistenceConstraint(label, property);
+    return accessor_->DropTypeConstraint(label, property);
   }
 
   void DropGraph() { return accessor_->DropGraph(); }

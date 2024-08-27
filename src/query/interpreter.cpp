@@ -88,6 +88,7 @@
 #include "replication/config.hpp"
 #include "replication/state.hpp"
 #include "spdlog/spdlog.h"
+#include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/edge_import_mode.hpp"
@@ -5746,6 +5747,15 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
                                trigger.Name(), label_name, property_names_stream.str());
                   break;
                 }
+                case storage::ConstraintViolation::Type::TYPE: {
+                  const auto &label_name = db_accessor.LabelToName(constraint_violation.label);
+                  MG_ASSERT(constraint_violation.properties.size() == 1U);
+                  const auto &property_name = db_accessor.PropertyToName(*constraint_violation.properties.begin());
+                  // TODO: Add which type it should be
+                  spdlog::warn("Trigger '{}' failed to commit due to type constraint violation on: {}({}) ",
+                               trigger.Name(), label_name, property_name);
+                  break;
+                }
               }
             } else if constexpr (std::is_same_v<ErrorType, storage::SerializationError>) {
               throw QueryException("Unable to commit due to serialization error.");
@@ -5921,6 +5931,14 @@ void Interpreter::Commit() {
                                      });
                 throw QueryException("Unable to commit due to unique constraint violation on :{}({})", label_name,
                                      property_names_stream.str());
+              }
+              case storage::ConstraintViolation::Type::TYPE: {
+                // TODO: This should never get triggered since type constraints get checked immediately and not at
+                // commit time
+                auto &property_name = execution_db_accessor->PropertyToName(*constraint_violation.properties.begin());
+                // TODO: add which type it should be:
+                throw QueryException("Unable to commit due to type constraint violation on :{}({})", label_name,
+                                     property_name);
               }
             }
           } else if constexpr (std::is_same_v<ErrorType, storage::SerializationError>) {

@@ -1753,8 +1753,8 @@ InMemoryStorage::InMemoryAccessor::CreateTypeConstraint(LabelId label, PropertyI
   if (type_constraints->ConstraintExists(label, property)) {
     return StorageTypeConstraintDefinitionError{ConstraintDefinitionError{}};
   }
-  if (auto violation = ExistenceConstraints::ValidateVerticesOnConstraint(in_memory->vertices_.access(), label,
-                                                                          property, std::nullopt);
+  if (auto violation =
+          TypeConstraints::ValidateVerticesOnConstraint(in_memory->vertices_.access(), label, property, type);
       violation.has_value()) {
     return StorageTypeConstraintDefinitionError{violation.value()};
   }
@@ -1767,10 +1767,11 @@ utils::BasicResult<StorageExistenceConstraintDroppingError, void> InMemoryStorag
     LabelId label, PropertyId property) {
   MG_ASSERT(unique_guard_.owns_lock(), "Dropping IS TYPED constraint requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
-  auto *existence_constraints = in_memory->constraints_.existence_constraints_.get();
-  if (!existence_constraints->DropConstraint(label, property)) {
+  auto *type_constraints = in_memory->constraints_.type_constraints_.get();
+  if (!type_constraints->DropConstraint(label, property)) {
     return StorageTypeConstraintDroppingError{ConstraintDefinitionError{}};
   }
+  // TODO: maybe need type for delta (reconstruction)
   transaction_.md_deltas.emplace_back(MetadataDelta::type_constraint_drop, label, property);
   return {};
 }

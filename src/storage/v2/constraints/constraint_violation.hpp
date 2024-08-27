@@ -21,7 +21,7 @@ struct ConstraintViolation {
   enum class Type {
     EXISTENCE,
     UNIQUE,
-    // TYPE,
+    TYPE,
   };
 
   Type type;
