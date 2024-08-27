@@ -27,6 +27,7 @@
 #include "storage/v2/all_vertices_iterable.hpp"
 #include "storage/v2/commit_log.hpp"
 #include "storage/v2/config.hpp"
+#include "storage/v2/constraints/type_constraints.hpp"
 #include "storage/v2/database_access.hpp"
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/wal.hpp"
@@ -388,6 +389,12 @@ class Storage {
 
     virtual UniqueConstraints::DeletionStatus DropUniqueConstraint(LabelId label,
                                                                    const std::set<PropertyId> &properties) = 0;
+
+    virtual utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateTypeConstraint(
+        LabelId label, PropertyId property, TypeConstraints::Type type) = 0;
+
+    virtual utils::BasicResult<StorageExistenceConstraintDroppingError, void> DropTypeConstraint(
+        LabelId label, PropertyId property) = 0;
 
     virtual void DropGraph() = 0;
 

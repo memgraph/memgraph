@@ -4555,7 +4555,41 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
           break;
         }
         case Constraint::Type::TYPE: {
-          throw utils::NotYetImplemented("Type constraints");
+          constraint_notification.title = fmt::format("Created TYPE constraint on label {} on property {}.",
+                                                      constraint_query->constraint_.label.name, properties_stringified);
+          handler = [storage, dba, label, label_name = constraint_query->constraint_.label.name,
+                     constraint_type = constraint_query->constraint_.type_constraint,
+                     properties_stringified = std::move(properties_stringified),
+                     properties = std::move(properties)](Notification &constraint_notification) {
+            MG_ASSERT(constraint_type.has_value());
+            auto maybe_constraint_error = dba->CreateTypeConstraint(label, properties[0], *constraint_type);
+
+            if (maybe_constraint_error.HasError()) {
+              const auto &error = maybe_constraint_error.GetError();
+              std::visit(
+                  [storage, &label_name, &properties_stringified, &constraint_notification]<typename T>(T &&arg) {
+                    using ErrorType = std::remove_cvref_t<T>;
+                    if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
+                      auto &violation = arg;
+                      MG_ASSERT(violation.properties.size() == 1U);
+                      auto property_name = storage->PropertyToName(*violation.properties.begin());
+                      throw QueryRuntimeException(  // TODO add type to error message
+                          "Unable to create IS TYPED constraint :{}({}), because an "
+                          "existing node violates it.",
+                          label_name, property_name);
+                    } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintDefinitionError>) {
+                      constraint_notification.code = NotificationCode::EXISTENT_CONSTRAINT;
+                      constraint_notification.title =
+                          fmt::format("Constraint IS TYPED on label {} on properties {} already exists.", label_name,
+                                      properties_stringified);
+                    } else {
+                      static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
+                    }
+                  },
+                  error);
+            }
+          };
+          break;
         }
       }
     } break;
@@ -4565,7 +4599,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
       switch (constraint_query->constraint_.type) {
         case Constraint::Type::NODE_KEY:
           throw utils::NotYetImplemented("Node key constraints");
-        case Constraint::Type::EXISTS:
+        case Constraint::Type::EXISTS: {
           if (properties.empty() || properties.size() > 1) {
             throw SyntaxException("Exactly one property must be used for existence constraints.");
           }
@@ -4584,6 +4618,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
             return std::vector<std::vector<TypedValue>>();
           };
           break;
+        }
         case Constraint::Type::UNIQUE: {
           std::set<storage::PropertyId> property_set;
           for (const auto &property : properties) {
@@ -4625,7 +4660,22 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
           break;
         }
         case Constraint::Type::TYPE: {
-          throw utils::NotYetImplemented("Type constraints");
+          constraint_notification.title =
+              fmt::format("Dropped IS TYPED constraint on label {} on properties {}.",
+                          constraint_query->constraint_.label.name, utils::Join(properties_string, ", "));
+          handler = [dba, label, label_name = constraint_query->constraint_.label.name,
+                     properties_stringified = std::move(properties_stringified),
+                     properties = std::move(properties)](Notification &constraint_notification) {
+            auto maybe_constraint_error = dba->DropTypeConstraint(label, properties[0]);
+            if (maybe_constraint_error.HasError()) {
+              constraint_notification.code = NotificationCode::NONEXISTENT_CONSTRAINT;
+              constraint_notification.title =
+                  fmt::format("Constraint IS TYPED on label {} on properties {} doesn't exist.", label_name,
+                              properties_stringified);
+            }
+            return std::vector<std::vector<TypedValue>>();
+          };
+          break;
         }
       }
     } break;

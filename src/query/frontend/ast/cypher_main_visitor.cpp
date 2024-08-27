@@ -35,6 +35,8 @@
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/procedure/callable_alias_mapper.hpp"
 #include "query/procedure/module.hpp"
+#include "storage/v2/constraints/type_constraints.hpp"
+#include "storage/v2/property_value.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
@@ -182,7 +184,7 @@ antlrcpp::Any CypherMainVisitor::visitConstraint(MemgraphCypher::ConstraintConte
   } else if (ctx->IS() && ctx->TYPED()) {
     constraint.type = Constraint::Type::TYPE;
     constraint.type_constraint =
-        std::any_cast<Constraint::TypeConstraint>(visitTypeConstraintType(ctx->typeConstraintType()));
+        std::any_cast<memgraph::storage::TypeConstraints::Type>(visitTypeConstraintType(ctx->typeConstraintType()));
   }
   constraint.label = AddLabel(std::any_cast<std::string>(ctx->labelName()->accept(this)));
   auto node_name = std::any_cast<std::string>(ctx->nodeName->symbolicName()->accept(this));
@@ -212,37 +214,37 @@ antlrcpp::Any CypherMainVisitor::visitConstraint(MemgraphCypher::ConstraintConte
 
 antlrcpp::Any CypherMainVisitor::visitTypeConstraintType(MemgraphCypher::TypeConstraintTypeContext *ctx) {
   if (ctx->BOOLEAN()) {
-    return Constraint::TypeConstraint::BOOLEAN;
+    return memgraph::storage::TypeConstraints::Type::BOOLEAN;
   }
   if (ctx->STRING()) {
-    return Constraint::TypeConstraint::STRING;
+    return memgraph::storage::TypeConstraints::Type::STRING;
   }
   if (ctx->INTEGER()) {
-    return Constraint::TypeConstraint::INTEGER;
+    return memgraph::storage::TypeConstraints::Type::INTEGER;
   }
   if (ctx->FLOAT()) {
-    return Constraint::TypeConstraint::FLOAT;
+    return memgraph::storage::TypeConstraints::Type::FLOAT;
   }
   if (ctx->DATE()) {
-    return Constraint::TypeConstraint::DATE;
+    return memgraph::storage::TypeConstraints::Type::DATE;
   }
   if (ctx->LOCALTIME()) {
-    return Constraint::TypeConstraint::LOCALTIME;
+    return memgraph::storage::TypeConstraints::Type::LOCALTIME;
   }
   if (ctx->LOCALDATETIME()) {
-    return Constraint::TypeConstraint::LOCALDATETIME;
+    return memgraph::storage::TypeConstraints::Type::LOCALDATETIME;
   }
   if (ctx->ZONEDDATETIME()) {
-    return Constraint::TypeConstraint::ZONEDDATETIME;
+    return memgraph::storage::TypeConstraints::Type::ZONEDDATETIME;
   }
   if (ctx->DURATION()) {
-    return Constraint::TypeConstraint::DURATION;
+    return memgraph::storage::TypeConstraints::Type::DURATION;
   }
   if (ctx->ENUM()) {
-    return Constraint::TypeConstraint::ENUM;
+    return memgraph::storage::TypeConstraints::Type::ENUM;
   }
   if (ctx->POINT()) {
-    return Constraint::TypeConstraint::POINT;
+    return memgraph::storage::TypeConstraints::Type::POINT;
   }
   throw SyntaxException("Unknown type constraint type!");
 }

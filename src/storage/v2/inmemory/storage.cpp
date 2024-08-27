@@ -1744,6 +1744,37 @@ UniqueConstraints::DeletionStatus InMemoryStorage::InMemoryAccessor::DropUniqueC
   return UniqueConstraints::DeletionStatus::SUCCESS;
 }
 
+utils::BasicResult<StorageExistenceConstraintDefinitionError, void>
+InMemoryStorage::InMemoryAccessor::CreateTypeConstraint(LabelId label, PropertyId property,
+                                                        TypeConstraints::Type type) {
+  MG_ASSERT(unique_guard_.owns_lock(), "Creating IS TYPED constraint requires a unique access to the storage!");
+  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  auto *type_constraints = in_memory->constraints_.type_constraints_.get();
+  if (type_constraints->ConstraintExists(label, property)) {
+    return StorageTypeConstraintDefinitionError{ConstraintDefinitionError{}};
+  }
+  if (auto violation = ExistenceConstraints::ValidateVerticesOnConstraint(in_memory->vertices_.access(), label,
+                                                                          property, std::nullopt);
+      violation.has_value()) {
+    return StorageTypeConstraintDefinitionError{violation.value()};
+  }
+  type_constraints->InsertConstraint(label, property, type);
+  transaction_.md_deltas.emplace_back(MetadataDelta::type_constraint_create, label, property, type);
+  return {};
+}
+
+utils::BasicResult<StorageExistenceConstraintDroppingError, void> InMemoryStorage::InMemoryAccessor::DropTypeConstraint(
+    LabelId label, PropertyId property) {
+  MG_ASSERT(unique_guard_.owns_lock(), "Dropping IS TYPED constraint requires a unique access to the storage!");
+  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  auto *existence_constraints = in_memory->constraints_.existence_constraints_.get();
+  if (!existence_constraints->DropConstraint(label, property)) {
+    return StorageTypeConstraintDroppingError{ConstraintDefinitionError{}};
+  }
+  transaction_.md_deltas.emplace_back(MetadataDelta::type_constraint_drop, label, property);
+  return {};
+}
+
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, View view) {
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get());
   return VerticesIterable(mem_label_index->Vertices(label, view, storage_, &transaction_));

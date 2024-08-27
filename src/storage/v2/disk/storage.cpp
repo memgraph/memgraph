@@ -2147,6 +2147,16 @@ UniqueConstraints::DeletionStatus DiskStorage::DiskAccessor::DropUniqueConstrain
   return UniqueConstraints::DeletionStatus::SUCCESS;
 }
 
+utils::BasicResult<StorageExistenceConstraintDefinitionError, void> DiskStorage::DiskAccessor::CreateTypeConstraint(
+    LabelId /**/, PropertyId /**/, TypeConstraints::Type /**/) {
+  throw utils::NotYetImplemented("Type constraints are not yet implemented for on-disk storage");
+}
+
+utils::BasicResult<StorageExistenceConstraintDroppingError, void> DiskStorage::DiskAccessor::DropTypeConstraint(
+    LabelId /**/, PropertyId /**/) {
+  throw utils::NotYetImplemented("Type constraints are not yet implemented for on-disk storage");
+}
+
 void DiskStorage::DiskAccessor::DropGraph() {}
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)

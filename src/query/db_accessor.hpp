@@ -20,6 +20,7 @@
 #include "memory/query_memory_control.hpp"
 #include "query/exceptions.hpp"
 #include "query/hops_limit.hpp"
+#include "storage/v2/constraints/type_constraints.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
@@ -834,6 +835,18 @@ class DbAccessor final {
   storage::UniqueConstraints::DeletionStatus DropUniqueConstraint(storage::LabelId label,
                                                                   const std::set<storage::PropertyId> &properties) {
     return accessor_->DropUniqueConstraint(label, properties);
+  }
+
+  utils::BasicResult<storage::StorageExistenceConstraintDefinitionError, void> CreateTypeConstraint(
+      storage::LabelId label, storage::PropertyId property, storage::TypeConstraints::Type type) {
+    throw utils::NotYetImplemented("Not implemented create type constraint");
+    // return accessor_->CreateExistenceConstraint(label, property);
+  }
+
+  utils::BasicResult<storage::StorageExistenceConstraintDroppingError, void> DropTypeConstraint(
+      storage::LabelId label, storage::PropertyId property) {
+    throw utils::NotYetImplemented("Not implemented type constraint");
+    // return accessor_->DropExistenceConstraint(label, property);
   }
 
   void DropGraph() { return accessor_->DropGraph(); }

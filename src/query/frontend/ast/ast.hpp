@@ -21,6 +21,7 @@
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/procedure/module_fwd.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/constraints/type_constraints.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/string.hpp"
@@ -3180,22 +3181,8 @@ struct Constraint {
 
   enum class Type { EXISTS, UNIQUE, NODE_KEY, TYPE };
 
-  enum class TypeConstraint : uint8_t {
-    STRING,
-    BOOLEAN,
-    INTEGER,
-    FLOAT,
-    DURATION,
-    DATE,
-    LOCALTIME,
-    LOCALDATETIME,
-    ZONEDDATETIME,
-    ENUM,
-    POINT
-  };
-
   memgraph::query::Constraint::Type type;
-  std::optional<TypeConstraint> type_constraint;
+  std::optional<storage::TypeConstraints::Type> type_constraint;
   memgraph::query::LabelIx label;
   std::vector<memgraph::query::PropertyIx> properties;
 

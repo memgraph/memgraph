@@ -8,6 +8,7 @@ target_sources(mg-storage-v2
         constraint_verification_info.cpp
         constraints/constraints.cpp
         constraints/existence_constraints.cpp
+        constraints/type_constraints.cpp
         disk/durable_metadata.cpp
         disk/edge_import_mode_cache.cpp
         disk/edge_type_index.cpp

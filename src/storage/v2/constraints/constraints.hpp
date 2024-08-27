@@ -11,10 +11,12 @@
 
 #pragma once
 
+#include <memory>
 #include <span>
 
 #include "storage/v2/config.hpp"
 #include "storage/v2/constraints/existence_constraints.hpp"
+#include "storage/v2/constraints/type_constraints.hpp"
 #include "storage/v2/constraints/unique_constraints.hpp"
 #include "storage/v2/storage_mode.hpp"
 
@@ -34,6 +36,8 @@ struct Constraints {
 
   std::unique_ptr<ExistenceConstraints> existence_constraints_;
   std::unique_ptr<UniqueConstraints> unique_constraints_;
+  std::unique_ptr<TypeConstraints> type_constraints_;
+
   bool empty() const { return existence_constraints_->empty() && unique_constraints_->empty(); }
 };
 

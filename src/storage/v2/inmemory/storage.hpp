@@ -427,6 +427,14 @@ class InMemoryStorage final : public Storage {
     UniqueConstraints::DeletionStatus DropUniqueConstraint(LabelId label,
                                                            const std::set<PropertyId> &properties) override;
 
+    /// TODO COMMENT
+    utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateTypeConstraint(
+        LabelId label, PropertyId property, TypeConstraints::Type type) override;
+
+    /// TODO COMMENT
+    utils::BasicResult<StorageExistenceConstraintDroppingError, void> DropTypeConstraint(LabelId label,
+                                                                                         PropertyId property) override;
+
     void DropGraph() override;
 
    protected:
