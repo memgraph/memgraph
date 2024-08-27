@@ -847,6 +847,11 @@ class DbAccessor final {
     return accessor_->DropTypeConstraint(label, property);
   }
 
+  // utils::BasicResult<storage::StorageExistenceConstraintDroppingError, void> ValidateTypeConstraints(
+  //     VertexAccessor &v) {
+  //   return accessor_->DropTypeConstraint(label, property);
+  // }
+
   void DropGraph() { return accessor_->DropGraph(); }
 
   auto CreateEnum(std::string_view name, std::span<std::string const> values)

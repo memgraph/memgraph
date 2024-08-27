@@ -21,6 +21,7 @@
 
 #include "query/exceptions.hpp"
 #include "query/hops_limit.hpp"
+#include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/edge_accessor.hpp"
@@ -145,6 +146,15 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
     CreateAndLinkDelta(transaction, vertex, Delta::RemoveLabelTag(), label);
     vertex->labels.push_back(label);
   });
+
+  // TODO: optimize this, check constraint before linking, maybe not so bad since not on hot path
+  if (storage_->constraints_.HasTypeConstraints()) {
+    auto violation = storage_->constraints_.type_constraints_->Validate(*vertex_, label);
+    if (violation.has_value()) {
+      // TODO: better message, different exception
+      throw query::QueryException("Type constraint violation");
+    }
+  }
 
   if (storage_->config_.salient.items.enable_schema_metadata) {
     storage_->stored_node_labels_.try_insert(label);
@@ -350,7 +360,7 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
 
   PropertyValue old_value;
   const bool skip_duplicate_write = !storage_->config_.salient.items.delta_on_identical_property_update;
-  auto const set_property_impl = [transaction = transaction_, vertex = vertex_, &new_value, &property, &old_value,
+  auto const set_property_impl = [this, transaction = transaction_, vertex = vertex_, &new_value, &property, &old_value,
                                   skip_duplicate_write, &schema_acc]() {
     old_value = vertex->properties.GetProperty(property);
     // We could skip setting the value if the previous one is the same to the new
@@ -367,6 +377,15 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
     vertex->properties.SetProperty(property, new_value);
     if (schema_acc)
       schema_acc->SetProperty(vertex, property, ExtendedPropertyType{new_value}, ExtendedPropertyType{old_value});
+
+    // TODO: optimize this, check constraint before linking, maybe not so bad since not on hot path
+    if (storage_->constraints_.HasTypeConstraints()) {
+      auto violation = storage_->constraints_.type_constraints_->Validate(*vertex_, property);
+      if (violation.has_value()) {
+        // TODO: better message, different exception
+        throw query::QueryException("Type constraint violation");
+      }
+    }
 
     return false;
   };
@@ -424,6 +443,13 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
             schema_acc->SetProperty(vertex, property, ExtendedPropertyType{new_value}, ExtendedPropertyType{});
         }
         // TODO If not performant enough there is also InitProperty()
+        if (storage->constraints_.HasTypeConstraints()) {
+          auto violation = storage->constraints_.type_constraints_->Validate(*vertex);
+          if (violation.has_value()) {
+            // TODO: better message, different exception
+            throw query::QueryException("Type constraint violation");
+          }
+        }
         result = true;
       });
 
@@ -468,6 +494,13 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
       }
       if (schema_acc)
         schema_acc->SetProperty(vertex, id, ExtendedPropertyType{new_value}, ExtendedPropertyType{old_value});
+    }
+    if (storage->constraints_.HasTypeConstraints()) {
+      auto violation = storage->constraints_.type_constraints_->Validate(*vertex);
+      if (violation.has_value()) {
+        // TODO: better message, different exception
+        throw query::QueryException("Type constraint violation");
+      }
     }
   });
 

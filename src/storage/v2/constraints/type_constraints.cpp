@@ -36,8 +36,29 @@ namespace memgraph::storage {
 }
 
 [[nodiscard]] std::optional<ConstraintViolation> TypeConstraints::Validate(const Vertex &vertex) {
-  for (const auto &[label, type] : constraints_) {
-    if (auto violation = ValidateVertexOnConstraint(vertex, label.first, label.second, type); violation.has_value()) {
+  for (const auto &[label_prop, type] : constraints_) {
+    if (auto violation = ValidateVertexOnConstraint(vertex, label_prop.first, label_prop.second, type);
+        violation.has_value()) {
+      return violation;
+    }
+  }
+  return std::nullopt;
+}
+
+[[nodiscard]] std::optional<ConstraintViolation> TypeConstraints::Validate(const Vertex &vertex, PropertyId property) {
+  for (const auto &[label_prop, type] : constraints_) {
+    if (label_prop.second != property) continue;
+    if (auto violation = ValidateVertexOnConstraint(vertex, label_prop.first, property, type); violation.has_value()) {
+      return violation;
+    }
+  }
+  return std::nullopt;
+}
+
+[[nodiscard]] std::optional<ConstraintViolation> TypeConstraints::Validate(const Vertex &vertex, LabelId label) {
+  for (const auto &[label_prop, type] : constraints_) {
+    if (label_prop.first != label) continue;
+    if (auto violation = ValidateVertexOnConstraint(vertex, label, label_prop.second, type); violation.has_value()) {
       return violation;
     }
   }
@@ -53,6 +74,8 @@ namespace memgraph::storage {
   }
   return std::nullopt;
 }
+
+bool TypeConstraints::HasTypeConstraints() const { return !constraints_.empty(); }
 
 bool TypeConstraints::ConstraintExists(LabelId label, PropertyId property) const {
   return constraints_.contains({label, property});
@@ -74,6 +97,8 @@ bool TypeConstraints::DropConstraint(LabelId label, PropertyId property) {
   constraints_.erase(it);
   return true;
 }
+
+void TypeConstraints::DropGraphClearConstraints() { constraints_.clear(); }
 
 TypeConstraints::Type TypeConstraints::PropertyValueToType(const PropertyValue &property) {
   switch (property.type()) {

@@ -17,6 +17,7 @@
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/skip_list.hpp"
 
@@ -66,10 +67,14 @@ class TypeConstraints {
       utils::SkipList<Vertex>::Accessor vertices, LabelId label, PropertyId property, Type type);
 
   [[nodiscard]] std::optional<ConstraintViolation> Validate(const Vertex &vertex);
+  [[nodiscard]] std::optional<ConstraintViolation> Validate(const Vertex &vertex, LabelId label);
+  [[nodiscard]] std::optional<ConstraintViolation> Validate(const Vertex &vertex, PropertyId property);
 
+  bool HasTypeConstraints() const;
   bool ConstraintExists(LabelId label, PropertyId property) const;
   bool InsertConstraint(LabelId label, PropertyId property, Type type);
   bool DropConstraint(LabelId label, PropertyId property);
+  void DropGraphClearConstraints();
 
   static Type PropertyValueToType(PropertyValue const &property);
 
