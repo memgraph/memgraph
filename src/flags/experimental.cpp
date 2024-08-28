@@ -26,10 +26,9 @@
 
 // Bolt server flags.
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_VALIDATED_string(
-    experimental_enabled, "",
-    "Experimental features to be used, comma-separated. Options [system-replication, text-search, high-availability]",
-    { return memgraph::flags::ValidExperimentalFlag(value); });
+DEFINE_VALIDATED_string(experimental_enabled, "",
+                        "Experimental features to be used, comma-separated. Options [text-search, high-availability]",
+                        { return memgraph::flags::ValidExperimentalFlag(value); });
 
 using namespace std::string_view_literals;
 namespace rv = ranges::views;
