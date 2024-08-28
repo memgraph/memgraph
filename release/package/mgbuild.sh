@@ -58,6 +58,7 @@ DEFAULT_BENCH_GRAPH_HOST="bench-graph-api"
 DEFAULT_BENCH_GRAPH_PORT="9001"
 DEFAULT_MGDEPS_CACHE_HOST="mgdeps-cache"
 DEFAULT_MGDEPS_CACHE_PORT="8000"
+DEFAULT_TESTING=false
 
 print_help () {
   echo -e "\nUsage:  $SCRIPT_NAME [GLOBAL OPTIONS] COMMAND [COMMAND OPTIONS]"
@@ -556,10 +557,6 @@ test_memgraph() {
   local EXPORT_LICENSE="export MEMGRAPH_ENTERPRISE_LICENSE='$enterprise_license'"
   local EXPORT_ORG_NAME="export MEMGRAPH_ORGANIZATION_NAME='$organization_name'"
   local BUILD_DIR="$MGBUILD_ROOT_DIR/build"
-  running_cmd="$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests && source ve3/bin/activate_e2e && cd $MGBUILD_ROOT_DIR/tests/e2e"
-  echo "$running_cmd"
-  substituted_cmd=$(echo "$running_cmd" | envsubst)
-  echo "$substituted_cmd"
   echo "Running $1 test on $build_container..."
 
   case "$1" in
@@ -657,28 +654,42 @@ test_memgraph() {
     ;;
     e2e)
 
+      local built_up_cmd="$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests && source ve3/bin/activate_e2e && cd $MGBUILD_ROOT_DIR/tests/e2e"
+      # shellcheck disable=SC2155
+      local setup_command=$(echo "$built_up_cmd" | envsubst)
 
-      substituted_cmd=$(echo "$running_cmd" | envsubst)
-      echo "Local eval_command: $substituted_cmd"
-      IMAGE_NAME="$build_container-e2e"
+      local new_image_name="$build_container-e2e"
 
-      if docker images | grep -q "$IMAGE_NAME"; then
-        echo "Image $IMAGE_NAME exists."
+      local num_threads=0
+      if [[ "$threads" == "$DEFAULT_THREADS" ]]; then
+        num_threads=$(nproc)
       else
-        echo "Image $IMAGE_NAME does not exist."
-        docker exec -u mg $build_container bash -c "pip install --user networkx && pip3 install --user networkx"
-        #docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && cd $MGBUILD_ROOT_DIR/tests && $ACTIVATE_VENV && source ve3/bin/activate_e2e && cd $MGBUILD_ROOT_DIR/tests/e2e "'&& ./run.sh'
-        docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && cd $MGBUILD_ROOT_DIR/tests && $ACTIVATE_VENV && source ve3/bin/activate_e2e"
-        echo "commiting $build_container to $IMAGE_NAME"
-        docker commit $build_container $IMAGE_NAME
-        echo "done committing $build_container to $IMAGE_NAME"
+        num_threads=$threads
       fi
 
-      echo "running ${PROJECT_ROOT}/tools/github/coordinate_e2e_tests.py"
-      python3 -u $PROJECT_ROOT/tools/github/coordinate_e2e_tests.py --image "$IMAGE_NAME" --threads 4 --folder "$PROJECT_ROOT/tests/e2e" --command "$substituted_cmd"
+      if docker images | grep -q "$new_image_name"; then
+        echo "Image $new_image_name exists."
+      else
+        echo "Image $new_image_name does not exist."
+        docker exec -u mg $build_container bash -c "pip install --user networkx && pip3 install --user networkx"
+        docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && cd $MGBUILD_ROOT_DIR/tests && $ACTIVATE_VENV && source ve3/bin/activate_e2e"
+        echo "commiting $build_container to $new_image_name"
+        docker commit $build_container $new_image_name
+        echo "done committing $build_container to $new_image_name"
+      fi
 
-
-
+      echo "running e2e tests"
+      ret=0
+      python3 -u $PROJECT_ROOT/tools/github/coordinate_e2e_tests.py --image "$new_image_name" --threads $num_threads --project-root-dir "$PROJECT_ROOT" --container-root-dir "$MGBUILD_ROOT_DIR" --setup-command "$setup_command" || ret=$?
+      echo "The command e2e exited with $ret"
+      if [[ "$DEFAULT_TESTING" == false ]]; then
+        echo "removing $new_image_name"
+        docker rmi $new_image_name
+      else
+        echo "keeping $new_image_name"
+       fi
+       [ $ret -eq 1 ] && exit 0
+       exit $ret
     ;;
     *)
       echo "Error: Unknown test '$1'"
@@ -758,6 +769,10 @@ while [[ $# -gt 0 ]]; do
         toolchain_version=$2
         check_support toolchain $toolchain_version
         shift 2
+    ;;
+    --testing)
+          DEFAULT_TESTING=true
+          shift 1
     ;;
     *)
       if [[ "$1" =~ ^--.* ]]; then

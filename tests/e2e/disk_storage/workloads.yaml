@@ -42,7 +42,7 @@ workloads:
     args: ["disk_storage/data_import.py"]
     <<: *disk_storage
 
-  - name: "Tests when switching from in-memory storage to disk storage when the db isn't empty. "
+  - name: "Tests when switching from in-memory storage to disk storage when the db is not empty. "
     binary: "tests/e2e/pytest_runner.sh"
     args: ["disk_storage/update_storage_mode_db_not_empty.py"]
     <<: *disk_storage
