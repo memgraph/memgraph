@@ -16,6 +16,7 @@
 #include "auth/replication_handlers.hpp"
 #include "dbms/replication_handlers.hpp"
 #include "flags/experimental.hpp"
+#include "flags/replication.hpp"
 #include "license/license.hpp"
 #include "replication_handler/system_rpc.hpp"
 
@@ -58,7 +59,7 @@ void SystemRecoveryHandler(memgraph::system::ReplicaHandlerAccessToState &system
   memgraph::slk::Load(&req, req_reader);
 
   using enum memgraph::flags::Experiments;
-  auto experimental_system_replication = FLAGS_replication_system_replication;
+  auto experimental_system_replication = FLAGS_replication_system_replication_enabled;
 
   // validate
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
@@ -103,7 +104,7 @@ void Register(replication::RoleReplicaData const &data, system::System &system, 
   auto system_state_access = system.CreateSystemStateAccess();
 
   using enum memgraph::flags::Experiments;
-  auto experimental_system_replication = FLAGS_replication_system_replication;
+  auto experimental_system_replication = FLAGS_replication_system_replication_enabled;
 
   // System
   if (experimental_system_replication) {

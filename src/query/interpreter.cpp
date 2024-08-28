@@ -4573,7 +4573,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &cur
       }
 
       using enum memgraph::flags::Experiments;
-      if (FLAGS_replication_system_replication && is_replica) {
+      if (FLAGS_replication_system_replication_enabled && is_replica) {
         throw QueryException("Query forbidden on the replica!");
       }
       return PreparedQuery{{"STATUS"},
@@ -5424,7 +5424,7 @@ void Interpreter::Commit() {
     // Only enterprise can do system replication
 #ifdef MG_ENTERPRISE
       using enum memgraph::flags::Experiments;
-      if (FLAGS_replication_system_replication && license::global_license_checker.IsEnterpriseValidFast()) {
+      if (FLAGS_replication_system_replication_enabled && license::global_license_checker.IsEnterpriseValidFast()) {
         return system_transaction_->Commit(memgraph::system::DoReplication{mainData});
       }
 #endif

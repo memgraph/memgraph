@@ -148,7 +148,7 @@ def test_auth_queries_on_replica(connection):
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
             "args": [
-                "--experimental-enabled=system-replication",
+                "--replication-system-replication-enabled=true",
                 "--bolt-port",
                 f"{BOLT_PORTS['replica_1']}",
                 "--log-level=TRACE",
@@ -162,7 +162,7 @@ def test_auth_queries_on_replica(connection):
         },
         "replica_2": {
             "args": [
-                "--experimental-enabled=system-replication",
+                "--replication-system-replication-enabled=true",
                 "--bolt-port",
                 f"{BOLT_PORTS['replica_2']}",
                 "--log-level=TRACE",
@@ -176,7 +176,7 @@ def test_auth_queries_on_replica(connection):
         },
         "main": {
             "args": [
-                "--experimental-enabled=system-replication",
+                "--replication-system-replication-enabled=true",
                 "--bolt-port",
                 f"{BOLT_PORTS['main']}",
                 "--log-level=TRACE",
@@ -217,7 +217,7 @@ def test_manual_users_recovery(connection):
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
             "args": [
-                "--experimental-enabled=system-replication",
+                "--replication-system-replication-enabled=true",
                 "--bolt-port",
                 f"{BOLT_PORTS['replica_1']}",
                 "--log-level=TRACE",
@@ -232,7 +232,7 @@ def test_manual_users_recovery(connection):
         },
         "replica_2": {
             "args": [
-                "--experimental-enabled=system-replication",
+                "--replication-system-replication-enabled=true",
                 "--bolt-port",
                 f"{BOLT_PORTS['replica_2']}",
                 "--log-level=TRACE",
@@ -247,7 +247,7 @@ def test_manual_users_recovery(connection):
         },
         "main": {
             "args": [
-                "--experimental-enabled=system-replication",
+                "--replication-system-replication-enabled=true",
                 "--bolt-port",
                 f"{BOLT_PORTS['main']}",
                 "--log-level=TRACE",
@@ -294,7 +294,7 @@ def test_env_users_recovery(connection):
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
             "args": [
-                "--experimental-enabled=system-replication",
+                "--replication-system-replication-enabled=true",
                 "--bolt-port",
                 f"{BOLT_PORTS['replica_1']}",
                 "--log-level=TRACE",
@@ -308,7 +308,7 @@ def test_env_users_recovery(connection):
         },
         "replica_2": {
             "args": [
-                "--experimental-enabled=system-replication",
+                "--replication-system-replication-enabled=true",
                 "--bolt-port",
                 f"{BOLT_PORTS['replica_2']}",
                 "--log-level=TRACE",
@@ -324,7 +324,7 @@ def test_env_users_recovery(connection):
             "username": "user1",
             "password": "password",
             "args": [
-                "--experimental-enabled=system-replication",
+                "--replication-system-replication-enabled=true",
                 "--bolt-port",
                 f"{BOLT_PORTS['main']}",
                 "--log-level=TRACE",
@@ -378,7 +378,7 @@ def test_manual_roles_recovery(connection):
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
             "args": [
-                "--experimental-enabled=system-replication",
+                "--replication-system-replication-enabled=true",
                 "--bolt-port",
                 f"{BOLT_PORTS['replica_1']}",
                 "--log-level=TRACE",
@@ -394,7 +394,7 @@ def test_manual_roles_recovery(connection):
         },
         "replica_2": {
             "args": [
-                "--experimental-enabled=system-replication",
+                "--replication-system-replication-enabled=true",
                 "--bolt-port",
                 f"{BOLT_PORTS['replica_2']}",
                 "--log-level=TRACE",
@@ -411,7 +411,7 @@ def test_manual_roles_recovery(connection):
         },
         "main": {
             "args": [
-                "--experimental-enabled=system-replication",
+                "--replication-system-replication-enabled=true",
                 "--bolt-port",
                 f"{BOLT_PORTS['main']}",
                 "--log-level=TRACE",
@@ -469,7 +469,7 @@ def test_auth_config_recovery(connection):
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
             "args": [
-                "--experimental-enabled=system-replication",
+                "--replication-system-replication-enabled=true",
                 "--bolt-port",
                 f"{BOLT_PORTS['replica_1']}",
                 "--log-level=TRACE",
@@ -490,7 +490,7 @@ def test_auth_config_recovery(connection):
         },
         "replica_2": {
             "args": [
-                "--experimental-enabled=system-replication",
+                "--replication-system-replication-enabled=true",
                 "--bolt-port",
                 f"{BOLT_PORTS['replica_2']}",
                 "--log-level=TRACE",
@@ -513,7 +513,7 @@ def test_auth_config_recovery(connection):
         },
         "main": {
             "args": [
-                "--experimental-enabled=system-replication",
+                "--replication-system-replication-enabled=true",
                 "--bolt-port",
                 f"{BOLT_PORTS['main']}",
                 "--log-level=TRACE",
@@ -567,7 +567,7 @@ def test_auth_replication(connection):
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
             "args": [
-                "--experimental-enabled=system-replication",
+                "--replication-system-replication-enabled=true",
                 "--bolt-port",
                 f"{BOLT_PORTS['replica_1']}",
                 "--log-level=TRACE",
@@ -581,7 +581,7 @@ def test_auth_replication(connection):
         },
         "replica_2": {
             "args": [
-                "--experimental-enabled=system-replication",
+                "--replication-system-replication-enabled=true",
                 "--bolt-port",
                 f"{BOLT_PORTS['replica_2']}",
                 "--log-level=TRACE",
@@ -595,7 +595,7 @@ def test_auth_replication(connection):
         },
         "main": {
             "args": [
-                "--experimental-enabled=system-replication",
+                "--replication-system-replication-enabled=true",
                 "--bolt-port",
                 f"{BOLT_PORTS['main']}",
                 "--log-level=TRACE",

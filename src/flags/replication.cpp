@@ -21,5 +21,5 @@ DEFINE_uint64(replication_replica_check_frequency_sec, 1,
 DEFINE_bool(replication_restore_state_on_startup, true, "Restore replication state on startup, e.g. recover replica");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(
-    replication_system_replication, false,
+    replication_system_replication_enabled, false,
     "Enables system replication, including authentication and multi-tenancy replication in the Enterprise Edition.");
