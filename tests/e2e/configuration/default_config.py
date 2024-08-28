@@ -258,6 +258,11 @@ startup_config_dict = {
         "true",
         "Restore replication state on startup, e.g. recover replica",
     ),
+    "replication_system_replication_enabled": (
+        "false",
+        "false",
+        "Enables system replication, including authentication and multi-tenancy replication in the Enterprise Edition.",
+    ),
     "query_callable_mappings_path": (
         "",
         "",
@@ -271,6 +276,6 @@ startup_config_dict = {
     "experimental_enabled": (
         "",
         "",
-        "Experimental features to be used, comma-separated. Options [system-replication, text-search, high-availability]",
+        "Experimental features to be used, comma-separated. Options [text-search, high-availability]",
     ),
 }
