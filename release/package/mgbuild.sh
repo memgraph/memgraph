@@ -814,11 +814,6 @@ fi
 echo "Using $docker_compose_cmd"
 
 
-
-run_multiple_memgraphs(){
-  $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml up -d $build_container
-}
-
 ##################################################
 ################# PARSE COMMAND ##################
 ##################################################
