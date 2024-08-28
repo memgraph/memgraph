@@ -289,7 +289,6 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
     context.db_accessor->TextIndexAddVertex(new_node);
   }
 
-  // TODO check type constraints
   (*frame)[node_info.symbol] = new_node;
   return (*frame)[node_info.symbol].ValueVertex();
 }

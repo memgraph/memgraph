@@ -480,6 +480,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
     if (!id_old_new_change.has_value()) {
       return;
     }
+
     for (auto &[id, old_value, new_value] : *id_old_new_change) {
       storage->indices_.UpdateOnSetProperty(id, new_value, vertex, *transaction);
       if (skip_duplicate_update && old_value == new_value) continue;
