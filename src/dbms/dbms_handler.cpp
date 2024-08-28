@@ -17,6 +17,7 @@
 #include "dbms/constants.hpp"
 #include "dbms/global.hpp"
 #include "flags/experimental.hpp"
+#include "flags/replication.hpp"
 #include "spdlog/spdlog.h"
 #include "system/include/system/system.hpp"
 #include "utils/exceptions.hpp"
@@ -189,7 +190,7 @@ DbmsHandler::DbmsHandler(storage::Config config, replication::ReplicationState &
   auto directories = std::set{std::string{kDefaultDB}};
 
   // Recover previous databases
-  if (flags::AreExperimentsEnabled(flags::Experiments::SYSTEM_REPLICATION) && !recovery_on_startup) {
+  if (fLB::FLAGS_replication_system_replication && !recovery_on_startup) {
     // This will result in dropping databases on SystemRecoveryHandler
     // for MT case, and for single DB case we might not even set replication as commit timestamp is checked
     spdlog::warn(
@@ -436,7 +437,7 @@ void DbmsHandler::UpdateDurability(const storage::Config &config, std::optional<
 void DbmsHandler::RecoverStorageReplication(DatabaseAccess db_acc, replication::RoleMainData &role_main_data) {
   using enum memgraph::flags::Experiments;
   auto const is_enterprise = license::global_license_checker.IsEnterpriseValidFast();
-  auto experimental_system_replication = flags::AreExperimentsEnabled(SYSTEM_REPLICATION);
+  auto experimental_system_replication = FLAGS_replication_system_replication;
   if ((is_enterprise && experimental_system_replication) || db_acc->name() == dbms::kDefaultDB) {
     // Handle global replication state
     spdlog::info("Replication configuration will be stored and will be automatically restored in case of a crash.");

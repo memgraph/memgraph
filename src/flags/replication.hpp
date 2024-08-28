@@ -17,3 +17,5 @@
 DECLARE_uint64(replication_replica_check_frequency_sec);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(replication_restore_state_on_startup);
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_bool(replication_system_replication);

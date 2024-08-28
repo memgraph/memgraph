@@ -58,7 +58,7 @@ void SystemRecoveryHandler(memgraph::system::ReplicaHandlerAccessToState &system
   memgraph::slk::Load(&req, req_reader);
 
   using enum memgraph::flags::Experiments;
-  auto experimental_system_replication = flags::AreExperimentsEnabled(SYSTEM_REPLICATION);
+  auto experimental_system_replication = FLAGS_replication_system_replication;
 
   // validate
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
@@ -103,7 +103,7 @@ void Register(replication::RoleReplicaData const &data, system::System &system, 
   auto system_state_access = system.CreateSystemStateAccess();
 
   using enum memgraph::flags::Experiments;
-  auto experimental_system_replication = flags::AreExperimentsEnabled(SYSTEM_REPLICATION);
+  auto experimental_system_replication = FLAGS_replication_system_replication;
 
   // System
   if (experimental_system_replication) {

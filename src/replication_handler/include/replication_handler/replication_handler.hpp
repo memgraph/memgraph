@@ -52,7 +52,7 @@ void SystemRestore(replication::ReplicationClient &client, system::System &syste
   {
     using enum memgraph::flags::Experiments;
     bool full_system_replication =
-        flags::AreExperimentsEnabled(SYSTEM_REPLICATION) && license::global_license_checker.IsEnterpriseValidFast();
+        FLAGS_replication_system_replication && license::global_license_checker.IsEnterpriseValidFast();
     // We still need to system replicate
     struct DbInfo {
       std::vector<storage::SalientConfig> configs;
@@ -177,7 +177,7 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
       }
     }
     using enum memgraph::flags::Experiments;
-    bool system_replication_enabled = flags::AreExperimentsEnabled(SYSTEM_REPLICATION);
+    bool system_replication_enabled = FLAGS_replication_system_replication;
     if (!system_replication_enabled && dbms_handler_.Count() > 1) {
       spdlog::warn("Multi-tenant replication is currently not supported!");
     }
