@@ -117,7 +117,8 @@ void InMemoryLabelPropertyIndex::UpdateOnSetProperty(PropertyId property, const 
     return;
   }
 
-  for (const auto &[_, storage] : index->second) {
+  for (const auto &[label, storage] : index->second) {
+    if (!utils::Contains(vertex->labels, label)) continue;
     auto acc = storage->access();
     acc.insert(Entry{value, vertex, tx.start_timestamp});
   }
