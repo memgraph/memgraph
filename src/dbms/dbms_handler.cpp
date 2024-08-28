@@ -190,7 +190,7 @@ DbmsHandler::DbmsHandler(storage::Config config, replication::ReplicationState &
   auto directories = std::set{std::string{kDefaultDB}};
 
   // Recover previous databases
-  if (fLB::FLAGS_replication_system_replication && !recovery_on_startup) {
+  if (FLAGS_replication_system_replication && !recovery_on_startup) {
     // This will result in dropping databases on SystemRecoveryHandler
     // for MT case, and for single DB case we might not even set replication as commit timestamp is checked
     spdlog::warn(
