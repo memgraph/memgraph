@@ -175,9 +175,7 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
           break;
       }
     }
-    using enum memgraph::flags::Experiments;
-    bool system_replication_enabled = FLAGS_replication_system_replication_enabled;
-    if (!system_replication_enabled && dbms_handler_.Count() > 1) {
+    if (dbms_handler_.Count() > 1) {
       spdlog::warn("Multi-tenant replication is currently not supported!");
     }
     const auto main_uuid =
@@ -201,7 +199,7 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
     // Add database specific clients (NOTE Currently all databases are connected to each replica)
     dbms_handler_.ForEach([&](dbms::DatabaseAccess db_acc) {
       auto *storage = db_acc->storage();
-      if (!system_replication_enabled && storage->name() != dbms::kDefaultDB) {
+      if (storage->name() != dbms::kDefaultDB) {
         return;
       }
       // TODO: ATM only IN_MEMORY_TRANSACTIONAL, fix other modes
