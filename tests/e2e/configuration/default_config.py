@@ -258,11 +258,6 @@ startup_config_dict = {
         "true",
         "Restore replication state on startup, e.g. recover replica",
     ),
-    "replication_system_replication_enabled": (
-        "false",
-        "false",
-        "Enables system replication, including authentication and multi-tenancy replication in the Enterprise Edition.",
-    ),
     "query_callable_mappings_path": (
         "",
         "",

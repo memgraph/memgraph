@@ -4572,8 +4572,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &cur
         throw QueryException("Database switching is prohibited if session explicitly defines the used database");
       }
 
-      using enum memgraph::flags::Experiments;
-      if (FLAGS_replication_system_replication_enabled && is_replica) {
+      if (is_replica) {
         throw QueryException("Query forbidden on the replica!");
       }
       return PreparedQuery{{"STATUS"},
@@ -5423,8 +5422,7 @@ void Interpreter::Commit() {
     auto const main_commit = [&](replication::RoleMainData &mainData) {
     // Only enterprise can do system replication
 #ifdef MG_ENTERPRISE
-      using enum memgraph::flags::Experiments;
-      if (FLAGS_replication_system_replication_enabled && license::global_license_checker.IsEnterpriseValidFast()) {
+      if (license::global_license_checker.IsEnterpriseValidFast()) {
         return system_transaction_->Commit(memgraph::system::DoReplication{mainData});
       }
 #endif

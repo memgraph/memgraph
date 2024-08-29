@@ -51,8 +51,7 @@ void SystemRestore(replication::ReplicationClient &client, system::System &syste
       [](auto &state) { return state != memgraph::replication::ReplicationClient::State::RECOVERY; });
   {
     using enum memgraph::flags::Experiments;
-    bool full_system_replication =
-        FLAGS_replication_system_replication_enabled && license::global_license_checker.IsEnterpriseValidFast();
+    bool full_system_replication = license::global_license_checker.IsEnterpriseValidFast();
     // We still need to system replicate
     struct DbInfo {
       std::vector<storage::SalientConfig> configs;
