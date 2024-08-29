@@ -8,7 +8,7 @@
 # the Business Source License, use of this software will be governed
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
-
+import os
 import sys
 import tempfile
 
@@ -28,6 +28,13 @@ from mg_utils import (
     mg_sleep_and_assert_multiple,
     wait_for_status_change,
 )
+
+interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
+interactive_mg_runner.PROJECT_DIR = os.path.normpath(
+    os.path.join(interactive_mg_runner.SCRIPT_DIR, "..", "..", "..", "..")
+)
+interactive_mg_runner.BUILD_DIR = os.path.normpath(os.path.join(interactive_mg_runner.PROJECT_DIR, "build"))
+interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactive_mg_runner.BUILD_DIR, "memgraph"))
 
 
 def test_multiple_failovers_in_row_no_leadership_change():
