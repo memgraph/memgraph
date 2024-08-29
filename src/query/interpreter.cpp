@@ -4571,10 +4571,6 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &cur
       if (current_db.in_explicit_db_) {
         throw QueryException("Database switching is prohibited if session explicitly defines the used database");
       }
-
-      if (is_replica) {
-        throw QueryException("Query forbidden on the replica!");
-      }
       return PreparedQuery{{"STATUS"},
                            std::move(parsed_query.required_privileges),
                            [db_name = query->db_name_, db_handler, &current_db, on_change = std::move(on_change_cb)](
