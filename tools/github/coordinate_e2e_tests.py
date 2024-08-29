@@ -4,6 +4,7 @@ import argparse
 import subprocess
 import threading
 import time
+from collections import defaultdict
 from pathlib import Path
 from queue import Queue
 
@@ -57,6 +58,27 @@ class SynchronizedQueue:
         return folder
 
 
+class SynchronizedMap:
+    def __init__(self):
+        self._map = defaultdict()
+        self._lock = threading.Lock()
+
+    def insert_elem(self, key, value):
+        with self._lock:
+            self._map[key] = value
+
+    def remove_key(self, key):
+        with self._lock:
+            self._map.pop(key)
+
+    def get_copy(self):
+        copy_map = defaultdict()
+        with self._lock:
+            for key, value in self._map.items():
+                copy_map[key] = value
+        return copy_map
+
+
 class ThreadSafePrint:
     def __init__(self):
         self._lock = threading.Lock()
@@ -69,6 +91,7 @@ class ThreadSafePrint:
 atomic_int = AtomicInteger(0)
 
 thread_safe_print = ThreadSafePrint()
+synchronized_map = SynchronizedMap()
 
 
 def start_container_from_image(image_tag, id: int):
@@ -110,13 +133,15 @@ def find_workloads_for_testing(container, container_root_directory, project_root
     return folders_with_workloads_yaml
 
 
-def process_workloads(id, image_name, setup_command, synchronized_queue):
+def process_workloads(
+    id: int, image_name, setup_command: str, synchronized_queue: SynchronizedQueue, synchronized_map: SynchronizedMap
+):
     thread_id = threading.get_ident()
     thread_safe_print.print(f">>>>Starting container in thread {thread_id}")
     container = start_container_from_image(image_name, id)
     if container is None:
         atomic_int.increment()
-        print(f"Failed to start container in thread {thread_id}")
+        thread_safe_print.print(f"Failed to start container in thread {thread_id}")
         return
 
     thread_safe_print.print(f">>>>Started container with id: {container.id} in thread {thread_id}")
@@ -148,7 +173,7 @@ def process_workloads(id, image_name, setup_command, synchronized_queue):
                 thread_safe_print.print(f"Failed to execute command: {docker_command}")
                 atomic_int.increment()
 
-            tasks_executed.append((workload_folder, workload_name))
+            tasks_executed.append((workload_folder, workload_name, time.time() - start_time))
             total_execution += time.time() - start_time
         except Exception as e:
             thread_safe_print.print(f"Exception: {e}")
@@ -157,6 +182,9 @@ def process_workloads(id, image_name, setup_command, synchronized_queue):
 
     thread_safe_print.print(f">>>>Stopping container with id: {container.id}")
     stop_container(container)
+    tasks_executed.sort(key=lambda x: x[2], reverse=True)
+    synchronized_map.insert_elem(id, tasks_executed)
+
     thread_safe_print.print(f"Thread {thread_id} executed {len(tasks_executed)} tasks in {total_execution} seconds.")
 
 
@@ -207,12 +235,7 @@ try:
     for i in range(1, args.threads + 1):
         thread = threading.Thread(
             target=process_workloads,
-            args=(
-                i,
-                args.image,
-                args.setup_command,
-                synchronized_queue,
-            ),
+            args=(i, args.image, args.setup_command, synchronized_queue, synchronized_map),
         )
         threads.append(thread)
 
@@ -228,6 +251,12 @@ finally:
     for thread in threads:
         if thread.is_alive():
             thread.join()
+
+for key, value in synchronized_map.get_copy().items():
+    print(f"key {key}, value: {value} ")
+
+    total_time = sum([x[2] for x in value])
+    print(f"container {key} executed {len(value)} tasks in {total_time} seconds.")
 
 if atomic_int.get() > 0 or error:
     exit(1)

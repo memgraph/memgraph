@@ -8,6 +8,7 @@
 # the Business Source License, use of this software will be governed
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
+
 import os
 import shutil
 import sys
@@ -18,10 +19,8 @@ import pytest
 from common import (
     connect,
     execute_and_fetch_all,
-    find_instance_and_assert_instances,
     ignore_elapsed_time_from_results,
     safe_execute,
-    update_tuple_value,
 )
 from mg_utils import mg_sleep_and_assert
 
@@ -91,7 +90,6 @@ def get_instances_description(test_name: str):
                 "--management-port=10121",
             ],
             "log_file": f"high_availability/coord_cluster_registration/{test_name}/coordinator1.log",
-            "data_directory": f"{TEMP_DIR}/coordinator_1",
             "setup_queries": [],
         },
         "coordinator_2": {
@@ -106,7 +104,6 @@ def get_instances_description(test_name: str):
                 "--management-port=10122",
             ],
             "log_file": f"high_availability/coord_cluster_registration/{test_name}/coordinator2.log",
-            "data_directory": f"{TEMP_DIR}/coordinator_2",
             "setup_queries": [],
         },
         "coordinator_3": {
@@ -121,7 +118,6 @@ def get_instances_description(test_name: str):
                 "--management-port=10123",
             ],
             "log_file": f"high_availability/coord_cluster_registration/{test_name}/coordinator3.log",
-            "data_directory": f"{TEMP_DIR}/coordinator_3",
             "setup_queries": [],
         },
     }
@@ -189,7 +185,6 @@ def get_instances_description_no_coord(test_name: str):
                 "--management-port=10121",
             ],
             "log_file": f"high_availability/coord_cluster_registration/{test_name}/coordinator1.log",
-            "data_directory": f"{TEMP_DIR}/coordinator_1",
             "setup_queries": [],
         },
         "coordinator_2": {
@@ -204,29 +199,34 @@ def get_instances_description_no_coord(test_name: str):
                 "--management-port=10122",
             ],
             "log_file": f"high_availability/coord_cluster_registration/{test_name}/coordinator2.log",
-            "data_directory": f"{TEMP_DIR}/coordinator_2",
             "setup_queries": [],
         },
     }
 
 
-def unset_env_flags():
-    os.unsetenv("MEMGRAPH_EXPERIMENTAL_ENABLED")
-    os.unsetenv("MEMGRAPH_COORDINATOR_PORT")
-    os.unsetenv("MEMGRAPH_MANAGEMENT_PORT")
-    os.unsetenv("MEMGRAPH_BOLT_PORT")
-    os.unsetenv("MEMGRAPH_COORDINATOR_ID")
-    os.unsetenv("MEMGRAPH_HA_CLUSTER_INIT_QUERIES")
-    os.unsetenv("MEMGRAPH_COORDINATOR_HOSTNAME")
-
-
-def test_register_repl_instances_then_coordinators():
+@pytest.mark.parametrize(
+    "kill_instance",
+    [True, False],
+)
+def test_unregister_replicas(kill_instance):
     safe_execute(shutil.rmtree, TEMP_DIR)
-    MEMGRAPH_INSTANCES_DESCRIPTION = get_instances_description(test_name="register_repl_instances_then_coordinators")
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
+    MEMGRAPH_INSTANCES_DESCRIPTION = get_instances_description(
+        test_name="test_unregister_replicas_kill_instance_" + str(kill_instance)
+    )
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
 
+    coordinator1_cursor = connect(host="localhost", port=7690).cursor()
+    coordinator2_cursor = connect(host="localhost", port=7691).cursor()
     coordinator3_cursor = connect(host="localhost", port=7692).cursor()
 
+    execute_and_fetch_all(
+        coordinator3_cursor,
+        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111', 'management_server': 'localhost:10121'}",
+    )
+    execute_and_fetch_all(
+        coordinator3_cursor,
+        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112', 'management_server': 'localhost:10122'}",
+    )
     execute_and_fetch_all(
         coordinator3_cursor,
         "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
@@ -240,21 +240,28 @@ def test_register_repl_instances_then_coordinators():
         "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10003'};",
     )
     execute_and_fetch_all(coordinator3_cursor, "SET INSTANCE instance_3 TO MAIN")
-    execute_and_fetch_all(
-        coordinator3_cursor,
-        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111', 'management_server': 'localhost:10121'}",
-    )
-    execute_and_fetch_all(
-        coordinator3_cursor,
-        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112', 'management_server': 'localhost:10122'}",
-    )
+
+    def check_coordinator1():
+        return ignore_elapsed_time_from_results(
+            sorted(list(execute_and_fetch_all(coordinator1_cursor, "SHOW INSTANCES")))
+        )
+
+    def check_coordinator2():
+        return ignore_elapsed_time_from_results(
+            sorted(list(execute_and_fetch_all(coordinator2_cursor, "SHOW INSTANCES")))
+        )
 
     def check_coordinator3():
         return ignore_elapsed_time_from_results(
             sorted(list(execute_and_fetch_all(coordinator3_cursor, "SHOW INSTANCES")))
         )
 
-    leader_data = [
+    main_cursor = connect(host="localhost", port=7689).cursor()
+
+    def check_main():
+        return sorted(list(execute_and_fetch_all(main_cursor, "SHOW REPLICAS")))
+
+    data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
@@ -262,32 +269,82 @@ def test_register_repl_instances_then_coordinators():
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
-    mg_sleep_and_assert(leader_data, check_coordinator3)
+
+    expected_replicas = [
+        (
+            "instance_1",
+            "localhost:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "instance_2",
+            "localhost:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+    ]
+
+    mg_sleep_and_assert(data, check_coordinator1)
+    mg_sleep_and_assert(data, check_coordinator2)
+    mg_sleep_and_assert(data, check_coordinator3)
+    mg_sleep_and_assert(expected_replicas, check_main)
+
+    if kill_instance:
+        interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_1")
+    execute_and_fetch_all(coordinator3_cursor, "UNREGISTER INSTANCE instance_1")
+
+    data = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
+        ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
+    ]
+
+    expected_replicas = [
+        (
+            "instance_2",
+            "localhost:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+    ]
+
+    mg_sleep_and_assert(data, check_coordinator1)
+    mg_sleep_and_assert(data, check_coordinator2)
+    mg_sleep_and_assert(data, check_coordinator3)
+    mg_sleep_and_assert(expected_replicas, check_main)
+
+    if kill_instance:
+        interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_2")
+    execute_and_fetch_all(coordinator3_cursor, "UNREGISTER INSTANCE instance_2")
+
+    data = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
+    ]
+
+    expected_replicas = []
+
+    mg_sleep_and_assert(data, check_coordinator1)
+    mg_sleep_and_assert(data, check_coordinator2)
+    mg_sleep_and_assert(data, check_coordinator3)
+    mg_sleep_and_assert(expected_replicas, check_main)
+
+
+def test_unregister_main():
+    safe_execute(shutil.rmtree, TEMP_DIR)
+    MEMGRAPH_INSTANCES_DESCRIPTION = get_instances_description(test_name="test_unregister_main")
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
 
     coordinator1_cursor = connect(host="localhost", port=7690).cursor()
-
-    def check_coordinator1():
-        return ignore_elapsed_time_from_results(
-            sorted(list(execute_and_fetch_all(coordinator1_cursor, "SHOW INSTANCES")))
-        )
-
-    mg_sleep_and_assert(leader_data, check_coordinator1)
-
     coordinator2_cursor = connect(host="localhost", port=7691).cursor()
-
-    def check_coordinator2():
-        return ignore_elapsed_time_from_results(
-            sorted(list(execute_and_fetch_all(coordinator2_cursor, "SHOW INSTANCES")))
-        )
-
-    mg_sleep_and_assert(leader_data, check_coordinator2)
-
-
-def test_register_coordinator_then_repl_instances():
-    safe_execute(shutil.rmtree, TEMP_DIR)
-    MEMGRAPH_INSTANCES_DESCRIPTION = get_instances_description(test_name="register_coordinator_then_repl_instances")
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
-
     coordinator3_cursor = connect(host="localhost", port=7692).cursor()
 
     execute_and_fetch_all(
@@ -311,6 +368,16 @@ def test_register_coordinator_then_repl_instances():
         "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10003'};",
     )
     execute_and_fetch_all(coordinator3_cursor, "SET INSTANCE instance_3 TO MAIN")
+
+    def check_coordinator1():
+        return ignore_elapsed_time_from_results(
+            sorted(list(execute_and_fetch_all(coordinator1_cursor, "SHOW INSTANCES")))
+        )
+
+    def check_coordinator2():
+        return ignore_elapsed_time_from_results(
+            sorted(list(execute_and_fetch_all(coordinator2_cursor, "SHOW INSTANCES")))
+        )
 
     def check_coordinator3():
         return ignore_elapsed_time_from_results(
@@ -325,114 +392,63 @@ def test_register_coordinator_then_repl_instances():
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
-    mg_sleep_and_assert(data, check_coordinator3)
-
-    coordinator1_cursor = connect(host="localhost", port=7690).cursor()
-
-    def check_coordinator1():
-        return ignore_elapsed_time_from_results(
-            sorted(list(execute_and_fetch_all(coordinator1_cursor, "SHOW INSTANCES")))
-        )
 
     mg_sleep_and_assert(data, check_coordinator1)
+    mg_sleep_and_assert(data, check_coordinator2)
+    mg_sleep_and_assert(data, check_coordinator3)
 
-    coordinator2_cursor = connect(host="localhost", port=7691).cursor()
-
-    def check_coordinator2():
-        return ignore_elapsed_time_from_results(
-            sorted(list(execute_and_fetch_all(coordinator2_cursor, "SHOW INSTANCES")))
+    try:
+        execute_and_fetch_all(coordinator3_cursor, "UNREGISTER INSTANCE instance_3")
+    except Exception as e:
+        assert (
+            str(e)
+            == "Alive main instance can't be unregistered! Shut it down to trigger failover and then unregister it!"
         )
 
-    mg_sleep_and_assert(data, check_coordinator2)
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_3")
 
-
-def test_coordinators_communication_with_restarts():
-    # 1 Start all instances
-    safe_execute(shutil.rmtree, TEMP_DIR)
-    MEMGRAPH_INSTANCES_DESCRIPTION = get_instances_description(test_name="coordinators_communication_with_restarts")
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
-
-    coordinator3_cursor = connect(host="localhost", port=7692).cursor()
-
-    execute_and_fetch_all(
-        coordinator3_cursor,
-        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111', 'management_server': 'localhost:10121'}",
-    )
-    execute_and_fetch_all(
-        coordinator3_cursor,
-        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112', 'management_server': 'localhost:10122'}",
-    )
-    execute_and_fetch_all(
-        coordinator3_cursor,
-        "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
-    )
-    execute_and_fetch_all(
-        coordinator3_cursor,
-        "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",
-    )
-    execute_and_fetch_all(
-        coordinator3_cursor,
-        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10003'};",
-    )
-    execute_and_fetch_all(coordinator3_cursor, "SET INSTANCE instance_3 TO MAIN")
-
-    coord3_leader_data = [
+    data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
     ]
 
-    coordinator1_cursor = connect(host="localhost", port=7690).cursor()
+    mg_sleep_and_assert(data, check_coordinator1)
+    mg_sleep_and_assert(data, check_coordinator2)
+    mg_sleep_and_assert(data, check_coordinator3)
 
-    def check_coordinator1():
-        return ignore_elapsed_time_from_results(
-            sorted(list(execute_and_fetch_all(coordinator1_cursor, "SHOW INSTANCES")))
-        )
+    execute_and_fetch_all(coordinator3_cursor, "UNREGISTER INSTANCE instance_3")
 
-    mg_sleep_and_assert(coord3_leader_data, check_coordinator1)
-
-    coordinator2_cursor = connect(host="localhost", port=7691).cursor()
-
-    def check_coordinator2():
-        return ignore_elapsed_time_from_results(
-            sorted(list(execute_and_fetch_all(coordinator2_cursor, "SHOW INSTANCES")))
-        )
-
-    mg_sleep_and_assert(coord3_leader_data, check_coordinator2)
-
-    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_1")
-    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_1")
-    coordinator1_cursor = connect(host="localhost", port=7690).cursor()
-
-    mg_sleep_and_assert(coord3_leader_data, check_coordinator1)
-
-    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_1")
-    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_2")
-
-    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_1")
-    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_2")
-    coordinator1_cursor = connect(host="localhost", port=7690).cursor()
-    coordinator2_cursor = connect(host="localhost", port=7691).cursor()
-
-    leader_data = [
+    data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "follower"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
 
-    leader_name = find_instance_and_assert_instances(instance_role="leader", num_coordinators=3)
+    expected_replicas = [
+        (
+            "instance_2",
+            "localhost:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+    ]
 
-    leader_data = update_tuple_value(leader_data, leader_name, 0, -1, "leader")
+    main_cursor = connect(host="localhost", port=7687).cursor()
 
-    # After killing 2/3 of coordinators, leadership can change
-    mg_sleep_and_assert(leader_data, check_coordinator1)
-    mg_sleep_and_assert(leader_data, check_coordinator2)
+    def check_main():
+        return sorted(list(execute_and_fetch_all(main_cursor, "SHOW REPLICAS")))
+
+    mg_sleep_and_assert(data, check_coordinator1)
+    mg_sleep_and_assert(data, check_coordinator2)
+    mg_sleep_and_assert(data, check_coordinator3)
+    mg_sleep_and_assert(expected_replicas, check_main)
 
 
 if __name__ == "__main__":
