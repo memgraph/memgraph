@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <functional>
+#include <mutex>
 #include <ranges>
 #include <type_traits>
 #include <unordered_map>
@@ -52,31 +53,11 @@ utils::small_vector<LabelId> GetPreLabels(const Vertex &vertex, uint64_t commit_
 utils::small_vector<LabelId> GetCommittedLabels(const Vertex &vertex);
 std::map<PropertyId, PropertyValue::Type> GetCommittedPropertyTypes(const EdgeRef &edge_ref, bool properties_on_edges);
 
-Gid GetEdgeGid(const EdgeRef &edge_ref, bool properties_on_edges);
+utils::small_vector<LabelId> GetLabels(const Vertex &vertex, uint64_t commit_timestamp);
+std::map<PropertyId, PropertyValue::Type> GetPropertyTypes(const EdgeRef &edge_ref, uint64_t commit_timestamp,
+                                                           bool properties_on_edges);
 
-template <EdgeDirection dir>
-auto RemainingEdges_ActionMethod(utils::small_vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> &edges) {
-  // clang-format off
-  using enum Delta::Action;
-  return utils::Overloaded{
-      // If we see ADD, that means that this edge got removed (we are not interested in those)
-      // ActionMethod <(dir == EdgeDirection::IN) ? ADD_IN_EDGE : ADD_OUT_EDGE> (
-      //     [&](Delta const &delta) {
-      //     }
-      // ),
-      // If we see REMOVE, that means that this is a new edge that was added during the transaction
-      ActionMethod <(dir == EdgeDirection::IN) ? REMOVE_IN_EDGE : REMOVE_OUT_EDGE> (
-          [&](Delta const &delta) {
-              auto it = std::find(edges.begin(), edges.end(),
-                            std::tuple{delta.vertex_edge.edge_type, delta.vertex_edge.vertex, delta.vertex_edge.edge});
-              DMG_ASSERT(it != edges.end(), "Invalid database state!");
-              *it = edges.back();
-              edges.pop_back();
-          }
-      )
-  };
-  // clang-format on
-}
+Gid GetEdgeGid(const EdgeRef &edge_ref, bool properties_on_edges);
 
 struct EdgeRefHasher {
   size_t operator()(const EdgeRef &ref) const {
@@ -101,9 +82,20 @@ struct TrackingVertexInfo {
   std::unordered_map<PropertyId, PropertyInfo> properties;
 };
 struct TrackingEdgeInfo {
+  // int n{0};
+  // auto N() const { return edges.size(); }
+
+  // struct Info {
+  //   Vertex *from{};
+  //   Vertex *to{};
+  //   std::unordered_map<PropertyId, PropertyValue::Type> properties{};
+  // };
+
+  // std::unordered_map<EdgeRef, Info, EdgeRefHasher> edges;
+  // std::unordered_map<PropertyId, PropertyInfo> properties;  // unused
+
+  auto N() const { return n; }
   int n{0};
-  auto N() const { return edges.size(); }
-  std::unordered_map<EdgeRef, std::pair<Vertex * /* from */, Vertex * /* to */>, EdgeRefHasher> edges;
   std::unordered_map<PropertyId, PropertyInfo> properties;
 };
 
@@ -164,17 +156,7 @@ struct Tracking {
     return vertex_state_[key];
   }
 
-  TrackingEdgeInfo &operator[](const EdgeTypeId &key) {
-    // auto [id, from, to] = key;
-    // if (!std::is_sorted(from.begin(), from.end())) {
-    //   std::sort(from.begin(), from.end());
-    // }
-    // if (!std::is_sorted(to.begin(), to.end())) {
-    //   std::sort(to.begin(), to.end());
-    // }
-    // return edge_state_[{id, from, to}];
-    return edge_state_[key];
-  }
+  TrackingEdgeInfo &operator[](const EdgeType &key) { return edge_state_[key]; }
 
   void CleanUp();
 
@@ -185,7 +167,7 @@ struct Tracking {
   // friend void from_json(const nlohmann::json &j, Tracking &info);
 
   std::unordered_map<v_key_type, TrackingVertexInfo> vertex_state_;
-  std::unordered_map<EdgeTypeId, TrackingEdgeInfo> edge_state_;
+  std::unordered_map<EdgeType, TrackingEdgeInfo, EdgeType::hasher> edge_state_;
 };
 
 class TransactionEdgeHandler {
@@ -193,26 +175,33 @@ class TransactionEdgeHandler {
   explicit TransactionEdgeHandler(Tracking &tracking, uint64_t commit_timestamp, bool properties_on_edges)
       : tracking_{tracking}, commit_timestamp_{commit_timestamp}, properties_on_edges_{properties_on_edges} {}
 
-  void RemoveEdge(const Delta *delta, const auto &pre_labels) {
-    DMG_ASSERT(delta->action == Delta::Action::ADD_OUT_EDGE, "Trying to remove edge using the wrong delta");
+  template <typename F>
+  // Using F so we don't lock/generate if not necessary
+  void RemoveEdge(const Delta *delta, F &&gen_edge_type) {
+    // DMG_ASSERT(delta->action == Delta::Action::ADD_OUT_EDGE, "Trying to remove edge using the wrong delta");
 
     // Already flagged to be removed
     if (remove_edges_.find(delta->vertex_edge.edge) != remove_edges_.end()) return;
 
+    // TODO Check if this is needed
     // Block edge loop from updating
-    // ShouldHandleEdge(delta->vertex_edge.edge);
-    auto plc_itr = pre_labels_cache_.find(delta->vertex_edge.vertex);
-    if (plc_itr == pre_labels_cache_.end()) {
-      const auto [itr, _] = pre_labels_cache_.emplace(delta->vertex_edge.vertex,
-                                                      GetPreLabels(*delta->vertex_edge.vertex, commit_timestamp_));
-      plc_itr = itr;
-    }
-    remove_edges_.emplace(delta->vertex_edge.edge,
-                          Tracking::EdgeType{delta->vertex_edge.edge_type, pre_labels, plc_itr->second});
+    ShouldHandleEdge(delta->vertex_edge.edge);
+
+    // TODO Check if this makes it faster
+    // auto plc_itr = pre_labels_cache_.find(delta->vertex_edge.vertex);
+    // if (plc_itr == pre_labels_cache_.end()) {
+    //   const auto [itr, _] = pre_labels_cache_.emplace(delta->vertex_edge.vertex,
+    //                                                   GetPreLabels(*delta->vertex_edge.vertex, commit_timestamp_));
+    //   plc_itr = itr;
+    // }
+
+    remove_edges_.emplace(delta->vertex_edge.edge, gen_edge_type());
   }
 
-  void AddEdge(const Delta *delta, const auto &post_labels, Vertex *v = {}) {
-    DMG_ASSERT(delta->action == Delta::Action::REMOVE_OUT_EDGE, "Trying to add edge using the wrong delta");
+  template <typename F>
+  // Using F so we don't lock/generate if not necessary
+  void AddEdge(const Delta *delta, F &&gen_edge_type) {
+    // DMG_ASSERT(delta->action == Delta::Action::REMOVE_OUT_EDGE, "Trying to add edge using the wrong delta");
 
     // ADD is processed after all REMOVEs, so just remove from the set
     const auto erased = remove_edges_.erase(delta->vertex_edge.edge);
@@ -221,15 +210,17 @@ class TransactionEdgeHandler {
       return;
     }
 
+    // TODO Check if this is needed
     // Update inplace, but block edge loop from updating
-    // ShouldHandleEdge(delta->vertex_edge.edge);
-    auto &tracking_info = tracking_[delta->vertex_edge.edge_type];
-    tracking_info.edges.emplace(delta->vertex_edge.edge, std::make_pair(v, delta->vertex_edge.vertex));
-    // for (const auto &[key, val] : GetPostProperties(delta->vertex_edge.edge)) {
-    //   auto &prop_info = tracking_info.properties[key];
-    //   ++prop_info.n;
-    //   ++prop_info.types[val.type()];
-    // }
+    ShouldHandleEdge(delta->vertex_edge.edge);
+
+    auto &tracking_info = tracking_[gen_edge_type()];
+    ++tracking_info.n;
+    for (const auto &[key, val] : GetPostProperties(delta->vertex_edge.edge)) {
+      auto &prop_info = tracking_info.properties[key];
+      ++prop_info.n;
+      ++prop_info.types[val.type()];
+    }
   }
 
   bool ShouldHandleEdge(const EdgeRef &edge_ref) {
@@ -242,17 +233,9 @@ class TransactionEdgeHandler {
     return emplaced;
   }
 
-  void PostVertexProcess() {
-    for (const auto &[ref, info] : remove_edges_) {
-      auto &tracking_info = tracking_[info.type];
-      tracking_info.edges.erase(ref);
-      // for (const auto &[key, val] : GetPostProperties(ref)) {
-      //   auto &prop_info = tracking_info.properties[key];
-      //   --prop_info.n;
-      //   --prop_info.types[val.type()];
-      // }
-    }
-  }
+  void PostVertexProcess();
+
+  void AppendToPostProcess(Vertex *vertex) { post_process_vertices_.push_back(vertex); }
 
  private:
   std::map<PropertyId, PropertyValue> GetPreProperties(const EdgeRef &edge_ref) const;
@@ -279,6 +262,8 @@ class TransactionEdgeHandler {
 
   std::unordered_map<Vertex *, utils::small_vector<LabelId>> pre_labels_cache_;
   std::unordered_map<EdgeRef, Tracking::EdgeType, EdgeRefHasher> remove_edges_;
+
+  std::vector<Vertex *> post_process_vertices_;
 };
 
 class VertexHandler {
@@ -331,17 +316,19 @@ class VertexHandler {
   // TODO: Think about having an optional and hydrating only if needed
   const auto &PreLabels() const { return pre_labels_; }
 
-  // Current labels are the post labels, multiple changes from different transactions to the same vertex would generate
-  // a serialization error
+  // Current labels are the post labels, multiple changes from different transactions to the same vertex would
+  // generate a serialization error
   // TODO Double check
   const auto &PostLabels() const { return vertex_.labels; }
 
   void PostProcess(TransactionEdgeHandler &edge_handler);
 
+  // TODO Use pointer
+  // TODO Hide
   Vertex &vertex_;
+  uint64_t commit_timestamp_{-1UL};
 
  private:
-  uint64_t commit_timestamp_{-1UL};
   std::shared_lock<decltype(vertex_.lock)> guard_;
   decltype(vertex_.labels) pre_labels_;
   std::map<PropertyId, PropertyValue::Type> pre_properties_;
@@ -401,11 +388,6 @@ class EdgeHandler {
 
   template <typename Func>
   void PreProcess(Func &&find_edge) {
-    const auto edge = find_edge(Gid(), View::NEW);
-    DMG_ASSERT(edge, "Trying to update a non-existent edge");
-    // We are only interested in the final position. All other changes are handled elsewhere.
-    edge_type_ = Tracking::EdgeType{edge->edge_type_, edge->from_vertex_->labels, edge->to_vertex_->labels};
-
     PreProcessProperties();
   }
 
@@ -413,18 +395,7 @@ class EdgeHandler {
 
   Delta *NextDelta(const Delta *delta) const;
 
-  void UpdateProperty(PropertyId key, const PropertyValue &value) {
-    // Is this a property that existed pre transaction
-    if (pre_properties_.contains(key)) {
-      // We are going in order from newest to oldest; so we don't actually want the first, but the last value
-      remove_property_.emplace(key, value);
-    }
-    // Still holding on to the property after commit?
-    if (!edge_.deleted && edge_.properties.HasProperty(key)) {
-      // We are going in order from newest to oldest; so we only want the first hit (latest value)
-      add_property_.try_emplace(key, edge_.properties.GetProperty(key));
-    }
-  }
+  void UpdateProperty(const Delta *delta);
 
   void PostProcess();
 
@@ -437,12 +408,13 @@ class EdgeHandler {
   uint64_t commit_timestamp_{-1UL};
   std::shared_lock<decltype(edge_.lock)> guard_;
 
-  Tracking::EdgeType edge_type_;
+  std::optional<Tracking::EdgeType> edge_type_;
 
-  decltype(edge_.properties.Properties()) pre_properties_;
+  decltype(edge_.properties.PropertyTypes()) post_properties_;
+  decltype(edge_.properties.PropertyTypes()) pre_properties_;
 
-  std::unordered_map<PropertyId, PropertyValue> remove_property_;
-  std::unordered_map<PropertyId, PropertyValue> add_property_;
+  std::unordered_map<PropertyId, PropertyValueType> remove_property_;
+  std::unordered_map<PropertyId, PropertyValueType> add_property_;
 
   Tracking &tracking_;
 };
@@ -463,18 +435,20 @@ struct SchemaInfo {
       }
     }
     tx_edge_handler.PostVertexProcess();
-    // // Handle edges only after vertices are handled
-    // // Here we will handle only edge property changes
-    // // Other edge changes are handled by vertex deltas
-    // for (const auto &delta : transaction.deltas) {
-    //   // Find VERTEX or EDGE; handle object's delta chain
-    //   auto prev = delta.prev.Get();
-    //   DMG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
-    //   if (prev.type == PreviousPtr::Type::EDGE) {
-    //     EdgeHandler edge_handler{*prev.edge, tracking_, commit_timestamp};
-    //     ProcessEdge(edge_handler, tx_edge_handler, std::forward<Func>(find_edge));
-    //   }
-    // }
+    // Handle edges only after vertices are handled
+    // Here we will handle only edge property changes
+    // Other edge changes are handled by vertex deltas
+    if (properties_on_edges) {
+      for (const auto &delta : transaction.deltas) {
+        // Find VERTEX or EDGE; handle object's delta chain
+        auto prev = delta.prev.Get();
+        DMG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
+        if (prev.type == PreviousPtr::Type::EDGE) {
+          EdgeHandler edge_handler{*prev.edge, tracking_, commit_timestamp};
+          ProcessEdge(edge_handler, tx_edge_handler, std::forward<Func>(find_edge));
+        }
+      }
+    }
   }
 
   void CleanUp() { tracking_.CleanUp(); }
@@ -507,7 +481,7 @@ struct SchemaInfo {
       switch (delta->action) {
         case Delta::Action::SET_PROPERTY: {
           // Have to use storage->FindEdge in order to find the out/in vertices
-          edge_handler.UpdateProperty(delta->property.key, *delta->property.value);
+          edge_handler.UpdateProperty(delta);
           break;
         }
         case Delta::Action::DELETE_DESERIALIZED_OBJECT:

@@ -756,8 +756,10 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
     auto tz_str_length = reader.ReadUint(TZ_NAME_LENGTH_SIZE);
     if (!tz_str_length) return std::nullopt;
     zoned_temporal_data_size += (1 + *tz_str_length);
+    reader.SkipBytes(*tz_str_length);
   } else if (metadata->type == Type::OFFSET_ZONED_TEMPORAL_DATA) {
     zoned_temporal_data_size += 2;  // tz_offset_int is 16-bit
+    reader.SkipBytes(2);
   }
 
   return zoned_temporal_data_size;
@@ -942,8 +944,7 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
 
         map_property_size += SizeToByteSize(metadata->id_size);
 
-        std::string key(*key_size, '\0');
-        if (!reader->ReadBytes(key.data(), *key_size)) return false;
+        if (!reader->SkipBytes(*key_size)) return false;
 
         map_property_size += *key_size;
 
@@ -1322,6 +1323,65 @@ enum class ExpectedPropertyStatus {
   return PropertyId::FromUint(*property_id);
 }
 
+[[nodiscard]] std::optional<PropertyId> DecodeAnyPropertyType(Reader *reader, PropertyValue::Type &type) {
+  auto metadata = reader->ReadMetadata();
+  if (!metadata) return std::nullopt;
+
+  auto property_id = reader->ReadUint(metadata->id_size);
+  if (!property_id) return std::nullopt;
+
+  uint32_t size;
+  if (!DecodePropertyValueSize(reader, metadata->type, metadata->payload_size, size)) return std::nullopt;
+
+  switch (metadata->type) {
+    using enum Type;
+    case EMPTY:
+      type = PropertyValue::Type::Null;
+      break;
+    case NONE:
+      type = PropertyValue::Type::Null;
+      break;
+    case BOOL:
+      type = PropertyValue::Type::Bool;
+      break;
+    case INT:
+      type = PropertyValue::Type::Int;
+      break;
+    case DOUBLE:
+      type = PropertyValue::Type::Double;
+      break;
+    case STRING:
+      type = PropertyValue::Type::String;
+      break;
+    case LIST:
+      type = PropertyValue::Type::List;
+      break;
+    case MAP:
+      type = PropertyValue::Type::Map;
+      break;
+    case TEMPORAL_DATA:
+      type = PropertyValue::Type::TemporalData;
+      break;
+    case ZONED_TEMPORAL_DATA:
+      type = PropertyValue::Type::ZonedTemporalData;
+      break;
+    case OFFSET_ZONED_TEMPORAL_DATA:
+      type = PropertyValue::Type::ZonedTemporalData;  // NOT SURE
+      break;
+    case ENUM:
+      type = PropertyValue::Type::Enum;
+      break;
+    case POINT_2D:
+      type = PropertyValue::Type::Point2d;
+      break;
+    case POINT_3D:
+      type = PropertyValue::Type::Point3d;
+      break;
+  }
+
+  return PropertyId::FromUint(*property_id);
+}
+
 // Function used to compare a property (PropertyId, PropertyValue) to current
 // property in the byte stream.
 //
@@ -1662,10 +1722,8 @@ auto GetDecodedBuffer(uint8_t (&buffer)[12]) -> DecodedBuffer {
 }
 
 auto GetDecodedBuffer(uint8_t const (&buffer)[12]) -> DecodedBufferConst {
-  uint32_t size = 0;
-  uint8_t *data = nullptr;
-  memcpy(&size, buffer, sizeof(uint32_t));
-  memcpy(&data, buffer + sizeof(uint32_t), sizeof(uint8_t *));
+  uint32_t size = *((uint32_t *)buffer);
+  const uint8_t *data = (uint8_t *)*((uint64_t *)&buffer[sizeof(size)]);
 
   if (size == 0) {
     return {std::span<uint8_t>{}, StorageMode::EMPTY};
@@ -1818,11 +1876,11 @@ std::map<PropertyId, PropertyValue> PropertyStore::Properties() const {
 std::map<PropertyId, PropertyValue::Type> PropertyStore::PropertyTypes() const {
   auto get_properties = [&](Reader &reader) {
     std::map<PropertyId, PropertyValue::Type> props;
-    PropertyValue value;
     while (true) {
-      auto prop = DecodeAnyProperty(&reader, value);
+      PropertyValue::Type type{PropertyValue::Type::Null};
+      auto prop = DecodeAnyPropertyType(&reader, type);
       if (!prop) break;
-      props.emplace(*prop, value.type());
+      props.emplace(*prop, type);
     }
     return props;
   };
