@@ -50,6 +50,7 @@ void SystemRestore(replication::ReplicationClient &client, system::System &syste
   client.state_.WithLock(
       [](auto &state) { return state != memgraph::replication::ReplicationClient::State::RECOVERY; });
   {
+    bool is_enterprise = license::global_license_checker.IsEnterpriseValidFast();
     // We still need to system replicate
     struct DbInfo {
       std::vector<storage::SalientConfig> configs;
@@ -63,7 +64,7 @@ void SystemRestore(replication::ReplicationClient &client, system::System &syste
         return std::nullopt;
       });
 
-      if (license::global_license_checker.IsEnterpriseValidFast()) {
+      if (is_enterprise) {
         auto configs = std::vector<storage::SalientConfig>{};
         dbms_handler.ForEach([&configs](dbms::DatabaseAccess acc) { configs.emplace_back(acc->config().salient); });
         // TODO: This is `SystemRestore` maybe DbInfo is incorrect as it will need Auth also
@@ -76,7 +77,7 @@ void SystemRestore(replication::ReplicationClient &client, system::System &syste
     try {
       auto stream = std::invoke([&]() {
         // Handle only default database is no license
-        if (!license::global_license_checker.IsEnterpriseValidFast()) {
+        if (!is_enterprise) {
           return client.rpc_client_.Stream<replication::SystemRecoveryRpc>(
               main_uuid, db_info.last_committed_timestamp, std::move(db_info.configs), auth::Auth::Config{},
               std::vector<auth::User>{}, std::vector<auth::Role>{});
