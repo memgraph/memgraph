@@ -4,7 +4,6 @@ add_library(mg::storage ALIAS mg-storage-v2)
 target_sources(mg-storage-v2
         PRIVATE
         all_vertices_iterable.cpp
-        collector.cpp
         commit_log.cpp
         constraint_verification_info.cpp
         constraints/constraints.cpp
@@ -26,6 +25,7 @@ target_sources(mg-storage-v2
         edges_iterable.cpp
         indices/indices.cpp
         indices/point_index.cpp
+        indices/point_index_change_collector.cpp
         indices/text_index.cpp
         inmemory/edge_type_index.cpp
         inmemory/edge_type_property_index.cpp
@@ -52,11 +52,11 @@ target_sources(mg-storage-v2
         FILE_SET HEADERS
         BASE_DIRS ../../
         FILES
-        collector.hpp
         delta_container.hpp
         enum.hpp
         enum_store.hpp
         indices/point_index.hpp
+        indices/point_index_change_collector.hpp
         mvcc.hpp
         point.hpp
         point_functions.hpp

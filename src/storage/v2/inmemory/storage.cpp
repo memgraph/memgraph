@@ -963,16 +963,6 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
         }
       }
 
-      // Point index update, we track changes relevant to the point index, if this write transcation made any relevant
-      // changes we need to install a new point index for future txns. Here we will the new one if needed.
-      std::optional<PointIndexStorage> new_point_index;
-      if (transaction_.collector_.AnyTrackedChanges()) {
-        // build new point index
-
-        // TODO:
-        //        new_point_index = transaction_.point_index_ctx_.build_for_commit(); // mutate hack
-      }
-
       if (!unique_constraint_violation) {
         // Durability stage
         [[maybe_unused]] bool const is_main_or_replica_write =
@@ -1007,11 +997,9 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
           mem_storage->repl_storage_state_.last_commit_timestamp_.store(durability_commit_timestamp);
         }
 
-        // Install the new point index, if one exists, this does not impact on going txns as they have a snapshot of an
-        // index which is correct for their own txn
-        if (new_point_index) {
-          // install new index
-        }
+        // Install the new point index, if needed
+        mem_storage->indices_.point_index_.InstallNewPointIndex(transaction_.point_index_change_collector_,
+                                                                transaction_.point_index_ctx_);
 
         // TODO: can and should this be moved earlier?
         mem_storage->commit_log_->MarkFinished(start_timestamp);

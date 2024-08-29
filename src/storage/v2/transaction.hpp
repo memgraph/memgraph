@@ -20,11 +20,11 @@
 #include "utils/skip_list.hpp"
 
 #include "delta_container.hpp"
-#include "storage/v2/collector.hpp"
 #include "storage/v2/constraint_verification_info.hpp"
 #include "storage/v2/delta.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/indices/point_index.hpp"
+#include "storage/v2/indices/point_index_change_collector.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/metadata_delta.hpp"
 #include "storage/v2/modified_edge.hpp"
@@ -63,7 +63,7 @@ struct Transaction {
                    ? std::optional<utils::SkipList<Edge>>{std::in_place}
                    : std::nullopt},
         point_index_ctx_{std::move(point_index_ctx)},
-        collector_{point_index_ctx_.IndexKeys()} {}
+        point_index_change_collector_{point_index_ctx_} {}
 
   Transaction(Transaction &&other) noexcept = default;
 
@@ -89,17 +89,18 @@ struct Transaction {
 
   /// To update any collectors for commit time processing
   void UpdateOnAddLabel(LabelId label, Vertex *vertex) {
-    collector_.UpdateOnAddLabel(label, vertex);
+    point_index_change_collector_.UpdateOnAddLabel(label, vertex);
     manyDeltasCache.Invalidate(vertex, label);
   }
+
   void UpdateOnRemoveLabel(LabelId label, Vertex *vertex) {
-    collector_.UpdateOnRemoveLabel(label, vertex);
+    point_index_change_collector_.UpdateOnRemoveLabel(label, vertex);
     manyDeltasCache.Invalidate(vertex, label);
   }
 
   void UpdateOnSetProperty(PropertyId property, const PropertyValue &old_value, const PropertyValue &new_value,
                            Vertex *vertex) {
-    collector_.UpdateOnSetProperty(property, old_value, new_value, vertex);
+    point_index_change_collector_.UpdateOnSetProperty(property, old_value, new_value, vertex);
     manyDeltasCache.Invalidate(vertex, property);
   }
 
@@ -143,9 +144,10 @@ struct Transaction {
   bool scanned_all_vertices_ = false;
   std::set<LabelId> introduced_new_label_index_;
   std::set<EdgeTypeId> introduced_new_edge_type_index_;
+  /// Hold point index relevant to this txn+command
   PointIndexContext point_index_ctx_;
-  /// ATM, only need to collect for changes regarding point index
-  Collector collector_;
+  /// Tracks changes relevant to point index (used during Commit/AdvanceCommand)
+  PointIndexChangeCollector point_index_change_collector_;
 };
 
 inline bool operator==(const Transaction &first, const Transaction &second) {
