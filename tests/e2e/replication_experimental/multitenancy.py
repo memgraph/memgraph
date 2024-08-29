@@ -106,7 +106,6 @@ TEMP_DIR = tempfile.TemporaryDirectory().name
 MEMGRAPH_INSTANCES_DESCRIPTION_WITH_RECOVERY = {
     "replica_1": {
         "args": [
-            "--replication-system-replication-enabled=true",
             "--bolt-port",
             f"{BOLT_PORTS['replica_1']}",
             "--log-level=TRACE",
@@ -118,7 +117,6 @@ MEMGRAPH_INSTANCES_DESCRIPTION_WITH_RECOVERY = {
     },
     "replica_2": {
         "args": [
-            "--replication-system-replication-enabled=true",
             "--bolt-port",
             f"{BOLT_PORTS['replica_2']}",
             "--log-level=TRACE",
@@ -130,7 +128,6 @@ MEMGRAPH_INSTANCES_DESCRIPTION_WITH_RECOVERY = {
     },
     "main": {
         "args": [
-            "--replication-system-replication-enabled=true",
             "--bolt-port",
             f"{BOLT_PORTS['main']}",
             "--log-level=TRACE",
