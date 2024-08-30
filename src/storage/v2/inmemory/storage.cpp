@@ -2316,7 +2316,9 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
       case MetadataDelta::Action::LABEL_PROPERTY_INDEX_CREATE:
       case MetadataDelta::Action::LABEL_PROPERTY_INDEX_DROP:
       case MetadataDelta::Action::EXISTENCE_CONSTRAINT_CREATE:
-      case MetadataDelta::Action::EXISTENCE_CONSTRAINT_DROP: {
+      case MetadataDelta::Action::EXISTENCE_CONSTRAINT_DROP:
+      case MetadataDelta::Action::POINT_INDEX_CREATE:
+      case MetadataDelta::Action::POINT_INDEX_DROP: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
           EncodeLabelProperty(encoder, *name_id_mapper_, md_delta.label_property.label,
                               md_delta.label_property.property);
@@ -2360,14 +2362,6 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
           EncodeEnumAlterUpdate(encoder, enum_store_, md_delta.enum_alter_update_info.value,
                                 md_delta.enum_alter_update_info.old_value);
-        });
-        break;
-      }
-      case MetadataDelta::Action::POINT_INDEX_CREATE:
-      case MetadataDelta::Action::POINT_INDEX_DROP: {
-        apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeLabelProperty(encoder, *name_id_mapper_, md_delta.label_property.label,
-                              md_delta.label_property.property);
         });
         break;
       }

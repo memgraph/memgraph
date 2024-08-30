@@ -104,5 +104,4 @@ Indices::IndexStats Indices::Analysis() const {
   return {static_cast<InMemoryLabelIndex *>(label_index_.get())->Analysis(),
           static_cast<InMemoryLabelPropertyIndex *>(label_property_index_.get())->Analysis()};
 }
-
 }  // namespace memgraph::storage

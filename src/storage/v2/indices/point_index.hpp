@@ -12,18 +12,11 @@
 #pragma once
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/point_index_change_collector.hpp"
-#include "storage/v2/point.hpp"
-#include "storage/v2/vertex.hpp"
-#include "storage/v2/vertex_accessor.hpp"
-#include "storage/v2/view.hpp"
 #include "utils/skip_list.hpp"
-#include "utils/synchronized.hpp"
 
 #include <boost/geometry.hpp>
 #include <boost/geometry/geometries/point.hpp>
 #include <boost/geometry/index/rtree.hpp>
-
-#include <ranges>
 
 namespace bg = boost::geometry;
 namespace bgi = boost::geometry::index;
@@ -88,26 +81,16 @@ struct PointIndex {
   PointIndex() = default;
 
   PointIndex(std::span<Entry<IndexPointWGS2d>> points2dWGS, std::span<Entry<IndexPointCartesian2d>> points2dCartesian,
-             std::span<Entry<IndexPointWGS3d>> points3dWGS, std::span<Entry<IndexPointCartesian3d>> points3dCartesian)
-      : wgs_2d_index_{std::make_shared<index_t<IndexPointWGS2d>>(points2dWGS.begin(), points2dWGS.end())},
-        wgs_3d_index_{std::make_shared<index_t<IndexPointWGS3d>>(points3dWGS.begin(), points3dWGS.end())},
-        cartesian_2d_index_{
-            std::make_shared<index_t<IndexPointCartesian2d>>(points2dCartesian.begin(), points2dCartesian.end())},
-        cartesian_3d_index_{
-            std::make_shared<index_t<IndexPointCartesian3d>>(points3dCartesian.begin(), points3dCartesian.end())} {}
+             std::span<Entry<IndexPointWGS3d>> points3dWGS, std::span<Entry<IndexPointCartesian3d>> points3dCartesian);
 
-  auto CreateNewPointIndex(LabelPropKey labelPropKey, std::unordered_set<Vertex const *> const &changed_vertices) const
+  auto CreateNewPointIndex(LabelPropKey labelPropKey, absl::flat_hash_set<Vertex const *> const &changed_vertices) const
       -> PointIndex;
 
  private:
   PointIndex(std::shared_ptr<index_t<IndexPointWGS2d>> points2dWGS,
              std::shared_ptr<index_t<IndexPointWGS3d>> points3dWGS,
              std::shared_ptr<index_t<IndexPointCartesian2d>> points2dCartesian,
-             std::shared_ptr<index_t<IndexPointCartesian3d>> points3dCartesian)
-      : wgs_2d_index_{std::move(points2dWGS)},
-        wgs_3d_index_{std::move(points3dWGS)},
-        cartesian_2d_index_{std::move(points2dCartesian)},
-        cartesian_3d_index_{std::move(points3dCartesian)} {}
+             std::shared_ptr<index_t<IndexPointCartesian3d>> points3dCartesian);
 
   std::shared_ptr<index_t<IndexPointWGS2d>> wgs_2d_index_ = std::make_shared<index_t<IndexPointWGS2d>>();
   std::shared_ptr<index_t<IndexPointWGS3d>> wgs_3d_index_ = std::make_shared<index_t<IndexPointWGS3d>>();

@@ -32,8 +32,6 @@ struct EdgesVertexAccessorResult;
 struct Transaction;
 using edge_store = utils::small_vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>>;
 
-std::pair<bool, bool> IsVisible(Vertex const *vertex, Transaction const *transaction, View view);
-
 class VertexAccessor final {
  private:
   friend class Storage;

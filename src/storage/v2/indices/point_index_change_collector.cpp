@@ -66,9 +66,10 @@ void PointIndexChangeCollector::ArchiveCurrentChanges() { previous_changes_.Merg
 PointIndexChangeCollector::PointIndexChangeCollector(PointIndexContext &ctx)
     : current_changes_{std::invoke([&]() {
         auto rng = ctx.IndexKeys() | std::views::transform([](auto key) {
-                     return std::pair{key, std::unordered_set<Vertex const *>{}};
+                     return std::pair{key, absl::flat_hash_set<Vertex const *>{}};
                    });
         return TrackedChanges{rng.begin(), rng.end()};
       })},
+      /// Note: this is a copy of current_changes_ so that it has the same keys
       previous_changes_{current_changes_} {}
 }  // namespace memgraph::storage

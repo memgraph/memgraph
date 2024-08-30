@@ -11,6 +11,7 @@
 
 #include "storage/v2/indices/point_index.hpp"
 #include "storage/v2/indices/point_index_change_collector.hpp"
+#include "storage/v2/vertex.hpp"
 
 namespace memgraph::storage {
 
@@ -135,7 +136,7 @@ void PointIndexStorage::InstallNewPointIndex(PointIndexChangeCollector &collecto
 }
 
 auto PointIndex::CreateNewPointIndex(LabelPropKey labelPropKey,
-                                     std::unordered_set<Vertex const *> const &changed_vertices) const -> PointIndex {
+                                     absl::flat_hash_set<Vertex const *> const &changed_vertices) const -> PointIndex {
   DMG_ASSERT(!changed_vertices.empty(), "Expect at least one change");
 
   // These are at this stage uncommitted changes + must have come from this txn, no need to check MVCC history
@@ -215,5 +216,25 @@ void PointIndexContext::update_current(PointIndexChangeCollector &collector) {
   if (result) current_indexes_ = std::make_unique<index_container_t>(*std::move(result));
   collector.ArchiveCurrentChanges();
 }
+
+PointIndex::PointIndex(std::span<Entry<IndexPointWGS2d>> points2dWGS,
+                       std::span<Entry<IndexPointCartesian2d>> points2dCartesian,
+                       std::span<Entry<IndexPointWGS3d>> points3dWGS,
+                       std::span<Entry<IndexPointCartesian3d>> points3dCartesian)
+    : wgs_2d_index_{std::make_shared<index_t<IndexPointWGS2d>>(points2dWGS.begin(), points2dWGS.end())},
+      wgs_3d_index_{std::make_shared<index_t<IndexPointWGS3d>>(points3dWGS.begin(), points3dWGS.end())},
+      cartesian_2d_index_{
+          std::make_shared<index_t<IndexPointCartesian2d>>(points2dCartesian.begin(), points2dCartesian.end())},
+      cartesian_3d_index_{
+          std::make_shared<index_t<IndexPointCartesian3d>>(points3dCartesian.begin(), points3dCartesian.end())} {}
+
+PointIndex::PointIndex(std::shared_ptr<index_t<IndexPointWGS2d>> points2dWGS,
+                       std::shared_ptr<index_t<IndexPointWGS3d>> points3dWGS,
+                       std::shared_ptr<index_t<IndexPointCartesian2d>> points2dCartesian,
+                       std::shared_ptr<index_t<IndexPointCartesian3d>> points3dCartesian)
+    : wgs_2d_index_{std::move(points2dWGS)},
+      wgs_3d_index_{std::move(points3dWGS)},
+      cartesian_2d_index_{std::move(points2dCartesian)},
+      cartesian_3d_index_{std::move(points3dCartesian)} {}
 
 }  // namespace memgraph::storage

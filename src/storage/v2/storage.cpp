@@ -152,8 +152,6 @@ void Storage::Accessor::AdvanceCommand() {
   transaction_.manyDeltasCache.Clear();  // TODO: Just invalidate the View::OLD cache, NEW should still be fine
   ++transaction_.command_id;
   transaction_.point_index_ctx_.AdvanceCommand(transaction_.point_index_change_collector_);
-  // build next point index
-  //  transaction_.point_index_change_collector_.Advance();//??
 }
 
 Result<std::optional<VertexAccessor>> Storage::Accessor::DeleteVertex(VertexAccessor *vertex) {

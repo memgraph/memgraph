@@ -87,7 +87,6 @@ struct Transaction {
 
   bool RemoveModifiedEdge(const Gid &gid) { return modified_edges_.erase(gid) > 0U; }
 
-  /// To update any collectors for commit time processing
   void UpdateOnAddLabel(LabelId label, Vertex *vertex) {
     point_index_change_collector_.UpdateOnAddLabel(label, vertex);
     manyDeltasCache.Invalidate(vertex, label);

@@ -358,7 +358,7 @@ class DiskStorage final : public Storage {
   EdgeImportMode edge_import_status_{EdgeImportMode::INACTIVE};
   std::unique_ptr<EdgeImportModeCache> edge_import_mode_cache_{nullptr};
   std::atomic<uint64_t> vertex_count_{0};
-  /// Disk does not have point index but empty/null object is needed to make in_memory code clean.
+  /// Disk does not have point index, yet an empty/null object is needed to make in_memory code for point index simple.
   static PointIndexStorage empty_point_index_;
 };
 

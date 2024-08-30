@@ -40,6 +40,7 @@
 
 namespace memgraph::storage {
 
+namespace detail {
 std::pair<bool, bool> IsVisible(Vertex const *vertex, Transaction const *transaction, View view) {
   bool exists = true;
   bool deleted = false;
@@ -82,10 +83,11 @@ std::pair<bool, bool> IsVisible(Vertex const *vertex, Transaction const *transac
 
   return {exists, deleted};
 }
+}  // namespace detail
 
 std::optional<VertexAccessor> VertexAccessor::Create(Vertex *vertex, Storage *storage, Transaction *transaction,
                                                      View view) {
-  if (const auto [exists, deleted] = memgraph::storage::IsVisible(vertex, transaction, view); !exists || deleted) {
+  if (const auto [exists, deleted] = detail::IsVisible(vertex, transaction, view); !exists || deleted) {
     return std::nullopt;
   }
 
@@ -93,12 +95,12 @@ std::optional<VertexAccessor> VertexAccessor::Create(Vertex *vertex, Storage *st
 }
 
 bool VertexAccessor::IsVisible(const Vertex *vertex, const Transaction *transaction, View view) {
-  const auto [exists, deleted] = memgraph::storage::IsVisible(vertex, transaction, view);
+  const auto [exists, deleted] = detail::IsVisible(vertex, transaction, view);
   return exists && !deleted;
 }
 
 bool VertexAccessor::IsVisible(View view) const {
-  const auto [exists, deleted] = memgraph::storage::IsVisible(vertex_, transaction_, view);
+  const auto [exists, deleted] = detail::IsVisible(vertex_, transaction_, view);
   return exists && (for_deleted_ || !deleted);
 }
 
@@ -601,7 +603,7 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
   /// in memory storage should be checked only if something exists before loading from the disk.
   if (transaction_->IsDiskStorage()) {
     auto *disk_storage = static_cast<DiskStorage *>(storage_);
-    const auto [exists, deleted] = memgraph::storage::IsVisible(vertex_, transaction_, view);
+    const auto [exists, deleted] = detail::IsVisible(vertex_, transaction_, view);
     if (!exists) return Error::NONEXISTENT_OBJECT;
     if (deleted) return Error::DELETED_OBJECT;
     bool edges_modified_in_tx = !vertex_->in_edges.empty();
@@ -684,7 +686,7 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
   std::vector<EdgeAccessor> disk_edges{};
   if (transaction_->IsDiskStorage()) {
     auto *disk_storage = static_cast<DiskStorage *>(storage_);
-    const auto [exists, deleted] = memgraph::storage::IsVisible(vertex_, transaction_, view);
+    const auto [exists, deleted] = detail::IsVisible(vertex_, transaction_, view);
     if (!exists) return Error::NONEXISTENT_OBJECT;
     if (deleted) return Error::DELETED_OBJECT;
     bool edges_modified_in_tx = !vertex_->out_edges.empty();

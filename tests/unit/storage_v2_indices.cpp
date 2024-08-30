@@ -100,8 +100,7 @@ class IndexTest : public testing::Test {
   int vertex_id;
 };
 
-// using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage>;
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
 
 TYPED_TEST_SUITE(IndexTest, StorageTypes);
 // TYPED_TEST_SUITE(IndexTest, InMemoryStorageType);
