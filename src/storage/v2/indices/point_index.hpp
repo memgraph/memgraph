@@ -77,6 +77,7 @@ namespace memgraph::storage {
 template <typename IndexPoint>
 using index_t = bgi::rtree<Entry<IndexPoint>, bgi::quadratic<64>>;  // TODO: tune this
 
+// TODO: use PIMPL idiom to hide the detail that we are using boost/geometry*
 struct PointIndex {
   PointIndex() = default;
 
