@@ -10,8 +10,12 @@
 // licenses/APL.txt.
 
 #include "storage/v2/schema_info.hpp"
+#include <atomic>
 #include <mutex>
+#include <utility>
+#include "storage/v2/delta.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex_info_helpers.hpp"
@@ -20,8 +24,6 @@
 #include "utils/variant_helpers.hpp"
 
 namespace {
-constexpr bool kOutEdge = true;
-constexpr bool kInEdge = !kOutEdge;
 
 /// This function iterates through the undo buffers from an object (starting
 /// from the supplied delta) and determines what deltas should be applied to get
@@ -31,42 +33,30 @@ constexpr bool kInEdge = !kOutEdge;
 template <typename TCallback>
 inline void ApplyDeltasForRead(const memgraph::storage::Delta *delta, uint64_t current_commit_timestamp,
                                const TCallback &callback) {
-  while (true) {
+  while (delta) {
+    const auto ts = delta->timestamp->load(std::memory_order_acquire);
     // We need to stop if:
     //  there are no other deltas
     //  the timestamp is a commited timestamp
     //  the timestamp is the current commit timestamp
     // TODO Rename commit timestamp to transaction id
-    if (delta == nullptr ||
-        delta->timestamp->load(std::memory_order_acquire) < memgraph::storage::kTransactionInitialId ||
-        delta->timestamp->load(std::memory_order_acquire) == current_commit_timestamp)
-      break;
+    if (ts == current_commit_timestamp || ts < memgraph::storage::kTransactionInitialId) break;
     // This delta must be applied, call the callback.
     callback(*delta);
     // Move to the next delta in this transaction.
-    auto *older = delta->next.load(std::memory_order_acquire);
-    delta = older;
+    delta = delta->next.load(std::memory_order_acquire);
   }
-}
-
-memgraph::storage::Delta *NextDelta(const memgraph::storage::Delta *delta, uint64_t commit_timestamp) {
-  auto *older = delta->next.load(std::memory_order_acquire);
-  if (older == nullptr || older->timestamp->load(std::memory_order_acquire) != commit_timestamp) return {};
-  return older;
 }
 
 template <typename TCallback>
 inline void ApplyUncommittedDeltasForRead(const memgraph::storage::Delta *delta, const TCallback &callback) {
-  while (true) {
-    // Break when delta is not part of a transaction (it's timestamp is not equal to transaction id)
-    if (delta == nullptr ||
-        delta->timestamp->load(std::memory_order_acquire) < memgraph::storage::kTransactionInitialId)
-      break;
+  while (delta) {
+    // Break when delta is not part of a transaction (it's timestamp is not equal to a transaction id)
+    if (delta->timestamp->load(std::memory_order_acquire) < memgraph::storage::kTransactionInitialId) break;
     // This delta must be applied, call the callback.
     callback(*delta);
     // Move to the next delta in this transaction.
-    auto *older = delta->next.load(std::memory_order_acquire);
-    delta = older;
+    delta = delta->next.load(std::memory_order_acquire);
   }
 }
 
@@ -116,6 +106,28 @@ auto GetRemainingPreEdges(const memgraph::storage::Vertex &vertex) {
 
   return edges;
 }
+
+template <memgraph::storage::EdgeDirection Dir>
+auto GetEdges(const memgraph::storage::Vertex &vertex, uint64_t commit_timestamp) {
+  decltype(vertex.in_edges) edges;
+
+  if (Dir == memgraph::storage::EdgeDirection::OUT) {
+    edges = vertex.out_edges;
+  } else {
+    edges = vertex.in_edges;
+  }
+
+  ApplyDeltasForRead(vertex.delta, commit_timestamp, [&edges](const memgraph::storage::Delta &delta) {
+    // clang-format off
+    DeltaDispatch(delta, memgraph::utils::ChainedOverloaded{
+      Edges_ActionMethod<Dir>(edges, {/* all types */}, {/* all destinations */}),
+    });
+    // clang-format on
+  });
+
+  return edges;
+}
+
 }  // namespace
 
 namespace memgraph::storage {
@@ -138,9 +150,17 @@ inline auto PropertyTypes_ActionMethod(std::map<PropertyId, PropertyValue::Type>
   });
 }
 
+inline auto Existence_ActionMethod(bool &exists) {
+  // clang-format off
+  using enum memgraph::storage::Delta::Action;
+  return memgraph::utils::Overloaded{ActionMethod<DELETE_OBJECT>([&](Delta const &/*delta*/) { exists = false; }),
+                                     ActionMethod<DELETE_DESERIALIZED_OBJECT>([&](Delta const &/*delta*/) { exists = false; })};
+  // clang-format on
+}
+
 void Tracking::CleanUp() {
   // Erase all elements that don't have any vertices associated
-  std::erase_if(vertex_state_, [](auto &elem) { return elem.second.N() <= 0; });
+  std::erase_if(vertex_state_, [](auto &elem) { return elem.second.n <= 0; });
   for (auto &[_, val] : vertex_state_) {
     std::erase_if(val.properties, [](auto &elem) { return elem.second.n <= 0; });
     for (auto &[_, val] : val.properties) {
@@ -148,7 +168,7 @@ void Tracking::CleanUp() {
     }
   }
   // Edge state cleanup
-  std::erase_if(edge_state_, [](auto &elem) { return elem.second.N() <= 0; });
+  std::erase_if(edge_state_, [](auto &elem) { return elem.second.n <= 0; });
   for (auto &[_, val] : edge_state_) {
     std::erase_if(val.properties, [](auto &elem) { return elem.second.n <= 0; });
     for (auto &[_, val] : val.properties) {
@@ -177,7 +197,8 @@ nlohmann::json Tracking::ToJson(NameIdMapper &name_id_mapper, bool properties_on
     for (const auto l : labels) {
       labels_itr->emplace_back(name_id_mapper.IdToName(l.AsUint()));
     }
-    node.emplace("count", info.N());
+    std::sort(labels_itr->begin(), labels_itr->end());
+    node.emplace("count", info.n);
     const auto &[prop_itr, __] = node.emplace("properties", nlohmann::json::array_t{});
     for (const auto &[p, info] : info.properties) {
       nlohmann::json::object_t property_info;
@@ -207,10 +228,12 @@ nlohmann::json Tracking::ToJson(NameIdMapper &name_id_mapper, bool properties_on
     for (const auto l : edge_type.from_v_type) {
       out_labels_itr->emplace_back(name_id_mapper.IdToName(l.AsUint()));
     }
+    std::sort(out_labels_itr->begin(), out_labels_itr->end());
     const auto &[in_labels_itr, _b] = edge.emplace("end_node_labels", nlohmann::json::array_t{});
     for (const auto l : edge_type.to_v_type) {
       in_labels_itr->emplace_back(name_id_mapper.IdToName(l.AsUint()));
     }
+    std::sort(in_labels_itr->begin(), in_labels_itr->end());
     edge.emplace("count", info.n);
     const auto &[prop_itr, __] = edge.emplace("properties", nlohmann::json::array_t{});
     for (const auto &[p, info] : info.properties) {
@@ -234,39 +257,7 @@ nlohmann::json Tracking::ToJson(NameIdMapper &name_id_mapper, bool properties_on
   return json;
 }
 
-utils::small_vector<LabelId> GetPreLabels(const Vertex &vertex, uint64_t commit_timestamp) {
-  auto pre_labels = vertex.labels;
-  if (vertex.delta) {
-    ApplyUncommittedDeltasForRead(vertex.delta, [&pre_labels](const Delta &delta) {
-      // clang-format off
-        DeltaDispatch(delta, utils::ChainedOverloaded{
-          Labels_ActionMethod(pre_labels)
-        });
-      // clang-format on
-    });
-  }
-  return pre_labels;
-}
-
-std::map<PropertyId, PropertyValue::Type> GetCommittedPropertyTypes(const EdgeRef &edge_ref, bool properties_on_edges) {
-  std::map<PropertyId, PropertyValue::Type> properties;
-  if (properties_on_edges) {
-    const auto *edge = edge_ref.ptr;
-    properties = edge->properties.PropertyTypes();
-    if (edge->delta) {
-      ApplyUncommittedDeltasForRead(edge->delta, [&properties](const Delta &delta) {
-        // clang-format off
-        DeltaDispatch(delta, utils::ChainedOverloaded{
-          PropertyTypes_ActionMethod(properties)
-        });
-        // clang-format on
-      });
-    }
-  }
-  return properties;
-}
-
-utils::small_vector<LabelId> GetCommittedLabels(const Vertex &vertex) {
+inline utils::small_vector<LabelId> GetCommittedLabels(const Vertex &vertex) {
   utils::small_vector<LabelId> labels = vertex.labels;
   if (vertex.delta) {
     ApplyUncommittedDeltasForRead(vertex.delta, [&labels](const Delta &delta) {
@@ -280,7 +271,7 @@ utils::small_vector<LabelId> GetCommittedLabels(const Vertex &vertex) {
   return labels;
 }
 
-utils::small_vector<LabelId> GetLabels(const Vertex &vertex, uint64_t commit_timestamp) {
+inline utils::small_vector<LabelId> GetLabels(const Vertex &vertex, uint64_t commit_timestamp) {
   utils::small_vector<LabelId> labels = vertex.labels;
   if (vertex.delta) {
     ApplyDeltasForRead(vertex.delta, commit_timestamp, [&labels](const Delta &delta) {
@@ -294,85 +285,140 @@ utils::small_vector<LabelId> GetLabels(const Vertex &vertex, uint64_t commit_tim
   return labels;
 }
 
-std::map<PropertyId, PropertyValue::Type> GetPropertyTypes(const EdgeRef &edge_ref, uint64_t commit_timestamp,
-                                                           bool properties_on_edges) {
-  std::map<PropertyId, PropertyValue::Type> properties;
-  if (properties_on_edges) {
-    const auto *edge = edge_ref.ptr;
-    properties = edge->properties.PropertyTypes();
-    if (edge->delta) {
-      ApplyDeltasForRead(edge->delta, commit_timestamp, [&properties](const Delta &delta) {
-        // clang-format off
-        DeltaDispatch(delta, utils::ChainedOverloaded{
-          PropertyTypes_ActionMethod(properties)
-        });
-        // clang-format on
+const auto &VertexHandler::PreProperties() const {
+  if (!pre_properties_) {
+    // Here the vertex is locked and changed by this transaction (this means that the only change could be from this
+    // tx)
+    pre_properties_ = vertex_.properties.PropertyTypes();
+    ApplyUncommittedDeltasForRead(vertex_.delta, [this](const Delta &delta) {
+      // clang-format off
+      DeltaDispatch(delta, utils::ChainedOverloaded{
+        PropertyTypes_ActionMethod(*pre_properties_),
       });
+      // clang-format on
+    });
+  }
+  return *pre_properties_;
+}
+
+void VertexHandler::UpdateProperty(PropertyId key, const PropertyValue &value) {
+  update_property_ = true;
+  // TODO Move the post process property diff here
+}
+
+const auto &VertexHandler::PreLabels() const {
+  if (!pre_labels_) {
+    // Here the vertex is locked and changed by this transaction (this means that the only change could be from this
+    // tx)
+    pre_labels_ = vertex_.labels;
+    ApplyUncommittedDeltasForRead(vertex_.delta, [this](const Delta &delta) {
+      // clang-format off
+      DeltaDispatch(delta, utils::ChainedOverloaded{
+        Labels_ActionMethod(*pre_labels_),
+      });
+      // clang-format on
+    });
+  }
+  return *pre_labels_;
+}
+
+auto VertexHandler::PropertyType_ActionMethod(
+    const memgraph::storage::PropertyStore &properties,
+    std::unordered_map<memgraph::storage::PropertyId,
+                       std::pair<memgraph::storage::PropertyValueType, memgraph::storage::PropertyValueType>> &diff) {
+  // clang-format off
+  using enum memgraph::storage::Delta::Action;
+  return memgraph::storage::ActionMethod<SET_PROPERTY>([&diff](memgraph::storage::Delta const &delta) {
+    const auto key = delta.property.key;
+    const auto old_type = delta.property.value->type();
+    auto itr = diff.find(key);
+    if (itr == diff.end()) {
+      // If diff pre-filled, no need to check if deleted, it will should always be Null
+      diff.emplace(key, std::make_pair(PropertyValueType::Null, old_type));
+    } else {
+      itr->second.second = old_type;
     }
-  }
-  return properties;
+  });
+  // clang-format on
 }
 
-Gid GetEdgeGid(const EdgeRef &edge_ref, bool properties_on_edges) {
-  if (properties_on_edges) {
-    return edge_ref.ptr->gid;
+auto VertexHandler::GetPropertyDiff() {
+  std::unordered_map<memgraph::storage::PropertyId,
+                     std::pair<memgraph::storage::PropertyValueType, memgraph::storage::PropertyValueType>>
+      diff;
+
+  // Prefill diff with current properties (as if no change has been made)
+  for (const auto &[key, type] : vertex_.properties.PropertyTypes()) {
+    diff.emplace(key, std::make_pair(vertex_.deleted ? PropertyValueType::Null : type, type));
   }
-  return edge_ref.gid;
-}
 
-void VertexHandler::PreProcess() {
-  const auto *delta = vertex_.delta;
-  DMG_ASSERT(delta, "Handling a vertex without deltas");
-
-  // TODO: Do only what is necessary
-  // Here the vertex is locked and changed by this transaction (this means that the only change could be from this tx)
-  pre_labels_ = vertex_.labels;
-  pre_properties_ = vertex_.properties.PropertyTypes();
-
-  ApplyUncommittedDeltasForRead(delta, [this](const Delta &delta) {
+  ApplyUncommittedDeltasForRead(vertex_.delta, [this, &diff](const memgraph::storage::Delta &delta) {
     // clang-format off
-        DeltaDispatch(delta, utils::ChainedOverloaded{
-          PropertyTypes_ActionMethod(pre_properties_),
-          Labels_ActionMethod(pre_labels_),
-        });
+    DeltaDispatch(delta, memgraph::utils::ChainedOverloaded{
+                             PropertyType_ActionMethod(vertex_.properties, diff),
+                         });
     // clang-format on
   });
+
+  return diff;
 }
 
-Delta *VertexHandler::NextDelta(const Delta *delta) const { return ::NextDelta(delta, commit_timestamp_); }
-
 void VertexHandler::PostProcess(TransactionEdgeHandler &tx_edge_handler) {
+  auto *tracking_post_info = &tracking_[PostLabels()];
+  auto *tracking_pre_info = tracking_post_info;
+
+  // this is true on create; maybe a way to avoid
   if (label_update_) {
-    // Move all info as is at the start
-    // Other deltas will take care of updating the end result
-    if (!vertex_added_) {
-      --tracking_[PreLabels()].n;
-      remove_property_.insert(pre_properties_.begin(), pre_properties_.end());
-    }
+    // Vertex still active, update new label stats
     if (!vertex_.deleted) {
-      const auto post_properties = vertex_.properties.PropertyTypes();
-      ++tracking_[PostLabels()].n;
-      add_property_.insert(post_properties.begin(), post_properties.end());
+      ++tracking_post_info->n;
     }
-    if (!vertex_.in_edges.empty() || !vertex_.out_edges.empty()) {
-      tx_edge_handler.AppendToPostProcess(&vertex_);
+
+    // Vertex existed before this tx
+    if (!vertex_added_) {
+      // Stats have moved; re-read stats pre tx
+      tracking_pre_info = &tracking_[PreLabels()];
+      --tracking_pre_info->n;
+
+      // Edges are defined via start/end labels, this identification has changed so update all persistent edges
+      for (const auto &edge : GetRemainingPreEdges<EdgeDirection::IN>(vertex_)) {
+        const auto edge_type = std::get<0>(edge);
+        auto *other_vertex = std::get<1>(edge);
+        const auto edge_ref = std::get<2>(edge);
+
+        tx_edge_handler.AppendToPostProcess(edge_ref, edge_type, other_vertex, &vertex_);
+      }
+      for (const auto &edge : GetRemainingPreEdges<EdgeDirection::OUT>(vertex_)) {
+        const auto edge_type = std::get<0>(edge);
+        auto *other_vertex = std::get<1>(edge);
+        const auto edge_ref = std::get<2>(edge);
+
+        tx_edge_handler.AppendToPostProcess(edge_ref, edge_type, &vertex_, other_vertex);
+      }
     }
   }
 
-  // We are only removing properties that have existed before transaction
-  for (const auto &[id, val] : remove_property_) {
-    --tracking_[PreLabels()].properties[id].n;
-    --tracking_[PreLabels()].properties[id].types[val];
-  }
-  // Add the new (or updated) properties
-  for (const auto &[id, val] : add_property_) {
-    ++tracking_[PostLabels()].properties[id].n;
-    ++tracking_[PostLabels()].properties[id].types[val];
+  // Update property stats if labels (vertex stats identification) or properties have changed
+  if (label_update_ || update_property_) {
+    for (const auto &[key, diff] : GetPropertyDiff()) {
+      if (label_update_ || diff.first != diff.second) {
+        if (diff.second != PropertyValueType::Null) {
+          auto &info = tracking_pre_info->properties[key];
+          --info.n;
+          --info.types[diff.second];
+        }
+        if (diff.first != PropertyValueType::Null) {
+          auto &info = tracking_post_info->properties[key];
+          ++info.n;
+          ++info.types[diff.first];
+        }
+      }
+    }
   }
 }
 
 void SchemaInfo::ProcessVertex(VertexHandler &vertex_handler, TransactionEdgeHandler &tx_edge_handler) {
-  vertex_handler.PreProcess();
+  // vertex_handler.PreProcess();
 
   // Processing deltas from newest to oldest
   // We need to be careful because we are traversing the chain in reverse
@@ -388,9 +434,10 @@ void SchemaInfo::ProcessVertex(VertexHandler &vertex_handler, TransactionEdgeHan
   // ADD_OUT_EDGE:    <- (removes) remove edge as defined at start
   // REMOVE_OUT_EDGE: <- (adds)  add edges as defined at commit
 
-  const auto *delta = vertex_handler.FirstDelta();
+  const auto *delta = vertex_handler.vertex_.delta;
 
   while (delta) {
+    if (delta->timestamp->load(std::memory_order_acquire) != vertex_handler.commit_timestamp_) break;
     switch (delta->action) {
       case Delta::Action::DELETE_DESERIALIZED_OBJECT:
       case Delta::Action::DELETE_OBJECT: {
@@ -413,81 +460,57 @@ void SchemaInfo::ProcessVertex(VertexHandler &vertex_handler, TransactionEdgeHan
         break;
       }
       case Delta::Action::ADD_OUT_EDGE: {
-        const auto *in_vertex = delta->vertex_edge.vertex;
-        if (in_vertex->gid < vertex_handler.vertex_.gid) {
-          // In vertex has a lower GID; needs to be locked first
-          // Handle this edge via ADD_IN_EDGE delta
-          break;
-        }
-        tx_edge_handler.RemoveEdge(
-            delta,
-            [edge_type = delta->vertex_edge.edge_type, from_vertex = &vertex_handler.vertex_,
-             to_vertex = in_vertex]() -> Tracking::EdgeType {
-              // We are deleting an edge, so we need to generate the EdgeType using pre-transaction labels In case the
-              // edge is created during this transaction, the REMOVE_OUT_EDGE will accordingly handle that
-              auto lock = std::unique_lock{to_vertex->lock};
-              return {edge_type, GetCommittedLabels(*from_vertex), GetCommittedLabels(*to_vertex)};
-            });
+        tx_edge_handler.RemoveEdge(delta, delta->vertex_edge.edge_type, &vertex_handler.vertex_,
+                                   delta->vertex_edge.vertex);
         break;
       }
       case Delta::Action::REMOVE_OUT_EDGE: {
-        const auto *in_vertex = delta->vertex_edge.vertex;
-        if (in_vertex->gid < vertex_handler.vertex_.gid) {
-          // In vertex has a lower GID; needs to be locked first
-          // Handle this edge via REMOVE_IN_EDGE delta
-          break;
-        }
-        tx_edge_handler.AddEdge(
-            delta,
-            [edge_type = delta->vertex_edge.edge_type, from_vertex = &vertex_handler.vertex_, to_vertex = in_vertex,
-             commit_timestamp = vertex_handler.commit_timestamp_]() -> Tracking::EdgeType {
-              auto lock = std::unique_lock{to_vertex->lock};
-              return {edge_type, GetLabels(*from_vertex, commit_timestamp), GetLabels(*to_vertex, commit_timestamp)};
-            });
+        tx_edge_handler.AddEdge(delta, delta->vertex_edge.edge_type, &vertex_handler.vertex_,
+                                delta->vertex_edge.vertex);
         break;
       }
-      case Delta::Action::ADD_IN_EDGE: {
-        const auto *out_vertex = delta->vertex_edge.vertex;
-        if (out_vertex->gid < vertex_handler.vertex_.gid) {
-          // Out vertex has a lower GID; needs to be locked first
-          // Handle this edge via ADD_OUT_EDGE delta
-          break;
-        }
-        tx_edge_handler.RemoveEdge(
-            delta,
-            [edge_type = delta->vertex_edge.edge_type, from_vertex = out_vertex,
-             to_vertex = &vertex_handler.vertex_]() -> Tracking::EdgeType {
-              // We are deleting an edge, so we need to generate the EdgeType using pre-transaction labels In case the
-              // edge is created during this transaction, the REMOVE_OUT_EDGE will accordingly handle that
-              auto lock = std::unique_lock{from_vertex->lock};
-              return {edge_type, GetCommittedLabels(*from_vertex), GetCommittedLabels(*to_vertex)};
-            });
+      case Delta::Action::ADD_IN_EDGE:
+      case Delta::Action::REMOVE_IN_EDGE:
+        // Handling all via OUT_EDGE
         break;
-      }
-      case Delta::Action::REMOVE_IN_EDGE: {
-        const auto *out_vertex = delta->vertex_edge.vertex;
-        if (out_vertex->gid < vertex_handler.vertex_.gid) {
-          // Out vertex has a lower GID; needs to be locked first
-          // Handle this edge via REMOVE_OUT_EDGE delta
-          break;
-        }
-        tx_edge_handler.AddEdge(
-            delta,
-            [edge_type = delta->vertex_edge.edge_type, from_vertex = out_vertex, to_vertex = &vertex_handler.vertex_,
-             commit_timestamp = vertex_handler.commit_timestamp_]() -> Tracking::EdgeType {
-              auto lock = std::unique_lock{from_vertex->lock};
-              return {edge_type, GetLabels(*from_vertex, commit_timestamp), GetLabels(*to_vertex, commit_timestamp)};
-            });
-        break;
-      } break;
     }
 
     // Advance along the chain
-    delta = vertex_handler.NextDelta(delta);
+    delta = delta->next.load(std::memory_order_acquire);
   }
 
   // Post process
   vertex_handler.PostProcess(tx_edge_handler);
+}
+
+void TransactionEdgeHandler::RemoveEdge(const Delta *delta, EdgeTypeId edge_type, const Vertex *from_vertex,
+                                        const Vertex *to_vertex) {
+  remove_edges_.emplace(delta->vertex_edge.edge,
+                        EdgeType{edge_type, GetCommittedLabels(*from_vertex), GetCommittedLabels(*to_vertex)});
+}
+
+void TransactionEdgeHandler::AddEdge(const Delta *delta, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex) {
+  // DMG_ASSERT(delta->action == Delta::Action::REMOVE_OUT_EDGE, "Trying to add edge using the wrong delta");
+
+  // ADD is processed after all REMOVEs, so just remove from the set
+  const auto erased = remove_edges_.erase(delta->vertex_edge.edge);
+  if (erased != 0) {
+    // This edge will be erased in the future, no need to add it at all
+    return;
+  }
+
+  // New edge (update all stats, that way we don't have to re-lock anything afterwards)
+  // Both edges get updated, so both need to be changed only by this tx (otherwise a
+  // serialization error occurs); no need to apply deltas
+  auto &tracking_info = tracking_[EdgeTypeRef{edge_type, from_vertex->labels, to_vertex->labels}];
+  ++tracking_info.n;
+  if (properties_on_edges_) {
+    for (const auto &[key, val] : delta->vertex_edge.edge.ptr->properties.PropertyTypes()) {
+      auto &prop_post_info = tracking_info.properties[key];
+      ++prop_post_info.n;
+      ++prop_post_info.types[val];
+    }
+  }
 }
 
 void TransactionEdgeHandler::PostVertexProcess() {
@@ -495,133 +518,66 @@ void TransactionEdgeHandler::PostVertexProcess() {
   for (const auto &[ref, info] : remove_edges_) {
     auto &tracking_info = tracking_[info];
     --tracking_info.n;
-    for (const auto &[key, val] : GetPostProperties(ref)) {
+    for (const auto &[key, val] : GetPrePropertyTypes(ref)) {
       auto &prop_info = tracking_info.properties[key];
       --prop_info.n;
-      --prop_info.types[val.type()];
+      --prop_info.types[val];
     }
   }
 
   // Update edges
-  for (const auto *v : post_process_vertices_) {
-    decltype(v->in_edges) in_edges;
-    decltype(v->out_edges) out_edges;
-    {
-      auto v_lock = std::unique_lock{v->lock};
-      in_edges = GetRemainingPreEdges<EdgeDirection::IN>(*v);
-      out_edges = GetRemainingPreEdges<EdgeDirection::OUT>(*v);
+  for (const auto &edge_info : post_process_edges_) {
+    const auto edge_ref = std::get<0>(edge_info);
+    const auto edge_type = std::get<1>(edge_info);
+    const auto *from = std::get<2>(edge_info);
+    const auto *to = std::get<3>(edge_info);
+
+    const auto pre_edge_properties = GetPrePropertyTypes(edge_ref);
+
+    auto from_lock = std::unique_lock{from->lock, std::defer_lock};
+    auto to_lock = std::unique_lock{to->lock, std::defer_lock};
+
+    if (to == from) {
+      from_lock.lock();
+    } else if (to->gid < from->gid) {
+      to_lock.lock();
+      from_lock.lock();
+    } else {
+      from_lock.lock();
+      to_lock.lock();
     }
 
-    // IN EDGES
-    for (const auto &edge : in_edges) {
-      const auto edge_type = std::get<0>(edge);
-      auto *other_vertex = std::get<1>(edge);
-      const auto edge_ref = std::get<2>(edge);
+    auto &tracking_pre_info = tracking_[EdgeType{edge_type, GetCommittedLabels(*from), GetCommittedLabels(*to)}];
+    auto &tracking_post_info =
+        tracking_[EdgeType{edge_type, GetLabels(*from, commit_timestamp_), GetLabels(*to, commit_timestamp_)}];
 
-      if (ShouldHandleEdge(edge_ref)) {
-        // auto plc_itr = pre_labels_cache_.find(other_vertex);
-        // if (plc_itr == pre_labels_cache_.end()) {
-        //   const auto [itr, _] =
-        //       pre_labels_cache_.emplace(other_vertex, GetPreLabels(*other_vertex, commit_timestamp_));
-        //   plc_itr = itr;
-        // }
+    from_lock.unlock();
+    if (to_lock.owns_lock()) to_lock.unlock();
 
-        auto from_lock = std::unique_lock{other_vertex->lock, std::defer_lock};
-        auto to_lock = std::unique_lock{v->lock, std::defer_lock};
-
-        if (v == other_vertex) {
-          from_lock.lock();
-        } else if (v->gid < other_vertex->gid) {
-          to_lock.lock();
-          from_lock.lock();
-        } else {
-          from_lock.lock();
-          to_lock.lock();
-        }
-
-        const auto pre_edge_properties = GetCommittedPropertyTypes(edge_ref, properties_on_edges_);
-        const auto post_edge_properties = GetPropertyTypes(edge_ref, commit_timestamp_, properties_on_edges_);
-
-        auto &tracking_pre_info =
-            tracking_[Tracking::EdgeType{edge_type, GetCommittedLabels(*other_vertex), GetCommittedLabels(*v)}];
-        --tracking_pre_info.n;
-        for (const auto &[key, val] : pre_edge_properties) {
-          auto &prop_info = tracking_pre_info.properties[key];
-          --prop_info.n;
-          --prop_info.types[val];
-        }
-        auto &tracking_post_info = tracking_[Tracking::EdgeType{edge_type, GetLabels(*other_vertex, commit_timestamp_),
-                                                                GetLabels(*v, commit_timestamp_)}];
-        ++tracking_post_info.n;
-        for (const auto &[key, val] : post_edge_properties) {
-          auto &prop_info = tracking_post_info.properties[key];
-          ++prop_info.n;
-          ++prop_info.types[val];
-        }
-      }
-    }
-    // OUT EDGE
-    for (const auto &edge : out_edges) {
-      const auto edge_type = std::get<0>(edge);
-      auto *other_vertex = std::get<1>(edge);
-      const auto edge_ref = std::get<2>(edge);
-
-      if (ShouldHandleEdge(edge_ref)) {
-        // auto plc_itr = pre_labels_cache_.find(other_vertex);
-        // if (plc_itr == pre_labels_cache_.end()) {
-        //   const auto [itr, _] =
-        //       pre_labels_cache_.emplace(other_vertex, GetPreLabels(*other_vertex, commit_timestamp_));
-        //   plc_itr = itr;
-        // }
-
-        auto from_lock = std::unique_lock{other_vertex->lock, std::defer_lock};
-        auto to_lock = std::unique_lock{v->lock, std::defer_lock};
-
-        if (v == other_vertex) {
-          from_lock.lock();
-        } else if (v->gid < other_vertex->gid) {
-          to_lock.lock();
-          from_lock.lock();
-        } else {
-          from_lock.lock();
-          to_lock.lock();
-        }
-
-        const auto pre_edge_properties = GetCommittedPropertyTypes(edge_ref, properties_on_edges_);
-        const auto post_edge_properties = GetPropertyTypes(edge_ref, commit_timestamp_, properties_on_edges_);
-
-        auto &tracking_pre_info =
-            tracking_[Tracking::EdgeType{edge_type, GetCommittedLabels(*v), GetCommittedLabels(*other_vertex)}];
-        --tracking_pre_info.n;
-        for (const auto &[key, val] : pre_edge_properties) {
-          auto &prop_info = tracking_pre_info.properties[key];
-          --prop_info.n;
-          --prop_info.types[val];
-        }
-        auto &tracking_post_info = tracking_[Tracking::EdgeType{edge_type, GetLabels(*v, commit_timestamp_),
-                                                                GetLabels(*other_vertex, commit_timestamp_)}];
-        ++tracking_post_info.n;
-        for (const auto &[key, val] : post_edge_properties) {
-          auto &prop_info = tracking_post_info.properties[key];
-          ++prop_info.n;
-          ++prop_info.types[val];
-        }
-      }
+    --tracking_pre_info.n;
+    ++tracking_post_info.n;
+    for (const auto &[key, val] : pre_edge_properties) {
+      auto &prop_pre_info = tracking_pre_info.properties[key];
+      --prop_pre_info.n;
+      --prop_pre_info.types[val];
+      auto &prop_post_info = tracking_post_info.properties[key];
+      ++prop_post_info.n;
+      ++prop_post_info.types[val];
     }
   }
 }
 
-std::map<PropertyId, PropertyValue> TransactionEdgeHandler::GetPreProperties(const EdgeRef &edge_ref) const {
-  std::map<PropertyId, PropertyValue> properties;
+std::map<PropertyId, PropertyValueType> TransactionEdgeHandler::GetPrePropertyTypes(const EdgeRef &edge_ref) const {
+  std::map<PropertyId, PropertyValueType> properties;
   if (properties_on_edges_) {
     const auto *edge = edge_ref.ptr;
     auto lock = std::unique_lock{edge->lock};
-    properties = edge->properties.Properties();
+    properties = edge->properties.PropertyTypes();
     if (edge->delta) {
       ApplyUncommittedDeltasForRead(edge->delta, [&properties](const Delta &delta) {
         // clang-format off
         DeltaDispatch(delta, utils::ChainedOverloaded{
-          Properties_ActionMethod(properties)
+          PropertyTypes_ActionMethod(properties)
         });
         // clang-format on
       });
@@ -630,16 +586,16 @@ std::map<PropertyId, PropertyValue> TransactionEdgeHandler::GetPreProperties(con
   return properties;
 }
 
-std::map<PropertyId, PropertyValue> TransactionEdgeHandler::GetPostProperties(const EdgeRef &edge_ref) const {
-  std::map<PropertyId, PropertyValue> properties;
+std::map<PropertyId, PropertyValueType> TransactionEdgeHandler::GetPostPropertyTypes(const EdgeRef &edge_ref) const {
+  std::map<PropertyId, PropertyValueType> properties;
   if (properties_on_edges_) {
     const auto *edge = edge_ref.ptr;
     auto lock = std::unique_lock{edge->lock};
-    properties = edge->properties.Properties();
+    properties = edge->properties.PropertyTypes();
     ApplyDeltasForRead(edge->delta, commit_timestamp_, [&properties](const Delta &delta) {
       // clang-format off
         DeltaDispatch(delta, utils::ChainedOverloaded{
-          Properties_ActionMethod(properties)
+          PropertyTypes_ActionMethod(properties)
         });
       // clang-format on
     });
@@ -647,84 +603,155 @@ std::map<PropertyId, PropertyValue> TransactionEdgeHandler::GetPostProperties(co
   return properties;
 }
 
-void EdgeHandler::PostProcess() {
-  if (!edge_type_) return;  // Nothing to update
-  // We are only removing properties that have existed before transaction
-  for (const auto &[id, val] : remove_property_) {
-    --tracking_[*edge_type_].properties[id].n;
-    --tracking_[*edge_type_].properties[id].types[val];
-  }
-  // Add the new (or updated) properties
-  for (const auto &[id, val] : add_property_) {
-    ++tracking_[*edge_type_].properties[id].n;
-    ++tracking_[*edge_type_].properties[id].types[val];
-  }
-}
+bool EdgeHandler::ExistedPreTx() const {
+  bool res = true;
 
-void EdgeHandler::PreProcessProperties() {
-  post_properties_ = GetPropertyTypes(EdgeRef{&edge_}, commit_timestamp_, true /* properties on edges */);
-  pre_properties_ = post_properties_;
-
-  ApplyUncommittedDeltasForRead(edge_.delta, [this](const Delta &delta) {
+  ApplyUncommittedDeltasForRead(edge_.delta, [&res](const Delta &delta) {
     // clang-format off
         DeltaDispatch(delta, utils::ChainedOverloaded{
-          PropertyTypes_ActionMethod(pre_properties_),
+          Exists_ActionMethod(res),
         });
     // clang-format on
   });
+
+  return res;
 }
 
-Delta *EdgeHandler::NextDelta(const Delta *delta) const { return ::NextDelta(delta, commit_timestamp_); }
+auto EdgeHandler::PropertyType_ActionMethod(
+    const memgraph::storage::PropertyStore &properties,
+    std::unordered_map<memgraph::storage::PropertyId,
+                       std::pair<memgraph::storage::PropertyValueType, memgraph::storage::PropertyValueType>> &diff) {
+  // clang-format off
+  using enum memgraph::storage::Delta::Action;
+  return memgraph::storage::ActionMethod<SET_PROPERTY>([this, &properties,
+                                                        &diff](memgraph::storage::Delta const &delta) {
+    if (!edge_type_) {
+      // We are only interested in the final position. All other changes are handled elsewhere.
+      // We still need to lock the vertices
 
-void EdgeHandler::UpdateProperty(const Delta *delta) {
-  const auto key = delta->property.key;
-  const auto type = delta->property.value->type();
+      auto *out_vertex = delta.property.out_vertex;
 
-  if (!edge_type_) {
-    // We are only interested in the final position. All other changes are handled elsewhere.
-    // We still need to lock the vertices
+      decltype(out_vertex->out_edges)::value_type out_edge{EdgeTypeId{}, nullptr, EdgeRef{nullptr}};
 
-    const auto *out_vertex = delta->property.out_vertex;
 
-    decltype(out_vertex->out_edges) out_edges;
-    {
-      auto v_lock = std::unique_lock{out_vertex->lock};
-      out_edges = GetRemainingPreEdges<EdgeDirection::OUT>(*out_vertex);
-    }
+      auto from_lock = std::unique_lock{out_vertex->lock, std::defer_lock};
 
-    for (const auto &out_edge : out_edges) {
-      if (std::get<2>(out_edge).ptr == &edge_) {
-        const auto *in_vertex = std::get<1>(out_edge);
 
-        auto from_lock = std::unique_lock{out_vertex->lock, std::defer_lock};
-        auto to_lock = std::unique_lock{in_vertex->lock, std::defer_lock};
+      if (needs_to_lock_) {from_lock.lock();}
 
+      // Optimistic search
+      const auto edge_itr = std::find_if(out_vertex->out_edges.begin(), out_vertex->out_edges.end(),
+                                          [ptr = &edge_](const auto &elem) { return std::get<2>(elem).ptr == ptr; });
+      if (edge_itr != out_vertex->out_edges.end()) {
+        out_edge = *edge_itr;
+      } else {
+        // Not found; regenerate edges as seen by this transaction in case someone else deleted this edge
+        const auto out_edges = GetEdges<EdgeDirection::OUT>(*out_vertex, commit_timestamp_);
+        const auto edge_itr = std::find_if(out_edges.begin(), out_edges.end(),
+                                            [ptr = &edge_](const auto &elem) { return std::get<2>(elem).ptr == ptr; });
+        out_edge = *edge_itr;
+      }
+
+      auto *in_vertex = std::get<1>(out_edge);
+
+      auto to_lock = std::unique_lock{in_vertex->lock, std::defer_lock};
+
+      if (needs_to_lock_) {
         if (in_vertex == out_vertex) {
-          from_lock.lock();
+          // from_lock.lock();
         } else if (in_vertex->gid < out_vertex->gid) {
+          from_lock.unlock();
           to_lock.lock();
           from_lock.lock();
         } else {
-          from_lock.lock();
+          // from_lock.lock();
           to_lock.lock();
         }
-
-        edge_type_ = Tracking::EdgeType{std::get<0>(out_edge), GetLabels(*out_vertex, commit_timestamp_),
-                                        GetLabels(*in_vertex, commit_timestamp_)};
-        break;
+        edge_type_.emplace(std::get<0>(out_edge), GetLabels(*out_vertex, commit_timestamp_),
+                          GetLabels(*in_vertex, commit_timestamp_), 0);
+      } else {
+        edge_type_.emplace(std::get<0>(out_edge), out_vertex->labels,
+                          in_vertex->labels);
       }
     }
+
+    const auto key = delta.property.key;
+    const auto old_type = delta.property.value->type();
+    auto itr = diff.find(key);
+    if (itr == diff.end()) {
+      diff.emplace(key, std::make_pair( edge_.deleted ? PropertyValueType::Null : properties.GetPropertyType(key), old_type));
+    } else {
+      itr->second.second = old_type;
+    }
+  });
+  // clang-format on
+}
+
+auto EdgeHandler::GetPropertyDiff(const memgraph::storage::PropertyStore &properties, memgraph::storage::Delta *delta) {
+  std::unordered_map<memgraph::storage::PropertyId,
+                     std::pair<memgraph::storage::PropertyValueType, memgraph::storage::PropertyValueType>>
+      diff;
+
+  ApplyUncommittedDeltasForRead(delta, [this, &properties, &diff](const memgraph::storage::Delta &delta) {
+    // clang-format off
+    DeltaDispatch(delta, memgraph::utils::ChainedOverloaded{
+                             PropertyType_ActionMethod(properties, diff),
+                         });
+    // clang-format on
+  });
+
+  return diff;
+}
+
+void EdgeHandler::Process() {
+  // NOTE: When adding/removing edge, all changes are handled during vertex processing
+  // Uncomment this line to move edge property updates here instead of during vertex processing
+  // needs_to_lock_ = !edge_.deleted && ExistedPreTx();
+  if (edge_.deleted || !ExistedPreTx()) return;  // Nothing to do, all has been handled by vertex handlers
+
+  const auto diff_ = GetPropertyDiff(edge_.properties, edge_.delta);
+  if (diff_.empty()) return;
+
+  TrackingInfo *tracking_info{};
+  if (needs_to_lock_) {
+    tracking_info = &tracking_[edge_type_->type_.type];
+  } else {
+    tracking_info = &tracking_[edge_type_->ref_.ref];
   }
-  // Is this a property that existed pre transaction
-  if (pre_properties_.contains(key)) {
-    // We are going in order from newest to oldest; so we don't actually want the first, but the last value
-    remove_property_.emplace(key, type);
-  }
-  // Still holding on to the property after commit?
-  if (auto type_itr = post_properties_.find(key); type_itr != post_properties_.end()) {
-    // We are going in order from newest to oldest; so we only want the first hit (latest value)
-    add_property_.try_emplace(key, type_itr->second);
+
+  for (const auto &[key, diff] : diff_) {
+    if (diff.first != diff.second) {
+      auto &info = tracking_info->properties[key];
+      if (diff.second != PropertyValueType::Null) {
+        --info.n;
+        --info.types[diff.second];
+      }
+      if (diff.first != PropertyValueType::Null) {
+        ++info.n;
+        ++info.types[diff.first];
+      }
+    }
   }
 }
 
 }  // namespace memgraph::storage
+
+// size_t std::equal_to<memgraph::storage::EdgeType>::operator()(const memgraph::storage::EdgeTypeRef &lhs,
+//                                                               const memgraph::storage::EdgeTypeRef &rhs) const {
+//   return rhs == lhs;
+// }
+
+size_t std::equal_to<memgraph::storage::EdgeType>::operator()(const memgraph::storage::EdgeType &lhs,
+                                                              const memgraph::storage::EdgeTypeRef &rhs) const {
+  return lhs == rhs;
+}
+
+size_t std::equal_to<memgraph::storage::EdgeType>::operator()(const memgraph::storage::EdgeTypeRef &lhs,
+                                                              const memgraph::storage::EdgeType &rhs) const {
+  return lhs == rhs;
+}
+
+size_t std::equal_to<memgraph::storage::EdgeType>::operator()(const memgraph::storage::EdgeType &lhs,
+                                                              const memgraph::storage::EdgeType &rhs) const {
+  return lhs == rhs;
+}

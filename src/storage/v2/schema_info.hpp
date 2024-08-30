@@ -14,16 +14,15 @@
 #include <algorithm>
 #include <cstdint>
 #include <functional>
-#include <mutex>
-#include <ranges>
+#include <memory>
 #include <type_traits>
 #include <unordered_map>
 #include <unordered_set>
 
-#include "mgp.hpp"
 #include "storage/v2/delta.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/edge_accessor.hpp"
+#include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
@@ -31,132 +30,162 @@
 #include "storage/v2/vertex.hpp"
 #include "utils/logging.hpp"
 #include "utils/small_vector.hpp"
-#include "utils/variant_helpers.hpp"
+
+namespace memgraph::storage {
+struct Tracking;
+struct EdgeType;
+struct EdgeTypeRef;
+}  // namespace memgraph::storage
 
 namespace std {
 template <>
 struct hash<memgraph::utils::small_vector<memgraph::storage::LabelId>> {
   size_t operator()(const memgraph::utils::small_vector<memgraph::storage::LabelId> &x) const {
-    return mgp::util::FnvCollection<memgraph::utils::small_vector<memgraph::storage::LabelId>,
-                                    memgraph::storage::LabelId>{}(x);
+    uint64_t hash = 0;
+    for (const auto &element : x) {
+      uint32_t val = element.AsUint();
+      val = ((val >> 16) ^ val) * 0x45d9f3b;
+      val = ((val >> 16) ^ val) * 0x45d9f3b;
+      val = (val >> 16) ^ val;
+      hash ^= val;
+    }
+    return hash;
   }
 };
+
+template <>
+struct equal_to<memgraph::utils::small_vector<memgraph::storage::LabelId>> {
+  size_t operator()(const memgraph::utils::small_vector<memgraph::storage::LabelId> &lhs,
+                    const memgraph::utils::small_vector<memgraph::storage::LabelId> &rhs) const {
+    return lhs.size() == rhs.size() && std::is_permutation(lhs.begin(), lhs.end(), rhs.begin(), rhs.end());
+  }
+};
+
+template <>
+struct equal_to<memgraph::storage::EdgeType> {
+  using is_transparent = void;
+  size_t operator()(const memgraph::storage::EdgeType &lhs, const memgraph::storage::EdgeType &rhs) const;
+  size_t operator()(const memgraph::storage::EdgeTypeRef &lhs, const memgraph::storage::EdgeType &rhs) const;
+  size_t operator()(const memgraph::storage::EdgeType &lhs, const memgraph::storage::EdgeTypeRef &rhs) const;
+  size_t operator()(const memgraph::storage::EdgeTypeRef &lhs, const memgraph::storage::EdgeTypeRef &rhs) const;
+};
+
 }  // namespace std
 
 // TODO Add namespace schema_info
 namespace memgraph::storage {
 
-using find_edge_f = std::function<std::optional<EdgeAccessor>(Gid, View)>;
-
-utils::small_vector<LabelId> GetPreLabels(const Vertex &vertex, uint64_t commit_timestamp);
-
 utils::small_vector<LabelId> GetCommittedLabels(const Vertex &vertex);
-std::map<PropertyId, PropertyValue::Type> GetCommittedPropertyTypes(const EdgeRef &edge_ref, bool properties_on_edges);
 
 utils::small_vector<LabelId> GetLabels(const Vertex &vertex, uint64_t commit_timestamp);
-std::map<PropertyId, PropertyValue::Type> GetPropertyTypes(const EdgeRef &edge_ref, uint64_t commit_timestamp,
-                                                           bool properties_on_edges);
-
-Gid GetEdgeGid(const EdgeRef &edge_ref, bool properties_on_edges);
-
-struct EdgeRefHasher {
-  size_t operator()(const EdgeRef &ref) const {
-    size_t combined_hash = 0;
-    auto element_hash = [&combined_hash](const auto &elem) {
-      size_t element_hash = std::hash<std::decay_t<decltype(elem)>>{}(elem);
-      combined_hash ^= element_hash + 0x9e3779b9 + (combined_hash << 6) + (combined_hash >> 2);
-    };
-
-    element_hash(static_cast<void *>(ref.ptr));  // Both elements in the union are 64b; just use raw data
-    return combined_hash;
-  }
-};
 
 struct PropertyInfo {
   int n{0};
   std::unordered_map<PropertyValue::Type, int> types;
 };
-struct TrackingVertexInfo {
-  auto N() const { return n; }
-  int n{0};
-  std::unordered_map<PropertyId, PropertyInfo> properties;
-};
-struct TrackingEdgeInfo {
-  // int n{0};
-  // auto N() const { return edges.size(); }
-
-  // struct Info {
-  //   Vertex *from{};
-  //   Vertex *to{};
-  //   std::unordered_map<PropertyId, PropertyValue::Type> properties{};
-  // };
-
-  // std::unordered_map<EdgeRef, Info, EdgeRefHasher> edges;
-  // std::unordered_map<PropertyId, PropertyInfo> properties;  // unused
-
-  auto N() const { return n; }
+struct TrackingInfo {
   int n{0};
   std::unordered_map<PropertyId, PropertyInfo> properties;
 };
 
-struct Tracking {
-  using v_key_type = utils::small_vector<LabelId>;
+using v_key_type = utils::small_vector<LabelId>;
 
-  struct EdgeType {
-    EdgeTypeId type;
-    v_key_type from_v_type;
-    v_key_type to_v_type;
+struct EdgeType;
 
-    EdgeType(EdgeTypeId id, v_key_type from, v_key_type to)
-        : type{id}, from_v_type{std::move(from)}, to_v_type(std::move(to)) {
-      if (!std::is_sorted(from_v_type.begin(), from_v_type.end())) {
-        std::sort(from_v_type.begin(), from_v_type.end());
-      }
-      if (!std::is_sorted(to_v_type.begin(), to_v_type.end())) {
-        std::sort(to_v_type.begin(), to_v_type.end());
-      }
+struct EdgeTypeRef {
+  EdgeTypeId type;
+  v_key_type &from_v_type;
+  v_key_type &to_v_type;
+
+  EdgeTypeRef(EdgeTypeId id, v_key_type &from, v_key_type &to) : type{id}, from_v_type{from}, to_v_type(to) {}
+
+  inline bool operator==(const EdgeType &type) const;
+};
+
+struct EdgeType {
+  EdgeTypeId type;
+  v_key_type from_v_type;
+  v_key_type to_v_type;
+
+  EdgeType(EdgeTypeId id, v_key_type from, v_key_type to)
+      : type{id}, from_v_type{std::move(from)}, to_v_type(std::move(to)) {}
+
+  EdgeType() = default;
+  EdgeType(const EdgeType &) = default;
+  EdgeType(EdgeType &&) noexcept = default;
+  EdgeType &operator=(const EdgeType &) = default;
+  EdgeType &operator=(EdgeType &&) noexcept = default;
+
+  struct hasher {
+    using is_transparent = void;
+
+    size_t operator()(const EdgeType &et) const {
+      size_t combined_hash = 0;
+      auto element_hash = [&combined_hash](const auto &elem) {
+        size_t element_hash = std::hash<std::decay_t<decltype(elem)>>{}(elem);
+        combined_hash ^= element_hash + 0x9e3779b9 + (combined_hash << 6) + (combined_hash >> 2);
+      };
+
+      element_hash(et.type);
+      element_hash(et.from_v_type);
+      element_hash(et.to_v_type);
+      return combined_hash;
     }
 
-    EdgeType() = default;
-    EdgeType(const EdgeType &) = default;
-    EdgeType(EdgeType &&) noexcept = default;
-    EdgeType &operator=(const EdgeType &) = default;
-    EdgeType &operator=(EdgeType &&) noexcept = default;
+    size_t operator()(const EdgeTypeRef &et) const {
+      size_t combined_hash = 0;
+      auto element_hash = [&combined_hash](const auto &elem) {
+        size_t element_hash = std::hash<std::decay_t<decltype(elem)>>{}(elem);
+        combined_hash ^= element_hash + 0x9e3779b9 + (combined_hash << 6) + (combined_hash >> 2);
+      };
 
-    struct hasher {
-      size_t operator()(const EdgeType &et) const {
-        size_t combined_hash = 0;
-        auto element_hash = [&combined_hash](const auto &elem) {
-          size_t element_hash = std::hash<std::decay_t<decltype(elem)>>{}(elem);
-          combined_hash ^= element_hash + 0x9e3779b9 + (combined_hash << 6) + (combined_hash >> 2);
-        };
-
-        element_hash(et.type);
-        element_hash(et.from_v_type);
-        element_hash(et.to_v_type);
-        return combined_hash;
-      }
-    };
-
-    bool operator==(const EdgeType &other) const {
-      return type == other.type && from_v_type == other.from_v_type && to_v_type == other.to_v_type;
+      element_hash(et.type);
+      element_hash(et.from_v_type);
+      element_hash(et.to_v_type);
+      return combined_hash;
     }
   };
 
+  bool operator==(const EdgeType &other) const {
+    // Fast check
+    if (type != other.type || from_v_type.size() != other.from_v_type.size() ||
+        to_v_type.size() != other.to_v_type.size())
+      return false;
+    // Slow check
+    return std::is_permutation(from_v_type.begin(), from_v_type.end(), other.from_v_type.begin(),
+                               other.from_v_type.end()) &&
+           std::is_permutation(to_v_type.begin(), to_v_type.end(), other.to_v_type.begin(), other.to_v_type.end());
+  }
+
+  bool operator==(const EdgeTypeRef &other) const {
+    // Fast check
+    if (type != other.type || from_v_type.size() != other.from_v_type.size() ||
+        to_v_type.size() != other.to_v_type.size())
+      return false;
+    // Slow check
+    return std::is_permutation(from_v_type.begin(), from_v_type.end(), other.from_v_type.begin(),
+                               other.from_v_type.end()) &&
+           std::is_permutation(to_v_type.begin(), to_v_type.end(), other.to_v_type.begin(), other.to_v_type.end());
+  }
+};
+
+struct Tracking {
   // We want the key to be independent of the vector order.
   // Could create a hash and equals function that is independent
   // Difficult to make them performant and low collision
   // Stick to sorting keys for now
-  TrackingVertexInfo &operator[](const v_key_type &key) {
-    if (!std::is_sorted(key.begin(), key.end())) {
-      auto sorted_key = key;
-      std::sort(sorted_key.begin(), sorted_key.end());
-      return vertex_state_[sorted_key];
-    }
-    return vertex_state_[key];
-  }
+  TrackingInfo &operator[](const v_key_type &key) { return vertex_state_[key]; }
 
-  TrackingEdgeInfo &operator[](const EdgeType &key) { return edge_state_[key]; }
+  TrackingInfo &operator[](const EdgeType &key) { return edge_state_[key]; }
+
+  TrackingInfo &operator[](const EdgeTypeRef &key) {
+    auto itr = edge_state_.find(key);
+    if (itr == edge_state_.end()) {
+      auto [new_itr, _] = edge_state_.emplace(EdgeType{key.type, key.from_v_type, key.to_v_type}, TrackingInfo{});
+      return new_itr->second;
+    }
+    return itr->second;
+  }
 
   void CleanUp();
 
@@ -164,118 +193,58 @@ struct Tracking {
 
   nlohmann::json ToJson(NameIdMapper &name_id_mapper, bool properties_on_edges);
 
-  // friend void from_json(const nlohmann::json &j, Tracking &info);
-
-  std::unordered_map<v_key_type, TrackingVertexInfo> vertex_state_;
-  std::unordered_map<EdgeType, TrackingEdgeInfo, EdgeType::hasher> edge_state_;
+  std::unordered_map<v_key_type, TrackingInfo> vertex_state_;
+  std::unordered_map<EdgeType, TrackingInfo, EdgeType::hasher, std::equal_to<EdgeType>> edge_state_;
 };
+
+inline bool EdgeTypeRef::operator==(const EdgeType &type) const { return type == *this; }
 
 class TransactionEdgeHandler {
  public:
   explicit TransactionEdgeHandler(Tracking &tracking, uint64_t commit_timestamp, bool properties_on_edges)
       : tracking_{tracking}, commit_timestamp_{commit_timestamp}, properties_on_edges_{properties_on_edges} {}
 
-  template <typename F>
-  // Using F so we don't lock/generate if not necessary
-  void RemoveEdge(const Delta *delta, F &&gen_edge_type) {
-    // DMG_ASSERT(delta->action == Delta::Action::ADD_OUT_EDGE, "Trying to remove edge using the wrong delta");
+  void RemoveEdge(const Delta *delta, EdgeTypeId edge_type, const Vertex *from_vertex, const Vertex *to_vertex);
 
-    // Already flagged to be removed
-    if (remove_edges_.find(delta->vertex_edge.edge) != remove_edges_.end()) return;
-
-    // TODO Check if this is needed
-    // Block edge loop from updating
-    ShouldHandleEdge(delta->vertex_edge.edge);
-
-    // TODO Check if this makes it faster
-    // auto plc_itr = pre_labels_cache_.find(delta->vertex_edge.vertex);
-    // if (plc_itr == pre_labels_cache_.end()) {
-    //   const auto [itr, _] = pre_labels_cache_.emplace(delta->vertex_edge.vertex,
-    //                                                   GetPreLabels(*delta->vertex_edge.vertex, commit_timestamp_));
-    //   plc_itr = itr;
-    // }
-
-    remove_edges_.emplace(delta->vertex_edge.edge, gen_edge_type());
-  }
-
-  template <typename F>
-  // Using F so we don't lock/generate if not necessary
-  void AddEdge(const Delta *delta, F &&gen_edge_type) {
-    // DMG_ASSERT(delta->action == Delta::Action::REMOVE_OUT_EDGE, "Trying to add edge using the wrong delta");
-
-    // ADD is processed after all REMOVEs, so just remove from the set
-    const auto erased = remove_edges_.erase(delta->vertex_edge.edge);
-    if (erased != 0) {
-      // This edge will be erased in the future, no need to add it at all
-      return;
-    }
-
-    // TODO Check if this is needed
-    // Update inplace, but block edge loop from updating
-    ShouldHandleEdge(delta->vertex_edge.edge);
-
-    auto &tracking_info = tracking_[gen_edge_type()];
-    ++tracking_info.n;
-    for (const auto &[key, val] : GetPostProperties(delta->vertex_edge.edge)) {
-      auto &prop_info = tracking_info.properties[key];
-      ++prop_info.n;
-      ++prop_info.types[val.type()];
-    }
-  }
-
-  bool ShouldHandleEdge(const EdgeRef &edge_ref) {
-    Gid edge_gid = GetEdgeGid(edge_ref, properties_on_edges_);
-    return ShouldHandleEdge(edge_gid);
-  }
-
-  bool ShouldHandleEdge(Gid edge_gid) {
-    const auto [_, emplaced] = handled_edges.emplace(edge_gid);
-    return emplaced;
-  }
+  void AddEdge(const Delta *delta, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex);
 
   void PostVertexProcess();
 
-  void AppendToPostProcess(Vertex *vertex) { post_process_vertices_.push_back(vertex); }
+  void AppendToPostProcess(EdgeRef ref, EdgeTypeId type, Vertex *from, Vertex *to) {
+    post_process_edges_.emplace(ref, type, from, to);
+  }
 
  private:
-  std::map<PropertyId, PropertyValue> GetPreProperties(const EdgeRef &edge_ref) const;
-  std::map<PropertyId, PropertyValue> GetPostProperties(const EdgeRef &edge_ref) const;
+  std::map<PropertyId, PropertyValueType> GetPrePropertyTypes(const EdgeRef &edge_ref) const;
+  std::map<PropertyId, PropertyValueType> GetPostPropertyTypes(const EdgeRef &edge_ref) const;
 
   Tracking &tracking_;
-  std::unordered_set<Gid> handled_edges{};
   uint64_t commit_timestamp_{-1UL};
   bool properties_on_edges_{false};
 
   struct EdgeRefHasher {
     size_t operator()(const EdgeRef &ref) const {
-      size_t combined_hash = 0;
-      auto element_hash = [&combined_hash](const auto &elem) {
-        size_t element_hash = std::hash<std::decay_t<decltype(elem)>>{}(elem);
-        combined_hash ^= element_hash + 0x9e3779b9 + (combined_hash << 6) + (combined_hash >> 2);
-      };
-
-      // GID/pointer already unique, no need to combine
-      element_hash(static_cast<void *>(ref.ptr));  // Both are uint64
-      return combined_hash;
+      // Both gid and ptr are the same size and unique; just pretend it's the gid
+      return ref.gid.AsUint();
     }
   };
 
-  std::unordered_map<Vertex *, utils::small_vector<LabelId>> pre_labels_cache_;
-  std::unordered_map<EdgeRef, Tracking::EdgeType, EdgeRefHasher> remove_edges_;
+  std::unordered_map<EdgeRef, EdgeType, EdgeRefHasher> remove_edges_;
 
-  std::vector<Vertex *> post_process_vertices_;
+  struct hasher {
+    size_t operator()(const std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *> &et) const {
+      return std::get<0>(et).gid.AsUint();  // Ref should be enough (both gid and ptr are the same size and unique; just
+                                            // pretend it's the gid)
+    }
+  };
+
+  std::unordered_set<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>, hasher> post_process_edges_;
 };
 
 class VertexHandler {
  public:
   explicit VertexHandler(Vertex &vertex, Tracking &tracking, uint64_t commit_timestamp)
-      : vertex_{vertex}, commit_timestamp_{commit_timestamp}, guard_{vertex_.lock}, tracking_{tracking} {}
-
-  void PreProcess();
-
-  Delta *FirstDelta() const { return vertex_.delta; }
-
-  Delta *NextDelta(const Delta *delta) const;
+      : vertex_{vertex}, commit_timestamp_{commit_timestamp}, /*guard_{vertex_.lock},*/ tracking_{tracking} {}
 
   void AddVertex() {
     label_update_ = true;
@@ -289,39 +258,23 @@ class VertexHandler {
 
   void UpdateLabel() { label_update_ = true; }
 
-  void UpdateProperty(PropertyId key, const PropertyValue &value) {
-    // Is this a property that existed pre transaction
-    if (pre_properties_.contains(key)) {
-      // We are going in order from newest to oldest; so we don't actually want the first, but the last value
-      remove_property_.emplace(key, value.type());
-    }
-    // Still holding on to the property after commit?
-    if (!vertex_.deleted && vertex_.properties.HasProperty(key)) {
-      add_property_.try_emplace(key, vertex_.properties.GetProperty(key).type());
-    }
-  }
+  void UpdateProperty(PropertyId key, const PropertyValue &value);
 
-  void ProcessRemainingPreEdges();
-
-  template <bool OutEdge>
-  bool GetsDeleted(auto &edge_identifier) const {
-    if constexpr (OutEdge) {
-      const auto &post_out_edges = vertex_.out_edges;
-      return std::find(post_out_edges.begin(), post_out_edges.end(), edge_identifier) == post_out_edges.end();
-    }
-    const auto &post_in_edges = vertex_.in_edges;
-    return std::find(post_in_edges.begin(), post_in_edges.end(), edge_identifier) == post_in_edges.end();
-  }
-
-  // TODO: Think about having an optional and hydrating only if needed
-  const auto &PreLabels() const { return pre_labels_; }
+  const auto &PreLabels() const;
+  const auto &PreProperties() const;
 
   // Current labels are the post labels, multiple changes from different transactions to the same vertex would
   // generate a serialization error
-  // TODO Double check
   const auto &PostLabels() const { return vertex_.labels; }
 
   void PostProcess(TransactionEdgeHandler &edge_handler);
+
+  auto PropertyType_ActionMethod(
+      const memgraph::storage::PropertyStore &properties,
+      std::unordered_map<memgraph::storage::PropertyId,
+                         std::pair<memgraph::storage::PropertyValueType, memgraph::storage::PropertyValueType>> &diff);
+
+  auto GetPropertyDiff();
 
   // TODO Use pointer
   // TODO Hide
@@ -329,93 +282,62 @@ class VertexHandler {
   uint64_t commit_timestamp_{-1UL};
 
  private:
-  std::shared_lock<decltype(vertex_.lock)> guard_;
-  decltype(vertex_.labels) pre_labels_;
-  std::map<PropertyId, PropertyValue::Type> pre_properties_;
-  decltype(vertex_.in_edges) pre_remaining_in_edges_;
-  decltype(vertex_.out_edges) pre_remaining_out_edges_;
+  mutable std::optional<decltype(vertex_.labels)> pre_labels_;
+  mutable std::optional<std::map<PropertyId, PropertyValue::Type>> pre_properties_;
 
   bool label_update_{false};
   bool vertex_added_{false};
+  bool update_property_{false};
   std::unordered_map<PropertyId, PropertyValue::Type> remove_property_;
   std::unordered_map<PropertyId, PropertyValue::Type> add_property_;
 
   Tracking &tracking_;
-
-  //
-  //
-  //
-  // How to connect an edge to a changing vertex?
-  // What is protected at delta time?
-  //  - any operation on the object itself
-  //  - add/remove labels/properties on vertices or edges
-  //
-  // If we need to lock both ends, we need to lock in order of GID
-  // We never lock all 3 (in/out vertex and edge)
-  //
-  //
-  // Covered:
-  //  - vertex info label/property changes (without edge updating)
-  //
-  // Not covered:
-  //  - anything with the edge
-  //
-  //
-  // Lets assume we protect the schema with the engine lock (no need to think about concurrency there <- for now...)
-  //
-  // Edges can change due to:
-  //  - out vertex add/remove edge delta
-  //  - in/out vertex label change
-  //  - edge property change
-  //
-  // All require 3 way locking <- basically impossible
-  // We need to split the changes and recombine at SHOW SCHEMA INFO time
-  //
-  // Vertex info stores:
-  //  - an unordered set of vertex pointers <- basically instead of n
-  //  - still need to maintain properties as they are now; since we are locked should not be a problem
-  // Edge info stores:
-  //  - an unordered map of edgeref to from/to vertex pointers
-  //  - properties as is (under lock so ok)
-  //
-  //
 };
 
 class EdgeHandler {
  public:
   explicit EdgeHandler(Edge &edge, Tracking &tracking, uint64_t commit_timestamp)
-      : edge_{edge}, commit_timestamp_{commit_timestamp}, guard_{edge.lock}, tracking_{tracking} {}
+      : edge_{edge}, commit_timestamp_{commit_timestamp}, /*guard_{edge.lock},*/ tracking_{tracking} {}
 
-  template <typename Func>
-  void PreProcess(Func &&find_edge) {
-    PreProcessProperties();
-  }
+  void Process();
 
-  Delta *FirstDelta() const { return edge_.delta; }
+  bool ExistedPreTx() const;
 
-  Delta *NextDelta(const Delta *delta) const;
+  auto PropertyType_ActionMethod(
+      const memgraph::storage::PropertyStore &properties,
+      std::unordered_map<memgraph::storage::PropertyId,
+                         std::pair<memgraph::storage::PropertyValueType, memgraph::storage::PropertyValueType>> &diff);
 
-  void UpdateProperty(const Delta *delta);
-
-  void PostProcess();
-
-  Gid Gid() const { return edge_.gid; }
+  auto GetPropertyDiff(const memgraph::storage::PropertyStore &properties, memgraph::storage::Delta *delta);
 
  private:
-  void PreProcessProperties();
+  union edge_type_t {
+    edge_type_t(EdgeTypeId id, v_key_type &from, v_key_type &to) : ref_{.ref{id, from, to}} {}
+    edge_type_t(EdgeTypeId id, const v_key_type &from, const v_key_type &to, int /* tag */)
+        : type_{.type{id, from, to}} {}
+
+    bool is_ref = false;
+    struct {
+      bool is_ref = true;
+      EdgeTypeRef ref;
+    } ref_;
+    struct {
+      bool is_ref = false;
+      EdgeType type;
+    } type_;
+    ~edge_type_t() {
+      if (is_ref) {
+        std::destroy_at(&ref_.ref);
+      } else {
+        std::destroy_at(&type_.type);
+      }
+    }
+  };
 
   Edge &edge_;
   uint64_t commit_timestamp_{-1UL};
-  std::shared_lock<decltype(edge_.lock)> guard_;
-
-  std::optional<Tracking::EdgeType> edge_type_;
-
-  decltype(edge_.properties.PropertyTypes()) post_properties_;
-  decltype(edge_.properties.PropertyTypes()) pre_properties_;
-
-  std::unordered_map<PropertyId, PropertyValueType> remove_property_;
-  std::unordered_map<PropertyId, PropertyValueType> add_property_;
-
+  bool needs_to_lock_{true};
+  std::optional<edge_type_t> edge_type_;
   Tracking &tracking_;
 };
 
@@ -445,7 +367,7 @@ struct SchemaInfo {
         DMG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
         if (prev.type == PreviousPtr::Type::EDGE) {
           EdgeHandler edge_handler{*prev.edge, tracking_, commit_timestamp};
-          ProcessEdge(edge_handler, tx_edge_handler, std::forward<Func>(find_edge));
+          edge_handler.Process();
         }
       }
     }
@@ -461,48 +383,7 @@ struct SchemaInfo {
     return tracking_.ToJson(name_id_mapper, properties_on_edges);
   }
 
-  // friend void from_json(const nlohmann::json &j, SchemaInfo &info);
-
   void ProcessVertex(VertexHandler &vertex_handler, TransactionEdgeHandler &edge_handler);
-
-  template <typename Func>
-  void ProcessEdge(EdgeHandler &edge_handler, TransactionEdgeHandler &tx_edge_handler, Func &&find_edge) {
-    if (!tx_edge_handler.ShouldHandleEdge(edge_handler.Gid())) {
-      // Edge already processed
-      return;
-    }
-
-    const auto *delta = edge_handler.FirstDelta();
-    DMG_ASSERT(delta, "Processing edge without delta");
-
-    edge_handler.PreProcess(std::forward<Func>(find_edge));
-
-    while (delta) {
-      switch (delta->action) {
-        case Delta::Action::SET_PROPERTY: {
-          // Have to use storage->FindEdge in order to find the out/in vertices
-          edge_handler.UpdateProperty(delta);
-          break;
-        }
-        case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-        case Delta::Action::DELETE_OBJECT:
-        case Delta::Action::RECREATE_OBJECT:
-        case Delta::Action::ADD_LABEL:
-        case Delta::Action::REMOVE_LABEL:
-        case Delta::Action::ADD_OUT_EDGE:
-        case Delta::Action::REMOVE_OUT_EDGE:
-        case Delta::Action::ADD_IN_EDGE:
-        case Delta::Action::REMOVE_IN_EDGE:
-          // All other changes are handled via vertex changes
-          break;
-      }
-
-      // Advance along the chain
-      delta = edge_handler.NextDelta(delta);
-    }
-
-    edge_handler.PostProcess();
-  }
 
   Tracking tracking_;
 };

@@ -168,6 +168,8 @@ TYPED_TEST(SchemaInfoTest, SingleVertex) {
     auto acc = in_memory->Access();
     auto v = acc->CreateVertex();
     ASSERT_FALSE(v.AddLabel(l2).HasError());
+    ASSERT_FALSE(v.SetProperty(p, memgraph::storage::PropertyValue{"12"}).HasError());
+    ASSERT_FALSE(v.SetProperty(p, memgraph::storage::PropertyValue{false}).HasError());
     ASSERT_FALSE(v.SetProperty(p, memgraph::storage::PropertyValue{12}).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
     const auto json =

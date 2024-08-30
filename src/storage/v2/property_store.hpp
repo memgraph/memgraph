@@ -71,6 +71,8 @@ class PropertyStore {
   /// @throw std::bad_alloc
   PropertyValue GetProperty(PropertyId property) const;
 
+  PropertyValueType GetPropertyType(PropertyId property) const;
+
   /// Returns the size of the encoded property in bytes.
   /// Returns 0 if the property does not exist.
   /// The time complexity of this function is O(n).
