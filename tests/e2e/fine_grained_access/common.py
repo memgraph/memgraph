@@ -12,17 +12,18 @@
 import mgclient
 
 
+def setup_db():
+    admin_connection = connect(username="admin", password="test")
+    admin_cursor = admin_connection.cursor()
+    execute_and_fetch_all(admin_cursor, "CREATE DATABASE clean;")
+
+
 def switch_db(cursor):
     execute_and_fetch_all(cursor, "USE DATABASE clean;")
 
 
 def create_multi_db(cursor, switch):
     execute_and_fetch_all(cursor, "USE DATABASE memgraph;")
-    try:
-        execute_and_fetch_all(cursor, "DROP DATABASE clean;")
-    except:
-        pass
-    execute_and_fetch_all(cursor, "CREATE DATABASE clean;")
     if switch:
         switch_db(cursor)
         reset_and_prepare(cursor)
