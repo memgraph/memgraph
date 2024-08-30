@@ -87,6 +87,10 @@ struct PointIndex {
   auto CreateNewPointIndex(LabelPropKey labelPropKey, absl::flat_hash_set<Vertex const *> const &changed_vertices) const
       -> PointIndex;
 
+  auto EntryCount() const -> std::size_t {
+    return wgs_2d_index_->size() + wgs_3d_index_->size() + cartesian_2d_index_->size() + cartesian_3d_index_->size();
+  }
+
  private:
   PointIndex(std::shared_ptr<index_t<IndexPointWGS2d>> points2dWGS,
              std::shared_ptr<index_t<IndexPointWGS3d>> points3dWGS,
@@ -138,6 +142,10 @@ struct PointIndexStorage {
   void InstallNewPointIndex(PointIndexChangeCollector &collector, PointIndexContext &context);
 
   void Clear();
+
+  std::vector<std::pair<LabelId, PropertyId>> ListIndices();
+
+  uint64_t ApproximatePointCount(LabelId id, PropertyId id1);
 
  private:
   std::shared_ptr<index_container_t> indexes_ = std::make_shared<index_container_t>();

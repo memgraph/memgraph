@@ -136,6 +136,19 @@ void PointIndexStorage::InstallNewPointIndex(PointIndexChangeCollector &collecto
 }
 void PointIndexStorage::Clear() { indexes_->clear(); }
 
+std::vector<std::pair<LabelId, PropertyId>> PointIndexStorage::ListIndices() {
+  auto keys = *indexes_ | std::views::keys | std::views::transform([](LabelPropKey key) {
+    return std::pair{key.label(), key.property()};
+  });
+  return std::vector(keys.begin(), keys.end());
+}
+
+uint64_t PointIndexStorage::ApproximatePointCount(LabelId labelId, PropertyId propertyId) {
+  auto it = indexes_->find(LabelPropKey{labelId, propertyId});
+  if (it == indexes_->end()) return 0;
+  return it->second->EntryCount();
+}
+
 auto PointIndex::CreateNewPointIndex(LabelPropKey labelPropKey,
                                      absl::flat_hash_set<Vertex const *> const &changed_vertices) const -> PointIndex {
   DMG_ASSERT(!changed_vertices.empty(), "Expect at least one change");

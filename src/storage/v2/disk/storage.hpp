@@ -100,6 +100,11 @@ class DiskStorage final : public Storage {
 
     uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property) const override;
 
+    uint64_t ApproximatePointCount(LabelId label, PropertyId property) const override {
+      // Point index does not exist for on disk
+      return 0;
+    }
+
     std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId & /*label*/) const override {
       return {};
     }

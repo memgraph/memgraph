@@ -2644,8 +2644,11 @@ IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
   auto *mem_edge_type_property_index =
       static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
   auto &text_index = storage_->indices_.text_index_;
-  return {mem_label_index->ListIndices(), mem_label_property_index->ListIndices(), mem_edge_type_index->ListIndices(),
-          mem_edge_type_property_index->ListIndices(), text_index.ListIndices()};
+  auto &point_index = storage_->indices_.point_index_;
+
+  return {mem_label_index->ListIndices(),     mem_label_property_index->ListIndices(),
+          mem_edge_type_index->ListIndices(), mem_edge_type_property_index->ListIndices(),
+          text_index.ListIndices(),           point_index.ListIndices()};
 }
 ConstraintsInfo InMemoryStorage::InMemoryAccessor::ListAllConstraints() const {
   const auto *mem_storage = static_cast<InMemoryStorage *>(storage_);

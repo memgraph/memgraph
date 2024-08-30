@@ -942,3 +942,21 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
         Then the result should be:
             | result |
             | null   |
+
+    Scenario: Create point index:
+        Given an empty graph
+        And having executed
+            """
+            CREATE POINT INDEX ON :L1(prop1)
+            """
+        And having executed
+            """
+            CREATE (:L1 {prop1: POINT({x:1, y:1})});
+            """
+        When executing query:
+            """
+            SHOW INDEX INFO
+            """
+        Then the result should be:
+            | index type             | label | property | count |
+            | "point-label+property" | "L1"  | "prop1"  | 1     |

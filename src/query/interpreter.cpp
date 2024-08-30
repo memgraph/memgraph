@@ -4160,6 +4160,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         const std::string_view edge_type_index_mark{"edge-type"};
         const std::string_view edge_type_property_index_mark{"edge-type+property"};
         const std::string_view text_index_mark{"text"};
+        const std::string_view point_label_property_index_mark{"point-label+property"};
         auto info = dba->ListAllIndices();
         auto storage_acc = database->Access();
         std::vector<std::vector<TypedValue>> results;
@@ -4187,6 +4188,12 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
           results.push_back({TypedValue(fmt::format("{} (name: {})", text_index_mark, index_name)),
                              TypedValue(storage->LabelToName(label)), TypedValue(), TypedValue()});
         }
+        for (const auto &[label_id, prop_id] : info.point_label_property) {
+          results.push_back({TypedValue(point_label_property_index_mark), TypedValue(storage->LabelToName(label_id)),
+                             TypedValue(storage->PropertyToName(prop_id)),
+                             TypedValue(static_cast<int>(storage_acc->ApproximatePointCount(label_id, prop_id)))});
+        }
+
         std::sort(results.begin(), results.end(), [&label_index_mark](const auto &record_1, const auto &record_2) {
           const auto type_1 = record_1[0].ValueString();
           const auto type_2 = record_2[0].ValueString();

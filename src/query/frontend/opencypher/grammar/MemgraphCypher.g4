@@ -114,6 +114,7 @@ memgraphCypherKeyword : cypherKeyword
                       | ON_DISK_TRANSACTIONAL
                       | PASSWORD
                       | PERIODIC
+                      | POINT
                       | PORT
                       | PRIVILEGES
                       | PULSAR

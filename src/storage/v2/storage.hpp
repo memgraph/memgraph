@@ -71,6 +71,7 @@ struct IndicesInfo {
   std::vector<EdgeTypeId> edge_type;
   std::vector<std::pair<EdgeTypeId, PropertyId>> edge_type_property;
   std::vector<std::pair<std::string, LabelId>> text_indices;
+  std::vector<std::pair<LabelId, PropertyId>> point_label_property;
 };
 
 struct ConstraintsInfo {
@@ -224,6 +225,8 @@ class Storage {
     virtual uint64_t ApproximateEdgeCount(EdgeTypeId id) const = 0;
 
     virtual uint64_t ApproximateEdgeCount(EdgeTypeId id, PropertyId property) const = 0;
+
+    virtual uint64_t ApproximatePointCount(LabelId label, PropertyId property) const = 0;
 
     virtual std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const = 0;
 
