@@ -137,6 +137,8 @@ struct PointIndexStorage {
   // Commit
   void InstallNewPointIndex(PointIndexChangeCollector &collector, PointIndexContext &context);
 
+  void Clear();
+
  private:
   std::shared_ptr<index_container_t> indexes_ = std::make_shared<index_container_t>();
 };

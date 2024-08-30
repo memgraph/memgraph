@@ -134,6 +134,7 @@ void PointIndexStorage::InstallNewPointIndex(PointIndexChangeCollector &collecto
     }
   };
 }
+void PointIndexStorage::Clear() { indexes_->clear(); }
 
 auto PointIndex::CreateNewPointIndex(LabelPropKey labelPropKey,
                                      absl::flat_hash_set<Vertex const *> const &changed_vertices) const -> PointIndex {
