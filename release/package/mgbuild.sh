@@ -667,20 +667,31 @@ test_memgraph() {
         num_threads=$threads
       fi
 
-      if docker images | grep -q "$new_image_name"; then
-        echo "Image $new_image_name exists."
-      else
-        echo "Image $new_image_name does not exist."
+
+      create_image(){
         docker exec -u mg $build_container bash -c "pip install --user networkx && pip3 install --user networkx"
         docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && cd $MGBUILD_ROOT_DIR/tests && $ACTIVATE_VENV && source ve3/bin/activate_e2e"
         echo "commiting $build_container to $new_image_name"
         docker commit $build_container $new_image_name
         echo "done committing $build_container to $new_image_name"
+      }
+
+      if [[ "$DEFAULT_TESTING" == true ]]; then
+        echo "Testing set to true"
+        if docker images | grep -q "$new_image_name"; then
+           echo "Image $new_image_name exists."
+        else
+          echo "Creating image $new_image_name"
+          create_image
+        fi
+      else
+        docker rmi $new_image_name || true
+        create_image
       fi
 
       echo "running e2e tests"
       ret=0
-      python3 -u $PROJECT_ROOT/tools/github/coordinate_e2e_tests.py --image "$new_image_name" --threads $num_threads --project-root-dir "$PROJECT_ROOT" --container-root-dir "$MGBUILD_ROOT_DIR" --setup-command "$setup_command" || ret=$?
+      python3 -u $PROJECT_ROOT/tools/github/coordinate_e2e_tests.py --image "$new_image_name" --threads $num_threads --project-root-dir "$PROJECT_ROOT" --container-root-dir "$MGBUILD_ROOT_DIR" --setup-command "$setup_command" --original-container-id "$build_container" || ret=$?
       echo "The command e2e exited with $ret"
       if [[ "$DEFAULT_TESTING" == false ]]; then
         echo "removing $new_image_name"
@@ -688,8 +699,7 @@ test_memgraph() {
       else
         echo "keeping $new_image_name"
        fi
-       [ $ret -eq 1 ] && exit 0
-       exit $ret
+      exit $ret
     ;;
     *)
       echo "Error: Unknown test '$1'"

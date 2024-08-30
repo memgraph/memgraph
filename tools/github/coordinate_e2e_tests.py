@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 
 import argparse
+import os
 import subprocess
+import tempfile
 import threading
 import time
 from collections import defaultdict
 from pathlib import Path
 from queue import Queue
+from tempfile import TemporaryDirectory
 
 import docker
 import yaml
@@ -88,10 +91,47 @@ class ThreadSafePrint:
             print(*args, **kwargs)
 
 
-atomic_int = AtomicInteger(0)
+def clear_directory(path):
+    if os.path.exists(path):
+        for root, dirs, files in os.walk(path, topdown=False):
+            for name in files:
+                os.remove(os.path.join(root, name))
+            for name in dirs:
+                os.rmdir(os.path.join(root, name))
+        os.rmdir(path)
 
+
+def create_directory(path):
+    os.makedirs(path, exist_ok=True)
+
+
+class ThreadSafeContainerCopy:
+    def __init__(self):
+        self._lock = threading.Lock()
+
+    def copy_logs(self, src_container_name, dest_container_name, container_path, temp_dir):
+        with self._lock:
+            try:
+                clear_directory(temp_dir)
+            except Exception as e:
+                print(f"Exception: {e}")
+
+            create_directory(f"{temp_dir}/logs")
+
+            # Copy logs from source container to temporary directory
+            copy_from_src_command = f"docker cp {src_container_name}:{container_path} {temp_dir}"
+            subprocess.run(copy_from_src_command, shell=True, check=True)
+
+            # Copy logs from temporary directory to destination container
+            copy_to_dest_command = f"docker cp {temp_dir}/logs {dest_container_name}:{container_path}"
+            subprocess.run(copy_to_dest_command, shell=True, check=True)
+
+
+atomic_int = AtomicInteger(0)
 thread_safe_print = ThreadSafePrint()
 synchronized_map = SynchronizedMap()
+temp_dir = tempfile.TemporaryDirectory().name
+thread_safe_container_copy = ThreadSafeContainerCopy()
 
 
 def start_container_from_image(image_tag, id: int):
@@ -134,7 +174,14 @@ def find_workloads_for_testing(container, container_root_directory, project_root
 
 
 def process_workloads(
-    id: int, image_name, setup_command: str, synchronized_queue: SynchronizedQueue, synchronized_map: SynchronizedMap
+    id: int,
+    image_name,
+    setup_command: str,
+    synchronized_queue: SynchronizedQueue,
+    synchronized_map: SynchronizedMap,
+    container_root_dir: str,
+    thread_safe_container_copy: ThreadSafeContainerCopy,
+    original_container_id: str,
 ):
     thread_id = threading.get_ident()
     thread_safe_print.print(f">>>>Starting container in thread {thread_id}")
@@ -175,6 +222,12 @@ def process_workloads(
 
             tasks_executed.append((workload_folder, workload_name, time.time() - start_time))
             total_execution += time.time() - start_time
+
+            thread_safe_print.print(f">>>>Copying logs from container with id: {container.id}")
+            thread_safe_container_copy.copy_logs(
+                container.id, original_container_id, f"{container_root_dir}/build/logs/", temp_dir
+            )
+            thread_safe_print.print(f">>>>Copied logs from container with id: {container.id}")
         except Exception as e:
             thread_safe_print.print(f"Exception: {e}")
             atomic_int.increment()
@@ -182,10 +235,10 @@ def process_workloads(
 
     thread_safe_print.print(f">>>>Stopping container with id: {container.id}")
     stop_container(container)
+    thread_safe_print.print(f">>>>Stopped container with id: {container.id}")
+
     tasks_executed.sort(key=lambda x: x[2], reverse=True)
     synchronized_map.insert_elem(id, tasks_executed)
-
-    thread_safe_print.print(f"Thread {thread_id} executed {len(tasks_executed)} tasks in {total_execution} seconds.")
 
 
 parser = argparse.ArgumentParser(description="Parse image name and thread arguments.")
@@ -194,6 +247,10 @@ parser.add_argument("--threads", type=int, required=True, help="Number of thread
 parser.add_argument("--container-root-dir", type=str, required=True, help="Memgraph folder root dir in container")
 parser.add_argument("--setup-command", type=str, required=True, help="Command to run in the container")
 parser.add_argument("--project-root-dir", type=str, required=True, help="Project root directory")
+parser.add_argument(
+    "--original-container-id", type=str, required=True, help="Original container ID to which logs will be copied"
+)
+
 args = parser.parse_args()
 
 
@@ -235,7 +292,16 @@ try:
     for i in range(1, args.threads + 1):
         thread = threading.Thread(
             target=process_workloads,
-            args=(i, args.image, args.setup_command, synchronized_queue, synchronized_map),
+            args=(
+                i,
+                args.image,
+                args.setup_command,
+                synchronized_queue,
+                synchronized_map,
+                args.container_root_dir,
+                thread_safe_container_copy,
+                args.original_container_id,
+            ),
         )
         threads.append(thread)
 
@@ -253,10 +319,11 @@ finally:
             thread.join()
 
 for key, value in synchronized_map.get_copy().items():
-    print(f"key {key}, value: {value} ")
+    print(f">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
+    print(f">>>>KEY {key}, value: \n \t {value} \n ")
 
     total_time = sum([x[2] for x in value])
-    print(f"container {key} executed {len(value)} tasks in {total_time} seconds.")
-
+    print(f">>>>>> Container {key} executed {len(value)} tasks in {total_time} seconds.")
+    print(f">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
 if atomic_int.get() > 0 or error:
     exit(1)
