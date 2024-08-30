@@ -169,7 +169,7 @@ auto PointIndex::CreateNewPointIndex(LabelPropKey labelPropKey,
     if (isDeleted(v) || isWithoutLabel(v)) {
       continue;
     }
-    constexpr auto all_point_types = std::array{PropertyStoreType::POINT_2D, PropertyStoreType::POINT_3D};
+    constexpr auto all_point_types = std::array{PropertyStoreType::POINT};
     auto prop = v->properties.GetPropertyOfTypes(labelPropKey.property(), all_point_types);
     if (!prop) continue;
     if (prop->IsPoint2d()) {

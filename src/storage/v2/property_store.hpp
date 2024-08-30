@@ -41,8 +41,7 @@ enum class PropertyStoreType : uint8_t {
   ZONED_TEMPORAL_DATA = 0x90,
   OFFSET_ZONED_TEMPORAL_DATA = 0xA0,
   ENUM = 0xB0,
-  POINT_2D = 0xC0,
-  POINT_3D = 0xD0,
+  POINT = 0xC0,
 };
 
 class PropertyStore {
