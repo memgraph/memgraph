@@ -93,7 +93,7 @@ add_subdirectory(time_to_live)
 add_subdirectory(show_active_users_info)
 add_subdirectory(periodic_commit)
 
-add_subdirectory(replication_experimental)
+add_subdirectory(system_replication)
 add_subdirectory(durability)
 
 copy_e2e_python_files(pytest_runner pytest_runner.sh "")
