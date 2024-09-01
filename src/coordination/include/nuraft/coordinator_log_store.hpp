@@ -71,13 +71,14 @@ class CoordinatorLogStore : public log_store {
 
   void DeleteLogs(uint64_t start, uint64_t end);
 
+  auto GetAllEntriesRange(uint64_t start, uint64_t end) -> std::vector<std::pair<int64_t, ptr<log_entry>>>;
+
   /*
    * Stores log entry to disk. We need to store our logs which in nuraft are encoded with log_val_type::app_log
    * Otherwise we don't need to store them, as nuraft sends either configuration logs or custom logs
    * and we don't handle them in our commit policy.
    * Other logs are stored as empty strings, and state_machine DecodeLogs function doesn't apply any action
    * on empty logs
-   * TODO(antoniofilipovic) Think how to isolate this in function so that logic is in one place
    * @param clone - log entry to store
    * @param key_id - index of the log entry
    * @param is_newest_entry - if this is the newest entry
@@ -86,15 +87,19 @@ class CoordinatorLogStore : public log_store {
   bool StoreEntryToDisk(const ptr<log_entry> &clone, uint64_t key_id, bool is_newest_entry);
 
  private:
+  /*
+   * Returns next slot, without taking lock. Should be called under the lock
+   */
+  auto GetNextSlot() const -> ulong;
+
   auto FindOrDefault_(ulong index) const -> ptr<log_entry>;
 
-  bool HandleVersionMigration(LogStoreVersion stored_version, LogStoreVersion active_version);
+  bool HandleVersionMigration(LogStoreVersion stored_version);
 
-  // TODO(antoniofilipovic) Isolate into CoordinatorLogStoreInternals
   std::map<ulong, ptr<log_entry>> logs_;
   mutable std::mutex logs_lock_;
-  std::atomic<ulong> start_idx_;
-  std::atomic<ulong> next_idx_;
+  std::atomic<ulong> start_idx_{0};
+  std::atomic<ulong> next_idx_{0};
   std::shared_ptr<kvstore::KVStore> durability_;
   LoggerWrapper logger_;
 };

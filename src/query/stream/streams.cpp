@@ -770,7 +770,8 @@ void Streams::StopAll() {
 }
 
 void Streams::Shutdown() {
-  for (auto locked_streams = streams_.Lock(); auto &[stream_name, stream_data] : *locked_streams) {
+  auto locked_streams = streams_.Lock();
+  for (auto &[_, stream_data] : *locked_streams) {
     std::visit(
         [](const auto &stream_data) {
           auto locked_stream_source = stream_data.stream_source->Lock();
@@ -780,6 +781,8 @@ void Streams::Shutdown() {
         },
         stream_data);
   }
+  // Destroy underlying streams
+  locked_streams->clear();
 }
 
 std::vector<StreamStatus<>> Streams::GetStreamInfo() const {
