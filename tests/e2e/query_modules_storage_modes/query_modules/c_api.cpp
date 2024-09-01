@@ -9,12 +9,14 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <chrono>
-#include <thread>
-
+#include <cassert>
+#include <condition_variable>
+#include <iostream>
+#include <mutex>
 #include "_mgp.hpp"
 #include "mg_exceptions.hpp"
 #include "mg_procedure.h"
+#include "mgp.hpp"
 
 constexpr std::string_view kFunctionPassRelationship = "pass_relationship";
 constexpr std::string_view kPassRelationshipArg = "relationship";
@@ -24,23 +26,93 @@ constexpr std::string_view kPassNodeWithIdArg = "node";
 constexpr std::string_view kPassNodeWithIdFieldNode = "node";
 constexpr std::string_view kPassNodeWithIdFieldId = "id";
 
-void PassRelationship(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
-  auto *relationship = mgp::list_at(args, 0);
+constexpr std::string_view kProcedureReset = "reset";
+constexpr std::string_view kProcedureDeleteVertex = "delete_vertex";
+constexpr std::string_view kProcedureDeleteEdge = "delete_edge";
 
+constexpr std::string_view kArgument = "arg";
+
+std::condition_variable condition;
+std::mutex lock;
+int turn = 0;
+
+namespace {
+void wait_turn(auto func) {
+  std::unique_lock<std::mutex> guard(lock);
+  condition.wait(guard, [&func] { return func(turn); });
+  turn++;
+  condition.notify_all();
+}
+}  // namespace
+
+void Reset(mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result * /*result*/, mgp_memory *memory) {
+  mgp::MemoryDispatcherGuard guard(memory);
+  turn = 0;
+}
+
+void DeleteVertex(mgp_list *args, mgp_graph *graph, mgp_result * /*result*/, mgp_memory *memory) {
+  mgp::MemoryDispatcherGuard guard(memory);
+  mgp_vertex *vertex;
+  {
+    auto error = mgp_value_get_vertex(mgp::list_at(args, 0), &vertex);
+    assert(error == mgp_error::MGP_ERROR_NO_ERROR);
+  }
+  {
+    wait_turn([](int x) { return x == 1 || x == 2; });
+    auto error = mgp_graph_detach_delete_vertex(graph, vertex);
+    assert(error == mgp_error::MGP_ERROR_NO_ERROR);
+  }
+  wait_turn([](int x) { return x == 1 || x == 2; });
+}
+
+void DeleteEdge(mgp_list *args, mgp_graph *graph, mgp_result * /*result*/, mgp_memory *memory) {
+  mgp::MemoryDispatcherGuard guard(memory);
+  mgp_edge *edge;
+  {
+    auto error = mgp_value_get_edge(mgp::list_at(args, 0), &edge);
+    assert(error == mgp_error::MGP_ERROR_NO_ERROR);
+  }
+  {
+    wait_turn([](int x) { return x == 1 || x == 2; });
+    auto error = mgp_graph_delete_edge(graph, edge);
+    assert(error == mgp_error::MGP_ERROR_NO_ERROR);
+  }
+  wait_turn([](int x) { return x == 1 || x == 2; });
+}
+
+void PassRelationship(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
+  mgp::MemoryDispatcherGuard guard(memory);
+  auto *relationship = mgp::list_at(args, 0);
+  wait_turn([](int x) { return x == 0 || x > 2; });
+
+  wait_turn([](int x) { return x == 0 || x > 2; });
   mgp::func_result_set_value(res, relationship, memory);
 }
 
 void PassNodeWithId(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
+  mgp::MemoryDispatcherGuard guard(memory);
   auto *node = mgp::value_get_vertex(mgp::list_at(args, 0));
   auto node_id = mgp::vertex_get_id(node).as_int;
+  wait_turn([](int x) { return x == 0 || x > 2; });
 
+  wait_turn([](int x) { return x == 0 || x > 2; });
   auto *result_record = mgp::result_new_record(result);
   mgp::result_record_insert(result_record, kPassNodeWithIdFieldNode.data(), mgp::value_make_vertex(node));
   mgp::result_record_insert(result_record, kPassNodeWithIdFieldId.data(), mgp::value_make_int(node_id, memory));
 }
 
 extern "C" int mgp_init_module(struct mgp_module *query_module, struct mgp_memory *memory) {
+  mgp::MemoryDispatcherGuard guard{memory};
   try {
+    { auto *proc = mgp::module_add_write_procedure(query_module, kProcedureReset.data(), Reset); }
+    {
+      auto *proc = mgp::module_add_write_procedure(query_module, kProcedureDeleteVertex.data(), DeleteVertex);
+      mgp::proc_add_arg(proc, kArgument.data(), mgp::type_node());
+    }
+    {
+      auto *proc = mgp::module_add_write_procedure(query_module, kProcedureDeleteEdge.data(), DeleteEdge);
+      mgp::proc_add_arg(proc, kArgument.data(), mgp::type_relationship());
+    }
     {
       auto *func = mgp::module_add_function(query_module, kFunctionPassRelationship.data(), PassRelationship);
       mgp::func_add_arg(func, kPassRelationshipArg.data(), mgp::type_relationship());
