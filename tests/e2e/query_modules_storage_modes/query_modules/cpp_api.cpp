@@ -9,10 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <cassert>
-#include <chrono>
 #include <condition_variable>
-#include <thread>
 
 #include <mgp.hpp>
 
