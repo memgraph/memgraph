@@ -32,20 +32,47 @@ constexpr std::string_view kArgument = "arg";
 
 std::condition_variable condition;
 std::mutex lock;
-int turn = 0;
 
 namespace {
-void wait_turn(auto func) {
+
+enum class State : uint8_t {
+  BEGIN = 0,
+  READER_READY = 1,
+  WRITER_READY = 2,
+  AT_LEAST_ONE_WRITE_DONE = 3,
+} global_state = State::BEGIN;
+
+void UpdateGlobalState(State input) {
+  switch (global_state) {
+    case State::BEGIN: {
+      if (input == State::READER_READY) global_state = State::READER_READY;
+      break;
+    }
+    case State::READER_READY: {
+      if (input == State::WRITER_READY) global_state = State::WRITER_READY;
+      break;
+    }
+    case State::WRITER_READY: {
+      if (input == State::AT_LEAST_ONE_WRITE_DONE) global_state = State::AT_LEAST_ONE_WRITE_DONE;
+      break;
+    }
+    case State::AT_LEAST_ONE_WRITE_DONE: {
+      break;
+    }
+  }
+}
+
+void wait_turn(State input, auto check_expected) {
   std::unique_lock<std::mutex> guard(lock);
-  condition.wait(guard, [&func] { return func(turn); });
-  turn++;
+  condition.wait(guard, [&check_expected] { return std::invoke(check_expected); });
+  UpdateGlobalState(input);
   condition.notify_all();
 }
 }  // namespace
 
-void Reset(mgp_list *args, mgp_graph *memgraph_graph, mgp_result * /*result*/, mgp_memory *memory) {
+void Reset(mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result * /*result*/, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard(memory);
-  turn = 0;
+  global_state = State::BEGIN;
 }
 
 void DeleteVertex(mgp_list *args, mgp_graph *memgraph_graph, mgp_result * /*result*/, mgp_memory *memory) {
@@ -55,9 +82,9 @@ void DeleteVertex(mgp_list *args, mgp_graph *memgraph_graph, mgp_result * /*resu
   auto vertex = arguments[0].ValueNode();
   auto graph = mgp::Graph(memgraph_graph);
 
-  wait_turn([](int x) { return x == 1 || x == 2; });
+  wait_turn(State::WRITER_READY, []() { return global_state == State::READER_READY; });
   graph.DetachDeleteNode(vertex);
-  wait_turn([](int x) { return x == 1 || x == 2; });
+  wait_turn(State::AT_LEAST_ONE_WRITE_DONE, []() { return global_state == State::WRITER_READY; });
 }
 
 void DeleteEdge(mgp_list *args, mgp_graph *memgraph_graph, mgp_result * /*result*/, mgp_memory *memory) {
@@ -67,9 +94,9 @@ void DeleteEdge(mgp_list *args, mgp_graph *memgraph_graph, mgp_result * /*result
   auto edge = arguments[0].ValueRelationship();
   auto graph = mgp::Graph(memgraph_graph);
 
-  wait_turn([](int x) { return x == 1 || x == 2; });
+  wait_turn(State::WRITER_READY, []() { return global_state == State::READER_READY; });
   graph.DeleteRelationship(edge);
-  wait_turn([](int x) { return x == 1 || x == 2; });
+  wait_turn(State::AT_LEAST_ONE_WRITE_DONE, []() { return global_state == State::WRITER_READY; });
 }
 
 void PassRelationship(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
@@ -78,9 +105,11 @@ void PassRelationship(mgp_list *args, mgp_func_context *ctx, mgp_func_result *re
   auto result = mgp::Result(res);
 
   const auto relationship = arguments[0].ValueRelationship();
-  wait_turn([](int x) { return x == 0 || x > 2; });
 
-  wait_turn([](int x) { return x == 0 || x > 2; });
+  auto check = []() { return global_state == State::BEGIN || global_state == State::AT_LEAST_ONE_WRITE_DONE; };
+  wait_turn(State::READER_READY, check);
+  wait_turn(State::AT_LEAST_ONE_WRITE_DONE, []() { return global_state == State::AT_LEAST_ONE_WRITE_DONE; });
+
   result.SetValue(relationship);
 }
 
@@ -91,9 +120,11 @@ void PassNodeWithId(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *resul
 
   const auto node = arguments[0].ValueNode();
   const auto node_id = node.Id().AsInt();
-  wait_turn([](int x) { return x == 0 || x > 2; });
 
-  wait_turn([](int x) { return x == 0 || x > 2; });
+  auto check = []() { return global_state == State::BEGIN || global_state == State::AT_LEAST_ONE_WRITE_DONE; };
+  wait_turn(State::READER_READY, check);
+  wait_turn(State::AT_LEAST_ONE_WRITE_DONE, []() { return global_state == State::AT_LEAST_ONE_WRITE_DONE; });
+
   auto record = record_factory.NewRecord();
   record.Insert(kPassNodeWithIdFieldNode.data(), node);
   record.Insert(kPassNodeWithIdFieldId.data(), node_id);

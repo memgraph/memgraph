@@ -10,83 +10,94 @@
 # licenses/APL.txt.
 
 import multiprocessing
+from enum import IntEnum
 
 import mgp
 
+
+# Define the State enum
+class State(IntEnum):
+    BEGIN = 0
+    READER_READY = 1
+    WRITER_READY = 2
+    AT_LEAST_ONE_WRITE_DONE = 3
+
+
 condition = multiprocessing.Condition()
-turn = multiprocessing.Value("i", 0)
+global_state = multiprocessing.Value("i", State.BEGIN)
 
 
-def wait_turn(func):
+def wait_for_state(func):
     global condition
-    global turn
+    global global_state
 
     with condition:
-        condition.wait_for(lambda: func(turn.value))
-        turn.value += 1
+        condition.wait_for(lambda: func(State(global_state.value)))
+        if State(global_state.value) != State.AT_LEAST_ONE_WRITE_DONE:
+            global_state.value += 1
         condition.notify_all()
 
 
 @mgp.read_proc
 def reset(ctx: mgp.ProcCtx, arg: mgp.Nullable[str] = None) -> mgp.Record():
-    global turn
-    turn.value = 0
+    global global_state
+    global_state.value = State.BEGIN
     return mgp.Record()
 
 
 @mgp.write_proc
 def delete_vertex(ctx: mgp.ProcCtx, node: mgp.Vertex) -> mgp.Record():
-    wait_turn(lambda cnt: cnt == 1 or cnt == 2)
+    wait_for_state(lambda state: state == State.READER_READY)
     ctx.graph.detach_delete_vertex(node)
-    wait_turn(lambda cnt: cnt == 1 or cnt == 2)
+    wait_for_state(lambda state: state == state == State.WRITER_READY)
     return mgp.Record()
 
 
 @mgp.write_proc
 def delete_edge(ctx: mgp.ProcCtx, edge: mgp.Edge) -> mgp.Record():
-    wait_turn(lambda cnt: cnt == 1 or cnt == 2)
+    wait_for_state(lambda state: state == State.READER_READY)
     ctx.graph.delete_edge(edge)
-    wait_turn(lambda cnt: cnt == 1 or cnt == 2)
+    wait_for_state(lambda state: state == State.WRITER_READY)
     return mgp.Record()
 
 
 @mgp.read_proc
 def pass_node_with_id(ctx: mgp.ProcCtx, node: mgp.Vertex) -> mgp.Record(node=mgp.Vertex, id=int):
-    wait_turn(lambda cnt: cnt == 0 or cnt > 2)
-    wait_turn(lambda cnt: cnt == 0 or cnt > 2)
+    wait_for_state(lambda state: state == State.BEGIN or state == State.AT_LEAST_ONE_WRITE_DONE)
+    wait_for_state(lambda state: state == State.AT_LEAST_ONE_WRITE_DONE)
     return mgp.Record(node=node, id=node.id)
 
 
 @mgp.function
 def pass_node(ctx: mgp.FuncCtx, node: mgp.Vertex):
-    wait_turn(lambda cnt: cnt == 0 or cnt > 2)
-    wait_turn(lambda cnt: cnt == 0 or cnt > 2)
+    wait_for_state(lambda state: state == State.BEGIN or state == State.AT_LEAST_ONE_WRITE_DONE)
+    wait_for_state(lambda state: state == State.AT_LEAST_ONE_WRITE_DONE)
     return node
 
 
 @mgp.function
 def pass_relationship(ctx: mgp.FuncCtx, relationship: mgp.Edge):
-    wait_turn(lambda cnt: cnt == 0 or cnt > 2)
-    wait_turn(lambda cnt: cnt == 0 or cnt > 2)
+    wait_for_state(lambda state: state == State.BEGIN or state == State.AT_LEAST_ONE_WRITE_DONE)
+    wait_for_state(lambda state: state == State.AT_LEAST_ONE_WRITE_DONE)
     return relationship
 
 
 @mgp.function
 def pass_path(ctx: mgp.FuncCtx, path: mgp.Path):
-    wait_turn(lambda cnt: cnt == 0 or cnt > 2)
-    wait_turn(lambda cnt: cnt == 0 or cnt > 2)
+    wait_for_state(lambda state: state == State.BEGIN or state == State.AT_LEAST_ONE_WRITE_DONE)
+    wait_for_state(lambda state: state == State.AT_LEAST_ONE_WRITE_DONE)
     return path
 
 
 @mgp.function
 def pass_list(ctx: mgp.FuncCtx, list_: mgp.List[mgp.Any]):
-    wait_turn(lambda cnt: cnt == 0 or cnt > 2)
-    wait_turn(lambda cnt: cnt == 0 or cnt > 2)
+    wait_for_state(lambda state: state == State.BEGIN or state == State.AT_LEAST_ONE_WRITE_DONE)
+    wait_for_state(lambda state: state == State.AT_LEAST_ONE_WRITE_DONE)
     return list_
 
 
 @mgp.function
 def pass_map(ctx: mgp.FuncCtx, map_: mgp.Map):
-    wait_turn(lambda cnt: cnt == 0 or cnt > 2)
-    wait_turn(lambda cnt: cnt == 0 or cnt > 2)
+    wait_for_state(lambda state: state == State.BEGIN or state == State.AT_LEAST_ONE_WRITE_DONE)
+    wait_for_state(lambda state: state == State.AT_LEAST_ONE_WRITE_DONE)
     return map_
