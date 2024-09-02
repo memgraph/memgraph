@@ -1179,13 +1179,13 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       if (!y_opt) return false;
       if (valid2d(crs) && value.IsPoint2d()) {
         return value.ValuePoint2d() == Point2d{crs, *x_opt, *y_opt};
-      } else if (valid3d(crs) && value.IsPoint3d()) {
+      }
+      if (valid3d(crs) && value.IsPoint3d()) {
         auto z_opt = reader->ReadDouble(Size::INT64);  // because we forced it as int64 on write
         if (!z_opt) return false;
         return value.ValuePoint3d() == Point3d{crs, *x_opt, *y_opt, *z_opt};
-      } else {
-        return false;
       }
+      return false;
     }
   }
 }

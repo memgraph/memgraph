@@ -2072,12 +2072,12 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
 }
 
 utils::BasicResult<storage::StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreatePointIndex(
-    storage::LabelId label, storage::PropertyId property) {
+    storage::LabelId /*label*/, storage::PropertyId /*property*/) {
   throw utils::NotYetImplemented("Point index related operations are not yet supported using on-disk storage mode.");
 }
 
 utils::BasicResult<storage::StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropPointIndex(
-    storage::LabelId label, storage::PropertyId property) {
+    storage::LabelId /*label*/, storage::PropertyId /*property*/) {
   throw utils::NotYetImplemented("Point index related operations are not yet supported using on-disk storage mode.");
 }
 
@@ -2145,6 +2145,7 @@ UniqueConstraints::DeletionStatus DiskStorage::DiskAccessor::DropUniqueConstrain
 
 void DiskStorage::DiskAccessor::DropGraph() {}
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 PointIndexStorage DiskStorage::empty_point_index_ = PointIndexStorage{};
 
 Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) {

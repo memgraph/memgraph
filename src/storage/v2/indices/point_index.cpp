@@ -113,25 +113,17 @@ void PointIndexStorage::InstallNewPointIndex(PointIndexChangeCollector &collecto
 
   auto noOtherIndexUpdate = indexes_ == context.orig_indexes_;
   if (noOtherIndexUpdate) {
-    if (!context.UsingLocalIndex() && context.orig_indexes_.use_count() == 3) {
-      // 3 becasue indexes_ + orig_indexes_ + current_indexes_ should be the only references
-      // TODO: change with inplace
-      context.update_current(collector);
-      indexes_ = context.current_indexes_;
-    } else {
-      context.update_current(collector);
-      indexes_ = context.current_indexes_;
-    }
+    // TODO: make a special case for inplace modification
+    //    if (!context.UsingLocalIndex() && context.orig_indexes_.use_count() == 3) { /* ??? */}
+    //    3 becasue indexes_ + orig_indexes_ + current_indexes_ should be the only references
+    context.update_current(collector);
+    indexes_ = context.current_indexes_;
   } else {
     // Another txn made a commit, we need to build from indexes_ + all collected changes (even from AdvanceCommand)
-    if (indexes_.use_count() == 1) {
-      // TODO: change with inplace
-      context.rebuild_current(indexes_, collector);
-      indexes_ = context.current_indexes_;
-    } else {
-      context.rebuild_current(indexes_, collector);
-      indexes_ = context.current_indexes_;
-    }
+    // TODO: make a special case for inplace modification
+    //    if (indexes_.use_count() == 1) { /* ??? */ }
+    context.rebuild_current(indexes_, collector);
+    indexes_ = context.current_indexes_;
   };
 }
 void PointIndexStorage::Clear() { indexes_->clear(); }
@@ -140,7 +132,7 @@ std::vector<std::pair<LabelId, PropertyId>> PointIndexStorage::ListIndices() {
   auto keys = *indexes_ | std::views::keys | std::views::transform([](LabelPropKey key) {
     return std::pair{key.label(), key.property()};
   });
-  return std::vector(keys.begin(), keys.end());
+  return {keys.begin(), keys.end()};
 }
 
 uint64_t PointIndexStorage::ApproximatePointCount(LabelId labelId, PropertyId propertyId) {
@@ -160,7 +152,7 @@ auto PointIndex::CreateNewPointIndex(LabelPropKey labelPropKey,
   auto changed_cartesian_3d = std::unordered_map<Vertex const *, IndexPointCartesian3d>{};
 
   // Single pass over all changes to cache current values
-  for (auto v : changed_vertices) {
+  for (auto const *v : changed_vertices) {
     auto guard = std::shared_lock{v->lock};
     auto isDeleted = [](Vertex const *v) { return v->deleted; };
     auto isWithoutLabel = [label = labelPropKey.label()](Vertex const *v) {

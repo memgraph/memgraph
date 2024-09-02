@@ -145,7 +145,7 @@ struct PointIndexStorage {
 
   std::vector<std::pair<LabelId, PropertyId>> ListIndices();
 
-  uint64_t ApproximatePointCount(LabelId id, PropertyId id1);
+  uint64_t ApproximatePointCount(LabelId labelId, PropertyId propertyId);
 
  private:
   std::shared_ptr<index_container_t> indexes_ = std::make_shared<index_container_t>();

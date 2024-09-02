@@ -3034,7 +3034,7 @@ PreparedQuery PreparePointIndexQuery(ParsedQuery parsed_query, bool in_explicit_
   MG_ASSERT(current_db.db_transactional_accessor_, "Index query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;
 
-  auto invalidate_plan_cache = [plan_cache = db_acc->plan_cache()] {
+  auto const invalidate_plan_cache = [plan_cache = db_acc->plan_cache()] {
     plan_cache->WithLock([&](auto &cache) { cache.reset(); });
   };
 
@@ -3054,7 +3054,7 @@ PreparedQuery PreparePointIndexQuery(ParsedQuery parsed_query, bool in_explicit_
         auto prop_id = storage->NameToProperty(prop_name);
 
         auto maybe_index_error = dba->CreatePointIndex(label_id, prop_id);
-        utils::OnScopeExit invalidator(invalidate_plan_cache);
+        utils::OnScopeExit const invalidator(invalidate_plan_cache);
 
         if (maybe_index_error.HasError()) {
           index_notification.code = NotificationCode::EXISTENT_INDEX;
@@ -3076,7 +3076,7 @@ PreparedQuery PreparePointIndexQuery(ParsedQuery parsed_query, bool in_explicit_
         auto prop_id = storage->NameToProperty(prop_name);
 
         auto maybe_index_error = dba->CreatePointIndex(label_id, prop_id);
-        utils::OnScopeExit invalidator(invalidate_plan_cache);
+        utils::OnScopeExit const invalidator(invalidate_plan_cache);
 
         if (maybe_index_error.HasError()) {
           index_notification.code = NotificationCode::NONEXISTENT_INDEX;
@@ -3093,8 +3093,7 @@ PreparedQuery PreparePointIndexQuery(ParsedQuery parsed_query, bool in_explicit_
       {},
       std::move(parsed_query.required_privileges),
       [handler = std::move(handler), notifications](AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable {
-        Notification index_notification = handler();
-        notifications->push_back(index_notification);
+        notifications->push_back(handler());
         return QueryHandlerResult::COMMIT;
       },
       RWType::W};
