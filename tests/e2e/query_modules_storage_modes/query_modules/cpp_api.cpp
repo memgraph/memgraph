@@ -42,30 +42,18 @@ enum class State : uint8_t {
   AT_LEAST_ONE_WRITE_DONE = 3,
 } global_state = State::BEGIN;
 
-void UpdateGlobalState(State input) {
-  switch (global_state) {
-    case State::BEGIN: {
-      if (input == State::READER_READY) global_state = State::READER_READY;
-      break;
-    }
-    case State::READER_READY: {
-      if (input == State::WRITER_READY) global_state = State::WRITER_READY;
-      break;
-    }
-    case State::WRITER_READY: {
-      if (input == State::AT_LEAST_ONE_WRITE_DONE) global_state = State::AT_LEAST_ONE_WRITE_DONE;
-      break;
-    }
-    case State::AT_LEAST_ONE_WRITE_DONE: {
-      break;
-    }
+void UpdateGlobalState() {
+  if (global_state != State::AT_LEAST_ONE_WRITE_DONE) {
+    auto state = static_cast<uint8_t>(global_state);
+    state++;
+    global_state = static_cast<State>(state);
   }
 }
 
-void wait_turn(State input, auto check_expected) {
+void wait_turn(auto check_expected) {
   std::unique_lock<std::mutex> guard(lock);
   condition.wait(guard, [&check_expected] { return std::invoke(check_expected); });
-  UpdateGlobalState(input);
+  UpdateGlobalState();
   condition.notify_all();
 }
 }  // namespace
@@ -82,9 +70,9 @@ void DeleteVertex(mgp_list *args, mgp_graph *memgraph_graph, mgp_result * /*resu
   auto vertex = arguments[0].ValueNode();
   auto graph = mgp::Graph(memgraph_graph);
 
-  wait_turn(State::WRITER_READY, []() { return global_state == State::READER_READY; });
+  wait_turn([]() { return global_state == State::READER_READY; });
   graph.DetachDeleteNode(vertex);
-  wait_turn(State::AT_LEAST_ONE_WRITE_DONE, []() { return global_state == State::WRITER_READY; });
+  wait_turn([]() { return global_state == State::WRITER_READY; });
 }
 
 void DeleteEdge(mgp_list *args, mgp_graph *memgraph_graph, mgp_result * /*result*/, mgp_memory *memory) {
@@ -94,9 +82,9 @@ void DeleteEdge(mgp_list *args, mgp_graph *memgraph_graph, mgp_result * /*result
   auto edge = arguments[0].ValueRelationship();
   auto graph = mgp::Graph(memgraph_graph);
 
-  wait_turn(State::WRITER_READY, []() { return global_state == State::READER_READY; });
+  wait_turn([]() { return global_state == State::READER_READY; });
   graph.DeleteRelationship(edge);
-  wait_turn(State::AT_LEAST_ONE_WRITE_DONE, []() { return global_state == State::WRITER_READY; });
+  wait_turn([]() { return global_state == State::WRITER_READY; });
 }
 
 void PassRelationship(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
@@ -107,8 +95,8 @@ void PassRelationship(mgp_list *args, mgp_func_context *ctx, mgp_func_result *re
   const auto relationship = arguments[0].ValueRelationship();
 
   auto check = []() { return global_state == State::BEGIN || global_state == State::AT_LEAST_ONE_WRITE_DONE; };
-  wait_turn(State::READER_READY, check);
-  wait_turn(State::AT_LEAST_ONE_WRITE_DONE, []() { return global_state == State::AT_LEAST_ONE_WRITE_DONE; });
+  wait_turn(check);
+  wait_turn([]() { return global_state == State::AT_LEAST_ONE_WRITE_DONE; });
 
   result.SetValue(relationship);
 }
@@ -122,8 +110,8 @@ void PassNodeWithId(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *resul
   const auto node_id = node.Id().AsInt();
 
   auto check = []() { return global_state == State::BEGIN || global_state == State::AT_LEAST_ONE_WRITE_DONE; };
-  wait_turn(State::READER_READY, check);
-  wait_turn(State::AT_LEAST_ONE_WRITE_DONE, []() { return global_state == State::AT_LEAST_ONE_WRITE_DONE; });
+  wait_turn(check);
+  wait_turn([]() { return global_state == State::AT_LEAST_ONE_WRITE_DONE; });
 
   auto record = record_factory.NewRecord();
   record.Insert(kPassNodeWithIdFieldNode.data(), node);

@@ -45,30 +45,18 @@ enum class State : uint8_t {
   AT_LEAST_ONE_WRITE_DONE = 3,
 } global_state = State::BEGIN;
 
-void UpdateGlobalState(State input) {
-  switch (global_state) {
-    case State::BEGIN: {
-      if (input == State::READER_READY) global_state = State::READER_READY;
-      break;
-    }
-    case State::READER_READY: {
-      if (input == State::WRITER_READY) global_state = State::WRITER_READY;
-      break;
-    }
-    case State::WRITER_READY: {
-      if (input == State::AT_LEAST_ONE_WRITE_DONE) global_state = State::AT_LEAST_ONE_WRITE_DONE;
-      break;
-    }
-    case State::AT_LEAST_ONE_WRITE_DONE: {
-      break;
-    }
+void UpdateGlobalState() {
+  if (global_state != State::AT_LEAST_ONE_WRITE_DONE) {
+    auto state = static_cast<uint8_t>(global_state);
+    state++;
+    global_state = static_cast<State>(state);
   }
 }
 
-void wait_turn(State input, auto check_expected) {
+void wait_turn(auto check_expected) {
   std::unique_lock<std::mutex> guard(lock);
   condition.wait(guard, [&check_expected] { return std::invoke(check_expected); });
-  UpdateGlobalState(input);
+  UpdateGlobalState();
   condition.notify_all();
 }
 }  // namespace
@@ -86,11 +74,11 @@ void DeleteVertex(mgp_list *args, mgp_graph *graph, mgp_result * /*result*/, mgp
     assert(error == mgp_error::MGP_ERROR_NO_ERROR);
   }
   {
-    wait_turn(State::WRITER_READY, []() { return global_state == State::READER_READY; });
+    wait_turn([]() { return global_state == State::READER_READY; });
     auto error = mgp_graph_detach_delete_vertex(graph, vertex);
     assert(error == mgp_error::MGP_ERROR_NO_ERROR);
   }
-  wait_turn(State::AT_LEAST_ONE_WRITE_DONE, []() { return global_state == State::WRITER_READY; });
+  wait_turn([]() { return global_state == State::WRITER_READY; });
 }
 
 void DeleteEdge(mgp_list *args, mgp_graph *graph, mgp_result * /*result*/, mgp_memory *memory) {
@@ -101,11 +89,11 @@ void DeleteEdge(mgp_list *args, mgp_graph *graph, mgp_result * /*result*/, mgp_m
     assert(error == mgp_error::MGP_ERROR_NO_ERROR);
   }
   {
-    wait_turn(State::WRITER_READY, []() { return global_state == State::READER_READY; });
+    wait_turn([]() { return global_state == State::READER_READY; });
     auto error = mgp_graph_delete_edge(graph, edge);
     assert(error == mgp_error::MGP_ERROR_NO_ERROR);
   }
-  wait_turn(State::AT_LEAST_ONE_WRITE_DONE, []() { return global_state == State::WRITER_READY; });
+  wait_turn([]() { return global_state == State::WRITER_READY; });
 }
 
 void PassRelationship(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
@@ -113,8 +101,8 @@ void PassRelationship(mgp_list *args, mgp_func_context *ctx, mgp_func_result *re
   auto *relationship = mgp::list_at(args, 0);
 
   auto check = []() { return global_state == State::BEGIN || global_state == State::AT_LEAST_ONE_WRITE_DONE; };
-  wait_turn(State::READER_READY, check);
-  wait_turn(State::AT_LEAST_ONE_WRITE_DONE, []() { return global_state == State::AT_LEAST_ONE_WRITE_DONE; });
+  wait_turn(check);
+  wait_turn([]() { return global_state == State::AT_LEAST_ONE_WRITE_DONE; });
   mgp::func_result_set_value(res, relationship, memory);
 }
 
@@ -124,8 +112,8 @@ void PassNodeWithId(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *resul
   auto node_id = mgp::vertex_get_id(node).as_int;
 
   auto check = []() { return global_state == State::BEGIN || global_state == State::AT_LEAST_ONE_WRITE_DONE; };
-  wait_turn(State::READER_READY, check);
-  wait_turn(State::AT_LEAST_ONE_WRITE_DONE, []() { return global_state == State::AT_LEAST_ONE_WRITE_DONE; });
+  wait_turn(check);
+  wait_turn([]() { return global_state == State::AT_LEAST_ONE_WRITE_DONE; });
 
   auto *result_record = mgp::result_new_record(result);
   mgp::result_record_insert(result_record, kPassNodeWithIdFieldNode.data(), mgp::value_make_vertex(node));
