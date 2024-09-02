@@ -945,10 +945,7 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
 
     Scenario: Create point index:
         Given an empty graph
-        And having executed
-            """
-            CREATE POINT INDEX ON :L1(prop1)
-            """
+        And with new point index :L1(prop1)
         And having executed
             """
             CREATE (:L1 {prop1: POINT({x:1, y:1})});
