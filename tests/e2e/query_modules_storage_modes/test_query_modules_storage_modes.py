@@ -182,7 +182,7 @@ def test_deleted_value_in_list(cursor):
 
 def test_deleted_value_in_map(cursor):
     cursor.execute(SWITCH_TO_ANALYTICAL)
-    # e
+
     write_query = (
         "MATCH (:Component {id: 'A7422'})-[e:PART_OF]->(:Component {id: '7X8X0'}) CALL python_api.delete_edge(e);"
     )
