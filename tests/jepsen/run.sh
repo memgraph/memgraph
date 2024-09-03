@@ -28,7 +28,7 @@ PRINT_CONTEXT() {
 
 HELP_EXIT() {
     echo ""
-    echo "HELP: $0 help|cluster-up|cluster-refresh|cluster-nodes-cleanup|cluster-dealloc|test|test-all-individually|unit-tests [args]"
+    echo "HELP: $0 help|cluster-up|cluster-refresh|cluster-nodes-cleanup|cluster-dealloc|test|test-all-individually|unit-tests|process-results [args]"
     echo ""
     echo "    test args --binary                 MEMGRAPH_BINARY_PATH"
     echo "              --ignore-run-stdout-logs Ignore lein run stdout logs."
@@ -179,33 +179,16 @@ RUN_JEPSEN() {
 }
 
 PROCESS_RESULTS() {
-    start_time="$1"
-    end_time="$2"
     INFO "Process results..."
-    echo "Start time: ${start_time}, End time: ${end_time}"
-    # Print and pack all test workload runs between start and end time.
     all_workloads=$(docker exec jepsen-control bash -c 'ls /jepsen/memgraph/store/' | grep test-)
     all_workload_run_folders=""
     for workload in $all_workloads; do
-        for time_folder in $(docker exec jepsen-control bash -c "ls /jepsen/memgraph/store/$workload"); do
-            if [[ "$time_folder" == "latest" ]]; then
-                continue
-            fi
-            # The early continue pattern here is nice because bash doesn't
-            # have >= for the string comparison (marginal values).
-            if [[ "$time_folder" < "$start_time" ]]; then
-                continue
-            fi
-            if [[ "$time_folder" > "$end_time" ]]; then
-                continue
-            fi
-            INFO "jepsen.log for $workload/$time_folder"
-            docker exec jepsen-control bash -c "tail -n 50 /jepsen/memgraph/store/$workload/$time_folder/jepsen.log"
-            all_workload_run_folders="$all_workload_run_folders /jepsen/memgraph/store/$workload/$time_folder"
-        done
+        INFO "jepsen.log for $workload/latest"
+        docker exec jepsen-control bash -c "tail -n 50 /jepsen/memgraph/store/$workload/latest/jepsen.log"
+        all_workload_run_folders="$all_workload_run_folders /jepsen/memgraph/store/$workload/latest"
     done
     INFO "Packing results..."
-    docker exec jepsen-control bash -c "tar -czvf /jepsen/memgraph/Jepsen.tar.gz $all_workload_run_folders"
+    docker exec jepsen-control bash -c "tar -czvf /jepsen/memgraph/Jepsen.tar.gz -h $all_workload_run_folders"
     docker cp jepsen-control:/jepsen/memgraph/Jepsen.tar.gz ./
     INFO "Result processing (printing and packing) DONE."
 }
@@ -315,7 +298,7 @@ case $1 in
         RUN_JEPSEN "test $CONTROL_LEIN_RUN_ARGS"
         end_time="$(docker exec jepsen-control bash -c 'date -u +"%Y%m%dT%H%M%S"').000Z"
         INFO "Jepsen run DONE. END_TIME: $end_time"
-        PROCESS_RESULTS "$start_time" "$end_time"
+        PROCESS_RESULTS
         # Exit if the jepsen run status is not 0
         if [ "$_JEPSEN_RUN_EXIT_STATUS" -ne 0 ]; then
             ERROR "Jepsen FAILED" # important for the coder
@@ -343,12 +326,16 @@ case $1 in
         done
         end_time="$(docker exec jepsen-control bash -c 'date -u +"%Y%m%dT%H%M%S"').000Z"
         INFO "Jepsen run DONE. END_TIME: $end_time"
-        PROCESS_RESULTS "$start_time" "$end_time"
         # Exit if the jepsen run status is not 0
         if [ "$_JEPSEN_RUN_EXIT_STATUS" -ne 0 ]; then
             ERROR "Jepsen FAILED" # important for the coder
             exit "$_JEPSEN_RUN_EXIT_STATUS" # important for CI
         fi
+    ;;
+
+    process-results)
+      PROCESS_ARGS "$@"
+      PROCESS_RESULTS
     ;;
 
     *)
