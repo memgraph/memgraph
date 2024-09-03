@@ -70,16 +70,22 @@ std::optional<std::tuple<std::string, uint16_t, Endpoint::IpFamily>> Endpoint::T
   using RetValue = std::tuple<std::string, uint16_t, Endpoint::IpFamily>;
 
   auto const process_ipv4_family = [](addrinfo *socket_addr, uint16_t port) -> RetValue {
+    spdlog::trace("Started process_ipv4_family");
     char buffer[INET_ADDRSTRLEN];
     auto *socket_address_ipv4 = reinterpret_cast<struct sockaddr_in *>(socket_addr->ai_addr);
+    spdlog::trace("Reinterpreted socket_address_ipv4");
     inet_ntop(socket_addr->ai_family, &(socket_address_ipv4->sin_addr), buffer, sizeof(buffer));
+    spdlog::trace("inet_ntop for process_ipv4_family finished successfully");
     return std::tuple{std::string{buffer}, port, Endpoint::IpFamily::IP4};
   };
 
   auto const process_ipv6_family = [](addrinfo *socket_addr, uint16_t port) -> RetValue {
+    spdlog::trace("Started process_ipv6_family");
     char buffer[INET6_ADDRSTRLEN];
     auto *socket_address_ipv6 = reinterpret_cast<sockaddr_in6 *>(socket_addr->ai_addr);
+    spdlog::trace("Reinterpreted socket_address_ipv4");
     inet_ntop(socket_addr->ai_family, &(socket_address_ipv6->sin6_addr), buffer, sizeof(buffer));
+    spdlog::trace("inet_ntop for process_ipv6_family finished successfully");
     return std::tuple{std::string{buffer}, port, Endpoint::IpFamily::IP6};
   };
 
@@ -103,6 +109,8 @@ std::optional<std::tuple<std::string, uint16_t, Endpoint::IpFamily>> Endpoint::T
       return std::nullopt;
     }
 
+    spdlog::trace("getaddrinfo successfully finished");
+
     auto *socket_addr = info;
     while (socket_addr != nullptr) {
       if (family != socket_addr->ai_family) {
@@ -110,14 +118,18 @@ std::optional<std::tuple<std::string, uint16_t, Endpoint::IpFamily>> Endpoint::T
         socket_addr = socket_addr->ai_next;
         continue;
       }
+      spdlog::trace("returning processing_fn from while loop");
       return processing_fn(socket_addr, port);
     }
+
+    spdlog::trace("socket_addr was nullptr, returning nullopt");
 
     return std::nullopt;
   };
 
   spdlog::trace("Trying to resolve ipv4 address family.");
   auto ip_v4_family = parse_ip_family(process_ipv4_family, AF_INET);
+  spdlog::trace("ip_v4 parsed successfully");
   if (ip_v4_family.has_value()) {
     return std::move(*ip_v4_family);
   }
