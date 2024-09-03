@@ -25,15 +25,15 @@ class State(IntEnum):
 
 def update_global_state():
     global global_state
-    with global_state.get_lock():
-        if global_state.value == State.BEGIN:
-            global_state.value = State.READER_READY
-        elif global_state.value == State.READER_READY:
-            global_state.value = State.WRITER_READY
-        elif global_state.value == State.WRITER_READY:
-            global_state.value = State.AT_LEAST_ONE_WRITE_DONE
-        elif global_state.value == State.AT_LEAST_ONE_WRITE_DONE:
-            pass
+
+    if global_state.value == State.BEGIN:
+        global_state.value = State.READER_READY
+    elif global_state.value == State.READER_READY:
+        global_state.value = State.WRITER_READY
+    elif global_state.value == State.WRITER_READY:
+        global_state.value = State.AT_LEAST_ONE_WRITE_DONE
+    elif global_state.value == State.AT_LEAST_ONE_WRITE_DONE:
+        pass
 
 
 condition = multiprocessing.Condition()
