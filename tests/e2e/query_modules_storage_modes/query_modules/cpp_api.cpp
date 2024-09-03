@@ -40,10 +40,18 @@ enum class State : uint8_t {
 } global_state = State::BEGIN;
 
 void UpdateGlobalState() {
-  if (global_state != State::AT_LEAST_ONE_WRITE_DONE) {
-    auto state = static_cast<uint8_t>(global_state);
-    state++;
-    global_state = static_cast<State>(state);
+  switch (global_state) {
+    case State::BEGIN:
+      global_state = State::READER_READY;
+      break;
+    case State::READER_READY:
+      global_state = State::WRITER_READY;
+      break;
+    case State::WRITER_READY:
+      global_state = State::AT_LEAST_ONE_WRITE_DONE;
+      break;
+    case State::AT_LEAST_ONE_WRITE_DONE:
+      break;
   }
 }
 

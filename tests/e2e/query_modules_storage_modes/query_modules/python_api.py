@@ -23,6 +23,19 @@ class State(IntEnum):
     AT_LEAST_ONE_WRITE_DONE = 3
 
 
+def update_global_state():
+    global global_state
+    with global_state.get_lock():
+        if global_state.value == State.BEGIN:
+            global_state.value = State.READER_READY
+        elif global_state.value == State.READER_READY:
+            global_state.value = State.WRITER_READY
+        elif global_state.value == State.WRITER_READY:
+            global_state.value = State.AT_LEAST_ONE_WRITE_DONE
+        elif global_state.value == State.AT_LEAST_ONE_WRITE_DONE:
+            pass
+
+
 condition = multiprocessing.Condition()
 global_state = multiprocessing.Value("i", State.BEGIN)
 
@@ -33,8 +46,7 @@ def wait_for_state(func):
 
     with condition:
         condition.wait_for(lambda: func(State(global_state.value)))
-        if State(global_state.value) != State.AT_LEAST_ONE_WRITE_DONE:
-            global_state.value += 1
+        update_global_state()
         condition.notify_all()
 
 
