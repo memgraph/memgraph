@@ -103,6 +103,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "--management-port=10121",
         ],
         "log_file": "high_availability/disable_writing_on_main_after_restart/test_writing_disabled_on_main_restart/coordinator1.log",
+        "data_directory": f"{TEMP_DIR}/coordinator_1",
         "setup_queries": [],
     },
     "coordinator_2": {
@@ -117,6 +118,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "--management-port=10122",
         ],
         "log_file": "high_availability/disable_writing_on_main_after_restart/test_writing_disabled_on_main_restart/coordinator2.log",
+        "data_directory": f"{TEMP_DIR}/coordinator_2",
         "setup_queries": [],
     },
     "coordinator_3": {
@@ -132,6 +134,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "--management-port=10123",
         ],
         "log_file": "high_availability/disable_writing_on_main_after_restart/test_writing_disabled_on_main_restart/coordinator3.log",
+        "data_directory": f"{TEMP_DIR}/coordinator_3",
         "setup_queries": [],
     },
 }

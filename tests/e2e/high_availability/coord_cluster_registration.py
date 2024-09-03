@@ -89,6 +89,7 @@ def get_instances_description(test_name: str):
                 "--management-port=10121",
             ],
             "log_file": f"high_availability/coord_cluster_registration/{test_name}/coordinator1.log",
+            "data_directory": f"{TEMP_DIR}/coordinator_1",
             "setup_queries": [],
         },
         "coordinator_2": {
@@ -103,6 +104,7 @@ def get_instances_description(test_name: str):
                 "--management-port=10122",
             ],
             "log_file": f"high_availability/coord_cluster_registration/{test_name}/coordinator2.log",
+            "data_directory": f"{TEMP_DIR}/coordinator_2",
             "setup_queries": [],
         },
         "coordinator_3": {
@@ -117,6 +119,7 @@ def get_instances_description(test_name: str):
                 "--management-port=10123",
             ],
             "log_file": f"high_availability/coord_cluster_registration/{test_name}/coordinator3.log",
+            "data_directory": f"{TEMP_DIR}/coordinator_3",
             "setup_queries": [],
         },
     }
@@ -184,6 +187,7 @@ def get_instances_description_no_coord(test_name: str):
                 "--management-port=10121",
             ],
             "log_file": f"high_availability/coord_cluster_registration/{test_name}/coordinator1.log",
+            "data_directory": f"{TEMP_DIR}/coordinator_1",
             "setup_queries": [],
         },
         "coordinator_2": {
@@ -198,6 +202,7 @@ def get_instances_description_no_coord(test_name: str):
                 "--management-port=10122",
             ],
             "log_file": f"high_availability/coord_cluster_registration/{test_name}/coordinator2.log",
+            "data_directory": f"{TEMP_DIR}/coordinator_2",
             "setup_queries": [],
         },
     }

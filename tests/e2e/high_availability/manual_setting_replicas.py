@@ -35,6 +35,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "10013",
         ],
         "log_file": "high_availability/manual_setting_replicas/main.log",
+        "data_directory": f"{TEMP_DIR}/instance_3",
         "setup_queries": [],
     },
 }
