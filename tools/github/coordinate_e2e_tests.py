@@ -393,26 +393,20 @@ for id, container_info in synchronized_map.get_shallow_copy().items():
     print(f">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
 
 
-# Step 1: Collect all tasks from all containers
 all_tasks = []
 for id, container_info in synchronized_map.get_shallow_copy().items():
     for task in container_info.tasks_executed:
         all_tasks.append(task)
 
-# Step 2: Calculate the average execution time of all tasks
 total_time = sum(task[2] for task in all_tasks)
 average_time = total_time / len(all_tasks)
 
-# Step 3: Calculate the deviation of each task from the average time
 tasks_with_deviation = [(task, abs(task[2] - average_time)) for task in all_tasks]
 
-# Step 4: Sort tasks by their deviation in descending order
 tasks_with_deviation.sort(key=lambda x: x[1], reverse=True)
 
-# Step 5: Select the top 10 tasks with the highest deviation
 top_10_tasks = tasks_with_deviation[:10]
 
-# Step 6: Print the final list of these tasks
 print("Top 10 tasks with the highest deviation from the average time:")
 for task, deviation in top_10_tasks:
     print(f"Task: {task}, Deviation: {deviation}")
