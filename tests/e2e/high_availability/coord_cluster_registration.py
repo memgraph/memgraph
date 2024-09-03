@@ -21,7 +21,7 @@ from common import (
     ignore_elapsed_time_from_results,
     safe_execute,
 )
-from mg_utils import mg_sleep_and_assert
+from mg_utils import mg_sleep_and_assert, mg_sleep_and_assert_multiple
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
@@ -374,7 +374,7 @@ def test_coordinators_communication_with_restarts():
     )
     execute_and_fetch_all(coordinator3_cursor, "SET INSTANCE instance_3 TO MAIN")
 
-    data = [
+    coord3_leader_data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
@@ -390,7 +390,7 @@ def test_coordinators_communication_with_restarts():
             sorted(list(execute_and_fetch_all(coordinator1_cursor, "SHOW INSTANCES")))
         )
 
-    mg_sleep_and_assert(data, check_coordinator1)
+    mg_sleep_and_assert(coord3_leader_data, check_coordinator1)
 
     coordinator2_cursor = connect(host="localhost", port=7691).cursor()
 
@@ -399,13 +399,13 @@ def test_coordinators_communication_with_restarts():
             sorted(list(execute_and_fetch_all(coordinator2_cursor, "SHOW INSTANCES")))
         )
 
-    mg_sleep_and_assert(data, check_coordinator2)
+    mg_sleep_and_assert(coord3_leader_data, check_coordinator2)
 
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_1")
     interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_1")
     coordinator1_cursor = connect(host="localhost", port=7690).cursor()
 
-    mg_sleep_and_assert(data, check_coordinator1)
+    mg_sleep_and_assert(coord3_leader_data, check_coordinator1)
 
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_1")
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_2")
@@ -415,8 +415,28 @@ def test_coordinators_communication_with_restarts():
     coordinator1_cursor = connect(host="localhost", port=7690).cursor()
     coordinator2_cursor = connect(host="localhost", port=7691).cursor()
 
-    mg_sleep_and_assert(data, check_coordinator1)
-    mg_sleep_and_assert(data, check_coordinator2)
+    coord1_leader_data = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "follower"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
+        ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
+    ]
+
+    coord2_leader_data = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "leader"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "follower"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
+        ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
+    ]
+
+    # After killing 2/3 of coordinators, leadership can change
+    mg_sleep_and_assert_multiple(
+        [coord1_leader_data, coord2_leader_data, coord3_leader_data], [check_coordinator1, check_coordinator2]
+    )
 
 
 @pytest.mark.parametrize(
