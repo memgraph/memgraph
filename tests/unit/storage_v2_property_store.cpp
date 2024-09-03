@@ -795,7 +795,7 @@ TEST(PropertyStore, PropertiesOfTypes) {
 
   PropertyStore store;
   store.InitProperties(data);
-  std::vector<PropertyStoreType> types = {PropertyStoreType::BOOL, PropertyStoreType::DOUBLE};
+  constexpr auto types = std::array{PropertyStoreType::BOOL, PropertyStoreType::DOUBLE};
   auto props_of_type = store.PropertiesOfTypes(types);
 
   ASSERT_EQ(props_of_type.size(), 2);
@@ -831,18 +831,16 @@ TEST(PropertyStore, GetPropertyOfTypes) {
   PropertyStore store3;
   store3.InitProperties(data3);
 
-  std::vector<PropertyStoreType> types = {PropertyStoreType::BOOL, PropertyStoreType::INT};
+  constexpr auto types = std::array{PropertyStoreType::BOOL, PropertyStoreType::INT};
 
   auto prop_of_type1 = store1.GetPropertyOfTypes(PropertyId::FromInt(2), types);
-  ASSERT_TRUE(prop_of_type1.has_value());
-  ASSERT_EQ(*prop_of_type1, data1[1].second);
+  ASSERT_EQ(prop_of_type1, data1[1].second);
 
   auto prop_of_type2 = store2.GetPropertyOfTypes(PropertyId::FromInt(2), types);
-  ASSERT_TRUE(prop_of_type2.has_value());
-  ASSERT_EQ(*prop_of_type2, data2[1].second);
+  ASSERT_EQ(prop_of_type2, data2[1].second);
 
   auto prop_of_type3 = store3.GetPropertyOfTypes(PropertyId::FromInt(2), types);
-  ASSERT_FALSE(prop_of_type3.has_value());
+  ASSERT_EQ(prop_of_type3, std::nullopt);
 }
 
 int main(int argc, char **argv) {

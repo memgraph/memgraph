@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <map>
 #include <set>
+#include <span>
 
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
