@@ -12,6 +12,7 @@ import os
 import shutil
 import sys
 import tempfile
+from typing import List
 
 import interactive_mg_runner
 import pytest
@@ -21,7 +22,7 @@ from common import (
     ignore_elapsed_time_from_results,
     safe_execute,
 )
-from mg_utils import mg_sleep_and_assert, mg_sleep_and_assert_multiple
+from mg_utils import find_instance_and_assert_instances, mg_sleep_and_assert
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
@@ -31,6 +32,27 @@ interactive_mg_runner.BUILD_DIR = os.path.normpath(os.path.join(interactive_mg_r
 interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactive_mg_runner.BUILD_DIR, "memgraph"))
 
 TEMP_DIR = tempfile.TemporaryDirectory().name
+
+
+def update_tuple_value(
+    list_tuples: List, searching_key: str, searching_index: int, index_in_tuple_value: int, new_value: str
+):
+    def find_tuple():
+        for i, tuple_obj in enumerate(list_tuples):
+            if tuple_obj[searching_index] != searching_key:
+                continue
+            return i
+        return None
+
+    index_tuple = find_tuple()
+    assert index_tuple is not None, "Tuple not found"
+
+    tuple_obj = list_tuples[index_tuple]
+    tuple_obj_list = list(tuple_obj)
+    tuple_obj_list[index_in_tuple_value] = new_value
+    list_tuples[index_tuple] = tuple(tuple_obj_list)
+
+    return list_tuples
 
 
 def get_instances_description(test_name: str):
@@ -415,8 +437,8 @@ def test_coordinators_communication_with_restarts():
     coordinator1_cursor = connect(host="localhost", port=7690).cursor()
     coordinator2_cursor = connect(host="localhost", port=7691).cursor()
 
-    coord1_leader_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
+    leader_data = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "follower"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
@@ -424,19 +446,13 @@ def test_coordinators_communication_with_restarts():
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
 
-    coord2_leader_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "leader"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "follower"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
-    ]
+    leader_name = find_instance_and_assert_instances(instance_role="leader", num_coordinators=3)
+
+    leader_data = update_tuple_value(leader_data, leader_name, 0, -1, "leader")
 
     # After killing 2/3 of coordinators, leadership can change
-    mg_sleep_and_assert_multiple(
-        [coord1_leader_data, coord2_leader_data, coord3_leader_data], [check_coordinator1, check_coordinator2]
-    )
+    mg_sleep_and_assert(leader_data, check_coordinator1)
+    mg_sleep_and_assert(leader_data, check_coordinator2)
 
 
 @pytest.mark.parametrize(
