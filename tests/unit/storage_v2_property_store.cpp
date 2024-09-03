@@ -779,6 +779,72 @@ TEST(PropertyStore, ReplaceWithSameSize) {
   EXPECT_EQ(store.GetProperty(PropertyId::FromInt(1)), PropertyValue(std::string(100, 'b')));
 }
 
+TEST(PropertyStore, PropertiesOfTypes) {
+  const std::vector<std::pair<PropertyId, PropertyValue>> data{
+      {PropertyId::FromInt(1), PropertyValue(true)},
+      {PropertyId::FromInt(2), PropertyValue(123)},
+      {PropertyId::FromInt(3), PropertyValue("three")},
+      {PropertyId::FromInt(4), PropertyValue(3.5)},
+      {PropertyId::FromInt(5), PropertyValue("0.0")},
+      {PropertyId::FromInt(6), PropertyValue(Enum{EnumTypeId{2}, EnumValueId{42}})},
+      {PropertyId::FromInt(7), PropertyValue{Point2d{Cartesian_2d, 1.0, 2.0}}},
+      {PropertyId::FromInt(8), PropertyValue{Point2d{WGS84_2d, 3.0, 4.0}}},
+      {PropertyId::FromInt(9), PropertyValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}}},
+      {PropertyId::FromInt(10), PropertyValue{Point3d{WGS84_3d, 4.0, 5.0, 6.0}}},
+  };
+
+  PropertyStore store;
+  store.InitProperties(data);
+  std::vector<PropertyStoreType> types = {PropertyStoreType::BOOL, PropertyStoreType::DOUBLE};
+  auto props_of_type = store.PropertiesOfTypes(types);
+
+  ASSERT_EQ(props_of_type.size(), 2);
+  ASSERT_EQ(props_of_type[0], data[0].first);
+  ASSERT_EQ(props_of_type[1], data[3].first);
+}
+
+TEST(PropertyStore, GetPropertyOfTypes) {
+  const std::vector<std::pair<PropertyId, PropertyValue>> data1{
+      {PropertyId::FromInt(1), PropertyValue(true)},
+      {PropertyId::FromInt(2), PropertyValue(123)},
+      {PropertyId::FromInt(3), PropertyValue("three")},
+  };
+
+  const std::vector<std::pair<PropertyId, PropertyValue>> data2{
+      {PropertyId::FromInt(1), PropertyValue(123)},
+      {PropertyId::FromInt(2), PropertyValue(true)},
+      {PropertyId::FromInt(3), PropertyValue("three")},
+  };
+
+  const std::vector<std::pair<PropertyId, PropertyValue>> data3{
+      {PropertyId::FromInt(1), PropertyValue(true)},
+      {PropertyId::FromInt(2), PropertyValue("three")},
+      {PropertyId::FromInt(3), PropertyValue(123)},
+  };
+
+  PropertyStore store1;
+  store1.InitProperties(data1);
+
+  PropertyStore store2;
+  store2.InitProperties(data2);
+
+  PropertyStore store3;
+  store3.InitProperties(data3);
+
+  std::vector<PropertyStoreType> types = {PropertyStoreType::BOOL, PropertyStoreType::INT};
+
+  auto prop_of_type1 = store1.GetPropertyOfTypes(PropertyId::FromInt(2), types);
+  ASSERT_TRUE(prop_of_type1.has_value());
+  ASSERT_EQ(*prop_of_type1, data1[1].second);
+
+  auto prop_of_type2 = store2.GetPropertyOfTypes(PropertyId::FromInt(2), types);
+  ASSERT_TRUE(prop_of_type2.has_value());
+  ASSERT_EQ(*prop_of_type2, data2[1].second);
+
+  auto prop_of_type3 = store3.GetPropertyOfTypes(PropertyId::FromInt(2), types);
+  ASSERT_FALSE(prop_of_type3.has_value());
+}
+
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
   int result = RUN_ALL_TESTS();
