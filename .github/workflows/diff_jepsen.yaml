@@ -92,6 +92,8 @@ jobs:
           --organization-name $MEMGRAPH_ORGANIZATION_NAME
 
       - name: Process Jepsen results
+        continue-on-error: true
+        if: always()
         run: |
           cd tests/jepsen
           ./run.sh process-results
