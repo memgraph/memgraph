@@ -50,9 +50,7 @@ void SystemRestore(replication::ReplicationClient &client, system::System &syste
   client.state_.WithLock(
       [](auto &state) { return state != memgraph::replication::ReplicationClient::State::RECOVERY; });
   {
-    using enum memgraph::flags::Experiments;
-    bool full_system_replication =
-        flags::AreExperimentsEnabled(SYSTEM_REPLICATION) && license::global_license_checker.IsEnterpriseValidFast();
+    bool is_enterprise = license::global_license_checker.IsEnterpriseValidFast();
     // We still need to system replicate
     struct DbInfo {
       std::vector<storage::SalientConfig> configs;
@@ -66,7 +64,7 @@ void SystemRestore(replication::ReplicationClient &client, system::System &syste
         return std::nullopt;
       });
 
-      if (full_system_replication) {
+      if (is_enterprise) {
         auto configs = std::vector<storage::SalientConfig>{};
         dbms_handler.ForEach([&configs](dbms::DatabaseAccess acc) { configs.emplace_back(acc->config().salient); });
         // TODO: This is `SystemRestore` maybe DbInfo is incorrect as it will need Auth also
@@ -79,7 +77,7 @@ void SystemRestore(replication::ReplicationClient &client, system::System &syste
     try {
       auto stream = std::invoke([&]() {
         // Handle only default database is no license
-        if (!full_system_replication) {
+        if (!is_enterprise) {
           return client.rpc_client_.Stream<replication::SystemRecoveryRpc>(
               main_uuid, db_info.last_committed_timestamp, std::move(db_info.configs), auth::Auth::Config{},
               std::vector<auth::User>{}, std::vector<auth::Role>{});
@@ -176,11 +174,6 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
           break;
       }
     }
-    using enum memgraph::flags::Experiments;
-    bool system_replication_enabled = flags::AreExperimentsEnabled(SYSTEM_REPLICATION);
-    if (!system_replication_enabled && dbms_handler_.Count() > 1) {
-      spdlog::warn("Multi-tenant replication is currently not supported!");
-    }
     const auto main_uuid =
         std::get<memgraph::replication::RoleMainData>(dbms_handler_.ReplicationState().ReplicationData()).uuid_;
     if constexpr (SendSwapUUID) {
@@ -202,9 +195,6 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
     // Add database specific clients (NOTE Currently all databases are connected to each replica)
     dbms_handler_.ForEach([&](dbms::DatabaseAccess db_acc) {
       auto *storage = db_acc->storage();
-      if (!system_replication_enabled && storage->name() != dbms::kDefaultDB) {
-        return;
-      }
       // TODO: ATM only IN_MEMORY_TRANSACTIONAL, fix other modes
       if (storage->storage_mode_ != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) return;
       all_clients_good &= storage->repl_storage_state_.replication_clients_.WithLock(
