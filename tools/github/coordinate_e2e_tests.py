@@ -203,8 +203,8 @@ def copy_output_to_container(
     subprocess.run(copy_stdout_command, shell=True, check=True)
     subprocess.run(copy_stderr_command, shell=True, check=True)
 
-    # os.remove(stdout_file_path)
-    # os.remove(stderr_file_path)
+    os.remove(stdout_file_path)
+    os.remove(stderr_file_path)
 
 
 def process_workloads(
