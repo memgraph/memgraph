@@ -4571,11 +4571,6 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &cur
       if (current_db.in_explicit_db_) {
         throw QueryException("Database switching is prohibited if session explicitly defines the used database");
       }
-
-      using enum memgraph::flags::Experiments;
-      if (!flags::AreExperimentsEnabled(SYSTEM_REPLICATION) && is_replica) {
-        throw QueryException("Query forbidden on the replica!");
-      }
       return PreparedQuery{{"STATUS"},
                            std::move(parsed_query.required_privileges),
                            [db_name = query->db_name_, db_handler, &current_db, on_change = std::move(on_change_cb)](
@@ -5423,8 +5418,7 @@ void Interpreter::Commit() {
     auto const main_commit = [&](replication::RoleMainData &mainData) {
     // Only enterprise can do system replication
 #ifdef MG_ENTERPRISE
-      using enum memgraph::flags::Experiments;
-      if (flags::AreExperimentsEnabled(SYSTEM_REPLICATION) && license::global_license_checker.IsEnterpriseValidFast()) {
+      if (license::global_license_checker.IsEnterpriseValidFast()) {
         return system_transaction_->Commit(memgraph::system::DoReplication{mainData});
       }
 #endif
