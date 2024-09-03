@@ -956,4 +956,4 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             """
         Then the result should be:
             | index type             | label | property | count |
-            | "point-label+property" | "L1"  | "prop1"  | 1     |
+            | 'point-label+property' | 'L1'  | 'prop1'  | 1     |
