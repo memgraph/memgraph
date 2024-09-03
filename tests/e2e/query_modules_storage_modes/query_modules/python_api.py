@@ -15,7 +15,6 @@ from enum import IntEnum
 import mgp
 
 
-# Define the State enum
 class State(IntEnum):
     BEGIN = 0
     READER_READY = 1
