@@ -815,17 +815,27 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view instance
     return SetInstanceToMainCoordinatorStatus::SWAP_UUID_FAILED;
   }
 
+  spdlog::trace("Swapped uuid for all replica instances");
+
   auto repl_clients_info = repl_instances_ | ranges::views::filter(is_not_new_main) |
                            ranges::views::transform(&ReplicationInstanceConnector::GetReplicationClientInfo) |
                            ranges::to<ReplicationClientsInfo>();
 
+  spdlog::trace("Collected ReplicationClientsInfo, trying to promote instance {} to main", new_main->InstanceName());
+
   if (!new_main->PromoteToMain(new_main_uuid, std::move(repl_clients_info), &CoordinatorInstance::MainSuccessCallback,
                                &CoordinatorInstance::MainFailCallback)) {
+    spdlog::trace("Promoting instance {} failed", new_main->InstanceName());
     return SetInstanceToMainCoordinatorStatus::COULD_NOT_PROMOTE_TO_MAIN;
   }
+
+  spdlog::trace("Instance {} promoted to main.", new_main->InstanceName());
+
   if (!raft_state_->AppendUpdateUUIDForNewMainLog(new_main_uuid)) {
     return SetInstanceToMainCoordinatorStatus::RAFT_LOG_ERROR;
   }
+
+  spdlog::trace("Updated UUID for new main");
 
   if (!raft_state_->AppendSetInstanceAsMainLog(instance_name, new_main_uuid)) {
     return SetInstanceToMainCoordinatorStatus::RAFT_LOG_ERROR;
