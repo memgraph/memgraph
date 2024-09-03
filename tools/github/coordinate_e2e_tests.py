@@ -7,9 +7,10 @@ import tempfile
 import threading
 import time
 from collections import defaultdict
+from dataclasses import dataclass
 from pathlib import Path
 from queue import Queue
-from tempfile import TemporaryDirectory
+from typing import List, Tuple
 
 import docker
 import yaml
@@ -74,7 +75,7 @@ class SynchronizedMap:
         with self._lock:
             self._map.pop(key)
 
-    def get_copy(self):
+    def get_shallow_copy(self):
         copy_map = defaultdict()
         with self._lock:
             for key, value in self._map.items():
@@ -82,7 +83,7 @@ class SynchronizedMap:
         return copy_map
 
 
-class ThreadSafePrint:
+class SynchronnizedPrint:
     def __init__(self):
         self._lock = threading.Lock()
 
@@ -105,7 +106,7 @@ def create_directory(path):
     os.makedirs(path, exist_ok=True)
 
 
-class ThreadSafeContainerCopy:
+class SynchronizedContainerCopy:
     def __init__(self):
         self._lock = threading.Lock()
 
@@ -127,11 +128,19 @@ class ThreadSafeContainerCopy:
             subprocess.run(copy_to_dest_command, shell=True, check=True)
 
 
+@dataclass
+class ContainerInfo:
+    container_name: str
+    tasks_executed: List[Tuple[str, str, float]]
+    exception: str
+    output: List[Tuple[str, str]]
+
+
 atomic_int = AtomicInteger(0)
-thread_safe_print = ThreadSafePrint()
+synchronized_print = SynchronnizedPrint()
 synchronized_map = SynchronizedMap()
 temp_dir = tempfile.TemporaryDirectory().name
-thread_safe_container_copy = ThreadSafeContainerCopy()
+synchronized_container_copy = SynchronizedContainerCopy()
 
 
 def start_container_from_image(image_tag, id: int):
@@ -141,9 +150,9 @@ def start_container_from_image(image_tag, id: int):
 
 
 def stop_container(container):
-    thread_safe_print.print(f"Stopping container with ID: {container.id}")
+    synchronized_print.print(f"Stopping container with ID: {container.id}")
     container.stop()
-    thread_safe_print.print(f"Stopped container with ID: {container.id}")
+    synchronized_print.print(f"Stopped container with ID: {container.id}")
 
 
 def find_workloads_for_testing(container, container_root_directory, project_root_directory):
@@ -173,6 +182,31 @@ def find_workloads_for_testing(container, container_root_directory, project_root
     return folders_with_workloads_yaml
 
 
+def copy_output_to_container(
+    container_to_copy, container_name, container_root_dir, formated_stdout_output, formated_stderr_output
+):
+    stdout_file_path = os.path.join(temp_dir, f"{container_name}_stdout.log")
+    stderr_file_path = os.path.join(temp_dir, f"{container_name}_stderr.log")
+
+    print(stderr_file_path)
+    print(stdout_file_path)
+    with open(stdout_file_path, "w") as stdout_file:
+        stdout_file.write(formated_stdout_output)
+
+    with open(stderr_file_path, "w") as stderr_file:
+        stderr_file.write(formated_stderr_output)
+
+    # Copy files to Docker container
+    copy_stdout_command = f"docker cp {stdout_file_path} {container_to_copy}:{container_root_dir}/build/logs/"
+    copy_stderr_command = f"docker cp {stderr_file_path} {container_to_copy}:{container_root_dir}/build/logs/"
+
+    subprocess.run(copy_stdout_command, shell=True, check=True)
+    subprocess.run(copy_stderr_command, shell=True, check=True)
+
+    # os.remove(stdout_file_path)
+    # os.remove(stderr_file_path)
+
+
 def process_workloads(
     id: int,
     image_name,
@@ -180,31 +214,32 @@ def process_workloads(
     synchronized_queue: SynchronizedQueue,
     synchronized_map: SynchronizedMap,
     container_root_dir: str,
-    thread_safe_container_copy: ThreadSafeContainerCopy,
+    thread_safe_container_copy: SynchronizedContainerCopy,
     original_container_id: str,
 ):
-    thread_id = threading.get_ident()
-    thread_safe_print.print(f">>>>Starting container in thread {thread_id}")
+    synchronized_print.print(f">>>>Starting container-{id}")
     container = start_container_from_image(image_name, id)
     if container is None:
         atomic_int.increment()
-        thread_safe_print.print(f"Failed to start container in thread {thread_id}")
+        synchronized_print.print(f"Failed to start container {id}")
         return
 
-    thread_safe_print.print(f">>>>Started container with id: {container.id} in thread {thread_id}")
+    synchronized_print.print(f">>>>Started container-{id} with id {container.id}")
 
     tasks_executed = []
     total_execution = 0
+    exception = None
+    output = []
     while True:
+        if atomic_int.get() > 0:
+            synchronized_print.print(f"Encountered errors on other thread, stopping this execution {id}")
+            break
+
         workload_pair = synchronized_queue.get_next()
         if workload_pair is None:
             break
 
         workload_folder, workload_name = workload_pair
-        start_time = time.time()
-        if atomic_int.get() > 0:
-            thread_safe_print.print(f"Encountered errors on other thread, skipping this execution {thread_id}")
-            break
         try:
             docker_command = (
                 f"docker exec -u mg {container.id} bash -c "
@@ -212,33 +247,51 @@ def process_workloads(
                 f"python3 runner.py --workloads-root-directory {workload_folder} --workload-name '{workload_name}' \""
             )
 
-            thread_safe_print.print(
-                f"Processing workload: {workload_name} in thread {thread_id} using docker command {docker_command}"
-            )
-            res = subprocess.run(docker_command, shell=True, check=True)
-            if res.returncode != 0:
-                thread_safe_print.print(f"Failed to execute command: {docker_command}")
-                atomic_int.increment()
+            start_time = time.time()
+            res = subprocess.run(docker_command, shell=True, capture_output=True)
 
             tasks_executed.append((workload_folder, workload_name, time.time() - start_time))
             total_execution += time.time() - start_time
+            res_stdout_formatted = "\n".join(res.stdout.decode("utf-8").split("\n"))
+            res_stderr_formatted = "\n".join(res.stderr.decode("utf-8").split("\n"))
+            output.append((res_stdout_formatted, res_stderr_formatted))
 
-            thread_safe_print.print(f">>>>Copying logs from container with id: {container.id}")
-            thread_safe_container_copy.copy_logs(
-                container.id, original_container_id, f"{container_root_dir}/build/logs/", temp_dir
-            )
-            thread_safe_print.print(f">>>>Copied logs from container with id: {container.id}")
+            if res.returncode != 0:
+                synchronized_print.print(
+                    f"Fail! Container id: container-{id} failed workload: {workload_name} using docker command {docker_command}"
+                )
+                atomic_int.increment()
+                break
+            else:
+                synchronized_print.print(
+                    f"\nSuccess! Container id: container-{id} executed workload: {workload_name} using docker command {docker_command}\n"
+                )
         except Exception as e:
-            thread_safe_print.print(f"Exception: {e}")
+            exception = str(e)
+            synchronized_print.print(f"Exception: {e}")
             atomic_int.increment()
             break
 
-    thread_safe_print.print(f">>>>Stopping container with id: {container.id}")
+    try:
+        synchronized_print.print(f">>>>Copying logs from container-{id}")
+        thread_safe_container_copy.copy_logs(
+            container.id, original_container_id, f"{container_root_dir}/build/logs/", temp_dir
+        )
+        synchronized_print.print(f">>>>Copied logs from container-{id}")
+    except Exception as e:
+        synchronized_print.print(f"Exception occurred while copying logs from container-{id}: {e}")
+
+    synchronized_print.print(f">>>>Stopping container-{id}")
     stop_container(container)
-    thread_safe_print.print(f">>>>Stopped container with id: {container.id}")
+    synchronized_print.print(f">>>>Stopped container-{id}")
 
     tasks_executed.sort(key=lambda x: x[2], reverse=True)
-    synchronized_map.insert_elem(id, tasks_executed)
+    synchronized_map.insert_elem(
+        id,
+        ContainerInfo(
+            container_name=f"container-{id}", tasks_executed=tasks_executed, exception=exception, output=output
+        ),
+    )
 
 
 parser = argparse.ArgumentParser(description="Parse image name and thread arguments.")
@@ -282,9 +335,6 @@ stop_container(container_0)
 
 print(f">>>>Workloads {len(workloads)} found!")
 
-for workload_folder, workload_name in workloads:
-    print(f"Workload: {workload_name} in folder: {workload_folder}")
-
 synchronized_queue = SynchronizedQueue(workloads)
 threads = []
 error = False
@@ -299,7 +349,7 @@ try:
                 synchronized_queue,
                 synchronized_map,
                 args.container_root_dir,
-                thread_safe_container_copy,
+                synchronized_container_copy,
                 args.original_container_id,
             ),
         )
@@ -318,12 +368,31 @@ finally:
         if thread.is_alive():
             thread.join()
 
-for key, value in synchronized_map.get_copy().items():
+print("SUMMARY:")
+for id, container_info in synchronized_map.get_shallow_copy().items():
     print(f">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
-    print(f">>>>KEY {key}, value: \n \t {value} \n ")
+    print(f"\t\tContainer id: {id} \n ")
 
-    total_time = sum([x[2] for x in value])
-    print(f">>>>>> Container {key} executed {len(value)} tasks in {total_time} seconds.")
+    stdout, stderr = [out[0] for out in container_info.output], [out[1] for out in container_info.output]
+
+    formated_stdout_output = "\n".join(stdout)
+    formated_stderr_output = "\n".join(stderr)
+
+    copy_output_to_container(
+        args.original_container_id,
+        f"container-{id}",
+        args.container_root_dir,
+        formated_stdout_output,
+        formated_stderr_output,
+    )
+
+    total_time = sum([x[2] for x in container_info.tasks_executed])
+    print(f"\t\tContainer-{id} executed {len(container_info.tasks_executed)} tasks in {total_time} seconds.")
+    print(f"\t\tTasks: {container_info.tasks_executed}")
     print(f">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
+
+
+print(f"Errors occurred {atomic_int.get()}")
+
 if atomic_int.get() > 0 or error:
     exit(1)
