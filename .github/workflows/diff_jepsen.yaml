@@ -87,11 +87,14 @@ jobs:
           ./run.sh test-all-individually \
           --binary ../../build/memgraph \
           --run-args "--time-limit 120 --concurrency 6" \
-          --ignore-run-stdout-logs \
-          --ignore-run-stderr-logs \
           --nodes-no 6 \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME
+
+      - name: Process Jepsen results
+        run: |
+          cd tests/jepsen
+          ./run.sh process-results
 
       - name: Save Jepsen report
         continue-on-error: true
