@@ -185,6 +185,7 @@ def test_not_replicate_old_main_register_new_cluster():
                 "--management-port=10121",
             ],
             "log_file": "coordinator.log",
+            "data_directory": f"{TEMP_DIR}/coordinator_1",
             "setup_queries": [
                 "REGISTER INSTANCE shared_instance WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
                 "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",
@@ -242,6 +243,7 @@ def test_not_replicate_old_main_register_new_cluster():
                 "--management-port=10122",
             ],
             "log_file": "coordinator.log",
+            "data_directory": f"{TEMP_DIR}/coordinator_2",
             "setup_queries": [],
         },
     }

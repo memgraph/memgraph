@@ -11,6 +11,7 @@
 
 import os
 import sys
+import tempfile
 
 import interactive_mg_runner
 import pytest
@@ -22,6 +23,8 @@ interactive_mg_runner.PROJECT_DIR = os.path.normpath(
 )
 interactive_mg_runner.BUILD_DIR = os.path.normpath(os.path.join(interactive_mg_runner.PROJECT_DIR, "build"))
 interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactive_mg_runner.BUILD_DIR, "memgraph"))
+
+TEMP_DIR = tempfile.TemporaryDirectory().name
 
 MEMGRAPH_INSTANCES_DESCRIPTION = {
     "instance_3": {
@@ -35,6 +38,7 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "10013",
         ],
         "log_file": "high_availability/manual_setting_replicas/main.log",
+        "data_directory": f"{TEMP_DIR}/instance_3",
         "setup_queries": [],
     },
 }
