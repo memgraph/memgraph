@@ -29,7 +29,6 @@
 
 #include <arpa/inet.h>
 #include <fmt/core.h>
-#include <netdb.h>
 #include <netinet/in.h>
 #include <spdlog/spdlog.h>
 #include <sys/socket.h>
@@ -43,9 +42,9 @@ namespace memgraph::io::network {
 
 Endpoint::Endpoint(std::string address, uint16_t port) : address_(std::move(address)), port_(port) {}
 
-std::string Endpoint::SocketAddress() const { return fmt::format("{}{}{}", address_, delimiter, port_); }
+auto Endpoint::SocketAddress() const -> std::string { return fmt::format("{}{}{}", address_, delimiter, port_); }
 
-std::string Endpoint::GetResolvedSocketAddress() const {
+auto Endpoint::GetResolvedSocketAddress() const -> std::string {
   auto const result = TryResolveAddress(address_, port_);
   if (!result.has_value()) {
     throw NetworkError("Couldn't resolve neither using DNS, nor IP address!");
@@ -53,7 +52,7 @@ std::string Endpoint::GetResolvedSocketAddress() const {
   return fmt::format("{}{}{}", std::get<0>(*result), delimiter, std::get<1>(*result));
 }
 
-std::string Endpoint::GetResolvedIPAddress() const {
+auto Endpoint::GetResolvedIPAddress() const -> std::string {
   auto const result = TryResolveAddress(address_, port_);
   if (!result.has_value()) {
     throw NetworkError("Couldn't resolve neither using DNS, nor IP address!");
@@ -61,37 +60,41 @@ std::string Endpoint::GetResolvedIPAddress() const {
   return std::get<0>(*result);
 }
 
+auto Endpoint::GetAddrInfo() const -> addrinfo * {
+  auto const result = TryResolveAddress(address_, port_);
+  if (!result.has_value()) {
+    throw NetworkError("Couldn't resolve neither using DNS, nor IP address!");
+  }
+  return std::get<3>(*result);
+}
+
 std::ostream &operator<<(std::ostream &os, const Endpoint &endpoint) {
   return os << endpoint.GetResolvedSocketAddress();
 }
 
-std::optional<std::tuple<std::string, uint16_t, Endpoint::IpFamily>> Endpoint::TryResolveAddress(
-    std::string_view address, uint16_t port) {
-  using RetValue = std::tuple<std::string, uint16_t, Endpoint::IpFamily>;
-
-  auto const process_ipv4_family = [](addrinfo *socket_addr, uint16_t port) -> RetValue {
-    spdlog::trace("Started process_ipv4_family");
+std::optional<Endpoint::RetValue> Endpoint::TryResolveAddress(std::string_view address, uint16_t port) {
+  auto const process_ipv4_family = [address](addrinfo *socket_addr, uint16_t port) -> RetValue {
+    spdlog::trace("Started process_ipv4_family {} {}", address, port);
     char buffer[INET_ADDRSTRLEN];
     auto *socket_address_ipv4 = reinterpret_cast<struct sockaddr_in *>(socket_addr->ai_addr);
-    spdlog::trace("Reinterpreted socket_address_ipv4");
+    spdlog::trace("Reinterpreted socket_address_ipv4 {} {}", address, port);
     inet_ntop(socket_addr->ai_family, &(socket_address_ipv4->sin_addr), buffer, sizeof(buffer));
-    spdlog::trace("inet_ntop for process_ipv4_family finished successfully");
-    return std::tuple{std::string{buffer}, port, Endpoint::IpFamily::IP4};
+    spdlog::trace("inet_ntop for process_ipv4_family finished successfully {} {}", address, port);
+    return std::tuple{std::string{buffer}, port, Endpoint::IpFamily::IP4, socket_addr};
   };
 
-  auto const process_ipv6_family = [](addrinfo *socket_addr, uint16_t port) -> RetValue {
-    spdlog::trace("Started process_ipv6_family");
+  auto const process_ipv6_family = [address](addrinfo *socket_addr, uint16_t port) -> RetValue {
+    spdlog::trace("Started process_ipv6_family {} {}", address, port);
     char buffer[INET6_ADDRSTRLEN];
     auto *socket_address_ipv6 = reinterpret_cast<sockaddr_in6 *>(socket_addr->ai_addr);
-    spdlog::trace("Reinterpreted socket_address_ipv4");
+    spdlog::trace("Reinterpreted socket_address_ipv4 {} {}", address, port);
     inet_ntop(socket_addr->ai_family, &(socket_address_ipv6->sin6_addr), buffer, sizeof(buffer));
-    spdlog::trace("inet_ntop for process_ipv6_family finished successfully");
-    return std::tuple{std::string{buffer}, port, Endpoint::IpFamily::IP6};
+    spdlog::trace("inet_ntop for process_ipv6_family finished successfully {} {}", address, port);
+    return std::tuple{std::string{buffer}, port, Endpoint::IpFamily::IP6, socket_addr};
   };
 
-  auto const parse_ip_family =
-      [&address, &port](std::function<RetValue(addrinfo *, uint16_t)> const &processing_fn,
-                        auto family) -> std::optional<std::tuple<std::string, uint16_t, Endpoint::IpFamily>> {
+  auto const parse_ip_family = [&address, &port](std::function<RetValue(addrinfo *, uint16_t)> const &processing_fn,
+                                                 auto family) -> std::optional<RetValue> {
     addrinfo const hints{
         .ai_flags = AI_PASSIVE,     // fill with IPv4 or IPv6
         .ai_family = family,        // IPv4 or IPv6
@@ -109,7 +112,7 @@ std::optional<std::tuple<std::string, uint16_t, Endpoint::IpFamily>> Endpoint::T
       return std::nullopt;
     }
 
-    spdlog::trace("getaddrinfo successfully finished");
+    spdlog::trace("getaddrinfo successfully finished {} {}", address, port);
 
     auto *socket_addr = info;
     while (socket_addr != nullptr) {
@@ -118,22 +121,22 @@ std::optional<std::tuple<std::string, uint16_t, Endpoint::IpFamily>> Endpoint::T
         socket_addr = socket_addr->ai_next;
         continue;
       }
-      spdlog::trace("returning processing_fn from while loop");
+      spdlog::trace("returning processing_fn from while loop {} {}", address, port);
       return processing_fn(socket_addr, port);
     }
 
-    spdlog::trace("socket_addr was nullptr, returning nullopt");
+    spdlog::trace("socket_addr was nullptr, returning nullopt {} {}", address, port);
 
     return std::nullopt;
   };
 
-  spdlog::trace("Trying to resolve ipv4 address family.");
+  spdlog::trace("Trying to resolve ipv4 address family {} {}.", address, port);
   auto ip_v4_family = parse_ip_family(process_ipv4_family, AF_INET);
-  spdlog::trace("ip_v4 parsed successfully");
+  spdlog::trace("ip_v4 parsed successfully {} {}", address, port);
   if (ip_v4_family.has_value()) {
     return std::move(*ip_v4_family);
   }
-  spdlog::trace("Failed to resolve ipv4 address family, trying to resolve ipv6 address family.");
+  spdlog::trace("Failed to resolve ipv4 address family, trying to resolve ipv6 address family. {} {}", address, port);
   return parse_ip_family(process_ipv6_family, AF_INET6);
 }
 
