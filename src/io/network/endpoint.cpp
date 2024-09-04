@@ -46,6 +46,12 @@ auto Endpoint::SocketAddress() const -> std::string { return fmt::format("{}{}{}
 
 auto Endpoint::GetResolvedSocketAddress() const -> std::string {
   auto const result = TryResolveAddress(address_, port_);
+  addrinfo *info = std::get<3>(*result);
+  utils::OnScopeExit const free_info{[info]() {
+    if (info) {
+      freeaddrinfo(info);
+    }
+  }};
   if (!result.has_value()) {
     throw NetworkError("Couldn't resolve neither using DNS, nor IP address!");
   }
@@ -54,6 +60,12 @@ auto Endpoint::GetResolvedSocketAddress() const -> std::string {
 
 auto Endpoint::GetResolvedIPAddress() const -> std::string {
   auto const result = TryResolveAddress(address_, port_);
+  addrinfo *info = std::get<3>(*result);
+  utils::OnScopeExit const free_info{[info]() {
+    if (info) {
+      freeaddrinfo(info);
+    }
+  }};
   if (!result.has_value()) {
     throw NetworkError("Couldn't resolve neither using DNS, nor IP address!");
   }
@@ -100,12 +112,8 @@ std::optional<Endpoint::RetValue> Endpoint::TryResolveAddress(std::string_view a
         .ai_family = family,        // IPv4 or IPv6
         .ai_socktype = SOCK_STREAM  // TCP socket
     };
-    addrinfo *info = nullptr;
-    utils::OnScopeExit const free_info{[&info]() {
-      if (info) {
-        freeaddrinfo(info);
-      }
-    }};
+
+    addrinfo *info{nullptr};
     auto status = getaddrinfo(std::string(address).c_str(), std::to_string(port).c_str(), &hints, &info);
     if (status != 0) {
       spdlog::trace("Couldn't resolve address: {} in family {}", address, family);
@@ -197,6 +205,13 @@ auto Endpoint::ValidatePort(std::optional<uint16_t> port) -> bool {
 
 [[nodiscard]] auto Endpoint::GetIpFamily() const -> IpFamily {
   auto const result = TryResolveAddress(address_, port_);
+  addrinfo *info = std::get<3>(*result);
+  utils::OnScopeExit const free_info{[info]() {
+    if (info) {
+      freeaddrinfo(info);
+    }
+  }};
+
   if (!result.has_value()) {
     throw NetworkError("Couldn't resolve neither using DNS, nor IP address!");
   }
