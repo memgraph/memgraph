@@ -688,8 +688,10 @@ int main(int argc, char **argv) {
 
 // TODO: Make multi-tenant
 #ifdef MG_ENTERPRISE
+  spdlog::trace("Trying to create metrics server");
   memgraph::glue::MonitoringServerT metrics_server{
       {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, db_acc->storage(), &context};
+  spdlog::trace("metrics server created");
 #endif
 
   // Handler for regular termination signals

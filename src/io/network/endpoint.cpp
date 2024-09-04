@@ -58,6 +58,7 @@ auto Endpoint::GetResolvedIPAddress() const -> std::string {
   if (!result.has_value()) {
     throw NetworkError("Couldn't resolve neither using DNS, nor IP address!");
   }
+  spdlog::trace("Returning resolved ip address: {}", std::get<0>(*result));
   return std::get<0>(*result);
 }
 
@@ -71,7 +72,11 @@ std::optional<Endpoint::RetValue> Endpoint::TryResolveAddress(std::string_view a
     char buffer[INET_ADDRSTRLEN];
     auto *socket_address_ipv4 = reinterpret_cast<struct sockaddr_in *>(socket_addr->ai_addr);
     spdlog::trace("Reinterpreted socket_address_ipv4 {}:{}", address, port);
-    inet_ntop(socket_addr->ai_family, &(socket_address_ipv4->sin_addr), buffer, sizeof(buffer));
+    auto const *res = inet_ntop(socket_addr->ai_family, &(socket_address_ipv4->sin_addr), buffer, sizeof(buffer));
+    if (res == NULL) {
+      int errsv = errno;
+      spdlog::trace("inet_ntop failed with errno {} for {}:{}", errsv, address, port);
+    }
     spdlog::trace("inet_ntop for process_ipv4_family finished successfully {}:{}", address, port);
     return std::tuple{std::string{buffer}, port, Endpoint::IpFamily::IP4};
   };
@@ -81,7 +86,11 @@ std::optional<Endpoint::RetValue> Endpoint::TryResolveAddress(std::string_view a
     char buffer[INET6_ADDRSTRLEN];
     auto *socket_address_ipv6 = reinterpret_cast<sockaddr_in6 *>(socket_addr->ai_addr);
     spdlog::trace("Reinterpreted socket_address_ipv4 {} {}", address, port);
-    inet_ntop(socket_addr->ai_family, &(socket_address_ipv6->sin6_addr), buffer, sizeof(buffer));
+    auto const *res = inet_ntop(socket_addr->ai_family, &(socket_address_ipv6->sin6_addr), buffer, sizeof(buffer));
+    if (res == NULL) {
+      int errsv = errno;
+      spdlog::trace("inet_ntop failed with errno {} for {}:{}", errsv, address, port);
+    }
     spdlog::trace("inet_ntop for process_ipv6_family finished successfully {} {}", address, port);
     return std::tuple{std::string{buffer}, port, Endpoint::IpFamily::IP6};
   };
