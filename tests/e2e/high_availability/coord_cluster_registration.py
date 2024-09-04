@@ -12,17 +12,18 @@ import os
 import shutil
 import sys
 import tempfile
-from typing import List
 
 import interactive_mg_runner
 import pytest
 from common import (
     connect,
     execute_and_fetch_all,
+    find_instance_and_assert_instances,
     ignore_elapsed_time_from_results,
     safe_execute,
+    update_tuple_value,
 )
-from mg_utils import find_instance_and_assert_instances, mg_sleep_and_assert
+from mg_utils import mg_sleep_and_assert
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
@@ -32,27 +33,6 @@ interactive_mg_runner.BUILD_DIR = os.path.normpath(os.path.join(interactive_mg_r
 interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactive_mg_runner.BUILD_DIR, "memgraph"))
 
 TEMP_DIR = tempfile.TemporaryDirectory().name
-
-
-def update_tuple_value(
-    list_tuples: List, searching_key: str, searching_index: int, index_in_tuple_value: int, new_value: str
-):
-    def find_tuple():
-        for i, tuple_obj in enumerate(list_tuples):
-            if tuple_obj[searching_index] != searching_key:
-                continue
-            return i
-        return None
-
-    index_tuple = find_tuple()
-    assert index_tuple is not None, "Tuple not found"
-
-    tuple_obj = list_tuples[index_tuple]
-    tuple_obj_list = list(tuple_obj)
-    tuple_obj_list[index_in_tuple_value] = new_value
-    list_tuples[index_tuple] = tuple(tuple_obj_list)
-
-    return list_tuples
 
 
 def get_instances_description(test_name: str):
