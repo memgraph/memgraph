@@ -3075,7 +3075,7 @@ PreparedQuery PreparePointIndexQuery(ParsedQuery parsed_query, bool in_explicit_
         auto label_id = storage->NameToLabel(label_name);
         auto prop_id = storage->NameToProperty(prop_name);
 
-        auto maybe_index_error = dba->CreatePointIndex(label_id, prop_id);
+        auto maybe_index_error = dba->DropPointIndex(label_id, prop_id);
         utils::OnScopeExit const invalidator(invalidate_plan_cache);
 
         if (maybe_index_error.HasError()) {
