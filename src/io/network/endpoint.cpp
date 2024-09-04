@@ -29,6 +29,7 @@
 
 #include <arpa/inet.h>
 #include <fmt/core.h>
+#include <netdb.h>
 #include <netinet/in.h>
 #include <spdlog/spdlog.h>
 #include <sys/socket.h>
@@ -46,12 +47,6 @@ auto Endpoint::SocketAddress() const -> std::string { return fmt::format("{}{}{}
 
 auto Endpoint::GetResolvedSocketAddress() const -> std::string {
   auto const result = TryResolveAddress(address_, port_);
-  addrinfo *info = std::get<3>(*result);
-  utils::OnScopeExit const free_info{[info]() {
-    if (info) {
-      freeaddrinfo(info);
-    }
-  }};
   if (!result.has_value()) {
     throw NetworkError("Couldn't resolve neither using DNS, nor IP address!");
   }
@@ -60,24 +55,10 @@ auto Endpoint::GetResolvedSocketAddress() const -> std::string {
 
 auto Endpoint::GetResolvedIPAddress() const -> std::string {
   auto const result = TryResolveAddress(address_, port_);
-  addrinfo *info = std::get<3>(*result);
-  utils::OnScopeExit const free_info{[info]() {
-    if (info) {
-      freeaddrinfo(info);
-    }
-  }};
   if (!result.has_value()) {
     throw NetworkError("Couldn't resolve neither using DNS, nor IP address!");
   }
   return std::get<0>(*result);
-}
-
-auto Endpoint::GetAddrInfo() const -> addrinfo * {
-  auto const result = TryResolveAddress(address_, port_);
-  if (!result.has_value()) {
-    throw NetworkError("Couldn't resolve neither using DNS, nor IP address!");
-  }
-  return std::get<3>(*result);
 }
 
 std::ostream &operator<<(std::ostream &os, const Endpoint &endpoint) {
@@ -86,23 +67,23 @@ std::ostream &operator<<(std::ostream &os, const Endpoint &endpoint) {
 
 std::optional<Endpoint::RetValue> Endpoint::TryResolveAddress(std::string_view address, uint16_t port) {
   auto const process_ipv4_family = [address](addrinfo *socket_addr, uint16_t port) -> RetValue {
-    spdlog::trace("Started process_ipv4_family {} {}", address, port);
+    spdlog::trace("Started process_ipv4_family {}:{}", address, port);
     char buffer[INET_ADDRSTRLEN];
     auto *socket_address_ipv4 = reinterpret_cast<struct sockaddr_in *>(socket_addr->ai_addr);
-    spdlog::trace("Reinterpreted socket_address_ipv4 {} {}", address, port);
+    spdlog::trace("Reinterpreted socket_address_ipv4 {}:{}", address, port);
     inet_ntop(socket_addr->ai_family, &(socket_address_ipv4->sin_addr), buffer, sizeof(buffer));
-    spdlog::trace("inet_ntop for process_ipv4_family finished successfully {} {}", address, port);
-    return std::tuple{std::string{buffer}, port, Endpoint::IpFamily::IP4, socket_addr};
+    spdlog::trace("inet_ntop for process_ipv4_family finished successfully {}:{}", address, port);
+    return std::tuple{std::string{buffer}, port, Endpoint::IpFamily::IP4};
   };
 
   auto const process_ipv6_family = [address](addrinfo *socket_addr, uint16_t port) -> RetValue {
-    spdlog::trace("Started process_ipv6_family {} {}", address, port);
+    spdlog::trace("Started process_ipv6_family {}:{}", address, port);
     char buffer[INET6_ADDRSTRLEN];
     auto *socket_address_ipv6 = reinterpret_cast<sockaddr_in6 *>(socket_addr->ai_addr);
     spdlog::trace("Reinterpreted socket_address_ipv4 {} {}", address, port);
     inet_ntop(socket_addr->ai_family, &(socket_address_ipv6->sin6_addr), buffer, sizeof(buffer));
     spdlog::trace("inet_ntop for process_ipv6_family finished successfully {} {}", address, port);
-    return std::tuple{std::string{buffer}, port, Endpoint::IpFamily::IP6, socket_addr};
+    return std::tuple{std::string{buffer}, port, Endpoint::IpFamily::IP6};
   };
 
   auto const parse_ip_family = [&address, &port](std::function<RetValue(addrinfo *, uint16_t)> const &processing_fn,
@@ -114,6 +95,11 @@ std::optional<Endpoint::RetValue> Endpoint::TryResolveAddress(std::string_view a
     };
 
     addrinfo *info{nullptr};
+    utils::OnScopeExit const free_info{[info]() {
+      if (info) {
+        freeaddrinfo(info);
+      }
+    }};
     auto status = getaddrinfo(std::string(address).c_str(), std::to_string(port).c_str(), &hints, &info);
     if (status != 0) {
       spdlog::trace("Couldn't resolve address: {} in family {}", address, family);
@@ -205,13 +191,6 @@ auto Endpoint::ValidatePort(std::optional<uint16_t> port) -> bool {
 
 [[nodiscard]] auto Endpoint::GetIpFamily() const -> IpFamily {
   auto const result = TryResolveAddress(address_, port_);
-  addrinfo *info = std::get<3>(*result);
-  utils::OnScopeExit const free_info{[info]() {
-    if (info) {
-      freeaddrinfo(info);
-    }
-  }};
-
   if (!result.has_value()) {
     throw NetworkError("Couldn't resolve neither using DNS, nor IP address!");
   }

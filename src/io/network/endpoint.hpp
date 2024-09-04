@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include <netdb.h>
 #include <netinet/in.h>
 #include <cstdint>
 #include <iosfwd>
@@ -42,14 +41,8 @@ class Endpoint {
 
   // Returns hostname as specified by user. Could be FQDN (IP address) or DNS name.
   [[nodiscard]] auto GetAddress() const -> std::string const &;
-
-  // Returns hostname as specified by user. Could be FQDN (IP address) or DNS name.
   [[nodiscard]] auto GetAddress() -> std::string &;
-
-  // Returns port.
   [[nodiscard]] auto GetPort() const -> uint16_t const &;
-
-  // Returns port.
   [[nodiscard]] auto GetPort() -> uint16_t &;
 
   // Does resolution
@@ -58,7 +51,6 @@ class Endpoint {
   void SetAddress(std::string address);
   void SetPort(uint16_t port);
 
-  // Nonresolved SocketAddress
   [[nodiscard]] auto SocketAddress() const -> std::string;
 
   // Returns IP address:port, after resolving the hostname.
@@ -67,15 +59,11 @@ class Endpoint {
   // Returns IP address, after resolving the hostname.
   [[nodiscard]] auto GetResolvedIPAddress() const -> std::string;
 
-  // Returns addrinfo* obtained from getaddrinfo. Freeing done in this method's caller (propagated to unique_ptr).
-  [[nodiscard]] auto GetAddrInfo() const -> addrinfo *;
-
   bool operator==(const Endpoint &other) const = default;
   friend std::ostream &operator<<(std::ostream &os, const Endpoint &endpoint);
 
  private:
-  using RetValue = std::tuple<std::string, uint16_t, Endpoint::IpFamily, addrinfo *>;
-  // Caller of this function should take care for freeing addrinfo
+  using RetValue = std::tuple<std::string, uint16_t, Endpoint::IpFamily>;
   static std::optional<RetValue> TryResolveAddress(std::string_view address, uint16_t port);
 
   static auto ValidatePort(std::optional<uint16_t> port) -> bool;

@@ -51,8 +51,8 @@ class AddrInfo {
     addrinfo *ptr_{nullptr};
   };
 
+  AddrInfo(const std::string &addr, uint16_t port);
   explicit AddrInfo(const Endpoint &endpoint);
-  explicit AddrInfo(addrinfo *info);
 
   auto begin() const noexcept { return Iterator(info_.get()); }
   auto end() const noexcept { return Iterator{nullptr}; }
