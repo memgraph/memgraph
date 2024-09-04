@@ -18,8 +18,10 @@ import pytest
 from common import (
     connect,
     execute_and_fetch_all,
+    find_instance_and_assert_instances,
     ignore_elapsed_time_from_results,
     safe_execute,
+    update_tuple_value,
 )
 from mg_utils import mg_sleep_and_assert
 
@@ -89,6 +91,7 @@ def get_instances_description(test_name: str):
                 "--management-port=10121",
             ],
             "log_file": f"high_availability/coord_cluster_registration/{test_name}/coordinator1.log",
+            "data_directory": f"{TEMP_DIR}/coordinator_1",
             "setup_queries": [],
         },
         "coordinator_2": {
@@ -103,6 +106,7 @@ def get_instances_description(test_name: str):
                 "--management-port=10122",
             ],
             "log_file": f"high_availability/coord_cluster_registration/{test_name}/coordinator2.log",
+            "data_directory": f"{TEMP_DIR}/coordinator_2",
             "setup_queries": [],
         },
         "coordinator_3": {
@@ -117,6 +121,7 @@ def get_instances_description(test_name: str):
                 "--management-port=10123",
             ],
             "log_file": f"high_availability/coord_cluster_registration/{test_name}/coordinator3.log",
+            "data_directory": f"{TEMP_DIR}/coordinator_3",
             "setup_queries": [],
         },
     }
@@ -184,6 +189,7 @@ def get_instances_description_no_coord(test_name: str):
                 "--management-port=10121",
             ],
             "log_file": f"high_availability/coord_cluster_registration/{test_name}/coordinator1.log",
+            "data_directory": f"{TEMP_DIR}/coordinator_1",
             "setup_queries": [],
         },
         "coordinator_2": {
@@ -198,6 +204,7 @@ def get_instances_description_no_coord(test_name: str):
                 "--management-port=10122",
             ],
             "log_file": f"high_availability/coord_cluster_registration/{test_name}/coordinator2.log",
+            "data_directory": f"{TEMP_DIR}/coordinator_2",
             "setup_queries": [],
         },
     }
@@ -369,7 +376,7 @@ def test_coordinators_communication_with_restarts():
     )
     execute_and_fetch_all(coordinator3_cursor, "SET INSTANCE instance_3 TO MAIN")
 
-    data = [
+    coord3_leader_data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
@@ -385,7 +392,7 @@ def test_coordinators_communication_with_restarts():
             sorted(list(execute_and_fetch_all(coordinator1_cursor, "SHOW INSTANCES")))
         )
 
-    mg_sleep_and_assert(data, check_coordinator1)
+    mg_sleep_and_assert(coord3_leader_data, check_coordinator1)
 
     coordinator2_cursor = connect(host="localhost", port=7691).cursor()
 
@@ -394,13 +401,13 @@ def test_coordinators_communication_with_restarts():
             sorted(list(execute_and_fetch_all(coordinator2_cursor, "SHOW INSTANCES")))
         )
 
-    mg_sleep_and_assert(data, check_coordinator2)
+    mg_sleep_and_assert(coord3_leader_data, check_coordinator2)
 
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_1")
     interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_1")
     coordinator1_cursor = connect(host="localhost", port=7690).cursor()
 
-    mg_sleep_and_assert(data, check_coordinator1)
+    mg_sleep_and_assert(coord3_leader_data, check_coordinator1)
 
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_1")
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_2")
@@ -410,8 +417,22 @@ def test_coordinators_communication_with_restarts():
     coordinator1_cursor = connect(host="localhost", port=7690).cursor()
     coordinator2_cursor = connect(host="localhost", port=7691).cursor()
 
-    mg_sleep_and_assert(data, check_coordinator1)
-    mg_sleep_and_assert(data, check_coordinator2)
+    leader_data = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "follower"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
+        ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
+    ]
+
+    leader_name = find_instance_and_assert_instances(instance_role="leader", num_coordinators=3)
+
+    leader_data = update_tuple_value(leader_data, leader_name, 0, -1, "leader")
+
+    # After killing 2/3 of coordinators, leadership can change
+    mg_sleep_and_assert(leader_data, check_coordinator1)
+    mg_sleep_and_assert(leader_data, check_coordinator2)
 
 
 @pytest.mark.parametrize(
