@@ -716,16 +716,20 @@ int main(int argc, char **argv) {
   };
 
   InitSignalHandlers(shutdown);
+  spdlog::trace("Signal handlers initialized");
 
   // Release the temporary database access
   db_acc.reset();
+  spdlog::trace("Temporary db access released");
 
   // Startup the main server
   MG_ASSERT(server.Start(), "Couldn't start the Bolt server!");
   websocket_server.Start();
+  spdlog::trace("web socket server started");
 
 #ifdef MG_ENTERPRISE
   metrics_server.Start();
+  spdlog::trace("metrics server started");
 #endif
 
   if (!FLAGS_init_data_file.empty()) {
@@ -742,6 +746,11 @@ int main(int argc, char **argv) {
     InitFromCypherlFile(interpreter_context_, db_acc, FLAGS_init_data_file);
 #endif
   }
+
+  auto end = std::chrono::system_clock::now();
+  std::time_t end_time = std::chrono::system_clock::to_time_t(end);
+
+  spdlog::trace("awaiting server shutdown time {}", std::ctime(&end_time));
 
   server.AwaitShutdown();
   websocket_server.AwaitShutdown();
