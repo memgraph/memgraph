@@ -653,53 +653,18 @@ test_memgraph() {
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_TOOLCHAIN && cd $MGBUILD_ROOT_DIR/tests/code_analysis && $SETUP_PASSED_ARGS "'&& ./clang_tidy.sh $PASSED_ARGS'
     ;;
     e2e)
-
       local built_up_cmd="$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests && source ve3/bin/activate_e2e && cd $MGBUILD_ROOT_DIR/tests/e2e"
       # shellcheck disable=SC2155
       local setup_command=$(echo "$built_up_cmd" | envsubst)
-
-      local new_image_name="$build_container-e2e"
-
+      docker exec -u mg $build_container bash -c "pip install --user networkx && pip3 install --user networkx"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && cd $MGBUILD_ROOT_DIR/tests && $ACTIVATE_VENV && source ve3/bin/activate_e2e"
       local num_threads=0
       if [[ "$threads" == "$DEFAULT_THREADS" ]]; then
         num_threads=$(nproc)
       else
         num_threads=$threads
       fi
-
-
-      create_image(){
-        docker exec -u mg $build_container bash -c "pip install --user networkx && pip3 install --user networkx"
-        docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && cd $MGBUILD_ROOT_DIR/tests && $ACTIVATE_VENV && source ve3/bin/activate_e2e"
-        echo "commiting $build_container to $new_image_name"
-        docker commit $build_container $new_image_name
-        echo "done committing $build_container to $new_image_name"
-      }
-
-      if [[ "$DEFAULT_TESTING" == true ]]; then
-        echo "Testing set to true"
-        if docker images | grep -q "$new_image_name"; then
-           echo "Image $new_image_name exists."
-        else
-          echo "Creating image $new_image_name"
-          create_image
-        fi
-      else
-        docker rmi $new_image_name || true
-        create_image
-      fi
-
-      echo "running e2e tests"
-      ret=0
-      python3 -u $PROJECT_ROOT/tools/github/coordinate_e2e_tests.py --image "$new_image_name" --threads $num_threads --project-root-dir "$PROJECT_ROOT" --container-root-dir "$MGBUILD_ROOT_DIR" --setup-command "$setup_command" --original-container-id "$build_container" || ret=$?
-      echo "The command e2e exited with $ret"
-      if [[ "$DEFAULT_TESTING" == false ]]; then
-        echo "removing $new_image_name"
-        docker rmi $new_image_name
-      else
-        echo "keeping $new_image_name"
-       fi
-      exit $ret
+      python3 -u $PROJECT_ROOT/tools/github/coordinate_e2e_tests.py --threads $num_threads --project-root-dir "$PROJECT_ROOT" --container-root-dir "$MGBUILD_ROOT_DIR" --setup-command "$setup_command" --original-container-id "$build_container"
     ;;
     *)
       echo "Error: Unknown test '$1'"
