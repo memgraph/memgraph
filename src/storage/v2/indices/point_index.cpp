@@ -19,7 +19,7 @@ namespace {
 auto update_internal(index_container_t const &src, TrackedChanges const &tracked_changes)
     -> std::optional<index_container_t> {
   // All previous txns will use older index, this new built index will not concurrently be seen by older txns
-  if (tracked_changes.empty()) return std::nullopt;
+  if (!tracked_changes.AnyChanges()) return std::nullopt;
 
   auto new_point_index = index_container_t{};
 
