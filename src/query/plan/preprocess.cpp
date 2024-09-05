@@ -457,14 +457,13 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
   auto add_prop_greater = [&](auto *expr1, auto *expr2, auto bound_type) -> bool {
     PropertyLookup *prop_lookup = nullptr;
     Identifier *ident = nullptr;
-    bool is_prop_filter = false;
     if (get_property_lookup(expr1, prop_lookup, ident)) {
       // n.prop > value
       auto filter = make_filter(FilterInfo::Type::Property);
       filter.property_filter.emplace(symbol_table, symbol_table.at(*ident), prop_lookup->property_,
                                      Bound(expr2, bound_type), std::nullopt);
       all_filters_.emplace_back(filter);
-      is_prop_filter = true;
+      return true;
     }
     if (get_property_lookup(expr2, prop_lookup, ident)) {
       // value > n.prop
@@ -472,9 +471,9 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       filter.property_filter.emplace(symbol_table, symbol_table.at(*ident), prop_lookup->property_, std::nullopt,
                                      Bound(expr1, bound_type));
       all_filters_.emplace_back(filter);
-      is_prop_filter = true;
+      return true;
     }
-    return is_prop_filter;
+    return false;
   };
   auto add_prop_range = [&](RangeOperator *range) {
     auto filter = RangeOpToFilter(range, symbol_table);

@@ -406,12 +406,12 @@ class Filters final {
   using iterator = std::vector<FilterInfo>::iterator;
   using const_iterator = std::vector<FilterInfo>::const_iterator;
 
-  auto begin() { return all_filters_.begin(); }
-  auto begin() const { return all_filters_.begin(); }
-  auto end() { return all_filters_.end(); }
-  auto end() const { return all_filters_.end(); }
+  auto begin() -> iterator { return all_filters_.begin(); }
+  auto begin() const -> const_iterator { return all_filters_.begin(); }
+  auto end() -> iterator { return all_filters_.end(); }
+  auto end() const -> const_iterator { return all_filters_.end(); }
 
-  auto empty() const { return all_filters_.empty(); }
+  auto empty() const -> bool { return all_filters_.empty(); }
 
   auto erase(iterator pos) -> iterator;
   auto erase(const_iterator pos) -> iterator;
