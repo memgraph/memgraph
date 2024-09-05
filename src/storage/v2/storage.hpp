@@ -38,6 +38,7 @@
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/replication_client.hpp"
 #include "storage/v2/replication/replication_storage_state.hpp"
+#include "storage/v2/schema_info.hpp"
 #include "storage/v2/storage_error.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/transaction.hpp"
@@ -580,6 +581,31 @@ class Storage {
 
   // Mutable methods only safe if we have UniqueAccess to this storage
   EnumStore enum_store_;
+
+  std::optional<SchemaInfo::Accessor> SchemaInfoAccessor() {
+    if (storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL) {
+      return schema_info_.CreateAccessor(config_.salient.items.properties_on_edges);
+    }
+    return std::nullopt;
+  }
+
+  std::optional<SchemaInfo::UniqueAccessor> SchemaInfoUniqueAccessor() {
+    if (storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL) {
+      return schema_info_.CreateUniqueAccessor(config_.salient.items.properties_on_edges);
+    }
+    return std::nullopt;
+  }
+
+  std::optional<std::variant<SchemaInfo::Accessor, SchemaInfo::UniqueAccessor>> SchemaInfoAutoAccessor(
+      bool vertex_has_edges) {
+    if (storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL) {
+      if (vertex_has_edges) return schema_info_.CreateUniqueAccessor(config_.salient.items.properties_on_edges);
+      return schema_info_.CreateAccessor(config_.salient.items.properties_on_edges);
+    }
+    return std::nullopt;
+  }
+
+  SchemaInfo schema_info_;
 };
 
 }  // namespace memgraph::storage

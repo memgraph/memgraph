@@ -68,10 +68,6 @@ auto RemainingEdges_ActionMethod(
   using enum memgraph::storage::Delta::Action;
   return memgraph::utils::Overloaded{
       // If we see ADD, that means that this edge got removed (we are not interested in those)
-      // ActionMethod <(dir == EdgeDirection::IN) ? ADD_IN_EDGE : ADD_OUT_EDGE> (
-      //     [&](Delta const &delta) {
-      //     }
-      // ),
       // If we see REMOVE, that means that this is a new edge that was added during the transaction
       memgraph::storage::ActionMethod <(dir == memgraph::storage::EdgeDirection::IN) ? REMOVE_IN_EDGE : REMOVE_OUT_EDGE> (
           [&](memgraph::storage::Delta const &delta) {
@@ -128,6 +124,27 @@ auto GetEdges(const memgraph::storage::Vertex &vertex, uint64_t commit_timestamp
   return edges;
 }
 
+auto PropertyType_ActionMethod(
+    std::unordered_map<memgraph::storage::PropertyId,
+                       std::pair<memgraph::storage::PropertyValueType, memgraph::storage::PropertyValueType>> &diff) {
+  // clang-format off
+  using enum memgraph::storage::Delta::Action;
+  return memgraph::storage::ActionMethod<SET_PROPERTY>([&diff](memgraph::storage::Delta const &delta) {
+    const auto key = delta.property.key;
+    const auto old_type = delta.property.value->type();
+    auto itr = diff.find(key);
+    if (itr == diff.end()) {
+      // NOTE: For vertices we pre-fill the diff
+      // If diff is pre-filled, missing property means it got deleted; new value should always be Null
+      diff.emplace(key, std::make_pair(memgraph::storage::PropertyValueType::Null, old_type));
+    } else {
+      // We are going from newest to oldest; overwrite so we remain with the value pre tx
+      itr->second.second = old_type;
+    }
+  });
+  // clang-format on
+}
+
 }  // namespace
 
 namespace memgraph::storage {
@@ -177,16 +194,37 @@ void Tracking::CleanUp() {
   }
 }
 
-void Tracking::Print(NameIdMapper &name_id_mapper, bool properties_on_edges) {
-  std::cout << "SCHEMA INFO\n";
-  std::cout << ToJson(name_id_mapper, properties_on_edges) << std::endl;
+nlohmann::json PropertyInfo::ToJson(std::string_view key) const {
+  nlohmann::json::object_t property_info;
+  property_info.emplace("key", key);
+  property_info.emplace("count", n);
+  const auto &[types_itr, _] = property_info.emplace("types", nlohmann::json::array_t{});
+  for (const auto &type : types) {
+    nlohmann::json::object_t type_info;
+    std::stringstream ss;
+    ss << type.first;
+    type_info.emplace("type", ss.str());
+    type_info.emplace("count", type.second);
+    types_itr->second.emplace_back(std::move(type_info));
+  }
+  return property_info;
 }
 
-nlohmann::json Tracking::ToJson(NameIdMapper &name_id_mapper, bool properties_on_edges) {
-  auto json = nlohmann::json::object();
+nlohmann::json TrackingInfo::ToJson(NameIdMapper &name_id_mapper) const {
+  nlohmann::json::object_t tracking_info;
+  tracking_info.emplace("count", n);
+  const auto &[prop_itr, __] = tracking_info.emplace("properties", nlohmann::json::array_t{});
+  for (const auto &[p, info] : properties) {
+    prop_itr->second.emplace_back(info.ToJson(name_id_mapper.IdToName(p.AsUint())));
+  }
+  return tracking_info;
+}
 
+nlohmann::json Tracking::ToJson(NameIdMapper &name_id_mapper) {
   // Clean up unused stats
   CleanUp();
+
+  auto json = nlohmann::json::object();
 
   // Handle NODES
   const auto &[nodes_itr, _] = json.emplace("nodes", nlohmann::json::array());
@@ -198,23 +236,7 @@ nlohmann::json Tracking::ToJson(NameIdMapper &name_id_mapper, bool properties_on
       labels_itr->emplace_back(name_id_mapper.IdToName(l.AsUint()));
     }
     std::sort(labels_itr->begin(), labels_itr->end());
-    node.emplace("count", info.n);
-    const auto &[prop_itr, __] = node.emplace("properties", nlohmann::json::array_t{});
-    for (const auto &[p, info] : info.properties) {
-      nlohmann::json::object_t property_info;
-      property_info.emplace("key", name_id_mapper.IdToName(p.AsUint()));
-      property_info.emplace("count", info.n);
-      const auto &[types_itr, _] = property_info.emplace("types", nlohmann::json::array_t{});
-      for (const auto &type : info.types) {
-        nlohmann::json::object_t type_info;
-        std::stringstream ss;
-        ss << type.first;
-        type_info.emplace("type", ss.str());
-        type_info.emplace("count", type.second);
-        types_itr->second.emplace_back(std::move(type_info));
-      }
-      prop_itr->emplace_back(std::move(property_info));
-    }
+    node.update(info.ToJson(name_id_mapper));
     nodes.emplace_back(std::move(node));
   }
 
@@ -225,32 +247,16 @@ nlohmann::json Tracking::ToJson(NameIdMapper &name_id_mapper, bool properties_on
     auto edge = nlohmann::json::object();
     edge.emplace("type", name_id_mapper.IdToName(edge_type.type.AsUint()));
     const auto &[out_labels_itr, _] = edge.emplace("start_node_labels", nlohmann::json::array_t{});
-    for (const auto l : edge_type.from_v_type) {
+    for (const auto l : edge_type.from) {
       out_labels_itr->emplace_back(name_id_mapper.IdToName(l.AsUint()));
     }
     std::sort(out_labels_itr->begin(), out_labels_itr->end());
     const auto &[in_labels_itr, _b] = edge.emplace("end_node_labels", nlohmann::json::array_t{});
-    for (const auto l : edge_type.to_v_type) {
+    for (const auto l : edge_type.to) {
       in_labels_itr->emplace_back(name_id_mapper.IdToName(l.AsUint()));
     }
     std::sort(in_labels_itr->begin(), in_labels_itr->end());
-    edge.emplace("count", info.n);
-    const auto &[prop_itr, __] = edge.emplace("properties", nlohmann::json::array_t{});
-    for (const auto &[p, info] : info.properties) {
-      nlohmann::json::object_t property_info;
-      property_info.emplace("key", name_id_mapper.IdToName(p.AsUint()));
-      property_info.emplace("count", info.n);
-      const auto &[types_itr, _] = property_info.emplace("types", nlohmann::json::array_t{});
-      for (const auto &type : info.types) {
-        nlohmann::json::object_t type_info;
-        std::stringstream ss;
-        ss << type.first;
-        type_info.emplace("type", ss.str());
-        type_info.emplace("count", type.second);
-        types_itr->second.emplace_back(std::move(type_info));
-      }
-      prop_itr->emplace_back(std::move(property_info));
-    }
+    edge.update(info.ToJson(name_id_mapper));
     edges.emplace_back(std::move(edge));
   }
 
@@ -285,22 +291,6 @@ inline utils::small_vector<LabelId> GetLabels(const Vertex &vertex, uint64_t com
   return labels;
 }
 
-const auto &VertexHandler::PreProperties() const {
-  if (!pre_properties_) {
-    // Here the vertex is locked and changed by this transaction (this means that the only change could be from this
-    // tx)
-    pre_properties_ = vertex_.properties.PropertyTypes();
-    ApplyUncommittedDeltasForRead(vertex_.delta, [this](const Delta &delta) {
-      // clang-format off
-      DeltaDispatch(delta, utils::ChainedOverloaded{
-        PropertyTypes_ActionMethod(*pre_properties_),
-      });
-      // clang-format on
-    });
-  }
-  return *pre_properties_;
-}
-
 void VertexHandler::UpdateProperty(PropertyId key, const PropertyValue &value) {
   update_property_ = true;
   // TODO Move the post process property diff here
@@ -322,27 +312,7 @@ const auto &VertexHandler::PreLabels() const {
   return *pre_labels_;
 }
 
-auto VertexHandler::PropertyType_ActionMethod(
-    const memgraph::storage::PropertyStore &properties,
-    std::unordered_map<memgraph::storage::PropertyId,
-                       std::pair<memgraph::storage::PropertyValueType, memgraph::storage::PropertyValueType>> &diff) {
-  // clang-format off
-  using enum memgraph::storage::Delta::Action;
-  return memgraph::storage::ActionMethod<SET_PROPERTY>([&diff](memgraph::storage::Delta const &delta) {
-    const auto key = delta.property.key;
-    const auto old_type = delta.property.value->type();
-    auto itr = diff.find(key);
-    if (itr == diff.end()) {
-      // If diff pre-filled, no need to check if deleted, it will should always be Null
-      diff.emplace(key, std::make_pair(PropertyValueType::Null, old_type));
-    } else {
-      itr->second.second = old_type;
-    }
-  });
-  // clang-format on
-}
-
-auto VertexHandler::GetPropertyDiff() {
+auto VertexHandler::GetPropertyDiff() const {
   std::unordered_map<memgraph::storage::PropertyId,
                      std::pair<memgraph::storage::PropertyValueType, memgraph::storage::PropertyValueType>>
       diff;
@@ -352,10 +322,10 @@ auto VertexHandler::GetPropertyDiff() {
     diff.emplace(key, std::make_pair(vertex_.deleted ? PropertyValueType::Null : type, type));
   }
 
-  ApplyUncommittedDeltasForRead(vertex_.delta, [this, &diff](const memgraph::storage::Delta &delta) {
+  ApplyUncommittedDeltasForRead(vertex_.delta, [&diff](const memgraph::storage::Delta &delta) {
     // clang-format off
     DeltaDispatch(delta, memgraph::utils::ChainedOverloaded{
-                             PropertyType_ActionMethod(vertex_.properties, diff),
+                             PropertyType_ActionMethod(diff),
                          });
     // clang-format on
   });
@@ -376,7 +346,7 @@ void VertexHandler::PostProcess(TransactionEdgeHandler &tx_edge_handler) {
 
     // Vertex existed before this tx
     if (!vertex_added_) {
-      // Stats have moved; re-read stats pre tx
+      // Stats have moved; re-read labels pre tx and remove stats
       tracking_pre_info = &tracking_[PreLabels()];
       --tracking_pre_info->n;
 
@@ -417,9 +387,7 @@ void VertexHandler::PostProcess(TransactionEdgeHandler &tx_edge_handler) {
   }
 }
 
-void SchemaInfo::ProcessVertex(VertexHandler &vertex_handler, TransactionEdgeHandler &tx_edge_handler) {
-  // vertex_handler.PreProcess();
-
+void VertexHandler::Process(TransactionEdgeHandler &tx_edge_handler) {
   // Processing deltas from newest to oldest
   // We need to be careful because we are traversing the chain in reverse
   // Edges are done at the very end; except when created or destroyed inside the transaction
@@ -434,39 +402,37 @@ void SchemaInfo::ProcessVertex(VertexHandler &vertex_handler, TransactionEdgeHan
   // ADD_OUT_EDGE:    <- (removes) remove edge as defined at start
   // REMOVE_OUT_EDGE: <- (adds)  add edges as defined at commit
 
-  const auto *delta = vertex_handler.vertex_.delta;
+  const auto *delta = vertex_.delta;
 
   while (delta) {
-    if (delta->timestamp->load(std::memory_order_acquire) != vertex_handler.commit_timestamp_) break;
+    if (delta->timestamp->load(std::memory_order_acquire) != commit_timestamp_) break;
     switch (delta->action) {
       case Delta::Action::DELETE_DESERIALIZED_OBJECT:
       case Delta::Action::DELETE_OBJECT: {
         // This is an empty object without any labels or properties
-        vertex_handler.AddVertex();
+        AddVertex();
         break;
       }
       case Delta::Action::RECREATE_OBJECT: {
         // This is an empty object without any labels or properties
-        vertex_handler.RemoveVertex();
+        RemoveVertex();
         break;
       }
       case Delta::Action::SET_PROPERTY: {
-        vertex_handler.UpdateProperty(delta->property.key, *delta->property.value);
+        UpdateProperty(delta->property.key, *delta->property.value);
         break;
       }
       case Delta::Action::ADD_LABEL:
       case Delta::Action::REMOVE_LABEL: {
-        vertex_handler.UpdateLabel();
+        UpdateLabel();
         break;
       }
       case Delta::Action::ADD_OUT_EDGE: {
-        tx_edge_handler.RemoveEdge(delta, delta->vertex_edge.edge_type, &vertex_handler.vertex_,
-                                   delta->vertex_edge.vertex);
+        tx_edge_handler.RemoveEdge(delta, delta->vertex_edge.edge_type, &vertex_, delta->vertex_edge.vertex);
         break;
       }
       case Delta::Action::REMOVE_OUT_EDGE: {
-        tx_edge_handler.AddEdge(delta, delta->vertex_edge.edge_type, &vertex_handler.vertex_,
-                                delta->vertex_edge.vertex);
+        tx_edge_handler.AddEdge(delta, delta->vertex_edge.edge_type, &vertex_, delta->vertex_edge.vertex);
         break;
       }
       case Delta::Action::ADD_IN_EDGE:
@@ -480,13 +446,13 @@ void SchemaInfo::ProcessVertex(VertexHandler &vertex_handler, TransactionEdgeHan
   }
 
   // Post process
-  vertex_handler.PostProcess(tx_edge_handler);
+  PostProcess(tx_edge_handler);
 }
 
 void TransactionEdgeHandler::RemoveEdge(const Delta *delta, EdgeTypeId edge_type, const Vertex *from_vertex,
                                         const Vertex *to_vertex) {
   remove_edges_.emplace(delta->vertex_edge.edge,
-                        EdgeType{edge_type, GetCommittedLabels(*from_vertex), GetCommittedLabels(*to_vertex)});
+                        EdgeKey{edge_type, GetCommittedLabels(*from_vertex), GetCommittedLabels(*to_vertex)});
 }
 
 void TransactionEdgeHandler::AddEdge(const Delta *delta, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex) {
@@ -502,7 +468,7 @@ void TransactionEdgeHandler::AddEdge(const Delta *delta, EdgeTypeId edge_type, V
   // New edge (update all stats, that way we don't have to re-lock anything afterwards)
   // Both edges get updated, so both need to be changed only by this tx (otherwise a
   // serialization error occurs); no need to apply deltas
-  auto &tracking_info = tracking_[EdgeTypeRef{edge_type, from_vertex->labels, to_vertex->labels}];
+  auto &tracking_info = tracking_[EdgeKeyRef{edge_type, from_vertex->labels, to_vertex->labels}];
   ++tracking_info.n;
   if (properties_on_edges_) {
     for (const auto &[key, val] : delta->vertex_edge.edge.ptr->properties.PropertyTypes()) {
@@ -547,9 +513,9 @@ void TransactionEdgeHandler::PostVertexProcess() {
       to_lock.lock();
     }
 
-    auto &tracking_pre_info = tracking_[EdgeType{edge_type, GetCommittedLabels(*from), GetCommittedLabels(*to)}];
+    auto &tracking_pre_info = tracking_[EdgeKey{edge_type, GetCommittedLabels(*from), GetCommittedLabels(*to)}];
     auto &tracking_post_info =
-        tracking_[EdgeType{edge_type, GetLabels(*from, commit_timestamp_), GetLabels(*to, commit_timestamp_)}];
+        tracking_[EdgeKey{edge_type, GetLabels(*from, commit_timestamp_), GetLabels(*to, commit_timestamp_)}];
 
     from_lock.unlock();
     if (to_lock.owns_lock()) to_lock.unlock();
@@ -605,7 +571,6 @@ std::map<PropertyId, PropertyValueType> TransactionEdgeHandler::GetPostPropertyT
 
 bool EdgeHandler::ExistedPreTx() const {
   bool res = true;
-
   ApplyUncommittedDeltasForRead(edge_.delta, [&res](const Delta &delta) {
     // clang-format off
         DeltaDispatch(delta, utils::ChainedOverloaded{
@@ -613,7 +578,6 @@ bool EdgeHandler::ExistedPreTx() const {
         });
     // clang-format on
   });
-
   return res;
 }
 
@@ -625,53 +589,50 @@ auto EdgeHandler::PropertyType_ActionMethod(
   using enum memgraph::storage::Delta::Action;
   return memgraph::storage::ActionMethod<SET_PROPERTY>([this, &properties,
                                                         &diff](memgraph::storage::Delta const &delta) {
-    if (!edge_type_) {
-      // We are only interested in the final position. All other changes are handled elsewhere.
-      // We still need to lock the vertices
-
+    if (!edge_key_) {
+      // Hydrate the edge key: edge is defined by the edge type, to/from labels
+      // Delta contains the from vertex, find the edge and its to vertex
+      // Handle both the case when edge is new and both vertices are guaranteed to have been changed by the tx
+      // (no locking required) and the case when only the edge is changed (locking required).
       auto *out_vertex = delta.property.out_vertex;
-
       decltype(out_vertex->out_edges)::value_type out_edge{EdgeTypeId{}, nullptr, EdgeRef{nullptr}};
-
-
       auto from_lock = std::unique_lock{out_vertex->lock, std::defer_lock};
-
-
-      if (needs_to_lock_) {from_lock.lock();}
+      if (needs_to_lock_) {
+        from_lock.lock();
+      }
 
       // Optimistic search
       const auto edge_itr = std::find_if(out_vertex->out_edges.begin(), out_vertex->out_edges.end(),
-                                          [ptr = &edge_](const auto &elem) { return std::get<2>(elem).ptr == ptr; });
+                                         [ptr = &edge_](const auto &elem) { return std::get<2>(elem).ptr == ptr; });
       if (edge_itr != out_vertex->out_edges.end()) {
         out_edge = *edge_itr;
       } else {
         // Not found; regenerate edges as seen by this transaction in case someone else deleted this edge
         const auto out_edges = GetEdges<EdgeDirection::OUT>(*out_vertex, commit_timestamp_);
         const auto edge_itr = std::find_if(out_edges.begin(), out_edges.end(),
-                                            [ptr = &edge_](const auto &elem) { return std::get<2>(elem).ptr == ptr; });
+                                           [ptr = &edge_](const auto &elem) { return std::get<2>(elem).ptr == ptr; });
         out_edge = *edge_itr;
       }
 
       auto *in_vertex = std::get<1>(out_edge);
-
       auto to_lock = std::unique_lock{in_vertex->lock, std::defer_lock};
-
       if (needs_to_lock_) {
         if (in_vertex == out_vertex) {
-          // from_lock.lock();
+          // from_lock.lock(); <- already locked
         } else if (in_vertex->gid < out_vertex->gid) {
           from_lock.unlock();
           to_lock.lock();
           from_lock.lock();
         } else {
-          // from_lock.lock();
+          // from_lock.lock(); <- already locked
           to_lock.lock();
         }
-        edge_type_.emplace(std::get<0>(out_edge), GetLabels(*out_vertex, commit_timestamp_),
-                          GetLabels(*in_vertex, commit_timestamp_), 0);
+        // Vertex labels are not guaranteed to be stable, re-generate them and use EdgeKey (not *Ref)
+        edge_key_.emplace(EdgeKeyWrapper::key_tag, std::get<0>(out_edge), GetLabels(*out_vertex, commit_timestamp_),
+                          GetLabels(*in_vertex, commit_timestamp_));
       } else {
-        edge_type_.emplace(std::get<0>(out_edge), out_vertex->labels,
-                          in_vertex->labels);
+        // Since the vertices are stable, no need to re-generate the labels; EdgeKeyRef can be used
+        edge_key_.emplace(EdgeKeyWrapper::ref_tag, std::get<0>(out_edge), out_vertex->labels, in_vertex->labels);
       }
     }
 
@@ -679,7 +640,8 @@ auto EdgeHandler::PropertyType_ActionMethod(
     const auto old_type = delta.property.value->type();
     auto itr = diff.find(key);
     if (itr == diff.end()) {
-      diff.emplace(key, std::make_pair( edge_.deleted ? PropertyValueType::Null : properties.GetPropertyType(key), old_type));
+      diff.emplace(key,
+                   std::make_pair(edge_.deleted ? PropertyValueType::Null : properties.GetPropertyType(key), old_type));
     } else {
       itr->second.second = old_type;
     }
@@ -712,16 +674,10 @@ void EdgeHandler::Process() {
   const auto diff_ = GetPropertyDiff(edge_.properties, edge_.delta);
   if (diff_.empty()) return;
 
-  TrackingInfo *tracking_info{};
-  if (needs_to_lock_) {
-    tracking_info = &tracking_[edge_type_->type_.type];
-  } else {
-    tracking_info = &tracking_[edge_type_->ref_.ref];
-  }
-
+  auto &tracking_info = tracking_[*edge_key_];
   for (const auto &[key, diff] : diff_) {
     if (diff.first != diff.second) {
-      auto &info = tracking_info->properties[key];
+      auto &info = tracking_info.properties[key];
       if (diff.second != PropertyValueType::Null) {
         --info.n;
         --info.types[diff.second];
@@ -734,24 +690,8 @@ void EdgeHandler::Process() {
   }
 }
 
+size_t EdgeKey::equal_to::operator()(const EdgeKey &lhs, const EdgeKey &rhs) const { return lhs == rhs; }
+size_t EdgeKey::equal_to::operator()(const EdgeKey &lhs, const EdgeKeyRef &rhs) const { return lhs == rhs; }
+size_t EdgeKey::equal_to::operator()(const EdgeKeyRef &lhs, const EdgeKey &rhs) const { return rhs == lhs; }
+
 }  // namespace memgraph::storage
-
-// size_t std::equal_to<memgraph::storage::EdgeType>::operator()(const memgraph::storage::EdgeTypeRef &lhs,
-//                                                               const memgraph::storage::EdgeTypeRef &rhs) const {
-//   return rhs == lhs;
-// }
-
-size_t std::equal_to<memgraph::storage::EdgeType>::operator()(const memgraph::storage::EdgeType &lhs,
-                                                              const memgraph::storage::EdgeTypeRef &rhs) const {
-  return lhs == rhs;
-}
-
-size_t std::equal_to<memgraph::storage::EdgeType>::operator()(const memgraph::storage::EdgeTypeRef &lhs,
-                                                              const memgraph::storage::EdgeType &rhs) const {
-  return lhs == rhs;
-}
-
-size_t std::equal_to<memgraph::storage::EdgeType>::operator()(const memgraph::storage::EdgeType &lhs,
-                                                              const memgraph::storage::EdgeType &rhs) const {
-  return lhs == rhs;
-}

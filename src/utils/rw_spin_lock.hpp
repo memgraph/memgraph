@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -109,6 +109,8 @@ struct RWSpinLock {
   }
 
   void unlock_shared() { std::atomic_ref{lock_status_}.fetch_sub(READER, std::memory_order_release); }
+
+  bool is_locked() const { return std::atomic_ref{lock_status_}.load(std::memory_order_relaxed) != 0; }
 
  private:
   using status_t = uint32_t;

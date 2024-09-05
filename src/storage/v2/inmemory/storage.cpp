@@ -261,6 +261,7 @@ VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertex() {
   auto acc = mem_storage->vertices_.access();
 
   auto *delta = CreateDeleteObjectDelta(&transaction_);
+  auto schema_acc = storage_->SchemaInfoAccessor();
   auto [it, inserted] = acc.insert(Vertex{storage::Gid::FromUint(gid), delta});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
@@ -268,6 +269,7 @@ VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertex() {
   if (delta) {
     delta->prev.Set(&*it);
   }
+  if (schema_acc) schema_acc->CreateVertex(&*it);
   return {&*it, storage_, &transaction_};
 }
 
@@ -284,12 +286,14 @@ VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertexEx(storage::Gid gi
   auto acc = mem_storage->vertices_.access();
 
   auto *delta = CreateDeleteObjectDelta(&transaction_);
+  auto schema_acc = storage_->SchemaInfoAccessor();
   auto [it, inserted] = acc.insert(Vertex{gid, delta});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
   if (delta) {
     delta->prev.Set(&*it);
   }
+  if (schema_acc) schema_acc->CreateVertex(&*it);
   return {&*it, storage_, &transaction_};
 }
 
@@ -361,6 +365,8 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
   auto *from_vertex = from->vertex_;
   auto *to_vertex = to->vertex_;
 
+  // This has to be called before any object gets locked
+  auto schema_acc = storage_->SchemaInfoAccessor();
   // Obtain the locks by `gid` order to avoid lock cycles.
   auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
   auto guard_to = std::unique_lock{to_vertex->lock, std::defer_lock};
@@ -407,6 +413,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
   EdgeRef edge(gid);
   if (config_.properties_on_edges) {
     auto acc = mem_storage->edges_.access();
+    // SchemaInfo handles edge creation via vertices; add collector here if that evert changes
     auto *delta = CreateDeleteObjectDelta(&transaction_);
     auto [it, inserted] = acc.insert(Edge(gid, delta));
     MG_ASSERT(inserted, "The edge must be inserted here!");
@@ -421,22 +428,25 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
       MG_ASSERT(inserted, "The edge must be inserted here!");
     }
   }
-  utils::AtomicMemoryBlock([this, edge, from_vertex = from_vertex, edge_type = edge_type, to_vertex = to_vertex]() {
-    CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge);
-    from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
+  utils::AtomicMemoryBlock(
+      [this, edge, from_vertex = from_vertex, edge_type = edge_type, to_vertex = to_vertex, &schema_acc]() {
+        CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge);
+        from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
 
-    CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge);
-    to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
+        CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge);
+        to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
 
-    transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
-    transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
+        transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
+        transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
 
-    // Update indices if they exist.
-    storage_->indices_.UpdateOnEdgeCreation(from_vertex, to_vertex, edge, edge_type, transaction_);
+        // Update indices if they exist.
+        storage_->indices_.UpdateOnEdgeCreation(from_vertex, to_vertex, edge, edge_type, transaction_);
 
-    // Increment edge count.
-    storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
-  });
+        // Increment edge count.
+        storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
+
+        if (schema_acc) schema_acc->CreateEdge(from_vertex, to_vertex, edge_type);
+      });
 
   return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, storage_, &transaction_);
 }
@@ -471,6 +481,8 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
   auto *from_vertex = from->vertex_;
   auto *to_vertex = to->vertex_;
 
+  // This has to be called before any object gets locked
+  auto schema_acc = storage_->SchemaInfoAccessor();
   // Obtain the locks by `gid` order to avoid lock cycles.
   auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
   auto guard_to = std::unique_lock{to_vertex->lock, std::defer_lock};
@@ -511,6 +523,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
   if (config_.properties_on_edges) {
     auto acc = mem_storage->edges_.access();
 
+    // SchemaInfo handles edge creation via vertices; add collector here if that evert changes
     auto *delta = CreateDeleteObjectDelta(&transaction_);
     auto [it, inserted] = acc.insert(Edge(gid, delta));
     MG_ASSERT(inserted, "The edge must be inserted here!");
@@ -525,19 +538,22 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
       MG_ASSERT(inserted, "The edge must be inserted here!");
     }
   }
-  utils::AtomicMemoryBlock([this, edge, from_vertex = from_vertex, edge_type = edge_type, to_vertex = to_vertex]() {
-    CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge);
-    from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
+  utils::AtomicMemoryBlock(
+      [this, edge, from_vertex = from_vertex, edge_type = edge_type, to_vertex = to_vertex, &schema_acc]() {
+        CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge);
+        from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
 
-    CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge);
-    to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
+        CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge);
+        to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
 
-    transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
-    transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
+        transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
+        transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
 
-    // Increment edge count.
-    storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
-  });
+        // Increment edge count.
+        storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
+
+        if (schema_acc) schema_acc->CreateEdge(from_vertex, to_vertex, edge_type);
+      });
 
   return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, storage_, &transaction_);
 }
@@ -588,6 +604,8 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetFrom(EdgeAccessor
   vertices.erase(std::unique(vertices.begin(), vertices.end(), [](auto x, auto y) { return x->gid == y->gid; }),
                  vertices.end());
 
+  // This has to be called before any object gets locked
+  auto schema_acc = storage_->SchemaInfoAccessor();
   for (auto *vertex : vertices) {
     if (vertex == old_from_vertex) {
       guard_old_from.lock();
@@ -636,14 +654,17 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetFrom(EdgeAccessor
       return Error::DELETED_OBJECT;
     }
   }
-  utils::AtomicMemoryBlock([this, edge_ref, old_from_vertex, new_from_vertex, edge_type, to_vertex]() {
+  utils::AtomicMemoryBlock([this, edge_ref, old_from_vertex, new_from_vertex, edge_type, to_vertex, &schema_acc]() {
     CreateAndLinkDelta(&transaction_, old_from_vertex, Delta::AddOutEdgeTag(), edge_type, to_vertex, edge_ref);
     CreateAndLinkDelta(&transaction_, to_vertex, Delta::AddInEdgeTag(), edge_type, old_from_vertex, edge_ref);
+    if (schema_acc) schema_acc->DeleteEdge(old_from_vertex, to_vertex, edge_type, edge_ref);
 
     CreateAndLinkDelta(&transaction_, new_from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge_ref);
     new_from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge_ref);
     CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, new_from_vertex, edge_ref);
     to_vertex->in_edges.emplace_back(edge_type, new_from_vertex, edge_ref);
+    if (schema_acc) schema_acc->CreateEdge(new_from_vertex, to_vertex, edge_type);
+
     auto *in_memory = static_cast<InMemoryStorage *>(storage_);
     auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
     mem_edge_type_index->UpdateOnEdgeModification(old_from_vertex, to_vertex, new_from_vertex, to_vertex, edge_ref,
@@ -705,6 +726,8 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetTo(EdgeAccessor *
   vertices.erase(std::unique(vertices.begin(), vertices.end(), [](auto x, auto y) { return x->gid == y->gid; }),
                  vertices.end());
 
+  // This has to be called before any object gets locked
+  auto schema_acc = storage_->SchemaInfoAccessor();
   for (auto *vertex : vertices) {
     if (vertex == from_vertex) {
       guard_from.lock();
@@ -754,14 +777,16 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetTo(EdgeAccessor *
     }
   }
 
-  utils::AtomicMemoryBlock([this, edge_ref, old_to_vertex, from_vertex, edge_type, new_to_vertex]() {
+  utils::AtomicMemoryBlock([this, edge_ref, old_to_vertex, from_vertex, edge_type, new_to_vertex, &schema_acc]() {
     CreateAndLinkDelta(&transaction_, from_vertex, Delta::AddOutEdgeTag(), edge_type, old_to_vertex, edge_ref);
     CreateAndLinkDelta(&transaction_, old_to_vertex, Delta::AddInEdgeTag(), edge_type, from_vertex, edge_ref);
+    if (schema_acc) schema_acc->DeleteEdge(from_vertex, old_to_vertex, edge_type, edge_ref);
 
     CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, new_to_vertex, edge_ref);
     from_vertex->out_edges.emplace_back(edge_type, new_to_vertex, edge_ref);
     CreateAndLinkDelta(&transaction_, new_to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge_ref);
     new_to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge_ref);
+    if (schema_acc) schema_acc->CreateEdge(from_vertex, new_to_vertex, edge_type);
 
     auto *in_memory = static_cast<InMemoryStorage *>(storage_);
     auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
@@ -803,6 +828,8 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeChangeType(EdgeAcces
   auto *from_vertex = edge->from_vertex_;
   auto *to_vertex = edge->to_vertex_;
 
+  // This has to be called before any object gets locked
+  auto schema_acc = storage_->SchemaInfoAccessor();
   // Obtain the locks by `gid` order to avoid lock cycles.
   auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
   auto guard_to = std::unique_lock{to_vertex->lock, std::defer_lock};
@@ -840,14 +867,16 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeChangeType(EdgeAcces
 
   MG_ASSERT((op1 && op2), "Invalid database state!");
 
-  utils::AtomicMemoryBlock([this, to_vertex, new_edge_type, edge_ref, from_vertex, edge_type]() {
+  utils::AtomicMemoryBlock([this, to_vertex, new_edge_type, edge_ref, from_vertex, edge_type, &schema_acc]() {
     // "deleting" old edge
     CreateAndLinkDelta(&transaction_, from_vertex, Delta::AddOutEdgeTag(), edge_type, to_vertex, edge_ref);
     CreateAndLinkDelta(&transaction_, to_vertex, Delta::AddInEdgeTag(), edge_type, from_vertex, edge_ref);
+    if (schema_acc) schema_acc->DeleteEdge(from_vertex, to_vertex, edge_type, edge_ref);
 
     // "adding" new edge
     CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), new_edge_type, to_vertex, edge_ref);
     CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), new_edge_type, from_vertex, edge_ref);
+    if (schema_acc) schema_acc->CreateEdge(from_vertex, to_vertex, new_edge_type);
 
     // edge type is not used while invalidating cache so we can only call it once
     transaction_.manyDeltasCache.Invalidate(from_vertex, new_edge_type, EdgeDirection::OUT);
@@ -990,9 +1019,8 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
               mem_storage->AppendToWal(transaction_, durability_commit_timestamp, std::move(db_acc));
 
           // TODO is this the correct place for this
-          mem_storage->schema_info_.ProcessTransaction(
-              transaction_, mem_storage->config_.salient.items.properties_on_edges,
-              [this](Gid gid, View view) mutable { return FindEdge(gid, view); });
+          mem_storage->schema_info_.ProcessTransaction(transaction_,
+                                                       mem_storage->config_.salient.items.properties_on_edges);
           // mem_storage->schema_info_.CleanUp();
           // mem_storage->schema_info_.Print(*mem_storage->name_id_mapper_);
 

@@ -5372,7 +5372,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     } else if (utils::Downcast<ShowSchemaInfoQuery>(parsed_query.query)) {
       // TODO Remove this hack
       auto *in_mem = static_cast<storage::InMemoryStorage *>(current_db_.db_acc_->get()->storage());
-      in_mem->schema_info_.Print(*in_mem->name_id_mapper_, in_mem->config_.salient.items.properties_on_edges);
+      std::cout << "SCHEMA INFO\n" << in_mem->schema_info_.ToJson(*in_mem->name_id_mapper_) << std::endl;
       throw utils::NotYetImplemented("Show schema info");
     } else if (utils::Downcast<SessionTraceQuery>(parsed_query.query)) {
       prepared_query = PrepareSessionTraceQuery(std::move(parsed_query), current_db_, this);

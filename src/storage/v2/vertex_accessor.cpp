@@ -109,6 +109,11 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
     throw query::WriteVertexOperationInEdgeImportModeException();
   }
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+  // This has to be called before any object gets locked
+  // auto schema_acc = storage_->SchemaInfoAutoAccessor(!vertex_->in_edges.empty() && !vertex_->out_edges.empty());
+  // TODO Add upgrade/downgrade; we need an accessor before locking the vertex. but need to lock the vertex in order to
+  // know which accessor to use
+  auto schema_acc = storage_->SchemaInfoUniqueAccessor();
   auto guard = std::unique_lock{vertex_->lock};
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
@@ -145,6 +150,8 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
   storage_->indices_.UpdateOnAddLabel(label, vertex_, *transaction_);
   transaction_->UpdateOnChangeLabel(label, vertex_);
 
+  // NOTE Has to be called at the end because it needs to be able to release the vertex lock
+  if (schema_acc) schema_acc->AddLabel(vertex_, label, std::move(guard));
   return true;
 }
 
@@ -153,6 +160,11 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
   if (transaction_->edge_import_mode_active) {
     throw query::WriteVertexOperationInEdgeImportModeException();
   }
+  // This has to be called before any object gets locked
+  // auto schema_acc = storage_->SchemaInfoAutoAccessor(!vertex_->in_edges.empty() && !vertex_->out_edges.empty());
+  // TODO Add upgrade/downgrade; we need an accessor before locking the vertex. but need to lock the vertex in order to
+  // know which accessor to use
+  auto schema_acc = storage_->SchemaInfoUniqueAccessor();
   auto guard = std::unique_lock{vertex_->lock};
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
@@ -172,6 +184,8 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
   storage_->indices_.UpdateOnRemoveLabel(label, vertex_, *transaction_);
   transaction_->UpdateOnChangeLabel(label, vertex_);
 
+  // NOTE Has to be called at the end because it needs to be able to release the vertex lock
+  if (schema_acc) schema_acc->RemoveLabel(vertex_, label, std::move(guard));
   return true;
 }
 
@@ -275,6 +289,8 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
   }
 
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+  // This has to be called before any object gets locked
+  auto schema_acc = storage_->SchemaInfoAccessor();
   auto guard = std::unique_lock{vertex_->lock};
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
@@ -284,7 +300,7 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
   PropertyValue old_value;
   const bool skip_duplicate_write = !storage_->config_.salient.items.delta_on_identical_property_update;
   auto const set_property_impl = [transaction = transaction_, vertex = vertex_, &new_value, &property, &old_value,
-                                  skip_duplicate_write]() {
+                                  skip_duplicate_write, &schema_acc]() {
     old_value = vertex->properties.GetProperty(property);
     // We could skip setting the value if the previous one is the same to the new
     // one. This would save some memory as a delta would not be created as well as
@@ -298,6 +314,7 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
 
     CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, old_value);
     vertex->properties.SetProperty(property, new_value);
+    if (schema_acc) schema_acc->SetProperty(vertex, property, {new_value.type(), old_value.type()});
 
     return false;
   };
@@ -326,31 +343,36 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
   }
 
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+  // This has to be called before any object gets locked
+  auto schema_acc = storage_->SchemaInfoAccessor();
   auto guard = std::unique_lock{vertex_->lock};
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
 
   if (vertex_->deleted) return Error::DELETED_OBJECT;
   bool result{false};
-  utils::AtomicMemoryBlock([&result, &properties, storage = storage_, transaction = transaction_, vertex = vertex_]() {
-    if (!vertex->properties.InitProperties(properties)) {
-      result = false;
-      return;
-    }
-    for (const auto &[property, new_value] : properties) {
-      CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, PropertyValue());
-      storage->indices_.UpdateOnSetProperty(property, new_value, vertex, *transaction);
-      transaction->UpdateOnSetProperty(property, PropertyValue{}, new_value, vertex);
-      if (transaction->constraint_verification_info) {
-        if (!new_value.IsNull()) {
-          transaction->constraint_verification_info->AddedProperty(vertex);
-        } else {
-          transaction->constraint_verification_info->RemovedProperty(vertex);
+  utils::AtomicMemoryBlock(
+      [&result, &properties, storage = storage_, transaction = transaction_, vertex = vertex_, &schema_acc]() {
+        if (!vertex->properties.InitProperties(properties)) {
+          result = false;
+          return;
         }
-      }
-    }
-    result = true;
-  });
+        for (const auto &[property, new_value] : properties) {
+          CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, PropertyValue());
+          storage->indices_.UpdateOnSetProperty(property, new_value, vertex, *transaction);
+          transaction->UpdateOnSetProperty(property, PropertyValue{}, new_value, vertex);
+          if (transaction->constraint_verification_info) {
+            if (!new_value.IsNull()) {
+              transaction->constraint_verification_info->AddedProperty(vertex);
+            } else {
+              transaction->constraint_verification_info->RemovedProperty(vertex);
+            }
+          }
+          if (schema_acc) schema_acc->SetProperty(vertex, property, {new_value.type(), PropertyValueType::Null});
+        }
+        // TODO If not performant enough there is also InitProperty()
+        result = true;
+      });
 
   return result;
 }
@@ -362,6 +384,8 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
   }
 
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+  // This has to be called before any object gets locked
+  auto schema_acc = storage_->SchemaInfoAccessor();
   auto guard = std::unique_lock{vertex_->lock};
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
@@ -372,7 +396,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
   using ReturnType = decltype(vertex_->properties.UpdateProperties(properties));
   std::optional<ReturnType> id_old_new_change;
   utils::AtomicMemoryBlock([storage = storage_, transaction = transaction_, vertex = vertex_, &properties,
-                            &id_old_new_change, skip_duplicate_update]() {
+                            &id_old_new_change, skip_duplicate_update, &schema_acc]() {
     id_old_new_change.emplace(vertex->properties.UpdateProperties(properties));
     if (!id_old_new_change.has_value()) {
       return;
@@ -389,6 +413,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
           transaction->constraint_verification_info->RemovedProperty(vertex);
         }
       }
+      if (schema_acc) schema_acc->SetProperty(vertex, id, {new_value.type(), old_value.type()});
     }
   });
 
@@ -399,6 +424,8 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
   if (transaction_->edge_import_mode_active) {
     throw query::WriteVertexOperationInEdgeImportModeException();
   }
+  // This has to be called before any object gets locked
+  auto schema_acc = storage_->SchemaInfoAccessor();
   auto guard = std::unique_lock{vertex_->lock};
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
@@ -407,22 +434,24 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
 
   using ReturnType = decltype(vertex_->properties.Properties());
   std::optional<ReturnType> properties;
-  utils::AtomicMemoryBlock([storage = storage_, transaction = transaction_, vertex = vertex_, &properties]() {
-    properties.emplace(vertex->properties.Properties());
-    if (!properties.has_value()) {
-      return;
-    }
-    auto new_value = PropertyValue();
-    for (const auto &[property, old_value] : *properties) {
-      CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, old_value);
-      storage->indices_.UpdateOnSetProperty(property, new_value, vertex, *transaction);
-      transaction->UpdateOnSetProperty(property, old_value, new_value, vertex);
-    }
-    if (transaction->constraint_verification_info) {
-      transaction->constraint_verification_info->RemovedProperty(vertex);
-    }
-    vertex->properties.ClearProperties();
-  });
+  utils::AtomicMemoryBlock(
+      [storage = storage_, transaction = transaction_, vertex = vertex_, &properties, &schema_acc]() {
+        properties.emplace(vertex->properties.Properties());
+        if (!properties.has_value()) {
+          return;
+        }
+        auto new_value = PropertyValue();
+        for (const auto &[property, old_value] : *properties) {
+          CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, old_value);
+          storage->indices_.UpdateOnSetProperty(property, new_value, vertex, *transaction);
+          transaction->UpdateOnSetProperty(property, old_value, new_value, vertex);
+          if (schema_acc) schema_acc->SetProperty(vertex, property, {PropertyValueType::Null, old_value.type()});
+        }
+        if (transaction->constraint_verification_info) {
+          transaction->constraint_verification_info->RemovedProperty(vertex);
+        }
+        vertex->properties.ClearProperties();
+      });
 
   return properties.has_value() ? std::move(properties.value()) : ReturnType{};
 }

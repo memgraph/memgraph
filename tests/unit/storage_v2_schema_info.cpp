@@ -18,6 +18,7 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/schema_info.hpp"
+#include "storage/v2/storage_mode.hpp"
 
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace memgraph::storage;
@@ -36,6 +37,7 @@ class SchemaInfoTest : public testing::Test {
     memgraph::storage::UpdatePaths(config_, storage_directory);
     config_.durability.snapshot_wal_mode =
         memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+    config_.salient.storage_mode = mode;
 
     // TODO OnDisk no supported at this time
     this->storage = std::make_unique<memgraph::storage::InMemoryStorage>(config_);
@@ -64,6 +66,7 @@ class SchemaInfoTestWEdgeProp : public testing::Test {
     config_.durability.snapshot_wal_mode =
         memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
     config_.salient.items.properties_on_edges = true;
+    config_.salient.storage_mode = mode;
 
     // TODO OnDisk no supported at this time
     this->storage = std::make_unique<memgraph::storage::InMemoryStorage>(config_);
@@ -82,7 +85,7 @@ class SchemaInfoTestWEdgeProp : public testing::Test {
                                                                           : StorageMode::IN_MEMORY_ANALYTICAL)};
 };
 
-using StorageTypes = ::testing::Types<InMemTransactional /*, InMemAnalytical*/>;
+using StorageTypes = ::testing::Types<InMemTransactional, InMemAnalytical>;
 
 TYPED_TEST_SUITE(SchemaInfoTest, StorageTypes);
 TYPED_TEST_SUITE(SchemaInfoTestWEdgeProp, StorageTypes);
@@ -101,8 +104,7 @@ TYPED_TEST(SchemaInfoTest, SingleVertex) {
 
   // Empty
   {
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_TRUE(json["nodes"].empty());
     ASSERT_TRUE(json["edges"].empty());
   }
@@ -112,8 +114,7 @@ TYPED_TEST(SchemaInfoTest, SingleVertex) {
     auto acc = in_memory->Access();
     acc->CreateVertex();
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_EQ(json["nodes"].size(), 1);
     ASSERT_EQ(json["edges"].size(), 0);
     ASSERT_EQ(json["nodes"][0]["count"], 1);
@@ -128,8 +129,7 @@ TYPED_TEST(SchemaInfoTest, SingleVertex) {
       ASSERT_FALSE(acc->DetachDelete({&v}, {}, true).HasError());
     }
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_EQ(json["nodes"].size(), 0);
     ASSERT_EQ(json["edges"].size(), 0);
   }
@@ -140,8 +140,7 @@ TYPED_TEST(SchemaInfoTest, SingleVertex) {
     auto v = acc->CreateVertex();
     ASSERT_FALSE(v.AddLabel(l).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_EQ(json["nodes"].size(), 1);
     ASSERT_EQ(json["edges"].size(), 0);
     ASSERT_EQ(json["nodes"][0]["count"], 1);
@@ -157,8 +156,7 @@ TYPED_TEST(SchemaInfoTest, SingleVertex) {
       ASSERT_FALSE(acc->DetachDelete({&v}, {}, true).HasError());
     }
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_EQ(json["nodes"].size(), 0);
     ASSERT_EQ(json["edges"].size(), 0);
   }
@@ -172,8 +170,7 @@ TYPED_TEST(SchemaInfoTest, SingleVertex) {
     ASSERT_FALSE(v.SetProperty(p, memgraph::storage::PropertyValue{false}).HasError());
     ASSERT_FALSE(v.SetProperty(p, memgraph::storage::PropertyValue{12}).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_EQ(json["nodes"].size(), 1);
     ASSERT_EQ(json["edges"].size(), 0);
     ASSERT_EQ(json["nodes"][0]["count"], 1);
@@ -194,8 +191,7 @@ TYPED_TEST(SchemaInfoTest, SingleVertex) {
       ASSERT_FALSE(acc->DetachDelete({&v}, {}, true).HasError());
     }
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_EQ(json["nodes"].size(), 0);
     ASSERT_EQ(json["edges"].size(), 0);
   }
@@ -214,8 +210,7 @@ TYPED_TEST(SchemaInfoTest, SingleVertex) {
     ASSERT_FALSE(v.SetProperty(p, memgraph::storage::PropertyValue{12}).HasError());
     ASSERT_FALSE(v.ClearProperties().HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_EQ(json["nodes"].size(), 1);
     ASSERT_EQ(json["edges"].size(), 0);
     ASSERT_EQ(json["nodes"][0]["count"], 1);
@@ -232,8 +227,7 @@ TYPED_TEST(SchemaInfoTest, SingleVertex) {
       ASSERT_FALSE(acc->DetachDelete({&v}, {}, true).HasError());
     }
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_EQ(json["nodes"].size(), 0);
     ASSERT_EQ(json["edges"].size(), 0);
   }
@@ -259,22 +253,28 @@ TYPED_TEST(SchemaInfoTest, SingleVertex) {
                      ->SetProperty(p2, memgraph::storage::PropertyValue{false})
                      .HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_EQ(json["nodes"].size(), 1);
     ASSERT_EQ(json["edges"].size(), 0);
     ASSERT_EQ(json["nodes"][0]["count"], 1);
-    ASSERT_EQ(json["nodes"][0]["properties"].size(), 2);
-    ASSERT_EQ(json["nodes"][0]["properties"][0]["key"], "p2");
-    ASSERT_EQ(json["nodes"][0]["properties"][0]["count"], 1);
-    ASSERT_EQ(json["nodes"][0]["properties"][0]["types"].size(), 1);
-    ASSERT_EQ(json["nodes"][0]["properties"][0]["types"][0]["type"], "bool");
-    ASSERT_EQ(json["nodes"][0]["properties"][0]["types"][0]["count"], 1);
-    ASSERT_EQ(json["nodes"][0]["properties"][1]["key"], "p3");
-    ASSERT_EQ(json["nodes"][0]["properties"][1]["count"], 1);
-    ASSERT_EQ(json["nodes"][0]["properties"][1]["types"].size(), 1);
-    ASSERT_EQ(json["nodes"][0]["properties"][1]["types"][0]["type"], "list");
-    ASSERT_EQ(json["nodes"][0]["properties"][1]["types"][0]["count"], 1);
+
+    const auto json_prop = json["nodes"][0]["properties"];
+    ASSERT_EQ(json_prop.size(), 2);
+
+    const auto json_p2 =
+        std::find_if(json_prop.begin(), json_prop.end(), [&](const auto &in) { return in["key"] == "p2"; });
+    ASSERT_NE(json_p2, json_prop.end());
+    EXPECT_EQ((*json_p2)["count"], 1);
+    const auto &json_p2_types = (*json_p2)["types"];
+    EXPECT_EQ(json_p2_types.size(), 1);
+    EXPECT_EQ(json_p2_types[0], nlohmann::json::object({{"type", "bool"}, {"count", 1}}));
+    const auto json_p3 =
+        std::find_if(json_prop.begin(), json_prop.end(), [&](const auto &in) { return in["key"] == "p3"; });
+    ASSERT_NE(json_p3, json_prop.end());
+    EXPECT_EQ((*json_p3)["count"], 1);
+    const auto &json_p3_types = (*json_p3)["types"];
+    EXPECT_EQ(json_p3_types.size(), 1);
+    EXPECT_EQ(json_p3_types[0], nlohmann::json::object({{"type", "list"}, {"count", 1}}));
   }
 
   // delete vertex
@@ -284,8 +284,7 @@ TYPED_TEST(SchemaInfoTest, SingleVertex) {
       ASSERT_FALSE(acc->DetachDelete({&v}, {}, true).HasError());
     }
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_EQ(json["nodes"].size(), 0);
     ASSERT_EQ(json["edges"].size(), 0);
   }
@@ -299,8 +298,7 @@ TYPED_TEST(SchemaInfoTest, SingleVertex) {
     ASSERT_FALSE(v.SetProperty(p2, memgraph::storage::PropertyValue{"abc"}).HasError());
     ASSERT_FALSE(acc->DeleteVertex(&v).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_EQ(json["nodes"].size(), 0);
     ASSERT_EQ(json["edges"].size(), 0);
   }
@@ -313,10 +311,34 @@ TYPED_TEST(SchemaInfoTest, SingleVertex) {
     ASSERT_FALSE(v.SetProperty(p, memgraph::storage::PropertyValue{12}).HasError());
     ASSERT_FALSE(v.SetProperty(p2, memgraph::storage::PropertyValue{"abc"}).HasError());
     acc->Abort();
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
-    ASSERT_EQ(json["nodes"].size(), 0);
-    ASSERT_EQ(json["edges"].size(), 0);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
+    if (in_memory->storage_mode_ == memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
+      ASSERT_EQ(json["nodes"].size(), 0);
+      ASSERT_EQ(json["edges"].size(), 0);
+    } else {
+      ASSERT_EQ(json["nodes"].size(), 1);
+      ASSERT_EQ(json["edges"].size(), 0);
+      ASSERT_EQ(json["nodes"][0]["count"], 1);
+
+      const auto json_prop = json["nodes"][0]["properties"];
+      ASSERT_EQ(json_prop.size(), 2);
+
+      const auto json_p1 =
+          std::find_if(json_prop.begin(), json_prop.end(), [&](const auto &in) { return in["key"] == "p1"; });
+      ASSERT_NE(json_p1, json_prop.end());
+      EXPECT_EQ((*json_p1)["count"], 1);
+      const auto &json_p1_types = (*json_p1)["types"];
+      EXPECT_EQ(json_p1_types.size(), 1);
+      EXPECT_EQ(json_p1_types[0], nlohmann::json::object({{"type", "int"}, {"count", 1}}));
+
+      const auto json_p2 =
+          std::find_if(json_prop.begin(), json_prop.end(), [&](const auto &in) { return in["key"] == "p2"; });
+      ASSERT_NE(json_p2, json_prop.end());
+      EXPECT_EQ((*json_p2)["count"], 1);
+      const auto &json_p2_types = (*json_p2)["types"];
+      EXPECT_EQ(json_p2_types.size(), 1);
+      EXPECT_EQ(json_p2_types[0], nlohmann::json::object({{"type", "string"}, {"count", 1}}));
+    }
   }
 }
 
@@ -336,8 +358,7 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
 
   // Empty
   {
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_TRUE(json["nodes"].empty());
     ASSERT_TRUE(json["edges"].empty());
   }
@@ -347,8 +368,7 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
     auto acc = in_memory->Access();
     acc->CreateVertex();
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_EQ(json["nodes"].size(), 1);
     ASSERT_EQ(json["edges"].size(), 0);
     ASSERT_EQ(json["nodes"][0]["count"], 1);
@@ -362,17 +382,24 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
     auto v = acc->CreateVertex();
     ASSERT_FALSE(v.AddLabel(l).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_EQ(json["nodes"].size(), 2);
     ASSERT_EQ(json["edges"].size(), 0);
-    ASSERT_EQ(json["nodes"][0]["count"], 1);
-    ASSERT_EQ(json["nodes"][0]["labels"].size(), 1);
-    ASSERT_EQ(json["nodes"][0]["labels"][0], "L1");
-    ASSERT_EQ(json["nodes"][0]["properties"].size(), 0);
-    ASSERT_EQ(json["nodes"][1]["count"], 1);
-    ASSERT_EQ(json["nodes"][1]["labels"].size(), 0);
-    ASSERT_EQ(json["nodes"][1]["properties"].size(), 0);
+
+    const auto &json_nodes = json["nodes"];
+    for (const auto &json_node : json_nodes) {
+      if (json_node["labels"] == nlohmann::json::array({/* empty */})) {
+        EXPECT_EQ(json_node["count"], 1);
+        const auto &json_prop = json_node["properties"];
+        EXPECT_EQ(json_prop.size(), 0);
+      } else if (json_node["labels"] == nlohmann::json::array({"L1"})) {
+        EXPECT_EQ(json_node["count"], 1);
+        const auto &json_prop = json_node["properties"];
+        EXPECT_EQ(json_prop.size(), 0);
+      } else {
+        ASSERT_TRUE(false);
+      }
+    }
   }
 
   // create vertex with label and property
@@ -382,26 +409,32 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
     ASSERT_FALSE(v.AddLabel(l2).HasError());
     ASSERT_FALSE(v.SetProperty(p, memgraph::storage::PropertyValue{12}).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_EQ(json["nodes"].size(), 3);
     ASSERT_EQ(json["edges"].size(), 0);
-    ASSERT_EQ(json["nodes"][0]["count"], 1);
-    ASSERT_EQ(json["nodes"][0]["labels"].size(), 1);
-    ASSERT_EQ(json["nodes"][0]["labels"][0], "L2");
-    ASSERT_EQ(json["nodes"][0]["properties"].size(), 1);
-    ASSERT_EQ(json["nodes"][0]["properties"][0]["key"], "p1");
-    ASSERT_EQ(json["nodes"][0]["properties"][0]["count"], 1);
-    ASSERT_EQ(json["nodes"][0]["properties"][0]["types"].size(), 1);
-    ASSERT_EQ(json["nodes"][0]["properties"][0]["types"][0]["type"], "int");
-    ASSERT_EQ(json["nodes"][0]["properties"][0]["types"][0]["count"], 1);
-    ASSERT_EQ(json["nodes"][1]["count"], 1);
-    ASSERT_EQ(json["nodes"][1]["labels"].size(), 1);
-    ASSERT_EQ(json["nodes"][1]["labels"][0], "L1");
-    ASSERT_EQ(json["nodes"][1]["properties"].size(), 0);
-    ASSERT_EQ(json["nodes"][2]["count"], 1);
-    ASSERT_EQ(json["nodes"][2]["labels"].size(), 0);
-    ASSERT_EQ(json["nodes"][2]["properties"].size(), 0);
+
+    const auto &json_nodes = json["nodes"];
+    for (const auto &json_node : json_nodes) {
+      if (json_node["labels"] == nlohmann::json::array({/* empty */})) {
+        EXPECT_EQ(json_node["count"], 1);
+        const auto &json_prop = json_node["properties"];
+        EXPECT_EQ(json_prop.size(), 0);
+      } else if (json_node["labels"] == nlohmann::json::array({"L1"})) {
+        EXPECT_EQ(json_node["count"], 1);
+        const auto &json_prop = json_node["properties"];
+        EXPECT_EQ(json_prop.size(), 0);
+      } else if (json_node["labels"] == nlohmann::json::array({"L2"})) {
+        EXPECT_EQ(json_node["count"], 1);
+        const auto &json_prop = json_node["properties"];
+        EXPECT_EQ(json_prop.size(), 1);
+        EXPECT_EQ(json_prop[0]["key"], "p1");
+        EXPECT_EQ(json_prop[0]["count"], 1);
+        EXPECT_EQ(json_prop[0]["types"].size(), 1);
+        EXPECT_EQ(json_prop[0]["types"][0], nlohmann::json::object({{"type", "int"}, {"count", 1}}));
+      } else {
+        ASSERT_TRUE(false);
+      }
+    }
   }
 
   // create vertex
@@ -418,31 +451,36 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
     ASSERT_FALSE(v.SetProperty(p, memgraph::storage::PropertyValue{12}).HasError());
     ASSERT_FALSE(v.ClearProperties().HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_EQ(json["nodes"].size(), 4);
     ASSERT_EQ(json["edges"].size(), 0);
-    ASSERT_EQ(json["nodes"][0]["count"], 1);
-    ASSERT_EQ(json["nodes"][0]["labels"].size(), 2);
-    ASSERT_EQ(json["nodes"][0]["labels"][0], "L2");
-    ASSERT_EQ(json["nodes"][0]["labels"][1], "L3");
-    ASSERT_EQ(json["nodes"][0]["properties"].size(), 0);
-    ASSERT_EQ(json["nodes"][1]["count"], 1);
-    ASSERT_EQ(json["nodes"][1]["labels"].size(), 1);
-    ASSERT_EQ(json["nodes"][1]["labels"][0], "L2");
-    ASSERT_EQ(json["nodes"][1]["properties"].size(), 1);
-    ASSERT_EQ(json["nodes"][1]["properties"][0]["key"], "p1");
-    ASSERT_EQ(json["nodes"][1]["properties"][0]["count"], 1);
-    ASSERT_EQ(json["nodes"][1]["properties"][0]["types"].size(), 1);
-    ASSERT_EQ(json["nodes"][1]["properties"][0]["types"][0]["type"], "int");
-    ASSERT_EQ(json["nodes"][1]["properties"][0]["types"][0]["count"], 1);
-    ASSERT_EQ(json["nodes"][2]["count"], 1);
-    ASSERT_EQ(json["nodes"][2]["labels"].size(), 1);
-    ASSERT_EQ(json["nodes"][2]["labels"][0], "L1");
-    ASSERT_EQ(json["nodes"][2]["properties"].size(), 0);
-    ASSERT_EQ(json["nodes"][3]["count"], 1);
-    ASSERT_EQ(json["nodes"][3]["labels"].size(), 0);
-    ASSERT_EQ(json["nodes"][3]["properties"].size(), 0);
+
+    const auto &json_nodes = json["nodes"];
+    for (const auto &json_node : json_nodes) {
+      if (json_node["labels"] == nlohmann::json::array({/* empty */})) {
+        EXPECT_EQ(json_node["count"], 1);
+        const auto &json_prop = json_node["properties"];
+        EXPECT_EQ(json_prop.size(), 0);
+      } else if (json_node["labels"] == nlohmann::json::array({"L1"})) {
+        EXPECT_EQ(json_node["count"], 1);
+        const auto &json_prop = json_node["properties"];
+        EXPECT_EQ(json_prop.size(), 0);
+      } else if (json_node["labels"] == nlohmann::json::array({"L2"})) {
+        EXPECT_EQ(json_node["count"], 1);
+        const auto &json_prop = json_node["properties"];
+        EXPECT_EQ(json_prop.size(), 1);
+        EXPECT_EQ(json_prop[0]["key"], "p1");
+        EXPECT_EQ(json_prop[0]["count"], 1);
+        EXPECT_EQ(json_prop[0]["types"].size(), 1);
+        EXPECT_EQ(json_prop[0]["types"][0], nlohmann::json::object({{"type", "int"}, {"count", 1}}));
+      } else if (json_node["labels"] == nlohmann::json::array({"L2", "L3"})) {
+        EXPECT_EQ(json_node["count"], 1);
+        const auto &json_prop = json_node["properties"];
+        EXPECT_EQ(json_prop.size(), 0);
+      } else {
+        ASSERT_TRUE(false);
+      }
+    }
   }
 
   // create vertex
@@ -466,41 +504,52 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
                      ->SetProperty(p2, memgraph::storage::PropertyValue{false})
                      .HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_EQ(json["nodes"].size(), 4);
     ASSERT_EQ(json["edges"].size(), 0);
-    ASSERT_EQ(json["nodes"][0]["count"], 1);
-    ASSERT_EQ(json["nodes"][0]["labels"].size(), 2);
-    ASSERT_EQ(json["nodes"][0]["labels"][0], "L2");
-    ASSERT_EQ(json["nodes"][0]["labels"][1], "L3");
-    ASSERT_EQ(json["nodes"][0]["properties"].size(), 0);
-    ASSERT_EQ(json["nodes"][1]["count"], 1);
-    ASSERT_EQ(json["nodes"][1]["labels"].size(), 1);
-    ASSERT_EQ(json["nodes"][1]["labels"][0], "L2");
-    ASSERT_EQ(json["nodes"][1]["properties"].size(), 1);
-    ASSERT_EQ(json["nodes"][1]["properties"][0]["key"], "p1");
-    ASSERT_EQ(json["nodes"][1]["properties"][0]["count"], 1);
-    ASSERT_EQ(json["nodes"][1]["properties"][0]["types"].size(), 1);
-    ASSERT_EQ(json["nodes"][1]["properties"][0]["types"][0]["type"], "int");
-    ASSERT_EQ(json["nodes"][1]["properties"][0]["types"][0]["count"], 1);
-    ASSERT_EQ(json["nodes"][2]["count"], 1);
-    ASSERT_EQ(json["nodes"][2]["labels"].size(), 1);
-    ASSERT_EQ(json["nodes"][2]["labels"][0], "L1");
-    ASSERT_EQ(json["nodes"][2]["properties"].size(), 0);
-    ASSERT_EQ(json["nodes"][3]["count"], 2);
-    ASSERT_EQ(json["nodes"][3]["labels"].size(), 0);
-    ASSERT_EQ(json["nodes"][3]["properties"].size(), 2);
-    ASSERT_EQ(json["nodes"][3]["properties"][0]["key"], "p2");
-    ASSERT_EQ(json["nodes"][3]["properties"][0]["count"], 1);
-    ASSERT_EQ(json["nodes"][3]["properties"][0]["types"].size(), 1);
-    ASSERT_EQ(json["nodes"][3]["properties"][0]["types"][0]["type"], "bool");
-    ASSERT_EQ(json["nodes"][3]["properties"][0]["types"][0]["count"], 1);
-    ASSERT_EQ(json["nodes"][3]["properties"][1]["key"], "p3");
-    ASSERT_EQ(json["nodes"][3]["properties"][1]["count"], 1);
-    ASSERT_EQ(json["nodes"][3]["properties"][1]["types"].size(), 1);
-    ASSERT_EQ(json["nodes"][3]["properties"][1]["types"][0]["type"], "list");
-    ASSERT_EQ(json["nodes"][3]["properties"][1]["types"][0]["count"], 1);
+
+    const auto &json_nodes = json["nodes"];
+    for (const auto &json_node : json_nodes) {
+      if (json_node["labels"] == nlohmann::json::array({/* empty */})) {
+        EXPECT_EQ(json_node["count"], 2);
+        const auto &json_prop = json_node["properties"];
+        EXPECT_EQ(json_prop.size(), 2);
+
+        const auto json_p2 =
+            std::find_if(json_prop.begin(), json_prop.end(), [&](const auto &in) { return in["key"] == "p2"; });
+        ASSERT_NE(json_p2, json_prop.end());
+        EXPECT_EQ((*json_p2)["count"], 1);
+        const auto &json_p2_types = (*json_p2)["types"];
+        EXPECT_EQ(json_p2_types.size(), 1);
+        EXPECT_EQ(json_p2_types[0], nlohmann::json::object({{"type", "bool"}, {"count", 1}}));
+
+        const auto json_p3 =
+            std::find_if(json_prop.begin(), json_prop.end(), [&](const auto &in) { return in["key"] == "p3"; });
+        ASSERT_NE(json_p3, json_prop.end());
+        EXPECT_EQ((*json_p3)["count"], 1);
+        const auto &json_p3_types = (*json_p3)["types"];
+        EXPECT_EQ(json_p3_types.size(), 1);
+        EXPECT_EQ(json_p3_types[0], nlohmann::json::object({{"type", "list"}, {"count", 1}}));
+      } else if (json_node["labels"] == nlohmann::json::array({"L1"})) {
+        EXPECT_EQ(json_node["count"], 1);
+        const auto &json_prop = json_node["properties"];
+        EXPECT_EQ(json_prop.size(), 0);
+      } else if (json_node["labels"] == nlohmann::json::array({"L2"})) {
+        EXPECT_EQ(json_node["count"], 1);
+        const auto &json_prop = json_node["properties"];
+        EXPECT_EQ(json_prop.size(), 1);
+        EXPECT_EQ(json_prop[0]["key"], "p1");
+        EXPECT_EQ(json_prop[0]["count"], 1);
+        EXPECT_EQ(json_prop[0]["types"].size(), 1);
+        EXPECT_EQ(json_prop[0]["types"][0], nlohmann::json::object({{"type", "int"}, {"count", 1}}));
+      } else if (json_node["labels"] == nlohmann::json::array({"L2", "L3"})) {
+        EXPECT_EQ(json_node["count"], 1);
+        const auto &json_prop = json_node["properties"];
+        EXPECT_EQ(json_prop.size(), 0);
+      } else {
+        ASSERT_TRUE(false);
+      }
+    }
   }
 
   // create - delete - commit
@@ -512,86 +561,108 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
     ASSERT_FALSE(v.SetProperty(p2, memgraph::storage::PropertyValue{"abc"}).HasError());
     ASSERT_FALSE(acc->DeleteVertex(&v).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_EQ(json["nodes"].size(), 4);
     ASSERT_EQ(json["edges"].size(), 0);
-    ASSERT_EQ(json["nodes"][0]["count"], 1);
-    ASSERT_EQ(json["nodes"][0]["labels"].size(), 2);
-    ASSERT_EQ(json["nodes"][0]["labels"][0], "L2");
-    ASSERT_EQ(json["nodes"][0]["labels"][1], "L3");
-    ASSERT_EQ(json["nodes"][0]["properties"].size(), 0);
-    ASSERT_EQ(json["nodes"][1]["count"], 1);
-    ASSERT_EQ(json["nodes"][1]["labels"].size(), 1);
-    ASSERT_EQ(json["nodes"][1]["labels"][0], "L2");
-    ASSERT_EQ(json["nodes"][1]["properties"].size(), 1);
-    ASSERT_EQ(json["nodes"][1]["properties"][0]["key"], "p1");
-    ASSERT_EQ(json["nodes"][1]["properties"][0]["count"], 1);
-    ASSERT_EQ(json["nodes"][1]["properties"][0]["types"].size(), 1);
-    ASSERT_EQ(json["nodes"][1]["properties"][0]["types"][0]["type"], "int");
-    ASSERT_EQ(json["nodes"][1]["properties"][0]["types"][0]["count"], 1);
-    ASSERT_EQ(json["nodes"][2]["count"], 1);
-    ASSERT_EQ(json["nodes"][2]["labels"].size(), 1);
-    ASSERT_EQ(json["nodes"][2]["labels"][0], "L1");
-    ASSERT_EQ(json["nodes"][2]["properties"].size(), 0);
-    ASSERT_EQ(json["nodes"][3]["count"], 2);
-    ASSERT_EQ(json["nodes"][3]["labels"].size(), 0);
-    ASSERT_EQ(json["nodes"][3]["properties"].size(), 2);
-    ASSERT_EQ(json["nodes"][3]["properties"][0]["key"], "p2");
-    ASSERT_EQ(json["nodes"][3]["properties"][0]["count"], 1);
-    ASSERT_EQ(json["nodes"][3]["properties"][0]["types"].size(), 1);
-    ASSERT_EQ(json["nodes"][3]["properties"][0]["types"][0]["type"], "bool");
-    ASSERT_EQ(json["nodes"][3]["properties"][0]["types"][0]["count"], 1);
-    ASSERT_EQ(json["nodes"][3]["properties"][1]["key"], "p3");
-    ASSERT_EQ(json["nodes"][3]["properties"][1]["count"], 1);
-    ASSERT_EQ(json["nodes"][3]["properties"][1]["types"].size(), 1);
-    ASSERT_EQ(json["nodes"][3]["properties"][1]["types"][0]["type"], "list");
-    ASSERT_EQ(json["nodes"][3]["properties"][1]["types"][0]["count"], 1);
+
+    const auto &json_nodes = json["nodes"];
+    for (const auto &json_node : json_nodes) {
+      if (json_node["labels"] == nlohmann::json::array({/* empty */})) {
+        EXPECT_EQ(json_node["count"], 2);
+        const auto &json_prop = json_node["properties"];
+        EXPECT_EQ(json_prop.size(), 2);
+
+        const auto json_p2 =
+            std::find_if(json_prop.begin(), json_prop.end(), [&](const auto &in) { return in["key"] == "p2"; });
+        ASSERT_NE(json_p2, json_prop.end());
+        EXPECT_EQ((*json_p2)["count"], 1);
+        const auto &json_p2_types = (*json_p2)["types"];
+        EXPECT_EQ(json_p2_types.size(), 1);
+        EXPECT_EQ(json_p2_types[0], nlohmann::json::object({{"type", "bool"}, {"count", 1}}));
+
+        const auto json_p3 =
+            std::find_if(json_prop.begin(), json_prop.end(), [&](const auto &in) { return in["key"] == "p3"; });
+        ASSERT_NE(json_p3, json_prop.end());
+        EXPECT_EQ((*json_p3)["count"], 1);
+        const auto &json_p3_types = (*json_p3)["types"];
+        EXPECT_EQ(json_p3_types.size(), 1);
+        EXPECT_EQ(json_p3_types[0], nlohmann::json::object({{"type", "list"}, {"count", 1}}));
+      } else if (json_node["labels"] == nlohmann::json::array({"L1"})) {
+        EXPECT_EQ(json_node["count"], 1);
+        const auto &json_prop = json_node["properties"];
+        EXPECT_EQ(json_prop.size(), 0);
+      } else if (json_node["labels"] == nlohmann::json::array({"L2"})) {
+        EXPECT_EQ(json_node["count"], 1);
+        const auto &json_prop = json_node["properties"];
+        EXPECT_EQ(json_prop.size(), 1);
+        EXPECT_EQ(json_prop[0]["key"], "p1");
+        EXPECT_EQ(json_prop[0]["count"], 1);
+        EXPECT_EQ(json_prop[0]["types"].size(), 1);
+        EXPECT_EQ(json_prop[0]["types"][0], nlohmann::json::object({{"type", "int"}, {"count", 1}}));
+      } else if (json_node["labels"] == nlohmann::json::array({"L2", "L3"})) {
+        EXPECT_EQ(json_node["count"], 1);
+        const auto &json_prop = json_node["properties"];
+        EXPECT_EQ(json_prop.size(), 0);
+      } else {
+        ASSERT_TRUE(false);
+      }
+    }
   }
 
   // create - rollback
-  {
+  if (in_memory->storage_mode_ == memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
     auto acc = in_memory->Access();
     auto v = acc->CreateVertex();
     ASSERT_FALSE(v.AddLabel(l).HasError());
     ASSERT_FALSE(v.SetProperty(p, memgraph::storage::PropertyValue{12}).HasError());
     ASSERT_FALSE(v.SetProperty(p2, memgraph::storage::PropertyValue{"abc"}).HasError());
     acc->Abort();
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_EQ(json["nodes"].size(), 4);
     ASSERT_EQ(json["edges"].size(), 0);
-    ASSERT_EQ(json["nodes"][0]["count"], 1);
-    ASSERT_EQ(json["nodes"][0]["labels"].size(), 2);
-    ASSERT_EQ(json["nodes"][0]["labels"][0], "L2");
-    ASSERT_EQ(json["nodes"][0]["labels"][1], "L3");
-    ASSERT_EQ(json["nodes"][0]["properties"].size(), 0);
-    ASSERT_EQ(json["nodes"][1]["count"], 1);
-    ASSERT_EQ(json["nodes"][1]["labels"].size(), 1);
-    ASSERT_EQ(json["nodes"][1]["labels"][0], "L2");
-    ASSERT_EQ(json["nodes"][1]["properties"].size(), 1);
-    ASSERT_EQ(json["nodes"][1]["properties"][0]["key"], "p1");
-    ASSERT_EQ(json["nodes"][1]["properties"][0]["count"], 1);
-    ASSERT_EQ(json["nodes"][1]["properties"][0]["types"].size(), 1);
-    ASSERT_EQ(json["nodes"][1]["properties"][0]["types"][0]["type"], "int");
-    ASSERT_EQ(json["nodes"][1]["properties"][0]["types"][0]["count"], 1);
-    ASSERT_EQ(json["nodes"][2]["count"], 1);
-    ASSERT_EQ(json["nodes"][2]["labels"].size(), 1);
-    ASSERT_EQ(json["nodes"][2]["labels"][0], "L1");
-    ASSERT_EQ(json["nodes"][2]["properties"].size(), 0);
-    ASSERT_EQ(json["nodes"][3]["count"], 2);
-    ASSERT_EQ(json["nodes"][3]["labels"].size(), 0);
-    ASSERT_EQ(json["nodes"][3]["properties"].size(), 2);
-    ASSERT_EQ(json["nodes"][3]["properties"][0]["key"], "p2");
-    ASSERT_EQ(json["nodes"][3]["properties"][0]["count"], 1);
-    ASSERT_EQ(json["nodes"][3]["properties"][0]["types"].size(), 1);
-    ASSERT_EQ(json["nodes"][3]["properties"][0]["types"][0]["type"], "bool");
-    ASSERT_EQ(json["nodes"][3]["properties"][0]["types"][0]["count"], 1);
-    ASSERT_EQ(json["nodes"][3]["properties"][1]["key"], "p3");
-    ASSERT_EQ(json["nodes"][3]["properties"][1]["count"], 1);
-    ASSERT_EQ(json["nodes"][3]["properties"][1]["types"].size(), 1);
-    ASSERT_EQ(json["nodes"][3]["properties"][1]["types"][0]["type"], "list");
-    ASSERT_EQ(json["nodes"][3]["properties"][1]["types"][0]["count"], 1);
+
+    const auto &json_nodes = json["nodes"];
+    for (const auto &json_node : json_nodes) {
+      if (json_node["labels"] == nlohmann::json::array({/* empty */})) {
+        EXPECT_EQ(json_node["count"], 2);
+        const auto &json_prop = json_node["properties"];
+        EXPECT_EQ(json_prop.size(), 2);
+
+        const auto json_p2 =
+            std::find_if(json_prop.begin(), json_prop.end(), [&](const auto &in) { return in["key"] == "p2"; });
+        ASSERT_NE(json_p2, json_prop.end());
+        EXPECT_EQ((*json_p2)["count"], 1);
+        const auto &json_p2_types = (*json_p2)["types"];
+        EXPECT_EQ(json_p2_types.size(), 1);
+        EXPECT_EQ(json_p2_types[0], nlohmann::json::object({{"type", "bool"}, {"count", 1}}));
+
+        const auto json_p3 =
+            std::find_if(json_prop.begin(), json_prop.end(), [&](const auto &in) { return in["key"] == "p3"; });
+        ASSERT_NE(json_p3, json_prop.end());
+        EXPECT_EQ((*json_p3)["count"], 1);
+        const auto &json_p3_types = (*json_p3)["types"];
+        EXPECT_EQ(json_p3_types.size(), 1);
+        EXPECT_EQ(json_p3_types[0], nlohmann::json::object({{"type", "list"}, {"count", 1}}));
+      } else if (json_node["labels"] == nlohmann::json::array({"L1"})) {
+        EXPECT_EQ(json_node["count"], 1);
+        const auto &json_prop = json_node["properties"];
+        EXPECT_EQ(json_prop.size(), 0);
+      } else if (json_node["labels"] == nlohmann::json::array({"L2"})) {
+        EXPECT_EQ(json_node["count"], 1);
+        const auto &json_prop = json_node["properties"];
+        EXPECT_EQ(json_prop.size(), 1);
+        EXPECT_EQ(json_prop[0]["key"], "p1");
+        EXPECT_EQ(json_prop[0]["count"], 1);
+        EXPECT_EQ(json_prop[0]["types"].size(), 1);
+        EXPECT_EQ(json_prop[0]["types"][0], nlohmann::json::object({{"type", "int"}, {"count", 1}}));
+      } else if (json_node["labels"] == nlohmann::json::array({"L2", "L3"})) {
+        EXPECT_EQ(json_node["count"], 1);
+        const auto &json_prop = json_node["properties"];
+        EXPECT_EQ(json_prop.size(), 0);
+      } else {
+        ASSERT_TRUE(false);
+      }
+    }
   }
 
   // change property type
@@ -601,41 +672,52 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
     ASSERT_TRUE(v);
     ASSERT_FALSE(v->SetProperty(p2, memgraph::storage::PropertyValue{"string"}).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_EQ(json["nodes"].size(), 4);
     ASSERT_EQ(json["edges"].size(), 0);
-    ASSERT_EQ(json["nodes"][0]["count"], 1);
-    ASSERT_EQ(json["nodes"][0]["labels"].size(), 2);
-    ASSERT_EQ(json["nodes"][0]["labels"][0], "L2");
-    ASSERT_EQ(json["nodes"][0]["labels"][1], "L3");
-    ASSERT_EQ(json["nodes"][0]["properties"].size(), 0);
-    ASSERT_EQ(json["nodes"][1]["count"], 1);
-    ASSERT_EQ(json["nodes"][1]["labels"].size(), 1);
-    ASSERT_EQ(json["nodes"][1]["labels"][0], "L2");
-    ASSERT_EQ(json["nodes"][1]["properties"].size(), 1);
-    ASSERT_EQ(json["nodes"][1]["properties"][0]["key"], "p1");
-    ASSERT_EQ(json["nodes"][1]["properties"][0]["count"], 1);
-    ASSERT_EQ(json["nodes"][1]["properties"][0]["types"].size(), 1);
-    ASSERT_EQ(json["nodes"][1]["properties"][0]["types"][0]["type"], "int");
-    ASSERT_EQ(json["nodes"][1]["properties"][0]["types"][0]["count"], 1);
-    ASSERT_EQ(json["nodes"][2]["count"], 1);
-    ASSERT_EQ(json["nodes"][2]["labels"].size(), 1);
-    ASSERT_EQ(json["nodes"][2]["labels"][0], "L1");
-    ASSERT_EQ(json["nodes"][2]["properties"].size(), 0);
-    ASSERT_EQ(json["nodes"][3]["count"], 2);
-    ASSERT_EQ(json["nodes"][3]["labels"].size(), 0);
-    ASSERT_EQ(json["nodes"][3]["properties"].size(), 2);
-    ASSERT_EQ(json["nodes"][3]["properties"][0]["key"], "p2");
-    ASSERT_EQ(json["nodes"][3]["properties"][0]["count"], 1);
-    ASSERT_EQ(json["nodes"][3]["properties"][0]["types"].size(), 1);
-    ASSERT_EQ(json["nodes"][3]["properties"][0]["types"][0]["type"], "string");
-    ASSERT_EQ(json["nodes"][3]["properties"][0]["types"][0]["count"], 1);
-    ASSERT_EQ(json["nodes"][3]["properties"][1]["key"], "p3");
-    ASSERT_EQ(json["nodes"][3]["properties"][1]["count"], 1);
-    ASSERT_EQ(json["nodes"][3]["properties"][1]["types"].size(), 1);
-    ASSERT_EQ(json["nodes"][3]["properties"][1]["types"][0]["type"], "list");
-    ASSERT_EQ(json["nodes"][3]["properties"][1]["types"][0]["count"], 1);
+
+    const auto &json_nodes = json["nodes"];
+    for (const auto &json_node : json_nodes) {
+      if (json_node["labels"] == nlohmann::json::array({/* empty */})) {
+        EXPECT_EQ(json_node["count"], 2);
+        const auto &json_prop = json_node["properties"];
+        EXPECT_EQ(json_prop.size(), 2);
+
+        const auto json_p2 =
+            std::find_if(json_prop.begin(), json_prop.end(), [&](const auto &in) { return in["key"] == "p2"; });
+        ASSERT_NE(json_p2, json_prop.end());
+        EXPECT_EQ((*json_p2)["count"], 1);
+        const auto &json_p2_types = (*json_p2)["types"];
+        EXPECT_EQ(json_p2_types.size(), 1);
+        EXPECT_EQ(json_p2_types[0], nlohmann::json::object({{"type", "string"}, {"count", 1}}));
+
+        const auto json_p3 =
+            std::find_if(json_prop.begin(), json_prop.end(), [&](const auto &in) { return in["key"] == "p3"; });
+        ASSERT_NE(json_p3, json_prop.end());
+        EXPECT_EQ((*json_p3)["count"], 1);
+        const auto &json_p3_types = (*json_p3)["types"];
+        EXPECT_EQ(json_p3_types.size(), 1);
+        EXPECT_EQ(json_p3_types[0], nlohmann::json::object({{"type", "list"}, {"count", 1}}));
+      } else if (json_node["labels"] == nlohmann::json::array({"L1"})) {
+        EXPECT_EQ(json_node["count"], 1);
+        const auto &json_prop = json_node["properties"];
+        EXPECT_EQ(json_prop.size(), 0);
+      } else if (json_node["labels"] == nlohmann::json::array({"L2"})) {
+        EXPECT_EQ(json_node["count"], 1);
+        const auto &json_prop = json_node["properties"];
+        EXPECT_EQ(json_prop.size(), 1);
+        EXPECT_EQ(json_prop[0]["key"], "p1");
+        EXPECT_EQ(json_prop[0]["count"], 1);
+        EXPECT_EQ(json_prop[0]["types"].size(), 1);
+        EXPECT_EQ(json_prop[0]["types"][0], nlohmann::json::object({{"type", "int"}, {"count", 1}}));
+      } else if (json_node["labels"] == nlohmann::json::array({"L2", "L3"})) {
+        EXPECT_EQ(json_node["count"], 1);
+        const auto &json_prop = json_node["properties"];
+        EXPECT_EQ(json_prop.size(), 0);
+      } else {
+        ASSERT_TRUE(false);
+      }
+    }
   }
 
   // add multiple vertices with same property id, different types
@@ -649,45 +731,60 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
     ASSERT_FALSE(v3.SetProperty(p2, memgraph::storage::PropertyValue{123}).HasError());
     ASSERT_FALSE(v4.SetProperty(p2, memgraph::storage::PropertyValue{true}).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_EQ(json["nodes"].size(), 4);
     ASSERT_EQ(json["edges"].size(), 0);
-    ASSERT_EQ(json["nodes"][0]["count"], 1);
-    ASSERT_EQ(json["nodes"][0]["labels"].size(), 2);
-    ASSERT_EQ(json["nodes"][0]["labels"][0], "L2");
-    ASSERT_EQ(json["nodes"][0]["labels"][1], "L3");
-    ASSERT_EQ(json["nodes"][0]["properties"].size(), 0);
-    ASSERT_EQ(json["nodes"][1]["count"], 1);
-    ASSERT_EQ(json["nodes"][1]["labels"].size(), 1);
-    ASSERT_EQ(json["nodes"][1]["labels"][0], "L2");
-    ASSERT_EQ(json["nodes"][1]["properties"].size(), 1);
-    ASSERT_EQ(json["nodes"][1]["properties"][0]["key"], "p1");
-    ASSERT_EQ(json["nodes"][1]["properties"][0]["count"], 1);
-    ASSERT_EQ(json["nodes"][1]["properties"][0]["types"].size(), 1);
-    ASSERT_EQ(json["nodes"][1]["properties"][0]["types"][0]["type"], "int");
-    ASSERT_EQ(json["nodes"][1]["properties"][0]["types"][0]["count"], 1);
-    ASSERT_EQ(json["nodes"][2]["count"], 1);
-    ASSERT_EQ(json["nodes"][2]["labels"].size(), 1);
-    ASSERT_EQ(json["nodes"][2]["labels"][0], "L1");
-    ASSERT_EQ(json["nodes"][2]["properties"].size(), 0);
-    ASSERT_EQ(json["nodes"][3]["count"], 6);
-    ASSERT_EQ(json["nodes"][3]["labels"].size(), 0);
-    ASSERT_EQ(json["nodes"][3]["properties"].size(), 2);
-    ASSERT_EQ(json["nodes"][3]["properties"][0]["key"], "p2");
-    ASSERT_EQ(json["nodes"][3]["properties"][0]["count"], 4);
-    ASSERT_EQ(json["nodes"][3]["properties"][0]["types"].size(), 3);
-    ASSERT_EQ(json["nodes"][3]["properties"][0]["types"][0]["type"], "bool");
-    ASSERT_EQ(json["nodes"][3]["properties"][0]["types"][0]["count"], 1);
-    ASSERT_EQ(json["nodes"][3]["properties"][0]["types"][1]["type"], "int");
-    ASSERT_EQ(json["nodes"][3]["properties"][0]["types"][1]["count"], 1);
-    ASSERT_EQ(json["nodes"][3]["properties"][0]["types"][2]["type"], "string");
-    ASSERT_EQ(json["nodes"][3]["properties"][0]["types"][2]["count"], 2);
-    ASSERT_EQ(json["nodes"][3]["properties"][1]["key"], "p3");
-    ASSERT_EQ(json["nodes"][3]["properties"][1]["count"], 1);
-    ASSERT_EQ(json["nodes"][3]["properties"][1]["types"].size(), 1);
-    ASSERT_EQ(json["nodes"][3]["properties"][1]["types"][0]["type"], "list");
-    ASSERT_EQ(json["nodes"][3]["properties"][1]["types"][0]["count"], 1);
+
+    const auto &json_nodes = json["nodes"];
+    for (const auto &json_node : json_nodes) {
+      if (json_node["labels"] == nlohmann::json::array({/* empty */})) {
+        EXPECT_EQ(json_node["count"], 6);
+        const auto &json_prop = json_node["properties"];
+        EXPECT_EQ(json_prop.size(), 2);
+
+        const auto json_p2 =
+            std::find_if(json_prop.begin(), json_prop.end(), [&](const auto &in) { return in["key"] == "p2"; });
+        ASSERT_NE(json_p2, json_prop.end());
+        EXPECT_EQ((*json_p2)["count"], 4);
+        const auto &json_p2_types = (*json_p2)["types"];
+        EXPECT_EQ(json_p2_types.size(), 3);
+        const auto prop1 = nlohmann::json::object({{"type", "bool"}, {"count", 1}});
+        const auto prop2 = nlohmann::json::object({{"type", "int"}, {"count", 1}});
+        const auto prop3 = nlohmann::json::object({{"type", "string"}, {"count", 2}});
+        EXPECT_TRUE(
+            std::any_of(json_p2_types.begin(), json_p2_types.end(), [&](const auto &in) { return in == prop1; }));
+        EXPECT_TRUE(
+            std::any_of(json_p2_types.begin(), json_p2_types.end(), [&](const auto &in) { return in == prop2; }));
+        EXPECT_TRUE(
+            std::any_of(json_p2_types.begin(), json_p2_types.end(), [&](const auto &in) { return in == prop3; }));
+
+        const auto json_p3 =
+            std::find_if(json_prop.begin(), json_prop.end(), [&](const auto &in) { return in["key"] == "p3"; });
+        ASSERT_NE(json_p3, json_prop.end());
+        EXPECT_EQ((*json_p3)["count"], 1);
+        const auto &json_p3_types = (*json_p3)["types"];
+        EXPECT_EQ(json_p3_types.size(), 1);
+        EXPECT_EQ(json_p3_types[0], nlohmann::json::object({{"type", "list"}, {"count", 1}}));
+      } else if (json_node["labels"] == nlohmann::json::array({"L1"})) {
+        EXPECT_EQ(json_node["count"], 1);
+        const auto &json_prop = json_node["properties"];
+        EXPECT_EQ(json_prop.size(), 0);
+      } else if (json_node["labels"] == nlohmann::json::array({"L2"})) {
+        EXPECT_EQ(json_node["count"], 1);
+        const auto &json_prop = json_node["properties"];
+        EXPECT_EQ(json_prop.size(), 1);
+        EXPECT_EQ(json_prop[0]["key"], "p1");
+        EXPECT_EQ(json_prop[0]["count"], 1);
+        EXPECT_EQ(json_prop[0]["types"].size(), 1);
+        EXPECT_EQ(json_prop[0]["types"][0], nlohmann::json::object({{"type", "int"}, {"count", 1}}));
+      } else if (json_node["labels"] == nlohmann::json::array({"L2", "L3"})) {
+        EXPECT_EQ(json_node["count"], 1);
+        const auto &json_prop = json_node["properties"];
+        EXPECT_EQ(json_prop.size(), 0);
+      } else {
+        ASSERT_TRUE(false);
+      }
+    }
   }
 
   // change label
@@ -697,50 +794,64 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
     ASSERT_TRUE(v);
     ASSERT_FALSE(v->AddLabel(l).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_EQ(json["nodes"].size(), 4);
     ASSERT_EQ(json["edges"].size(), 0);
-    ASSERT_EQ(json["nodes"][0]["count"], 1);
-    ASSERT_EQ(json["nodes"][0]["labels"].size(), 2);
-    ASSERT_EQ(json["nodes"][0]["labels"][0], "L2");
-    ASSERT_EQ(json["nodes"][0]["labels"][1], "L3");
-    ASSERT_EQ(json["nodes"][0]["properties"].size(), 0);
-    ASSERT_EQ(json["nodes"][1]["count"], 1);
-    ASSERT_EQ(json["nodes"][1]["labels"].size(), 1);
-    ASSERT_EQ(json["nodes"][1]["labels"][0], "L2");
-    ASSERT_EQ(json["nodes"][1]["properties"].size(), 1);
-    ASSERT_EQ(json["nodes"][1]["properties"][0]["key"], "p1");
-    ASSERT_EQ(json["nodes"][1]["properties"][0]["count"], 1);
-    ASSERT_EQ(json["nodes"][1]["properties"][0]["types"].size(), 1);
-    ASSERT_EQ(json["nodes"][1]["properties"][0]["types"][0]["type"], "int");
-    ASSERT_EQ(json["nodes"][1]["properties"][0]["types"][0]["count"], 1);
-    ASSERT_EQ(json["nodes"][2]["count"], 2);
-    ASSERT_EQ(json["nodes"][2]["labels"].size(), 1);
-    ASSERT_EQ(json["nodes"][2]["labels"][0], "L1");
-    ASSERT_EQ(json["nodes"][2]["properties"].size(), 2);
-    ASSERT_EQ(json["nodes"][2]["properties"][0]["key"], "p2");
-    ASSERT_EQ(json["nodes"][2]["properties"][0]["count"], 1);
-    ASSERT_EQ(json["nodes"][2]["properties"][0]["types"].size(), 1);
-    ASSERT_EQ(json["nodes"][2]["properties"][0]["types"][0]["type"], "string");
-    ASSERT_EQ(json["nodes"][2]["properties"][0]["types"][0]["count"], 1);
-    ASSERT_EQ(json["nodes"][2]["properties"][1]["key"], "p3");
-    ASSERT_EQ(json["nodes"][2]["properties"][1]["count"], 1);
-    ASSERT_EQ(json["nodes"][2]["properties"][1]["types"].size(), 1);
-    ASSERT_EQ(json["nodes"][2]["properties"][1]["types"][0]["type"], "list");
-    ASSERT_EQ(json["nodes"][2]["properties"][1]["types"][0]["count"], 1);
-    ASSERT_EQ(json["nodes"][3]["count"], 5);
-    ASSERT_EQ(json["nodes"][3]["labels"].size(), 0);
-    ASSERT_EQ(json["nodes"][3]["properties"].size(), 1);
-    ASSERT_EQ(json["nodes"][3]["properties"][0]["key"], "p2");
-    ASSERT_EQ(json["nodes"][3]["properties"][0]["count"], 3);
-    ASSERT_EQ(json["nodes"][3]["properties"][0]["types"].size(), 3);
-    ASSERT_EQ(json["nodes"][3]["properties"][0]["types"][0]["type"], "bool");
-    ASSERT_EQ(json["nodes"][3]["properties"][0]["types"][0]["count"], 1);
-    ASSERT_EQ(json["nodes"][3]["properties"][0]["types"][1]["type"], "int");
-    ASSERT_EQ(json["nodes"][3]["properties"][0]["types"][1]["count"], 1);
-    ASSERT_EQ(json["nodes"][3]["properties"][0]["types"][2]["type"], "string");
-    ASSERT_EQ(json["nodes"][3]["properties"][0]["types"][2]["count"], 1);
+
+    const auto &json_nodes = json["nodes"];
+    for (const auto &json_node : json_nodes) {
+      if (json_node["labels"] == nlohmann::json::array({/* empty */})) {
+        EXPECT_EQ(json_node["count"], 5);
+        const auto &json_prop = json_node["properties"];
+        EXPECT_EQ(json_prop.size(), 1);
+        EXPECT_EQ(json_prop[0]["key"], "p2");
+        EXPECT_EQ(json_prop[0]["count"], 3);
+        const auto &json_prop_types = json_prop[0]["types"];
+        EXPECT_EQ(json_prop_types.size(), 3);
+        const auto prop1 = nlohmann::json::object({{"type", "bool"}, {"count", 1}});
+        const auto prop2 = nlohmann::json::object({{"type", "int"}, {"count", 1}});
+        const auto prop3 = nlohmann::json::object({{"type", "string"}, {"count", 1}});
+        EXPECT_TRUE(
+            std::any_of(json_prop_types.begin(), json_prop_types.end(), [&](const auto &in) { return in == prop1; }));
+        EXPECT_TRUE(
+            std::any_of(json_prop_types.begin(), json_prop_types.end(), [&](const auto &in) { return in == prop2; }));
+        EXPECT_TRUE(
+            std::any_of(json_prop_types.begin(), json_prop_types.end(), [&](const auto &in) { return in == prop3; }));
+      } else if (json_node["labels"] == nlohmann::json::array({"L1"})) {
+        EXPECT_EQ(json_node["count"], 2);
+        const auto &json_prop = json_node["properties"];
+        EXPECT_EQ(json_prop.size(), 2);
+
+        const auto json_p2 =
+            std::find_if(json_prop.begin(), json_prop.end(), [&](const auto &in) { return in["key"] == "p2"; });
+        ASSERT_NE(json_p2, json_prop.end());
+        EXPECT_EQ((*json_p2)["count"], 1);
+        EXPECT_EQ((*json_p2)["types"].size(), 1);
+        EXPECT_EQ((*json_p2)["types"][0]["count"], 1);
+        EXPECT_EQ((*json_p2)["types"][0]["type"], "string");
+        const auto json_p3 =
+            std::find_if(json_prop.begin(), json_prop.end(), [&](const auto &in) { return in["key"] == "p3"; });
+        ASSERT_NE(json_p3, json_prop.end());
+        EXPECT_EQ((*json_p3)["count"], 1);
+        EXPECT_EQ((*json_p3)["types"].size(), 1);
+        EXPECT_EQ((*json_p3)["types"][0]["count"], 1);
+        EXPECT_EQ((*json_p3)["types"][0]["type"], "list");
+      } else if (json_node["labels"] == nlohmann::json::array({"L2"})) {
+        EXPECT_EQ(json_node["count"], 1);
+        const auto &json_prop = json_node["properties"];
+        EXPECT_EQ(json_prop.size(), 1);
+        EXPECT_EQ(json_prop[0]["key"], "p1");
+        EXPECT_EQ(json_prop[0]["count"], 1);
+        EXPECT_EQ(json_prop[0]["types"].size(), 1);
+        EXPECT_EQ(json_prop[0]["types"][0], nlohmann::json::object({{"type", "int"}, {"count", 1}}));
+      } else if (json_node["labels"] == nlohmann::json::array({"L2", "L3"})) {
+        EXPECT_EQ(json_node["count"], 1);
+        const auto &json_prop = json_node["properties"];
+        EXPECT_EQ(json_prop.size(), 0);
+      } else {
+        ASSERT_TRUE(false);
+      }
+    }
   }
 
   // remove vertex with properties
@@ -750,40 +861,49 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
     ASSERT_TRUE(v);
     ASSERT_FALSE(acc->DeleteVertex(&*v).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_EQ(json["nodes"].size(), 4);
     ASSERT_EQ(json["edges"].size(), 0);
-    ASSERT_EQ(json["nodes"][0]["count"], 1);
-    ASSERT_EQ(json["nodes"][0]["labels"].size(), 2);
-    ASSERT_EQ(json["nodes"][0]["labels"][0], "L2");
-    ASSERT_EQ(json["nodes"][0]["labels"][1], "L3");
-    ASSERT_EQ(json["nodes"][0]["properties"].size(), 0);
-    ASSERT_EQ(json["nodes"][1]["count"], 1);
-    ASSERT_EQ(json["nodes"][1]["labels"].size(), 1);
-    ASSERT_EQ(json["nodes"][1]["labels"][0], "L2");
-    ASSERT_EQ(json["nodes"][1]["properties"].size(), 1);
-    ASSERT_EQ(json["nodes"][1]["properties"][0]["key"], "p1");
-    ASSERT_EQ(json["nodes"][1]["properties"][0]["count"], 1);
-    ASSERT_EQ(json["nodes"][1]["properties"][0]["types"].size(), 1);
-    ASSERT_EQ(json["nodes"][1]["properties"][0]["types"][0]["type"], "int");
-    ASSERT_EQ(json["nodes"][1]["properties"][0]["types"][0]["count"], 1);
-    ASSERT_EQ(json["nodes"][2]["count"], 1);
-    ASSERT_EQ(json["nodes"][2]["labels"].size(), 1);
-    ASSERT_EQ(json["nodes"][2]["labels"][0], "L1");
-    ASSERT_EQ(json["nodes"][2]["properties"].size(), 0);
-    ASSERT_EQ(json["nodes"][3]["count"], 5);
-    ASSERT_EQ(json["nodes"][3]["labels"].size(), 0);
-    ASSERT_EQ(json["nodes"][3]["properties"].size(), 1);
-    ASSERT_EQ(json["nodes"][3]["properties"][0]["key"], "p2");
-    ASSERT_EQ(json["nodes"][3]["properties"][0]["count"], 3);
-    ASSERT_EQ(json["nodes"][3]["properties"][0]["types"].size(), 3);
-    ASSERT_EQ(json["nodes"][3]["properties"][0]["types"][0]["type"], "bool");
-    ASSERT_EQ(json["nodes"][3]["properties"][0]["types"][0]["count"], 1);
-    ASSERT_EQ(json["nodes"][3]["properties"][0]["types"][1]["type"], "int");
-    ASSERT_EQ(json["nodes"][3]["properties"][0]["types"][1]["count"], 1);
-    ASSERT_EQ(json["nodes"][3]["properties"][0]["types"][2]["type"], "string");
-    ASSERT_EQ(json["nodes"][3]["properties"][0]["types"][2]["count"], 1);
+
+    const auto &json_nodes = json["nodes"];
+    for (const auto &json_node : json_nodes) {
+      if (json_node["labels"] == nlohmann::json::array({/* empty */})) {
+        EXPECT_EQ(json_node["count"], 5);
+        const auto &json_prop = json_node["properties"];
+        EXPECT_EQ(json_prop.size(), 1);
+        EXPECT_EQ(json_prop[0]["key"], "p2");
+        EXPECT_EQ(json_prop[0]["count"], 3);
+        const auto &json_prop_types = json_prop[0]["types"];
+        EXPECT_EQ(json_prop_types.size(), 3);
+        const auto prop1 = nlohmann::json::object({{"type", "bool"}, {"count", 1}});
+        const auto prop2 = nlohmann::json::object({{"type", "int"}, {"count", 1}});
+        const auto prop3 = nlohmann::json::object({{"type", "string"}, {"count", 1}});
+        EXPECT_TRUE(
+            std::any_of(json_prop_types.begin(), json_prop_types.end(), [&](const auto &in) { return in == prop1; }));
+        EXPECT_TRUE(
+            std::any_of(json_prop_types.begin(), json_prop_types.end(), [&](const auto &in) { return in == prop2; }));
+        EXPECT_TRUE(
+            std::any_of(json_prop_types.begin(), json_prop_types.end(), [&](const auto &in) { return in == prop3; }));
+      } else if (json_node["labels"] == nlohmann::json::array({"L1"})) {
+        EXPECT_EQ(json_node["count"], 1);
+        const auto &json_prop = json_node["properties"];
+        EXPECT_EQ(json_prop.size(), 0);
+      } else if (json_node["labels"] == nlohmann::json::array({"L2"})) {
+        EXPECT_EQ(json_node["count"], 1);
+        const auto &json_prop = json_node["properties"];
+        EXPECT_EQ(json_prop.size(), 1);
+        EXPECT_EQ(json_prop[0]["key"], "p1");
+        EXPECT_EQ(json_prop[0]["count"], 1);
+        EXPECT_EQ(json_prop[0]["types"].size(), 1);
+        EXPECT_EQ(json_prop[0]["types"][0], nlohmann::json::object({{"type", "int"}, {"count", 1}}));
+      } else if (json_node["labels"] == nlohmann::json::array({"L2", "L3"})) {
+        EXPECT_EQ(json_node["count"], 1);
+        const auto &json_prop = json_node["properties"];
+        EXPECT_EQ(json_prop.size(), 0);
+      } else {
+        ASSERT_TRUE(false);
+      }
+    }
   }
 }
 
@@ -802,8 +922,7 @@ TYPED_TEST(SchemaInfoTest, SingleEdge) {
 
   // Empty
   {
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_TRUE(json["nodes"].empty());
     ASSERT_TRUE(json["edges"].empty());
   }
@@ -819,8 +938,7 @@ TYPED_TEST(SchemaInfoTest, SingleEdge) {
     ASSERT_FALSE(edge.HasError());
     tmp_gid = edge->Gid();
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_EQ(json["nodes"].size(), 1);
     ASSERT_EQ(json["nodes"][0]["count"], 2);
     ASSERT_EQ(json["edges"].size(), 1);
@@ -838,8 +956,7 @@ TYPED_TEST(SchemaInfoTest, SingleEdge) {
     ASSERT_TRUE(e);
     ASSERT_FALSE(acc->DeleteEdge(&*e).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_EQ(json["nodes"].size(), 1);
     ASSERT_EQ(json["nodes"][0]["count"], 2);
     ASSERT_EQ(json["edges"].size(), 0);
@@ -861,8 +978,7 @@ TYPED_TEST(SchemaInfoTest, SingleEdge) {
     ASSERT_TRUE(v1);
     ASSERT_FALSE(v1->AddLabel(l).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_EQ(json["nodes"].size(), 2);
     ASSERT_EQ(json["edges"].size(), 1);
     ASSERT_EQ(json["edges"][0]["type"], "E2");
@@ -873,14 +989,13 @@ TYPED_TEST(SchemaInfoTest, SingleEdge) {
   }
 
   // delete edge - rollback
-  {
+  if (in_memory->storage_mode_ == memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
     auto acc = in_memory->Access();
     auto e = acc->FindEdge(tmp_gid, memgraph::storage::View::NEW);
     ASSERT_TRUE(e);
     ASSERT_FALSE(acc->DeleteEdge(&*e).HasError());
     acc->Abort();
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_EQ(json["nodes"].size(), 2);
     ASSERT_EQ(json["edges"].size(), 1);
     ASSERT_EQ(json["edges"][0]["type"], "E2");
@@ -897,8 +1012,7 @@ TYPED_TEST(SchemaInfoTest, SingleEdge) {
     ASSERT_TRUE(v2);
     ASSERT_FALSE(v2->AddLabel(l2).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_EQ(json["nodes"].size(), 2);
     ASSERT_EQ(json["edges"].size(), 1);
     ASSERT_EQ(json["edges"][0]["type"], "E2");
@@ -918,8 +1032,7 @@ TYPED_TEST(SchemaInfoTest, SingleEdge) {
     ASSERT_TRUE(v2);
     ASSERT_FALSE(v2->AddLabel(l3).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_EQ(json["nodes"].size(), 2);
     ASSERT_EQ(json["edges"].size(), 1);
     ASSERT_EQ(json["edges"][0]["type"], "E2");
@@ -940,8 +1053,7 @@ TYPED_TEST(SchemaInfoTest, SingleEdge) {
     ASSERT_FALSE(edge.HasError());
     ASSERT_FALSE(acc->DeleteEdge(&edge.GetValue()).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_EQ(json["nodes"].size(), 2);
     ASSERT_EQ(json["edges"].size(), 1);
     ASSERT_EQ(json["edges"][0]["type"], "E2");
@@ -958,8 +1070,7 @@ TYPED_TEST(SchemaInfoTest, SingleEdge) {
       ASSERT_FALSE(acc->DetachDelete({&v}, {}, true).HasError());
     }
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_EQ(json["nodes"].size(), 0);
     ASSERT_EQ(json["edges"].size(), 0);
   }
@@ -980,8 +1091,7 @@ TYPED_TEST(SchemaInfoTest, MultipleEdges) {
 
   // Empty
   {
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_TRUE(json["nodes"].empty());
     ASSERT_TRUE(json["edges"].empty());
   }
@@ -1002,8 +1112,7 @@ TYPED_TEST(SchemaInfoTest, MultipleEdges) {
     e2_gid = edge2->Gid();
     ASSERT_FALSE(acc->CreateEdge(&v1, &v2, e3).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_EQ(json["nodes"].size(), 1);
     ASSERT_EQ(json["nodes"][0]["count"], 3);
     const auto &json_edges = json["edges"];
@@ -1037,8 +1146,7 @@ TYPED_TEST(SchemaInfoTest, MultipleEdges) {
     ASSERT_TRUE(e);
     ASSERT_FALSE(acc->DeleteEdge(&*e).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_EQ(json["nodes"].size(), 1);
     ASSERT_EQ(json["nodes"][0]["count"], 3);
     const auto &json_edges = json["edges"];
@@ -1066,8 +1174,7 @@ TYPED_TEST(SchemaInfoTest, MultipleEdges) {
     ASSERT_TRUE(v1);
     ASSERT_FALSE(v1->AddLabel(l).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_EQ(json["nodes"].size(), 2);
     ASSERT_EQ(json["nodes"][0]["count"], 1);
     ASSERT_EQ(json["nodes"][1]["count"], 2);
@@ -1090,14 +1197,13 @@ TYPED_TEST(SchemaInfoTest, MultipleEdges) {
   }
 
   // delete edge - rollback
-  {
+  if (in_memory->storage_mode_ == memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
     auto acc = in_memory->Access();
     auto e = acc->FindEdge(e2_gid, memgraph::storage::View::NEW);
     ASSERT_TRUE(e);
     ASSERT_FALSE(acc->DeleteEdge(&*e).HasError());
     acc->Abort();
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_EQ(json["nodes"].size(), 2);
     ASSERT_EQ(json["nodes"][0]["count"], 1);
     ASSERT_EQ(json["nodes"][1]["count"], 2);
@@ -1133,8 +1239,7 @@ TYPED_TEST(SchemaInfoTest, MultipleEdges) {
     ASSERT_FALSE(acc->CreateEdge(&v1, &v2, e3).HasError());
     ASSERT_FALSE(acc->CreateEdge(&v1, &v2, e).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_EQ(json["nodes"].size(), 4);
     const auto &json_edges = json["edges"];
 
@@ -1179,8 +1284,7 @@ TYPED_TEST(SchemaInfoTest, MultipleEdges) {
       ASSERT_FALSE(acc->DetachDelete({&v}, {}, true).HasError());
     }
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_EQ(json["nodes"].size(), 0);
     ASSERT_EQ(json["edges"].size(), 0);
   }
@@ -1190,7 +1294,7 @@ TYPED_TEST(SchemaInfoTest, MultipleEdges) {
 TYPED_TEST(SchemaInfoTestWEdgeProp, SingleEdge) {
   auto *in_memory = static_cast<memgraph::storage::InMemoryStorage *>(this->storage.get());
   auto &schema_info = in_memory->schema_info_;
-  Gid tmp_gid, v1_gid, v2_gid;
+  Gid edge_gid, v1_gid, v2_gid;
 
   auto l = in_memory->NameToLabel("L1");
   auto l2 = in_memory->NameToLabel("L2");
@@ -1201,8 +1305,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, SingleEdge) {
 
   // Empty
   {
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_TRUE(json["nodes"].empty());
     ASSERT_TRUE(json["edges"].empty());
   }
@@ -1216,10 +1319,9 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, SingleEdge) {
     v2_gid = v2.Gid();
     auto edge = acc->CreateEdge(&v1, &v2, e);
     ASSERT_FALSE(edge.HasError());
-    tmp_gid = edge->Gid();
+    edge_gid = edge->Gid();
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_EQ(json["nodes"].size(), 1);
     ASSERT_EQ(json["nodes"][0]["count"], 2);
     ASSERT_EQ(json["edges"].size(), 1);
@@ -1233,14 +1335,13 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, SingleEdge) {
   // add edge properties
   {
     auto acc = in_memory->Access();
-    auto e = acc->FindEdge(tmp_gid, memgraph::storage::View::NEW);
+    auto e = acc->FindEdge(edge_gid, memgraph::storage::View::NEW);
     ASSERT_TRUE(e);
     ASSERT_FALSE(e->SetProperty(p2, PropertyValue{"a"}).HasError());
     ASSERT_FALSE(e->SetProperty(p, PropertyValue{true}).HasError());
     ASSERT_FALSE(e->SetProperty(p, PropertyValue{12}).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_EQ(json["nodes"].size(), 1);
     ASSERT_EQ(json["nodes"][0]["count"], 2);
     ASSERT_EQ(json["edges"].size(), 1);
@@ -1269,8 +1370,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, SingleEdge) {
     ASSERT_TRUE(v1);
     ASSERT_FALSE(v1->AddLabel(l).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_EQ(json["nodes"].size(), 2);
     ASSERT_EQ(json["edges"].size(), 1);
     ASSERT_EQ(json["edges"].size(), 1);
@@ -1293,14 +1393,13 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, SingleEdge) {
   }
 
   // delete edge - rollback
-  {
+  if (in_memory->storage_mode_ == memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
     auto acc = in_memory->Access();
-    auto e = acc->FindEdge(tmp_gid, memgraph::storage::View::NEW);
+    auto e = acc->FindEdge(edge_gid, memgraph::storage::View::NEW);
     ASSERT_TRUE(e);
     ASSERT_FALSE(acc->DeleteEdge(&*e).HasError());
     acc->Abort();
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_EQ(json["nodes"].size(), 2);
     ASSERT_EQ(json["edges"].size(), 1);
     ASSERT_EQ(json["edges"].size(), 1);
@@ -1329,8 +1428,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, SingleEdge) {
     ASSERT_TRUE(v2);
     ASSERT_FALSE(v2->AddLabel(l2).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_EQ(json["nodes"].size(), 2);
     ASSERT_EQ(json["edges"].size(), 1);
     ASSERT_EQ(json["edges"].size(), 1);
@@ -1362,8 +1460,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, SingleEdge) {
     ASSERT_TRUE(v2);
     ASSERT_FALSE(v2->AddLabel(l3).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_EQ(json["nodes"].size(), 2);
     ASSERT_EQ(json["edges"].size(), 1);
     ASSERT_EQ(json["edges"].size(), 1);
@@ -1394,8 +1491,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, SingleEdge) {
     ASSERT_EQ(edges->edges.size(), 1);
     ASSERT_FALSE(edges->edges[0].SetProperty(p2, PropertyValue{}).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_EQ(json["nodes"].size(), 2);
     ASSERT_EQ(json["edges"].size(), 1);
     ASSERT_EQ(json["edges"].size(), 1);
@@ -1413,6 +1509,49 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, SingleEdge) {
                             [&](const auto &in) { return in == p1; }));
   }
 
+  // delete edge
+  {
+    {
+      auto acc = in_memory->Access();
+      auto v1 = acc->CreateVertex();
+      v1_gid = v1.Gid();
+      auto v2 = acc->CreateVertex();
+      v2_gid = v2.Gid();
+      auto edge = acc->CreateEdge(&v1, &v2, e);
+      ASSERT_FALSE(edge.HasError());
+      edge_gid = edge->Gid();
+      ASSERT_FALSE(edge->SetProperty(p2, PropertyValue{"a"}).HasError());
+      ASSERT_FALSE(edge->SetProperty(p, PropertyValue{true}).HasError());
+      ASSERT_FALSE(edge->SetProperty(p, PropertyValue{12}).HasError());
+      ASSERT_FALSE(acc->Commit().HasError());
+
+      const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
+      ASSERT_EQ(json["nodes"].size(), 3);
+      ASSERT_EQ(json["edges"].size(), 2);
+    }
+
+    auto acc = in_memory->Access();
+    auto e = acc->FindEdge(edge_gid, memgraph::storage::View::NEW);
+    ASSERT_TRUE(e);
+    ASSERT_FALSE(acc->DeleteEdge(&*e).HasError());
+    ASSERT_FALSE(acc->Commit().HasError());
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
+
+    ASSERT_EQ(json["nodes"].size(), 3);
+    ASSERT_EQ(json["edges"].size(), 1);
+    ASSERT_EQ(json["edges"][0]["type"], "E");
+    ASSERT_EQ(json["edges"][0]["start_node_labels"], nlohmann::json::array({"L1", "L3"}));
+    ASSERT_EQ(json["edges"][0]["end_node_labels"], nlohmann::json::array({"L2", "L3"}));
+    ASSERT_EQ(json["edges"][0]["count"], 1);
+    const auto &json_edges_properties = json["edges"][0]["properties"];
+
+    const auto p1 = nlohmann::json::object(
+        {{"key", "p1"}, {"count", 1}, {"types", nlohmann::json::array({{{"type", "int"}, {"count", 1}}})}});
+
+    ASSERT_EQ(json_edges_properties.size(), 1);
+    EXPECT_EQ(json_edges_properties[0], p1);
+  }
+
   // delete vertices
   {
     auto acc = in_memory->Access();
@@ -1420,8 +1559,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, SingleEdge) {
       ASSERT_FALSE(acc->DetachDelete({&v}, {}, true).HasError());
     }
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_EQ(json["nodes"].size(), 0);
     ASSERT_EQ(json["edges"].size(), 0);
   }
@@ -1442,8 +1580,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, ConcurrentEdges) {
 
   // Empty
   {
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_TRUE(json["nodes"].empty());
     ASSERT_TRUE(json["edges"].empty());
   }
@@ -1486,37 +1623,62 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, ConcurrentEdges) {
     ASSERT_FALSE(tx1->Commit().HasError());
 
     // Check
-    const auto json_mid =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
-    ASSERT_EQ(json_mid["nodes"].size(), 2);
-    ASSERT_TRUE(std::any_of(json_mid["nodes"].begin(), json_mid["nodes"].end(), [&](const auto &in) {
-      return in == nlohmann::json::object({{"count", 1},
-                                           {"labels", nlohmann::json::array({"L1", "L3"})},
-                                           {"properties", nlohmann::json::array({/* empty */})}});
-    }));
-    ASSERT_TRUE(std::any_of(json_mid["nodes"].begin(), json_mid["nodes"].end(), [&](const auto &in) {
-      return in == nlohmann::json::object({{"count", 1},
-                                           {"labels", nlohmann::json::array({"L2"})},
-                                           {"properties", nlohmann::json::array({/* empty */})}});
-    }));
-    ASSERT_EQ(json_mid["edges"].size(), 1);
-    EXPECT_EQ(json_mid["edges"][0]["type"], "E");
-    EXPECT_EQ(json_mid["edges"][0]["start_node_labels"], nlohmann::json::array({"L1", "L3"}));
-    EXPECT_EQ(json_mid["edges"][0]["end_node_labels"], nlohmann::json::array({"L2"}));
-    EXPECT_EQ(json_mid["edges"][0]["count"], 1);
-    EXPECT_EQ(json_mid["edges"][0]["properties"].size(), 1);
-    EXPECT_EQ(json_mid["edges"][0]["properties"][0]["key"], "p1");
-    EXPECT_EQ(json_mid["edges"][0]["properties"][0]["count"], 1);
-    EXPECT_EQ(json_mid["edges"][0]["properties"][0]["types"].size(), 1);
-    EXPECT_EQ(json_mid["edges"][0]["properties"][0]["types"][0]["type"], "int");
-    EXPECT_EQ(json_mid["edges"][0]["properties"][0]["types"][0]["count"], 1);
+    const auto json_mid = schema_info.ToJson(*in_memory->name_id_mapper_);
+
+    if (in_memory->storage_mode_ == memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
+      ASSERT_EQ(json_mid["nodes"].size(), 2);
+      ASSERT_TRUE(std::any_of(json_mid["nodes"].begin(), json_mid["nodes"].end(), [&](const auto &in) {
+        return in == nlohmann::json::object({{"count", 1},
+                                             {"labels", nlohmann::json::array({"L1", "L3"})},
+                                             {"properties", nlohmann::json::array({/* empty */})}});
+      }));
+      ASSERT_TRUE(std::any_of(json_mid["nodes"].begin(), json_mid["nodes"].end(), [&](const auto &in) {
+        return in == nlohmann::json::object({{"count", 1},
+                                             {"labels", nlohmann::json::array({"L2"})},
+                                             {"properties", nlohmann::json::array({/* empty */})}});
+      }));
+      ASSERT_EQ(json_mid["edges"].size(), 1);
+      EXPECT_EQ(json_mid["edges"][0]["type"], "E");
+      EXPECT_EQ(json_mid["edges"][0]["start_node_labels"], nlohmann::json::array({"L1", "L3"}));
+      EXPECT_EQ(json_mid["edges"][0]["end_node_labels"], nlohmann::json::array({"L2"}));
+      EXPECT_EQ(json_mid["edges"][0]["count"], 1);
+      EXPECT_EQ(json_mid["edges"][0]["properties"].size(), 1);
+      EXPECT_EQ(json_mid["edges"][0]["properties"][0]["key"], "p1");
+      EXPECT_EQ(json_mid["edges"][0]["properties"][0]["count"], 1);
+      EXPECT_EQ(json_mid["edges"][0]["properties"][0]["types"].size(), 1);
+      EXPECT_EQ(json_mid["edges"][0]["properties"][0]["types"][0]["type"], "int");
+      EXPECT_EQ(json_mid["edges"][0]["properties"][0]["types"][0]["count"], 1);
+    } else {
+      // Analytical sees the changes before committing
+      ASSERT_EQ(json_mid["nodes"].size(), 2);
+      ASSERT_TRUE(std::any_of(json_mid["nodes"].begin(), json_mid["nodes"].end(), [&](const auto &in) {
+        return in == nlohmann::json::object({{"count", 1},
+                                             {"labels", nlohmann::json::array({"L1", "L3"})},
+                                             {"properties", nlohmann::json::array({/* empty */})}});
+      }));
+      ASSERT_TRUE(std::any_of(json_mid["nodes"].begin(), json_mid["nodes"].end(), [&](const auto &in) {
+        return in == nlohmann::json::object({{"count", 1},
+                                             {"labels", nlohmann::json::array({"L2", "L3"})},
+                                             {"properties", nlohmann::json::array({/* empty */})}});
+      }));
+      ASSERT_EQ(json_mid["edges"].size(), 1);
+      EXPECT_EQ(json_mid["edges"][0]["type"], "E");
+      EXPECT_EQ(json_mid["edges"][0]["start_node_labels"], nlohmann::json::array({"L1", "L3"}));
+      EXPECT_EQ(json_mid["edges"][0]["end_node_labels"], nlohmann::json::array({"L2", "L3"}));
+      EXPECT_EQ(json_mid["edges"][0]["count"], 1);
+      EXPECT_EQ(json_mid["edges"][0]["properties"].size(), 1);
+      EXPECT_EQ(json_mid["edges"][0]["properties"][0]["key"], "p1");
+      EXPECT_EQ(json_mid["edges"][0]["properties"][0]["count"], 1);
+      EXPECT_EQ(json_mid["edges"][0]["properties"][0]["types"].size(), 1);
+      EXPECT_EQ(json_mid["edges"][0]["properties"][0]["types"][0]["type"], "int");
+      EXPECT_EQ(json_mid["edges"][0]["properties"][0]["types"][0]["count"], 1);
+    }
 
     // Commit tx2
     ASSERT_FALSE(tx2->Commit().HasError());
 
     // Check
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_EQ(json["nodes"].size(), 2);
     ASSERT_TRUE(std::any_of(json["nodes"].begin(), json["nodes"].end(), [&](const auto &in) {
       return in == nlohmann::json::object({{"count", 1},
@@ -1548,8 +1710,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, ConcurrentEdges) {
       ASSERT_FALSE(acc->DetachDelete({&v}, {}, true).HasError());
     }
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_EQ(json["nodes"].size(), 0);
     ASSERT_EQ(json["edges"].size(), 0);
   }
@@ -1581,7 +1742,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, ConcurrentEdges) {
     //
     // TX2
     // 2 BEGIN;
-    // 3 MATCH(n:B) SET n:L;
+    // 3 MATCH(n:A) SET n:L;
     // 6 ROLLBACK;
     auto tx1 = in_memory->Access();
     auto tx2 = in_memory->Access();
@@ -1592,46 +1753,108 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, ConcurrentEdges) {
     ASSERT_FALSE(tx1->Commit().HasError());
 
     // Check
-    const auto json_mid =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
-    ASSERT_EQ(json_mid["nodes"].size(), 2);
-    ASSERT_EQ(json_mid["nodes"][0]["count"], 1);
-    ASSERT_EQ(json_mid["nodes"][0]["labels"], nlohmann::json::array({"L2"}));
-    ASSERT_EQ(json_mid["nodes"][1]["count"], 1);
-    ASSERT_EQ(json_mid["nodes"][1]["labels"], nlohmann::json::array({"L1"}));
-    ASSERT_EQ(json_mid["edges"].size(), 1);
-    ASSERT_EQ(json_mid["edges"][0]["type"], "E");
-    ASSERT_EQ(json_mid["edges"][0]["start_node_labels"], nlohmann::json::array({"L1"}));
-    ASSERT_EQ(json_mid["edges"][0]["end_node_labels"], nlohmann::json::array({"L2"}));
-    ASSERT_EQ(json_mid["edges"][0]["count"], 1);
-    ASSERT_EQ(json_mid["edges"][0]["properties"].size(), 1);
-    ASSERT_EQ(json_mid["edges"][0]["properties"][0]["key"], "p1");
-    ASSERT_EQ(json_mid["edges"][0]["properties"][0]["count"], 1);
-    ASSERT_EQ(json_mid["edges"][0]["properties"][0]["types"].size(), 1);
-    ASSERT_EQ(json_mid["edges"][0]["properties"][0]["types"][0]["type"], "string");
-    ASSERT_EQ(json_mid["edges"][0]["properties"][0]["types"][0]["count"], 1);
+    const auto json_mid = schema_info.ToJson(*in_memory->name_id_mapper_);
+    if (in_memory->storage_mode_ == memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
+      const auto json_nodes = json_mid["nodes"];
+      ASSERT_EQ(json_nodes.size(), 2);
+      auto json_l1 = std::find_if(json_nodes.begin(), json_nodes.end(),
+                                  [](const auto &in) { return in["labels"] == nlohmann::json::array({"L1"}); });
+      ASSERT_NE(json_l1, json_nodes.end());
+      ASSERT_EQ((*json_l1)["count"], 1);
+      auto json_l2 = std::find_if(json_nodes.begin(), json_nodes.end(),
+                                  [](const auto &in) { return in["labels"] == nlohmann::json::array({"L2"}); });
+      ASSERT_NE(json_l2, json_nodes.end());
+      ASSERT_EQ((*json_l2)["count"], 1);
+      ASSERT_EQ(json_mid["nodes"][1]["count"], 1);
+      ASSERT_EQ(json_mid["nodes"][1]["labels"], nlohmann::json::array({"L1"}));
+      ASSERT_EQ(json_mid["edges"].size(), 1);
+      ASSERT_EQ(json_mid["edges"][0]["type"], "E");
+      ASSERT_EQ(json_mid["edges"][0]["start_node_labels"], nlohmann::json::array({"L1"}));
+      ASSERT_EQ(json_mid["edges"][0]["end_node_labels"], nlohmann::json::array({"L2"}));
+      ASSERT_EQ(json_mid["edges"][0]["count"], 1);
+      ASSERT_EQ(json_mid["edges"][0]["properties"].size(), 1);
+      ASSERT_EQ(json_mid["edges"][0]["properties"][0]["key"], "p1");
+      ASSERT_EQ(json_mid["edges"][0]["properties"][0]["count"], 1);
+      ASSERT_EQ(json_mid["edges"][0]["properties"][0]["types"].size(), 1);
+      ASSERT_EQ(json_mid["edges"][0]["properties"][0]["types"][0]["type"], "string");
+      ASSERT_EQ(json_mid["edges"][0]["properties"][0]["types"][0]["count"], 1);
+    } else {
+      // Analytical sees changes before committing
+      const auto json_nodes = json_mid["nodes"];
+      ASSERT_EQ(json_nodes.size(), 2);
+      auto json_l1 = std::find_if(json_nodes.begin(), json_nodes.end(), [](const auto &in) {
+        return in["labels"] == nlohmann::json::array({"L1", "L3"});
+      });
+      ASSERT_NE(json_l1, json_nodes.end());
+      ASSERT_EQ((*json_l1)["count"], 1);
+      auto json_l2 = std::find_if(json_nodes.begin(), json_nodes.end(),
+                                  [](const auto &in) { return in["labels"] == nlohmann::json::array({"L2"}); });
+      ASSERT_NE(json_l2, json_nodes.end());
+      ASSERT_EQ((*json_l2)["count"], 1);
+      ASSERT_EQ(json_mid["edges"].size(), 1);
+      ASSERT_EQ(json_mid["edges"][0]["type"], "E");
+      ASSERT_EQ(json_mid["edges"][0]["start_node_labels"], nlohmann::json::array({"L1", "L3"}));
+      ASSERT_EQ(json_mid["edges"][0]["end_node_labels"], nlohmann::json::array({"L2"}));
+      ASSERT_EQ(json_mid["edges"][0]["count"], 1);
+      ASSERT_EQ(json_mid["edges"][0]["properties"].size(), 1);
+      ASSERT_EQ(json_mid["edges"][0]["properties"][0]["key"], "p1");
+      ASSERT_EQ(json_mid["edges"][0]["properties"][0]["count"], 1);
+      ASSERT_EQ(json_mid["edges"][0]["properties"][0]["types"].size(), 1);
+      ASSERT_EQ(json_mid["edges"][0]["properties"][0]["types"][0]["type"], "string");
+      ASSERT_EQ(json_mid["edges"][0]["properties"][0]["types"][0]["count"], 1);
+    }
 
     // Abort tx2
     tx2->Abort();
 
     // Check
-    const auto json =
-        schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->config_.salient.items.properties_on_edges);
-    ASSERT_EQ(json["nodes"].size(), 2);
-    ASSERT_EQ(json["nodes"][0]["count"], 1);
-    ASSERT_EQ(json["nodes"][0]["labels"], nlohmann::json::array({"L2"}));
-    ASSERT_EQ(json["nodes"][1]["count"], 1);
-    ASSERT_EQ(json["nodes"][1]["labels"], nlohmann::json::array({"L1"}));
-    ASSERT_EQ(json["edges"].size(), 1);
-    ASSERT_EQ(json["edges"][0]["type"], "E");
-    ASSERT_EQ(json["edges"][0]["start_node_labels"], nlohmann::json::array({"L1"}));
-    ASSERT_EQ(json["edges"][0]["end_node_labels"], nlohmann::json::array({"L2"}));
-    ASSERT_EQ(json["edges"][0]["count"], 1);
-    ASSERT_EQ(json["edges"][0]["properties"].size(), 1);
-    ASSERT_EQ(json["edges"][0]["properties"][0]["key"], "p1");
-    ASSERT_EQ(json["edges"][0]["properties"][0]["count"], 1);
-    ASSERT_EQ(json["edges"][0]["properties"][0]["types"].size(), 1);
-    ASSERT_EQ(json["edges"][0]["properties"][0]["types"][0]["type"], "string");
-    ASSERT_EQ(json["edges"][0]["properties"][0]["types"][0]["count"], 1);
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
+    if (in_memory->storage_mode_ == memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
+      const auto json_nodes = json["nodes"];
+      ASSERT_EQ(json_nodes.size(), 2);
+      auto json_l1 = std::find_if(json_nodes.begin(), json_nodes.end(),
+                                  [](const auto &in) { return in["labels"] == nlohmann::json::array({"L1"}); });
+      ASSERT_NE(json_l1, json_nodes.end());
+      ASSERT_EQ((*json_l1)["count"], 1);
+      auto json_l2 = std::find_if(json_nodes.begin(), json_nodes.end(),
+                                  [](const auto &in) { return in["labels"] == nlohmann::json::array({"L2"}); });
+      ASSERT_NE(json_l2, json_nodes.end());
+      ASSERT_EQ((*json_l2)["count"], 1);
+      ASSERT_EQ(json["edges"].size(), 1);
+      ASSERT_EQ(json["edges"][0]["type"], "E");
+      ASSERT_EQ(json["edges"][0]["start_node_labels"], nlohmann::json::array({"L1"}));
+      ASSERT_EQ(json["edges"][0]["end_node_labels"], nlohmann::json::array({"L2"}));
+      ASSERT_EQ(json["edges"][0]["count"], 1);
+      ASSERT_EQ(json["edges"][0]["properties"].size(), 1);
+      ASSERT_EQ(json["edges"][0]["properties"][0]["key"], "p1");
+      ASSERT_EQ(json["edges"][0]["properties"][0]["count"], 1);
+      ASSERT_EQ(json["edges"][0]["properties"][0]["types"].size(), 1);
+      ASSERT_EQ(json["edges"][0]["properties"][0]["types"][0]["type"], "string");
+      ASSERT_EQ(json["edges"][0]["properties"][0]["types"][0]["count"], 1);
+    } else {
+      // There is no aborting in analytical
+      const auto json_nodes = json_mid["nodes"];
+      ASSERT_EQ(json_nodes.size(), 2);
+      auto json_l1 = std::find_if(json_nodes.begin(), json_nodes.end(), [](const auto &in) {
+        return in["labels"] == nlohmann::json::array({"L1", "L3"});
+      });
+      ASSERT_NE(json_l1, json_nodes.end());
+      ASSERT_EQ((*json_l1)["count"], 1);
+      auto json_l2 = std::find_if(json_nodes.begin(), json_nodes.end(),
+                                  [](const auto &in) { return in["labels"] == nlohmann::json::array({"L2"}); });
+      ASSERT_NE(json_l2, json_nodes.end());
+      ASSERT_EQ((*json_l2)["count"], 1);
+      ASSERT_EQ(json_mid["edges"].size(), 1);
+      ASSERT_EQ(json_mid["edges"][0]["type"], "E");
+      ASSERT_EQ(json_mid["edges"][0]["start_node_labels"], nlohmann::json::array({"L1", "L3"}));
+      ASSERT_EQ(json_mid["edges"][0]["end_node_labels"], nlohmann::json::array({"L2"}));
+      ASSERT_EQ(json_mid["edges"][0]["count"], 1);
+      ASSERT_EQ(json_mid["edges"][0]["properties"].size(), 1);
+      ASSERT_EQ(json_mid["edges"][0]["properties"][0]["key"], "p1");
+      ASSERT_EQ(json_mid["edges"][0]["properties"][0]["count"], 1);
+      ASSERT_EQ(json_mid["edges"][0]["properties"][0]["types"].size(), 1);
+      ASSERT_EQ(json_mid["edges"][0]["properties"][0]["types"][0]["type"], "string");
+      ASSERT_EQ(json_mid["edges"][0]["properties"][0]["types"][0]["count"], 1);
+    }
   }
 }
