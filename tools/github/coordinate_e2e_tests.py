@@ -95,6 +95,11 @@ class SynchronizedMap:
 
 
 class SynchronizedPrint:
+    """
+    Class used to synchronize print statements.
+    Print is not thread safe in python, so we need to synchronize it.
+    """
+
     def __init__(self):
         self._lock = threading.Lock()
 
@@ -104,6 +109,10 @@ class SynchronizedPrint:
 
 
 class DockerHandler:
+    """
+    Class used to handle docker operations.
+    """
+
     def __init__(self):
         self._client = docker.from_env()
 
@@ -115,7 +124,7 @@ class DockerHandler:
             return False
         return True
 
-    def exists_image(self, image_name):
+    def image_exists(self, image_name):
         images = self._client.images.list()
         target_image = None
         for image in images:
@@ -136,6 +145,12 @@ class DockerHandler:
 
 
 class SynchronizedContainerCopy:
+    """
+    This class is used to copy logs from one container to another in synchronized manner.
+    To copy logs from container to container we first copy logs to temporary directory on host machine.
+    After that we copy logs from temporary directory to destination container.
+    """
+
     def __init__(self):
         self._lock = threading.Lock()
 
@@ -177,7 +192,10 @@ def find_workloads_for_testing(container, container_root_directory, project_root
     This function gets all folders in the build directory of the container.
     E2E tests work by testing only folders which are in build directory, as all the folders are not copied there.
     Once we found all the folders in the build directory of the container, we can get all the workloads.yaml files
-    from project_root_directory and check then if given workloads.yaml is actually in the folder inside build directory.
+    from project_root_directory and check then if given workloads.yaml is actually in the folder inside build directory (filter out the ones which are not).
+    The ones which are in the build directory are the ones we want to test.
+
+    Getting workloads.yaml content with docker cp is a bit more difficult, that is why two folder paths are combined.
 
     :param container: ID of container which has executed build command for e2e tests
     :param container_root_directory: path to the root directory to memgraph folder inside container, i.e. /home/mg/memgraph/
@@ -213,10 +231,21 @@ def find_workloads_for_testing(container, container_root_directory, project_root
 
 
 def copy_output_to_container(
-    container_to_copy, container_name, container_root_dir, formated_stdout_output, formated_stderr_output
+    container_to_copy, file_prefix_name, container_root_dir, formated_stdout_output, formated_stderr_output
 ):
-    stdout_file_path = os.path.join(temp_dir, f"{container_name}_stdout.log")
-    stderr_file_path = os.path.join(temp_dir, f"{container_name}_stderr.log")
+    """
+    This function writes formatted stdout and stderr output to temporary files.
+    Afterwards it copies those files to the container_to_copy in the container_root_dir/build/logs/ directory.
+
+    :param container_to_copy: Container ID to which output will be copied
+    :param file_prefix_name: Name of container where output was generated
+    :param container_root_dir: Path to memgraph folder in container from root
+    :param formated_stdout_output: stdout output from the container
+    :param formated_stderr_output:
+    :return:
+    """
+    stdout_file_path = os.path.join(temp_dir, f"{file_prefix_name}_stdout.log")
+    stderr_file_path = os.path.join(temp_dir, f"{file_prefix_name}_stderr.log")
 
     print(stderr_file_path)
     print(stdout_file_path)
@@ -325,13 +354,20 @@ def process_workloads(
     )
 
 
-parser = argparse.ArgumentParser(description="Parse image name and thread arguments.")
-parser.add_argument("--threads", type=int, required=True, help="Number of threads")
-parser.add_argument("--container-root-dir", type=str, required=True, help="Memgraph folder root dir in container")
-parser.add_argument("--setup-command", type=str, required=True, help="Command to run in the container")
-parser.add_argument("--project-root-dir", type=str, required=True, help="Project root directory")
+parser = argparse.ArgumentParser(description="Parse arguments for e2e tests")
 parser.add_argument(
-    "--original-container-id", type=str, required=True, help="Original container ID to which logs will be copied"
+    "--threads", type=int, required=True, help="Number of threads available to start containers and run workloads"
+)
+parser.add_argument("--container-root-dir", type=str, required=True, help="Path to Memgraph folder in the container")
+parser.add_argument(
+    "--setup-command", type=str, required=True, help="Command to execute before running workload in container"
+)
+parser.add_argument("--project-root-dir", type=str, required=True, help="Path to Memgraph folder in project in GitHub")
+parser.add_argument(
+    "--original-container-id",
+    type=str,
+    required=True,
+    help="Container from which we generate image to start containers, and container to which we copy logs to once process is done",
 )
 
 args = parser.parse_args()
@@ -346,7 +382,7 @@ image_name = f"{args.original_container_id}-e2e"
 
 docker_handler = DockerHandler()
 
-if docker_handler.exists_image(image_name):
+if docker_handler.image_exists(image_name):
     print(f"Image {image_name} already exists, removing it!")
     docker_handler.remove_image(image_name)
     print(f"Removed image {image_name}!")
@@ -405,7 +441,6 @@ finally:
         if thread.is_alive():
             thread.join()
 
-# TODO remove shallow copy and use instead reset method
 print("SUMMARY:")
 for id, container_info in synchronized_map.reset_and_get().items():
     print(f">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
@@ -434,7 +469,7 @@ for id, container_info in synchronized_map.reset_and_get().items():
 print(f"Errors occurred {error_counter.get()}")
 
 docker_handler.remove_image(image_name)
-if docker_handler.exists_image(image_name):
+if docker_handler.image_exists(image_name):
     print(f"Failed to remove image {image_name}")
     exit(1)
 
