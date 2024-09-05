@@ -58,7 +58,6 @@ DEFAULT_BENCH_GRAPH_HOST="bench-graph-api"
 DEFAULT_BENCH_GRAPH_PORT="9001"
 DEFAULT_MGDEPS_CACHE_HOST="mgdeps-cache"
 DEFAULT_MGDEPS_CACHE_PORT="8000"
-DEFAULT_TESTING=false
 
 print_help () {
   echo -e "\nUsage:  $SCRIPT_NAME [GLOBAL OPTIONS] COMMAND [COMMAND OPTIONS]"
@@ -330,7 +329,7 @@ build_memgraph () {
     project_files=$(ls -A1 "$PROJECT_ROOT")
     while IFS= read -r f; do
       # Skip build directory when copying project files
-      if [[ "$f" != *"build"* ]]; then
+      if [[ "$f" != "build" ]]; then
         echo "Copying $f..."
         docker cp "$PROJECT_ROOT/$f" "$build_container:$MGBUILD_ROOT_DIR/"
       fi
@@ -744,10 +743,6 @@ while [[ $# -gt 0 ]]; do
         toolchain_version=$2
         check_support toolchain $toolchain_version
         shift 2
-    ;;
-    --testing)
-          DEFAULT_TESTING=true
-          shift 1
     ;;
     *)
       if [[ "$1" =~ ^--.* ]]; then
