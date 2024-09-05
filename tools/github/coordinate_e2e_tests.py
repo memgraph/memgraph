@@ -1,5 +1,14 @@
 #!/usr/bin/env python3
 
+"""
+This script is used to coordinate the execution of e2e tests in parallel.
+It starts multiple containers, each container executes a workload from the list of workloads.
+The script is used to find workloads in the build directory of the container and then execute them.
+The script takes care of creating docker image from running container, starting multiple containers in parallel,
+executing workloads in parallel and then stopping the containers.
+
+
+"""
 import argparse
 import os
 import subprocess
@@ -14,6 +23,24 @@ from typing import List, Tuple
 
 import docker
 import yaml
+
+
+def clear_directory(path):
+    if os.path.exists(path):
+        for root, dirs, files in os.walk(path, topdown=False):
+            for name in files:
+                os.remove(os.path.join(root, name))
+            for name in dirs:
+                os.rmdir(os.path.join(root, name))
+        os.rmdir(path)
+
+
+def create_directory(path):
+    os.makedirs(path, exist_ok=True)
+
+
+def get_container_name(id: int):
+    return f"container-{id}"
 
 
 class AtomicInteger:
@@ -35,10 +62,6 @@ class AtomicInteger:
         with self._lock:
             return self.value
 
-    def set(self, new_value):
-        with self._lock:
-            self.value = new_value
-
 
 class SynchronizedQueue:
     def __init__(self, values):
@@ -47,19 +70,12 @@ class SynchronizedQueue:
             self.queue.put(value)
         self._lock = threading.Lock()
 
-    def has_next(self):
-        with self._lock:
-            return not self.queue.empty()
-
     def get_next(self):
-        self._lock.acquire()
-        folder = None
-        if not self.queue.empty():
-            folder = self.queue.get()
-        else:
-            folder = None
-        self._lock.release()
-        return folder
+        elem = None
+        with self._lock:
+            if not self.queue.empty():
+                elem = self.queue.get()
+        return elem
 
 
 class SynchronizedMap:
@@ -71,19 +87,14 @@ class SynchronizedMap:
         with self._lock:
             self._map[key] = value
 
-    def remove_key(self, key):
-        with self._lock:
-            self._map.pop(key)
-
-    def get_shallow_copy(self):
+    def reset_and_get(self):
         copy_map = defaultdict()
         with self._lock:
-            for key, value in self._map.items():
-                copy_map[key] = value
+            self_map, copy_map = copy_map, self._map
         return copy_map
 
 
-class SynchronnizedPrint:
+class SynchronizedPrint:
     def __init__(self):
         self._lock = threading.Lock()
 
@@ -92,18 +103,36 @@ class SynchronnizedPrint:
             print(*args, **kwargs)
 
 
-def clear_directory(path):
-    if os.path.exists(path):
-        for root, dirs, files in os.walk(path, topdown=False):
-            for name in files:
-                os.remove(os.path.join(root, name))
-            for name in dirs:
-                os.rmdir(os.path.join(root, name))
-        os.rmdir(path)
+class DockerHandler:
+    def __init__(self):
+        self._client = docker.from_env()
 
+    def commit_image(self, build_container, new_image_name):
+        try:
+            self._client.containers.get(build_container).commit(repository=new_image_name)
+        except Exception as e:
+            print(f"Exception: {e}")
+            return False
+        return True
 
-def create_directory(path):
-    os.makedirs(path, exist_ok=True)
+    def exists_image(self, image_name):
+        images = self._client.images.list()
+        target_image = None
+        for image in images:
+            for image_tag in image.tags:
+                if image_name in image_tag:
+                    target_image = image
+                    break
+        return target_image is not None
+
+    def remove_image(self, image_name):
+        self._client.images.remove(image_name)
+
+    def start_container_from_image(self, image_tag, id: int):
+        return self._client.containers.run(image=image_tag, detach=True, name=f"container-{id}", remove=True)
+
+    def stop_container(self, container):
+        container.stop()
 
 
 class SynchronizedContainerCopy:
@@ -136,26 +165,27 @@ class ContainerInfo:
     output: List[Tuple[str, str]]
 
 
-atomic_int = AtomicInteger(0)
-synchronized_print = SynchronnizedPrint()
+error_counter = AtomicInteger(0)
+synchronized_print = SynchronizedPrint()
 synchronized_map = SynchronizedMap()
 temp_dir = tempfile.TemporaryDirectory().name
 synchronized_container_copy = SynchronizedContainerCopy()
 
 
-def start_container_from_image(image_tag, id: int):
-    client = docker.from_env()
+def find_workloads_for_testing(container, container_root_directory, project_root_directory) -> List[Tuple[str, str]]:
+    """
+    This function gets all folders in the build directory of the container.
+    E2E tests work by testing only folders which are in build directory, as all the folders are not copied there.
+    Once we found all the folders in the build directory of the container, we can get all the workloads.yaml files
+    from project_root_directory and check then if given workloads.yaml is actually in the folder inside build directory.
 
-    return client.containers.run(image=image_tag, detach=True, name=f"container-{id}", remove=True)
-
-
-def stop_container(container):
-    synchronized_print.print(f"Stopping container with ID: {container.id}")
-    container.stop()
-    synchronized_print.print(f"Stopped container with ID: {container.id}")
-
-
-def find_workloads_for_testing(container, container_root_directory, project_root_directory):
+    :param container: ID of container which has executed build command for e2e tests
+    :param container_root_directory: path to the root directory to memgraph folder inside container, i.e. /home/mg/memgraph/
+    :param project_root_directory: path to the root directory of memgraph folder in current structure in the github actions
+    :return: List of tuples
+        Each tuple contains folder name and workload name from workloads.yaml file
+        i.e. [('high_availability', 'Distributed coords part 2'), ...]
+    """
     # everything inside bash -c command should have ' as quotes
     docker_command = (
         f"docker exec -u mg {container.id} bash -c "
@@ -217,10 +247,11 @@ def process_workloads(
     thread_safe_container_copy: SynchronizedContainerCopy,
     original_container_id: str,
 ):
+    docker_handler = DockerHandler()
     synchronized_print.print(f">>>>Starting container-{id}")
-    container = start_container_from_image(image_name, id)
+    container = docker_handler.start_container_from_image(image_name, id)
     if container is None:
-        atomic_int.increment()
+        error_counter.increment()
         synchronized_print.print(f"Failed to start container {id}")
         return
 
@@ -231,7 +262,7 @@ def process_workloads(
     exception = None
     output = []
     while True:
-        if atomic_int.get() > 0:
+        if error_counter.get() > 0:
             synchronized_print.print(f"Encountered errors on other thread, stopping this execution {id}")
             break
 
@@ -260,7 +291,7 @@ def process_workloads(
                 synchronized_print.print(
                     f"Fail! Container id: container-{id} failed workload: {workload_name} using docker command {docker_command}"
                 )
-                atomic_int.increment()
+                error_counter.increment()
                 break
             else:
                 synchronized_print.print(
@@ -269,7 +300,7 @@ def process_workloads(
         except Exception as e:
             exception = str(e)
             synchronized_print.print(f"Exception: {e}")
-            atomic_int.increment()
+            error_counter.increment()
             break
 
     try:
@@ -282,7 +313,7 @@ def process_workloads(
         synchronized_print.print(f"Exception occurred while copying logs from container-{id}: {e}")
 
     synchronized_print.print(f">>>>Stopping container-{id}")
-    stop_container(container)
+    docker_handler.stop_container(container)
     synchronized_print.print(f">>>>Stopped container-{id}")
 
     tasks_executed.sort(key=lambda x: x[2], reverse=True)
@@ -295,7 +326,6 @@ def process_workloads(
 
 
 parser = argparse.ArgumentParser(description="Parse image name and thread arguments.")
-parser.add_argument("--image", type=str, required=True, help="Image name")
 parser.add_argument("--threads", type=int, required=True, help="Number of threads")
 parser.add_argument("--container-root-dir", type=str, required=True, help="Memgraph folder root dir in container")
 parser.add_argument("--setup-command", type=str, required=True, help="Command to run in the container")
@@ -306,32 +336,39 @@ parser.add_argument(
 
 args = parser.parse_args()
 
+print(f"Threads: {args.threads}")
+print(f"Container Root Dir: {args.container_root_dir}")
+print(f"Setup Command: {args.setup_command}")
+print(f"Project Root Dir: {args.project_root_dir}")
+print(f"Original Container ID: {args.original_container_id}")
 
-client = docker.from_env()
+image_name = f"{args.original_container_id}-e2e"
 
-# Find the image with the tag
-images = client.images.list()
-target_image = None
-for image in images:
-    for image_tag in image.tags:
-        if args.image in image_tag:
-            target_image = image
-            break
+docker_handler = DockerHandler()
 
-
-if target_image:
-    print(f"Found Image: ID: {target_image.id}, Tags: {target_image.tags}")
+if docker_handler.exists_image(image_name):
+    print(f"Image {image_name} already exists, removing it!")
+    docker_handler.remove_image(image_name)
+    print(f"Removed image {image_name}!")
 else:
-    print(f"Image with tag {args.image} not found.")
+    print(f"Image {image_name} does not exist!")
+
+print(f"Committing container {args.original_container_id} to {image_name}")
+ok = docker_handler.commit_image(args.original_container_id, image_name)
+
+if not ok:
+    print(f"Failed to commit image {image_name}")
     exit(1)
+print(f"Committed image {image_name}")
 
-
-container_0 = start_container_from_image(target_image.tags[0], 0)
+print(f"Starting container from image {image_name}")
+container_0 = docker_handler.start_container_from_image(image_name, 0)
 assert container_0 is not None, "Container not started!"
 
 workloads = find_workloads_for_testing(container_0, args.container_root_dir, args.project_root_dir)
 # TODO: this can be incorporated as 0th task with different logic, as we lose here 10 seconds
-stop_container(container_0)
+print(f"Stopping container {container_0}")
+docker_handler.stop_container(container_0)
 
 print(f">>>>Workloads {len(workloads)} found!")
 
@@ -344,7 +381,7 @@ try:
             target=process_workloads,
             args=(
                 i,
-                args.image,
+                image_name,
                 args.setup_command,
                 synchronized_queue,
                 synchronized_map,
@@ -368,8 +405,9 @@ finally:
         if thread.is_alive():
             thread.join()
 
+# TODO remove shallow copy and use instead reset method
 print("SUMMARY:")
-for id, container_info in synchronized_map.get_shallow_copy().items():
+for id, container_info in synchronized_map.reset_and_get().items():
     print(f">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
     print(f"\t\tContainer id: {id} \n ")
 
@@ -393,25 +431,12 @@ for id, container_info in synchronized_map.get_shallow_copy().items():
     print(f">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
 
 
-all_tasks = []
-for id, container_info in synchronized_map.get_shallow_copy().items():
-    for task in container_info.tasks_executed:
-        all_tasks.append(task)
+print(f"Errors occurred {error_counter.get()}")
 
-total_time = sum(task[2] for task in all_tasks)
-average_time = total_time / len(all_tasks)
+docker_handler.remove_image(image_name)
+if docker_handler.exists_image(image_name):
+    print(f"Failed to remove image {image_name}")
+    exit(1)
 
-tasks_with_deviation = [(task, abs(task[2] - average_time)) for task in all_tasks]
-
-tasks_with_deviation.sort(key=lambda x: x[1], reverse=True)
-
-top_10_tasks = tasks_with_deviation[:10]
-
-print("Top 10 tasks with the highest deviation from the average time:")
-for task, deviation in top_10_tasks:
-    print(f"Task: {task}, Deviation: {deviation}")
-
-print(f"Errors occurred {atomic_int.get()}")
-
-if atomic_int.get() > 0 or error:
+if error_counter.get() > 0 or error:
     exit(1)
