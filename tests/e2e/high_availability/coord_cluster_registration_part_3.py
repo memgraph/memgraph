@@ -22,6 +22,7 @@ from common import (
     ignore_elapsed_time_from_results,
     safe_execute,
 )
+from coord_cluster_registration_common import TEMP_DIR, get_instances_description
 from mg_utils import mg_sleep_and_assert
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -30,8 +31,6 @@ interactive_mg_runner.PROJECT_DIR = os.path.normpath(
 )
 interactive_mg_runner.BUILD_DIR = os.path.normpath(os.path.join(interactive_mg_runner.PROJECT_DIR, "build"))
 interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactive_mg_runner.BUILD_DIR, "memgraph"))
-
-TEMP_DIR = tempfile.TemporaryDirectory().name
 
 
 def get_instances_description(test_name: str):
