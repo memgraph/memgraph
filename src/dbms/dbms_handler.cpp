@@ -188,14 +188,6 @@ DbmsHandler::DbmsHandler(storage::Config config, replication::ReplicationState &
   Durability::Migrate(durability_.get(), root);
   auto directories = std::set{std::string{kDefaultDB}};
 
-  // Recover previous databases
-  if (flags::AreExperimentsEnabled(flags::Experiments::SYSTEM_REPLICATION) && !recovery_on_startup) {
-    // This will result in dropping databases on SystemRecoveryHandler
-    // for MT case, and for single DB case we might not even set replication as commit timestamp is checked
-    spdlog::warn(
-        "Data recovery on startup not set, this will result in dropping database in case of multi-tenancy enabled.");
-  }
-
   // TODO: Problem is if user doesn't set this up "database" name won't be recovered
   // but if storage-recover-on-startup is true storage will be recovered which is an issue
   spdlog::info("Data recovery on startup set to {}", recovery_on_startup);
@@ -222,6 +214,8 @@ DbmsHandler::DbmsHandler(storage::Config config, replication::ReplicationState &
       const auto &[key, _] = *it;
       const auto name = key.substr(kDBPrefix.size());
       if (name == kDefaultDB) continue;
+      spdlog::warn(
+          "Data recovery on startup not set, this will result in dropping database in case of multi-tenancy enabled.");
       locked_auth->DeleteDatabase(name);
       durability_->Delete(key);
     }
@@ -436,8 +430,7 @@ void DbmsHandler::UpdateDurability(const storage::Config &config, std::optional<
 void DbmsHandler::RecoverStorageReplication(DatabaseAccess db_acc, replication::RoleMainData &role_main_data) {
   using enum memgraph::flags::Experiments;
   auto const is_enterprise = license::global_license_checker.IsEnterpriseValidFast();
-  auto experimental_system_replication = flags::AreExperimentsEnabled(SYSTEM_REPLICATION);
-  if ((is_enterprise && experimental_system_replication) || db_acc->name() == dbms::kDefaultDB) {
+  if (is_enterprise || db_acc->name() == dbms::kDefaultDB) {
     // Handle global replication state
     spdlog::info("Replication configuration will be stored and will be automatically restored in case of a crash.");
     // RECOVER REPLICA CONNECTIONS

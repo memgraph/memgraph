@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,24 +16,18 @@
 #include <list>
 #include <thread>
 
-constexpr char const *kProcedureHackerNews = "hacker_news";
-constexpr char const *kArgumentHackerNewsVotes = "votes";
-constexpr char const *kArgumentHackerNewsItemHourAge = "item_hour_age";
-constexpr char const *kArgumentHackerNewsGravity = "gravity";
-constexpr char const *kReturnHackerNewsScore = "score";
+constexpr char const *kProcedure = "node";
+constexpr char const *kArgument = "node";
+constexpr char const *kReturn = "node";
 
-void HackerNews(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
+void Procedure(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard(memory);
-  std::this_thread::sleep_for(std::chrono::milliseconds(100));
   const auto &arguments = mgp::List(args);
   const auto record_factory = mgp::RecordFactory(result);
   try {
-    const auto votes = arguments[0].ValueInt();
-    const auto item_hour_age = arguments[1].ValueInt();
-    const auto gravity = arguments[2].ValueDouble();
-    const auto score = 1000000.0 * (votes / pow((item_hour_age + 2), gravity));
+    const auto node{arguments[0].ValueNode()};
     auto record = record_factory.NewRecord();
-    record.Insert(kReturnHackerNewsScore, score);
+    record.Insert(kReturn, node);
   } catch (const std::exception &e) {
     record_factory.SetErrorMessage(e.what());
     return;
@@ -43,13 +37,8 @@ void HackerNews(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, m
 extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
   try {
     mgp::MemoryDispatcherGuard guard(memory);
-    std::vector<mgp::Parameter> params = {
-        mgp::Parameter(kArgumentHackerNewsVotes, mgp::Type::Int),
-        mgp::Parameter(kArgumentHackerNewsItemHourAge, mgp::Type::Int),
-        mgp::Parameter(kArgumentHackerNewsGravity, mgp::Type::Double),
-    };
-    std::vector<mgp::Return> returns = {mgp::Return(kReturnHackerNewsScore, mgp::Type::Double)};
-    AddProcedure(HackerNews, kProcedureHackerNews, mgp::ProcedureType::Read, params, returns, module, memory);
+    AddProcedure(Procedure, kProcedure, mgp::ProcedureType::Read, {mgp::Parameter(kArgument, mgp::Type::Node)},
+                 {mgp::Return(kReturn, mgp::Type::Node)}, module, memory);
   } catch (const std::exception &e) {
     return 1;
   }

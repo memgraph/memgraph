@@ -93,11 +93,14 @@ auto ReplicationInstanceClient::SendPromoteReplicaToMainRpc(const utils::UUID &u
                                                             ReplicationClientsInfo replication_clients_info) const
     -> bool {
   try {
+    spdlog::trace("Sending PromoteReplicaToMainRpc");
     auto stream{rpc_client_.Stream<PromoteReplicaToMainRpc>(uuid, std::move(replication_clients_info))};
+    spdlog::trace("Awaiting response after sending PromoteReplicaToMainRpc");
     if (!stream.AwaitResponse().success) {
       spdlog::error("Failed to receive successful PromoteReplicaToMainRpc response!");
       return false;
     }
+    spdlog::trace("Received successful response to PromoteReplicaToMainRPC");
     return true;
   } catch (rpc::RpcFailedException const &) {
     spdlog::error("RPC error occurred while sending PromoteReplicaToMainRpc!");
