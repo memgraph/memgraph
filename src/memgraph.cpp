@@ -544,6 +544,7 @@ int main(int argc, char **argv) {
 
   try {
     try_init_coord_state(coordination_setup);
+    spdlog::trace("Coordinator state initialized successfully.");
   } catch (std::exception const &e) {
     spdlog::error("Exception was thrown on coordinator state construction, shutting down Memgraph. {}", e.what());
     exit(1);
@@ -575,6 +576,7 @@ int main(int argc, char **argv) {
     memgraph::dbms::DataInstanceManagementServerHandlers::Register(coordinator_state->GetDataInstanceManagementServer(),
                                                                    replication_handler);
     MG_ASSERT(coordinator_state->GetDataInstanceManagementServer().Start(), "Failed to start coordinator server!");
+    spdlog::trace("Data instance management server started.");
   }
 #endif
 
@@ -613,18 +615,22 @@ int main(int argc, char **argv) {
   // Tied to coord initialization, must happen after coordinator is initialized
   auto *maybe_ha_init_file = std::getenv(kMgHaClusterInitQueries);
   if (maybe_ha_init_file) {
-    spdlog::trace("Initializing coordinator from cypher file.");
+    spdlog::trace("Initializing coordinator using cypher file.");
     InitFromCypherlFile(interpreter_context_, db_acc, maybe_ha_init_file);
+    spdlog::trace("Coordinator initialized using cypher file.");
   }
 
   // Triggers can execute query procedures, so we need to reload the modules first and then the triggers.
   // Stream transformations use modules, so we need to restored streams after the query modules have been loaded.
   if (db_config.durability.recover_on_startup) {
     dbms_handler.RestoreTriggers(&interpreter_context_);
+    spdlog::trace("Triggers restored.");
     dbms_handler.RestoreStreams(&interpreter_context_);
+    spdlog::trace("Streams restored.");
     if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
 #ifdef MG_ENTERPRISE
       dbms_handler.RestoreTTL(&interpreter_context_);
+      spdlog::trace("TTL restored.");
 #endif
     }
   }
@@ -677,21 +683,20 @@ int main(int argc, char **argv) {
   memgraph::communication::websocket::Server websocket_server{
       {FLAGS_monitoring_address, static_cast<uint16_t>(FLAGS_monitoring_port)}, &context, websocket_auth};
 
-  spdlog::trace("Websocket server created!");
+  spdlog::trace("Websocket server created.");
   if (!websocket_server.HasErrorHappened()) {
-    spdlog::trace("Initializing logger sync");
+    spdlog::trace("Initializing logger sync.");
     memgraph::flags::AddLoggerSink(websocket_server.GetLoggingSink());
-    spdlog::trace("Logger sink added!");
+    spdlog::trace("Logger sink added.");
   } else {
-    spdlog::error("Skipping adding logger sync for websocket");
+    spdlog::error("Skipping adding logger sync for websocket.");
   }
 
 // TODO: Make multi-tenant
 #ifdef MG_ENTERPRISE
-  spdlog::trace("Trying to create metrics server");
   memgraph::glue::MonitoringServerT metrics_server{
       {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, db_acc->storage(), &context};
-  spdlog::trace("metrics server created");
+  spdlog::trace("Metrics server created.");
 #endif
 
   // Handler for regular termination signals
@@ -718,24 +723,23 @@ int main(int argc, char **argv) {
   };
 
   InitSignalHandlers(shutdown);
-  spdlog::trace("Signal handlers initialized");
+  spdlog::trace("Signal handlers initialized.");
 
   // Release the temporary database access
   db_acc.reset();
-  spdlog::trace("Temporary db access released");
 
   // Startup the main server
   MG_ASSERT(server.Start(), "Couldn't start the Bolt server!");
+  spdlog::trace("Bolt server started.");
   websocket_server.Start();
-  spdlog::trace("web socket server started");
+  spdlog::trace("Web socket server started.");
 
 #ifdef MG_ENTERPRISE
   metrics_server.Start();
-  spdlog::trace("metrics server started");
+  spdlog::trace("Metrics server started");
 #endif
 
   if (!FLAGS_init_data_file.empty()) {
-    spdlog::info("Running init data file.");
     auto db_acc = dbms_handler.Get();
     MG_ASSERT(db_acc, "Failed to gain access to the main database");
 #ifdef MG_ENTERPRISE
@@ -747,12 +751,10 @@ int main(int argc, char **argv) {
 #else
     InitFromCypherlFile(interpreter_context_, db_acc, FLAGS_init_data_file);
 #endif
+    spdlog::info("Running queries from init data file successfully finished.");
   }
 
-  auto end = std::chrono::system_clock::now();
-  std::time_t end_time = std::chrono::system_clock::to_time_t(end);
-
-  spdlog::trace("awaiting server shutdown time {}", std::ctime(&end_time));
+  spdlog::info("Memgraph succesfully started!");
 
   server.AwaitShutdown();
   websocket_server.AwaitShutdown();

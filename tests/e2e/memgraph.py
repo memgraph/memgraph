@@ -76,14 +76,9 @@ class MemgraphInstanceRunner:
         self.password = password
 
     def wait_for_succesful_connection(self, ignore_auth_failure: bool = False, delay=0.1):
-        import datetime
-
         count = 0
         while count < 150:
             try:
-                now = datetime.datetime.now()
-                time_now = now.strftime("%H:%M:%S")
-                print(f"Connect at: {time_now}")
                 conn = mgclient.connect(
                     host=self.host,
                     port=self.bolt_port,
