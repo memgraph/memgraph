@@ -63,14 +63,12 @@ bool Socket::Connect(const Endpoint &endpoint) {
 
   try {
     for (const auto &it : AddrInfo{endpoint}) {
-      spdlog::trace("Trying to create socket in Socket::Connect for socket address {}", endpoint.SocketAddress());
       int sfd = socket(it.ai_family, it.ai_socktype, it.ai_protocol);
       if (sfd == -1) {
         spdlog::trace("Socket creation failed in Socket::Connect for socket address {}. File descriptor is -1",
                       endpoint.SocketAddress());
         continue;
       }
-      spdlog::trace("Socket created in Socket::Connect for socket address {}", endpoint.SocketAddress());
       if (connect(sfd, it.ai_addr, it.ai_addrlen) == 0) {
         socket_ = sfd;
         endpoint_ = endpoint;
@@ -99,7 +97,6 @@ bool Socket::Bind(const Endpoint &endpoint) {
   }
 
   for (const auto &it : AddrInfo{endpoint}) {
-    spdlog::trace("Trying to create socket in Socket::Bind for socket address {}", endpoint.SocketAddress());
     int sfd = socket(it.ai_family, it.ai_socktype, it.ai_protocol);
     if (sfd == -1) {
       spdlog::trace("Socket creation failed in Socket::Bind for socket address {}. File descriptor is -1",
@@ -108,18 +105,15 @@ bool Socket::Bind(const Endpoint &endpoint) {
     }
 
     int on = 1;
-    spdlog::trace("Socket created in Socket::Bind for socket address {}", endpoint.SocketAddress());
     if (setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on)) != 0) {
+      spdlog::trace("setsockopt in Socket::Bind failed for socket address {}", endpoint.SocketAddress());
       // If the setsockopt failed close the file descriptor to prevent file
       // descriptors being leaked
       close(sfd);
       continue;
     }
-    spdlog::trace("Successfully ran setsockopt in Socket::Bind for socket address {}", endpoint.SocketAddress());
 
     if (bind(sfd, it.ai_addr, it.ai_addrlen) == 0) {
-      spdlog::trace("Socket::Bind bind successful, assigning socket_=sfd for socket address {}",
-                    endpoint.SocketAddress());
       socket_ = sfd;
       break;
     }
