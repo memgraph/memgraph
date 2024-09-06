@@ -195,9 +195,7 @@ class MemgraphInstanceRunner:
             for folder in self.delete_on_stop or {}:
                 try:
                     shutil.rmtree(folder)
-                    print(f"Deleted folder: {folder}")
                 except Exception:
-                    print(f"Couldn't delete folder: {folder}")
                     pass  # couldn't delete folder, skip
 
     # TODO: (andi) Abstract into one function
