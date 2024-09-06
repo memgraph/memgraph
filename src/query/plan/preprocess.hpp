@@ -345,6 +345,22 @@ class PropertyFilter {
   std::optional<Bound> upper_bound_{};
 };
 
+/// Stores the symbols and expression used to filter a point.distance.
+struct PointDistanceFilter {
+  enum class Kind : uint8_t { OUTSIDE, INSIDE, INSIDE_AND_BOUNDARY, OUTSIDE_AND_BOUNDARY };
+
+  //  PointDistanceFilter(){}
+
+  /// Symbol whose property is looked up.
+  Symbol symbol_;
+  PropertyIx property_;
+  /// Expression which when evaluated produces the value a property must
+  /// equal or regex match depending on type_.
+  Identifier *cmp_value_ = nullptr;
+  Expression *value_ = nullptr;
+  Kind kind_;
+};
+
 /// Filtering by ID, for example `MATCH (n) WHERE id(n) = 42 ...`
 class IdFilter {
  public:
@@ -365,7 +381,7 @@ struct FilterInfo {
   /// applied for labels or a property. Non generic types contain extra
   /// information which can be used to produce indexed scans of graph
   /// elements.
-  enum class Type { Generic, Label, Property, Id, Pattern };
+  enum class Type { Generic, Label, Property, Id, Pattern, PointDistance };
 
   // FilterInfo is tricky because FilterMatching is not yet defined:
   //   * if no declared constructor -> FilterInfo is std::__is_complete_or_unbounded
@@ -395,6 +411,8 @@ struct FilterInfo {
   /// Matchings for filters that include patterns
   /// NOTE: The vector is not defined here because FilterMatching is forward declared above.
   std::vector<FilterMatching> matchings;
+  /// Information for Type::PointDistance filtering.
+  std::optional<PointDistanceFilter> point_distance_filter{};
 };
 
 /// Stores information on filters used inside the @c Matching of a @c QueryPart.
