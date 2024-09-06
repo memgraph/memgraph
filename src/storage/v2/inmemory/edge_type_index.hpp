@@ -53,6 +53,9 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
 
   void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token);
 
+  void AbortEntries(EdgeTypeId edge_type, std::span<std::tuple<Vertex *const, Vertex *const, Edge *const>> edges,
+                    uint64_t exact_start_timestamp);
+
   uint64_t ApproximateEdgeCount(EdgeTypeId edge_type) const override;
 
   void UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, EdgeTypeId edge_type,

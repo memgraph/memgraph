@@ -156,6 +156,19 @@ uint64_t InMemoryEdgeTypeIndex::ApproximateEdgeCount(EdgeTypeId edge_type) const
   return 0;
 }
 
+void InMemoryEdgeTypeIndex::AbortEntries(EdgeTypeId edge_type,
+                                         std::span<std::tuple<Vertex *const, Vertex *const, Edge *const>> edges,
+                                         uint64_t exact_start_timestamp) {
+  auto const it = index_.find(edge_type);
+  if (it == index_.end()) return;
+
+  auto &index_storage = it->second;
+  auto acc = index_storage.access();
+  for (auto &edge : edges) {
+    acc.remove(Entry{std::get<0>(edge), std::get<1>(edge), std::get<2>(edge), exact_start_timestamp});
+  }
+}
+
 void InMemoryEdgeTypeIndex::UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, EdgeTypeId edge_type,
                                                  const Transaction &tx) {
   auto it = index_.find(edge_type);

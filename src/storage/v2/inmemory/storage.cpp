@@ -1191,6 +1191,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     std::map<LabelId, std::vector<Vertex *>> label_cleanup;
     std::map<LabelId, std::vector<std::pair<PropertyValue, Vertex *>>> label_property_cleanup;
     std::map<PropertyId, std::vector<std::pair<PropertyValue, Vertex *>>> property_cleanup;
+    std::map<EdgeTypeId, std::vector<std::tuple<Vertex *const, Vertex *const, Edge *const>>> edge_type_cleanup;
 
     auto delta_size = transaction_.deltas.size();
     for (const auto &delta : transaction_.deltas) {
@@ -1292,6 +1293,12 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 // redundant. Also, `Edge/DELETE_OBJECT` isn't available when edge
                 // properties are disabled.
                 storage_->edge_count_.fetch_add(-1, std::memory_order_acq_rel);
+
+                // TODO Add to edge_type_cleanup
+                // TODO: Check that this should only be executed if properties_on_edges is true
+                // TODO Add analysis to edge type index
+                edge_type_cleanup[current->vertex_edge.edge_type].emplace_back(vertex, current->vertex_edge.vertex,
+                                                                               current->vertex_edge.edge.ptr);
                 break;
               }
               case Delta::Action::DELETE_DESERIALIZED_OBJECT:
@@ -1323,6 +1330,8 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
             switch (current->action) {
               case Delta::Action::SET_PROPERTY: {
                 edge->properties.SetProperty(current->property.key, *current->property.value);
+                // TODO Update edge type prop index
+                // No vertex info
                 break;
               }
               case Delta::Action::DELETE_DESERIALIZED_OBJECT:
@@ -1406,6 +1415,10 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       }
       if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
         storage_->indices_.text_index_.Rollback();
+      }
+      for (auto const &[edge_type, edge] : edge_type_cleanup) {
+        storage_->indices_.AbortEntries(edge_type, edge, transaction_.start_timestamp);
+        // TODO Add edge type prop index handler
       }
 
       // VERTICES
