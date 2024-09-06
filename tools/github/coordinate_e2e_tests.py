@@ -114,7 +114,7 @@ class DockerHandler:
     """
 
     def __init__(self):
-        self._client = docker.from_env()
+        self._client = docker.from_env(timeout=600)
 
     def commit_image(self, build_container, new_image_name):
         try:
@@ -161,10 +161,16 @@ class SynchronizedContainerCopy:
             except Exception as e:
                 print(f"Exception: {e}")
 
-            create_directory(f"{temp_dir}/logs")
+            folder_name = f"{temp_dir}/logs"
+            create_directory(f"{folder_name}")
 
+            subprocess.run(
+                f"docker exec {src_container_name} bash -c 'if [ ! -d '{folder_name}' ]; then mkdir -p '{folder_name}'; fi'",
+                shell=True,
+                check=True,
+            )
             # Copy logs from source container to temporary directory
-            copy_from_src_command = f"docker cp {src_container_name}:{container_path} {temp_dir}"
+            copy_from_src_command = f"docker cp {src_container_name}:{container_path} {temp_dir}/logs"
             subprocess.run(copy_from_src_command, shell=True, check=True)
 
             # Copy logs from temporary directory to destination container
