@@ -153,7 +153,7 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
         // current code always follows the logical pattern of "create a delta" and
         // "modify in-place". Additionally, the created delta will make other
         // transactions get a SERIALIZATION_ERROR.
-        CreateAndLinkDelta(transaction, edge.ptr, Delta::SetPropertyTag(), property, *current_value);
+        CreateAndLinkDelta(transaction, edge.ptr, Delta::SetPropertyTag(), from_vertex_, property, *current_value);
         edge.ptr->properties.SetProperty(property, value);
         storage_->indices_.UpdateOnSetProperty(edge_type_, property, value, from_vertex_, to_vertex_, edge_.ptr,
                                                *transaction_);
@@ -180,7 +180,7 @@ Result<bool> EdgeAccessor::InitProperties(const std::map<storage::PropertyId, st
   if (!edge_.ptr->properties.InitProperties(properties)) return false;
   utils::AtomicMemoryBlock([this, &properties, transaction_ = transaction_, edge_ = edge_]() {
     for (const auto &[property, value] : properties) {
-      CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), property, PropertyValue());
+      CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), from_vertex_, property, PropertyValue());
       storage_->indices_.UpdateOnSetProperty(edge_type_, property, value, from_vertex_, to_vertex_, edge_.ptr,
                                              *transaction_);
     }
@@ -207,7 +207,8 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAc
     id_old_new_change.emplace(edge_.ptr->properties.UpdateProperties(properties));
     for (auto &[property, old_value, new_value] : *id_old_new_change) {
       if (skip_duplicate_write && old_value == new_value) continue;
-      CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), property, std::move(old_value));
+      CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), from_vertex_, property,
+                         std::move(old_value));
       storage_->indices_.UpdateOnSetProperty(edge_type_, property, new_value, from_vertex_, to_vertex_, edge_.ptr,
                                              *transaction_);
     }
@@ -230,7 +231,8 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
   utils::AtomicMemoryBlock([&properties, this]() {
     properties.emplace(edge_.ptr->properties.Properties());
     for (const auto &property : *properties) {
-      CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), property.first, property.second);
+      CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), from_vertex_, property.first,
+                         property.second);
       storage_->indices_.UpdateOnSetProperty(edge_type_, property.first, PropertyValue(), from_vertex_, to_vertex_,
                                              edge_.ptr, *transaction_);
     }
