@@ -1359,7 +1359,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                       for (const auto &out_edge : from_vertex->out_edges) {
                         if (std::get<0>(out_edge) == edge_type) {
                           edge_property_cleanup[std::make_pair(edge_type, current->property.key)].emplace_back(
-                              from_vertex, std::get<1>(out_edge), edge, std::move(current_value));
+                              from_vertex, std::get<1>(out_edge), edge, current_value);
                         }
                       }
                     }
