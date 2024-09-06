@@ -164,8 +164,8 @@ void InMemoryEdgeTypeIndex::AbortEntries(EdgeTypeId edge_type,
 
   auto &index_storage = it->second;
   auto acc = index_storage.access();
-  for (auto &edge : edges) {
-    acc.remove(Entry{std::get<0>(edge), std::get<1>(edge), std::get<2>(edge), exact_start_timestamp});
+  for (const auto &[from_vertex, to_vertex, edge] : edges) {
+    acc.remove(Entry{from_vertex, to_vertex, edge, exact_start_timestamp});
   }
 }
 
