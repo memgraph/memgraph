@@ -109,6 +109,9 @@ Indices::Indices(const Config &config, StorageMode storage_mode) {
 
 Indices::IndexStats Indices::Analysis() const {
   return {static_cast<InMemoryLabelIndex *>(label_index_.get())->Analysis(),
-          static_cast<InMemoryLabelPropertyIndex *>(label_property_index_.get())->Analysis()};
+          static_cast<InMemoryLabelPropertyIndex *>(label_property_index_.get())->Analysis(),
+          static_cast<InMemoryEdgeTypeIndex *>(edge_type_index_.get())->Analysis(),
+          static_cast<InMemoryEdgeTypePropertyIndex *>(edge_type_property_index_.get())->Analysis()};
 }
+
 }  // namespace memgraph::storage

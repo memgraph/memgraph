@@ -298,4 +298,13 @@ InMemoryEdgeTypeIndex::Iterable InMemoryEdgeTypeIndex::Edges(EdgeTypeId edge_typ
   return {it->second.access(), view, storage, transaction};
 }
 
+std::vector<EdgeTypeId> InMemoryEdgeTypeIndex::Analysis() const {
+  std::vector<EdgeTypeId> res;
+  res.reserve(index_.size());
+  for (const auto &[edge_type, _] : index_) {
+    res.emplace_back(edge_type);
+  }
+  return res;
+}
+
 }  // namespace memgraph::storage

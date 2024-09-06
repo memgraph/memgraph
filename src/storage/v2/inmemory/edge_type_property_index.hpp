@@ -68,6 +68,15 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
 
   void DropGraphClearIndices() override;
 
+  IndexStats Analysis() const {
+    IndexStats stats;
+    for (const auto &[key, _] : index_) {
+      stats.et2p[key.first].push_back(key.second);
+      stats.p2et[key.second].push_back(key.first);
+    }
+    return stats;
+  }
+
   static constexpr std::size_t kEdgeTypeIdPos = 0U;
   static constexpr std::size_t kVertexPos = 1U;
   static constexpr std::size_t kEdgeRefPos = 2U;

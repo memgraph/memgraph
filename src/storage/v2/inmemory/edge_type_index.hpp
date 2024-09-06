@@ -66,6 +66,8 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
 
   void DropGraphClearIndices() override;
 
+  std::vector<EdgeTypeId> Analysis() const;
+
   static constexpr std::size_t kEdgeTypeIdPos = 0U;
   static constexpr std::size_t kVertexPos = 1U;
   static constexpr std::size_t kEdgeRefPos = 2U;

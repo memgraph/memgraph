@@ -59,6 +59,8 @@ struct Indices {
   struct IndexStats {
     std::vector<LabelId> label;
     LabelPropertyIndex::IndexStats property_label;
+    std::vector<EdgeTypeId> edge_type;
+    EdgeTypePropertyIndex::IndexStats property_edge_type;
   };
   IndexStats Analysis() const;
 

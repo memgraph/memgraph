@@ -16,6 +16,7 @@
 #include <optional>
 #include "dbms/constants.hpp"
 #include "flags/experimental.hpp"
+#include "flags/general.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "memory/global_memory_control.hpp"
 #include "storage/v2/durability/durability.hpp"
@@ -1192,6 +1193,9 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     std::map<LabelId, std::vector<std::pair<PropertyValue, Vertex *>>> label_property_cleanup;
     std::map<PropertyId, std::vector<std::pair<PropertyValue, Vertex *>>> property_cleanup;
     std::map<EdgeTypeId, std::vector<std::tuple<Vertex *const, Vertex *const, Edge *const>>> edge_type_cleanup;
+    std::map<EdgeTypeId, std::vector<std::tuple<Vertex *const, Vertex *const, Edge *const>>> edge_type_property_cleanup;
+    std::map<PropertyId, std::vector<std::tuple<Vertex *const, Vertex *const, Edge *const>>>
+        edge_type_property_value_cleanup;
 
     auto delta_size = transaction_.deltas.size();
     for (const auto &delta : transaction_.deltas) {
@@ -1297,8 +1301,12 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 // TODO Add to edge_type_cleanup
                 // TODO: Check that this should only be executed if properties_on_edges is true
                 // TODO Add analysis to edge type index
-                edge_type_cleanup[current->vertex_edge.edge_type].emplace_back(vertex, current->vertex_edge.vertex,
-                                                                               current->vertex_edge.edge.ptr);
+                if (!FLAGS_storage_properties_on_edges) break;
+                if (std::binary_search(index_stats.edge_type.begin(), index_stats.edge_type.end(),
+                                       current->vertex_edge.edge_type)) {
+                  edge_type_cleanup[current->vertex_edge.edge_type].emplace_back(vertex, current->vertex_edge.vertex,
+                                                                                 current->vertex_edge.edge.ptr);
+                }
                 break;
               }
               case Delta::Action::DELETE_DESERIALIZED_OBJECT:
@@ -1330,8 +1338,13 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
             switch (current->action) {
               case Delta::Action::SET_PROPERTY: {
                 edge->properties.SetProperty(current->property.key, *current->property.value);
-                // TODO Update edge type prop index
-                // No vertex info
+                if (FLAGS_storage_properties_on_edges) {
+                  auto current_value = edge->properties.GetProperty(current->property.key);
+                  if (!current_value.IsNull()) {
+                    // TODO: Add to edge_type_property_cleanup
+                  }
+                }
+
                 break;
               }
               case Delta::Action::DELETE_DESERIALIZED_OBJECT:
