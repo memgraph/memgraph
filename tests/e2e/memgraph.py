@@ -137,7 +137,13 @@ class MemgraphInstanceRunner:
         return conn
 
     def start(
-        self, restart=False, args=None, setup_queries=None, bolt_port: Optional[int] = None, skip_auth: bool = False
+        self,
+        restart=False,
+        args=None,
+        setup_queries=None,
+        bolt_port: Optional[int] = None,
+        skip_auth: bool = False,
+        storage_snapshot_on_exit: bool = False,
     ):
         if not restart and self.is_running():
             return
@@ -145,12 +151,14 @@ class MemgraphInstanceRunner:
         if args is not None:
             self.args = copy.deepcopy(args)
         self.args = [replace_paths(arg) for arg in self.args]
+        snapshot_on_exit_str = "true" if storage_snapshot_on_exit else "false"
         args_mg = [
             self.binary_path,
             "--storage-wal-enabled",
             "--storage-snapshot-interval-sec",
             "300",
             "--storage-properties-on-edges",
+            f"--storage-snapshot-on-exit={snapshot_on_exit_str}",
         ] + self.args
         if bolt_port:
             self.bolt_port = bolt_port
@@ -187,9 +195,12 @@ class MemgraphInstanceRunner:
             for folder in self.delete_on_stop or {}:
                 try:
                     shutil.rmtree(folder)
+                    print(f"Deleted folder: {folder}")
                 except Exception:
+                    print(f"Couldn't delete folder: {folder}")
                     pass  # couldn't delete folder, skip
 
+    # TODO: (andi) Abstract into one function
     def kill(self, keep_directories=False):
         if not self.is_running():
             return
