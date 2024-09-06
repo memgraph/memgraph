@@ -57,6 +57,10 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
 
   void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token);
 
+  void AbortEntries(std::pair<EdgeTypeId, PropertyId> edge_type_property,
+                    std::span<std::tuple<Vertex *const, Vertex *const, Edge *const, PropertyValue> const> edges,
+                    uint64_t exact_start_timestamp);
+
   uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property) const override;
 
   // Functions that update the index
