@@ -34,8 +34,8 @@
 import atexit
 import logging
 import os
+import secrets
 import sys
-import tempfile
 import time
 from argparse import ArgumentParser
 from inspect import signature
@@ -120,6 +120,7 @@ def _start_instance(
     password=None,
     bolt_port: Optional[int] = None,
     skip_auth: bool = False,
+    storage_snapshot_on_exit: bool = False,
 ):
     assert (
         name not in MEMGRAPH_INSTANCES.keys()
@@ -135,12 +136,12 @@ def _start_instance(
             management_port
         ), f"If this raises, you are trying to start with coordinator management port {management_port} which is already in use."
 
-    log_file_path = os.path.join(BUILD_DIR, "logs", log_file)
+    log_file_path = os.path.join(BUILD_DIR, "e2e", "logs", log_file)
 
     if "coordinator" in name:
         args.append("--nuraft-log-file=" + log_file_path)
 
-    data_directory_path = os.path.join(BUILD_DIR, data_directory)
+    data_directory_path = os.path.join(BUILD_DIR, "e2e", "data", data_directory)
     mg_instance = MemgraphInstanceRunner(
         MEMGRAPH_BINARY, use_ssl, {data_directory_path}, username=username, password=password
     )
@@ -150,7 +151,13 @@ def _start_instance(
     if len(procdir) != 0:
         binary_args.append("--query-modules-directory=" + procdir)
     log.info(f"Starting instance with name: {name} on bolt port {bolt_port}")
-    mg_instance.start(args=binary_args, setup_queries=setup_queries, bolt_port=bolt_port, skip_auth=skip_auth)
+    mg_instance.start(
+        args=binary_args,
+        setup_queries=setup_queries,
+        bolt_port=bolt_port,
+        skip_auth=skip_auth,
+        storage_snapshot_on_exit=storage_snapshot_on_exit,
+    )
     assert mg_instance.is_running(), "An error occurred after starting Memgraph instance: application stopped running."
 
 
@@ -218,7 +225,7 @@ def start_instance(context, name, procdir):
         if "data_directory" in value:
             data_directory = value["data_directory"]
         else:
-            data_directory = tempfile.TemporaryDirectory().name
+            data_directory = secrets.token_hex(4)  # Generate 8-character hex string
         username = None
         if "username" in value:
             username = value["username"]
@@ -231,6 +238,7 @@ def start_instance(context, name, procdir):
             default_bolt_port = value["default_bolt_port"]
 
         skip_auth = value["skip_auth"] if "skip_auth" in value else False
+        storage_snapshot_on_exit = value["storage_snapshot_on_exit"] if "storage_snapshot_on_exit" in value else False
 
         instance = _start_instance(
             name,
@@ -244,6 +252,7 @@ def start_instance(context, name, procdir):
             password,
             default_bolt_port,
             skip_auth=skip_auth,
+            storage_snapshot_on_exit=storage_snapshot_on_exit,
         )
         log.info(f"Instance with name {name} started")
         mg_instances[name] = instance

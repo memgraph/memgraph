@@ -839,7 +839,6 @@ def test_replication_correct_replica_chosen_up_to_date_data(data_recovery):
     def retrieve_data_show_instances():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;"))))
 
-    # TODO(antoniofilipovic) Before fixing durability, if this is removed we also have an issue. Check after fix
     expected_data_on_coord = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
         ("instance_1", "localhost:7688", "", "localhost:10011", "up", "replica"),
