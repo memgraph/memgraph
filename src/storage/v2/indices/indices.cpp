@@ -38,6 +38,12 @@ void Indices::AbortEntries(LabelId label, std::span<std::pair<PropertyValue, Ver
       ->AbortEntries(label, vertices, exact_start_timestamp);
 }
 
+void Indices::AbortEntries(EdgeTypeId edge_type,
+                           std::span<std::tuple<Vertex *const, Vertex *const, Edge *const> const> edges,
+                           uint64_t exact_start_timestamp) const {
+  static_cast<InMemoryEdgeTypeIndex *>(edge_type_index_.get())->AbortEntries(edge_type, edges, exact_start_timestamp);
+}
+
 void Indices::RemoveObsoleteVertexEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) const {
   static_cast<InMemoryLabelIndex *>(label_index_.get())->RemoveObsoleteEntries(oldest_active_start_timestamp, token);
   static_cast<InMemoryLabelPropertyIndex *>(label_property_index_.get())

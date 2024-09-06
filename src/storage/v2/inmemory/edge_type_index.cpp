@@ -157,7 +157,7 @@ uint64_t InMemoryEdgeTypeIndex::ApproximateEdgeCount(EdgeTypeId edge_type) const
 }
 
 void InMemoryEdgeTypeIndex::AbortEntries(EdgeTypeId edge_type,
-                                         std::span<std::tuple<Vertex *const, Vertex *const, Edge *const>> edges,
+                                         std::span<std::tuple<Vertex *const, Vertex *const, Edge *const> const> edges,
                                          uint64_t exact_start_timestamp) {
   auto const it = index_.find(edge_type);
   if (it == index_.end()) return;

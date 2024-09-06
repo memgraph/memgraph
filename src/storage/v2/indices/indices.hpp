@@ -51,6 +51,8 @@ struct Indices {
                     uint64_t exact_start_timestamp) const;
   void AbortEntries(LabelId label, std::span<std::pair<PropertyValue, Vertex *> const> vertices,
                     uint64_t exact_start_timestamp) const;
+  void AbortEntries(EdgeTypeId edge_type, std::span<std::tuple<Vertex *const, Vertex *const, Edge *const> const> edges,
+                    uint64_t exact_start_timestamp) const;
 
   void DropGraphClearIndices();
 
