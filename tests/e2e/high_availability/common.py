@@ -15,10 +15,6 @@ import typing
 import mgclient
 
 
-def get_file_path(file: str):
-    return f"high_availabiity/{file}"
-
-
 def get_data_path(file: str, test: str):
     """
     Data is stored in high_availabiity folder.

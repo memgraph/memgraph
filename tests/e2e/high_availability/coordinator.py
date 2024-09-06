@@ -19,7 +19,6 @@ from common import (
     connect,
     execute_and_fetch_all,
     get_data_path,
-    get_file_path,
     get_logs_path,
     ignore_elapsed_time_from_results,
 )
@@ -120,7 +119,6 @@ def setup_test(test_name: str):
 @pytest.fixture(autouse=True)
 def cleanup_after_test():
     yield
-    print("Stopping all")
     interactive_mg_runner.stop_all(keep_directories=False)
 
 

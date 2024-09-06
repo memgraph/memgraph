@@ -15,7 +15,13 @@ import tempfile
 
 import interactive_mg_runner
 import pytest
-from common import connect, execute_and_fetch_all, ignore_elapsed_time_from_results
+from common import (
+    connect,
+    execute_and_fetch_all,
+    get_data_path,
+    get_logs_path,
+    ignore_elapsed_time_from_results,
+)
 from mg_utils import mg_sleep_and_assert
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -25,15 +31,24 @@ interactive_mg_runner.PROJECT_DIR = os.path.normpath(
 interactive_mg_runner.BUILD_DIR = os.path.normpath(os.path.join(interactive_mg_runner.PROJECT_DIR, "build"))
 interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactive_mg_runner.BUILD_DIR, "memgraph"))
 
+
+@pytest.fixture(autouse=True)
+def cleanup_after_test():
+    yield
+    interactive_mg_runner.stop_all(keep_directories=False)
+
+
+file = "not_replicate_from_old_main"
+
 MEMGRAPH_FIRST_CLUSTER_DESCRIPTION = {
     "shared_replica": {
         "args": ["--experimental-enabled=high-availability", "--bolt-port", "7688", "--log-level", "TRACE"],
-        "log_file": "high_availability/not_replicate_from_old_main/replica2.log",
+        "log_file": f"{get_logs_path(file, 'test_replication_works_on_failover')}/replica2.log",
         "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
     },
     "main1": {
         "args": ["--experimental-enabled=high-availability", "--bolt-port", "7687", "--log-level", "TRACE"],
-        "log_file": "high_availability/not_replicate_from_old_main/main.log",
+        "log_file": f"{get_logs_path(file, 'test_replication_works_on_failover')}/main.log",
         "setup_queries": ["REGISTER REPLICA shared_replica SYNC TO 'localhost:10001' ;"],
     },
 }
@@ -143,7 +158,7 @@ def test_not_replicate_old_main_register_new_cluster():
     # 5. Old main should not talk to new replica
     # 6. New main should talk to replica
 
-    TEMP_DIR = tempfile.TemporaryDirectory().name
+    test_name = "test_not_replicate_old_main_register_new_cluster"
     MEMGRAPH_FISRT_COORD_CLUSTER_DESCRIPTION = {
         "shared_instance": {
             "args": [
@@ -155,8 +170,8 @@ def test_not_replicate_old_main_register_new_cluster():
                 "--management-port",
                 "10011",
             ],
-            "log_file": "instance_1.log",
-            "data_directory": f"{TEMP_DIR}/shared_instance",
+            "log_file": f"{get_logs_path(file, test_name)}/shared_instance.log",
+            "data_directory": f"{get_data_path(file, test_name)}/shared_instance",
             "setup_queries": [],
         },
         "instance_2": {
@@ -169,8 +184,8 @@ def test_not_replicate_old_main_register_new_cluster():
                 "--management-port",
                 "10012",
             ],
-            "log_file": "instance_2.log",
-            "data_directory": f"{TEMP_DIR}/instance_2",
+            "log_file": f"{get_logs_path(file, test_name)}/instance_2.log",
+            "data_directory": f"{get_data_path(file, test_name)}/instance_2",
             "setup_queries": [],
         },
         "coordinator_1": {
@@ -184,8 +199,8 @@ def test_not_replicate_old_main_register_new_cluster():
                 "--coordinator-hostname=localhost",
                 "--management-port=10121",
             ],
-            "log_file": "coordinator.log",
-            "data_directory": f"{TEMP_DIR}/coordinator_1",
+            "log_file": f"{get_logs_path(file, test_name)}/coordinator_1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/coordinator_1",
             "setup_queries": [
                 "REGISTER INSTANCE shared_instance WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
                 "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",
@@ -227,8 +242,8 @@ def test_not_replicate_old_main_register_new_cluster():
                 "--management-port",
                 "10013",
             ],
-            "log_file": "instance_3.log",
-            "data_directory": f"{TEMP_DIR}/instance_3",
+            "log_file": f"{get_logs_path(file, test_name)}/instance_3.log",
+            "data_directory": f"{get_data_path(file, test_name)}/instance_3",
             "setup_queries": [],
         },
         "coordinator_2": {
@@ -242,8 +257,8 @@ def test_not_replicate_old_main_register_new_cluster():
                 "--coordinator-hostname=localhost",
                 "--management-port=10122",
             ],
-            "log_file": "coordinator.log",
-            "data_directory": f"{TEMP_DIR}/coordinator_2",
+            "log_file": f"{get_logs_path(file, test_name)}/coordinator_2.log",
+            "data_directory": f"{get_data_path(file, test_name)}/coordinator_2",
             "setup_queries": [],
         },
     }

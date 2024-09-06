@@ -10,17 +10,16 @@
 # licenses/APL.txt.
 
 import os
-import shutil
 import sys
-import tempfile
 
 import interactive_mg_runner
 import pytest
 from common import (
     connect,
     execute_and_fetch_all,
+    get_data_path,
+    get_logs_path,
     ignore_elapsed_time_from_results,
-    safe_execute,
 )
 from mg_utils import mg_sleep_and_assert
 
@@ -31,7 +30,8 @@ interactive_mg_runner.PROJECT_DIR = os.path.normpath(
 interactive_mg_runner.BUILD_DIR = os.path.normpath(os.path.join(interactive_mg_runner.PROJECT_DIR, "build"))
 interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactive_mg_runner.BUILD_DIR, "memgraph"))
 
-TEMP_DIR = tempfile.TemporaryDirectory().name
+file = "disable_writing_on_main_after_restart"
+test_name = "test_writing_disabled_on_main_restart"
 
 MEMGRAPH_INSTANCES_DESCRIPTION = {
     "instance_1": {
@@ -49,8 +49,8 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "--instance-down-timeout-sec",
             "5",
         ],
-        "log_file": "high_availability/disable_writing_on_main_after_restart/test_writing_disabled_on_main_restart/instance_1.log",
-        "data_directory": f"{TEMP_DIR}/instance_1",
+        "log_file": f"{get_logs_path(file, test_name)}/instance_1.log",
+        "data_directory": f"{get_data_path(file, test_name)}/instance_1",
         "setup_queries": [],
     },
     "instance_2": {
@@ -68,8 +68,8 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "--instance-down-timeout-sec",
             "5",
         ],
-        "log_file": "high_availability/disable_writing_on_main_after_restart/test_writing_disabled_on_main_restart/instance_2.log",
-        "data_directory": f"{TEMP_DIR}/instance_2",
+        "log_file": f"{get_logs_path(file, test_name)}/instance_2.log",
+        "data_directory": f"{get_data_path(file, test_name)}/instance_2",
         "setup_queries": [],
     },
     "instance_3": {
@@ -87,8 +87,8 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "--instance-down-timeout-sec",
             "10",
         ],
-        "log_file": "high_availability/disable_writing_on_main_after_restart/test_writing_disabled_on_main_restart/instance_3.log",
-        "data_directory": f"{TEMP_DIR}/instance_3",
+        "log_file": f"{get_logs_path(file, test_name)}/instance_3.log",
+        "data_directory": f"{get_data_path(file, test_name)}/instance_3",
         "setup_queries": [],
     },
     "coordinator_1": {
@@ -102,8 +102,8 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "--coordinator-hostname=localhost",
             "--management-port=10121",
         ],
-        "log_file": "high_availability/disable_writing_on_main_after_restart/test_writing_disabled_on_main_restart/coordinator1.log",
-        "data_directory": f"{TEMP_DIR}/coordinator_1",
+        "log_file": f"{get_logs_path(file, test_name)}/coordinator_1.log",
+        "data_directory": f"{get_data_path(file, test_name)}/coordinator_1",
         "setup_queries": [],
     },
     "coordinator_2": {
@@ -117,8 +117,8 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "--coordinator-hostname=localhost",
             "--management-port=10122",
         ],
-        "log_file": "high_availability/disable_writing_on_main_after_restart/test_writing_disabled_on_main_restart/coordinator2.log",
-        "data_directory": f"{TEMP_DIR}/coordinator_2",
+        "log_file": f"{get_logs_path(file, test_name)}/coordinator_2.log",
+        "data_directory": f"{get_data_path(file, test_name)}/coordinator_2",
         "setup_queries": [],
     },
     "coordinator_3": {
@@ -133,15 +133,14 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "--coordinator-hostname=localhost",
             "--management-port=10123",
         ],
-        "log_file": "high_availability/disable_writing_on_main_after_restart/test_writing_disabled_on_main_restart/coordinator3.log",
-        "data_directory": f"{TEMP_DIR}/coordinator_3",
+        "log_file": f"{get_logs_path(file, test_name)}/coordinator_3.log",
+        "data_directory": f"{get_data_path(file, test_name)}/coordinator_3",
         "setup_queries": [],
     },
 }
 
 
 def test_writing_disabled_on_main_restart():
-    safe_execute(shutil.rmtree, TEMP_DIR)
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
 
     coordinator3_cursor = connect(host="localhost", port=7692).cursor()
