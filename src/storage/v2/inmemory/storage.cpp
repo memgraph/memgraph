@@ -2803,6 +2803,8 @@ void InMemoryStorage::InMemoryAccessor::DropGraph() {
   mem_storage->indices_.DropGraphClearIndices();
   mem_storage->constraints_.DropGraphClearConstraints();
 
+  mem_storage->schema_info_.Clear();
+
   mem_storage->vertices_.clear();
   mem_storage->edges_.clear();
   mem_storage->edge_count_.store(0);

@@ -911,7 +911,7 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
 TYPED_TEST(SchemaInfoTest, SingleEdge) {
   auto *in_memory = static_cast<memgraph::storage::InMemoryStorage *>(this->storage.get());
   auto &schema_info = in_memory->schema_info_;
-  Gid tmp_gid, v1_gid, v2_gid;
+  Gid edge_gid, v1_gid, v2_gid;
 
   auto l = in_memory->NameToLabel("L1");
   auto l2 = in_memory->NameToLabel("L2");
@@ -936,7 +936,7 @@ TYPED_TEST(SchemaInfoTest, SingleEdge) {
     v2_gid = v2.Gid();
     auto edge = acc->CreateEdge(&v1, &v2, e);
     ASSERT_FALSE(edge.HasError());
-    tmp_gid = edge->Gid();
+    edge_gid = edge->Gid();
     ASSERT_FALSE(acc->Commit().HasError());
     const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
     ASSERT_EQ(json["nodes"].size(), 1);
@@ -952,7 +952,7 @@ TYPED_TEST(SchemaInfoTest, SingleEdge) {
   // delete edge
   {
     auto acc = in_memory->Access();
-    auto e = acc->FindEdge(tmp_gid, memgraph::storage::View::NEW);
+    auto e = acc->FindEdge(edge_gid, memgraph::storage::View::NEW);
     ASSERT_TRUE(e);
     ASSERT_FALSE(acc->DeleteEdge(&*e).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
@@ -971,7 +971,7 @@ TYPED_TEST(SchemaInfoTest, SingleEdge) {
     ASSERT_TRUE(v2);
     auto edge = acc->CreateEdge(&*v1, &*v2, e2);
     ASSERT_FALSE(edge.HasError());
-    tmp_gid = edge->Gid();
+    edge_gid = edge->Gid();
     ASSERT_FALSE(acc->Commit().HasError());
     acc = in_memory->Access();
     v1 = acc->FindVertex(v1_gid, memgraph::storage::View::NEW);
@@ -991,7 +991,7 @@ TYPED_TEST(SchemaInfoTest, SingleEdge) {
   // delete edge - rollback
   if (in_memory->storage_mode_ == memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
     auto acc = in_memory->Access();
-    auto e = acc->FindEdge(tmp_gid, memgraph::storage::View::NEW);
+    auto e = acc->FindEdge(edge_gid, memgraph::storage::View::NEW);
     ASSERT_TRUE(e);
     ASSERT_FALSE(acc->DeleteEdge(&*e).HasError());
     acc->Abort();
@@ -1061,6 +1061,26 @@ TYPED_TEST(SchemaInfoTest, SingleEdge) {
     ASSERT_EQ(json["edges"][0]["end_node_labels"], nlohmann::json::array({"L2", "L3"}));
     ASSERT_EQ(json["edges"][0]["count"], 1);
     ASSERT_EQ(json["edges"][0]["properties"].size(), 0);
+  }
+
+  // delete change labels commit
+  {
+    auto acc = in_memory->Access();
+    auto v1 = acc->FindVertex(v1_gid, memgraph::storage::View::NEW);
+    auto v2 = acc->FindVertex(v2_gid, memgraph::storage::View::NEW);
+    ASSERT_TRUE(v1);
+    ASSERT_TRUE(v2);
+    auto e = acc->FindEdge(edge_gid, memgraph::storage::View::NEW);
+    ASSERT_TRUE(e);
+    ASSERT_FALSE(acc->DeleteEdge(&*e).HasError());
+    ASSERT_TRUE(v1);
+    ASSERT_FALSE(v1->RemoveLabel(l3).HasError());
+    ASSERT_TRUE(v2);
+    ASSERT_FALSE(v2->RemoveLabel(l3).HasError());
+    ASSERT_FALSE(acc->Commit().HasError());
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_);
+    ASSERT_EQ(json["nodes"].size(), 2);
+    ASSERT_EQ(json["edges"].size(), 0);
   }
 
   // delete vertices

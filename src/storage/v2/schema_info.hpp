@@ -78,10 +78,10 @@ struct VertexKeyEqualTo {
 
 struct EdgeKeyRef {
   EdgeTypeId type;
-  VertexKey &from;
-  VertexKey &to;
+  const VertexKey &from;
+  const VertexKey &to;
 
-  EdgeKeyRef(EdgeTypeId id, VertexKey &from, VertexKey &to) : type{id}, from{from}, to(to) {}
+  EdgeKeyRef(EdgeTypeId id, const VertexKey &from, const VertexKey &to) : type{id}, from{from}, to(to) {}
 };
 
 struct EdgeKey {
@@ -148,9 +148,10 @@ union EdgeKeyWrapper {
   const static struct KeyTag {
   } key_tag;
 
-  EdgeKeyWrapper(RefTag /* tag */, EdgeTypeId id, VertexKey &from, VertexKey &to) : ref_{.key{id, from, to}} {}
-  EdgeKeyWrapper(KeyTag /* tag */, EdgeTypeId id, const VertexKey &from, const VertexKey &to)
-      : copy_{.key{id, from, to}} {}
+  EdgeKeyWrapper(RefTag /* tag */, EdgeTypeId id, const VertexKey &from, const VertexKey &to)
+      : ref_{.key{id, from, to}} {}
+  EdgeKeyWrapper(KeyTag /* tag */, EdgeTypeId id, VertexKey from, VertexKey to)
+      : copy_{.key{id, std::move(from), std::move(to)}} {}
 
   bool is_ref = false;
   struct {
@@ -162,6 +163,7 @@ union EdgeKeyWrapper {
     EdgeKey key;
   } copy_;
 
+  EdgeKeyWrapper() = delete;
   EdgeKeyWrapper(const EdgeKeyWrapper &) = delete;
   EdgeKeyWrapper(EdgeKeyWrapper &&) = delete;
   EdgeKeyWrapper &operator=(const EdgeKeyWrapper &) = delete;
@@ -200,6 +202,11 @@ struct Tracking {
 
   void CleanUp();
 
+  void Clear() {
+    vertex_state_.clear();
+    edge_state_.clear();
+  }
+
   nlohmann::json ToJson(NameIdMapper &name_id_mapper);
 
   std::unordered_map<VertexKey, TrackingInfo, VertexKeyHash, VertexKeyEqualTo> vertex_state_;
@@ -211,7 +218,9 @@ class TransactionEdgeHandler {
   explicit TransactionEdgeHandler(Tracking &tracking, uint64_t commit_timestamp, bool properties_on_edges)
       : tracking_{tracking}, commit_timestamp_{commit_timestamp}, properties_on_edges_{properties_on_edges} {}
 
-  void RemoveEdge(const Delta *delta, EdgeTypeId edge_type, const Vertex *from_vertex, const Vertex *to_vertex);
+  void RemoveEdge(const Delta *delta, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex);
+
+  void UpdateRemovedEdgeKey(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex);
 
   void AddEdge(const Delta *delta, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex);
 
@@ -222,8 +231,7 @@ class TransactionEdgeHandler {
   }
 
  private:
-  std::map<PropertyId, PropertyValueType> GetPrePropertyTypes(const EdgeRef &edge_ref) const;
-  std::map<PropertyId, PropertyValueType> GetPostPropertyTypes(const EdgeRef &edge_ref) const;
+  std::map<PropertyId, PropertyValueType> GetPrePropertyTypes(const EdgeRef &edge_ref, bool lock) const;
 
   struct EdgeRefHash {
     size_t operator()(const EdgeRef &ref) const {
@@ -241,7 +249,7 @@ class TransactionEdgeHandler {
 
   Tracking &tracking_;
   uint64_t commit_timestamp_{-1UL};
-  std::unordered_map<EdgeRef, EdgeKey, EdgeRefHash> remove_edges_;
+  std::unordered_map<EdgeRef, EdgeKeyWrapper, EdgeRefHash> remove_edges_;
   std::unordered_set<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>, EdgeTupleHash> post_process_edges_;
   bool properties_on_edges_{false};
 };
@@ -354,6 +362,8 @@ struct SchemaInfo {
 
   auto ToJson(NameIdMapper &name_id_mapper) { return tracking_.ToJson(name_id_mapper); }
 
+  void Clear() { tracking_.Clear(); }
+
   class Accessor {
    public:
     explicit Accessor(SchemaInfo &si, bool prop_on_edges)
@@ -410,8 +420,6 @@ struct SchemaInfo {
       // Vertices changed by the tx ( no need to lock )
       auto &tracking_info = schema_info_->tracking_[EdgeKeyRef{edge_type, from->labels, to->labels}];
       --tracking_info.n;
-      // TODO: Is this also handled via set properties on edges?
-      // TODO Edge needs to be locked (is the ordering important)
       if (property_on_edges_) {
         for (const auto &[key, type] : edge.ptr->properties.PropertyTypes()) {
           auto &prop_info = tracking_info.properties[key];
