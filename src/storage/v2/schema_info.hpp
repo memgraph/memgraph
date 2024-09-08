@@ -90,7 +90,8 @@ struct EdgeKey {
   VertexKey to;
 
   EdgeKey() = default;
-  EdgeKey(EdgeTypeId id, VertexKey from, VertexKey to) : type{id}, from{std::move(from)}, to(std::move(to)) {}
+  // Do not pass by value, since move is expensive on vectors with only a few elements
+  EdgeKey(EdgeTypeId id, const VertexKey &from, const VertexKey &to) : type{id}, from{from}, to(to) {}
 
   struct hash {
     using is_transparent = void;
@@ -145,13 +146,13 @@ struct EdgeKey {
 union EdgeKeyWrapper {
   const static struct RefTag {
   } ref_tag;
-  const static struct KeyTag {
-  } key_tag;
+  const static struct CopyTag {
+  } copy_tag;
 
   EdgeKeyWrapper(RefTag /* tag */, EdgeTypeId id, const VertexKey &from, const VertexKey &to)
       : ref_{.key{id, from, to}} {}
-  EdgeKeyWrapper(KeyTag /* tag */, EdgeTypeId id, VertexKey from, VertexKey to)
-      : copy_{.key{id, std::move(from), std::move(to)}} {}
+  EdgeKeyWrapper(CopyTag /* tag */, EdgeTypeId id, const VertexKey &from, const VertexKey &to)
+      : copy_{.key{id, from, to}} {}
 
   bool is_ref = false;
   struct {
@@ -511,136 +512,12 @@ struct SchemaInfo {
       // Update vertex stats
       SchemaInfo::UpdateLabel(*schema_info_, vertex, old_labels, vertex->labels);
       // TODO Currently this function is called even if there are no edges or properties are disabled; dont
-      if (!properties_on_edges_) return;
-      // Update edge stats
-      // Need to loop though the IN/OUT edges and lock both vertices
-      // Locking is done in order of GID
-      // First loop through the ones that can lock
-      for (const auto &edge : vertex->in_edges) {
-        const auto edge_type = std::get<0>(edge);
-        auto *from_vertex = std::get<1>(edge);
-        const auto edge_ref = std::get<2>(edge);
-        auto from_guard = std::unique_lock{from_vertex->lock, std::defer_lock};
-        if (vertex == from_vertex) {
-          // Nothing to do, both ends are already locked
-        } else if (vertex->gid < from_vertex->gid) {
-          from_guard.lock();
-        } else {
-          continue;
-        }
-        // No need for edge lock since all edge property operations are unique access  <-
-        // TODO This is not true; delete edge is shared access
-        auto &old_tracking = schema_info_->tracking_[EdgeKeyRef(edge_type, from_vertex->labels, old_labels)];
-        auto &new_tracking = schema_info_->tracking_[EdgeKeyRef(edge_type, from_vertex->labels, vertex->labels)];
-
-        if (from_guard.owns_lock()) from_guard.unlock();
-
-        --old_tracking.n;
-        ++new_tracking.n;
-        for (const auto &[property, type] : edge_ref.ptr->properties.PropertyTypes()) {
-          auto &old_info = old_tracking.properties[property];
-          --old_info.n;
-          --old_info.types[type];
-          auto &new_info = new_tracking.properties[property];
-          ++new_info.n;
-          ++new_info.types[type];
-        }
-      }
-      for (const auto &edge : vertex->out_edges) {
-        const auto edge_type = std::get<0>(edge);
-        auto *to_vertex = std::get<1>(edge);
-        const auto edge_ref = std::get<2>(edge);
-        auto to_guard = std::unique_lock{to_vertex->lock, std::defer_lock};
-        if (vertex == to_vertex) {
-          // Nothing to do, both ends are already locked
-        } else if (vertex->gid < to_vertex->gid) {
-          to_guard.lock();
-        } else {
-          continue;
-        }
-        // No need for edge lock since all edge property operations are unique access
-        auto &old_tracking = schema_info_->tracking_[EdgeKeyRef(edge_type, old_labels, to_vertex->labels)];
-        auto &new_tracking = schema_info_->tracking_[EdgeKeyRef(edge_type, vertex->labels, to_vertex->labels)];
-
-        if (to_guard.owns_lock()) to_guard.unlock();
-
-        --old_tracking.n;
-        ++new_tracking.n;
-        for (const auto &[property, type] : edge_ref.ptr->properties.PropertyTypes()) {
-          auto &old_info = old_tracking.properties[property];
-          --old_info.n;
-          --old_info.types[type];
-          auto &new_info = new_tracking.properties[property];
-          ++new_info.n;
-          ++new_info.types[type];
-        }
-      }
+      UpdateEdges<true, true>(vertex, old_labels);
+      UpdateEdges<false, true>(vertex, old_labels);
       // Unlock vertex and loop through the ones we couldn't lock
       vertex_guard.unlock();
-      for (const auto &edge : vertex->in_edges) {
-        const auto edge_type = std::get<0>(edge);
-        auto *from_vertex = std::get<1>(edge);
-        const auto edge_ref = std::get<2>(edge);
-        auto from_guard = std::unique_lock{from_vertex->lock, std::defer_lock};
-        auto to_guard = std::unique_lock{vertex->lock, std::defer_lock};
-        if (vertex->gid > from_vertex->gid) {
-          from_guard.lock();
-          to_guard.lock();
-        } else {
-          // Already handled
-          continue;
-        }
-        // No need for edge lock since all edge property operations are unique access
-        auto &old_tracking = schema_info_->tracking_[EdgeKeyRef(edge_type, from_vertex->labels, old_labels)];
-        auto &new_tracking = schema_info_->tracking_[EdgeKeyRef(edge_type, from_vertex->labels, vertex->labels)];
-
-        from_guard.unlock();
-        to_guard.unlock();
-
-        --old_tracking.n;
-        ++new_tracking.n;
-        for (const auto &[property, type] : edge_ref.ptr->properties.PropertyTypes()) {
-          auto &old_info = old_tracking.properties[property];
-          --old_info.n;
-          --old_info.types[type];
-          auto &new_info = new_tracking.properties[property];
-          ++new_info.n;
-          ++new_info.types[type];
-        }
-      }
-      for (const auto &edge : vertex->out_edges) {
-        const auto edge_type = std::get<0>(edge);
-        auto *to_vertex = std::get<1>(edge);
-        const auto edge_ref = std::get<2>(edge);
-        auto from_guard = std::unique_lock{vertex->lock, std::defer_lock};
-        auto to_guard = std::unique_lock{to_vertex->lock, std::defer_lock};
-        if (vertex->gid > to_vertex->gid) {
-          to_guard.lock();
-          from_guard.lock();
-        } else {
-          // Already handled
-          continue;
-        }
-        // No need for edge lock since all edge property operations are unique access
-        auto &old_tracking = schema_info_->tracking_[EdgeKeyRef(edge_type, old_labels, to_vertex->labels)];
-        auto &new_tracking = schema_info_->tracking_[EdgeKeyRef(edge_type, vertex->labels, to_vertex->labels)];
-
-        to_guard.unlock();
-        from_guard.unlock();
-
-        --old_tracking.n;
-        ++new_tracking.n;
-        for (const auto &[property, type] : edge_ref.ptr->properties.PropertyTypes()) {
-          auto &old_info = old_tracking.properties[property];
-          --old_info.n;
-          --old_info.types[type];
-          auto &new_info = new_tracking.properties[property];
-          ++new_info.n;
-          ++new_info.types[type];
-        }
-      }
-      // TODO Keep track of which edges need to be redone
-      // TODO Unify the code...
+      UpdateEdges<true, false>(vertex, old_labels);
+      UpdateEdges<false, false>(vertex, old_labels);
     }
 
     void RemoveLabel(Vertex *vertex, LabelId label, std::unique_lock<utils::RWSpinLock> &&vertex_guard) {
@@ -651,144 +528,12 @@ struct SchemaInfo {
       // Update vertex stats
       SchemaInfo::UpdateLabel(*schema_info_, vertex, old_labels, vertex->labels);
       // TODO Currently this function is called even if there are no edges or properties are disabled; dont
-      if (!properties_on_edges_) return;
-      // Update edge stats
-      // Need to loop though the IN/OUT edges and lock both vertices
-      // Locking is done in order of GID
-      // First loop through the ones that can lock
-      for (const auto &edge : vertex->in_edges) {
-        const auto edge_type = std::get<0>(edge);
-        auto *from_vertex = std::get<1>(edge);
-        const auto edge_ref = std::get<2>(edge);
-        auto from_guard = std::unique_lock{from_vertex->lock, std::defer_lock};
-        if (vertex == from_vertex) {
-          // Nothing to do, both ends are already locked
-        } else if (vertex->gid < from_vertex->gid) {
-          from_guard.lock();
-        } else {
-          continue;
-        }
-        // No need for edge lock since all edge property operations are unique access
-        auto &old_tracking = schema_info_->tracking_[EdgeKeyRef(edge_type, from_vertex->labels, old_labels)];
-        auto &new_tracking = schema_info_->tracking_[EdgeKeyRef(edge_type, from_vertex->labels, vertex->labels)];
-
-        if (from_guard.owns_lock()) from_guard.unlock();
-
-        --old_tracking.n;
-        ++new_tracking.n;
-        for (const auto &[property, type] : edge_ref.ptr->properties.PropertyTypes()) {
-          auto &old_info = old_tracking.properties[property];
-          --old_info.n;
-          --old_info.types[type];
-          auto &new_info = new_tracking.properties[property];
-          ++new_info.n;
-          ++new_info.types[type];
-        }
-      }
-      for (const auto &edge : vertex->out_edges) {
-        const auto edge_type = std::get<0>(edge);
-        auto *to_vertex = std::get<1>(edge);
-        const auto edge_ref = std::get<2>(edge);
-        auto to_guard = std::unique_lock{to_vertex->lock, std::defer_lock};
-        if (vertex == to_vertex) {
-          // Nothing to do, both ends are already locked
-        } else if (vertex->gid < to_vertex->gid) {
-          to_guard.lock();
-        } else {
-          continue;
-        }
-        // No need for edge lock since all edge property operations are unique access
-        auto &old_tracking = schema_info_->tracking_[EdgeKeyRef(edge_type, old_labels, to_vertex->labels)];
-        auto &new_tracking = schema_info_->tracking_[EdgeKeyRef(edge_type, vertex->labels, to_vertex->labels)];
-
-        if (to_guard.owns_lock()) to_guard.unlock();
-
-        --old_tracking.n;
-        ++new_tracking.n;
-        for (const auto &[property, type] : edge_ref.ptr->properties.PropertyTypes()) {
-          auto &old_info = old_tracking.properties[property];
-          --old_info.n;
-          --old_info.types[type];
-          auto &new_info = new_tracking.properties[property];
-          ++new_info.n;
-          ++new_info.types[type];
-        }
-      }
+      UpdateEdges<true, true>(vertex, old_labels);
+      UpdateEdges<false, true>(vertex, old_labels);
       // Unlock vertex and loop through the ones we couldn't lock
       vertex_guard.unlock();
-      for (const auto &edge : vertex->in_edges) {
-        const auto edge_type = std::get<0>(edge);
-        auto *from_vertex = std::get<1>(edge);
-        const auto edge_ref = std::get<2>(edge);
-        auto from_guard = std::unique_lock{from_vertex->lock, std::defer_lock};
-        auto to_guard = std::unique_lock{vertex->lock, std::defer_lock};
-        if (vertex->gid > from_vertex->gid) {
-          from_guard.lock();
-          to_guard.lock();
-        } else {
-          // Already handled
-          continue;
-        }
-        // No need for edge lock since all edge property operations are unique access
-        auto &old_tracking = schema_info_->tracking_[EdgeKeyRef(edge_type, from_vertex->labels, old_labels)];
-        auto &new_tracking = schema_info_->tracking_[EdgeKeyRef(edge_type, from_vertex->labels, vertex->labels)];
-
-        from_guard.unlock();
-        to_guard.unlock();
-
-        --old_tracking.n;
-        ++new_tracking.n;
-        for (const auto &[property, type] : edge_ref.ptr->properties.PropertyTypes()) {
-          auto &old_info = old_tracking.properties[property];
-          --old_info.n;
-          --old_info.types[type];
-          auto &new_info = new_tracking.properties[property];
-          ++new_info.n;
-          ++new_info.types[type];
-        }
-      }
-      for (const auto &edge : vertex->out_edges) {
-        const auto edge_type = std::get<0>(edge);
-        auto *to_vertex = std::get<1>(edge);
-        const auto edge_ref = std::get<2>(edge);
-        auto from_guard = std::unique_lock{vertex->lock, std::defer_lock};
-        auto to_guard = std::unique_lock{to_vertex->lock, std::defer_lock};
-        if (vertex->gid > to_vertex->gid) {
-          to_guard.lock();
-          from_guard.lock();
-        } else {
-          // Already handled
-          continue;
-        }
-        // No need for edge lock since all edge property operations are unique access
-        auto &old_tracking = schema_info_->tracking_[EdgeKeyRef(edge_type, old_labels, to_vertex->labels)];
-        auto &new_tracking = schema_info_->tracking_[EdgeKeyRef(edge_type, vertex->labels, to_vertex->labels)];
-
-        to_guard.unlock();
-        from_guard.unlock();
-
-        --old_tracking.n;
-        ++new_tracking.n;
-        for (const auto &[property, type] : edge_ref.ptr->properties.PropertyTypes()) {
-          auto &old_info = old_tracking.properties[property];
-          --old_info.n;
-          --old_info.types[type];
-          auto &new_info = new_tracking.properties[property];
-          ++new_info.n;
-          ++new_info.types[type];
-        }
-      }
-      // TODO Keep track of which edges need to be redone
-      // TODO Unify the code...
-    }
-
-    void UpdateLabel(Vertex *vertex, const utils::small_vector<LabelId> old_labels,
-                     const utils::small_vector<LabelId> new_labels) {
-      DMG_ASSERT(vertex->lock.is_locked(), "Trying to read from an unlocked vertex; LINE {}", __LINE__);
-      // Update vertex stats
-      SchemaInfo::UpdateLabel(*schema_info_, vertex, old_labels, new_labels);
-      // Update edge stats
-      // TODO...
+      UpdateEdges<true, false>(vertex, old_labels);
+      UpdateEdges<false, false>(vertex, old_labels);
     }
 
     // Edge
@@ -852,6 +597,63 @@ struct SchemaInfo {
     void MarkEdgeAsDeleted(Edge *edge) {}  // Nothing to do (handled via vertex)
 
    private:
+    template <bool InEdges, bool VertexLocked>
+    void UpdateEdges(Vertex *vertex, const utils::small_vector<LabelId> &old_labels) {
+      if (!properties_on_edges_) return;
+      // Update edge stats
+      // Need to loop though the IN/OUT edges and lock both vertices
+      // Locking is done in order of GID
+      // First loop through the ones that can lock
+      for (const auto &edge : (InEdges ? vertex->in_edges : vertex->out_edges)) {
+        const auto edge_type = std::get<0>(edge);
+        auto *other_vertex = std::get<1>(edge);
+        const auto edge_ref = std::get<2>(edge);
+
+        auto guard = std::unique_lock{vertex->lock, std::defer_lock};
+        auto other_guard = std::unique_lock{other_vertex->lock, std::defer_lock};
+
+        if constexpr (VertexLocked) {
+          if (vertex == other_vertex) {
+            // Nothing to do, both ends are already locked
+          } else if (vertex->gid < other_vertex->gid) {
+            other_guard.lock();
+          } else {
+            // Since the vertex is already locked, nothing we can do now; recheck when unlocked
+            continue;
+          }
+        } else {
+          if (vertex->gid > other_vertex->gid) {
+            other_guard.lock();
+            guard.lock();
+          } else {
+            // Already handled
+            continue;
+          }
+        }
+
+        // No need for edge lock since all edge property operations are unique access
+        auto &old_tracking = schema_info_->tracking_[EdgeKeyRef(edge_type, InEdges ? other_vertex->labels : old_labels,
+                                                                InEdges ? old_labels : other_vertex->labels)];
+        auto &new_tracking =
+            schema_info_->tracking_[EdgeKeyRef(edge_type, InEdges ? other_vertex->labels : vertex->labels,
+                                               InEdges ? vertex->labels : other_vertex->labels)];
+
+        if (guard.owns_lock()) guard.unlock();
+        if (other_guard.owns_lock()) other_guard.unlock();
+
+        --old_tracking.n;
+        ++new_tracking.n;
+        for (const auto &[property, type] : edge_ref.ptr->properties.PropertyTypes()) {
+          auto &old_info = old_tracking.properties[property];
+          --old_info.n;
+          --old_info.types[type];
+          auto &new_info = new_tracking.properties[property];
+          ++new_info.n;
+          ++new_info.types[type];
+        }
+      }
+    }
+
     SchemaInfo *schema_info_;
     std::unique_lock<utils::RWSpinLock> lock_;
     bool properties_on_edges_;

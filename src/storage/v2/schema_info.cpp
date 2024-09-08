@@ -237,6 +237,7 @@ void Tracking::CleanUp() {
   }
 }
 
+// Todo ENUMS
 nlohmann::json PropertyInfo::ToJson(std::string_view key) const {
   nlohmann::json::object_t property_info;
   property_info.emplace("key", key);
@@ -522,7 +523,7 @@ void TransactionEdgeHandler::UpdateRemovedEdgeKey(EdgeRef edge, EdgeTypeId edge_
   // TODO Avoid erasing
   if (remove_edges_.erase(edge) != 0) {
     remove_edges_.emplace(std::piecewise_construct, std::make_tuple(edge),
-                          std::make_tuple(EdgeKeyWrapper::key_tag, edge_type, GetCommittedLabels(*from_vertex),
+                          std::make_tuple(EdgeKeyWrapper::copy_tag, edge_type, GetCommittedLabels(*from_vertex),
                                           GetCommittedLabels(*to_vertex)));
   }
 }
@@ -687,7 +688,7 @@ auto EdgeHandler::PropertyType_ActionMethod(
           to_lock.lock();
         }
         // Vertex labels are not guaranteed to be stable, re-generate them and use EdgeKey (not *Ref)
-        edge_key_.emplace(EdgeKeyWrapper::key_tag, std::get<0>(out_edge), GetLabels(*out_vertex, commit_timestamp_),
+        edge_key_.emplace(EdgeKeyWrapper::copy_tag, std::get<0>(out_edge), GetLabels(*out_vertex, commit_timestamp_),
                           GetLabels(*in_vertex, commit_timestamp_));
       } else {
         // Since the vertices are stable, no need to re-generate the labels; EdgeKeyRef can be used
