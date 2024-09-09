@@ -159,7 +159,7 @@ class SynchronizedContainerCopy:
             try:
                 clear_directory(temp_dir)
             except Exception as e:
-                print(f"Exception: {e}")
+                pass  # ignore
 
             folder_name = f"{temp_dir}/logs"
             create_directory(f"{folder_name}")
@@ -176,6 +176,11 @@ class SynchronizedContainerCopy:
             # Copy logs from temporary directory to destination container
             copy_to_dest_command = f"docker cp {temp_dir}/logs {dest_container_name}:{container_path}"
             subprocess.run(copy_to_dest_command, shell=True, check=True)
+
+            try:
+                clear_directory(temp_dir)
+            except Exception as _:
+                pass  # ignore
 
 
 @dataclass
