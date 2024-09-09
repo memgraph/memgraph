@@ -26,3 +26,31 @@ workloads:
   - name: "Distributed coordinators"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["high_availability/distributed_coords.py"]
+
+  - name: "Distributed coordinators part 2"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: [ "high_availability/distributed_coords_part_2.py"]
+
+  - name: "Distributed coordinators part 3"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: [ "high_availability/distributed_coords_part_3.py"]
+
+  - name: "Distributed coordinators part 4"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: [ "high_availability/distributed_coords_part_4.py"]
+
+  - name: "Distributed coordinators part 5"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: [ "high_availability/distributed_coords_part_5.py"]
+
+  - name: "Distributed coordinators part 6"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: [ "high_availability/distributed_coords_part_6.py" ]
+
+  - name: "Distributed coordinators part 7"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: [ "high_availability/distributed_coords_part_7.py" ]
+
+  - name: "Distributed coordinators part 8"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: [ "high_availability/distributed_coords_part_8.py" ]
