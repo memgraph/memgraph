@@ -826,6 +826,37 @@ TYPED_TEST(IndexTest, LabelPropertyIndexDuplicateVersions) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
+TYPED_TEST(IndexTest, LabelPropertyIndexStrictInsert) {
+  if (this->storage->storage_mode_ == StorageMode::ON_DISK_TRANSACTIONAL) {
+    GTEST_SKIP_("Skip for ON_DISK_TRANSACTIONAL, we currently can not get the count of the index");
+  }
+
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    ASSERT_FALSE(unique_acc->CreateIndex(this->label1, this->prop_val).HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
+  }
+
+  auto acc = this->storage->Access();
+
+  ASSERT_EQ(acc->ApproximateVertexCount(this->label1, this->prop_val), 0);
+  {
+    auto vertex = this->CreateVertex(acc.get());
+    ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
+    ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue(42)));
+    ASSERT_EQ(acc->ApproximateVertexCount(this->label1, this->prop_val), 1);
+  }
+
+  {
+    auto vertex = this->CreateVertex(acc.get());
+    ASSERT_NO_ERROR(vertex.AddLabel(this->label2));  // NOTE: this is not label1
+    ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue(42)));
+    // We expect index for label1+id to be uneffected
+    ASSERT_EQ(acc->ApproximateVertexCount(this->label1, this->prop_val), 1);
+  }
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(IndexTest, LabelPropertyIndexTransactionalIsolation) {
   {
     auto unique_acc = this->storage->UniqueAccess();
