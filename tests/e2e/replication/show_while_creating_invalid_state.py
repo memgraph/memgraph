@@ -12,12 +12,11 @@
 import os
 import random
 import sys
-import tempfile
 
 import interactive_mg_runner
 import mgclient
 import pytest
-from common import execute_and_fetch_all
+from common import execute_and_fetch_all, get_data_path, get_logs_path
 from mg_utils import mg_sleep_and_assert, mg_sleep_and_assert_collection
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -26,39 +25,54 @@ interactive_mg_runner.PROJECT_DIR = os.path.normpath(
 )
 interactive_mg_runner.BUILD_DIR = os.path.normpath(os.path.join(interactive_mg_runner.PROJECT_DIR, "build"))
 interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactive_mg_runner.BUILD_DIR, "memgraph"))
+file = "show_while_creating_invalid_state"
 
-MEMGRAPH_INSTANCES_DESCRIPTION = {
-    "replica_1": {
-        "args": ["--bolt-port", "7688", "--log-level=TRACE"],
-        "log_file": "replica1.log",
-        "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
-    },
-    "replica_2": {
-        "args": ["--bolt-port", "7689", "--log-level=TRACE"],
-        "log_file": "replica2.log",
-        "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10002;"],
-    },
-    "replica_3": {
-        "args": ["--bolt-port", "7690", "--log-level=TRACE"],
-        "log_file": "replica3.log",
-        "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10003;"],
-    },
-    "replica_4": {
-        "args": ["--bolt-port", "7691", "--log-level=TRACE"],
-        "log_file": "replica4.log",
-        "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10004;"],
-    },
-    "main": {
-        "args": ["--bolt-port", "7687", "--log-level=TRACE"],
-        "log_file": "main.log",
-        "setup_queries": [
-            "REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:10001';",
-            "REGISTER REPLICA replica_2 SYNC TO '127.0.0.1:10002';",
-            "REGISTER REPLICA replica_3 ASYNC TO '127.0.0.1:10003';",
-            "REGISTER REPLICA replica_4 ASYNC TO '127.0.0.1:10004';",
-        ],
-    },
-}
+
+@pytest.fixture(autouse=True)
+def cleanup_after_test():
+    yield
+    # Stop + delete directories
+    interactive_mg_runner.stop_all(keep_directories=False)
+
+
+def get_instances_description(test_name: str):
+    return {
+        "replica_1": {
+            "args": ["--bolt-port", "7688", "--log-level=TRACE"],
+            "log_file": f"{get_logs_path(file, test_name)}/replica1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica1",
+            "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
+        },
+        "replica_2": {
+            "args": ["--bolt-port", "7689", "--log-level=TRACE"],
+            "log_file": f"{get_logs_path(file, test_name)}/replica2.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica2",
+            "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10002;"],
+        },
+        "replica_3": {
+            "args": ["--bolt-port", "7690", "--log-level=TRACE"],
+            "log_file": f"{get_logs_path(file, test_name)}/replica3.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica3",
+            "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10003;"],
+        },
+        "replica_4": {
+            "args": ["--bolt-port", "7691", "--log-level=TRACE"],
+            "log_file": f"{get_logs_path(file, test_name)}/replica4.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica4",
+            "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10004;"],
+        },
+        "main": {
+            "args": ["--bolt-port", "7687", "--log-level=TRACE"],
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
+            "setup_queries": [
+                "REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:10001';",
+                "REGISTER REPLICA replica_2 SYNC TO '127.0.0.1:10002';",
+                "REGISTER REPLICA replica_3 ASYNC TO '127.0.0.1:10003';",
+                "REGISTER REPLICA replica_4 ASYNC TO '127.0.0.1:10004';",
+            ],
+        },
+    }
 
 
 def test_show_replicas(connection):
@@ -68,8 +82,12 @@ def test_show_replicas(connection):
     # 2/ We drop one replica. It should not appear anymore in the SHOW REPLICAS command.
     # 3/ We kill another replica. It should become invalid in the SHOW REPLICAS command.
 
+    test_name = "test_show_replicas"
+
+    instances = get_instances_description(test_name)
+
     # 0/
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+    interactive_mg_runner.start_all(instances, keep_directories=False)
 
     cursor = connection(7687, "main").cursor()
 
@@ -147,9 +165,9 @@ def test_show_replicas(connection):
     assert all([x in actual_data for x in expected_data])
 
     # 3/
-    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_1")
-    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_3")
-    interactive_mg_runner.stop(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_4")
+    interactive_mg_runner.kill(instances, "replica_1")
+    interactive_mg_runner.kill(instances, "replica_3")
+    interactive_mg_runner.stop(instances, "replica_4")
 
     # We leave some time for the main to realise the replicas are down.
     def retrieve_data():
@@ -201,13 +219,17 @@ def test_drop_replicas(connection):
     def retrieve_data():
         return execute_and_fetch_all(cursor, "SHOW REPLICAS;")
 
+    test_name = "test_drop_replicas"
+
+    instances = get_instances_description(test_name)
+
     # 0/
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+    interactive_mg_runner.start_all(instances, keep_directories=False)
 
     cursor = connection(7687, "main").cursor()
 
     # 1/
-    actual_data = execute_and_fetch_all(cursor, "SHOW REPLICAS;")
+    _ = execute_and_fetch_all(cursor, "SHOW REPLICAS;")
     EXPECTED_COLUMN_NAMES = {
         "name",
         "socket_address",
@@ -252,7 +274,7 @@ def test_drop_replicas(connection):
     mg_sleep_and_assert_collection(expected_data, retrieve_data)
 
     # 2/
-    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_3")
+    interactive_mg_runner.kill(instances, "replica_3", keep_directories=False)
     expected_data = [
         (
             "replica_1",
@@ -313,7 +335,7 @@ def test_drop_replicas(connection):
     mg_sleep_and_assert_collection(expected_data, retrieve_data)
 
     # 4/
-    interactive_mg_runner.stop(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_4")
+    interactive_mg_runner.stop(instances, "replica_4", keep_directories=False)
     expected_data = [
         (
             "replica_1",
@@ -360,7 +382,7 @@ def test_drop_replicas(connection):
     mg_sleep_and_assert_collection(expected_data, retrieve_data)
 
     # 6/
-    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_1")
+    interactive_mg_runner.kill(instances, "replica_1", keep_directories=False)
     expected_data = [
         (
             "replica_1",
@@ -393,7 +415,7 @@ def test_drop_replicas(connection):
     mg_sleep_and_assert_collection(expected_data, retrieve_data)
 
     # 8/
-    interactive_mg_runner.stop(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_2")
+    interactive_mg_runner.stop(instances, "replica_2", keep_directories=False)
     expected_data = [
         (
             "replica_2",
@@ -411,10 +433,10 @@ def test_drop_replicas(connection):
     mg_sleep_and_assert_collection(expected_data, retrieve_data)
 
     # 10/
-    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_1")
-    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_2")
-    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_3")
-    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_4")
+    interactive_mg_runner.start(instances, "replica_1")
+    interactive_mg_runner.start(instances, "replica_2")
+    interactive_mg_runner.start(instances, "replica_3")
+    interactive_mg_runner.start(instances, "replica_4")
     execute_and_fetch_all(cursor, "REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:10001';")
     execute_and_fetch_all(cursor, "REGISTER REPLICA replica_2 SYNC TO '127.0.0.1:10002';")
     execute_and_fetch_all(cursor, "REGISTER REPLICA replica_3 ASYNC TO '127.0.0.1:10003';")
@@ -489,8 +511,9 @@ def test_basic_recovery(recover_data_on_startup, connection):
     # 15/ Add some data again.
     # 16/ Check the data is added to all replicas.
 
+    test_name = "test_basic_recovery"
+
     # 0/
-    data_directory = tempfile.TemporaryDirectory()
     CONFIGURATION = {
         "replica_1": {
             "args": [
@@ -502,10 +525,9 @@ def test_basic_recovery(recover_data_on_startup, connection):
                 "--data-recovery-on-startup",
                 "false",
             ],
-            "log_file": "replica1.log",
-            # Need to set it up manually
+            "log_file": f"{get_logs_path(file, test_name)}/replica1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica1",
             "setup_queries": [],
-            "data_directory": f"{data_directory.name}/replica_1",
         },
         "replica_2": {
             "args": [
@@ -517,9 +539,9 @@ def test_basic_recovery(recover_data_on_startup, connection):
                 "--data-recovery-on-startup",
                 "false",
             ],
-            "log_file": "replica2.log",
+            "log_file": f"{get_logs_path(file, test_name)}/replica2.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica2",
             "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10002;"],
-            "data_directory": f"{data_directory.name}/replica_2",
         },
         "replica_3": {
             "args": [
@@ -531,11 +553,11 @@ def test_basic_recovery(recover_data_on_startup, connection):
                 "--data-recovery-on-startup",
                 f"{recover_data_on_startup}",
             ],
-            "log_file": "replica3.log",
+            "log_file": f"{get_logs_path(file, test_name)}/replica3.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica3",
             # We restart this replica so we set replication role manually,
             # On restart we would set replication role again, we want to get it from data
             "setup_queries": [],
-            "data_directory": f"{data_directory.name}/replica_3",
         },
         "replica_4": {
             "args": [
@@ -547,7 +569,8 @@ def test_basic_recovery(recover_data_on_startup, connection):
                 "--data-recovery-on-startup",
                 "false",
             ],
-            "log_file": "replica4.log",
+            "log_file": f"{get_logs_path(file, test_name)}/replica4.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica4",
             "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10004;"],
         },
         "main": {
@@ -558,13 +581,13 @@ def test_basic_recovery(recover_data_on_startup, connection):
                 "--data-recovery-on-startup=true",
                 "--replication-restore-state-on-startup=true",
             ],
-            "log_file": "main.log",
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
             "setup_queries": [],
-            "data_directory": f"{data_directory.name}/main",
         },
     }
 
-    interactive_mg_runner.start_all(CONFIGURATION)
+    interactive_mg_runner.start_all(CONFIGURATION, keep_directories=False)
 
     replica_1_cursor = connection(7688, "replica_1").cursor()
     execute_and_fetch_all(replica_1_cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10001;")
@@ -913,8 +936,9 @@ def test_replication_role_recovery(connection):
     # 10/ We start the replica again. We observe that the replica has the same
     #     data as main because it synced and added lost data.
 
+    test_name = "test_replication_role_recovery"
+
     # 0/
-    data_directory = tempfile.TemporaryDirectory()
     CONFIGURATION = {
         "replica": {
             "args": [
@@ -926,8 +950,8 @@ def test_replication_role_recovery(connection):
                 "--data-recovery-on-startup",
                 "false",
             ],
-            "log_file": "replica.log",
-            "data_directory": f"{data_directory.name}/replica",
+            "log_file": f"{get_logs_path(file, test_name)}/replica.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica",
         },
         "main": {
             "args": [
@@ -937,13 +961,13 @@ def test_replication_role_recovery(connection):
                 "--data-recovery-on-startup=true",
                 "--replication-restore-state-on-startup=true",
             ],
-            "log_file": "main.log",
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
             "setup_queries": [],
-            "data_directory": f"{data_directory.name}/main",
         },
     }
 
-    interactive_mg_runner.start_all(CONFIGURATION)
+    interactive_mg_runner.start_all(CONFIGURATION, keep_directories=False)
 
     replica_cursor = connection(7688, "replica").cursor()
     execute_and_fetch_all(replica_cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10001;")
@@ -1055,24 +1079,24 @@ def test_conflict_at_startup(connection):
     # Goal of this test is to check starting up several instance with different replicas' configuration directory works as expected.
     # main_1 and main_2 have different directory.
 
-    data_directory1 = tempfile.TemporaryDirectory()
-    data_directory2 = tempfile.TemporaryDirectory()
+    test_name = "test_conflict_at_startup"
+
     CONFIGURATION = {
         "main_1": {
             "args": ["--bolt-port", "7687", "--log-level=TRACE"],
-            "log_file": "main1.log",
             "setup_queries": [],
-            "data_directory": f"{data_directory1.name}",
+            "log_file": f"{get_logs_path(file, test_name)}/main1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main1",
         },
         "main_2": {
             "args": ["--bolt-port", "7688", "--log-level=TRACE"],
-            "log_file": "main2.log",
+            "log_file": f"{get_logs_path(file, test_name)}/main2.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main2",
             "setup_queries": [],
-            "data_directory": f"{data_directory2.name}",
         },
     }
 
-    interactive_mg_runner.start_all(CONFIGURATION)
+    interactive_mg_runner.start_all(CONFIGURATION, keep_directories=False)
     cursor_1 = connection(7687, "main_1").cursor()
     cursor_2 = connection(7688, "main_2").cursor()
 
@@ -1088,16 +1112,19 @@ def test_basic_recovery_when_replica_is_kill_when_main_is_down():
     # 3/ We re-start main: it should be able to restart.
     # 4/ Check status of replica: replica_2 is invalid.
 
-    data_directory = tempfile.TemporaryDirectory()
+    test_name = "test_basic_recovery_when_replica_is_kill_when_main_is_down"
+
     CONFIGURATION = {
         "replica_1": {
             "args": ["--bolt-port", "7688", "--log-level=TRACE", "--replication-restore-state-on-startup=true"],
-            "log_file": "replica1.log",
+            "log_file": f"{get_logs_path(file, test_name)}/replica1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica1",
             "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
         },
         "replica_2": {
             "args": ["--bolt-port", "7689", "--log-level=TRACE", "--replication-restore-state-on-startup=true"],
-            "log_file": "replica2.log",
+            "log_file": f"{get_logs_path(file, test_name)}/replica2.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica2",
             "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10002;"],
         },
         "main": {
@@ -1108,13 +1135,13 @@ def test_basic_recovery_when_replica_is_kill_when_main_is_down():
                 "--data-recovery-on-startup=true",
                 "--replication-restore-state-on-startup=true",
             ],
-            "log_file": "main.log",
             "setup_queries": [],
-            "data_directory": f"{data_directory.name}",
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
         },
     }
 
-    interactive_mg_runner.start_all(CONFIGURATION)
+    interactive_mg_runner.start_all(CONFIGURATION, keep_directories=False)
 
     # We want to execute manually and not via the configuration, otherwise re-starting main would also execute these registration.
     interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:10001';")
@@ -1189,26 +1216,26 @@ def test_async_replication_when_main_is_killed():
     # 2/ Insert data in main, and randomly kill it.
     # 3/ Check that the ASYNC replica has a valid subset.
 
-    for test_repetition in range(20):
+    test_name = "test_async_replication_when_main_is_killed"
+
+    for _ in range(20):
         # 0/
-        data_directory_main = tempfile.TemporaryDirectory()
-        data_directory_replica = tempfile.TemporaryDirectory()
         CONFIGURATION = {
             "async_replica": {
                 "args": ["--bolt-port", "7688", "--log-level=TRACE"],
-                "log_file": "async_replica.log",
                 "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
-                "data_directory": f"{data_directory_replica.name}",
+                "log_file": f"{get_logs_path(file, test_name)}/async_replica.log",
+                "data_directory": f"{get_data_path(file, test_name)}/async_replica",
             },
             "main": {
                 "args": ["--bolt-port", "7687", "--log-level=TRACE", "--data-recovery-on-startup=true"],
-                "log_file": "main.log",
                 "setup_queries": [],
-                "data_directory": f"{data_directory_main.name}",
+                "log_file": f"{get_logs_path(file, test_name)}/main.log",
+                "data_directory": f"{get_data_path(file, test_name)}/main",
             },
         }
-        interactive_mg_runner.kill_all(CONFIGURATION)
-        interactive_mg_runner.start_all(CONFIGURATION)
+        interactive_mg_runner.kill_all(CONFIGURATION, keep_directories=False)
+        interactive_mg_runner.start_all(CONFIGURATION, keep_directories=False)
 
         # 1/
         interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(
@@ -1258,9 +1285,6 @@ def test_async_replication_when_main_is_killed():
         expected_sum = len(res_from_async_replica) * (res_from_async_replica[0] + res_from_async_replica[-1]) / 2
         assert total_sum == expected_sum, main_killed
 
-        data_directory_main.cleanup()
-        data_directory_replica.cleanup()
-
 
 def test_sync_replication_when_main_is_killed():
     # Goal of the test is to check that when main is randomly killed:
@@ -1272,26 +1296,26 @@ def test_sync_replication_when_main_is_killed():
     # 2/ Insert data in main, and randomly kill it.
     # 3/ Check that the SYNC replica has exactly the same data than main.
 
-    for test_repetition in range(20):
+    test_name = "test_sync_replication_when_main_is_killed"
+
+    for _ in range(20):
         # 0/
-        data_directory_main = tempfile.TemporaryDirectory()
-        data_directory_replica = tempfile.TemporaryDirectory()
         CONFIGURATION = {
             "sync_replica": {
                 "args": ["--bolt-port", "7688", "--log-level=TRACE"],
-                "log_file": "sync_replica.log",
                 "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
-                "data_directory": f"{data_directory_replica.name}",
+                "log_file": f"{get_logs_path(file, test_name)}/sync_replica.log",
+                "data_directory": f"{get_data_path(file, test_name)}/sync_replica",
             },
             "main": {
                 "args": ["--bolt-port", "7687", "--log-level=TRACE", "--data-recovery-on-startup=true"],
-                "log_file": "main.log",
                 "setup_queries": [],
-                "data_directory": f"{data_directory_main.name}",
+                "log_file": f"{get_logs_path(file, test_name)}/main.log",
+                "data_directory": f"{get_data_path(file, test_name)}/main",
             },
         }
-        interactive_mg_runner.kill_all(CONFIGURATION)
-        interactive_mg_runner.start_all(CONFIGURATION)
+        interactive_mg_runner.kill_all(CONFIGURATION, keep_directories=False)
+        interactive_mg_runner.start_all(CONFIGURATION, keep_directories=False)
 
         # 1/
         interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(
@@ -1313,9 +1337,6 @@ def test_sync_replication_when_main_is_killed():
         # The SYNC replica should have exactly the same data than main.
         res_from_sync_replica = interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica"].query(QUERY_TO_CHECK)[0][0]
         assert last_result_from_main == res_from_sync_replica, main_killed
-
-        data_directory_main.cleanup()
-        data_directory_replica.cleanup()
 
 
 def test_attempt_to_write_data_on_main_when_async_replica_is_down():
@@ -1350,7 +1371,7 @@ def test_attempt_to_write_data_on_main_when_async_replica_is_down():
     }
 
     # 0/
-    interactive_mg_runner.start_all(CONFIGURATION)
+    interactive_mg_runner.start_all(CONFIGURATION, keep_directories=False)
 
     # 1/
     expected_data = [
@@ -1419,7 +1440,8 @@ def test_attempt_to_write_data_on_main_when_sync_replica_is_down(connection):
     # 5/ Check the status of replicas.
     # 6/ Restart the replica that was killed and check that it is up to date with main.
 
-    data_directory = tempfile.TemporaryDirectory()
+    test_name = "test_attempt_to_write_data_on_main_when_sync_replica_is_down"
+
     CONFIGURATION = {
         "sync_replica1": {
             "args": [
@@ -1432,27 +1454,28 @@ def test_attempt_to_write_data_on_main_when_sync_replica_is_down(connection):
                 "--data-recovery-on-startup",
                 "false",
             ],
-            "log_file": "sync_replica1.log",
             # We restart this replica so we want to set role manually
             "setup_queries": [],
-            "data_directory": f"{data_directory.name}/sync_replica1",
+            "log_file": f"{get_logs_path(file, test_name)}/sync_replica1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/sync_replica1",
         },
         "sync_replica2": {
             "args": ["--bolt-port", "7689", "--log-level", "TRACE"],
-            "log_file": "sync_replica2.log",
             "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10002;"],
+            "log_file": f"{get_logs_path(file, test_name)}/sync_replica2.log",
+            "data_directory": f"{get_data_path(file, test_name)}/sync_replica2",
         },
         "main": {
             "args": ["--bolt-port", "7687", "--log-level=TRACE", "--data-recovery-on-startup", "true"],
-            "log_file": "main.log",
             # need to do it manually
             "setup_queries": [],
-            "data_directory": f"{data_directory.name}/main",
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
         },
     }
 
     # 0/
-    interactive_mg_runner.start_all(CONFIGURATION)
+    interactive_mg_runner.start_all(CONFIGURATION, keep_directories=False)
 
     sync_replica1_cursor = connection(7688, "sync_replica1_cursor").cursor()
     execute_and_fetch_all(sync_replica1_cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10001;")
@@ -1560,20 +1583,25 @@ def test_attempt_to_create_indexes_on_main_when_async_replica_is_down():
     # 5/ Check the status of replicas.
     # 6/ Check that the indexes were added to main and remaining replica.
 
+    test_name = "test_attempt_to_create_indexes_on_main_when_async_replica_is_down"
+
     CONFIGURATION = {
         "async_replica1": {
             "args": ["--bolt-port", "7688", "--log-level=TRACE"],
-            "log_file": "async_replica1.log",
+            "log_file": f"{get_logs_path(file, test_name)}/async_replica1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/async_replica1",
             "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
         },
         "async_replica2": {
             "args": ["--bolt-port", "7689", "--log-level=TRACE"],
-            "log_file": "async_replica2.log",
+            "log_file": f"{get_logs_path(file, test_name)}/async_replica2.log",
+            "data_directory": f"{get_data_path(file, test_name)}/async_replica2",
             "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10002;"],
         },
         "main": {
             "args": ["--bolt-port", "7687", "--log-level=TRACE", "--data-recovery-on-startup=true"],
-            "log_file": "main.log",
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
             "setup_queries": [
                 "REGISTER REPLICA async_replica1 ASYNC TO '127.0.0.1:10001';",
                 "REGISTER REPLICA async_replica2 ASYNC TO '127.0.0.1:10002';",
@@ -1582,7 +1610,7 @@ def test_attempt_to_create_indexes_on_main_when_async_replica_is_down():
     }
 
     # 0/
-    interactive_mg_runner.start_all(CONFIGURATION)
+    interactive_mg_runner.start_all(CONFIGURATION, keep_directories=False)
 
     # 1/
     expected_data = [
@@ -1651,7 +1679,8 @@ def test_attempt_to_create_indexes_on_main_when_sync_replica_is_down(connection)
     # 5/ Check the status of replicas.
     # 6/ Restart the replica that was killed and check that it is up to date with main.
 
-    data_directory = tempfile.TemporaryDirectory()
+    test_name = "test_attempt_to_write_data_on_main_when_sync_replica_is_down"
+
     CONFIGURATION = {
         "sync_replica1": {
             "args": [
@@ -1663,25 +1692,27 @@ def test_attempt_to_create_indexes_on_main_when_sync_replica_is_down(connection)
                 "--data-recovery-on-startup",
                 "false",
             ],
-            "log_file": "sync_replica1.log",
             "setup_queries": [],
-            "data_directory": f"{data_directory.name}/sync_replica1",
+            "log_file": f"{get_logs_path(file, test_name)}/sync_replica1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/sync_replica1",
         },
         "sync_replica2": {
             "args": ["--bolt-port", "7689", "--log-level=TRACE"],
-            "log_file": "sync_replica2.log",
+            "log_file": f"{get_logs_path(file, test_name)}/sync_replica2.log",
+            "data_directory": f"{get_data_path(file, test_name)}/sync_replica2",
             "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10002;"],
         },
         "main": {
             "args": ["--bolt-port", "7687", "--log-level=TRACE", "--data-recovery-on-startup=true"],
-            "log_file": "main.log",
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
             # Need to do it manually
             "setup_queries": [],
         },
     }
 
     # 0/
-    interactive_mg_runner.start_all(CONFIGURATION)
+    interactive_mg_runner.start_all(CONFIGURATION, keep_directories=False)
 
     sync_replica1_cursor = connection(7688, "sync_replica1").cursor()
     execute_and_fetch_all(sync_replica1_cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10001;")
@@ -1794,7 +1825,8 @@ def test_trigger_on_create_before_commit_with_offline_sync_replica(connection):
     # 7/ Check that we have two nodes.
     # 8/ Re-start the replica and check it's online and that it has two nodes.
 
-    data_directory = tempfile.TemporaryDirectory()
+    test_name = "test_trigger_on_create_before_commit_with_offline_sync_replica"
+
     CONFIGURATION = {
         "sync_replica1": {
             "args": [
@@ -1807,26 +1839,28 @@ def test_trigger_on_create_before_commit_with_offline_sync_replica(connection):
                 "--data-recovery-on-startup",
                 "false",
             ],
-            "log_file": "sync_replica1.log",
             # Need to do it manually since we kill this replica
             "setup_queries": [],
-            "data_directory": f"{data_directory.name}/sync_replica1",
+            "log_file": f"{get_logs_path(file, test_name)}/sync_replica1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/sync_replica1",
         },
         "sync_replica2": {
             "args": ["--bolt-port", "7689", "--log-level=TRACE"],
-            "log_file": "sync_replica2.log",
+            "log_file": f"{get_logs_path(file, test_name)}/sync_replica2.log",
+            "data_directory": f"{get_data_path(file, test_name)}/sync_replica2",
             "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10002;"],
         },
         "main": {
             "args": ["--bolt-port", "7687", "--log-level=TRACE", "--data-recovery-on-startup=true"],
-            "log_file": "main.log",
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
             # Need to do it manually since we kill replica
             "setup_queries": [],
         },
     }
 
     # 0/
-    interactive_mg_runner.start_all(CONFIGURATION)
+    interactive_mg_runner.start_all(CONFIGURATION, keep_directories=False)
 
     sync_replica1_cursor = connection(7688, "sync_replica1").cursor()
     execute_and_fetch_all(sync_replica1_cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10001;")
@@ -1914,7 +1948,8 @@ def test_trigger_on_update_before_commit_with_offline_sync_replica(connection):
     # 8/ Check that we have two nodes.
     # 9/ Re-start the replica and check it's online and that it has two nodes.
 
-    data_directory = tempfile.TemporaryDirectory()
+    test_name = "test_trigger_on_update_before_commit_with_offline_sync_replica"
+
     CONFIGURATION = {
         "sync_replica1": {
             "args": [
@@ -1926,25 +1961,27 @@ def test_trigger_on_update_before_commit_with_offline_sync_replica(connection):
                 "--data-recovery-on-startup",
                 "false",
             ],
-            "log_file": "sync_replica1.log",
             # Need to do it manually
             "setup_queries": [],
-            "data_directory": f"{data_directory.name}/sync_replica1",
+            "log_file": f"{get_logs_path(file, test_name)}/sync_replica1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/sync_replica1",
         },
         "sync_replica2": {
             "args": ["--bolt-port", "7689", "--log-level=TRACE"],
-            "log_file": "sync_replica2.log",
+            "log_file": f"{get_logs_path(file, test_name)}/sync_replica2.log",
+            "data_directory": f"{get_data_path(file, test_name)}/sync_replica2",
             "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10002;"],
         },
         "main": {
             "args": ["--bolt-port", "7687", "--log-level=TRACE", "--data-recovery-on-startup=true"],
-            "log_file": "main.log",
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
             "setup_queries": [],
         },
     }
 
     # 0/
-    interactive_mg_runner.start_all(CONFIGURATION)
+    interactive_mg_runner.start_all(CONFIGURATION, keep_directories=False)
 
     sync_replica1_cursor = connection(7688, "sync_replica1").cursor()
     execute_and_fetch_all(sync_replica1_cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10001;")
@@ -2037,7 +2074,8 @@ def test_trigger_on_delete_before_commit_with_offline_sync_replica(connection):
     # 8/ Check that we have one node.
     # 9/ Re-start the replica and check it's online and that it has one node, and the correct one.
 
-    data_directory = tempfile.TemporaryDirectory()
+    test_name = "test_trigger_on_delete_before_commit_with_offline_sync_replica"
+
     CONFIGURATION = {
         "sync_replica1": {
             "args": [
@@ -2049,25 +2087,27 @@ def test_trigger_on_delete_before_commit_with_offline_sync_replica(connection):
                 "--data-recovery-on-startup",
                 "false",
             ],
-            "log_file": "sync_replica1.log",
             # we need to set it manually
             "setup_queries": [],
-            "data_directory": f"{data_directory.name}/sync_replica1",
+            "log_file": f"{get_logs_path(file, test_name)}/sync_replica1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/sync_replica1",
         },
         "sync_replica2": {
             "args": ["--bolt-port", "7689", "--log-level=TRACE"],
-            "log_file": "sync_replica2.log",
+            "log_file": f"{get_logs_path(file, test_name)}/sync_replica2.log",
+            "data_directory": f"{get_data_path(file, test_name)}/sync_replica2",
             "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10002;"],
         },
         "main": {
             "args": ["--bolt-port", "7687", "--log-level=TRACE", "--data-recovery-on-startup=true"],
-            "log_file": "main.log",
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
             "setup_queries": [],
         },
     }
 
     # 0/
-    interactive_mg_runner.start_all(CONFIGURATION)
+    interactive_mg_runner.start_all(CONFIGURATION, keep_directories=False)
 
     sync_replica1_cursor = connection(7688, "sync_replica1").cursor()
     execute_and_fetch_all(sync_replica1_cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10001;")
@@ -2164,7 +2204,8 @@ def test_trigger_on_create_before_and_after_commit_with_offline_sync_replica(con
     # 7/ Check that we have three nodes.
     # 8/ Re-start the replica and check it's online and that it has three nodes.
 
-    data_directory = tempfile.TemporaryDirectory()
+    test_name = "test_trigger_on_create_before_and_after_commit_with_offline_sync_replica"
+
     CONFIGURATION = {
         "sync_replica1": {
             "args": [
@@ -2176,25 +2217,27 @@ def test_trigger_on_create_before_and_after_commit_with_offline_sync_replica(con
                 "--data-recovery-on-startup",
                 "false",
             ],
-            "log_file": "sync_replica1.log",
             # we need to set it manually
             "setup_queries": [],
-            "data_directory": f"{data_directory.name}/sync_replica1",
+            "log_file": f"{get_logs_path(file, test_name)}/sync_replica1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/sync_replica1",
         },
         "sync_replica2": {
             "args": ["--bolt-port", "7689", "--log-level=TRACE"],
-            "log_file": "sync_replica2.log",
             "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10002;"],
+            "log_file": f"{get_logs_path(file, test_name)}/sync_replica2.log",
+            "data_directory": f"{get_data_path(file, test_name)}/sync_replica2",
         },
         "main": {
             "args": ["--bolt-port", "7687", "--log-level=TRACE", "--data-recovery-on-startup=true"],
-            "log_file": "main.log",
             "setup_queries": [],
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
         },
     }
 
     # 0/
-    interactive_mg_runner.start_all(CONFIGURATION)
+    interactive_mg_runner.start_all(CONFIGURATION, keep_directories=False)
 
     sync_replica1_cursor = connection(7688, "sync_replica1").cursor()
     execute_and_fetch_all(sync_replica1_cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10001;")
@@ -2287,7 +2330,8 @@ def test_triggers_on_create_before_commit_with_offline_sync_replica(connection):
     # 7/ Check that we have three nodes.
     # 8/ Re-start the replica and check it's online and that it has two nodes.
 
-    data_directory = tempfile.TemporaryDirectory()
+    test_name = "test_triggers_on_create_before_commit_with_offline_sync_replica"
+
     CONFIGURATION = {
         "sync_replica1": {
             "args": [
@@ -2299,25 +2343,27 @@ def test_triggers_on_create_before_commit_with_offline_sync_replica(connection):
                 "--data-recovery-on-startup",
                 "false",
             ],
-            "log_file": "sync_replica1.log",
             # we need to set it manually
             "setup_queries": [],
-            "data_directory": f"{data_directory.name}/sync_replica1",
+            "log_file": f"{get_logs_path(file, test_name)}/sync_replica1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/sync_replica1",
         },
         "sync_replica2": {
             "args": ["--bolt-port", "7689", "--log-level=TRACE"],
-            "log_file": "sync_replica2.log",
             "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10002;"],
+            "log_file": f"{get_logs_path(file, test_name)}/sync_replica2.log",
+            "data_directory": f"{get_data_path(file, test_name)}/sync_replica2",
         },
         "main": {
             "args": ["--bolt-port", "7687", "--log-level=TRACE", "--data-recovery-on-startup=true"],
-            "log_file": "main.log",
             "setup_queries": [],
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
         },
     }
 
     # 0/
-    interactive_mg_runner.start_all(CONFIGURATION)
+    interactive_mg_runner.start_all(CONFIGURATION, keep_directories=False)
 
     sync_replica1_cursor = connection(7688, "sync_replica1").cursor()
     execute_and_fetch_all(sync_replica1_cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10001;")
@@ -2408,7 +2454,10 @@ def test_replication_not_messed_up_by_CreateSnapshot(connection):
     # Goal of this test is to check the replica can not run CreateSnapshot
     # 1/ CREATE SNAPSHOT should raise a DatabaseError
 
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+    test_name = "test_replication_not_messed_up_by_CreateSnapshot"
+    MEMGRAPH_INSTANCES_DESCRIPTION = get_instances_description(test_name)
+
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
 
     cursor = connection(7688, "replica_1").cursor()
 
@@ -2440,7 +2489,7 @@ def test_replication_not_messed_up_by_ShowIndexInfo(connection):
         },
     }
 
-    interactive_mg_runner.start_all(BASIC_MEMGRAPH_INSTANCES_DESCRIPTION)
+    interactive_mg_runner.start_all(BASIC_MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
 
     cursor = connection(7688, "replica_1").cursor()
 

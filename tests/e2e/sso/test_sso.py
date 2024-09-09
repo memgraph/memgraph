@@ -16,13 +16,12 @@ interactive_mg_runner.BUILD_DIR = os.path.normpath(os.path.join(interactive_mg_r
 interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactive_mg_runner.BUILD_DIR, "memgraph"))
 
 AUTH_MODULE_PATH = os.path.normpath(os.path.join(interactive_mg_runner.SCRIPT_DIR, "dummy_sso_module.py"))
-TEMP_DIR = tempfile.TemporaryDirectory().name
 INSTANCE_NAME = "test_instance"
 INSTANCE_DESCRIPTION = {
     INSTANCE_NAME: {
         "args": ["--bolt-port=7687", "--log-level=TRACE", "--data-recovery-on-startup=true"],
         "log_file": "sso.log",
-        "data_directory": TEMP_DIR,
+        "data_directory": "sso/test_sso",
         "setup_queries": [],
         "skip_auth": True,
     }
@@ -33,8 +32,15 @@ CLIENT_ERROR_MESSAGE = "Authentication failure"
 USERNAME = "anthony"
 
 
+@pytest.fixture(autouse=True)
+def cleanup_after_test():
+    yield
+    # Stop + delete directories
+    interactive_mg_runner.stop_all(keep_directories=False)
+
+
 def create_role():
-    interactive_mg_runner.start_all(INSTANCE_DESCRIPTION)
+    interactive_mg_runner.start_all(INSTANCE_DESCRIPTION, keep_directories=False)
 
     with GraphDatabase.driver(MG_URI, auth=("", "")) as client:
         client.verify_connectivity()
@@ -46,7 +52,7 @@ def create_role():
 
 
 def delete_role():
-    interactive_mg_runner.start_all(INSTANCE_DESCRIPTION)
+    interactive_mg_runner.start_all(INSTANCE_DESCRIPTION, keep_directories=False)
 
     with GraphDatabase.driver(MG_URI, auth=("", "")) as client:
         client.verify_connectivity()
@@ -62,7 +68,7 @@ class TestSSO:
         create_role()
 
         INSTANCE_DESCRIPTION[INSTANCE_NAME]["args"].append(f"--auth-module-mappings=saml-entra-id:{AUTH_MODULE_PATH}")
-        interactive_mg_runner.start_all(INSTANCE_DESCRIPTION)
+        interactive_mg_runner.start_all(INSTANCE_DESCRIPTION, keep_directories=False)
 
         yield None
 
@@ -73,7 +79,7 @@ class TestSSO:
         delete_role()
 
     def test_sso_with_no_module_provided(self):
-        interactive_mg_runner.start_all(INSTANCE_DESCRIPTION)
+        interactive_mg_runner.start_all(INSTANCE_DESCRIPTION, keep_directories=False)
         response = base64.b64encode(b"dummy_value").decode("utf-8")
         MG_AUTH = Auth(scheme="saml-entra-id", credentials=response, principal="")
 
@@ -139,7 +145,7 @@ def test_sso_create_owned():
     # 1. Create an owned object (trigger) while logged in via SSO
     create_role()
     INSTANCE_DESCRIPTION[INSTANCE_NAME]["args"].append(f"--auth-module-mappings=saml-entra-id:{AUTH_MODULE_PATH}")
-    interactive_mg_runner.start_all(INSTANCE_DESCRIPTION)
+    interactive_mg_runner.start_all(INSTANCE_DESCRIPTION, keep_directories=False)
 
     response = base64.b64encode(b"dummy_value").decode("utf-8")
     MG_AUTH = Auth(scheme="saml-entra-id", credentials=response, principal="")
@@ -158,7 +164,7 @@ def test_sso_create_owned():
     #  * Verify that Memgraph can start up without exceptions (loading streams & triggers)
 
     INSTANCE_DESCRIPTION[INSTANCE_NAME]["args"].pop()
-    interactive_mg_runner.start_all(INSTANCE_DESCRIPTION)
+    interactive_mg_runner.start_all(INSTANCE_DESCRIPTION, keep_directories=False)
 
     with GraphDatabase.driver(MG_URI, auth=("", "")) as client:
         client.verify_connectivity()
