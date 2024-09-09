@@ -604,7 +604,7 @@ class ScanAllByEdgeCursor : public Cursor {
       }
     };
 
-    EdgeAccessor edge = *edges_it_.value();
+    const EdgeAccessor edge = *edges_it_.value();
     frame[self_.common_.edge_symbol] = edge;
     if (self_.common_.direction == EdgeAtom::Direction::OUT) {
       output_expansion(edge, false);
@@ -636,6 +636,7 @@ class ScanAllByEdgeCursor : public Cursor {
   }
 
  private:
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
   const ScanAllByEdge &self_;
   const UniqueCursorPtr input_cursor_;
   storage::View view_;
@@ -694,7 +695,7 @@ ScanAllByEdge::ScanAllByEdge(const std::shared_ptr<LogicalOperator> &input, Symb
 
 ACCEPT_WITH_INPUT(ScanAllByEdge)
 
-UniqueCursorPtr ScanAllByEdge::MakeCursor(utils::MemoryResource *mem) const {
+UniqueCursorPtr ScanAllByEdge::MakeCursor(utils::MemoryResource * /*mem*/) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByEdgeOperator);
 
   throw utils::NotYetImplemented("Sequential scan over edges!");

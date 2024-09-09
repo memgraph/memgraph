@@ -74,8 +74,8 @@ void AddNextExpansions(const Symbol &atom_symbol, const Matching &matching, cons
 
     if (symbol_table.at(*expansion.node1->identifier_) != atom_symbol) {
       // We are not expanding from node1, so flip the expansion.
-      bool is_expanding_from_node2 = symbol_table.at(*expansion.node2->identifier_) == atom_symbol;
-      bool is_expanding_from_edge = symbol_table.at(*expansion.edge->identifier_) == atom_symbol;
+      const bool is_expanding_from_node2 = symbol_table.at(*expansion.node2->identifier_) == atom_symbol;
+      const bool is_expanding_from_edge = symbol_table.at(*expansion.edge->identifier_) == atom_symbol;
 
       DMG_ASSERT(expansion.node2 && (is_expanding_from_node2 || is_expanding_from_edge),
                  "Expected node_symbol or edge_symbol to be bound");
@@ -135,6 +135,7 @@ std::vector<Expansion> ExpansionsFrom(const PatternAtom *start_atom, const Match
   while (!next_expansions.empty()) {
     auto expansion = next_expansions.front();
     next_expansions.pop();
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
     if (expansions.empty() && utils::Downcast<EdgeAtom>(const_cast<PatternAtom *>(start_atom))) {
       expansion.expand_from_edge = true;
     }
