@@ -884,6 +884,8 @@ TYPED_TEST(TestPlanner, MatchEdgeTypePropertyIndexExistence) {
   FakeDbAccessor dba;
   auto edge_type = dba.EdgeType("indexed_edgetype");
   auto prop = dba.Property("indexed_property");
+  auto prop_pair = PROPERTY_PAIR(dba, "indexed_property");
+
   dba.SetIndexCount(edge_type, prop, 1);
   {
     // Test MATCH ()-[r:indexed_edgetype]->() WHERE r.prop IS NOT NULL RETURN r;
@@ -893,7 +895,7 @@ TYPED_TEST(TestPlanner, MatchEdgeTypePropertyIndexExistence) {
         WHERE(NOT(IS_NULL(PROPERTY_LOOKUP(dba, "r", prop)))), RETURN("r")));
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByEdgeTypeProperty(), ExpectProduce());
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByEdgeTypeProperty(edge_type, prop_pair), ExpectProduce());
   }
   {
     // Test MATCH (a)-[r:indexed_edgetype]->() WHERE r.prop IS NOT NULL RETURN r;
@@ -903,7 +905,7 @@ TYPED_TEST(TestPlanner, MatchEdgeTypePropertyIndexExistence) {
         WHERE(NOT(IS_NULL(PROPERTY_LOOKUP(dba, "r", prop)))), RETURN("r")));
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByEdgeTypeProperty(), ExpectProduce());
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByEdgeTypeProperty(edge_type, prop_pair), ExpectProduce());
   }
   {
     // Test MATCH ()-[r:indexed_edgetype]->(b) WHERE r.prop IS NOT NULL RETURN r;
@@ -913,7 +915,7 @@ TYPED_TEST(TestPlanner, MatchEdgeTypePropertyIndexExistence) {
         WHERE(NOT(IS_NULL(PROPERTY_LOOKUP(dba, "r", prop)))), RETURN("r")));
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByEdgeTypeProperty(), ExpectProduce());
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByEdgeTypeProperty(edge_type, prop_pair), ExpectProduce());
   }
   {
     // Test MATCH (a)-[r:indexed_edgetype]->(b) WHERE r.prop IS NOT NULL RETURN r;
@@ -923,7 +925,7 @@ TYPED_TEST(TestPlanner, MatchEdgeTypePropertyIndexExistence) {
         WHERE(NOT(IS_NULL(PROPERTY_LOOKUP(dba, "r", prop)))), RETURN("r")));
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByEdgeTypeProperty(), ExpectProduce());
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByEdgeTypeProperty(edge_type, prop_pair), ExpectProduce());
   }
   {
     // Test MATCH ()-[r:not_indexed_edgetype]->() WHERE r.prop IS NOT NULL RETURN r;
@@ -941,7 +943,9 @@ TYPED_TEST(TestPlanner, MatchEdgeTypePropertyIndexPointLookup) {
   FakeDbAccessor dba;
   auto edge_type = dba.EdgeType("indexed_edgetype");
   auto prop = dba.Property("indexed_property");
+  const auto property_pair = PROPERTY_PAIR(dba, "indexed_property");
   dba.SetIndexCount(edge_type, prop, 1);
+  auto lit_1 = LITERAL(1);
   {
     // Test MATCH ()-[r:indexed_edgetype]->() WHERE r.prop=1 RETURN r;
     auto *query = QUERY(SINGLE_QUERY(
@@ -950,7 +954,8 @@ TYPED_TEST(TestPlanner, MatchEdgeTypePropertyIndexPointLookup) {
         WHERE(EQ(PROPERTY_LOOKUP(dba, "r", prop), LITERAL(1))), RETURN("r")));
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByEdgeTypePropertyValue(), ExpectProduce());
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByEdgeTypePropertyValue(edge_type, property_pair, lit_1),
+              ExpectProduce());
   }
   {
     // Test MATCH (a)-[r:indexed_edgetype]->() WHERE r.prop=1 RETURN r;
@@ -960,7 +965,8 @@ TYPED_TEST(TestPlanner, MatchEdgeTypePropertyIndexPointLookup) {
         WHERE(EQ(PROPERTY_LOOKUP(dba, "r", prop), LITERAL(1))), RETURN("r")));
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByEdgeTypePropertyValue(), ExpectProduce());
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByEdgeTypePropertyValue(edge_type, property_pair, lit_1),
+              ExpectProduce());
   }
   {
     // Test MATCH ()-[r:indexed_edgetype]->(b) WHERE r.prop=1 RETURN r;
@@ -970,7 +976,8 @@ TYPED_TEST(TestPlanner, MatchEdgeTypePropertyIndexPointLookup) {
         WHERE(EQ(PROPERTY_LOOKUP(dba, "r", prop), LITERAL(1))), RETURN("r")));
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByEdgeTypePropertyValue(), ExpectProduce());
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByEdgeTypePropertyValue(edge_type, property_pair, lit_1),
+              ExpectProduce());
   }
   {
     // Test MATCH (a)-[r:indexed_edgetype]->(b) WHERE r.prop=1 RETURN r;
@@ -980,7 +987,8 @@ TYPED_TEST(TestPlanner, MatchEdgeTypePropertyIndexPointLookup) {
         WHERE(EQ(PROPERTY_LOOKUP(dba, "r", prop), LITERAL(1))), RETURN("r")));
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByEdgeTypePropertyValue(), ExpectProduce());
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByEdgeTypePropertyValue(edge_type, property_pair, lit_1),
+              ExpectProduce());
   }
   {
     // Test MATCH ()-[r:not_indexed_edgetype]->() WHERE r.prop=1 RETURN r;
@@ -1001,9 +1009,229 @@ TYPED_TEST(TestPlanner, MatchEdgeTypePropertyIndexPointLookup) {
         WHERE(EQ(PROPERTY_LOOKUP(dba, "r", prop), LITERAL(1))), RETURN(as_p)));
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByEdgeTypePropertyValue(), ExpectConstructNamedPath(),
-              ExpectProduce());
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByEdgeTypePropertyValue(edge_type, property_pair, lit_1),
+              ExpectConstructNamedPath(), ExpectProduce());
   }
+}
+
+TYPED_TEST(TestPlanner, EdgeRangeFilterNoIndex1) {
+  // Test MATCH (n)-[r:TYPE]->(m) WHERE 1 < r.prop < 10 RETURN n
+  FakeDbAccessor dba;
+  const auto edge_type_name = "TYPE";
+  const auto property = PROPERTY_PAIR(dba, "prop");
+
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(
+          PATTERN(NODE("n"), EDGE("r", memgraph::query::EdgeAtom::Direction::OUT, {edge_type_name}, false), NODE("m"))),
+      WHERE(AND(LESS(LITERAL(1), PROPERTY_LOOKUP(dba, "r", property.second)),
+                LESS(PROPERTY_LOOKUP(dba, "r", property.second), PARAMETER_LOOKUP(2)))),
+      RETURN("n")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(), ExpectFilter(), ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, EdgeRangeFilterWIndex1) {
+  // Test MATCH (n)-[r:TYPE]->(m) WHERE 1 < r.prop < 10 RETURN n
+  FakeDbAccessor dba;
+  const auto edge_type_name = "TYPE";
+  const auto edge_type = dba.EdgeType(edge_type_name);
+  const auto property = PROPERTY_PAIR(dba, "prop");
+  dba.SetIndexCount(edge_type, property.second, 1);
+
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(
+          PATTERN(NODE("n"), EDGE("r", memgraph::query::EdgeAtom::Direction::OUT, {edge_type_name}, false), NODE("m"))),
+      WHERE(AND(LESS(LITERAL(1), PROPERTY_LOOKUP(dba, "r", property.second)),
+                LESS(PROPERTY_LOOKUP(dba, "r", property.second), PARAMETER_LOOKUP(2)))),
+      RETURN("n")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  CheckPlan(planner.plan(), symbol_table,
+            ExpectScanAllByEdgeTypePropertyRange(edge_type, property.second,
+                                                 Bound{LITERAL(1), memgraph::utils::BoundType::EXCLUSIVE},
+                                                 Bound{PARAMETER_LOOKUP(2), memgraph::utils::BoundType::EXCLUSIVE}),
+            ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, EdgeRangeFilterNoIndex2) {
+  // Test MATCH (n)-[r:TYPE]->(m) WHERE 10 >= r.prop > 1 RETURN n
+  FakeDbAccessor dba;
+  const auto edge_type_name = "TYPE";
+  const auto property = PROPERTY_PAIR(dba, "prop");
+
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(
+          PATTERN(NODE("n"), EDGE("r", memgraph::query::EdgeAtom::Direction::OUT, {edge_type_name}, false), NODE("m"))),
+      WHERE(AND(GREATER_EQ(LITERAL(10), PROPERTY_LOOKUP(dba, "r", property.second)),
+                GREATER(PROPERTY_LOOKUP(dba, "r", property.second), PARAMETER_LOOKUP(2)))),
+      RETURN("n")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(), ExpectFilter(), ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, EdgeRangeFilterWIndex2) {
+  // Test MATCH (n)-[r:TYPE]->(m) WHERE 10 >= r.prop > 1 RETURN n
+  FakeDbAccessor dba;
+  const auto edge_type_name = "TYPE";
+  const auto edge_type = dba.EdgeType(edge_type_name);
+  const auto property = PROPERTY_PAIR(dba, "prop");
+  dba.SetIndexCount(edge_type, property.second, 1);
+
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(
+          PATTERN(NODE("n"), EDGE("r", memgraph::query::EdgeAtom::Direction::OUT, {edge_type_name}, false), NODE("m"))),
+      WHERE(AND(GREATER_EQ(LITERAL(10), PROPERTY_LOOKUP(dba, "r", property.second)),
+                GREATER(PROPERTY_LOOKUP(dba, "r", property.second), PARAMETER_LOOKUP(2)))),
+      RETURN("n")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  CheckPlan(planner.plan(), symbol_table,
+            ExpectScanAllByEdgeTypePropertyRange(edge_type, property.second,
+                                                 Bound{PARAMETER_LOOKUP(2), memgraph::utils::BoundType::EXCLUSIVE},
+                                                 Bound{LITERAL(10), memgraph::utils::BoundType::INCLUSIVE}),
+            ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, EdgeRangeFilterNoIndex3) {
+  // Test MATCH (n)-[r:TYPE]->(m) WHERE 10 >= r.prop > 1 AND r.prop < 5 RETURN n
+  FakeDbAccessor dba;
+  const auto edge_type_name = "TYPE";
+  const auto property = PROPERTY_PAIR(dba, "prop");
+
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(
+          PATTERN(NODE("n"), EDGE("r", memgraph::query::EdgeAtom::Direction::OUT, {edge_type_name}, false), NODE("m"))),
+      WHERE(AND(GREATER_EQ(LITERAL(10), PROPERTY_LOOKUP(dba, "r", property.second)),
+                AND(GREATER(PROPERTY_LOOKUP(dba, "r", property.second), PARAMETER_LOOKUP(2)),
+                    LESS(PROPERTY_LOOKUP(dba, "r", property.second), PARAMETER_LOOKUP(3))))),
+      RETURN("n")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(), ExpectFilter(), ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, EdgeRangeFilterWIndex3) {
+  // Test MATCH (n)-[r:TYPE]->(m) WHERE 10 >= r.prop > 1 AND r.prop < 5 RETURN n
+  FakeDbAccessor dba;
+  const auto edge_type_name = "TYPE";
+  const auto edge_type = dba.EdgeType(edge_type_name);
+  const auto property = PROPERTY_PAIR(dba, "prop");
+  dba.SetIndexCount(edge_type, property.second, 1);
+
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(
+          PATTERN(NODE("n"), EDGE("r", memgraph::query::EdgeAtom::Direction::OUT, {edge_type_name}, false), NODE("m"))),
+      WHERE(AND(GREATER_EQ(LITERAL(10), PROPERTY_LOOKUP(dba, "r", property.second)),
+                AND(GREATER(PROPERTY_LOOKUP(dba, "r", property.second), PARAMETER_LOOKUP(2)),
+                    LESS(PROPERTY_LOOKUP(dba, "r", property.second), PARAMETER_LOOKUP(3))))),
+      RETURN("n")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  CheckPlan(planner.plan(), symbol_table,
+            ExpectScanAllByEdgeTypePropertyRange(edge_type, property.second,
+                                                 Bound{PARAMETER_LOOKUP(2), memgraph::utils::BoundType::EXCLUSIVE},
+                                                 Bound{LITERAL(10), memgraph::utils::BoundType::INCLUSIVE}),
+            ExpectFilter(), ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, EdgeRangeFilterNoIndex4) {
+  // Test MATCH (n)-[r:TYPE]->(m) WHERE 10 >= r.prop < 7 AND r.prop < 5 RETURN n
+  FakeDbAccessor dba;
+  const auto edge_type_name = "TYPE";
+  const auto property = PROPERTY_PAIR(dba, "prop");
+
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(
+          PATTERN(NODE("n"), EDGE("r", memgraph::query::EdgeAtom::Direction::OUT, {edge_type_name}, false), NODE("m"))),
+      WHERE(AND(GREATER_EQ(LITERAL(10), PROPERTY_LOOKUP(dba, "r", property.second)),
+                AND(LESS(PROPERTY_LOOKUP(dba, "r", property.second), PARAMETER_LOOKUP(2)),
+                    LESS(PROPERTY_LOOKUP(dba, "r", property.second), PARAMETER_LOOKUP(3))))),
+      RETURN("n")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(), ExpectFilter(), ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, EdgeRangeFilterWIndex4) {
+  // Test MATCH (n)-[r:TYPE]->(m) WHERE 10 >= r.prop < 7 AND r.prop < 5 RETURN n
+  FakeDbAccessor dba;
+  const auto edge_type_name = "TYPE";
+  const auto edge_type = dba.EdgeType(edge_type_name);
+  const auto property = PROPERTY_PAIR(dba, "prop");
+  dba.SetIndexCount(edge_type, property.second, 1);
+
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(
+          PATTERN(NODE("n"), EDGE("r", memgraph::query::EdgeAtom::Direction::OUT, {edge_type_name}, false), NODE("m"))),
+      WHERE(AND(GREATER_EQ(LITERAL(10), PROPERTY_LOOKUP(dba, "r", property.second)),
+                AND(LESS(PROPERTY_LOOKUP(dba, "r", property.second), PARAMETER_LOOKUP(2)),
+                    LESS(PROPERTY_LOOKUP(dba, "r", property.second), PARAMETER_LOOKUP(3))))),
+      RETURN("n")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  CheckPlan(planner.plan(), symbol_table,
+            ExpectScanAllByEdgeTypePropertyRange(edge_type, property.second, std::nullopt,
+                                                 Bound{LITERAL(10), memgraph::utils::BoundType::INCLUSIVE}),
+            ExpectFilter(), ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, EdgeRangeFilterNoIndex5) {
+  // Test MATCH (n)-[r:TYPE]->(m) WHERE 10 > r.prop < 7 AND r.prop >= 5 RETURN n
+  FakeDbAccessor dba;
+  const auto edge_type_name = "TYPE";
+  const auto property = PROPERTY_PAIR(dba, "prop");
+
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(
+          PATTERN(NODE("n"), EDGE("r", memgraph::query::EdgeAtom::Direction::OUT, {edge_type_name}, false), NODE("m"))),
+      WHERE(AND(GREATER(LITERAL(10), PROPERTY_LOOKUP(dba, "r", property.second)),
+                AND(LESS(PROPERTY_LOOKUP(dba, "r", property.second), PARAMETER_LOOKUP(2)),
+                    GREATER_EQ(PROPERTY_LOOKUP(dba, "r", property.second), PARAMETER_LOOKUP(3))))),
+      RETURN("n")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(), ExpectFilter(), ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, EdgeRangeFilterWIndex5) {
+  // Test MATCH (n)-[r:TYPE]->(m) WHERE 10 > r.prop < 7 AND r.prop >= 5 RETURN n
+  FakeDbAccessor dba;
+  const auto edge_type_name = "TYPE";
+  const auto edge_type = dba.EdgeType(edge_type_name);
+  const auto property = PROPERTY_PAIR(dba, "prop");
+  dba.SetIndexCount(edge_type, property.second, 1);
+
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(
+          PATTERN(NODE("n"), EDGE("r", memgraph::query::EdgeAtom::Direction::OUT, {edge_type_name}, false), NODE("m"))),
+      WHERE(AND(GREATER(LITERAL(10), PROPERTY_LOOKUP(dba, "r", property.second)),
+                AND(LESS(PROPERTY_LOOKUP(dba, "r", property.second), PARAMETER_LOOKUP(2)),
+                    GREATER_EQ(PROPERTY_LOOKUP(dba, "r", property.second), PARAMETER_LOOKUP(3))))),
+      RETURN("n")));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  CheckPlan(planner.plan(), symbol_table,
+            ExpectScanAllByEdgeTypePropertyRange(edge_type, property.second,
+                                                 Bound{PARAMETER_LOOKUP(3), memgraph::utils::BoundType::INCLUSIVE},
+                                                 Bound{LITERAL(10), memgraph::utils::BoundType::EXCLUSIVE}),
+            ExpectFilter(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, MatchFilterPropIsNotNull) {
