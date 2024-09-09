@@ -195,11 +195,14 @@ synchronized_container_copy = SynchronizedContainerCopy()
 
 def find_workloads_for_testing(container, container_root_directory, project_root_directory) -> List[Tuple[str, str]]:
     """
-    This function gets all folders in the build directory of the container.
     E2E tests work by testing only folders which are in build directory, as all the folders are not copied there.
-    Once we found all the folders in the build directory of the container, we can get all the workloads.yaml files
-    from project_root_directory and check then if given workloads.yaml is actually in the folder inside build directory (filter out the ones which are not).
+    Once we found all the folders in the build directory of the container (we need therefore running container as we can't get build folders from root dir),
+    we can make filter to get us only workloads.yaml files whose parent directory is inside build directory (filter out the ones which are not).
     The ones which are in the build directory are the ones we want to test.
+
+    1. This function gets all folders in the build directory of the container.
+    2. Once you have all folders
+
 
     Getting workloads.yaml content with docker cp is a bit more difficult, that is why two folder paths are combined.
 
@@ -378,12 +381,6 @@ parser.add_argument(
 
 args = parser.parse_args()
 
-print(f"Threads: {args.threads}")
-print(f"Container Root Dir: {args.container_root_dir}")
-print(f"Setup Command: {args.setup_command}")
-print(f"Project Root Dir: {args.project_root_dir}")
-print(f"Original Container ID: {args.original_container_id}")
-
 image_name = f"{args.original_container_id}-e2e"
 
 docker_handler = DockerHandler()
@@ -407,8 +404,8 @@ print(f"Starting container from image {image_name}")
 container_0 = docker_handler.start_container_from_image(image_name, 0)
 assert container_0 is not None, "Container not started!"
 
+# Start one container needed for finding workloads
 workloads = find_workloads_for_testing(container_0, args.container_root_dir, args.project_root_dir)
-# TODO: this can be incorporated as 0th task with different logic, as we lose here 10 seconds
 print(f"Stopping container {container_0}")
 docker_handler.stop_container(container_0)
 

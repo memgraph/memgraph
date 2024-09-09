@@ -651,9 +651,7 @@ test_memgraph() {
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_TOOLCHAIN && cd $MGBUILD_ROOT_DIR/tests/code_analysis && $SETUP_PASSED_ARGS "'&& ./clang_tidy.sh $PASSED_ARGS'
     ;;
     e2e)
-      local built_up_cmd="$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests && source ve3/bin/activate_e2e && cd $MGBUILD_ROOT_DIR/tests/e2e"
-      # shellcheck disable=SC2155
-      local setup_command=$(echo "$built_up_cmd" | envsubst)
+      local setup_command="$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests && source ve3/bin/activate_e2e && cd $MGBUILD_ROOT_DIR/tests/e2e"
       docker exec -u mg $build_container bash -c "pip install --user networkx && pip3 install --user networkx"
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && cd $MGBUILD_ROOT_DIR/tests && $ACTIVATE_VENV && source ve3/bin/activate_e2e"
       local num_threads=0
