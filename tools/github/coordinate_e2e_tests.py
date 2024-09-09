@@ -334,6 +334,7 @@ def process_workloads(
                 )
                 error_counter.increment()
                 failure = True
+                exception = res_stdout_formatted
                 break
             else:
                 synchronized_print.print(
@@ -455,7 +456,7 @@ finally:
             thread.join()
 result = synchronized_map.reset_and_get()
 
-print("SUMMARY:")
+print("DIFF SUMMARY:")
 for id, container_info in result.items():
     print(f">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
     print(f"\t\tContainer id: {id} \n ")
@@ -482,13 +483,20 @@ for id, container_info in result.items():
         print(f"\t\tContainer-{id} failed with exception: {container_info.exception}")
 
     print(f">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
+print("END OF DIFF SUMMARY")
 
+print("ERRORS SUMMARY:")
 if error_counter.get() > 0:
+    print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
     print(f"Errors occurred {error_counter.get()}")
     for id, container_info in result.items():
         if container_info.failure:
-            print(f"Container {id} failed.")
+            print(f"{get_container_name(id)} failed.")
 
+    for id, container_info in result.items():
+        if container_info.failure:
+            print(f"{get_container_name(id)} exception:\n {container_info.exception}.")
+print("END OF ERRORS SUMMARY")
 
 docker_handler.remove_image(image_name)
 if docker_handler.image_exists(image_name):
