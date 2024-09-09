@@ -140,8 +140,15 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
 }
 
 
+@pytest.fixture(autouse=True)
+def cleanup_after_test():
+    yield
+    # Stop + delete directories
+    interactive_mg_runner.stop_all(keep_directories=False)
+
+
 def test_writing_disabled_on_main_restart():
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
 
     coordinator3_cursor = connect(host="localhost", port=7692).cursor()
 

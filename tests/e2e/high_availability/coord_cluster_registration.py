@@ -446,7 +446,7 @@ def test_unregister_replicas(kill_instance):
     MEMGRAPH_INSTANCES_DESCRIPTION = get_instances_description(
         test_name="test_unregister_replicas_kill_instance_" + str(kill_instance)
     )
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
 
     coordinator1_cursor = connect(host="localhost", port=7690).cursor()
     coordinator2_cursor = connect(host="localhost", port=7691).cursor()
@@ -573,7 +573,7 @@ def test_unregister_replicas(kill_instance):
 
 def test_unregister_main():
     MEMGRAPH_INSTANCES_DESCRIPTION = get_instances_description(test_name="test_unregister_main")
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
 
     coordinator1_cursor = connect(host="localhost", port=7690).cursor()
     coordinator2_cursor = connect(host="localhost", port=7691).cursor()
@@ -686,7 +686,7 @@ def test_unregister_main():
 def test_register_one_coord_with_env_vars():
     test_name = "test_register_one_coord_with_env_vars"
     memgraph_instances_desc = get_instances_description_no_coord(test_name=test_name)
-    interactive_mg_runner.start_all(memgraph_instances_desc)
+    interactive_mg_runner.start_all(memgraph_instances_desc, keep_directories=False)
 
     os.environ["MEMGRAPH_EXPERIMENTAL_ENABLED"] = "high-availability"
     os.environ["MEMGRAPH_COORDINATOR_PORT"] = "10113"
@@ -1068,7 +1068,7 @@ def test_register_one_coord_with_env_vars_no_instances_alive_on_start():
     # intentionally unset flags here because other instances might read them
     unset_env_flags()
 
-    interactive_mg_runner.start_all(memgraph_instances_desc)
+    interactive_mg_runner.start_all(memgraph_instances_desc, keep_directories=False)
     coordinator1_cursor = connect(host="localhost", port=7690).cursor()
     coordinator2_cursor = connect(host="localhost", port=7691).cursor()
 
