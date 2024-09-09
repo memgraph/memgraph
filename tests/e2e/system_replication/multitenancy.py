@@ -9,19 +9,15 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-import atexit
 import os
-import shutil
 import sys
-import tempfile
 import time
-from functools import partial
 from typing import Any, Dict
 
 import interactive_mg_runner
 import mgclient
 import pytest
-from common import execute_and_fetch_all
+from common import execute_and_fetch_all, get_data_path, get_logs_path
 from mg_utils import mg_sleep_and_assert, mg_sleep_and_assert_collection
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -33,13 +29,21 @@ interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactiv
 
 BOLT_PORTS = {"main": 7687, "replica_1": 7688, "replica_2": 7689}
 REPLICATION_PORTS = {"replica_1": 10001, "replica_2": 10002}
+file = "multitenancy"
 
 
 def set_eq(actual, expected):
     return len(actual) == len(expected) and all([x in actual for x in expected])
 
 
-def create_memgraph_instances_with_role_recovery(data_directory: Any) -> Dict[str, Any]:
+@pytest.fixture(autouse=True)
+def cleanup_after_test():
+    yield
+    # Stop + delete directories
+    interactive_mg_runner.stop_all(keep_directories=False)
+
+
+def create_memgraph_instances_with_role_recovery(test_name: str) -> Dict[str, Any]:
     return {
         "replica_1": {
             "args": [
@@ -52,8 +56,8 @@ def create_memgraph_instances_with_role_recovery(data_directory: Any) -> Dict[st
                 "--data-recovery-on-startup",
                 "false",
             ],
-            "log_file": "replica1.log",
-            "data_directory": f"{data_directory}/replica_1",
+            "log_file": f"{get_logs_path(file, test_name)}/replica1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica1",
         },
         "replica_2": {
             "args": [
@@ -65,8 +69,8 @@ def create_memgraph_instances_with_role_recovery(data_directory: Any) -> Dict[st
                 "--data-recovery-on-startup",
                 "false",
             ],
-            "log_file": "replica2.log",
-            "data_directory": f"{data_directory}/replica_2",
+            "log_file": f"{get_logs_path(file, test_name)}/replica2.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica2",
         },
         "main": {
             "args": [
@@ -74,7 +78,8 @@ def create_memgraph_instances_with_role_recovery(data_directory: Any) -> Dict[st
                 f"{BOLT_PORTS['main']}",
                 "--log-level=TRACE",
             ],
-            "log_file": "main.log",
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
             "setup_queries": [],
         },
     }
@@ -101,43 +106,42 @@ def do_manual_setting_up(connection):
     )
 
 
-TEMP_DIR = tempfile.TemporaryDirectory().name
-
-MEMGRAPH_INSTANCES_DESCRIPTION_WITH_RECOVERY = {
-    "replica_1": {
-        "args": [
-            "--bolt-port",
-            f"{BOLT_PORTS['replica_1']}",
-            "--log-level=TRACE",
-            "--replication-restore-state-on-startup",
-            "--data-recovery-on-startup",
-        ],
-        "log_file": "replica1.log",
-        "data_directory": TEMP_DIR + "/replica1",
-    },
-    "replica_2": {
-        "args": [
-            "--bolt-port",
-            f"{BOLT_PORTS['replica_2']}",
-            "--log-level=TRACE",
-            "--replication-restore-state-on-startup",
-            "--data-recovery-on-startup",
-        ],
-        "log_file": "replica2.log",
-        "data_directory": TEMP_DIR + "/replica2",
-    },
-    "main": {
-        "args": [
-            "--bolt-port",
-            f"{BOLT_PORTS['main']}",
-            "--log-level=TRACE",
-            "--replication-restore-state-on-startup",
-            "--data-recovery-on-startup",
-        ],
-        "log_file": "main.log",
-        "data_directory": TEMP_DIR + "/main",
-    },
-}
+def get_instances_with_recovery(test_name: str):
+    return {
+        "replica_1": {
+            "args": [
+                "--bolt-port",
+                f"{BOLT_PORTS['replica_1']}",
+                "--log-level=TRACE",
+                "--replication-restore-state-on-startup",
+                "--data-recovery-on-startup",
+            ],
+            "log_file": f"{get_logs_path(file, test_name)}/replica1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica1",
+        },
+        "replica_2": {
+            "args": [
+                "--bolt-port",
+                f"{BOLT_PORTS['replica_2']}",
+                "--log-level=TRACE",
+                "--replication-restore-state-on-startup",
+                "--data-recovery-on-startup",
+            ],
+            "log_file": f"{get_logs_path(file, test_name)}/replica2.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica2",
+        },
+        "main": {
+            "args": [
+                "--bolt-port",
+                f"{BOLT_PORTS['main']}",
+                "--log-level=TRACE",
+                "--replication-restore-state-on-startup",
+                "--data-recovery-on-startup",
+            ],
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
+        },
+    }
 
 
 def safe_execute(function, *args):
@@ -211,6 +215,8 @@ def test_manual_databases_create_multitenancy_replication(connection):
     # 1/ Write to MAIN A, Write to MAIN B
     # 2/ Validate replication of changes to A + B have arrived at REPLICA
 
+    test_name = "test_manual_databases_create_multitenancy_replication"
+
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
             "args": [
@@ -218,7 +224,8 @@ def test_manual_databases_create_multitenancy_replication(connection):
                 f"{BOLT_PORTS['replica_1']}",
                 "--log-level=TRACE",
             ],
-            "log_file": "replica1.log",
+            "log_file": f"{get_logs_path(file, test_name)}/replica1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica1",
             "setup_queries": [
                 "CREATE DATABASE A;",
                 "CREATE DATABASE B;",
@@ -231,7 +238,8 @@ def test_manual_databases_create_multitenancy_replication(connection):
                 f"{BOLT_PORTS['replica_2']}",
                 "--log-level=TRACE",
             ],
-            "log_file": "replica2.log",
+            "log_file": f"{get_logs_path(file, test_name)}/replica2.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica2",
             "setup_queries": [
                 "CREATE DATABASE A;",
                 "CREATE DATABASE B;",
@@ -244,7 +252,8 @@ def test_manual_databases_create_multitenancy_replication(connection):
                 f"{BOLT_PORTS['main']}",
                 "--log-level=TRACE",
             ],
-            "log_file": "main.log",
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
             "setup_queries": [
                 "CREATE DATABASE A;",
                 "CREATE DATABASE B;",
@@ -255,7 +264,7 @@ def test_manual_databases_create_multitenancy_replication(connection):
     }
 
     # 0/
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL)
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL, keep_directories=False)
     cursor = connection(BOLT_PORTS["main"], "main").cursor()
 
     # 1/
@@ -312,6 +321,8 @@ def test_manual_databases_create_multitenancy_replication_branching(connection):
     #    Setup REPLICA
     # 1/ Registering REPLICA on MAIN should not fail due to tenant branching
 
+    test_name = "test_manual_databases_create_multitenancy_replication_branching"
+
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
             "args": [
@@ -319,7 +330,8 @@ def test_manual_databases_create_multitenancy_replication_branching(connection):
                 f"{BOLT_PORTS['replica_1']}",
                 "--log-level=TRACE",
             ],
-            "log_file": "replica1.log",
+            "log_file": f"{get_logs_path(file, test_name)}/replica1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica1",
             "setup_queries": [
                 "CREATE DATABASE A;",
                 "USE DATABASE A;",
@@ -336,7 +348,8 @@ def test_manual_databases_create_multitenancy_replication_branching(connection):
                 f"{BOLT_PORTS['replica_2']}",
                 "--log-level=TRACE",
             ],
-            "log_file": "replica2.log",
+            "log_file": f"{get_logs_path(file, test_name)}/replica2.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica2",
             "setup_queries": [
                 "CREATE DATABASE A;",
                 "USE DATABASE A;",
@@ -353,7 +366,8 @@ def test_manual_databases_create_multitenancy_replication_branching(connection):
                 f"{BOLT_PORTS['main']}",
                 "--log-level=TRACE",
             ],
-            "log_file": "main.log",
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
             "setup_queries": [
                 "CREATE DATABASE A;",
                 "USE DATABASE A;",
@@ -366,7 +380,7 @@ def test_manual_databases_create_multitenancy_replication_branching(connection):
     }
 
     # 0/
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL)
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL, keep_directories=False)
     cursor = connection(BOLT_PORTS["main"], "main").cursor()
 
     # 1/
@@ -397,6 +411,8 @@ def test_manual_databases_create_multitenancy_replication_dirty_replica(connecti
     #    Setup REPLICA
     # 1/ Register replica; should fail
 
+    test_name = "test_manual_databases_create_multitenancy_replication_dirty_replica"
+
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
             "args": [
@@ -404,7 +420,8 @@ def test_manual_databases_create_multitenancy_replication_dirty_replica(connecti
                 f"{BOLT_PORTS['replica_1']}",
                 "--log-level=TRACE",
             ],
-            "log_file": "replica1.log",
+            "log_file": f"{get_logs_path(file, test_name)}/replica1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica1",
             "setup_queries": [
                 "CREATE DATABASE A;",
                 "USE DATABASE A;",
@@ -418,7 +435,8 @@ def test_manual_databases_create_multitenancy_replication_dirty_replica(connecti
                 f"{BOLT_PORTS['replica_2']}",
                 "--log-level=TRACE",
             ],
-            "log_file": "replica2.log",
+            "log_file": f"{get_logs_path(file, test_name)}/replica2.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica2",
             "setup_queries": [
                 "CREATE DATABASE A;",
                 "USE DATABASE A;",
@@ -432,7 +450,8 @@ def test_manual_databases_create_multitenancy_replication_dirty_replica(connecti
                 f"{BOLT_PORTS['main']}",
                 "--log-level=TRACE",
             ],
-            "log_file": "main.log",
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
             "setup_queries": [
                 "CREATE DATABASE A;",
             ],
@@ -440,7 +459,7 @@ def test_manual_databases_create_multitenancy_replication_dirty_replica(connecti
     }
 
     # 0/
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL)
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL, keep_directories=False)
     cursor = connection(BOLT_PORTS["main"], "main").cursor()
 
     # 1/
@@ -471,6 +490,8 @@ def test_manual_databases_create_multitenancy_replication_main_behind(connection
     # 1/ MAIN CREATE DATABASE A
     # 2/ Check that database has been replicated
 
+    test_name = "test_manual_databases_create_multitenancy_replication_main_behind"
+
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
             "args": [
@@ -478,7 +499,8 @@ def test_manual_databases_create_multitenancy_replication_main_behind(connection
                 f"{BOLT_PORTS['replica_1']}",
                 "--log-level=TRACE",
             ],
-            "log_file": "replica1.log",
+            "log_file": f"{get_logs_path(file, test_name)}/replica1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica1",
             "setup_queries": [
                 "CREATE DATABASE A;",
                 "USE DATABASE A;",
@@ -492,7 +514,8 @@ def test_manual_databases_create_multitenancy_replication_main_behind(connection
                 f"{BOLT_PORTS['replica_2']}",
                 "--log-level=TRACE",
             ],
-            "log_file": "replica2.log",
+            "log_file": f"{get_logs_path(file, test_name)}/replica2.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica2",
             "setup_queries": [
                 "CREATE DATABASE A;",
                 "USE DATABASE A;",
@@ -506,7 +529,8 @@ def test_manual_databases_create_multitenancy_replication_main_behind(connection
                 f"{BOLT_PORTS['main']}",
                 "--log-level=TRACE",
             ],
-            "log_file": "main.log",
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
             "setup_queries": [
                 f"REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_1']}';",
                 f"REGISTER REPLICA replica_2 ASYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_2']}';",
@@ -515,7 +539,7 @@ def test_manual_databases_create_multitenancy_replication_main_behind(connection
     }
 
     # 0/
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL)
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL, keep_directories=False)
     main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
 
     # 1/
@@ -558,9 +582,9 @@ def test_automatic_databases_create_multitenancy_replication(connection):
     # 3/ Validate replication of changes to A have arrived at REPLICA
 
     # 0/
-    data_directory = tempfile.TemporaryDirectory()
-    MEMGRAPH_INSTANCES_DESCRIPTION = create_memgraph_instances_with_role_recovery(data_directory.name)
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+    test_name = "test_automatic_databases_create_multitenancy_replication"
+    MEMGRAPH_INSTANCES_DESCRIPTION = create_memgraph_instances_with_role_recovery(test_name)
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
 
     do_manual_setting_up(connection)
 
@@ -625,6 +649,8 @@ def test_automatic_databases_multitenancy_replication_predefined(connection):
     # 1/ Write to MAIN A, Write to MAIN B
     # 2/ Validate replication of changes to A + B have arrived at REPLICA
 
+    test_name = "test_automatic_databases_multitenancy_replication_predefined"
+
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
             "args": [
@@ -632,7 +658,8 @@ def test_automatic_databases_multitenancy_replication_predefined(connection):
                 f"{BOLT_PORTS['replica_1']}",
                 "--log-level=TRACE",
             ],
-            "log_file": "replica1.log",
+            "log_file": f"{get_logs_path(file, test_name)}/replica1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica1",
             "setup_queries": [
                 f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_1']};",
             ],
@@ -643,7 +670,8 @@ def test_automatic_databases_multitenancy_replication_predefined(connection):
                 f"{BOLT_PORTS['main']}",
                 "--log-level=TRACE",
             ],
-            "log_file": "main.log",
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
             "setup_queries": [
                 "CREATE DATABASE A;",
                 "CREATE DATABASE B;",
@@ -653,7 +681,7 @@ def test_automatic_databases_multitenancy_replication_predefined(connection):
     }
 
     # 0/
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL)
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL, keep_directories=False)
     cursor = connection(BOLT_PORTS["main"], "main").cursor()
 
     # 1/
@@ -693,6 +721,8 @@ def test_automatic_databases_create_multitenancy_replication_dirty_main(connecti
     #    Setup replication
     # 1/ Validate
 
+    test_name = "test_automatic_databases_create_multitenancy_replication_dirty_main"
+
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
             "args": [
@@ -700,7 +730,8 @@ def test_automatic_databases_create_multitenancy_replication_dirty_main(connecti
                 f"{BOLT_PORTS['replica_1']}",
                 "--log-level=TRACE",
             ],
-            "log_file": "replica1.log",
+            "log_file": f"{get_logs_path(file, test_name)}/replica1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica1",
             "setup_queries": [
                 f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_1']};",
             ],
@@ -711,7 +742,8 @@ def test_automatic_databases_create_multitenancy_replication_dirty_main(connecti
                 f"{BOLT_PORTS['main']}",
                 "--log-level=TRACE",
             ],
-            "log_file": "main.log",
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
             "setup_queries": [
                 "CREATE DATABASE A;",
                 "USE DATABASE A;",
@@ -722,7 +754,7 @@ def test_automatic_databases_create_multitenancy_replication_dirty_main(connecti
     }
 
     # 0/
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL)
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL, keep_directories=False)
     cursor = connection(BOLT_PORTS["main"], "main").cursor()
 
     # 1/
@@ -754,10 +786,10 @@ def test_multitenancy_replication_restart_replica_w_fc(connection, replica_name)
     # 3/ Restart replica
     # 4/ Validate data on replica
 
-    data_directory = tempfile.TemporaryDirectory()
-    MEMGRAPH_INSTANCES_DESCRIPTION = create_memgraph_instances_with_role_recovery(data_directory.name)
+    test_name = f"test_multitenancy_replication_restart_replica_w_fc_{replica_name}"
+    MEMGRAPH_INSTANCES_DESCRIPTION = create_memgraph_instances_with_role_recovery(test_name)
     # 0/
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
 
     do_manual_setting_up(connection)
 
@@ -873,9 +905,9 @@ def test_multitenancy_replication_restart_replica_wo_fc(connection, replica_name
     # 4/ Validate data on replica
 
     # 0/
-    data_directory = tempfile.TemporaryDirectory()
-    MEMGRAPH_INSTANCES_DESCRIPTION = create_memgraph_instances_with_role_recovery(data_directory.name)
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+    test_name = f"test_multitenancy_replication_restart_replica_wo_fc_{replica_name}"
+    MEMGRAPH_INSTANCES_DESCRIPTION = create_memgraph_instances_with_role_recovery(test_name)
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
 
     do_manual_setting_up(connection)
 
@@ -937,9 +969,10 @@ def test_multitenancy_replication_restart_replica_w_fc_w_rec(connection, replica
     # 4/ Validate data on replica
 
     # 0/
-    # Tmp dir should already be removed, but sometimes its not...
-    safe_execute(shutil.rmtree, TEMP_DIR)
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_WITH_RECOVERY)
+    test_name = f"test_multitenancy_replication_restart_replica_w_fc_w_rec_{replica_name}"
+    MEMGRAPH_INSTANCES_DESCRIPTION_WITH_RECOVERY = get_instances_with_recovery(test_name)
+
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_WITH_RECOVERY, keep_directories=False)
     setup_replication(connection)
     main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
 
@@ -978,10 +1011,10 @@ def test_multitenancy_replication_drop_replica(connection, replica_name):
     # 4/ Validate data on replica
 
     # 0/
-    data_directory = tempfile.TemporaryDirectory()
-    MEMGRAPH_INSTANCES_DESCRIPTION = create_memgraph_instances_with_role_recovery(data_directory.name)
+    test_name = f"test_multitenancy_replication_drop_replica_{replica_name}"
+    MEMGRAPH_INSTANCES_DESCRIPTION = create_memgraph_instances_with_role_recovery(test_name)
 
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
     do_manual_setting_up(connection)
     main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
 
@@ -1001,7 +1034,7 @@ def test_multitenancy_replication_drop_replica(connection, replica_name):
     )
 
     # 4/
-    expected_data = [
+    _ = [
         (
             "replica_1",
             f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
@@ -1040,9 +1073,9 @@ def test_multitenancy_replication_restart_main(connection):
     # 4/ Validate data on replica
 
     # 0/
-    # Tmp dir should already be removed, but sometimes its not...
-    safe_execute(shutil.rmtree, TEMP_DIR)
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_WITH_RECOVERY)
+    test_name = "test_multitenancy_replication_restart_main"
+    MEMGRAPH_INSTANCES_DESCRIPTION_WITH_RECOVERY = get_instances_with_recovery(test_name)
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_WITH_RECOVERY, keep_directories=False)
     setup_replication(connection)
     main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
 
@@ -1089,9 +1122,9 @@ def test_automatic_databases_drop_multitenancy_replication(connection):
     # 5/ Check that the drop replicated
 
     # 0/
-    data_directory = tempfile.TemporaryDirectory()
-    MEMGRAPH_INSTANCES_DESCRIPTION = create_memgraph_instances_with_role_recovery(data_directory.name)
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+    test_name = "test_automatic_databases_drop_multitenancy_replication"
+    MEMGRAPH_INSTANCES_DESCRIPTION = create_memgraph_instances_with_role_recovery(test_name)
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
 
     do_manual_setting_up(connection)
 
@@ -1157,9 +1190,9 @@ def test_drop_multitenancy_replication_restart_replica(connection, replica_name)
     # 4/ Validate data on replica
 
     # 0/
-    data_directory = tempfile.TemporaryDirectory()
-    MEMGRAPH_INSTANCES_DESCRIPTION = create_memgraph_instances_with_role_recovery(data_directory.name)
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+    test_name = f"test_drop_multitenancy_replication_restart_replica_{replica_name}"
+    MEMGRAPH_INSTANCES_DESCRIPTION = create_memgraph_instances_with_role_recovery(test_name)
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
 
     do_manual_setting_up(connection)
 
@@ -1199,9 +1232,9 @@ def test_multitenancy_drop_while_replica_using(connection):
     # 6/ Validate that the transaction is still active and working and that the replica2 is not pointing to anything
 
     # 0/
-    data_directory = tempfile.TemporaryDirectory()
-    MEMGRAPH_INSTANCES_DESCRIPTION = create_memgraph_instances_with_role_recovery(data_directory.name)
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+    test_name = "test_multitenancy_drop_while_replica_using"
+    MEMGRAPH_INSTANCES_DESCRIPTION = create_memgraph_instances_with_role_recovery(test_name)
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
 
     do_manual_setting_up(connection)
 
@@ -1298,9 +1331,9 @@ def test_multitenancy_drop_and_recreate_while_replica_using(connection):
     # 6/ Validate that the transaction is still active and working and that the replica2 is not pointing to anything
 
     # 0/
-    data_directory = tempfile.TemporaryDirectory()
-    MEMGRAPH_INSTANCES_DESCRIPTION = create_memgraph_instances_with_role_recovery(data_directory.name)
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+    test_name = "test_multitenancy_drop_and_recreate_while_replica_using"
+    MEMGRAPH_INSTANCES_DESCRIPTION = create_memgraph_instances_with_role_recovery(test_name)
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
 
     do_manual_setting_up(connection)
 

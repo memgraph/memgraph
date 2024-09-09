@@ -14,6 +14,20 @@ import typing
 import mgclient
 
 
+def get_data_path(file: str, test: str):
+    """
+    Data is stored in high_availabiity folder.
+    """
+    return f"system_replication/{file}/{test}"
+
+
+def get_logs_path(file: str, test: str):
+    """
+    Logs are stored in high_availabiity folder.
+    """
+    return f"system_replication/{file}/{test}"
+
+
 def execute_and_fetch_all(cursor: mgclient.Cursor, query: str, params: dict = {}) -> typing.List[tuple]:
     cursor.execute(query, params)
     return cursor.fetchall()

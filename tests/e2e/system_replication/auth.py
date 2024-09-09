@@ -9,18 +9,14 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-import atexit
 import os
-import shutil
 import sys
-import tempfile
-import time
 from functools import partial
 
 import interactive_mg_runner
 import mgclient
 import pytest
-from common import execute_and_fetch_all
+from common import execute_and_fetch_all, get_data_path, get_logs_path
 from mg_utils import mg_sleep_and_assert
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -32,7 +28,15 @@ interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactiv
 
 BOLT_PORTS = {"main": 7687, "replica_1": 7688, "replica_2": 7689}
 REPLICATION_PORTS = {"replica_1": 10001, "replica_2": 10002}
-TEMP_DIR = tempfile.TemporaryDirectory().name
+
+file = "auth"
+
+
+@pytest.fixture(autouse=True)
+def cleanup_after_test():
+    yield
+    # Stop + delete directories
+    interactive_mg_runner.stop_all(keep_directories=False)
 
 
 def update_to_main(cursor):
@@ -145,16 +149,17 @@ def test_auth_queries_on_replica(connection):
     # 0/ Setup replication cluster
     # 1/ Check queries
 
+    test_name = "test_auth_queries_on_replica"
+
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
             "args": [
                 "--bolt-port",
                 f"{BOLT_PORTS['replica_1']}",
                 "--log-level=TRACE",
-                "--data_directory",
-                TEMP_DIR + "/replica1",
             ],
-            "log_file": "replica1.log",
+            "log_file": f"{get_logs_path(file, test_name)}/replica1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica1",
             "setup_queries": [
                 f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_1']};",
             ],
@@ -164,10 +169,9 @@ def test_auth_queries_on_replica(connection):
                 "--bolt-port",
                 f"{BOLT_PORTS['replica_2']}",
                 "--log-level=TRACE",
-                "--data_directory",
-                TEMP_DIR + "/replica2",
             ],
-            "log_file": "replica2.log",
+            "log_file": f"{get_logs_path(file, test_name)}/replica2.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica2",
             "setup_queries": [
                 f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_2']};",
             ],
@@ -177,10 +181,9 @@ def test_auth_queries_on_replica(connection):
                 "--bolt-port",
                 f"{BOLT_PORTS['main']}",
                 "--log-level=TRACE",
-                "--data_directory",
-                TEMP_DIR + "/main",
             ],
-            "log_file": "main.log",
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
             "setup_queries": [
                 f"REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_1']}';",
                 f"REGISTER REPLICA replica_2 ASYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_2']}';",
@@ -211,16 +214,17 @@ def test_manual_users_recovery(connection):
     # 1/ Check that both MAIN and REPLICA have user1 and user2
     # 2/ Check connections on REPLICAS
 
+    test_name = "test_manual_users_recovery"
+
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
             "args": [
                 "--bolt-port",
                 f"{BOLT_PORTS['replica_1']}",
                 "--log-level=TRACE",
-                "--data_directory",
-                TEMP_DIR + "/replica1",
             ],
-            "log_file": "replica1.log",
+            "log_file": f"{get_logs_path(file, test_name)}/replica1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica1",
             "setup_queries": [
                 "CREATE USER user3;",
                 f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_1']};",
@@ -231,10 +235,9 @@ def test_manual_users_recovery(connection):
                 "--bolt-port",
                 f"{BOLT_PORTS['replica_2']}",
                 "--log-level=TRACE",
-                "--data_directory",
-                TEMP_DIR + "/replica2",
             ],
-            "log_file": "replica2.log",
+            "log_file": f"{get_logs_path(file, test_name)}/replica2.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica2",
             "setup_queries": [
                 "CREATE USER user4 IDENTIFIED BY 'password';",
                 f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_2']};",
@@ -245,10 +248,9 @@ def test_manual_users_recovery(connection):
                 "--bolt-port",
                 f"{BOLT_PORTS['main']}",
                 "--log-level=TRACE",
-                "--data_directory",
-                TEMP_DIR + "/main",
             ],
-            "log_file": "main.log",
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
             "setup_queries": [
                 "CREATE USER user1;",
                 "CREATE USER user2 IDENTIFIED BY 'password';",
@@ -285,16 +287,17 @@ def test_env_users_recovery(connection):
     #    Setup replication cluster
     # 1/ Check that both MAIN and REPLICA have user1
 
+    test_name = "test_env_users_recovery"
+
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
             "args": [
                 "--bolt-port",
                 f"{BOLT_PORTS['replica_1']}",
                 "--log-level=TRACE",
-                "--data_directory",
-                TEMP_DIR + "/replica1",
             ],
-            "log_file": "replica1.log",
+            "log_file": f"{get_logs_path(file, test_name)}/replica1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica1",
             "setup_queries": [
                 f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_1']};",
             ],
@@ -304,10 +307,9 @@ def test_env_users_recovery(connection):
                 "--bolt-port",
                 f"{BOLT_PORTS['replica_2']}",
                 "--log-level=TRACE",
-                "--data_directory",
-                TEMP_DIR + "/replica2",
             ],
-            "log_file": "replica2.log",
+            "log_file": f"{get_logs_path(file, test_name)}/replica2.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica2",
             "setup_queries": [
                 f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_2']};",
             ],
@@ -319,10 +321,9 @@ def test_env_users_recovery(connection):
                 "--bolt-port",
                 f"{BOLT_PORTS['main']}",
                 "--log-level=TRACE",
-                "--data_directory",
-                TEMP_DIR + "/main",
             ],
-            "log_file": "main.log",
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
             "setup_queries": [
                 f"REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_1']}';",
                 f"REGISTER REPLICA replica_2 ASYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_2']}';",
@@ -366,6 +367,8 @@ def test_manual_roles_recovery(connection):
     # 2/ Check that role1 and role2 are replicated
     # 3/ Check that user1 has role1
 
+    test_name = "test_manual_roles_recovery"
+
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
             "args": [
@@ -373,10 +376,9 @@ def test_manual_roles_recovery(connection):
                 f"{BOLT_PORTS['replica_1']}",
                 "--log-level=TRACE",
                 "--data_directory",
-                TEMP_DIR + "/replica1",
-                "--also-log-to-stderr",
             ],
-            "log_file": "replica1.log",
+            "log_file": f"{get_logs_path(file, test_name)}/replica1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica1",
             "setup_queries": [
                 "CREATE ROLE role3;",
                 f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_1']};",
@@ -387,10 +389,9 @@ def test_manual_roles_recovery(connection):
                 "--bolt-port",
                 f"{BOLT_PORTS['replica_2']}",
                 "--log-level=TRACE",
-                "--data_directory",
-                TEMP_DIR + "/replica2",
             ],
-            "log_file": "replica2.log",
+            "log_file": f"{get_logs_path(file, test_name)}/replica2.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica2",
             "setup_queries": [
                 "CREATE ROLE role4;",
                 "CREATE USER user4;",
@@ -403,10 +404,9 @@ def test_manual_roles_recovery(connection):
                 "--bolt-port",
                 f"{BOLT_PORTS['main']}",
                 "--log-level=TRACE",
-                "--data_directory",
-                TEMP_DIR + "/main",
             ],
-            "log_file": "main.log",
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
             "setup_queries": [
                 "CREATE ROLE role1;",
                 "CREATE ROLE role2;",
@@ -454,6 +454,8 @@ def test_auth_config_recovery(connection):
     # 1/ Check that both MAIN and REPLICA have the same users
     # 2/ Check that REPLICAS have the same config
 
+    test_name = "test_auth_config_recovery"
+
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
             "args": [
@@ -465,10 +467,9 @@ def test_auth_config_recovery(connection):
                 "--auth-password-permit-null=false",
                 "--auth-user-or-role-name-regex",
                 "^[O-o]+$",
-                "--data_directory",
-                TEMP_DIR + "/replica1",
             ],
-            "log_file": "replica1.log",
+            "log_file": f"{get_logs_path(file, test_name)}/replica1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica1",
             "setup_queries": [
                 "CREATE USER OPQabc IDENTIFIED BY 'PASSWORD';",
                 "CREATE ROLE defRST;",
@@ -485,10 +486,9 @@ def test_auth_config_recovery(connection):
                 "--auth-password-permit-null=true",
                 "--auth-user-or-role-name-regex",
                 "^[A-Np-z]+$",
-                "--data_directory",
-                TEMP_DIR + "/replica2",
             ],
-            "log_file": "replica2.log",
+            "log_file": f"{get_logs_path(file, test_name)}/replica2.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica2",
             "setup_queries": [
                 "CREATE ROLE ABCpqr;",
                 "CREATE USER stuDEF;",
@@ -507,10 +507,9 @@ def test_auth_config_recovery(connection):
                 "--auth-password-permit-null=false",
                 "--auth-user-or-role-name-regex",
                 "^[A-z]+$",
-                "--data_directory",
-                TEMP_DIR + "/main",
             ],
-            "log_file": "main.log",
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
             "setup_queries": [
                 "CREATE USER UsErA IDENTIFIED BY 'pass';",
                 "CREATE ROLE rOlE;",
@@ -549,16 +548,17 @@ def test_auth_config_recovery(connection):
 def test_auth_replication(connection):
     # Goal: show that individual auth queries get replicated
 
+    test_name = "test_auth_replication"
+
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
             "args": [
                 "--bolt-port",
                 f"{BOLT_PORTS['replica_1']}",
                 "--log-level=TRACE",
-                "--data_directory",
-                TEMP_DIR + "/replica1",
             ],
-            "log_file": "replica1.log",
+            "log_file": f"{get_logs_path(file, test_name)}/replica1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica1",
             "setup_queries": [
                 f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_1']};",
             ],
@@ -568,10 +568,9 @@ def test_auth_replication(connection):
                 "--bolt-port",
                 f"{BOLT_PORTS['replica_2']}",
                 "--log-level=TRACE",
-                "--data_directory",
-                TEMP_DIR + "/replica2",
             ],
-            "log_file": "replica2.log",
+            "log_file": f"{get_logs_path(file, test_name)}/replica2.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica2",
             "setup_queries": [
                 f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_2']};",
             ],
@@ -581,10 +580,9 @@ def test_auth_replication(connection):
                 "--bolt-port",
                 f"{BOLT_PORTS['main']}",
                 "--log-level=TRACE",
-                "--data_directory",
-                TEMP_DIR + "/main",
             ],
-            "log_file": "main.log",
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
             "setup_queries": [
                 f"REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_1']}';",
                 f"REGISTER REPLICA replica_2 ASYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_2']}';",

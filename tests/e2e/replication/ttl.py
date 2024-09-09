@@ -11,14 +11,11 @@
 
 import os
 import sys
-import time
 from functools import partial
-from typing import Any, Dict
 
 import interactive_mg_runner
-import mgclient
 import pytest
-from common import execute_and_fetch_all
+from common import execute_and_fetch_all, get_data_path, get_logs_path
 from mg_utils import mg_assert_until, mg_sleep_and_assert
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -31,6 +28,14 @@ interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactiv
 
 BOLT_PORTS = {"main": 7687, "replica_1": 7688, "replica_2": 7689}
 REPLICATION_PORTS = {"replica_1": 10001, "replica_2": 10002}
+file = "ttl"
+
+
+@pytest.fixture(autouse=True)
+def cleanup_after_test():
+    yield
+    # Stop + delete directories
+    interactive_mg_runner.stop_all(keep_directories=False)
 
 
 def test_ttl_replication(connection):
@@ -41,6 +46,8 @@ def test_ttl_replication(connection):
     # 3/ Validate that TTL is working on MAIN
     # 4/ Validate that nodes have been deleted on REPLICA as well
 
+    test_name = "test_ttl_replication"
+
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
             "args": [
@@ -48,7 +55,8 @@ def test_ttl_replication(connection):
                 f"{BOLT_PORTS['replica_1']}",
                 "--log-level=TRACE",
             ],
-            "log_file": "replica1.log",
+            "log_file": f"{get_logs_path(file, test_name)}/replica1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica1",
             "setup_queries": [
                 f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_1']};",
             ],
@@ -59,7 +67,8 @@ def test_ttl_replication(connection):
                 f"{BOLT_PORTS['replica_2']}",
                 "--log-level=TRACE",
             ],
-            "log_file": "replica2.log",
+            "log_file": f"{get_logs_path(file, test_name)}/replica2.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica2",
             "setup_queries": [
                 f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_2']};",
             ],
@@ -70,7 +79,8 @@ def test_ttl_replication(connection):
                 f"{BOLT_PORTS['main']}",
                 "--log-level=TRACE",
             ],
-            "log_file": "main.log",
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
             "setup_queries": [
                 f"REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_1']}';",
                 f"REGISTER REPLICA replica_2 ASYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_2']}';",
@@ -79,7 +89,7 @@ def test_ttl_replication(connection):
     }
 
     # 0/
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL)
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL, keep_directories=False)
     cursor = connection(BOLT_PORTS["main"], "main").cursor()
 
     # 1/
@@ -114,6 +124,8 @@ def test_ttl_on_replica(connection):
     # 5/ Switch REPLICA back to MAIN
     # 6/ Verify that TTL is running
 
+    test_name = "test_ttl_on_replica"
+
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "main": {
             "args": [
@@ -121,12 +133,13 @@ def test_ttl_on_replica(connection):
                 f"{BOLT_PORTS['main']}",
                 "--log-level=TRACE",
             ],
-            "log_file": "main.log",
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
         },
     }
 
     # 0/
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL)
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL, keep_directories=False)
     cursor = connection(BOLT_PORTS["main"], "main").cursor()
 
     def n_vertices():
