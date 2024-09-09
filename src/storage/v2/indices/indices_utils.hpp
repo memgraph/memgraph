@@ -301,16 +301,6 @@ inline bool CurrentEdgeVersionHasProperty(const Edge &edge, PropertyId key, cons
   // Checking cache has a cost, only do it if we have any deltas
   // if we have no deltas then what we already have from the vertex is correct.
   if (delta && transaction->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
-    // IsolationLevel::READ_COMMITTED would be tricky to propagate invalidation to
-    // so for now only cache for IsolationLevel::SNAPSHOT_ISOLATION
-    // auto const useCache = transaction->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION;
-    // if (useCache) {
-    //   auto const &cache = transaction->manyDeltasCache;
-    //   if (auto resError = HasError(view, cache, &edge, false); resError) return false;
-    //   auto resProp = cache.GetProperty(view, &edge, key);
-    //   if (resProp && resProp->get() == value) return true;
-    // }
-
     auto const n_processed = ApplyDeltasForRead(transaction, delta, view, [&, key](const Delta &delta) {
       // clang-format off
       DeltaDispatch(delta, utils::ChainedOverloaded{
@@ -320,15 +310,6 @@ inline bool CurrentEdgeVersionHasProperty(const Edge &edge, PropertyId key, cons
       });
       // clang-format on
     });
-
-    // if (useCache && n_processed >= FLAGS_delta_chain_cache_threshold) {
-    //   auto &cache = transaction->manyDeltasCache;
-    //   cache.StoreExists(view, &edge, exists);
-    //   cache.StoreDeleted(view, &edge, deleted);
-    //   if (current_value_equal_to_value) {
-    //     cache.StoreProperty(view, &edge, key, value);
-    //   }
-    // }
   }
 
   return exists && !deleted && current_value_equal_to_value;
