@@ -69,6 +69,8 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
   PRE_VISIT(ScanAllByLabelProperty);
   PRE_VISIT(ScanAllByEdgeType);
   PRE_VISIT(ScanAllByEdgeTypeProperty);
+  PRE_VISIT(ScanAllByEdgeTypePropertyValue);
+  PRE_VISIT(ScanAllByEdgeTypePropertyRange);
   PRE_VISIT(ScanAllByEdgeId);
   PRE_VISIT(ScanAllById);
   PRE_VISIT(Expand);
@@ -192,6 +194,8 @@ using ExpectScanAll = OpChecker<ScanAll>;
 using ExpectScanAllByLabel = OpChecker<ScanAllByLabel>;
 using ExpectScanAllByEdgeType = OpChecker<ScanAllByEdgeType>;
 using ExpectScanAllByEdgeTypeProperty = OpChecker<ScanAllByEdgeTypeProperty>;
+using ExpectScanAllByEdgeTypePropertyValue = OpChecker<ScanAllByEdgeTypePropertyValue>;
+using ExpectScanAllByEdgeTypePropertyRange = OpChecker<ScanAllByEdgeTypePropertyRange>;
 using ExpectScanAllByEdgeId = OpChecker<ScanAllByEdgeId>;
 using ExpectScanAllById = OpChecker<ScanAllById>;
 using ExpectExpand = OpChecker<Expand>;
