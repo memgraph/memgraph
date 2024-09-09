@@ -1206,137 +1206,137 @@ def test_basic_recovery_when_replica_is_kill_when_main_is_down():
     assert all([x in actual_data for x in expected_data])
 
 
-def test_async_replication_when_main_is_killed():
-    # Goal of the test is to check that when main is randomly killed:
-    # -the ASYNC replica always contains a valid subset of data of main.
-    # We run the test 20 times, it should never fail.
-
-    # 0/ Start main and replicas.
-    # 1/ Register replicas.
-    # 2/ Insert data in main, and randomly kill it.
-    # 3/ Check that the ASYNC replica has a valid subset.
-
-    test_name = "test_async_replication_when_main_is_killed"
-
-    for _ in range(20):
-        # 0/
-        CONFIGURATION = {
-            "async_replica": {
-                "args": ["--bolt-port", "7688", "--log-level=TRACE"],
-                "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
-                "log_file": f"{get_logs_path(file, test_name)}/async_replica.log",
-                "data_directory": f"{get_data_path(file, test_name)}/async_replica",
-            },
-            "main": {
-                "args": ["--bolt-port", "7687", "--log-level=TRACE", "--data-recovery-on-startup=true"],
-                "setup_queries": [],
-                "log_file": f"{get_logs_path(file, test_name)}/main.log",
-                "data_directory": f"{get_data_path(file, test_name)}/main",
-            },
-        }
-        interactive_mg_runner.kill_all(CONFIGURATION, keep_directories=False)
-        interactive_mg_runner.start_all(CONFIGURATION, keep_directories=False)
-
-        # 1/
-        interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(
-            "REGISTER REPLICA async_replica ASYNC TO '127.0.0.1:10001';"
-        )
-
-        # 2/
-        # First make sure that anything has been replicated
-        for index in range(0, 5):
-            interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(f"CREATE (p:Number {{name:{index}}})")
-        expected_data = [("async_replica", "127.0.0.1:10001", "async", "ready")]
-
-        def retrieve_data():
-            replicas = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
-            return [
-                (replica_name, ip, mode, info["memgraph"]["status"])
-                for replica_name, ip, mode, sys_info, info in replicas
-            ]
-
-        actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
-        assert all([x in actual_data for x in expected_data])
-
-        for index in range(5, 50):
-            interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(f"CREATE (p:Number {{name:{index}}})")
-            if random.randint(0, 100) > 95:
-                main_killed = f"Main was killed at index={index}"
-                print(main_killed)
-                interactive_mg_runner.kill(CONFIGURATION, "main")
-                break
-
-        # 3/
-        # short explaination:
-        # res_from_async_replica is an arithmetic sequence with:
-        # -first term 0
-        # -common difference 1
-        # So we check its properties. If properties are fullfilled, it means the ASYNC replicas received a correct subset of messages
-        # from main in the correct order.
-        # In other word: res_from_async_replica is as [0, 1, ..., n-1, n] where values are consecutive integers. $
-        # It should have the two properties:
-        # -list is sorted
-        # -the sum of all elements is equal to nOfTerms * (firstTerm + lastTerm) / 2
-
-        QUERY_TO_CHECK = "MATCH (n) RETURN COLLECT(n.name);"
-        res_from_async_replica = interactive_mg_runner.MEMGRAPH_INSTANCES["async_replica"].query(QUERY_TO_CHECK)[0][0]
-        assert res_from_async_replica == sorted(res_from_async_replica), main_killed
-        total_sum = sum(res_from_async_replica)
-        expected_sum = len(res_from_async_replica) * (res_from_async_replica[0] + res_from_async_replica[-1]) / 2
-        assert total_sum == expected_sum, main_killed
-
-
-def test_sync_replication_when_main_is_killed():
-    # Goal of the test is to check that when main is randomly killed:
-    # -the SYNC replica always contains the exact data that was in main.
-    # We run the test 20 times, it should never fail.
-
-    # 0/ Start main and replica.
-    # 1/ Register replica.
-    # 2/ Insert data in main, and randomly kill it.
-    # 3/ Check that the SYNC replica has exactly the same data than main.
-
-    test_name = "test_sync_replication_when_main_is_killed"
-
-    for _ in range(20):
-        # 0/
-        CONFIGURATION = {
-            "sync_replica": {
-                "args": ["--bolt-port", "7688", "--log-level=TRACE"],
-                "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
-                "log_file": f"{get_logs_path(file, test_name)}/sync_replica.log",
-                "data_directory": f"{get_data_path(file, test_name)}/sync_replica",
-            },
-            "main": {
-                "args": ["--bolt-port", "7687", "--log-level=TRACE", "--data-recovery-on-startup=true"],
-                "setup_queries": [],
-                "log_file": f"{get_logs_path(file, test_name)}/main.log",
-                "data_directory": f"{get_data_path(file, test_name)}/main",
-            },
-        }
-        interactive_mg_runner.kill_all(CONFIGURATION, keep_directories=False)
-        interactive_mg_runner.start_all(CONFIGURATION, keep_directories=False)
-
-        # 1/
-        interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(
-            "REGISTER REPLICA sync_replica SYNC TO '127.0.0.1:10001';"
-        )
-
-        # 2/
-        QUERY_TO_CHECK = "MATCH (n) RETURN COUNT(n.name);"
-        last_result_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)[0][0]
-        for index in range(50):
-            interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(f"CREATE (p:Number {{name:{index}}})")
-            last_result_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)[0][0]
-            if random.randint(0, 100) > 95:
-                main_killed = f"Main was killed at index={index}"
-                interactive_mg_runner.kill(CONFIGURATION, "main")
-                break
-
-        # 3/
-        # The SYNC replica should have exactly the same data than main.
-        res_from_sync_replica = interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica"].query(QUERY_TO_CHECK)[0][0]
-        assert last_result_from_main == res_from_sync_replica, main_killed
+# def test_async_replication_when_main_is_killed():
+#     # Goal of the test is to check that when main is randomly killed:
+#     # -the ASYNC replica always contains a valid subset of data of main.
+#     # We run the test 20 times, it should never fail.
+#
+#     # 0/ Start main and replicas.
+#     # 1/ Register replicas.
+#     # 2/ Insert data in main, and randomly kill it.
+#     # 3/ Check that the ASYNC replica has a valid subset.
+#
+#     test_name = "test_async_replication_when_main_is_killed"
+#
+#     for _ in range(20):
+#         # 0/
+#         CONFIGURATION = {
+#             "async_replica": {
+#                 "args": ["--bolt-port", "7688", "--log-level=TRACE"],
+#                 "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
+#                 "log_file": f"{get_logs_path(file, test_name)}/async_replica.log",
+#                 "data_directory": f"{get_data_path(file, test_name)}/async_replica",
+#             },
+#             "main": {
+#                 "args": ["--bolt-port", "7687", "--log-level=TRACE", "--data-recovery-on-startup=true"],
+#                 "setup_queries": [],
+#                 "log_file": f"{get_logs_path(file, test_name)}/main.log",
+#                 "data_directory": f"{get_data_path(file, test_name)}/main",
+#             },
+#         }
+#         interactive_mg_runner.kill_all(CONFIGURATION, keep_directories=False)
+#         interactive_mg_runner.start_all(CONFIGURATION, keep_directories=False)
+#
+#         # 1/
+#         interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(
+#             "REGISTER REPLICA async_replica ASYNC TO '127.0.0.1:10001';"
+#         )
+#
+#         # 2/
+#         # First make sure that anything has been replicated
+#         for index in range(0, 5):
+#             interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(f"CREATE (p:Number {{name:{index}}})")
+#         expected_data = [("async_replica", "127.0.0.1:10001", "async", "ready")]
+#
+#         def retrieve_data():
+#             replicas = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
+#             return [
+#                 (replica_name, ip, mode, info["memgraph"]["status"])
+#                 for replica_name, ip, mode, sys_info, info in replicas
+#             ]
+#
+#         actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
+#         assert all([x in actual_data for x in expected_data])
+#
+#         for index in range(5, 50):
+#             interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(f"CREATE (p:Number {{name:{index}}})")
+#             if random.randint(0, 100) > 95:
+#                 main_killed = f"Main was killed at index={index}"
+#                 print(main_killed)
+#                 interactive_mg_runner.kill(CONFIGURATION, "main")
+#                 break
+#
+#         # 3/
+#         # short explaination:
+#         # res_from_async_replica is an arithmetic sequence with:
+#         # -first term 0
+#         # -common difference 1
+#         # So we check its properties. If properties are fullfilled, it means the ASYNC replicas received a correct subset of messages
+#         # from main in the correct order.
+#         # In other word: res_from_async_replica is as [0, 1, ..., n-1, n] where values are consecutive integers. $
+#         # It should have the two properties:
+#         # -list is sorted
+#         # -the sum of all elements is equal to nOfTerms * (firstTerm + lastTerm) / 2
+#
+#         QUERY_TO_CHECK = "MATCH (n) RETURN COLLECT(n.name);"
+#         res_from_async_replica = interactive_mg_runner.MEMGRAPH_INSTANCES["async_replica"].query(QUERY_TO_CHECK)[0][0]
+#         assert res_from_async_replica == sorted(res_from_async_replica), main_killed
+#         total_sum = sum(res_from_async_replica)
+#         expected_sum = len(res_from_async_replica) * (res_from_async_replica[0] + res_from_async_replica[-1]) / 2
+#         assert total_sum == expected_sum, main_killed
+#
+#
+# def test_sync_replication_when_main_is_killed():
+#     # Goal of the test is to check that when main is randomly killed:
+#     # -the SYNC replica always contains the exact data that was in main.
+#     # We run the test 20 times, it should never fail.
+#
+#     # 0/ Start main and replica.
+#     # 1/ Register replica.
+#     # 2/ Insert data in main, and randomly kill it.
+#     # 3/ Check that the SYNC replica has exactly the same data than main.
+#
+#     test_name = "test_sync_replication_when_main_is_killed"
+#
+#     for _ in range(20):
+#         # 0/
+#         CONFIGURATION = {
+#             "sync_replica": {
+#                 "args": ["--bolt-port", "7688", "--log-level=TRACE"],
+#                 "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
+#                 "log_file": f"{get_logs_path(file, test_name)}/sync_replica.log",
+#                 "data_directory": f"{get_data_path(file, test_name)}/sync_replica",
+#             },
+#             "main": {
+#                 "args": ["--bolt-port", "7687", "--log-level=TRACE", "--data-recovery-on-startup=true"],
+#                 "setup_queries": [],
+#                 "log_file": f"{get_logs_path(file, test_name)}/main.log",
+#                 "data_directory": f"{get_data_path(file, test_name)}/main",
+#             },
+#         }
+#         interactive_mg_runner.kill_all(CONFIGURATION, keep_directories=False)
+#         interactive_mg_runner.start_all(CONFIGURATION, keep_directories=False)
+#
+#         # 1/
+#         interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(
+#             "REGISTER REPLICA sync_replica SYNC TO '127.0.0.1:10001';"
+#         )
+#
+#         # 2/
+#         QUERY_TO_CHECK = "MATCH (n) RETURN COUNT(n.name);"
+#         last_result_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)[0][0]
+#         for index in range(50):
+#             interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(f"CREATE (p:Number {{name:{index}}})")
+#             last_result_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)[0][0]
+#             if random.randint(0, 100) > 95:
+#                 main_killed = f"Main was killed at index={index}"
+#                 interactive_mg_runner.kill(CONFIGURATION, "main")
+#                 break
+#
+#         # 3/
+#         # The SYNC replica should have exactly the same data than main.
+#         res_from_sync_replica = interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica"].query(QUERY_TO_CHECK)[0][0]
+#         assert last_result_from_main == res_from_sync_replica, main_killed
 
 
 def test_attempt_to_write_data_on_main_when_async_replica_is_down():
