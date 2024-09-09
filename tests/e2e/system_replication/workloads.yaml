@@ -2,6 +2,18 @@ workloads:
   - name: "Replicate multitenancy"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["system_replication/multitenancy.py"]
+  - name: "Replicate multitenancy part 2"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: [ "system_replication/multitenancy_part_2.py"]
+  - name: "Replicate multitenancy part 3"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: [ "system_replication/multitenancy_part_3.py"]
+  - name: "Replicate multitenancy part 4"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: [ "system_replication/multitenancy_part_4.py"]
+  - name: "Replicate multitenancy part 5"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: [ "system_replication/multitenancy_part_5.py"]
   - name: "Replicate auth data"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["system_replication/auth.py"]
