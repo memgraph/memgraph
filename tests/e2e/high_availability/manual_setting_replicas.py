@@ -43,11 +43,18 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
 }
 
 
+@pytest.fixture(autouse=True)
+def cleanup_after_test():
+    yield
+    # Stop + delete directories
+    interactive_mg_runner.stop_all(keep_directories=False)
+
+
 def test_no_manual_setup_on_main():
     # Goal of this test is to check that all manual registration actions are disabled on instances with coordiantor server port
 
     # 1
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
 
     any_main = connect(host="localhost", port=7687).cursor()
     with pytest.raises(Exception) as e:

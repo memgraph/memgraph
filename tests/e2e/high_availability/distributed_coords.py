@@ -268,6 +268,13 @@ def get_instances_description_no_setup_4_coords(test_name: str, use_durability: 
     }
 
 
+@pytest.fixture(autouse=True)
+def cleanup_after_test():
+    yield
+    # Stop + delete directories
+    interactive_mg_runner.stop_all(keep_directories=False)
+
+
 @pytest.mark.parametrize("use_durability", [True, False])
 def test_even_number_coords(use_durability):
     # Goal is to check that nothing gets broken on even number of coords when 2 coords are down
@@ -620,7 +627,7 @@ def test_old_main_comes_back_on_new_leader_as_replica():
 def test_distributed_automatic_failover():
     inner_instances_description = get_instances_description_no_setup(test_name="test_distributed_automatic_failover")
 
-    interactive_mg_runner.start_all(inner_instances_description)
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
     coord_cursor_3 = connect(host="localhost", port=7692).cursor()
     for query in get_default_setup_queries():
@@ -718,7 +725,7 @@ def test_distributed_automatic_failover_with_leadership_change():
         test_name="test_distributed_automatic_failover_with_leadership_change"
     )
 
-    interactive_mg_runner.start_all(inner_instances_description)
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
     coord_cursor_3 = connect(host="localhost", port=7692).cursor()
     for query in get_default_setup_queries():
@@ -851,7 +858,7 @@ def test_no_leader_after_leader_and_follower_die():
     inner_memgraph_instances = get_instances_description_no_setup(
         test_name="test_no_leader_after_leader_and_follower_die"
     )
-    interactive_mg_runner.start_all(inner_memgraph_instances)
+    interactive_mg_runner.start_all(inner_memgraph_instances, keep_directories=False)
 
     coord_cursor_3 = connect(host="localhost", port=7692).cursor()
 
@@ -897,7 +904,7 @@ def test_old_main_comes_back_on_new_leader_as_main():
     inner_memgraph_instances = get_instances_description_no_setup(
         test_name="test_old_main_comes_back_on_new_leader_as_main"
     )
-    interactive_mg_runner.start_all(inner_memgraph_instances)
+    interactive_mg_runner.start_all(inner_memgraph_instances, keep_directories=False)
 
     coord_cursor_3 = connect(host="localhost", port=7692).cursor()
 
@@ -1101,7 +1108,7 @@ def test_registering_4_coords():
         },
     }
 
-    interactive_mg_runner.start_all(INSTANCES_DESCRIPTION)
+    interactive_mg_runner.start_all(INSTANCES_DESCRIPTION, keep_directories=False)
 
     coord_cursor = connect(host="localhost", port=7693).cursor()
 
@@ -1255,7 +1262,7 @@ def test_registering_coord_log_store():
     assert "SET INSTANCE instance_3 TO MAIN" not in INSTANCES_DESCRIPTION["coordinator_4"]["setup_queries"]
 
     # 1
-    interactive_mg_runner.start_all(INSTANCES_DESCRIPTION)
+    interactive_mg_runner.start_all(INSTANCES_DESCRIPTION, keep_directories=False)
 
     # 2
     coord_cursor = connect(host="localhost", port=7693).cursor()
@@ -1579,7 +1586,7 @@ def test_multiple_old_mains_single_failover():
         test_name="test_multiple_old_mains_single_failover"
     )
 
-    interactive_mg_runner.start_all(inner_instances_description)
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
     coord_cursor_3 = connect(host="localhost", port=7692).cursor()
     for query in get_default_setup_queries():
