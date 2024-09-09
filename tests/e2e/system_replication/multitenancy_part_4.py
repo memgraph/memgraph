@@ -11,6 +11,7 @@
 
 import os
 import shutil
+import sys
 import tempfile
 
 import interactive_mg_runner
@@ -218,3 +219,8 @@ def test_automatic_databases_drop_multitenancy_replication(connection):
 
     replica_cursor = connection(BOLT_PORTS["replica_2"], "replica").cursor()
     mg_sleep_and_assert(databases_on_main, show_databases_func(replica_cursor))
+
+
+if __name__ == "__main__":
+    interactive_mg_runner.cleanup_directories_on_exit()
+    sys.exit(pytest.main([__file__, "-rA"]))

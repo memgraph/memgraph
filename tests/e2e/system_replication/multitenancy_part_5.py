@@ -10,10 +10,12 @@
 # licenses/APL.txt.
 
 import os
+import sys
 import tempfile
 
 import interactive_mg_runner
 import mgclient
+import pytest
 from common import execute_and_fetch_all
 from mg_utils import mg_sleep_and_assert, mg_sleep_and_assert_collection
 from multitenancy_common import (
@@ -225,3 +227,8 @@ def test_multitenancy_drop_and_recreate_while_replica_using(connection):
     except mgclient.DatabaseError:
         failed = True
     assert failed
+
+
+if __name__ == "__main__":
+    interactive_mg_runner.cleanup_directories_on_exit()
+    sys.exit(pytest.main([__file__, "-rA"]))

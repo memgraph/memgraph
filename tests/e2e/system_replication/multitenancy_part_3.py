@@ -10,6 +10,7 @@
 # licenses/APL.txt.
 
 import os
+import sys
 import tempfile
 import time
 
@@ -275,3 +276,8 @@ def test_multitenancy_replication_restart_replica_wo_fc(connection, replica_name
     assert get_number_of_edges_func(cursor_replica, "A")() == 3
     assert get_number_of_nodes_func(cursor_replica, "B")() == 2
     assert get_number_of_edges_func(cursor_replica, "B")() == 0
+
+
+if __name__ == "__main__":
+    interactive_mg_runner.cleanup_directories_on_exit()
+    sys.exit(pytest.main([__file__, "-rA"]))

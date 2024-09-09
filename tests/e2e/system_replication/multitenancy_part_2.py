@@ -10,6 +10,7 @@
 # licenses/APL.txt.
 
 import os
+import sys
 import tempfile
 
 import interactive_mg_runner
@@ -298,3 +299,8 @@ def test_automatic_databases_multitenancy_replication_predefined(connection):
     assert get_number_of_edges_func(cursor_replica, "A")() == 0
     assert get_number_of_nodes_func(cursor_replica, "B")() == 2
     assert get_number_of_edges_func(cursor_replica, "B")() == 1
+
+
+if __name__ == "__main__":
+    interactive_mg_runner.cleanup_directories_on_exit()
+    sys.exit(pytest.main([__file__, "-rA"]))
