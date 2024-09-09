@@ -123,6 +123,10 @@ class VertexCountCache {
     return db_->EdgeTypePropertyIndexExists(edge_type, property);
   }
 
+  bool PointIndexExists(storage::LabelId label, storage::PropertyId prop) const {
+    return db_->PointIndexExists(label, prop);
+  }
+
   std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const {
     return db_->GetIndexStats(label);
   }

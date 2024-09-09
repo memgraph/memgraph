@@ -468,6 +468,10 @@ class DbAccessor final {
     return accessor_->TextIndexAggregate(index_name, search_query, aggregation_query);
   }
 
+  bool PointIndexExists(storage::LabelId label, storage::PropertyId prop) const {
+    return accessor_->PointIndexExists(label, prop);
+  }
+
   std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const {
     return accessor_->GetIndexStats(label);
   }
