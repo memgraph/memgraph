@@ -182,7 +182,7 @@ class SynchronizedContainerCopy:
 class ContainerInfo:
     container_name: str
     tasks_executed: List[Tuple[str, str, float]]
-    exception: Optional[str]
+    exceptions: List[str]
     output: List[Tuple[str, str]]
     failure: bool = False
 
@@ -301,7 +301,7 @@ def process_workloads(
     tasks_executed = []
     output = []
     failure = False
-    exception = None
+    exceptions = []
     while True:
         if error_counter.get() > 0:
             synchronized_print.print(f"Encountered errors on other thread, stopping this execution {id}")
@@ -334,7 +334,7 @@ def process_workloads(
                 )
                 error_counter.increment()
                 failure = True
-                exception = res_stdout_formatted
+                exceptions.append(res_stdout_formatted)
                 break
             else:
                 synchronized_print.print(
@@ -342,10 +342,9 @@ def process_workloads(
                 )
         except Exception as e:
             failure = True
-            exception = str(e)
+            exceptions.append(str(e))
             synchronized_print.print(f"Exception: {e}")
             error_counter.increment()
-            container_info.failure = True
             break
 
     try:
@@ -355,19 +354,22 @@ def process_workloads(
         )
         synchronized_print.print(f">>>>Copied logs from container-{id}")
     except Exception as e:
-        synchronized_print.print(f"Exception occurred while copying logs from container-{id}: {e}")
+        failure = True
+        exceptions.append(str(e))
+        error_counter.increment()
+        synchronized_print.print(f"Exception occurred while copying logs from {get_container_name(id)}: {e}")
 
     synchronized_print.print(f">>>>Stopping container-{id}")
     docker_handler.stop_container(container)
     synchronized_print.print(f">>>>Stopped container-{id}")
 
-    container_info.tasks_executed.sort(key=lambda x: x[2], reverse=True)
+    tasks_executed.sort(key=lambda x: x[2], reverse=True)
     synchronized_map.insert_elem(
         id,
         ContainerInfo(
             container_name=get_container_name(id),
             tasks_executed=tasks_executed,
-            exception=exception,
+            exception=exceptions,
             output=output,
             failure=failure,
         ),
@@ -487,15 +489,17 @@ print("END OF DIFF SUMMARY")
 
 print("ERRORS SUMMARY:")
 if error_counter.get() > 0:
-    print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
     print(f"Errors occurred {error_counter.get()}")
     for id, container_info in result.items():
         if container_info.failure:
             print(f"{get_container_name(id)} failed.")
 
+    print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
     for id, container_info in result.items():
         if container_info.failure:
-            print(f"{get_container_name(id)} exception:\n {container_info.exception}.")
+            exceptions = "\n\t >>>".join(container_info.exceptions)
+            print(f"{get_container_name(id)} exception:\n {exceptions}.")
+            print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
 print("END OF ERRORS SUMMARY")
 
 docker_handler.remove_image(image_name)
