@@ -2418,7 +2418,26 @@ def test_coordinator_gets_info_on_other_coordinators():
     def show_instances_coord4():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_4, "SHOW INSTANCES;"))))
 
-    data = [
+    coord2_down_data = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "down", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
+        ("coordinator_4", "localhost:7693", "localhost:10114", "localhost:10124", "up", "follower"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
+        ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
+    ]
+    mg_sleep_and_assert(coord2_down_data, show_instances_coord3)
+    mg_sleep_and_assert(coord2_down_data, show_instances_coord1)
+    mg_sleep_and_assert(coord2_down_data, show_instances_coord4)
+
+    # 7
+
+    interactive_mg_runner.start(inner_instances_description, "coordinator_2")
+
+    # 8
+
+    coord2_up_data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
@@ -2427,19 +2446,10 @@ def test_coordinator_gets_info_on_other_coordinators():
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
-    mg_sleep_and_assert(data, show_instances_coord3)
-    mg_sleep_and_assert(data, show_instances_coord1)
-    mg_sleep_and_assert(data, show_instances_coord4)
-
-    # 7
-
-    interactive_mg_runner.start(inner_instances_description, "coordinator_2")
-
-    # 8
 
     coord_cursor_2 = connect(host="localhost", port=7691).cursor()
 
-    mg_sleep_and_assert(data, show_instances_coord2)
+    mg_sleep_and_assert(coord2_up_data, show_instances_coord2)
 
     interactive_mg_runner.stop_all(keep_directories=False)
 
