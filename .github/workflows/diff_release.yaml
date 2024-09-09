@@ -311,7 +311,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          copy --build-logs --dest-dir build/e2e/logs
+          copy --build-logs --dest-dir build/logs
 
       - name: Save test data
         continue-on-error: true
@@ -319,7 +319,7 @@ jobs:
         if: always()
         with:
           name: "Test data(Release build)-${{ inputs.run_id }}"
-          path: build/e2e/logs
+          path: build/logs
 
       - name: Stop mgbuild container
         if: always()
