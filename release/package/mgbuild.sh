@@ -483,7 +483,7 @@ copy_memgraph() {
           exit 1
         fi
         artifact="build logs"
-        artifact_name="logs"
+        artifact_name="e2e/logs"
         container_artifact_path="$MGBUILD_BUILD_DIR/$artifact_name"
         host_dir="$PROJECT_BUILD_DIR"
         shift 1
