@@ -51,8 +51,8 @@ auto Endpoint::GetResolvedSocketAddress() const -> std::string {
     throw NetworkError("Couldn't resolve {}.", address_);
   }
 
-  auto const &resolved_address = std::get<0>(*result);
-  auto const &resolved_port = std::get<1>(*result);
+  auto resolved_address = std::get<0>(*result);
+  auto resolved_port = std::get<1>(*result);
   spdlog::trace("{}:{} successfully resolved to {}:{}.", address_, port_, resolved_address, resolved_port);
 
   return fmt::format("{}{}{}", resolved_address, delimiter, resolved_port);
@@ -64,7 +64,7 @@ auto Endpoint::GetResolvedIPAddress() const -> std::string {
     throw NetworkError("Couldn't resolve {}.", address_);
   }
 
-  auto const &resolved_address = std::get<0>(*result);
+  auto resolved_address = std::get<0>(*result);
   spdlog::trace("{} successfully resolved to {}.", address_, resolved_address);
 
   return resolved_address;
@@ -118,7 +118,7 @@ std::optional<Endpoint::RetValue> Endpoint::TryResolveAddress(std::string_view a
     };
 
     addrinfo *info{nullptr};
-    utils::OnScopeExit const free_info{[info]() {
+    utils::OnScopeExit const free_info{[&info]() {
       if (info) {
         freeaddrinfo(info);
       }
