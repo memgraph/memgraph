@@ -178,10 +178,9 @@ class MemgraphInstanceRunner:
         pid = self.proc_mg.pid
         try:
             os.kill(pid, SIGNAL_SIGTERM)
+            os.waitpid(pid, 0)
         except os.OSError:
             assert False
-
-        time.sleep(1)
 
         if not keep_directories:
             for folder in self.delete_on_stop or {}:
