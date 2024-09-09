@@ -23,7 +23,7 @@ from common import (
     find_instance_and_assert_instances,
     ignore_elapsed_time_from_results,
     update_tuple_value,
-from common import connect, execute_and_fetch_all, ignore_elapsed_time_from_results
+)
 from distributed_coords_common import (
     find_instance_and_assert_instances,
     get_default_setup_queries,
