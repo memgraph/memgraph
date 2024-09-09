@@ -20,6 +20,19 @@ namespace memgraph::storage {
 
 enum class TemporalType : uint8_t { Date = 0, LocalTime, LocalDateTime, Duration };
 
+inline std::ostream &operator<<(std::ostream &stream, const TemporalType type) {
+  switch (type) {
+    case TemporalType::Date:
+      return stream << "Date";
+    case TemporalType::LocalTime:
+      return stream << "LocalTime";
+    case TemporalType::LocalDateTime:
+      return stream << "LocalDateTime";
+    case TemporalType::Duration:
+      return stream << "Duration";
+  }
+}
+
 constexpr std::string_view TemporalTypeToString(const TemporalType type) {
   switch (type) {
     case TemporalType::Date:

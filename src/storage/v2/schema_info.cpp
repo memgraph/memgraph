@@ -10,9 +10,11 @@
 // licenses/APL.txt.
 
 #include "storage/v2/schema_info.hpp"
+
 #include <atomic>
 #include <mutex>
 #include <utility>
+
 #include "storage/v2/delta.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_store.hpp"
@@ -169,20 +171,21 @@ auto GetEdges(const memgraph::storage::Vertex &vertex, uint64_t commit_timestamp
 
 auto PropertyType_ActionMethod(
     std::unordered_map<memgraph::storage::PropertyId,
-                       std::pair<memgraph::storage::PropertyValueType, memgraph::storage::PropertyValueType>> &diff) {
+                       std::pair<memgraph::storage::ExtendedPropertyType, memgraph::storage::ExtendedPropertyType>>
+        &diff) {
   // clang-format off
   using enum memgraph::storage::Delta::Action;
   return memgraph::storage::ActionMethod<SET_PROPERTY>([&diff](memgraph::storage::Delta const &delta) {
     const auto key = delta.property.key;
-    const auto old_type = delta.property.value->type();
+    const auto old_type = memgraph::storage::ExtendedPropertyType{*delta.property.value};
     auto itr = diff.find(key);
     if (itr == diff.end()) {
       // NOTE: For vertices we pre-fill the diff
       // If diff is pre-filled, missing property means it got deleted; new value should always be Null
-      diff.emplace(key, std::make_pair(memgraph::storage::PropertyValueType::Null, old_type));
+      diff.emplace(key, std::make_pair(memgraph::storage::ExtendedPropertyType{}, old_type));
     } else {
       // We are going from newest to oldest; overwrite so we remain with the value pre tx
-      itr->second.second = old_type;
+      itr->second.second = memgraph::storage::ExtendedPropertyType{old_type};
     }
   });
   // clang-format on
@@ -192,7 +195,18 @@ auto PropertyType_ActionMethod(
 
 namespace memgraph::storage {
 
-inline auto PropertyTypes_ActionMethod(std::map<PropertyId, PropertyValue::Type> &properties) {
+ExtendedPropertyType GenPropertyType(const storage::pmr::PropertyValue *property_value) {
+  const auto type = property_value->type();
+  if (type == PropertyValueType::TemporalData) {
+    return ExtendedPropertyType{property_value->ValueTemporalData().type};
+  }
+  if (type == PropertyValueType::Enum) {
+    return ExtendedPropertyType{property_value->ValueEnum().type_id()};
+  }
+  return ExtendedPropertyType{type};
+}
+
+inline auto PropertyTypes_ActionMethod(std::map<PropertyId, ExtendedPropertyType> &properties) {
   using enum Delta::Action;
   return ActionMethod<SET_PROPERTY>([&](Delta const &delta) {
     auto it = properties.find(delta.property.key);
@@ -202,7 +216,7 @@ inline auto PropertyTypes_ActionMethod(std::map<PropertyId, PropertyValue::Type>
         properties.erase(it);
       } else {
         // set the value
-        it->second = delta.property.value->type();
+        it->second = GenPropertyType(delta.property.value);
       }
     } else if (!delta.property.value->IsNull()) {
       properties.emplace(delta.property.key, delta.property.value->type());
@@ -238,7 +252,7 @@ void Tracking::CleanUp() {
 }
 
 // Todo ENUMS
-nlohmann::json PropertyInfo::ToJson(std::string_view key) const {
+nlohmann::json PropertyInfo::ToJson(const EnumStore &enum_store, std::string_view key) const {
   nlohmann::json::object_t property_info;
   property_info.emplace("key", key);
   property_info.emplace("count", n);
@@ -246,7 +260,13 @@ nlohmann::json PropertyInfo::ToJson(std::string_view key) const {
   for (const auto &type : types) {
     nlohmann::json::object_t type_info;
     std::stringstream ss;
-    ss << type.first;
+    if (type.first.type == PropertyValueType::TemporalData) {
+      ss << type.first.temporal_type;
+    } else if (type.first.type == PropertyValueType::Enum) {
+      ss << "enum::" << *enum_store.ToTypeString(type.first.enum_type);
+    } else {
+      ss << type.first.type;
+    }
     type_info.emplace("type", ss.str());
     type_info.emplace("count", type.second);
     types_itr->second.emplace_back(std::move(type_info));
@@ -254,17 +274,17 @@ nlohmann::json PropertyInfo::ToJson(std::string_view key) const {
   return property_info;
 }
 
-nlohmann::json TrackingInfo::ToJson(NameIdMapper &name_id_mapper) const {
+nlohmann::json TrackingInfo::ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store) const {
   nlohmann::json::object_t tracking_info;
   tracking_info.emplace("count", n);
   const auto &[prop_itr, __] = tracking_info.emplace("properties", nlohmann::json::array_t{});
   for (const auto &[p, info] : properties) {
-    prop_itr->second.emplace_back(info.ToJson(name_id_mapper.IdToName(p.AsUint())));
+    prop_itr->second.emplace_back(info.ToJson(enum_store, name_id_mapper.IdToName(p.AsUint())));
   }
   return tracking_info;
 }
 
-nlohmann::json Tracking::ToJson(NameIdMapper &name_id_mapper) {
+nlohmann::json Tracking::ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store) {
   // Clean up unused stats
   CleanUp();
 
@@ -280,7 +300,7 @@ nlohmann::json Tracking::ToJson(NameIdMapper &name_id_mapper) {
       labels_itr->emplace_back(name_id_mapper.IdToName(l.AsUint()));
     }
     std::sort(labels_itr->begin(), labels_itr->end());
-    node.update(info.ToJson(name_id_mapper));
+    node.update(info.ToJson(name_id_mapper, enum_store));
     nodes.emplace_back(std::move(node));
   }
 
@@ -300,7 +320,7 @@ nlohmann::json Tracking::ToJson(NameIdMapper &name_id_mapper) {
       in_labels_itr->emplace_back(name_id_mapper.IdToName(l.AsUint()));
     }
     std::sort(in_labels_itr->begin(), in_labels_itr->end());
-    edge.update(info.ToJson(name_id_mapper));
+    edge.update(info.ToJson(name_id_mapper, enum_store));
     edges.emplace_back(std::move(edge));
   }
 
@@ -358,12 +378,12 @@ const auto &VertexHandler::PreLabels() const {
 
 auto VertexHandler::GetPropertyDiff() const {
   std::unordered_map<memgraph::storage::PropertyId,
-                     std::pair<memgraph::storage::PropertyValueType, memgraph::storage::PropertyValueType>>
+                     std::pair<memgraph::storage::ExtendedPropertyType, memgraph::storage::ExtendedPropertyType>>
       diff;
 
   // Prefill diff with current properties (as if no change has been made)
-  for (const auto &[key, type] : vertex_.properties.PropertyTypes()) {
-    diff.emplace(key, std::make_pair(vertex_.deleted ? PropertyValueType::Null : type, type));
+  for (const auto &[key, type] : vertex_.properties.ExtendedPropertyTypes()) {
+    diff.emplace(key, std::make_pair(vertex_.deleted ? ExtendedPropertyType{} : type, type));
   }
 
   ApplyUncommittedDeltasForRead(vertex_.delta, [&diff](const memgraph::storage::Delta &delta) {
@@ -432,12 +452,12 @@ void VertexHandler::PostProcess(TransactionEdgeHandler &tx_edge_handler) {
   if (label_update_ || update_property_) {
     for (const auto &[key, diff] : GetPropertyDiff()) {
       if (label_update_ || diff.first != diff.second) {
-        if (diff.second != PropertyValueType::Null) {
+        if (diff.second != ExtendedPropertyType{}) {
           auto &info = tracking_pre_info->properties[key];
           --info.n;
           --info.types[diff.second];
         }
-        if (diff.first != PropertyValueType::Null) {
+        if (diff.first != ExtendedPropertyType{}) {
           auto &info = tracking_post_info->properties[key];
           ++info.n;
           ++info.types[diff.first];
@@ -513,7 +533,7 @@ void TransactionEdgeHandler::RemoveEdge(const Delta *delta, EdgeTypeId edge_type
                                         Vertex *to_vertex) {
   // Optimistically adding EdgeKeyRef; post process will update if vertex label changed
   remove_edges_.emplace(std::piecewise_construct, std::make_tuple(delta->vertex_edge.edge),
-                        std::make_tuple(EdgeKeyWrapper::ref_tag, edge_type, std::cref(from_vertex->labels),
+                        std::make_tuple(EdgeKeyWrapper::RefTag{}, edge_type, std::cref(from_vertex->labels),
                                         std::cref(to_vertex->labels)));
 }
 
@@ -523,7 +543,7 @@ void TransactionEdgeHandler::UpdateRemovedEdgeKey(EdgeRef edge, EdgeTypeId edge_
   // TODO Avoid erasing
   if (remove_edges_.erase(edge) != 0) {
     remove_edges_.emplace(std::piecewise_construct, std::make_tuple(edge),
-                          std::make_tuple(EdgeKeyWrapper::copy_tag, edge_type, GetCommittedLabels(*from_vertex),
+                          std::make_tuple(EdgeKeyWrapper::CopyTag{}, edge_type, GetCommittedLabels(*from_vertex),
                                           GetCommittedLabels(*to_vertex)));
   }
 }
@@ -544,7 +564,7 @@ void TransactionEdgeHandler::AddEdge(const Delta *delta, EdgeTypeId edge_type, V
   auto &tracking_info = tracking_[EdgeKeyRef{edge_type, from_vertex->labels, to_vertex->labels}];
   ++tracking_info.n;
   if (properties_on_edges_) {
-    for (const auto &[key, val] : delta->vertex_edge.edge.ptr->properties.PropertyTypes()) {
+    for (const auto &[key, val] : delta->vertex_edge.edge.ptr->properties.ExtendedPropertyTypes()) {
       auto &prop_post_info = tracking_info.properties[key];
       ++prop_post_info.n;
       ++prop_post_info.types[val];
@@ -606,16 +626,16 @@ void TransactionEdgeHandler::PostVertexProcess() {
   }
 }
 
-std::map<PropertyId, PropertyValueType> TransactionEdgeHandler::GetPrePropertyTypes(const EdgeRef &edge_ref,
-                                                                                    bool lock) const {
-  std::map<PropertyId, PropertyValueType> properties;
+std::map<PropertyId, ExtendedPropertyType> TransactionEdgeHandler::GetPrePropertyTypes(const EdgeRef &edge_ref,
+                                                                                       bool lock) const {
+  std::map<PropertyId, ExtendedPropertyType> properties;
   if (properties_on_edges_) {
     const auto *edge = edge_ref.ptr;
     auto guard = std::invoke([&]() -> std::optional<std::unique_lock<decltype(edge->lock)>> {
       if (lock) return std::unique_lock{edge->lock};
       return std::nullopt;
     });
-    properties = edge->properties.PropertyTypes();
+    properties = edge->properties.ExtendedPropertyTypes();
     if (edge->delta) {
       ApplyUncommittedDeltasForRead(edge->delta, [&properties](const Delta &delta) {
         // clang-format off
@@ -644,7 +664,8 @@ bool EdgeHandler::ExistedPreTx() const {
 auto EdgeHandler::PropertyType_ActionMethod(
     const memgraph::storage::PropertyStore &properties,
     std::unordered_map<memgraph::storage::PropertyId,
-                       std::pair<memgraph::storage::PropertyValueType, memgraph::storage::PropertyValueType>> &diff) {
+                       std::pair<memgraph::storage::ExtendedPropertyType, memgraph::storage::ExtendedPropertyType>>
+        &diff) {
   // clang-format off
   using enum memgraph::storage::Delta::Action;
   return memgraph::storage::ActionMethod<SET_PROPERTY>([this, &properties,
@@ -688,20 +709,20 @@ auto EdgeHandler::PropertyType_ActionMethod(
           to_lock.lock();
         }
         // Vertex labels are not guaranteed to be stable, re-generate them and use EdgeKey (not *Ref)
-        edge_key_.emplace(EdgeKeyWrapper::copy_tag, std::get<0>(out_edge), GetLabels(*out_vertex, commit_timestamp_),
+        edge_key_.emplace(EdgeKeyWrapper::CopyTag{}, std::get<0>(out_edge), GetLabels(*out_vertex, commit_timestamp_),
                           GetLabels(*in_vertex, commit_timestamp_));
       } else {
         // Since the vertices are stable, no need to re-generate the labels; EdgeKeyRef can be used
-        edge_key_.emplace(EdgeKeyWrapper::ref_tag, std::get<0>(out_edge), out_vertex->labels, in_vertex->labels);
+        edge_key_.emplace(EdgeKeyWrapper::RefTag{}, std::get<0>(out_edge), out_vertex->labels, in_vertex->labels);
       }
     }
 
     const auto key = delta.property.key;
-    const auto old_type = delta.property.value->type();
+    const auto old_type = ExtendedPropertyType{*delta.property.value};
     auto itr = diff.find(key);
     if (itr == diff.end()) {
       diff.emplace(key,
-                   std::make_pair(edge_.deleted ? PropertyValueType::Null : properties.GetPropertyType(key), old_type));
+                   std::make_pair(edge_.deleted ? ExtendedPropertyType{} : properties.GetExtendedPropertyType(key), old_type));
     } else {
       itr->second.second = old_type;
     }
@@ -711,7 +732,7 @@ auto EdgeHandler::PropertyType_ActionMethod(
 
 auto EdgeHandler::GetPropertyDiff(const memgraph::storage::PropertyStore &properties, memgraph::storage::Delta *delta) {
   std::unordered_map<memgraph::storage::PropertyId,
-                     std::pair<memgraph::storage::PropertyValueType, memgraph::storage::PropertyValueType>>
+                     std::pair<memgraph::storage::ExtendedPropertyType, memgraph::storage::ExtendedPropertyType>>
       diff;
 
   ApplyUncommittedDeltasForRead(delta, [this, &properties, &diff](const memgraph::storage::Delta &delta) {
@@ -738,11 +759,11 @@ void EdgeHandler::Process() {
   for (const auto &[key, diff] : diff_) {
     if (diff.first != diff.second) {
       auto &info = tracking_info.properties[key];
-      if (diff.second != PropertyValueType::Null) {
+      if (diff.second != ExtendedPropertyType{}) {
         --info.n;
         --info.types[diff.second];
       }
-      if (diff.first != PropertyValueType::Null) {
+      if (diff.first != ExtendedPropertyType{}) {
         ++info.n;
         ++info.types[diff.first];
       }

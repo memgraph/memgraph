@@ -12,8 +12,10 @@
 #include "storage/v2/vertex_accessor.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <memory>
+#include <thread>
 #include <tuple>
 #include <utility>
 
@@ -27,6 +29,7 @@
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
+#include "storage/v2/schema_info.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex_info_cache.hpp"
@@ -110,14 +113,22 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
   }
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   // This has to be called before any object gets locked
-  // auto schema_acc = storage_->SchemaInfoAutoAccessor(!vertex_->in_edges.empty() && !vertex_->out_edges.empty());
-  // TODO Add upgrade/downgrade; we need an accessor before locking the vertex. but need to lock the vertex in order to
-  // know which accessor to use
-  auto schema_acc = storage_->SchemaInfoUniqueAccessor();
+  std::optional<std::variant<SchemaInfo::Accessor, SchemaInfo::UniqueAccessor>> schema_acc;
+  if (auto schema_unique_acc = storage_->SchemaInfoUniqueAccessor(); schema_unique_acc) {
+    schema_acc = std::move(*schema_unique_acc);
+  }
   auto guard = std::unique_lock{vertex_->lock};
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
   if (vertex_->deleted) return Error::DELETED_OBJECT;
+
+  // Now that the vertex is locked, we can check if it has any edges and if it doesn't, we can downgrade the accessor
+  if (schema_acc) {
+    if (vertex_->in_edges.empty() && vertex_->out_edges.empty()) {
+      schema_acc->emplace<SchemaInfo::Accessor>(std::get<SchemaInfo::UniqueAccessor>(std::move(*schema_acc)));
+    }
+  }
+
   if (std::find(vertex_->labels.begin(), vertex_->labels.end(), label) != vertex_->labels.end()) return false;
 
   utils::AtomicMemoryBlock([transaction = transaction_, vertex = vertex_, &label]() {
@@ -150,8 +161,14 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
   storage_->indices_.UpdateOnAddLabel(label, vertex_, *transaction_);
   transaction_->UpdateOnChangeLabel(label, vertex_);
 
-  // NOTE Has to be called at the end because it needs to be able to release the vertex lock
-  if (schema_acc) schema_acc->AddLabel(vertex_, label, std::move(guard));
+  // NOTE Has to be called at the end because it needs to be able to release the vertex lock (in case edges need to be
+  // updated)
+  if (schema_acc) {
+    std::visit(
+        utils::Overloaded([&](SchemaInfo::Accessor &acc) { acc.AddLabel(vertex_, label); },
+                          [&](SchemaInfo::UniqueAccessor &acc) { acc.AddLabel(vertex_, label, std::move(guard)); }),
+        *schema_acc);
+  }
   return true;
 }
 
@@ -161,14 +178,21 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
     throw query::WriteVertexOperationInEdgeImportModeException();
   }
   // This has to be called before any object gets locked
-  // auto schema_acc = storage_->SchemaInfoAutoAccessor(!vertex_->in_edges.empty() && !vertex_->out_edges.empty());
-  // TODO Add upgrade/downgrade; we need an accessor before locking the vertex. but need to lock the vertex in order to
-  // know which accessor to use
-  auto schema_acc = storage_->SchemaInfoUniqueAccessor();
+  std::optional<std::variant<SchemaInfo::Accessor, SchemaInfo::UniqueAccessor>> schema_acc;
+  if (auto schema_unique_acc = storage_->SchemaInfoUniqueAccessor(); schema_unique_acc) {
+    schema_acc = std::move(*schema_unique_acc);
+  }
   auto guard = std::unique_lock{vertex_->lock};
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
   if (vertex_->deleted) return Error::DELETED_OBJECT;
+
+  // Now that the vertex is locked, we can check if it has any edges and if it doesn't, we can downgrade the accessor
+  if (schema_acc) {
+    if (vertex_->in_edges.empty() && vertex_->out_edges.empty()) {
+      schema_acc->emplace<SchemaInfo::Accessor>(std::get<SchemaInfo::UniqueAccessor>(std::move(*schema_acc)));
+    }
+  }
 
   auto it = std::find(vertex_->labels.begin(), vertex_->labels.end(), label);
   if (it == vertex_->labels.end()) return false;
@@ -184,8 +208,14 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
   storage_->indices_.UpdateOnRemoveLabel(label, vertex_, *transaction_);
   transaction_->UpdateOnChangeLabel(label, vertex_);
 
-  // NOTE Has to be called at the end because it needs to be able to release the vertex lock
-  if (schema_acc) schema_acc->RemoveLabel(vertex_, label, std::move(guard));
+  // NOTE Has to be called at the end because it needs to be able to release the vertex lock (in case edges need to be
+  // updated)
+  if (schema_acc) {
+    std::visit(
+        utils::Overloaded([&](SchemaInfo::Accessor &acc) { acc.RemoveLabel(vertex_, label); },
+                          [&](SchemaInfo::UniqueAccessor &acc) { acc.RemoveLabel(vertex_, label, std::move(guard)); }),
+        *schema_acc);
+  }
   return true;
 }
 
@@ -314,7 +344,7 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
 
     CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, old_value);
     vertex->properties.SetProperty(property, new_value);
-    if (schema_acc) schema_acc->SetProperty(vertex, property, {new_value.type(), old_value.type()});
+    if (schema_acc) schema_acc->SetProperty(vertex, property, new_value, old_value);
 
     return false;
   };
@@ -368,7 +398,8 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
               transaction->constraint_verification_info->RemovedProperty(vertex);
             }
           }
-          if (schema_acc) schema_acc->SetProperty(vertex, property, {new_value.type(), PropertyValueType::Null});
+          if (schema_acc)
+            schema_acc->SetProperty(vertex, property, {ExtendedPropertyType{value}, ExtendedPropertyType{}});
         }
         // TODO If not performant enough there is also InitProperty()
         result = true;
@@ -413,7 +444,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
           transaction->constraint_verification_info->RemovedProperty(vertex);
         }
       }
-      if (schema_acc) schema_acc->SetProperty(vertex, id, {new_value.type(), old_value.type()});
+      if (schema_acc) schema_acc->SetProperty(vertex, id, new_value, old_value);
     }
   });
 
@@ -445,7 +476,8 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
           CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, old_value);
           storage->indices_.UpdateOnSetProperty(property, new_value, vertex, *transaction);
           transaction->UpdateOnSetProperty(property, old_value, new_value, vertex);
-          if (schema_acc) schema_acc->SetProperty(vertex, property, {PropertyValueType::Null, old_value.type()});
+          if (schema_acc)
+            schema_acc->SetProperty(vertex, property, {ExtendedPropertyType{}, ExtendedPropertyType{value}});
         }
         if (transaction->constraint_verification_info) {
           transaction->constraint_verification_info->RemovedProperty(vertex);

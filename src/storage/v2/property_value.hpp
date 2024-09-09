@@ -417,6 +417,30 @@ namespace pmr {
 using PropertyValue = PropertyValueImpl<std::pmr::polymorphic_allocator<std::byte>>;
 }
 
+struct ExtendedPropertyType {
+  PropertyValueType type{PropertyValueType::Null};
+  TemporalType temporal_type{};
+  EnumTypeId enum_type{};
+
+  ExtendedPropertyType() {}
+  explicit ExtendedPropertyType(PropertyValueType type) : type{type} {}
+  explicit ExtendedPropertyType(TemporalType temporal_type)
+      : type{PropertyValueType::TemporalData}, temporal_type{temporal_type} {}
+  explicit ExtendedPropertyType(EnumTypeId enum_type) : type{PropertyValueType::Enum}, enum_type{enum_type} {}
+  explicit ExtendedPropertyType(const PropertyValue &val) : type{val.type()} {
+    if (type == PropertyValueType::TemporalData) {
+      temporal_type = val.ValueTemporalData().type;
+    }
+    if (type == PropertyValueType::Enum) {
+      enum_type = val.ValueEnum().type_id();
+    }
+  }
+
+  bool operator==(const ExtendedPropertyType &other) const {
+    return type == other.type && temporal_type == other.temporal_type && enum_type == other.enum_type;
+  }
+};
+
 static_assert(sizeof(PropertyValue) == 40);
 static_assert(sizeof(pmr::PropertyValue) == 56);
 

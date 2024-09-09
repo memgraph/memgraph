@@ -159,8 +159,7 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
     edge.ptr->properties.SetProperty(property, value);
     storage_->indices_.UpdateOnSetProperty(edge_type_, property, value, from_vertex_, to_vertex_, edge_.ptr,
                                            *transaction_);
-    if (schema_acc)
-      schema_acc->SetProperty(edge_type_, from_vertex_, to_vertex_, property, {value.type(), current_value->type()});
+    if (schema_acc) schema_acc->SetProperty(edge_type_, from_vertex_, to_vertex_, property, value, *current_value);
   });
 
   if (transaction_->IsDiskStorage()) {
@@ -191,7 +190,7 @@ Result<bool> EdgeAccessor::InitProperties(const std::map<storage::PropertyId, st
                                              *transaction_);
       if (schema_acc)
         schema_acc->SetProperty(edge_type_, from_vertex_, to_vertex_, property,
-                                {value.type(), PropertyValueType::Null});
+                                {ExtendedPropertyType{value}, ExtendedPropertyType{}});
     }
     // TODO If the current implementation is too slow there is an InitProperties option
   });
@@ -223,8 +222,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAc
                          std::move(old_value));
       storage_->indices_.UpdateOnSetProperty(edge_type_, property, new_value, from_vertex_, to_vertex_, edge_.ptr,
                                              *transaction_);
-      if (schema_acc)
-        schema_acc->SetProperty(edge_type_, from_vertex_, to_vertex_, property, {new_value.type(), old_value.type()});
+      if (schema_acc) schema_acc->SetProperty(edge_type_, from_vertex_, to_vertex_, property, new_value, old_value);
     }
     // TODO If the current implementation is too slow there is an UpdateProperties option
   });
@@ -254,7 +252,7 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
                                              edge_.ptr, *transaction_);
       if (schema_acc)
         schema_acc->SetProperty(edge_type_, from_vertex_, to_vertex_, property.first,
-                                {PropertyValueType::Null, property.second.type()});
+                                {ExtendedPropertyType{}, ExtendedPropertyType{property.second.type()}});
     }
     // TODO If the current implementation is too slow there is an ClearProperties option
 
