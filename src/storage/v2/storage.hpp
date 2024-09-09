@@ -307,6 +307,8 @@ class Storage {
       return storage_->indices_.text_index_.Aggregate(index_name, search_query, aggregation_query);
     }
 
+    virtual bool PointIndexExists(LabelId label, PropertyId property) const = 0;
+
     virtual IndicesInfo ListAllIndices() const = 0;
 
     virtual ConstraintsInfo ListAllConstraints() const = 0;
