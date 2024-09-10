@@ -17,6 +17,11 @@
 #include "query/query_logger.hpp"
 
 namespace {
+constexpr int log_retention_count = 35;
+
+}  // namespace
+
+namespace {
 // Helper function to append a formatted tag if it's not empty
 void AppendTag(std::stringstream &ss, const std::string &tag) {
   if (!tag.empty()) {
@@ -31,9 +36,29 @@ void AppendTag(std::stringstream &ss, const std::string &tag) {
 namespace memgraph::query {
 
 QueryLogger::QueryLogger(std::string log_file, std::string session_uuid, std::string username)
-    : Logger("QueryLogger", std::move(log_file)),
-      session_id_(std::move(session_uuid)),
-      user_or_role_(std::move(username)) {}
+    : session_id_(std::move(session_uuid)), user_or_role_(std::move(username)) {
+  std::vector<spdlog::sink_ptr> sinks;
+  if (!log_file.empty()) {
+    time_t current_time{0};
+    struct tm *local_time{nullptr};
+
+    time(&current_time);  // NOLINT
+    local_time = localtime(&current_time);
+
+    sinks.emplace_back(std::make_shared<spdlog::sinks::daily_file_sink_mt>(
+        std::move(log_file), local_time->tm_hour, local_time->tm_min, false, log_retention_count));
+  }
+  // If log file is empty, logger can be used but without sinks = no logging.
+  logger_ = std::make_shared<spdlog::logger>("QueryLogger", sinks.begin(), sinks.end());
+  logger_->set_level(spdlog::level::trace);
+  logger_->flush_on(spdlog::level::trace);
+}
+
+QueryLogger::~QueryLogger() {
+  logger_->flush();
+  logger_.reset();
+  logger_ = nullptr;
+}
 
 void QueryLogger::trace(const std::string &log_line) { logger_->log(spdlog::level::trace, GetMessage(log_line)); }
 void QueryLogger::debug(const std::string &log_line) { logger_->log(spdlog::level::debug, GetMessage(log_line)); }
@@ -46,6 +71,9 @@ void QueryLogger::SetSessionId(const std::string &s_id) { session_id_ = s_id; }
 void QueryLogger::SetUser(const std::string &u) { user_or_role_ = u; }
 void QueryLogger::ResetUser() { user_or_role_ = ""; }
 void QueryLogger::ResetTransactionId() { transaction_id_ = ""; }
+
+void QueryLogger::set_level(spdlog::level::level_enum l) { logger_->set_level(l); }
+int QueryLogger::get_level() { return logger_->level(); }
 
 std::string QueryLogger::GetMessage(const std::string &log_line) {
   std::stringstream ss;

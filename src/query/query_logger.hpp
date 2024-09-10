@@ -18,23 +18,21 @@
 #include <spdlog/spdlog.h>
 #include <string>
 
-#include "utils/logger.hpp"
-
 namespace memgraph::query {
 
-class QueryLogger : public utils::Logger {
+class QueryLogger {
  public:
   explicit QueryLogger(std::string log_file, std::string session_uuid, std::string username);
 
-  void trace(const std::string &log_line) override;
+  ~QueryLogger();
 
-  void debug(const std::string &log_line) override;
-
-  void info(const std::string &log_line) override;
-
-  void warn(const std::string &log_line) override;
-
-  void err(const std::string &log_line) override;
+  void trace(const std::string &log_line);
+  void debug(const std::string &log_line);
+  void info(const std::string &log_line);
+  void warn(const std::string &log_line);
+  void err(const std::string &log_line);
+  void set_level(spdlog::level::level_enum l);
+  int get_level();
 
   void SetTransactionId(const std::string &t_id);
   void SetSessionId(const std::string &s_id);
@@ -43,6 +41,7 @@ class QueryLogger : public utils::Logger {
   void ResetTransactionId();
 
  private:
+  std::shared_ptr<spdlog::logger> logger_;
   std::string session_id_;
   std::string user_or_role_;
   std::string transaction_id_;
