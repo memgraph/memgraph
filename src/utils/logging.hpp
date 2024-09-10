@@ -106,8 +106,8 @@ inline bool CheckRocksDBStatus(const auto &status) {
 
 inline std::string MaskSensitiveInformation(const std::string &input) {
   // Regex patterns for sensitive information and node properties
-  std::regex nodePattern(R"(\(\w+:\w+\s*\{[^}]*\})");
-  std::regex sensitivePattern(
+  static std::regex nodePattern(R"(\(\w+:\w+\s*\{[^}]*\})");
+  static std::regex sensitivePattern(
       R"((password\s*:\s*'[^']*')|([Pp][Aa][Ss]*[Ss]*[Ww]*[Oo]*[Rr]*[Dd]*\s+[Tt][Oo]\s*'[^']*')|([Rr][Ee]?[Pp][Ll]?[Aa]?[Cc]?[Ee]?\s*'[^']*')|([Ii][Dd]?[Ee]?[Nn]?[Tt]?[Ii]?[Ff]?[Ii]?[Ee]?[Dd]*\s+[Bb][Yy]\s*'[^']*')|([Pp][Aa]*[Ss]*[Ss]*[Ww]*[Oo]*[Rr]*[Dd]*\s+[Ff][Oo][Rr]\s+\w+\s+[Tt][Oo]\s*'[^']*'))",
       std::regex_constants::icase);
 
