@@ -27,10 +27,16 @@ RUN useradd -m -s /bin/bash mg
 USER mg
 
 # Install rust
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+ARG RUST_VERSION=1.80
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
+    && rustup default ${RUST_VERSION}
 
 # Fix node
-RUN curl https://raw.githubusercontent.com/creationix/nvm/master/install.sh | bash
+ARG NODE_VERSION=20
+RUN curl https://raw.githubusercontent.com/creationix/nvm/master/install.sh | bash \
+    && . ~/.nvm/nvm.sh \
+    && nvm install ${NODE_VERSION} \
+    && nvm use ${NODE_VERSION}
 
 # Install PyYAML (only for amzn-2, centos-7, cento-9 and rocky-9.3)
 RUN pip3 install --user PyYAML
