@@ -180,6 +180,9 @@ class MemgraphInstanceRunner:
         return True
 
     def stop(self, keep_directories=False):
+        """
+        Sends SIGTERM to the running process. If keep_directories is set to False, deletes --data-directory folder.
+        """
         if not self.is_running():
             return
 
@@ -200,6 +203,9 @@ class MemgraphInstanceRunner:
 
     # TODO: (andi) Abstract into one function
     def kill(self, keep_directories=False):
+        """
+        Sends kill signal to the running process. If keep_directories is set to False, deletes --data-directory folder.
+        """
         if not self.is_running():
             return
         self.proc_mg.kill()

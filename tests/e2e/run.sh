@@ -4,7 +4,7 @@ cd "$SCRIPT_DIR"
 
 print_help() {
   echo "    run args   1. Positional argument, workload name as string"
-  echo "               2. If you specify --clean-data-dir, whole data directory will get deleted."
+  echo "               2. If you specify --save-data-dir, whole data directory will get preserved."
   echo "               3. If you specify --clean-logs-dir, all logs will get deleted."
   echo -e ""
   echo -e "  NOTE: some tests require enterprise licence key,"

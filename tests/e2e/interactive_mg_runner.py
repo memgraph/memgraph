@@ -35,6 +35,7 @@ import atexit
 import logging
 import os
 import secrets
+import socket
 import sys
 import time
 from argparse import ArgumentParser
@@ -84,9 +85,9 @@ ACTIONS = {
     "quit": lambda _: sys.exit(1),
 }
 
-CLEANUP_DIRECTORIES_ON_EXIT = False
-
 log = logging.getLogger("memgraph.tests.e2e")
+
+# TODO: (andi) Use context everywhere...
 
 
 def load_args():
@@ -101,9 +102,19 @@ def load_args():
     return parser.parse_args()
 
 
-def is_port_in_use(port: int) -> bool:
-    import socket
+def wait_until_port_is_free(port: int) -> bool:
+    """
+    Return True when port is free, False if port is still not free after 10s.
+    """
+    for _ in range(100):
+        if is_port_in_use(port):
+            time.sleep(0.1)
+        else:
+            return True
+    return False
 
+
+def is_port_in_use(port: int) -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         return s.connect_ex(("localhost", port)) == 0
 
@@ -127,12 +138,12 @@ def _start_instance(
     ), "If this raises, you are trying to start an instance with the same name as the one running."
     if not bolt_port:
         bolt_port = extract_bolt_port(args)
-    assert not is_port_in_use(
+    assert wait_until_port_is_free(
         bolt_port
     ), f"If this raises, you are trying to start an instance on a port {bolt_port} used by the running instance."
     management_port = extract_management_port(args)
     if management_port:
-        assert not is_port_in_use(
+        assert wait_until_port_is_free(
             management_port
         ), f"If this raises, you are trying to start with coordinator management port {management_port} which is already in use."
 
@@ -162,12 +173,18 @@ def _start_instance(
 
 
 def stop_all(keep_directories=True):
+    """
+    Idempotent in a sense that if instances were already stopped, additional call to stop_all won't do anything wrong. Sends SIGTERM signal.
+    """
     for mg_instance in MEMGRAPH_INSTANCES.values():
         mg_instance.stop(keep_directories)
     MEMGRAPH_INSTANCES.clear()
 
 
-def stop_instance(context, name, keep_directories=True):
+def stop(context, name, keep_directories=True):
+    """
+    Idempotent in a sense that stopping already stopped instance won't fail program.
+    """
     for key, _ in context.items():
         if key != name:
             continue
@@ -175,15 +192,19 @@ def stop_instance(context, name, keep_directories=True):
         MEMGRAPH_INSTANCES.pop(name)
 
 
-def stop(context, name, keep_directories=True):
-    if name != "all":
-        stop_instance(context, name, keep_directories)
-        return
-
-    stop_all()
+def kill_all(keep_directories=True):
+    """
+    Idempotent in a sense that killing already dead instances won't fail. Sends SIGKILL signal.
+    """
+    for key in MEMGRAPH_INSTANCES.keys():
+        MEMGRAPH_INSTANCES[key].kill(keep_directories)
+    MEMGRAPH_INSTANCES.clear()
 
 
 def kill(context, name, keep_directories=True):
+    """
+    Kills instance with name 'name' from the 'context'.
+    """
     for key in context.keys():
         if key != name:
             continue
@@ -191,19 +212,12 @@ def kill(context, name, keep_directories=True):
         MEMGRAPH_INSTANCES.pop(name)
 
 
-def kill_all(context, keep_directories=True):
-    for key in MEMGRAPH_INSTANCES.keys():
-        MEMGRAPH_INSTANCES[key].kill(keep_directories)
-    MEMGRAPH_INSTANCES.clear()
-
-
-def cleanup_directories_on_exit(value=True):
-    CLEANUP_DIRECTORIES_ON_EXIT = value
-
-
 @atexit.register
 def cleanup():
-    stop_all(CLEANUP_DIRECTORIES_ON_EXIT)
+    """
+    On exit stop all instances but don't clear data directories since this is controller from run.sh running script.
+    """
+    stop_all()
 
 
 def start_instance(context, name, procdir):
@@ -261,16 +275,23 @@ def start_instance(context, name, procdir):
 
 
 def start_all(context, procdir="", keep_directories=True):
+    """
+    Start all instances by first stopping all instances and then calling start_instance for each instance from the `context`.
+    """
     stop_all(keep_directories)
     for key, _ in context.items():
         start_instance(context, key, procdir)
 
 
-def start_all_keep_others(context, procdir="", keep_directories=True):
+def start_all_keep_others(context, procdir=""):
+    """
+    Start all instances from the context but don't stop currently running instances.
+    """
     for key, _ in context.items():
         start_instance(context, key, procdir)
 
 
+# TODO: (andi) This method doesn't make sense. Change everything to calling start_instance.
 def start(context, name, procdir=""):
     if name != "all":
         start_instance(context, name, procdir)

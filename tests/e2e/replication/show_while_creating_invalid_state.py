@@ -1233,7 +1233,7 @@ def test_async_replication_when_main_is_killed():
             },
         }
         print(f"test_repetition: {test_repetition}")
-        interactive_mg_runner.kill_all(CONFIGURATION, keep_directories=False)
+        interactive_mg_runner.kill_all(keep_directories=False)
         interactive_mg_runner.start_all(CONFIGURATION, keep_directories=False)
 
         # 1/
@@ -1311,7 +1311,7 @@ def test_sync_replication_when_main_is_killed():
                 "log_file": f"{get_logs_path(file, test_name)}/main.log",
             },
         }
-        interactive_mg_runner.kill_all(CONFIGURATION, keep_directories=False)
+        interactive_mg_runner.kill_all(keep_directories=False)
         interactive_mg_runner.start_all(CONFIGURATION, keep_directories=False)
 
         # 1/

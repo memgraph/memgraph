@@ -75,7 +75,7 @@ def test_replication_works_on_failover():
     # to be part of new cluster, `main` (old cluster) can't write any more to it
 
     # 1
-    interactive_mg_runner.start_all_keep_others(MEMGRAPH_FIRST_CLUSTER_DESCRIPTION, keep_directories=False)
+    interactive_mg_runner.start_all_keep_others(MEMGRAPH_FIRST_CLUSTER_DESCRIPTION)
 
     # 2
     main_cursor = connect(host="localhost", port=7687).cursor()
@@ -95,7 +95,7 @@ def test_replication_works_on_failover():
     mg_sleep_and_assert(expected_data_on_main, retrieve_data_show_replicas)
 
     # 3
-    interactive_mg_runner.start_all_keep_others(MEMGRAPH_SECOND_CLUSTER_DESCRIPTION, keep_directories=False)
+    interactive_mg_runner.start_all_keep_others(MEMGRAPH_SECOND_CLUSTER_DESCRIPTION)
 
     # 4
     new_main_cursor = connect(host="localhost", port=7690).cursor()
@@ -209,7 +209,7 @@ def test_not_replicate_old_main_register_new_cluster():
     }
 
     # 1
-    interactive_mg_runner.start_all_keep_others(MEMGRAPH_FISRT_COORD_CLUSTER_DESCRIPTION, keep_directories=False)
+    interactive_mg_runner.start_all_keep_others(MEMGRAPH_FISRT_COORD_CLUSTER_DESCRIPTION)
 
     # 2
 
@@ -262,7 +262,7 @@ def test_not_replicate_old_main_register_new_cluster():
         },
     }
 
-    interactive_mg_runner.start_all_keep_others(MEMGRAPH_SECOND_COORD_CLUSTER_DESCRIPTION, keep_directories=False)
+    interactive_mg_runner.start_all_keep_others(MEMGRAPH_SECOND_COORD_CLUSTER_DESCRIPTION)
     second_cluster_coord_cursor = connect(host="localhost", port=7691).cursor()
     execute_and_fetch_all(
         second_cluster_coord_cursor,
