@@ -87,13 +87,8 @@ struct Transaction {
 
   bool RemoveModifiedEdge(const Gid &gid) { return modified_edges_.erase(gid) > 0U; }
 
-  void UpdateOnAddLabel(LabelId label, Vertex *vertex) {
-    point_index_change_collector_.UpdateOnAddLabel(label, vertex);
-    manyDeltasCache.Invalidate(vertex, label);
-  }
-
-  void UpdateOnRemoveLabel(LabelId label, Vertex *vertex) {
-    point_index_change_collector_.UpdateOnRemoveLabel(label, vertex);
+  void UpdateOnChangeLabel(LabelId label, Vertex *vertex) {
+    point_index_change_collector_.UpdateOnChangeLabel(label, vertex);
     manyDeltasCache.Invalidate(vertex, label);
   }
 

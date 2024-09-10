@@ -67,7 +67,11 @@ bool PointIndexStorage::CreatePointIndex(LabelId label, PropertyId property,
   for (auto const &v : vertices) {
     if (v.deleted) continue;
     if (!utils::Contains(v.labels, label)) continue;
-    auto value = v.properties.GetProperty(property);
+
+    auto maybe_value = v.properties.GetPropertyOfTypes(property, std::array{PropertyStoreType::POINT});
+    if (!maybe_value) continue;
+
+    auto value = *maybe_value;
     switch (value.type()) {
       case PropertyValueType::Point2d: {
         auto val = value.ValuePoint2d();

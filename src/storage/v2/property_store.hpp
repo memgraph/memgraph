@@ -27,7 +27,7 @@ DECLARE_bool(storage_property_store_compression_enabled);
 namespace memgraph::storage {
 
 // All of these values must have the lowest 4 bits set to zero because they are
-// used to store two `Size` values as described in the comment above.
+// used to store property ID size (2 bits) and payload size OR size of payload size indicator (2 bits).
 enum class PropertyStoreType : uint8_t {
   EMPTY = 0x00,  // Special value used to indicate end of buffer.
   NONE = 0x10,   // NONE used instead of NULL because NULL is defined to

@@ -17,20 +17,7 @@
 
 namespace memgraph::storage {
 
-void PointIndexChangeCollector::UpdateOnAddLabel(LabelId label, Vertex const *vertex) {
-  if (current_changes_.empty()) return;
-
-  constexpr auto all_point_types = std::array{PropertyStoreType::POINT};
-  for (auto prop : vertex->properties.PropertiesOfTypes(all_point_types)) {
-    auto k = LabelPropKey{label, prop};
-    auto it = current_changes_.find(k);
-    if (it != current_changes_.end()) {
-      it->second.insert(vertex);
-    }
-  }
-}
-
-void PointIndexChangeCollector::UpdateOnRemoveLabel(LabelId label, Vertex const *vertex) {
+void PointIndexChangeCollector::UpdateOnChangeLabel(LabelId label, Vertex const *vertex) {
   if (current_changes_.empty()) return;
 
   constexpr auto all_point_types = std::array{PropertyStoreType::POINT};

@@ -66,8 +66,7 @@ struct PointIndexChangeCollector {
 
   explicit PointIndexChangeCollector(PointIndexContext &ctx);
 
-  void UpdateOnAddLabel(LabelId label, Vertex const *vertex);
-  void UpdateOnRemoveLabel(LabelId label, Vertex const *vertex);
+  void UpdateOnChangeLabel(LabelId label, Vertex const *vertex);
 
   void UpdateOnSetProperty(PropertyId prop_id, const PropertyValue &old_value, const PropertyValue &new_value,
                            Vertex const *vertex);
