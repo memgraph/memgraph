@@ -171,8 +171,8 @@ jobs:
         run:
           aws s3 sync $SOURCE_DIR s3://${{ inputs.s3_bucket }}/$DEST_DIR
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_AK_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SAK }}
           AWS_REGION: ${{ inputs.s3_region }}
           SOURCE_DIR: ${{ env.FOR_DOCKER == 'true' && env.DOCKER_ARTIFACT_DIR || env.PACKAGE_ARTIFACT_DIR }}
           DEST_DIR: "${{ inputs.s3_dest_dir }}/${{ env.ARTIFACT_NAME }}/"
