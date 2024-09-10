@@ -770,21 +770,14 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         // If the license is not valid we create users with admin access
         if (!valid_enterprise_license) {
           spdlog::warn("Granting all the privileges to {}.", username);
-          auth->GrantPrivilege(
-              username, kPrivilegesAll
+          auth->GrantPrivilege(username, kPrivilegesAll
 #ifdef MG_ENTERPRISE
-              ,
-              {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}},
-              {
-                {
-                  {
-                    AuthQuery::FineGrainedPrivilege::CREATE_DELETE, { query::kAsterisk }
-                  }
-                }
-              }
+                               ,
+                               {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}},
+                               {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}}
 #endif
-              ,
-              &*interpreter->system_transaction_);
+                               ,
+                               &*interpreter->system_transaction_);
         }
 
         return std::vector<std::vector<TypedValue>>();
@@ -5028,6 +5021,54 @@ PreparedQuery PrepareSessionTraceQuery(ParsedQuery parsed_query, CurrentDB &curr
                        RWType::NONE};
 }
 
+PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, CurrentDB &current_db) {
+#ifdef MG_ENTERPRISE
+
+  if (current_db.db_acc_->get()->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
+    throw ShowSchemaInfoOnDiskException();
+  }
+
+  if (!license::global_license_checker.IsEnterpriseValidFast()) {
+    throw QueryException("Trying to use enterprise feature without a valid license.");
+  }
+
+  Callback callback;
+  callback.header = {"Schema"};
+  callback.fn = [db_acc = *current_db.db_acc_]() mutable -> std::vector<std::vector<TypedValue>> {
+    std::vector<std::vector<TypedValue>> schema;
+    auto *storage = db_acc->storage();
+    auto schema_acc = storage->SchemaInfoGlobalAccessor();
+    if (schema_acc) {
+      const auto json = schema_acc->ToJson(*storage->name_id_mapper_, storage->enum_store_);
+      const auto printed = json.dump(2 /* indent */);
+      for (const auto &row : utils::Split(utils::Trim(printed), "\n")) {
+        schema.push_back(std::vector<TypedValue>{TypedValue(utils::Replace(row, "\"", ""))});
+      }
+    } else {
+      throw QueryException("SchemaInfo disabled.");
+    }
+    return schema;
+  };
+
+  return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
+                       [handler = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+                         if (!pull_plan) {
+                           auto results = handler();
+                           pull_plan = std::make_shared<PullPlanVector>(std::move(results));
+                         }
+
+                         if (pull_plan->Pull(stream, n)) {
+                           return QueryHandlerResult::NOTHING;
+                         }
+                         return std::nullopt;
+                       },
+                       RWType::R, current_db.db_acc_->get()->name()};
+#else
+  throw QueryException("Query not supported.");
+#endif
+}
+
 std::optional<uint64_t> Interpreter::GetTransactionId() const { return current_transaction_; }
 
 void Interpreter::BeginTransaction(QueryExtras const &extras) {
@@ -5370,13 +5411,10 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     } else if (utils::Downcast<DropEnumQuery>(parsed_query.query)) {
       throw utils::NotYetImplemented("Drop enum");
     } else if (utils::Downcast<ShowSchemaInfoQuery>(parsed_query.query)) {
-      // TODO Remove this hack
-      auto *in_mem = static_cast<storage::InMemoryStorage *>(current_db_.db_acc_->get()->storage());
-      std::cout << "SCHEMA INFO\n"
-                << in_mem->schema_info_.ToJson(*in_mem->name_id_mapper_, in_mem->enum_store_) << std::endl;
-      throw utils::NotYetImplemented("Show schema info");
-    } else if (utils::Downcast<SessionTraceQuery>(parsed_query.query)) {
-      prepared_query = PrepareSessionTraceQuery(std::move(parsed_query), current_db_, this);
+      if (in_explicit_transaction_) {
+        throw ShowSchemaInfoInMulticommandTxException();
+      }
+      prepared_query = PrepareShowSchemaInfoQuery(parsed_query, current_db_);
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }

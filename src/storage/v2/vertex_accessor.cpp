@@ -399,7 +399,7 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
             }
           }
           if (schema_acc)
-            schema_acc->SetProperty(vertex, property, {ExtendedPropertyType{value}, ExtendedPropertyType{}});
+            schema_acc->SetProperty(vertex, property, {ExtendedPropertyType{new_value}, ExtendedPropertyType{}});
         }
         // TODO If not performant enough there is also InitProperty()
         result = true;
@@ -477,7 +477,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
           storage->indices_.UpdateOnSetProperty(property, new_value, vertex, *transaction);
           transaction->UpdateOnSetProperty(property, old_value, new_value, vertex);
           if (schema_acc)
-            schema_acc->SetProperty(vertex, property, {ExtendedPropertyType{}, ExtendedPropertyType{value}});
+            schema_acc->SetProperty(vertex, property, {ExtendedPropertyType{}, ExtendedPropertyType{old_value}});
         }
         if (transaction->constraint_verification_info) {
           transaction->constraint_verification_info->RemovedProperty(vertex);

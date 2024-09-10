@@ -214,7 +214,7 @@ struct Tracking {
     return (*this)[key.copy_.key];
   }
 
-  void CleanUp();
+  void ProcessTransaction(Transaction &transaction, bool properties_on_edges);
 
   void Clear() {
     vertex_state_.clear();
@@ -222,6 +222,11 @@ struct Tracking {
   }
 
   nlohmann::json ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store);
+
+  mutable utils::RWSpinLock analytical_shared_access_protection_;
+
+ private:
+  void CleanUp();
 
   std::unordered_map<VertexKey, TrackingInfo, VertexKeyHash, VertexKeyEqualTo> vertex_state_;
   std::unordered_map<EdgeKey, TrackingInfo, EdgeKey::hash, EdgeKey::equal_to> edge_state_;
@@ -336,54 +341,36 @@ class EdgeHandler {
 };
 
 struct SchemaInfo {
-  void ProcessTransaction(Transaction &transaction, bool properties_on_edges) {
-    // NOTE: commit_timestamp is actually the transaction ID, sa this is called before we finalize the commit
-    const auto commit_timestamp = transaction.commit_timestamp->load(std::memory_order_acquire);
+  class GlobalAccessor {
+   public:
+    explicit GlobalAccessor(SchemaInfo &si) : schema_info_{&si}, lock_{schema_info_->operation_ordering_mutex_} {}
 
-    // Edges have multiple objects that define their changes, this object keeps track of all the changes during a tx
-    TransactionEdgeHandler tx_edge_handler{tracking_, commit_timestamp, properties_on_edges};
+    // SchemaInfo API
+    void Clear() { schema_info_->tracking_.Clear(); }
 
-    // First run through all vertices
-    for (const auto &delta : transaction.deltas) {
-      // Find VERTEX; handle object's delta chain
-      auto prev = delta.prev.Get();
-      DMG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
-      if (prev.type == PreviousPtr::Type::VERTEX) {
-        VertexHandler vertex_handler{*prev.vertex, tracking_, commit_timestamp};
-        vertex_handler.Process(tx_edge_handler);
-      }
+    Tracking Get() const { return schema_info_->tracking_; }
+    Tracking Move() { return std::move(schema_info_->tracking_); }
+    void Set(Tracking tracking) { schema_info_->tracking_ = std::move(tracking); }
+
+    nlohmann::json ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store) {
+      return schema_info_->tracking_.ToJson(name_id_mapper, enum_store);
     }
 
-    // Handle any lingering transaction-wide changes
-    tx_edge_handler.PostVertexProcess();
+   private:
+    SchemaInfo *schema_info_;
+    boost::unique_lock<boost::shared_mutex> lock_;
+  };
 
-    // Handle edges only after vertices are handled
-    // Here we will handle only edge property changes
-    // Other edge changes are handled by vertex deltas
-    if (properties_on_edges) {
-      for (const auto &delta : transaction.deltas) {
-        // Find EDGE; handle object's delta chain
-        auto prev = delta.prev.Get();
-        DMG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
-        if (prev.type == PreviousPtr::Type::EDGE) {
-          EdgeHandler edge_handler{*prev.edge, tracking_, commit_timestamp};
-          edge_handler.Process();
-        }
-      }
-    }
-  }
-
-  auto ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store) {
-    return tracking_.ToJson(name_id_mapper, enum_store);
-  }
-
-  void Clear() { tracking_.Clear(); }
-
+  //
+  //
+  // ANALYTICAL IMPLEMENTATION
+  //
+  //
   class Accessor;
   class UniqueAccessor {
    public:
     explicit UniqueAccessor(SchemaInfo &si, bool prop_on_edges)
-        : schema_info_{&si}, lock_{schema_info_->mtx_}, properties_on_edges_{prop_on_edges} {}
+        : schema_info_{&si}, lock_{schema_info_->operation_ordering_mutex_}, properties_on_edges_{prop_on_edges} {}
 
     // Vertex
     // Calling this after change has been applied
@@ -548,18 +535,22 @@ struct SchemaInfo {
     }
 
     SchemaInfo *schema_info_;
-
-   public:
     boost::unique_lock<boost::shared_mutex> lock_;
     bool properties_on_edges_;
 
     friend Accessor;
   };
 
+  // tracking_ only needs to be locked here.
+  // When processing a transaction, each transaction can commit one at a time; we take a copy of tracking_, process it
+  // and update the schema info. When copying, a unique lock is taken.
+  // When in analytical mode, we have 2 accessors; UniqueAccessor (which guarantees only a single reader/writer) and
+  // Accessor (with shared access). Since multiple operators can be calling the Accessor functions, we need to protect
+  // tracking_.
   class Accessor {
    public:
     explicit Accessor(SchemaInfo &si, bool prop_on_edges)
-        : schema_info_{&si}, lock_{schema_info_->mtx_}, property_on_edges_(prop_on_edges) {}
+        : schema_info_{&si}, lock_{schema_info_->operation_ordering_mutex_}, property_on_edges_(prop_on_edges) {}
 
     // Downgrade accessor
     explicit Accessor(UniqueAccessor &&unique)
@@ -570,13 +561,15 @@ struct SchemaInfo {
     // Vertex
     void CreateVertex(Vertex *vertex) {
       // DMG_ASSERT(vertex->lock.is_locked(), "Trying to read from an unlocked vertex; LINE {}", __LINE__);
+      auto lock = std::unique_lock{schema_info_->tracking_.analytical_shared_access_protection_};
       ++schema_info_->tracking_[vertex->labels].n;
     }
 
     void DeleteVertex(Vertex *vertex) {
       DMG_ASSERT(vertex->lock.is_locked(), "Trying to read from an unlocked vertex; LINE {}", __LINE__);
+      auto lock = std::unique_lock{schema_info_->tracking_.analytical_shared_access_protection_};
       --schema_info_->tracking_[vertex->labels].n;
-      ClearProperties(vertex);
+      ClearProperties_(vertex);
       // No edges should be present at this point
     }
 
@@ -592,6 +585,7 @@ struct SchemaInfo {
       DMG_ASSERT(itr != old_labels.end(), "Trying to recreate labels pre commit, but label not found!");
       *itr = old_labels.back();
       old_labels.pop_back();
+      auto lock = std::unique_lock{schema_info_->tracking_.analytical_shared_access_protection_};
       SchemaInfo::UpdateLabel(*schema_info_, vertex, old_labels, vertex->labels);
     }
 
@@ -603,6 +597,7 @@ struct SchemaInfo {
       // Move all stats and edges to new label
       auto old_labels = vertex->labels;
       old_labels.push_back(label);
+      auto lock = std::unique_lock{schema_info_->tracking_.analytical_shared_access_protection_};
       SchemaInfo::UpdateLabel(*schema_info_, vertex, old_labels, vertex->labels);
     }
 
@@ -610,12 +605,14 @@ struct SchemaInfo {
       DMG_ASSERT(from->lock.is_locked(), "Trying to read from an unlocked vertex; LINE {}", __LINE__);
       DMG_ASSERT(to->lock.is_locked(), "Trying to read from an unlocked vertex; LINE {}", __LINE__);
       // Empty edge; just update the top level stats
+      auto lock = std::unique_lock{schema_info_->tracking_.analytical_shared_access_protection_};
       auto &tracking_info = schema_info_->tracking_[EdgeKeyRef{edge_type, from->labels, to->labels}];
       ++tracking_info.n;
     }
 
     void DeleteEdge(Vertex *from, Vertex *to, EdgeTypeId edge_type, EdgeRef edge) {
       // Vertices changed by the tx ( no need to lock )
+      auto lock = std::unique_lock{schema_info_->tracking_.analytical_shared_access_protection_};
       auto &tracking_info = schema_info_->tracking_[EdgeKeyRef{edge_type, from->labels, to->labels}];
       --tracking_info.n;
       if (property_on_edges_) {
@@ -633,6 +630,7 @@ struct SchemaInfo {
 
     void SetProperty(Vertex *vertex, PropertyId property, std::pair<ExtendedPropertyType, ExtendedPropertyType> diff) {
       DMG_ASSERT(vertex->lock.is_locked(), "Trying to read from an unlocked vertex; LINE {}", __LINE__);
+      auto lock = std::unique_lock{schema_info_->tracking_.analytical_shared_access_protection_};
       auto &tracking_info = schema_info_->tracking_[vertex->labels];
       if (diff.first != diff.second) {
         if (diff.second != ExtendedPropertyType{PropertyValueType::Null}) {
@@ -648,9 +646,9 @@ struct SchemaInfo {
       }
     }
 
-    void ClearProperties(Vertex *vertex) {
+   private:
+    void ClearProperties_(Vertex *vertex) {
       DMG_ASSERT(vertex->lock.is_locked(), "Trying to read from an unlocked vertex; LINE {}", __LINE__);
-      // TODO Are these the old values
       auto &tracking_info = schema_info_->tracking_[vertex->labels];
       for (const auto &[key, val] : vertex->properties.ExtendedPropertyTypes()) {
         auto &info = tracking_info.properties[key];
@@ -659,7 +657,6 @@ struct SchemaInfo {
       }
     }
 
-   private:
     SchemaInfo *schema_info_;
     boost::shared_lock<boost::shared_mutex> lock_;
     boost::upgrade_lock<boost::shared_mutex> upgrade_lock_;
@@ -668,10 +665,12 @@ struct SchemaInfo {
 
   Accessor CreateAccessor(bool prop_on_edges) { return Accessor{*this, prop_on_edges}; }
   UniqueAccessor CreateUniqueAccessor(bool prop_on_edges) { return UniqueAccessor{*this, prop_on_edges}; }
+  GlobalAccessor CreateGlobalAccessor() { return GlobalAccessor{*this}; }
 
  private:
   friend Accessor;
   friend UniqueAccessor;
+  friend GlobalAccessor;
 
   static void UpdateLabel(SchemaInfo &schema_info, Vertex *vertex, const utils::small_vector<LabelId> old_labels,
                           const utils::small_vector<LabelId> new_labels) {
@@ -691,7 +690,7 @@ struct SchemaInfo {
   }
 
   Tracking tracking_;
-  mutable boost::shared_mutex mtx_;
+  mutable boost::shared_mutex operation_ordering_mutex_;
 };
 
 }  // namespace memgraph::storage

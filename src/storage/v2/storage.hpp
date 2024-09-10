@@ -596,14 +596,7 @@ class Storage {
     return std::nullopt;
   }
 
-  std::optional<std::variant<SchemaInfo::Accessor, SchemaInfo::UniqueAccessor>> SchemaInfoAutoAccessor(
-      bool vertex_has_edges) {
-    if (storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL) {
-      if (vertex_has_edges) return schema_info_.CreateUniqueAccessor(config_.salient.items.properties_on_edges);
-      return schema_info_.CreateAccessor(config_.salient.items.properties_on_edges);
-    }
-    return std::nullopt;
-  }
+  std::optional<SchemaInfo::GlobalAccessor> SchemaInfoGlobalAccessor() { return schema_info_.CreateGlobalAccessor(); }
 
   SchemaInfo schema_info_;
 };

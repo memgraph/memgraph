@@ -32,6 +32,7 @@
 #include "storage/v2/inmemory/replication/recovery.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/schema_info.hpp"
 #include "utils/atomic_memory_block.hpp"
 #include "utils/event_gauge.hpp"
 #include "utils/resource_lock.hpp"
@@ -1018,11 +1019,14 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
           could_replicate_all_sync_replicas =
               mem_storage->AppendToWal(transaction_, durability_commit_timestamp, std::move(db_acc));
 
-          // TODO is this the correct place for this
-          mem_storage->schema_info_.ProcessTransaction(transaction_,
-                                                       mem_storage->config_.salient.items.properties_on_edges);
-          // mem_storage->schema_info_.CleanUp();
-          // mem_storage->schema_info_.Print(*mem_storage->name_id_mapper_);
+          std::optional<Tracking> stats;
+          if (auto acc = mem_storage->SchemaInfoGlobalAccessor()) {
+            stats.emplace(acc->Get());
+          }
+          if (stats) {
+            stats->ProcessTransaction(transaction_, mem_storage->config_.salient.items.properties_on_edges);
+            mem_storage->SchemaInfoGlobalAccessor()->Set(std::move(*stats));
+          }
 
           // TODO: release lock, and update all deltas to have a local copy of the commit timestamp
           MG_ASSERT(transaction_.commit_timestamp != nullptr, "Invalid database state!");
@@ -2803,7 +2807,7 @@ void InMemoryStorage::InMemoryAccessor::DropGraph() {
   mem_storage->indices_.DropGraphClearIndices();
   mem_storage->constraints_.DropGraphClearConstraints();
 
-  mem_storage->schema_info_.Clear();
+  if (auto acc = mem_storage->SchemaInfoGlobalAccessor(); acc) acc->Clear();
 
   mem_storage->vertices_.clear();
   mem_storage->edges_.clear();
