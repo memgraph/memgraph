@@ -636,6 +636,8 @@ class ScanAllByEdge : public memgraph::query::plan::ScanAll {
         common_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-", common_.node2_symbol.name());
   }
 
+  storage::EdgeTypeId GetEdgeType() { return common_.edge_types[0]; }
+
   memgraph::query::plan::ScanByEdgeCommon common_;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {

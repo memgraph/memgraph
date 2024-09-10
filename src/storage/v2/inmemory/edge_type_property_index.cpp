@@ -463,6 +463,7 @@ void InMemoryEdgeTypePropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
 
     auto accessor =
         EdgeAccessor{edge_ref, self_->edge_type_, from_vertex, to_vertex, self_->storage_, self_->transaction_};
+    // TODO: Do we even need this since we performed CurrentVersionHasProperty?
     if (!accessor.IsVisible(self_->view_)) {
       continue;
     }
