@@ -296,16 +296,17 @@ State HandleRunV4(TSession &session, const State state, const Marker marker) {
   } catch (const std::exception &e) {
     return HandleFailure(session, e);
   }
-
+  if (spdlog::should_log(spdlog::level::debug)) {
 #if MG_ENTERPRISE
-  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    spdlog::debug("[Run - {}] '{}'", session.GetCurrentDB(), logging::MaskSensitiveInformation(query.ValueString()));
-  } else {
-    spdlog::debug("[Run - {}] '{}'", session.GetCurrentDB(), query.ValueString());
-  }
+    if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+      spdlog::debug("[Run - {}] '{}'", session.GetCurrentDB(), logging::MaskSensitiveInformation(query.ValueString()));
+    } else {
+      spdlog::debug("[Run - {}] '{}'", session.GetCurrentDB(), query.ValueString());
+    }
 #else
-  spdlog::debug("[Run] '{}'", query.ValueString());
+    spdlog::debug("[Run] '{}'", query.ValueString());
 #endif
+  }
 
   // Increment number of queries in the metrics
   IncrementQueryMetrics(session);
