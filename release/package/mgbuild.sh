@@ -93,6 +93,8 @@ print_help () {
 
   echo -e "\nbuild options:"
   echo -e "  --git-ref string              Specify git ref from which the environment deps will be installed (default \"master\")"
+  echo -e "  --rust-version number         Specify rustc and cargo version which be installed (default \"1.80\")"
+  echo -e "  --node-version number         Specify nodejs version which be installed (default \"20\")"
 
   echo -e "\nbuild-memgraph options:"
   echo -e "  --asan                        Build with ASAN"
@@ -787,10 +789,20 @@ case $command in
     build)
       cd $SCRIPT_DIR
       git_ref_flag=""
+      rust_version_flag=""
+      node_version_flag=""
       while [[ "$#" -gt 0 ]]; do
         case "$1" in
             --git-ref)
               git_ref_flag="--build-arg GIT_REF=$2"
+              shift 2
+            ;;
+            --rust-version)
+              rust_version_flag="--build-arg RUST_VERSION=$2"
+              shift 2
+            ;;
+            --node-version)
+              node_version_flag="--build-arg NODE_VERSION=$2"
               shift 2
             ;;
             *)
@@ -801,9 +813,9 @@ case $command in
         esac
       done
       if [[ "$os" == "all" ]]; then
-        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml build $git_ref_flag
+        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml build $git_ref_flag $rust_version_flag $node_version_flag
       else
-        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml build $git_ref_flag $build_container
+        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml build $git_ref_flag $rust_version_flag $node_version_flag $build_container
       fi
     ;;
     run)
