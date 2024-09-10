@@ -374,143 +374,151 @@ def process_workloads(
         ContainerInfo(
             container_name=get_container_name(id),
             tasks_executed=tasks_executed,
-            exception=exceptions,
+            exceptions=exceptions,
             output=output,
             failure=failure,
         ),
     )
 
 
-parser = argparse.ArgumentParser(description="Parse arguments for e2e tests")
-parser.add_argument(
-    "--threads", type=int, required=True, help="Number of threads available to start containers and run workloads"
-)
-parser.add_argument("--container-root-dir", type=str, required=True, help="Path to Memgraph folder in the container")
-parser.add_argument(
-    "--setup-command", type=str, required=True, help="Command to execute before running workload in container"
-)
-parser.add_argument("--project-root-dir", type=str, required=True, help="Path to Memgraph folder in project in GitHub")
-parser.add_argument(
-    "--original-container-id",
-    type=str,
-    required=True,
-    help="Container from which we generate image to start containers, and container to which we copy logs to once process is done",
-)
-
-args = parser.parse_args()
-
-image_name = f"{args.original_container_id}-e2e"
-
-docker_handler = DockerHandler()
-
-if docker_handler.image_exists(image_name):
-    print(f"Image {image_name} already exists, removing it!")
-    docker_handler.remove_image(image_name)
-    print(f"Removed image {image_name}!")
-else:
-    print(f"Image {image_name} does not exist!")
-
-print(f"Committing container {args.original_container_id} to {image_name}")
-ok = docker_handler.commit_image(args.original_container_id, image_name)
-
-if not ok:
-    print(f"Failed to commit image {image_name}")
-    exit(1)
-print(f"Committed image {image_name}")
-
-print(f"Starting container from image {image_name}")
-container_0 = docker_handler.start_container_from_image(image_name, 0)
-assert container_0 is not None, "Container not started!"
-
-# Start one container needed for finding workloads
-workloads = find_workloads_for_testing(container_0, args.container_root_dir, args.project_root_dir)
-print(f"Stopping container {container_0}")
-docker_handler.stop_container(container_0)
-
-print(f">>>>Workloads {len(workloads)} found!")
-
-synchronized_queue = SynchronizedQueue(workloads)
-threads = []
-error = False
-try:
-    for i in range(1, args.threads + 1):
-        thread = threading.Thread(
-            target=process_workloads,
-            args=(
-                i,
-                image_name,
-                args.setup_command,
-                synchronized_queue,
-                synchronized_map,
-                args.container_root_dir,
-                synchronized_container_copy,
-                args.original_container_id,
-            ),
-        )
-        threads.append(thread)
-
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join()
-
-except Exception as e:
-    print(f"Exception occurred: {e}")
-    error = True
-finally:
-    for thread in threads:
-        if thread.is_alive():
-            thread.join()
-result = synchronized_map.reset_and_get()
-
-print("DIFF SUMMARY:")
-for id, container_info in result.items():
-    print(f">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
-    print(f"\t\tContainer id: {id} \n ")
-
-    stdout, stderr = [out[0] for out in container_info.output], [out[1] for out in container_info.output]
-
-    formated_stdout_output = "\n".join(stdout)
-    formated_stderr_output = "\n".join(stderr)
-
-    copy_output_to_container(
-        args.original_container_id,
-        f"container-{id}",
-        args.container_root_dir,
-        formated_stdout_output,
-        formated_stderr_output,
+def parse_arguments():
+    parser = argparse.ArgumentParser(description="Parse arguments for e2e tests")
+    parser.add_argument(
+        "--threads", type=int, required=True, help="Number of threads available to start containers and run workloads"
+    )
+    parser.add_argument(
+        "--container-root-dir", type=str, required=True, help="Path to Memgraph folder in the container"
+    )
+    parser.add_argument(
+        "--setup-command", type=str, required=True, help="Command to execute before running workload in container"
+    )
+    parser.add_argument(
+        "--project-root-dir", type=str, required=True, help="Path to Memgraph folder in project in GitHub"
+    )
+    parser.add_argument(
+        "--original-container-id",
+        type=str,
+        required=True,
+        help="Container from which we generate image to start containers, and container to which we copy logs to once process is done",
     )
 
-    total_time = sum([x[2] for x in container_info.tasks_executed])
-    print(f"\t\tContainer-{id} executed {len(container_info.tasks_executed)} tasks in {total_time} seconds.")
-    for task in container_info.tasks_executed:
-        print(f"\t\t\t {task}")
+    args = parser.parse_args()
+    return args
 
-    if container_info.exception:
-        print(f"\t\tContainer-{id} failed with exception: {container_info.exception}")
 
-    print(f">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
-print("END OF DIFF SUMMARY")
+def main():
+    args = parse_arguments()
+    image_name = f"{args.original_container_id}-e2e"
+    docker_handler = DockerHandler()
 
-print("ERRORS SUMMARY:")
-if error_counter.get() > 0:
-    print(f"Errors occurred {error_counter.get()}")
+    if docker_handler.image_exists(image_name):
+        print(f"Image {image_name} already exists, removing it!")
+        docker_handler.remove_image(image_name)
+        print(f"Removed image {image_name}!")
+    else:
+        print(f"Image {image_name} does not exist!")
+
+    print(f"Committing container {args.original_container_id} to {image_name}")
+    ok = docker_handler.commit_image(args.original_container_id, image_name)
+
+    if not ok:
+        print(f"Failed to commit image {image_name}")
+        exit(1)
+    print(f"Committed image {image_name}")
+
+    print(f"Starting container from image {image_name}")
+    container_0 = docker_handler.start_container_from_image(image_name, 0)
+    assert container_0 is not None, "Container not started!"
+
+    # Start one container needed for finding workloads
+    workloads = find_workloads_for_testing(container_0, args.container_root_dir, args.project_root_dir)
+    print(f"Stopping container {container_0}")
+    docker_handler.stop_container(container_0)
+
+    print(f">>>>Workloads {len(workloads)} found!")
+
+    synchronized_queue = SynchronizedQueue(workloads)
+    threads = []
+    error = False
+    try:
+        for i in range(1, args.threads + 1):
+            thread = threading.Thread(
+                target=process_workloads,
+                args=(
+                    i,
+                    image_name,
+                    args.setup_command,
+                    synchronized_queue,
+                    synchronized_map,
+                    args.container_root_dir,
+                    synchronized_container_copy,
+                    args.original_container_id,
+                ),
+            )
+            threads.append(thread)
+
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+    except Exception as e:
+        print(f"Exception occurred: {e}")
+        error = True
+    finally:
+        for thread in threads:
+            if thread.is_alive():
+                thread.join()
+    result = synchronized_map.reset_and_get()
+
+    print("DIFF SUMMARY:")
     for id, container_info in result.items():
-        if container_info.failure:
-            print(f"{get_container_name(id)} failed.")
+        print(f">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
+        print(f"\t\tContainer id: {id} \n ")
 
-    print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
-    for id, container_info in result.items():
-        if container_info.failure:
-            exceptions = "\n\t >>>".join(container_info.exceptions)
-            print(f"{get_container_name(id)} exception:\n {exceptions}.")
-            print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
-print("END OF ERRORS SUMMARY")
+        stdout, stderr = [out[0] for out in container_info.output], [out[1] for out in container_info.output]
 
-docker_handler.remove_image(image_name)
-if docker_handler.image_exists(image_name):
-    print(f"Failed to remove image {image_name}")
-    exit(1)
+        formated_stdout_output = "\n".join(stdout)
+        formated_stderr_output = "\n".join(stderr)
 
-if error_counter.get() > 0 or error:
-    exit(1)
+        copy_output_to_container(
+            args.original_container_id,
+            f"container-{id}",
+            args.container_root_dir,
+            formated_stdout_output,
+            formated_stderr_output,
+        )
+
+        total_time = sum([x[2] for x in container_info.tasks_executed])
+        print(f"\t\tContainer-{id} executed {len(container_info.tasks_executed)} tasks in {total_time} seconds.")
+        for task in container_info.tasks_executed:
+            print(f"\t\t\t {task}")
+
+        if container_info.exception:
+            print(f"\t\tContainer-{id} failed with exception: {container_info.exception}")
+
+        print(f">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
+    print("END OF DIFF SUMMARY")
+
+    print("ERRORS SUMMARY:")
+    if error_counter.get() > 0:
+        print(f"Errors occurred {error_counter.get()}")
+        for id, container_info in result.items():
+            if container_info.failure:
+                print(f"{get_container_name(id)} failed.")
+
+        print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
+        for id, container_info in result.items():
+            if container_info.failure:
+                exceptions = "\n\t >>>".join(container_info.exceptions)
+                print(f"{get_container_name(id)} exception:\n {exceptions}.")
+                print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
+    print("END OF ERRORS SUMMARY")
+
+    docker_handler.remove_image(image_name)
+    if docker_handler.image_exists(image_name):
+        print(f"Failed to remove image {image_name}")
+        exit(1)
+
+    if error_counter.get() > 0 or error:
+        exit(1)
