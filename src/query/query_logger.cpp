@@ -23,7 +23,8 @@ constexpr int log_retention_count = 35;
 
 namespace memgraph::query {
 
-QueryLogger::QueryLogger(std::string log_file) : Logger("QueryLogger", log_file) {}
+QueryLogger::QueryLogger(std::string log_file, std::string session_uuid, std::string username)
+    : Logger("QueryLogger", log_file), session_id_(session_uuid), user_or_role_(username) {}
 
 void QueryLogger::trace(const std::string &log_line) { logger_->log(spdlog::level::trace, GetMessage(log_line)); }
 void QueryLogger::debug(const std::string &log_line) { logger_->log(spdlog::level::debug, GetMessage(log_line)); }
@@ -31,34 +32,34 @@ void QueryLogger::info(const std::string &log_line) { logger_->log(spdlog::level
 void QueryLogger::warn(const std::string &log_line) { logger_->log(spdlog::level::warn, GetMessage(log_line)); }
 void QueryLogger::err(const std::string &log_line) { logger_->log(spdlog::level::err, GetMessage(log_line)); }
 
-void QueryLogger::SetTransactionId(const std::string &t_id) { transaction_id = t_id; }
-void QueryLogger::SetSessionId(const std::string &s_id) { session_id = s_id; }
-void QueryLogger::SetUser(const std::string &u) { user_or_role = u; }
-void QueryLogger::ResetUser() { user_or_role = ""; }
-void QueryLogger::ResetTransactionId() { transaction_id = ""; }
+void QueryLogger::SetTransactionId(const std::string &t_id) { transaction_id_ = t_id; }
+void QueryLogger::SetSessionId(const std::string &s_id) { session_id_ = s_id; }
+void QueryLogger::SetUser(const std::string &u) { user_or_role_ = u; }
+void QueryLogger::ResetUser() { user_or_role_ = ""; }
+void QueryLogger::ResetTransactionId() { transaction_id_ = ""; }
 
 std::string QueryLogger::GetMessage(const std::string &log_line) {
-  std::string message;
-  if (session_id != "") {
-    message += fmt::format("[{}]", session_id);
-  }
-  if (user_or_role != "") {
-    if (!message.empty()) {
-      message += " ";
-    }
-    message += fmt::format("[{}]", user_or_role);
-  }
-  if (transaction_id != "") {
-    if (!message.empty()) {
-      message += " ";
-    }
-    message += fmt::format("[{}]", transaction_id);
-  }
+  std::stringstream ss;
 
-  if (!message.empty()) {
-    return fmt::format("{} {}", message, log_line);
+  AppendTag(ss, session_id_);
+  AppendTag(ss, user_or_role_);
+  AppendTag(ss, transaction_id_);
+
+  if (ss.tellp() > 0) {  // If something was appended
+    ss << " " << log_line;
+    return ss.str();
   }
 
   return log_line;
 }
+
+void QueryLogger::AppendTag(std::stringstream &ss, const std::string &tag) {
+  if (!tag.empty()) {
+    if (ss.tellp() > 0) {  // tellp returns the current position in the stream
+      ss << " ";
+    }
+    ss << fmt::format("[{}]", tag);
+  }
+}
+
 }  // namespace memgraph::query

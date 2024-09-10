@@ -24,12 +24,7 @@ namespace memgraph::query {
 
 class QueryLogger : public utils::Logger {
  public:
-  explicit QueryLogger(std::string log_file);
-
-  QueryLogger(const QueryLogger &) = delete;
-  QueryLogger &operator=(const QueryLogger &) = delete;
-  QueryLogger(QueryLogger &&) = delete;
-  QueryLogger &operator=(QueryLogger &&) = delete;
+  explicit QueryLogger(std::string log_file, std::string session_uuid, std::string username);
 
   void trace(const std::string &log_line) override;
 
@@ -48,11 +43,14 @@ class QueryLogger : public utils::Logger {
   void ResetTransactionId();
 
  private:
-  std::string session_id;
-  std::string user_or_role;
-  std::string transaction_id;
+  std::string session_id_;
+  std::string user_or_role_;
+  std::string transaction_id_;
 
   std::string GetMessage(const std::string &log_line);
+
+  // Helper function to append a formatted tag if it's not empty
+  void AppendTag(std::stringstream &ss, const std::string &tag);
 };
 
 }  // namespace memgraph::query

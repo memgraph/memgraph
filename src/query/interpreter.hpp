@@ -386,7 +386,7 @@ class Interpreter final {
   std::optional<QueryLogger> query_logger_{};
 
   bool IsQueryLoggingActive();
-  void TryQueryLogging(std::string message);
+  void LogQueryMessage(std::string message);
 
  private:
   void ResetInterpreter() {
@@ -538,14 +538,14 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
       }
     }
   } catch (const ExplicitTransactionUsageException &e) {
-    TryQueryLogging(e.what());
+    LogQueryMessage(e.what());
     if (current_transaction_) {
       memgraph::memory::TryStopTrackingOnTransaction(*current_transaction_);
     }
     query_execution.reset(nullptr);
     throw;
   } catch (const utils::BasicException &e) {
-    TryQueryLogging(e.what());
+    LogQueryMessage(e.what());
     if (current_transaction_) {
       memgraph::memory::TryStopTrackingOnTransaction(*current_transaction_);
     }
