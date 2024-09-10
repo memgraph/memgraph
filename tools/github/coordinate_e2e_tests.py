@@ -24,6 +24,11 @@ from typing import List, Optional, Tuple
 import docker
 import yaml
 
+from query_modules.nxalg import center
+
+CONTAINER_NAME_PREFIX = "container-"
+LOGS_PATH = "/build/logs/"
+
 
 def clear_directory(path):
     if os.path.exists(path):
@@ -40,7 +45,8 @@ def create_directory(path):
 
 
 def get_container_name(id: int):
-    return f"container-{id}"
+    global CONTAINER_NAME_PREFIX
+    return f"{CONTAINER_NAME_PREFIX}-{id}"
 
 
 class AtomicInteger:
@@ -138,10 +144,13 @@ class DockerHandler:
         self._client.images.remove(image_name)
 
     def start_container_from_image(self, image_tag, id: int):
-        return self._client.containers.run(image=image_tag, detach=True, name=f"container-{id}", remove=True)
+        return self._client.containers.run(image=image_tag, detach=True, name=f"{get_container_name(id)}", remove=True)
 
     def stop_container(self, container):
         container.stop()
+
+    def get_client(self):
+        return self._client
 
 
 class SynchronizedContainerCopy:
@@ -250,7 +259,7 @@ def copy_output_to_container(
 ):
     """
     This function writes formatted stdout and stderr output to temporary files.
-    Afterwards it copies those files to the container_to_copy in the container_root_dir/build/logs/ directory.
+    Afterwards it copies those files to the container_to_copy in the container_root_dir/LOGS_PATH directory.
 
     :param container_to_copy: Container ID to which output will be copied
     :param file_prefix_name: Name of container where output was generated
@@ -271,8 +280,8 @@ def copy_output_to_container(
         stderr_file.write(formated_stderr_output)
 
     # Copy files to Docker container
-    copy_stdout_command = f"docker cp {stdout_file_path} {container_to_copy}:{container_root_dir}/build/logs/"
-    copy_stderr_command = f"docker cp {stderr_file_path} {container_to_copy}:{container_root_dir}/build/logs/"
+    copy_stdout_command = f"docker cp {stdout_file_path} {container_to_copy}:{container_root_dir}{LOGS_PATH}"
+    copy_stderr_command = f"docker cp {stderr_file_path} {container_to_copy}:{container_root_dir}{LOGS_PATH}"
 
     subprocess.run(copy_stdout_command, shell=True, check=True)
     subprocess.run(copy_stderr_command, shell=True, check=True)
@@ -292,14 +301,14 @@ def process_workloads(
     original_container_id: str,
 ):
     docker_handler = DockerHandler()
-    synchronized_print.print(f">>>>Starting container-{id}")
+    synchronized_print.print(f">>>>Starting {get_container_name(id)}")
     container = docker_handler.start_container_from_image(image_name, id)
     if container is None:
         error_counter.increment()
         synchronized_print.print(f"Failed to start container {id}")
         return
 
-    synchronized_print.print(f">>>>Started container-{id} with id {container.id}")
+    synchronized_print.print(f">>>>Started {get_container_name(id)} with id {container.id}")
 
     total_execution = 0
 
@@ -335,7 +344,7 @@ def process_workloads(
 
             if res.returncode != 0:
                 synchronized_print.print(
-                    f"Fail! Container id: container-{id} failed workload: {workload_name} using docker command {docker_command}"
+                    f"Fail! Container id: {get_container_name(id)} failed workload: {workload_name} using docker command {docker_command}"
                 )
                 error_counter.increment()
                 failure = True
@@ -343,7 +352,7 @@ def process_workloads(
                 break
             else:
                 synchronized_print.print(
-                    f"\nSuccess! Container id: container-{id} executed workload: {workload_name} using docker command {docker_command}\n"
+                    f"\nSuccess! Container id: {get_container_name(id)} executed workload: {workload_name} using docker command {docker_command}\n"
                 )
         except Exception as e:
             failure = True
@@ -353,20 +362,20 @@ def process_workloads(
             break
 
     try:
-        synchronized_print.print(f">>>>Copying logs from container-{id}")
+        synchronized_print.print(f">>>>Copying logs from {get_container_name(id)}")
         thread_safe_container_copy.copy_logs(
-            container.id, original_container_id, f"{container_root_dir}/build/logs/", temp_dir
+            container.id, original_container_id, f"{container_root_dir}{LOGS_PATH}", temp_dir
         )
-        synchronized_print.print(f">>>>Copied logs from container-{id}")
+        synchronized_print.print(f">>>>Copied logs from {get_container_name(id)}")
     except Exception as e:
         failure = True
         exceptions.append(str(e))
         error_counter.increment()
         synchronized_print.print(f"Exception occurred while copying logs from {get_container_name(id)}: {e}")
 
-    synchronized_print.print(f">>>>Stopping container-{id}")
+    synchronized_print.print(f">>>>Stopping {get_container_name(id)}")
     docker_handler.stop_container(container)
-    synchronized_print.print(f">>>>Stopped container-{id}")
+    synchronized_print.print(f">>>>Stopped {get_container_name(id)}")
 
     tasks_executed.sort(key=lambda x: x[2], reverse=True)
     synchronized_map.insert_elem(
@@ -406,37 +415,74 @@ def parse_arguments():
     return args
 
 
-def main():
-    args = parse_arguments()
-    image_name = f"{args.original_container_id}-e2e"
-    docker_handler = DockerHandler()
-
-    if docker_handler.image_exists(image_name):
-        print(f"Image {image_name} already exists, removing it!")
+def remove_image(docker_handler, image_name, max_tries=10):
+    for _ in range(max_tries):
+        if not docker_handler.image_exists(image_name):
+            return True
+        time.sleep(1)
         docker_handler.remove_image(image_name)
-        print(f"Removed image {image_name}!")
-    else:
-        print(f"Image {image_name} does not exist!")
+    return False
 
-    print(f"Committing container {args.original_container_id} to {image_name}")
-    ok = docker_handler.commit_image(args.original_container_id, image_name)
+
+def get_and_delete_containers(docker_handler):
+    global CONTAINER_NAME_PREFIX
+
+    all_containers = docker_handler.get_client().containers.list(all=True)
+    deleted_containers = []
+
+    for container in all_containers:
+        if any(name.startswith(CONTAINER_NAME_PREFIX) for name in container.name.split(",")):
+            try:
+                container.kill()
+            except Exception as _:
+                pass
+
+            try:
+                container.remove_container()
+            except Exception as _:
+                pass
+            deleted_containers.append(container.name)
+
+    return deleted_containers
+
+
+def cleanup_state(docker_handler, image_name):
+    try:
+        ok = remove_image(docker_handler, image_name)
+        assert (ok, "Failed to remove image")
+    except Exception as _:
+        assert (False, "Failed to remove image")
+
+    try:
+        get_and_delete_containers(docker_handler)
+    except Exception as _:
+        assert (False, "Failed to remove containers")
+
+
+def get_workloads_from_container(docker_handler, image_name, container_root_dir, project_root_dir):
+    print(f"Starting container from image {image_name}")
+    container_0 = docker_handler.start_container_from_image(image_name, 0)
+    assert container_0 is not None, "Container not started!"
+
+    # Start one container needed for finding workloads
+    workloads = find_workloads_for_testing(container_0, container_root_dir, project_root_dir)
+    print(f"Stopping container {container_0}")
+    docker_handler.stop_container(container_0)
+    print(f">>>>Workloads {len(workloads)} found!")
+    return workloads
+
+
+def create_image_from_container(docker_handler, original_container_id, image_name):
+    print(f"Committing container {original_container_id} to {image_name}")
+    ok = docker_handler.commit_image(original_container_id, image_name)
 
     if not ok:
         print(f"Failed to commit image {image_name}")
         exit(1)
     print(f"Committed image {image_name}")
 
-    print(f"Starting container from image {image_name}")
-    container_0 = docker_handler.start_container_from_image(image_name, 0)
-    assert container_0 is not None, "Container not started!"
 
-    # Start one container needed for finding workloads
-    workloads = find_workloads_for_testing(container_0, args.container_root_dir, args.project_root_dir)
-    print(f"Stopping container {container_0}")
-    docker_handler.stop_container(container_0)
-
-    print(f">>>>Workloads {len(workloads)} found!")
-
+def run_workloads_in_parallel(workloads, args, image_name) -> Tuple[dict, bool]:
     synchronized_queue = SynchronizedQueue(workloads)
     threads = []
     error = False
@@ -471,6 +517,10 @@ def main():
                 thread.join()
     result = synchronized_map.reset_and_get()
 
+    return result, error
+
+
+def print_diff_summary(result, args):
     print("DIFF SUMMARY:")
     for id, container_info in result.items():
         print(f">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
@@ -483,23 +533,27 @@ def main():
 
         copy_output_to_container(
             args.original_container_id,
-            f"container-{id}",
+            f"{get_container_name(id)}",
             args.container_root_dir,
             formated_stdout_output,
             formated_stderr_output,
         )
 
         total_time = sum([x[2] for x in container_info.tasks_executed])
-        print(f"\t\tContainer-{id} executed {len(container_info.tasks_executed)} tasks in {total_time} seconds.")
+        print(
+            f"\t\t{get_container_name(id)} executed {len(container_info.tasks_executed)} tasks in {total_time} seconds."
+        )
         for task in container_info.tasks_executed:
             print(f"\t\t\t {task}")
 
         if container_info.exception:
-            print(f"\t\tContainer-{id} failed with exception: {container_info.exception}")
+            print(f"\t\t{get_container_name(id)} failed with exception: {container_info.exception}")
 
         print(f">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
     print("END OF DIFF SUMMARY")
 
+
+def print_errors_summary(result):
     print("ERRORS SUMMARY:")
     if error_counter.get() > 0:
         print(f"Errors occurred {error_counter.get()}")
@@ -515,10 +569,57 @@ def main():
                 print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
     print("END OF ERRORS SUMMARY")
 
-    docker_handler.remove_image(image_name)
-    if docker_handler.image_exists(image_name):
-        print(f"Failed to remove image {image_name}")
+
+def main():
+    error = False
+    docker_handler = DockerHandler()
+    args = parse_arguments()
+    image_name = f"{args.original_container_id}-e2e"
+
+    cleanup_state(docker_handler, image_name)
+
+    try:
+        create_image_from_container(docker_handler, args.original_container_id, image_name)
+    except Exception as e:
+        print(f"Exception occurred: {e}")
+        error = True
+
+    if error:
+        cleanup_state(docker_handler, image_name)
         exit(1)
+
+    workloads = []
+    try:
+        workloads = get_workloads_from_container(
+            docker_handler, image_name, args.container_root_dir, args.project_root_dir
+        )
+    except Exception as e:
+        print(f"Exception occurred: {e}")
+        error = True
+
+    if error:
+        cleanup_state(docker_handler, image_name)
+        exit(1)
+
+    result = None
+    try:
+        result, error = run_workloads_in_parallel(workloads, args, image_name)
+    except Exception as e:
+        print(f"Exception occurred: {e}")
+        error = True
+
+    if result is not None:
+        try:
+            print_diff_summary(result, args)
+            print_errors_summary(result)
+        except Exception as e:
+            print(f"Exception occurred: {e}")
+            error = True
+
+    cleanup_state(docker_handler, image_name)
 
     if error_counter.get() > 0 or error:
         exit(1)
+
+
+main()
