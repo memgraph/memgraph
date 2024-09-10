@@ -48,9 +48,6 @@ class QueryLogger : public utils::Logger {
   std::string transaction_id_;
 
   std::string GetMessage(const std::string &log_line);
-
-  // Helper function to append a formatted tag if it's not empty
-  void AppendTag(std::stringstream &ss, const std::string &tag);
 };
 
 }  // namespace memgraph::query

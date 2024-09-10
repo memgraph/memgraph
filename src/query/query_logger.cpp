@@ -17,14 +17,23 @@
 #include "query/query_logger.hpp"
 
 namespace {
-constexpr int log_retention_count = 35;
-
+// Helper function to append a formatted tag if it's not empty
+void AppendTag(std::stringstream &ss, const std::string &tag) {
+  if (!tag.empty()) {
+    if (ss.tellp() > 0) {  // tellp returns the current position in the stream
+      ss << " ";
+    }
+    ss << fmt::format("[{}]", tag);
+  }
+}
 }  // namespace
 
 namespace memgraph::query {
 
 QueryLogger::QueryLogger(std::string log_file, std::string session_uuid, std::string username)
-    : Logger("QueryLogger", log_file), session_id_(session_uuid), user_or_role_(username) {}
+    : Logger("QueryLogger", std::move(log_file)),
+      session_id_(std::move(session_uuid)),
+      user_or_role_(std::move(username)) {}
 
 void QueryLogger::trace(const std::string &log_line) { logger_->log(spdlog::level::trace, GetMessage(log_line)); }
 void QueryLogger::debug(const std::string &log_line) { logger_->log(spdlog::level::debug, GetMessage(log_line)); }
@@ -51,15 +60,6 @@ std::string QueryLogger::GetMessage(const std::string &log_line) {
   }
 
   return log_line;
-}
-
-void QueryLogger::AppendTag(std::stringstream &ss, const std::string &tag) {
-  if (!tag.empty()) {
-    if (ss.tellp() > 0) {  // tellp returns the current position in the stream
-      ss << " ";
-    }
-    ss << fmt::format("[{}]", tag);
-  }
 }
 
 }  // namespace memgraph::query

@@ -1957,6 +1957,7 @@ struct PullPlan {
   Frame frame_;
   ExecutionContext ctx_;
   std::optional<size_t> memory_limit_;
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
   std::optional<QueryLogger> &query_logger_;
 
   // As it's possible to query execution using multiple pulls
@@ -2300,7 +2301,6 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   if (interpreter.IsQueryLoggingActive()) {
     std::stringstream printed_plan;
     plan::PrettyPrint(*dba, &plan->plan(), &printed_plan);
-    std::vector<std::vector<TypedValue>> printed_plan_rows;
     interpreter.LogQueryMessage(fmt::format("Explain plan:\n{}", printed_plan.str()));
   }
 
@@ -5364,7 +5364,7 @@ std::vector<TypedValue> Interpreter::GetQueries() {
 
 void Interpreter::Abort() {
   LogQueryMessage("Query abort started.");
-  utils::OnScopeExit abort_end([this]() {
+  utils::OnScopeExit const abort_end([this]() {
     this->LogQueryMessage("Query abort ended.");
     if (query_logger_) {
       query_logger_->ResetTransactionId();
@@ -5486,7 +5486,7 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
 
 void Interpreter::Commit() {
   LogQueryMessage("Query commit started.");
-  utils::OnScopeExit commit_end([this]() {
+  utils::OnScopeExit const commit_end([this]() {
     this->LogQueryMessage("Query commit ended.");
     if (query_logger_) {
       query_logger_->ResetTransactionId();
@@ -5737,7 +5737,7 @@ void Interpreter::ResetUser() {
   }
 }
 
-bool Interpreter::IsQueryLoggingActive() { return query_logger_.has_value(); }
+bool Interpreter::IsQueryLoggingActive() const { return query_logger_.has_value(); }
 
 void Interpreter::LogQueryMessage(std::string message) {
   if (query_logger_.has_value()) {

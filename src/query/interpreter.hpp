@@ -385,7 +385,7 @@ class Interpreter final {
 
   std::optional<QueryLogger> query_logger_{};
 
-  bool IsQueryLoggingActive();
+  bool IsQueryLoggingActive() const;
   void LogQueryMessage(std::string message);
 
  private:
