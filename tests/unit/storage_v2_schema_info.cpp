@@ -186,7 +186,7 @@ TYPED_TEST(SchemaInfoTest, SingleVertex) {
     ASSERT_EQ(json["nodes"][0]["properties"][0]["key"], "p1");
     ASSERT_EQ(json["nodes"][0]["properties"][0]["count"], 1);
     ASSERT_EQ(json["nodes"][0]["properties"][0]["types"].size(), 1);
-    ASSERT_EQ(json["nodes"][0]["properties"][0]["types"][0]["type"], "int");
+    ASSERT_EQ(json["nodes"][0]["properties"][0]["types"][0]["type"], "Int");
     ASSERT_EQ(json["nodes"][0]["properties"][0]["types"][0]["count"], 1);
   }
 
@@ -273,14 +273,14 @@ TYPED_TEST(SchemaInfoTest, SingleVertex) {
     EXPECT_EQ((*json_p2)["count"], 1);
     const auto &json_p2_types = (*json_p2)["types"];
     EXPECT_EQ(json_p2_types.size(), 1);
-    EXPECT_EQ(json_p2_types[0], nlohmann::json::object({{"type", "bool"}, {"count", 1}}));
+    EXPECT_EQ(json_p2_types[0], nlohmann::json::object({{"type", "Bool"}, {"count", 1}}));
     const auto json_p3 =
         std::find_if(json_prop.begin(), json_prop.end(), [&](const auto &in) { return in["key"] == "p3"; });
     ASSERT_NE(json_p3, json_prop.end());
     EXPECT_EQ((*json_p3)["count"], 1);
     const auto &json_p3_types = (*json_p3)["types"];
     EXPECT_EQ(json_p3_types.size(), 1);
-    EXPECT_EQ(json_p3_types[0], nlohmann::json::object({{"type", "list"}, {"count", 1}}));
+    EXPECT_EQ(json_p3_types[0], nlohmann::json::object({{"type", "List"}, {"count", 1}}));
   }
 
   // delete vertex
@@ -335,7 +335,7 @@ TYPED_TEST(SchemaInfoTest, SingleVertex) {
       EXPECT_EQ((*json_p1)["count"], 1);
       const auto &json_p1_types = (*json_p1)["types"];
       EXPECT_EQ(json_p1_types.size(), 1);
-      EXPECT_EQ(json_p1_types[0], nlohmann::json::object({{"type", "int"}, {"count", 1}}));
+      EXPECT_EQ(json_p1_types[0], nlohmann::json::object({{"type", "Int"}, {"count", 1}}));
 
       const auto json_p2 =
           std::find_if(json_prop.begin(), json_prop.end(), [&](const auto &in) { return in["key"] == "p2"; });
@@ -343,7 +343,7 @@ TYPED_TEST(SchemaInfoTest, SingleVertex) {
       EXPECT_EQ((*json_p2)["count"], 1);
       const auto &json_p2_types = (*json_p2)["types"];
       EXPECT_EQ(json_p2_types.size(), 1);
-      EXPECT_EQ(json_p2_types[0], nlohmann::json::object({{"type", "string"}, {"count", 1}}));
+      EXPECT_EQ(json_p2_types[0], nlohmann::json::object({{"type", "String"}, {"count", 1}}));
     }
   }
 }
@@ -436,7 +436,7 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
         EXPECT_EQ(json_prop[0]["key"], "p1");
         EXPECT_EQ(json_prop[0]["count"], 1);
         EXPECT_EQ(json_prop[0]["types"].size(), 1);
-        EXPECT_EQ(json_prop[0]["types"][0], nlohmann::json::object({{"type", "int"}, {"count", 1}}));
+        EXPECT_EQ(json_prop[0]["types"][0], nlohmann::json::object({{"type", "Int"}, {"count", 1}}));
       } else {
         ASSERT_TRUE(false);
       }
@@ -478,7 +478,7 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
         EXPECT_EQ(json_prop[0]["key"], "p1");
         EXPECT_EQ(json_prop[0]["count"], 1);
         EXPECT_EQ(json_prop[0]["types"].size(), 1);
-        EXPECT_EQ(json_prop[0]["types"][0], nlohmann::json::object({{"type", "int"}, {"count", 1}}));
+        EXPECT_EQ(json_prop[0]["types"][0], nlohmann::json::object({{"type", "Int"}, {"count", 1}}));
       } else if (json_node["labels"] == nlohmann::json::array({"L2", "L3"})) {
         EXPECT_EQ(json_node["count"], 1);
         const auto &json_prop = json_node["properties"];
@@ -527,7 +527,7 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
         EXPECT_EQ((*json_p2)["count"], 1);
         const auto &json_p2_types = (*json_p2)["types"];
         EXPECT_EQ(json_p2_types.size(), 1);
-        EXPECT_EQ(json_p2_types[0], nlohmann::json::object({{"type", "bool"}, {"count", 1}}));
+        EXPECT_EQ(json_p2_types[0], nlohmann::json::object({{"type", "Bool"}, {"count", 1}}));
 
         const auto json_p3 =
             std::find_if(json_prop.begin(), json_prop.end(), [&](const auto &in) { return in["key"] == "p3"; });
@@ -535,7 +535,7 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
         EXPECT_EQ((*json_p3)["count"], 1);
         const auto &json_p3_types = (*json_p3)["types"];
         EXPECT_EQ(json_p3_types.size(), 1);
-        EXPECT_EQ(json_p3_types[0], nlohmann::json::object({{"type", "list"}, {"count", 1}}));
+        EXPECT_EQ(json_p3_types[0], nlohmann::json::object({{"type", "List"}, {"count", 1}}));
       } else if (json_node["labels"] == nlohmann::json::array({"L1"})) {
         EXPECT_EQ(json_node["count"], 1);
         const auto &json_prop = json_node["properties"];
@@ -547,7 +547,7 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
         EXPECT_EQ(json_prop[0]["key"], "p1");
         EXPECT_EQ(json_prop[0]["count"], 1);
         EXPECT_EQ(json_prop[0]["types"].size(), 1);
-        EXPECT_EQ(json_prop[0]["types"][0], nlohmann::json::object({{"type", "int"}, {"count", 1}}));
+        EXPECT_EQ(json_prop[0]["types"][0], nlohmann::json::object({{"type", "Int"}, {"count", 1}}));
       } else if (json_node["labels"] == nlohmann::json::array({"L2", "L3"})) {
         EXPECT_EQ(json_node["count"], 1);
         const auto &json_prop = json_node["properties"];
@@ -584,7 +584,7 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
         EXPECT_EQ((*json_p2)["count"], 1);
         const auto &json_p2_types = (*json_p2)["types"];
         EXPECT_EQ(json_p2_types.size(), 1);
-        EXPECT_EQ(json_p2_types[0], nlohmann::json::object({{"type", "bool"}, {"count", 1}}));
+        EXPECT_EQ(json_p2_types[0], nlohmann::json::object({{"type", "Bool"}, {"count", 1}}));
 
         const auto json_p3 =
             std::find_if(json_prop.begin(), json_prop.end(), [&](const auto &in) { return in["key"] == "p3"; });
@@ -592,7 +592,7 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
         EXPECT_EQ((*json_p3)["count"], 1);
         const auto &json_p3_types = (*json_p3)["types"];
         EXPECT_EQ(json_p3_types.size(), 1);
-        EXPECT_EQ(json_p3_types[0], nlohmann::json::object({{"type", "list"}, {"count", 1}}));
+        EXPECT_EQ(json_p3_types[0], nlohmann::json::object({{"type", "List"}, {"count", 1}}));
       } else if (json_node["labels"] == nlohmann::json::array({"L1"})) {
         EXPECT_EQ(json_node["count"], 1);
         const auto &json_prop = json_node["properties"];
@@ -604,7 +604,7 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
         EXPECT_EQ(json_prop[0]["key"], "p1");
         EXPECT_EQ(json_prop[0]["count"], 1);
         EXPECT_EQ(json_prop[0]["types"].size(), 1);
-        EXPECT_EQ(json_prop[0]["types"][0], nlohmann::json::object({{"type", "int"}, {"count", 1}}));
+        EXPECT_EQ(json_prop[0]["types"][0], nlohmann::json::object({{"type", "Int"}, {"count", 1}}));
       } else if (json_node["labels"] == nlohmann::json::array({"L2", "L3"})) {
         EXPECT_EQ(json_node["count"], 1);
         const auto &json_prop = json_node["properties"];
@@ -640,7 +640,7 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
         EXPECT_EQ((*json_p2)["count"], 1);
         const auto &json_p2_types = (*json_p2)["types"];
         EXPECT_EQ(json_p2_types.size(), 1);
-        EXPECT_EQ(json_p2_types[0], nlohmann::json::object({{"type", "bool"}, {"count", 1}}));
+        EXPECT_EQ(json_p2_types[0], nlohmann::json::object({{"type", "Bool"}, {"count", 1}}));
 
         const auto json_p3 =
             std::find_if(json_prop.begin(), json_prop.end(), [&](const auto &in) { return in["key"] == "p3"; });
@@ -648,7 +648,7 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
         EXPECT_EQ((*json_p3)["count"], 1);
         const auto &json_p3_types = (*json_p3)["types"];
         EXPECT_EQ(json_p3_types.size(), 1);
-        EXPECT_EQ(json_p3_types[0], nlohmann::json::object({{"type", "list"}, {"count", 1}}));
+        EXPECT_EQ(json_p3_types[0], nlohmann::json::object({{"type", "List"}, {"count", 1}}));
       } else if (json_node["labels"] == nlohmann::json::array({"L1"})) {
         EXPECT_EQ(json_node["count"], 1);
         const auto &json_prop = json_node["properties"];
@@ -660,7 +660,7 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
         EXPECT_EQ(json_prop[0]["key"], "p1");
         EXPECT_EQ(json_prop[0]["count"], 1);
         EXPECT_EQ(json_prop[0]["types"].size(), 1);
-        EXPECT_EQ(json_prop[0]["types"][0], nlohmann::json::object({{"type", "int"}, {"count", 1}}));
+        EXPECT_EQ(json_prop[0]["types"][0], nlohmann::json::object({{"type", "Int"}, {"count", 1}}));
       } else if (json_node["labels"] == nlohmann::json::array({"L2", "L3"})) {
         EXPECT_EQ(json_node["count"], 1);
         const auto &json_prop = json_node["properties"];
@@ -676,7 +676,7 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
     auto acc = in_memory->Access();
     auto v = acc->FindVertex(tmp_gid, memgraph::storage::View::NEW);
     ASSERT_TRUE(v);
-    ASSERT_FALSE(v->SetProperty(p2, memgraph::storage::PropertyValue{"string"}).HasError());
+    ASSERT_FALSE(v->SetProperty(p2, memgraph::storage::PropertyValue{"String"}).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
     const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_EQ(json["nodes"].size(), 4);
@@ -695,7 +695,7 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
         EXPECT_EQ((*json_p2)["count"], 1);
         const auto &json_p2_types = (*json_p2)["types"];
         EXPECT_EQ(json_p2_types.size(), 1);
-        EXPECT_EQ(json_p2_types[0], nlohmann::json::object({{"type", "string"}, {"count", 1}}));
+        EXPECT_EQ(json_p2_types[0], nlohmann::json::object({{"type", "String"}, {"count", 1}}));
 
         const auto json_p3 =
             std::find_if(json_prop.begin(), json_prop.end(), [&](const auto &in) { return in["key"] == "p3"; });
@@ -703,7 +703,7 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
         EXPECT_EQ((*json_p3)["count"], 1);
         const auto &json_p3_types = (*json_p3)["types"];
         EXPECT_EQ(json_p3_types.size(), 1);
-        EXPECT_EQ(json_p3_types[0], nlohmann::json::object({{"type", "list"}, {"count", 1}}));
+        EXPECT_EQ(json_p3_types[0], nlohmann::json::object({{"type", "List"}, {"count", 1}}));
       } else if (json_node["labels"] == nlohmann::json::array({"L1"})) {
         EXPECT_EQ(json_node["count"], 1);
         const auto &json_prop = json_node["properties"];
@@ -715,7 +715,7 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
         EXPECT_EQ(json_prop[0]["key"], "p1");
         EXPECT_EQ(json_prop[0]["count"], 1);
         EXPECT_EQ(json_prop[0]["types"].size(), 1);
-        EXPECT_EQ(json_prop[0]["types"][0], nlohmann::json::object({{"type", "int"}, {"count", 1}}));
+        EXPECT_EQ(json_prop[0]["types"][0], nlohmann::json::object({{"type", "Int"}, {"count", 1}}));
       } else if (json_node["labels"] == nlohmann::json::array({"L2", "L3"})) {
         EXPECT_EQ(json_node["count"], 1);
         const auto &json_prop = json_node["properties"];
@@ -733,7 +733,7 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
     acc->CreateVertex();
     auto v3 = acc->CreateVertex();
     auto v4 = acc->CreateVertex();
-    ASSERT_FALSE(v1.SetProperty(p2, memgraph::storage::PropertyValue{"string"}).HasError());
+    ASSERT_FALSE(v1.SetProperty(p2, memgraph::storage::PropertyValue{"String"}).HasError());
     ASSERT_FALSE(v3.SetProperty(p2, memgraph::storage::PropertyValue{123}).HasError());
     ASSERT_FALSE(v4.SetProperty(p2, memgraph::storage::PropertyValue{true}).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
@@ -754,9 +754,9 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
         EXPECT_EQ((*json_p2)["count"], 4);
         const auto &json_p2_types = (*json_p2)["types"];
         EXPECT_EQ(json_p2_types.size(), 3);
-        const auto prop1 = nlohmann::json::object({{"type", "bool"}, {"count", 1}});
-        const auto prop2 = nlohmann::json::object({{"type", "int"}, {"count", 1}});
-        const auto prop3 = nlohmann::json::object({{"type", "string"}, {"count", 2}});
+        const auto prop1 = nlohmann::json::object({{"type", "Bool"}, {"count", 1}});
+        const auto prop2 = nlohmann::json::object({{"type", "Int"}, {"count", 1}});
+        const auto prop3 = nlohmann::json::object({{"type", "String"}, {"count", 2}});
         EXPECT_TRUE(
             std::any_of(json_p2_types.begin(), json_p2_types.end(), [&](const auto &in) { return in == prop1; }));
         EXPECT_TRUE(
@@ -770,7 +770,7 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
         EXPECT_EQ((*json_p3)["count"], 1);
         const auto &json_p3_types = (*json_p3)["types"];
         EXPECT_EQ(json_p3_types.size(), 1);
-        EXPECT_EQ(json_p3_types[0], nlohmann::json::object({{"type", "list"}, {"count", 1}}));
+        EXPECT_EQ(json_p3_types[0], nlohmann::json::object({{"type", "List"}, {"count", 1}}));
       } else if (json_node["labels"] == nlohmann::json::array({"L1"})) {
         EXPECT_EQ(json_node["count"], 1);
         const auto &json_prop = json_node["properties"];
@@ -782,7 +782,7 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
         EXPECT_EQ(json_prop[0]["key"], "p1");
         EXPECT_EQ(json_prop[0]["count"], 1);
         EXPECT_EQ(json_prop[0]["types"].size(), 1);
-        EXPECT_EQ(json_prop[0]["types"][0], nlohmann::json::object({{"type", "int"}, {"count", 1}}));
+        EXPECT_EQ(json_prop[0]["types"][0], nlohmann::json::object({{"type", "Int"}, {"count", 1}}));
       } else if (json_node["labels"] == nlohmann::json::array({"L2", "L3"})) {
         EXPECT_EQ(json_node["count"], 1);
         const auto &json_prop = json_node["properties"];
@@ -814,9 +814,9 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
         EXPECT_EQ(json_prop[0]["count"], 3);
         const auto &json_prop_types = json_prop[0]["types"];
         EXPECT_EQ(json_prop_types.size(), 3);
-        const auto prop1 = nlohmann::json::object({{"type", "bool"}, {"count", 1}});
-        const auto prop2 = nlohmann::json::object({{"type", "int"}, {"count", 1}});
-        const auto prop3 = nlohmann::json::object({{"type", "string"}, {"count", 1}});
+        const auto prop1 = nlohmann::json::object({{"type", "Bool"}, {"count", 1}});
+        const auto prop2 = nlohmann::json::object({{"type", "Int"}, {"count", 1}});
+        const auto prop3 = nlohmann::json::object({{"type", "String"}, {"count", 1}});
         EXPECT_TRUE(
             std::any_of(json_prop_types.begin(), json_prop_types.end(), [&](const auto &in) { return in == prop1; }));
         EXPECT_TRUE(
@@ -834,14 +834,14 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
         EXPECT_EQ((*json_p2)["count"], 1);
         EXPECT_EQ((*json_p2)["types"].size(), 1);
         EXPECT_EQ((*json_p2)["types"][0]["count"], 1);
-        EXPECT_EQ((*json_p2)["types"][0]["type"], "string");
+        EXPECT_EQ((*json_p2)["types"][0]["type"], "String");
         const auto json_p3 =
             std::find_if(json_prop.begin(), json_prop.end(), [&](const auto &in) { return in["key"] == "p3"; });
         ASSERT_NE(json_p3, json_prop.end());
         EXPECT_EQ((*json_p3)["count"], 1);
         EXPECT_EQ((*json_p3)["types"].size(), 1);
         EXPECT_EQ((*json_p3)["types"][0]["count"], 1);
-        EXPECT_EQ((*json_p3)["types"][0]["type"], "list");
+        EXPECT_EQ((*json_p3)["types"][0]["type"], "List");
       } else if (json_node["labels"] == nlohmann::json::array({"L2"})) {
         EXPECT_EQ(json_node["count"], 1);
         const auto &json_prop = json_node["properties"];
@@ -849,7 +849,7 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
         EXPECT_EQ(json_prop[0]["key"], "p1");
         EXPECT_EQ(json_prop[0]["count"], 1);
         EXPECT_EQ(json_prop[0]["types"].size(), 1);
-        EXPECT_EQ(json_prop[0]["types"][0], nlohmann::json::object({{"type", "int"}, {"count", 1}}));
+        EXPECT_EQ(json_prop[0]["types"][0], nlohmann::json::object({{"type", "Int"}, {"count", 1}}));
       } else if (json_node["labels"] == nlohmann::json::array({"L2", "L3"})) {
         EXPECT_EQ(json_node["count"], 1);
         const auto &json_prop = json_node["properties"];
@@ -881,9 +881,9 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
         EXPECT_EQ(json_prop[0]["count"], 3);
         const auto &json_prop_types = json_prop[0]["types"];
         EXPECT_EQ(json_prop_types.size(), 3);
-        const auto prop1 = nlohmann::json::object({{"type", "bool"}, {"count", 1}});
-        const auto prop2 = nlohmann::json::object({{"type", "int"}, {"count", 1}});
-        const auto prop3 = nlohmann::json::object({{"type", "string"}, {"count", 1}});
+        const auto prop1 = nlohmann::json::object({{"type", "Bool"}, {"count", 1}});
+        const auto prop2 = nlohmann::json::object({{"type", "Int"}, {"count", 1}});
+        const auto prop3 = nlohmann::json::object({{"type", "String"}, {"count", 1}});
         EXPECT_TRUE(
             std::any_of(json_prop_types.begin(), json_prop_types.end(), [&](const auto &in) { return in == prop1; }));
         EXPECT_TRUE(
@@ -901,7 +901,7 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
         EXPECT_EQ(json_prop[0]["key"], "p1");
         EXPECT_EQ(json_prop[0]["count"], 1);
         EXPECT_EQ(json_prop[0]["types"].size(), 1);
-        EXPECT_EQ(json_prop[0]["types"][0], nlohmann::json::object({{"type", "int"}, {"count", 1}}));
+        EXPECT_EQ(json_prop[0]["types"][0], nlohmann::json::object({{"type", "Int"}, {"count", 1}}));
       } else if (json_node["labels"] == nlohmann::json::array({"L2", "L3"})) {
         EXPECT_EQ(json_node["count"], 1);
         const auto &json_prop = json_node["properties"];
@@ -1398,9 +1398,9 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, SingleEdge) {
     const auto &json_edges_properties = json["edges"][0]["properties"];
 
     const auto p1 = nlohmann::json::object(
-        {{"key", "p1"}, {"count", 1}, {"types", nlohmann::json::array({{{"type", "int"}, {"count", 1}}})}});
+        {{"key", "p1"}, {"count", 1}, {"types", nlohmann::json::array({{{"type", "Int"}, {"count", 1}}})}});
     const auto p2 = nlohmann::json::object(
-        {{"key", "p2"}, {"count", 1}, {"types", nlohmann::json::array({{{"type", "string"}, {"count", 1}}})}});
+        {{"key", "p2"}, {"count", 1}, {"types", nlohmann::json::array({{{"type", "String"}, {"count", 1}}})}});
 
     ASSERT_EQ(json_edges_properties.size(), 2);
     ASSERT_TRUE(std::any_of(json_edges_properties.begin(), json_edges_properties.end(),
@@ -1427,9 +1427,9 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, SingleEdge) {
     const auto &json_edges_properties = json["edges"][0]["properties"];
 
     const auto p1 = nlohmann::json::object(
-        {{"key", "p1"}, {"count", 1}, {"types", nlohmann::json::array({{{"type", "int"}, {"count", 1}}})}});
+        {{"key", "p1"}, {"count", 1}, {"types", nlohmann::json::array({{{"type", "Int"}, {"count", 1}}})}});
     const auto p2 = nlohmann::json::object(
-        {{"key", "p2"}, {"count", 1}, {"types", nlohmann::json::array({{{"type", "string"}, {"count", 1}}})}});
+        {{"key", "p2"}, {"count", 1}, {"types", nlohmann::json::array({{{"type", "String"}, {"count", 1}}})}});
 
     ASSERT_EQ(json_edges_properties.size(), 2);
     ASSERT_TRUE(std::any_of(json_edges_properties.begin(), json_edges_properties.end(),
@@ -1460,9 +1460,9 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, SingleEdge) {
     const auto &json_edges_properties = json["edges"][0]["properties"];
 
     const auto p1 = nlohmann::json::object(
-        {{"key", "p1"}, {"count", 1}, {"types", nlohmann::json::array({{{"type", "int"}, {"count", 1}}})}});
+        {{"key", "p1"}, {"count", 1}, {"types", nlohmann::json::array({{{"type", "Int"}, {"count", 1}}})}});
     const auto p2 = nlohmann::json::object(
-        {{"key", "p2"}, {"count", 1}, {"types", nlohmann::json::array({{{"type", "string"}, {"count", 1}}})}});
+        {{"key", "p2"}, {"count", 1}, {"types", nlohmann::json::array({{{"type", "String"}, {"count", 1}}})}});
 
     ASSERT_EQ(json_edges_properties.size(), 2);
     ASSERT_TRUE(std::any_of(json_edges_properties.begin(), json_edges_properties.end(),
@@ -1489,9 +1489,9 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, SingleEdge) {
     const auto &json_edges_properties = json["edges"][0]["properties"];
 
     const auto p1 = nlohmann::json::object(
-        {{"key", "p1"}, {"count", 1}, {"types", nlohmann::json::array({{{"type", "int"}, {"count", 1}}})}});
+        {{"key", "p1"}, {"count", 1}, {"types", nlohmann::json::array({{{"type", "Int"}, {"count", 1}}})}});
     const auto p2 = nlohmann::json::object(
-        {{"key", "p2"}, {"count", 1}, {"types", nlohmann::json::array({{{"type", "string"}, {"count", 1}}})}});
+        {{"key", "p2"}, {"count", 1}, {"types", nlohmann::json::array({{{"type", "String"}, {"count", 1}}})}});
 
     ASSERT_EQ(json_edges_properties.size(), 2);
     ASSERT_TRUE(std::any_of(json_edges_properties.begin(), json_edges_properties.end(),
@@ -1521,9 +1521,9 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, SingleEdge) {
     const auto &json_edges_properties = json["edges"][0]["properties"];
 
     const auto p1 = nlohmann::json::object(
-        {{"key", "p1"}, {"count", 1}, {"types", nlohmann::json::array({{{"type", "int"}, {"count", 1}}})}});
+        {{"key", "p1"}, {"count", 1}, {"types", nlohmann::json::array({{{"type", "Int"}, {"count", 1}}})}});
     const auto p2 = nlohmann::json::object(
-        {{"key", "p2"}, {"count", 1}, {"types", nlohmann::json::array({{{"type", "string"}, {"count", 1}}})}});
+        {{"key", "p2"}, {"count", 1}, {"types", nlohmann::json::array({{{"type", "String"}, {"count", 1}}})}});
 
     ASSERT_EQ(json_edges_properties.size(), 2);
     ASSERT_TRUE(std::any_of(json_edges_properties.begin(), json_edges_properties.end(),
@@ -1552,7 +1552,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, SingleEdge) {
     const auto &json_edges_properties = json["edges"][0]["properties"];
 
     const auto p1 = nlohmann::json::object(
-        {{"key", "p1"}, {"count", 1}, {"types", nlohmann::json::array({{{"type", "int"}, {"count", 1}}})}});
+        {{"key", "p1"}, {"count", 1}, {"types", nlohmann::json::array({{{"type", "Int"}, {"count", 1}}})}});
 
     ASSERT_EQ(json_edges_properties.size(), 1);
     ASSERT_TRUE(std::any_of(json_edges_properties.begin(), json_edges_properties.end(),
@@ -1600,7 +1600,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, SingleEdge) {
     const auto &json_edges_properties = json["edges"][0]["properties"];
 
     const auto p1 = nlohmann::json::object(
-        {{"key", "p1"}, {"count", 1}, {"types", nlohmann::json::array({{{"type", "int"}, {"count", 1}}})}});
+        {{"key", "p1"}, {"count", 1}, {"types", nlohmann::json::array({{{"type", "Int"}, {"count", 1}}})}});
 
     ASSERT_EQ(json_edges_properties.size(), 1);
     EXPECT_EQ(json_edges_properties[0], p1);
@@ -1629,7 +1629,6 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, ConcurrentEdges) {
   auto l2 = in_memory->NameToLabel("L2");
   auto l3 = in_memory->NameToLabel("L3");
   auto p = in_memory->NameToProperty("p1");
-  auto p2 = in_memory->NameToProperty("p2");
   auto e = in_memory->NameToEdgeType("E");
 
   // Empty
@@ -1700,7 +1699,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, ConcurrentEdges) {
       EXPECT_EQ(json_mid["edges"][0]["properties"][0]["key"], "p1");
       EXPECT_EQ(json_mid["edges"][0]["properties"][0]["count"], 1);
       EXPECT_EQ(json_mid["edges"][0]["properties"][0]["types"].size(), 1);
-      EXPECT_EQ(json_mid["edges"][0]["properties"][0]["types"][0]["type"], "int");
+      EXPECT_EQ(json_mid["edges"][0]["properties"][0]["types"][0]["type"], "Int");
       EXPECT_EQ(json_mid["edges"][0]["properties"][0]["types"][0]["count"], 1);
     } else {
       // Analytical sees the changes before committing
@@ -1724,7 +1723,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, ConcurrentEdges) {
       EXPECT_EQ(json_mid["edges"][0]["properties"][0]["key"], "p1");
       EXPECT_EQ(json_mid["edges"][0]["properties"][0]["count"], 1);
       EXPECT_EQ(json_mid["edges"][0]["properties"][0]["types"].size(), 1);
-      EXPECT_EQ(json_mid["edges"][0]["properties"][0]["types"][0]["type"], "int");
+      EXPECT_EQ(json_mid["edges"][0]["properties"][0]["types"][0]["type"], "Int");
       EXPECT_EQ(json_mid["edges"][0]["properties"][0]["types"][0]["count"], 1);
     }
 
@@ -1753,7 +1752,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, ConcurrentEdges) {
     EXPECT_EQ(json["edges"][0]["properties"][0]["key"], "p1");
     EXPECT_EQ(json["edges"][0]["properties"][0]["count"], 1);
     EXPECT_EQ(json["edges"][0]["properties"][0]["types"].size(), 1);
-    EXPECT_EQ(json["edges"][0]["properties"][0]["types"][0]["type"], "int");
+    EXPECT_EQ(json["edges"][0]["properties"][0]["types"][0]["type"], "Int");
     EXPECT_EQ(json["edges"][0]["properties"][0]["types"][0]["count"], 1);
   }
 
@@ -1836,7 +1835,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, ConcurrentEdges) {
       ASSERT_EQ(json_mid["edges"][0]["properties"][0]["key"], "p1");
       ASSERT_EQ(json_mid["edges"][0]["properties"][0]["count"], 1);
       ASSERT_EQ(json_mid["edges"][0]["properties"][0]["types"].size(), 1);
-      ASSERT_EQ(json_mid["edges"][0]["properties"][0]["types"][0]["type"], "string");
+      ASSERT_EQ(json_mid["edges"][0]["properties"][0]["types"][0]["type"], "String");
       ASSERT_EQ(json_mid["edges"][0]["properties"][0]["types"][0]["count"], 1);
     } else {
       // Analytical sees changes before committing
@@ -1860,7 +1859,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, ConcurrentEdges) {
       ASSERT_EQ(json_mid["edges"][0]["properties"][0]["key"], "p1");
       ASSERT_EQ(json_mid["edges"][0]["properties"][0]["count"], 1);
       ASSERT_EQ(json_mid["edges"][0]["properties"][0]["types"].size(), 1);
-      ASSERT_EQ(json_mid["edges"][0]["properties"][0]["types"][0]["type"], "string");
+      ASSERT_EQ(json_mid["edges"][0]["properties"][0]["types"][0]["type"], "String");
       ASSERT_EQ(json_mid["edges"][0]["properties"][0]["types"][0]["count"], 1);
     }
 
@@ -1889,7 +1888,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, ConcurrentEdges) {
       ASSERT_EQ(json["edges"][0]["properties"][0]["key"], "p1");
       ASSERT_EQ(json["edges"][0]["properties"][0]["count"], 1);
       ASSERT_EQ(json["edges"][0]["properties"][0]["types"].size(), 1);
-      ASSERT_EQ(json["edges"][0]["properties"][0]["types"][0]["type"], "string");
+      ASSERT_EQ(json["edges"][0]["properties"][0]["types"][0]["type"], "String");
       ASSERT_EQ(json["edges"][0]["properties"][0]["types"][0]["count"], 1);
     } else {
       // There is no aborting in analytical
@@ -1913,20 +1912,17 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, ConcurrentEdges) {
       ASSERT_EQ(json_mid["edges"][0]["properties"][0]["key"], "p1");
       ASSERT_EQ(json_mid["edges"][0]["properties"][0]["count"], 1);
       ASSERT_EQ(json_mid["edges"][0]["properties"][0]["types"].size(), 1);
-      ASSERT_EQ(json_mid["edges"][0]["properties"][0]["types"][0]["type"], "string");
+      ASSERT_EQ(json_mid["edges"][0]["properties"][0]["types"][0]["type"], "String");
       ASSERT_EQ(json_mid["edges"][0]["properties"][0]["types"][0]["count"], 1);
     }
   }
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TYPED_TEST(SchemaInfoTestWEdgeProp, AllPropertyTypes) {
+TYPED_TEST(SchemaInfoTest, AllPropertyTypes) {
   auto *in_memory = static_cast<memgraph::storage::InMemoryStorage *>(this->storage.get());
   auto &schema_info = in_memory->schema_info_;
-  Gid edge_gid, v1_gid, v2_gid;
 
-  auto l = in_memory->NameToLabel("L");
-  auto e = in_memory->NameToEdgeType("E");
   auto p1 = in_memory->NameToProperty("p1");
   auto p2 = in_memory->NameToProperty("p2");
   auto p3 = in_memory->NameToProperty("p3");
@@ -1981,7 +1977,256 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, AllPropertyTypes) {
     ASSERT_FALSE(v1.SetProperty(p15, PropertyValue{Point2d{}}).HasError());
     ASSERT_FALSE(v1.SetProperty(p16, PropertyValue{Point3d{}}).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
+
     const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
-    std::cout << json << std::endl;
+
+    const auto &node_json = json["nodes"];
+    ASSERT_EQ(node_json.size(), 1);
+    const auto &prop_json = node_json[0]["properties"];
+    ASSERT_EQ(prop_json.size(), 15);
+
+    {
+      const auto prop = nlohmann::json::object(
+          {{"count", 1}, {"key", "p2"}, {"types", nlohmann::json::array({{{"count", 1}, {"type", "Bool"}}})}});
+      EXPECT_TRUE(std::any_of(prop_json.begin(), prop_json.end(), [&](const auto &in) { return in == prop; }));
+    }
+    {
+      const auto prop = nlohmann::json::object(
+          {{"count", 1}, {"key", "p3"}, {"types", nlohmann::json::array({{{"count", 1}, {"type", "Int"}}})}});
+      EXPECT_TRUE(std::any_of(prop_json.begin(), prop_json.end(), [&](const auto &in) { return in == prop; }));
+    }
+    {
+      const auto prop = nlohmann::json::object(
+          {{"count", 1}, {"key", "p4"}, {"types", nlohmann::json::array({{{"count", 1}, {"type", "Double"}}})}});
+      EXPECT_TRUE(std::any_of(prop_json.begin(), prop_json.end(), [&](const auto &in) { return in == prop; }));
+    }
+    {
+      const auto prop = nlohmann::json::object(
+          {{"count", 1}, {"key", "p5"}, {"types", nlohmann::json::array({{{"count", 1}, {"type", "String"}}})}});
+      EXPECT_TRUE(std::any_of(prop_json.begin(), prop_json.end(), [&](const auto &in) { return in == prop; }));
+    }
+    {
+      const auto prop = nlohmann::json::object(
+          {{"count", 1}, {"key", "p6"}, {"types", nlohmann::json::array({{{"count", 1}, {"type", "List"}}})}});
+      EXPECT_TRUE(std::any_of(prop_json.begin(), prop_json.end(), [&](const auto &in) { return in == prop; }));
+    }
+    {
+      const auto prop = nlohmann::json::object(
+          {{"count", 1}, {"key", "p7"}, {"types", nlohmann::json::array({{{"count", 1}, {"type", "Map"}}})}});
+      EXPECT_TRUE(std::any_of(prop_json.begin(), prop_json.end(), [&](const auto &in) { return in == prop; }));
+    }
+    {
+      const auto prop = nlohmann::json::object(
+          {{"count", 1}, {"key", "p8"}, {"types", nlohmann::json::array({{{"count", 1}, {"type", "Date"}}})}});
+      EXPECT_TRUE(std::any_of(prop_json.begin(), prop_json.end(), [&](const auto &in) { return in == prop; }));
+    }
+    {
+      const auto prop = nlohmann::json::object(
+          {{"count", 1}, {"key", "p9"}, {"types", nlohmann::json::array({{{"count", 1}, {"type", "Duration"}}})}});
+      EXPECT_TRUE(std::any_of(prop_json.begin(), prop_json.end(), [&](const auto &in) { return in == prop; }));
+    }
+    {
+      const auto prop = nlohmann::json::object(
+          {{"count", 1}, {"key", "p10"}, {"types", nlohmann::json::array({{{"count", 1}, {"type", "LocalTime"}}})}});
+      EXPECT_TRUE(std::any_of(prop_json.begin(), prop_json.end(), [&](const auto &in) { return in == prop; }));
+    }
+    {
+      const auto prop =
+          nlohmann::json::object({{"count", 1},
+                                  {"key", "p11"},
+                                  {"types", nlohmann::json::array({{{"count", 1}, {"type", "LocalDateTime"}}})}});
+      EXPECT_TRUE(std::any_of(prop_json.begin(), prop_json.end(), [&](const auto &in) { return in == prop; }));
+    }
+    {
+      const auto prop =
+          nlohmann::json::object({{"count", 1},
+                                  {"key", "p12"},
+                                  {"types", nlohmann::json::array({{{"count", 1}, {"type", "ZonedDateTime"}}})}});
+      EXPECT_TRUE(std::any_of(prop_json.begin(), prop_json.end(), [&](const auto &in) { return in == prop; }));
+    }
+    {
+      const auto prop = nlohmann::json::object(
+          {{"count", 1}, {"key", "p13"}, {"types", nlohmann::json::array({{{"count", 1}, {"type", "Enum::enum1"}}})}});
+      EXPECT_TRUE(std::any_of(prop_json.begin(), prop_json.end(), [&](const auto &in) { return in == prop; }));
+    }
+    {
+      const auto prop = nlohmann::json::object(
+          {{"count", 1}, {"key", "p14"}, {"types", nlohmann::json::array({{{"count", 1}, {"type", "Enum::enum2"}}})}});
+      EXPECT_TRUE(std::any_of(prop_json.begin(), prop_json.end(), [&](const auto &in) { return in == prop; }));
+    }
+    {
+      const auto prop = nlohmann::json::object(
+          {{"count", 1}, {"key", "p15"}, {"types", nlohmann::json::array({{{"count", 1}, {"type", "Point2D"}}})}});
+      EXPECT_TRUE(std::any_of(prop_json.begin(), prop_json.end(), [&](const auto &in) { return in == prop; }));
+    }
+    {
+      const auto prop = nlohmann::json::object(
+          {{"count", 1}, {"key", "p16"}, {"types", nlohmann::json::array({{{"count", 1}, {"type", "Point3D"}}})}});
+      EXPECT_TRUE(std::any_of(prop_json.begin(), prop_json.end(), [&](const auto &in) { return in == prop; }));
+    }
+  }
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TYPED_TEST(SchemaInfoTestWEdgeProp, AllPropertyTypes) {
+  auto *in_memory = static_cast<memgraph::storage::InMemoryStorage *>(this->storage.get());
+  auto &schema_info = in_memory->schema_info_;
+
+  auto e = in_memory->NameToEdgeType("E");
+  auto p1 = in_memory->NameToProperty("p1");
+  auto p2 = in_memory->NameToProperty("p2");
+  auto p3 = in_memory->NameToProperty("p3");
+  auto p4 = in_memory->NameToProperty("p4");
+  auto p5 = in_memory->NameToProperty("p5");
+  auto p6 = in_memory->NameToProperty("p6");
+  auto p7 = in_memory->NameToProperty("p7");
+  auto p8 = in_memory->NameToProperty("p8");
+  auto p9 = in_memory->NameToProperty("p9");
+  auto p10 = in_memory->NameToProperty("p10");
+  auto p11 = in_memory->NameToProperty("p11");
+  auto p12 = in_memory->NameToProperty("p12");
+  auto p13 = in_memory->NameToProperty("p13");
+  auto p14 = in_memory->NameToProperty("p14");
+  auto p15 = in_memory->NameToProperty("p15");
+  auto p16 = in_memory->NameToProperty("p16");
+
+  ASSERT_TRUE(in_memory->enum_store_.RegisterEnum("enum1", {"a", "b"}).HasValue());
+  ASSERT_TRUE(in_memory->enum_store_.RegisterEnum("enum2", {"1", "2"}).HasValue());
+  auto enum1 = *in_memory->enum_store_.ToEnum("enum1", "a");
+  auto enum2 = *in_memory->enum_store_.ToEnum("enum2", "2");
+
+  auto set_properties = [&](auto &obj) {
+    ASSERT_FALSE(obj.SetProperty(p1, PropertyValue{}).HasError());
+    ASSERT_FALSE(obj.SetProperty(p2, PropertyValue{true}).HasError());
+    ASSERT_FALSE(obj.SetProperty(p3, PropertyValue{123}).HasError());
+    ASSERT_FALSE(obj.SetProperty(p4, PropertyValue{45.678}).HasError());
+    ASSERT_FALSE(obj.SetProperty(p5, PropertyValue{"abc"}).HasError());
+    ASSERT_FALSE(obj.SetProperty(p6, PropertyValue{PropertyValue::list_t{}}).HasError());
+    ASSERT_FALSE(obj.SetProperty(p7, PropertyValue{PropertyValue::map_t{}}).HasError());
+    ASSERT_FALSE(obj.SetProperty(p8, PropertyValue{TemporalData{TemporalType::Date, 1}}).HasError());
+    ASSERT_FALSE(obj.SetProperty(p9, PropertyValue{TemporalData{TemporalType::Duration, 1}}).HasError());
+    ASSERT_FALSE(obj.SetProperty(p10, PropertyValue{TemporalData{TemporalType::LocalTime, 1}}).HasError());
+    ASSERT_FALSE(obj.SetProperty(p11, PropertyValue{TemporalData{TemporalType::LocalDateTime, 1}}).HasError());
+    ASSERT_FALSE(
+        obj.SetProperty(p12,
+                        PropertyValue{ZonedTemporalData{
+                            ZonedTemporalType::ZonedDateTime, {}, memgraph::utils::Timezone{std::chrono::minutes{0}}}})
+            .HasError());
+    ASSERT_FALSE(obj.SetProperty(p13, PropertyValue{enum1}).HasError());
+    ASSERT_FALSE(obj.SetProperty(p14, PropertyValue{enum2}).HasError());
+    ASSERT_FALSE(obj.SetProperty(p15, PropertyValue{Point2d{}}).HasError());
+    ASSERT_FALSE(obj.SetProperty(p16, PropertyValue{Point3d{}}).HasError());
+  };
+
+  auto check_json = [](const auto &json) {
+    ASSERT_EQ(json.size(), 1);
+    const auto &prop_json = json[0]["properties"];
+    ASSERT_EQ(prop_json.size(), 15);
+
+    {
+      const auto prop = nlohmann::json::object(
+          {{"count", 1}, {"key", "p2"}, {"types", nlohmann::json::array({{{"count", 1}, {"type", "Bool"}}})}});
+      EXPECT_TRUE(std::any_of(prop_json.begin(), prop_json.end(), [&](const auto &in) { return in == prop; }));
+    }
+    {
+      const auto prop = nlohmann::json::object(
+          {{"count", 1}, {"key", "p3"}, {"types", nlohmann::json::array({{{"count", 1}, {"type", "Int"}}})}});
+      EXPECT_TRUE(std::any_of(prop_json.begin(), prop_json.end(), [&](const auto &in) { return in == prop; }));
+    }
+    {
+      const auto prop = nlohmann::json::object(
+          {{"count", 1}, {"key", "p4"}, {"types", nlohmann::json::array({{{"count", 1}, {"type", "Double"}}})}});
+      EXPECT_TRUE(std::any_of(prop_json.begin(), prop_json.end(), [&](const auto &in) { return in == prop; }));
+    }
+    {
+      const auto prop = nlohmann::json::object(
+          {{"count", 1}, {"key", "p5"}, {"types", nlohmann::json::array({{{"count", 1}, {"type", "String"}}})}});
+      EXPECT_TRUE(std::any_of(prop_json.begin(), prop_json.end(), [&](const auto &in) { return in == prop; }));
+    }
+    {
+      const auto prop = nlohmann::json::object(
+          {{"count", 1}, {"key", "p6"}, {"types", nlohmann::json::array({{{"count", 1}, {"type", "List"}}})}});
+      EXPECT_TRUE(std::any_of(prop_json.begin(), prop_json.end(), [&](const auto &in) { return in == prop; }));
+    }
+    {
+      const auto prop = nlohmann::json::object(
+          {{"count", 1}, {"key", "p7"}, {"types", nlohmann::json::array({{{"count", 1}, {"type", "Map"}}})}});
+      EXPECT_TRUE(std::any_of(prop_json.begin(), prop_json.end(), [&](const auto &in) { return in == prop; }));
+    }
+    {
+      const auto prop = nlohmann::json::object(
+          {{"count", 1}, {"key", "p8"}, {"types", nlohmann::json::array({{{"count", 1}, {"type", "Date"}}})}});
+      EXPECT_TRUE(std::any_of(prop_json.begin(), prop_json.end(), [&](const auto &in) { return in == prop; }));
+    }
+    {
+      const auto prop = nlohmann::json::object(
+          {{"count", 1}, {"key", "p9"}, {"types", nlohmann::json::array({{{"count", 1}, {"type", "Duration"}}})}});
+      EXPECT_TRUE(std::any_of(prop_json.begin(), prop_json.end(), [&](const auto &in) { return in == prop; }));
+    }
+    {
+      const auto prop = nlohmann::json::object(
+          {{"count", 1}, {"key", "p10"}, {"types", nlohmann::json::array({{{"count", 1}, {"type", "LocalTime"}}})}});
+      EXPECT_TRUE(std::any_of(prop_json.begin(), prop_json.end(), [&](const auto &in) { return in == prop; }));
+    }
+    {
+      const auto prop =
+          nlohmann::json::object({{"count", 1},
+                                  {"key", "p11"},
+                                  {"types", nlohmann::json::array({{{"count", 1}, {"type", "LocalDateTime"}}})}});
+      EXPECT_TRUE(std::any_of(prop_json.begin(), prop_json.end(), [&](const auto &in) { return in == prop; }));
+    }
+    {
+      const auto prop =
+          nlohmann::json::object({{"count", 1},
+                                  {"key", "p12"},
+                                  {"types", nlohmann::json::array({{{"count", 1}, {"type", "ZonedDateTime"}}})}});
+      EXPECT_TRUE(std::any_of(prop_json.begin(), prop_json.end(), [&](const auto &in) { return in == prop; }));
+    }
+    {
+      const auto prop = nlohmann::json::object(
+          {{"count", 1}, {"key", "p13"}, {"types", nlohmann::json::array({{{"count", 1}, {"type", "Enum::enum1"}}})}});
+      EXPECT_TRUE(std::any_of(prop_json.begin(), prop_json.end(), [&](const auto &in) { return in == prop; }));
+    }
+    {
+      const auto prop = nlohmann::json::object(
+          {{"count", 1}, {"key", "p14"}, {"types", nlohmann::json::array({{{"count", 1}, {"type", "Enum::enum2"}}})}});
+      EXPECT_TRUE(std::any_of(prop_json.begin(), prop_json.end(), [&](const auto &in) { return in == prop; }));
+    }
+    {
+      const auto prop = nlohmann::json::object(
+          {{"count", 1}, {"key", "p15"}, {"types", nlohmann::json::array({{{"count", 1}, {"type", "Point2D"}}})}});
+      EXPECT_TRUE(std::any_of(prop_json.begin(), prop_json.end(), [&](const auto &in) { return in == prop; }));
+    }
+    {
+      const auto prop = nlohmann::json::object(
+          {{"count", 1}, {"key", "p16"}, {"types", nlohmann::json::array({{{"count", 1}, {"type", "Point3D"}}})}});
+      EXPECT_TRUE(std::any_of(prop_json.begin(), prop_json.end(), [&](const auto &in) { return in == prop; }));
+    }
+  };
+
+  // Empty
+  {
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    ASSERT_TRUE(json["nodes"].empty());
+    ASSERT_TRUE(json["edges"].empty());
+  }
+
+  // create vertex and edge; add all property types
+  {
+    auto acc = in_memory->Access();
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    auto edge = acc->CreateEdge(&v1, &v2, e);
+    ASSERT_TRUE(edge.HasValue());
+
+    set_properties(v1);
+    set_properties(edge.GetValue());
+
+    ASSERT_FALSE(acc->Commit().HasError());
+
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+
+    check_json(json["nodes"]);
+    check_json(json["edges"]);
   }
 }

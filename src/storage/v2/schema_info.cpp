@@ -251,7 +251,6 @@ void Tracking::CleanUp() {
   }
 }
 
-// Todo ENUMS
 nlohmann::json PropertyInfo::ToJson(const EnumStore &enum_store, std::string_view key) const {
   nlohmann::json::object_t property_info;
   property_info.emplace("key", key);
@@ -263,9 +262,48 @@ nlohmann::json PropertyInfo::ToJson(const EnumStore &enum_store, std::string_vie
     if (type.first.type == PropertyValueType::TemporalData) {
       ss << type.first.temporal_type;
     } else if (type.first.type == PropertyValueType::Enum) {
-      ss << "enum::" << *enum_store.ToTypeString(type.first.enum_type);
+      ss << "Enum::" << *enum_store.ToTypeString(type.first.enum_type);
     } else {
-      ss << type.first.type;
+      // Unify formatting
+      switch (type.first.type) {
+        break;
+        case PropertyValueType::Null:
+          ss << "Null";
+          break;
+        case PropertyValueType::Bool:
+          ss << "Bool";
+          break;
+        case PropertyValueType::Int:
+          ss << "Int";
+          break;
+        case PropertyValueType::Double:
+          ss << "Double";
+          break;
+        case PropertyValueType::String:
+          ss << "String";
+          break;
+        case PropertyValueType::List:
+          ss << "List";
+          break;
+        case PropertyValueType::Map:
+          ss << "Map";
+          break;
+        case PropertyValueType::TemporalData:
+          ss << "TemporalData";
+          break;
+        case PropertyValueType::ZonedTemporalData:
+          ss << "ZonedDateTime";
+          break;
+        case PropertyValueType::Enum:
+          ss << "Enum";
+          break;
+        case PropertyValueType::Point2d:
+          ss << "Point2D";
+          break;
+        case PropertyValueType::Point3d:
+          ss << "Point3D";
+          break;
+      }
     }
     type_info.emplace("type", ss.str());
     type_info.emplace("count", type.second);
