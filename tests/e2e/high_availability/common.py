@@ -34,8 +34,7 @@ def connect(**kwargs) -> mgclient.Connection:
 def safe_execute(function, *args):
     try:
         function(*args)
-    except Exception as e:
-        print("Exception occurred: ", str(e))
+    except Exception:
         pass
 
 
