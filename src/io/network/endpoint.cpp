@@ -43,67 +43,112 @@ namespace memgraph::io::network {
 
 Endpoint::Endpoint(std::string address, uint16_t port) : address_(std::move(address)), port_(port) {}
 
-std::string Endpoint::SocketAddress() const { return fmt::format("{}{}{}", address_, delimiter, port_); }
+auto Endpoint::SocketAddress() const -> std::string { return fmt::format("{}{}{}", address_, delimiter, port_); }
 
-std::string Endpoint::GetResolvedSocketAddress() const {
+auto Endpoint::GetResolvedSocketAddress() const -> std::string {
   auto const result = TryResolveAddress(address_, port_);
   if (!result.has_value()) {
-    throw NetworkError("Couldn't resolve neither using DNS, nor IP address!");
+    throw NetworkError("Couldn't resolve {}.", address_);
   }
-  return fmt::format("{}{}{}", std::get<0>(*result), delimiter, std::get<1>(*result));
+
+  auto resolved_address = std::get<0>(*result);
+  auto resolved_port = std::get<1>(*result);
+  spdlog::trace("{}:{} successfully resolved to {}:{}.", address_, port_, resolved_address, resolved_port);
+
+  return fmt::format("{}{}{}", resolved_address, delimiter, resolved_port);
 }
 
-std::string Endpoint::GetResolvedIPAddress() const {
+auto Endpoint::GetResolvedIPAddress() const -> std::string {
   auto const result = TryResolveAddress(address_, port_);
   if (!result.has_value()) {
-    throw NetworkError("Couldn't resolve neither using DNS, nor IP address!");
+    throw NetworkError("Couldn't resolve {}.", address_);
   }
-  return std::get<0>(*result);
+
+  auto resolved_address = std::get<0>(*result);
+  spdlog::trace("{} successfully resolved to {}.", address_, resolved_address);
+
+  return resolved_address;
+}
+
+[[nodiscard]] auto Endpoint::GetIpFamily() const -> IpFamily {
+  auto const result = TryResolveAddress(address_, port_);
+  if (!result.has_value()) {
+    throw NetworkError("Couldn't resolve {}.", address_);
+  }
+
+  return std::get<2>(*result);
 }
 
 std::ostream &operator<<(std::ostream &os, const Endpoint &endpoint) {
   return os << endpoint.GetResolvedSocketAddress();
 }
 
-std::optional<std::tuple<std::string, uint16_t, Endpoint::IpFamily>> Endpoint::TryResolveAddress(
-    std::string_view address, uint16_t port) {
-  addrinfo hints{
-      .ai_flags = AI_PASSIVE,     // fill with IPv4 or IPv6
-      .ai_family = AF_UNSPEC,     // IPv4 and IPv6
-      .ai_socktype = SOCK_STREAM  // TCP socket
+std::optional<Endpoint::RetValue> Endpoint::TryResolveAddress(std::string_view address, uint16_t port) {
+  auto const process_ipv4_family = [address](addrinfo *socket_addr, uint16_t port) -> std::optional<RetValue> {
+    char buffer[INET_ADDRSTRLEN];
+    auto *socket_address_ipv4 = reinterpret_cast<struct sockaddr_in *>(socket_addr->ai_addr);
+    auto const *res = inet_ntop(socket_addr->ai_family, &(socket_address_ipv4->sin_addr), buffer, sizeof(buffer));
+    if (res == NULL) {    // NOLINT
+      int errsv = errno;  // don't reorder, otherwise errno could get reassigned.
+      spdlog::trace("inet_ntop failed with errno {} when resolving {} to ipv4 address.", errsv, address);
+      return std::nullopt;
+    }
+    return std::tuple{std::string{buffer}, port, Endpoint::IpFamily::IP4};
   };
-  addrinfo *info = nullptr;
-  utils::OnScopeExit const free_info{[&info]() {
-    if (info) {
-      freeaddrinfo(info);
-    }
-  }};
-  auto status = getaddrinfo(std::string(address).c_str(), std::to_string(port).c_str(), &hints, &info);
-  if (status != 0) {
-    throw NetworkError("Couldn't resolve address: {}", address);
-  }
 
-  for (auto *socket_addr = info; socket_addr != nullptr; socket_addr = socket_addr->ai_next) {
-    switch (socket_addr->ai_family) {
-      case AF_UNSPEC:
-        break;
-      case AF_INET: {
-        char buffer[INET_ADDRSTRLEN];
-        auto *socket_address_ipv4 = reinterpret_cast<struct sockaddr_in *>(socket_addr->ai_addr);
-        inet_ntop(socket_addr->ai_family, &(socket_address_ipv4->sin_addr), buffer, sizeof(buffer));
-        return std::tuple{std::string{buffer}, port, Endpoint::IpFamily::IP4};
-      }
-      case AF_INET6: {
-        char buffer[INET6_ADDRSTRLEN];
-        auto *socket_address_ipv6 = reinterpret_cast<sockaddr_in6 *>(socket_addr->ai_addr);
-        inet_ntop(socket_addr->ai_family, &(socket_address_ipv6->sin6_addr), buffer, sizeof(buffer));
-        return std::tuple{std::string{buffer}, port, Endpoint::IpFamily::IP6};
-      }
-      default:
-        throw std::runtime_error("Can't parse");
+  auto const process_ipv6_family = [address](addrinfo *socket_addr, uint16_t port) -> std::optional<RetValue> {
+    char buffer[INET6_ADDRSTRLEN];
+    auto *socket_address_ipv6 = reinterpret_cast<sockaddr_in6 *>(socket_addr->ai_addr);
+    auto const *res = inet_ntop(socket_addr->ai_family, &(socket_address_ipv6->sin6_addr), buffer, sizeof(buffer));
+    if (res == NULL) {    // NOLINT
+      int errsv = errno;  // don't reorder, otherwise errno could get reassigned.
+      spdlog::trace("inet_ntop failed with errno {} when resolving {} to ipv6 address.", errsv, address);
+      return std::nullopt;
     }
+    return std::tuple{std::string{buffer}, port, Endpoint::IpFamily::IP6};
+  };
+
+  auto const parse_ip_family = [&address, &port](
+                                   std::function<std::optional<RetValue>(addrinfo *, uint16_t)> const &processing_fn,
+                                   auto family) -> std::optional<RetValue> {
+    addrinfo const hints{
+        .ai_flags = AI_PASSIVE,     // fill with IPv4 or IPv6
+        .ai_family = family,        // IPv4 or IPv6
+        .ai_socktype = SOCK_STREAM  // TCP socket
+    };
+
+    addrinfo *info{nullptr};
+    utils::OnScopeExit const free_info{[&info]() {
+      if (info) {
+        freeaddrinfo(info);
+      }
+    }};
+
+    auto status = getaddrinfo(std::string(address).c_str(), std::to_string(port).c_str(), &hints, &info);
+    if (status != 0) {
+      spdlog::trace("getaddrinfo finished unsuccessfully while resolving {}:{}", address, port);
+      return std::nullopt;
+    }
+
+    auto *socket_addr = info;
+    while (socket_addr != nullptr) {
+      if (family != socket_addr->ai_family) {
+        socket_addr = socket_addr->ai_next;
+        continue;
+      }
+      return processing_fn(socket_addr, port);
+    }
+
+    return std::nullopt;
+  };
+
+  auto ip_v4_family = parse_ip_family(process_ipv4_family, AF_INET);
+  if (ip_v4_family.has_value()) {
+    spdlog::trace("{} successfully resolved to ipv4 address.", address);
+    return std::move(*ip_v4_family);
   }
-  return std::nullopt;
+  spdlog::trace("Failed to resolve {} to ipv4 address, trying to resolve to ipv6 address.", address);
+  return parse_ip_family(process_ipv6_family, AF_INET6);
 }
 
 std::optional<Endpoint> Endpoint::ParseAndCreateSocketOrAddress(std::string_view address,
@@ -160,14 +205,6 @@ auto Endpoint::ValidatePort(std::optional<uint16_t> port) -> bool {
 
 [[nodiscard]] auto Endpoint::GetPort() const -> uint16_t const & { return port_; }
 [[nodiscard]] auto Endpoint::GetPort() -> uint16_t & { return port_; }
-
-[[nodiscard]] auto Endpoint::GetIpFamily() const -> IpFamily {
-  auto const result = TryResolveAddress(address_, port_);
-  if (!result.has_value()) {
-    throw NetworkError("Couldn't resolve neither using DNS, nor IP address!");
-  }
-  return std::get<2>(*result);
-}
 
 void Endpoint::SetAddress(std::string address) { address_ = std::move(address); }
 void Endpoint::SetPort(uint16_t port) { port_ = port; }

@@ -98,6 +98,7 @@ def get_memgraph_instances_description(test_name: str):
                 "10121",
             ],
             "log_file": f"high_availability/coordinator/{test_name}/coordinator1.log",
+            "data_directory": f"{TEMP_DIR}/coordinator_1",
             "setup_queries": [
                 "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
                 "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",

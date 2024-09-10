@@ -331,7 +331,7 @@ git apply ../nuraft.patch
 popd
 
 # mgcxx (text search)
-mgcxx_tag="v0.0.6"
+mgcxx_tag="v0.0.7"
 repo_clone_try_double "${primary_urls[mgcxx]}" "${secondary_urls[mgcxx]}" "mgcxx" "$mgcxx_tag" true
 
 # strong_type v14
