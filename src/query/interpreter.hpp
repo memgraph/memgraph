@@ -18,6 +18,7 @@
 
 #include "dbms/database.hpp"
 #include "dbms/dbms_handler.hpp"
+#include "flags/query.hpp"
 #include "memory/query_memory_control.hpp"
 #include "query/auth_checker.hpp"
 #include "query/auth_query_handler.hpp"
@@ -33,6 +34,7 @@
 #include "query/metadata.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/read_write_type_checker.hpp"
+#include "query/query_logger.hpp"
 #include "query/stream.hpp"
 #include "query/stream/streams.hpp"
 #include "query/trigger.hpp"
@@ -381,6 +383,11 @@ class Interpreter final {
 
   std::optional<memgraph::system::Transaction> system_transaction_{};
 
+  std::optional<QueryLogger> query_logger_{};
+
+  bool IsQueryLoggingActive() const;
+  void LogQueryMessage(std::string message);
+
  private:
   void ResetInterpreter() {
     query_executions_.clear();
@@ -530,13 +537,15 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
         query_execution.reset(nullptr);
       }
     }
-  } catch (const ExplicitTransactionUsageException &) {
+  } catch (const ExplicitTransactionUsageException &e) {
+    LogQueryMessage(e.what());
     if (current_transaction_) {
       memgraph::memory::TryStopTrackingOnTransaction(*current_transaction_);
     }
     query_execution.reset(nullptr);
     throw;
-  } catch (const utils::BasicException &) {
+  } catch (const utils::BasicException &e) {
+    LogQueryMessage(e.what());
     if (current_transaction_) {
       memgraph::memory::TryStopTrackingOnTransaction(*current_transaction_);
     }
