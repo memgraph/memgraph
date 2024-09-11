@@ -11,8 +11,6 @@
 
 #pragma once
 
-#ifdef MG_ENTERPRISE
-
 #include <spdlog/common.h>
 #include <spdlog/sinks/daily_file_sink.h>
 #include <spdlog/spdlog.h>
@@ -50,5 +48,3 @@ class QueryLogger {
 };
 
 }  // namespace memgraph::query
-
-#endif
