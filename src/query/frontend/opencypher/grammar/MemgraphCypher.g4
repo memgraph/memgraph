@@ -107,6 +107,8 @@ memgraphCypherKeyword : cypherKeyword
                       | NODE_LABELS
                       | NOTHING
                       | OF_TOKEN
+                      | OFF
+                      | ON
                       | ON_DISK_TRANSACTIONAL
                       | NULLIF
                       | ON_DISK_TRANSACTIONAL
@@ -151,6 +153,7 @@ memgraphCypherKeyword : cypherKeyword
                       | TIMEOUT
                       | TO
                       | TOPICS
+                      | TRACE
                       | TRANSACTION
                       | TRANSACTIONS
                       | TRANSACTION_MANAGEMENT
@@ -214,6 +217,7 @@ query : cypherQuery
       | dropEnumQuery
       | showSchemaInfoQuery
       | ttlQuery
+      | setSessionTraceQuery
       ;
 
 cypherQuery : ( preQueryDirectives )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
@@ -390,6 +394,8 @@ revokeDatabaseFromUserOrRole : REVOKE DATABASE db=wildcardName FROM userOrRole=u
 showDatabasePrivileges : SHOW DATABASE PRIVILEGES FOR userOrRole=userOrRoleName ;
 
 setMainDatabase : SET MAIN DATABASE db=symbolicName FOR userOrRole=userOrRoleName ;
+
+setSessionTraceQuery : SET SESSION TRACE (ON | OFF) ;
 
 privilege : CREATE
           | DELETE
