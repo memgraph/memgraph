@@ -119,7 +119,7 @@ def is_port_in_use(port: int) -> bool:
         return s.connect_ex(("localhost", port)) == 0
 
 
-def _start_instance(
+def _start(
     name,
     args,
     log_file,
@@ -130,7 +130,7 @@ def _start_instance(
     username=None,
     password=None,
     bolt_port: Optional[int] = None,
-    skip_auth: bool = False,
+    ignore_auth_failure: bool = False,
     storage_snapshot_on_exit: bool = False,
 ):
     assert (
@@ -166,7 +166,7 @@ def _start_instance(
         args=binary_args,
         setup_queries=setup_queries,
         bolt_port=bolt_port,
-        skip_auth=skip_auth,
+        ignore_auth_failure=ignore_auth_failure,
         storage_snapshot_on_exit=storage_snapshot_on_exit,
     )
     assert mg_instance.is_running(), "An error occurred after starting Memgraph instance: application stopped running."
@@ -215,12 +215,12 @@ def kill(context, name, keep_directories=True):
 @atexit.register
 def cleanup():
     """
-    On exit stop all instances but don't clear data directories since this is controller from run.sh running script.
+    On exit stop all instances but don't clear data directories since this is controlled from run.sh running script.
     """
     stop_all()
 
 
-def start_instance(context, name, procdir):
+def start(context, name, procdir):
     mg_instances = {}
 
     for key, value in context.items():
@@ -228,21 +228,26 @@ def start_instance(context, name, procdir):
             continue
         args = value["args"]
         log_file = value["log_file"]
-        queries = []
+
+        setup_queries = []
         if "setup_queries" in value:
-            queries = value["setup_queries"]
+            setup_queries = value["setup_queries"]
+
         use_ssl = False
         if "ssl" in value:
             use_ssl = bool(value["ssl"])
             value.pop("ssl")
+
         data_directory = ""
         if "data_directory" in value:
             data_directory = value["data_directory"]
         else:
             data_directory = secrets.token_hex(4)  # Generate 8-character hex string
+
         username = None
         if "username" in value:
             username = value["username"]
+
         password = None
         if "password" in value:
             password = value["password"]
@@ -251,21 +256,21 @@ def start_instance(context, name, procdir):
         if "default_bolt_port" in value:
             default_bolt_port = value["default_bolt_port"]
 
-        skip_auth = value["skip_auth"] if "skip_auth" in value else False
+        ignore_auth_failure = value["ignore_auth_failure"] if "ignore_auth_failure" in value else False
         storage_snapshot_on_exit = value["storage_snapshot_on_exit"] if "storage_snapshot_on_exit" in value else False
 
-        instance = _start_instance(
+        instance = _start(
             name,
             args,
             log_file,
-            queries,
+            setup_queries,
             use_ssl,
             procdir,
             data_directory,
             username,
             password,
             default_bolt_port,
-            skip_auth=skip_auth,
+            ignore_auth_failure=ignore_auth_failure,
             storage_snapshot_on_exit=storage_snapshot_on_exit,
         )
         log.info(f"Instance with name {name} started")
@@ -280,7 +285,7 @@ def start_all(context, procdir="", keep_directories=True):
     """
     stop_all(keep_directories)
     for key, _ in context.items():
-        start_instance(context, key, procdir)
+        start(context, key, procdir)
 
 
 def start_all_keep_others(context, procdir=""):
@@ -288,19 +293,13 @@ def start_all_keep_others(context, procdir=""):
     Start all instances from the context but don't stop currently running instances.
     """
     for key, _ in context.items():
-        start_instance(context, key, procdir)
-
-
-# TODO: (andi) This method doesn't make sense. Change everything to calling start_instance.
-def start(context, name, procdir=""):
-    if name != "all":
-        start_instance(context, name, procdir)
-        return
-
-    start_all(context)
+        start(context, key, procdir)
 
 
 def info(context):
+    """
+    Prints information about the context.
+    """
     print("{:<15s}{:>6s}".format("NAME", "STATUS"))
     for name, _ in context.items():
         if name not in MEMGRAPH_INSTANCES:
@@ -310,6 +309,9 @@ def info(context):
 
 
 def process_actions(context, actions):
+    """
+    Processes all `actions` using the `context` as context.
+    """
     actions = actions.split(" ")
     actions.reverse()
     while len(actions) > 0:

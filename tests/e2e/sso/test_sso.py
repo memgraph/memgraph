@@ -21,7 +21,7 @@ INSTANCE_DESCRIPTION = {
         "args": ["--bolt-port=7687", "--log-level=TRACE", "--data-recovery-on-startup=true"],
         "log_file": "sso.log",
         "setup_queries": [],
-        "skip_auth": True,
+        "ignore_auth_failure": True,
     }
 }
 

@@ -64,29 +64,31 @@ def replace_paths(path):
 
 
 class MemgraphInstanceRunner:
-    def __init__(self, binary_path=MEMGRAPH_BINARY, use_ssl=False, delete_on_stop=None, username=None, password=None):
+    def __init__(self, binary_path=MEMGRAPH_BINARY, use_ssl=False, data_directory=None, username=None, password=None):
         self.host = "127.0.0.1"
         self.bolt_port = None
         self.binary_path = binary_path
         self.args = None
         self.proc_mg = None
         self.ssl = use_ssl
-        self.delete_on_stop = delete_on_stop
+        self.data_directory = data_directory
         self.username = username
         self.password = password
 
     def wait_for_succesful_connection(self, ignore_auth_failure: bool = False, delay=0.1):
-        count = 0
-        while count < 150:
+        """
+        Instance is considered started after successfully connecting mgclient. If `ignore_auth_failure` is set to True, the
+        retry loop terminates immediately on `Authentication failure`.
+        """
+        for _ in range(150):
             try:
-                conn = mgclient.connect(
+                return mgclient.connect(
                     host=self.host,
                     port=self.bolt_port,
                     sslmode=self.ssl,
                     username=(self.username or ""),
                     password=(self.password or ""),
                 )
-                return conn
             except Exception as e:
                 if (
                     ignore_auth_failure
@@ -94,42 +96,55 @@ class MemgraphInstanceRunner:
                     and str(e) == "Authentication failure"
                 ):
                     return
-                count += 1
                 time.sleep(delay)
-                continue
 
         print(f"Could not wait for host {self.host} on port {self.bolt_port} to startup!")
         sys.exit(1)
 
-    # NOTE: Both query and get_connection may esablish new connection -> auth
-    # details required -> username/password should be optional arguments.
     def query(self, query, conn=None, username="", password=""):
+        """
+        Reuses connection `conn` if possible. If not, creates new connection, runs the queries and returns all data by exhausting cursor.
+        Connection is closed.
+        """
         new_conn = conn is None
         if new_conn:
             conn = self.get_connection(username, password)
+
         cursor = conn.cursor()
         cursor.execute(query)
         data = cursor.fetchall()
+
         cursor.close()
         if new_conn:
             conn.close()
+
         return data
 
     def execute_setup_queries(self, conn, setup_queries):
+        """
+        Executes setup queries. The element inside `setup_queries` can be a string or a list. Connection is closed at the end and cannot be
+        reused.
+        """
         if setup_queries is None:
             return
+
         conn.autocommit = True
         cursor = conn.cursor()
+
         for query_coll in setup_queries:
             if isinstance(query_coll, str):
                 cursor.execute(query_coll)
             elif isinstance(query_coll, list):
                 for query in query_coll:
                     cursor.execute(query)
+
         cursor.close()
         conn.close()
 
     def get_connection(self, username="", password=""):
+        """
+        Retrieves new mgclient connection with autocommit set to true.
+        """
         conn = mgclient.connect(
             host=self.host, port=self.bolt_port, sslmode=self.ssl, username=username, password=password
         )
@@ -142,46 +157,55 @@ class MemgraphInstanceRunner:
         args=None,
         setup_queries=None,
         bolt_port: Optional[int] = None,
-        skip_auth: bool = False,
-        storage_snapshot_on_exit: bool = False,
+        ignore_auth_failure: bool = False,
     ):
+        """
+        Starts an instance which is not already running. Before doing anything, calls `stop` on instance.
+        """
         if not restart and self.is_running():
             return
+
         self.stop()
+
         if args is not None:
             self.args = copy.deepcopy(args)
         self.args = [replace_paths(arg) for arg in self.args]
-        snapshot_on_exit_str = "true" if storage_snapshot_on_exit else "false"
         args_mg = [
             self.binary_path,
             "--storage-wal-enabled",
             "--storage-snapshot-interval-sec",
             "300",
             "--storage-properties-on-edges",
-            f"--storage-snapshot-on-exit={snapshot_on_exit_str}",
         ] + self.args
+
         if bolt_port:
             self.bolt_port = bolt_port
         else:
             self.bolt_port = extract_bolt_port(args_mg)
+
         self.proc_mg = subprocess.Popen(args_mg)
         log.info(f"Subprocess started with args {args_mg}")
-        conn = self.wait_for_succesful_connection(ignore_auth_failure=skip_auth)
+        conn = self.wait_for_succesful_connection(ignore_auth_failure=ignore_auth_failure)
         log.info(f"Server started on instance with bolt port {self.host}:{bolt_port}")
-        if not skip_auth:
-            self.execute_setup_queries(conn, setup_queries)
-        assert self.is_running(), "The Memgraph process died!"
+        self.execute_setup_queries(conn, setup_queries)
+
+        assert self.is_running(), "The Memgraph process died during start!"
 
     def is_running(self):
+        """
+        Checks if the underlying process is still running by calling `poll` on the process.
+        """
         if self.proc_mg is None:
             return False
+
         if self.proc_mg.poll() is not None:
             return False
+
         return True
 
     def stop(self, keep_directories=False):
         """
-        Sends SIGTERM to the running process. If keep_directories is set to False, deletes --data-directory folder.
+        Sends SIGTERM signal to `self.proc_mg` and if `keep_directories=False`, deletes its data_directory.
         """
         if not self.is_running():
             return
@@ -195,22 +219,28 @@ class MemgraphInstanceRunner:
         time.sleep(1)
 
         if not keep_directories:
-            for folder in self.delete_on_stop or {}:
-                try:
-                    shutil.rmtree(folder)
-                except Exception:
-                    pass  # couldn't delete folder, skip
+            self.safe_delete_data_directory()
 
-    # TODO: (andi) Abstract into one function
     def kill(self, keep_directories=False):
         """
-        Sends kill signal to the running process. If keep_directories is set to False, deletes --data-directory folder.
+        Sends SIGKILL to `self.proc_mg` and if `keep_directories=False`, deletes its data_directory.
         """
         if not self.is_running():
             return
+
         self.proc_mg.kill()
         code = self.proc_mg.wait()
+
         if not keep_directories:
-            for folder in self.delete_on_stop or {}:
-                shutil.rmtree(folder)
+            self.safe_delete_data_directory()
+
         assert code == -9, "The killed Memgraph process exited with non-nine!"
+
+    def safe_delete_data_directory(self):
+        """
+        Deletes `self.data_directory` and asserts there were no exceptions thrown during deletion.
+        """
+        try:
+            shutil.rmtree(self.data_directory)
+        except Exception:
+            pass
