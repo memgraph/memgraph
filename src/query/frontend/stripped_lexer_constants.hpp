@@ -225,6 +225,7 @@ const trie::Trie kKeywords = {
     "or",
     "order",
     "password",
+    "point",
     "port",
     "privileges",
     "procedure",

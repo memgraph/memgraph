@@ -3019,6 +3019,86 @@ PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
       RWType::W};
 }
 
+PreparedQuery PreparePointIndexQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
+                                     std::vector<Notification> *notifications, CurrentDB &current_db) {
+  if (in_explicit_transaction) {
+    throw IndexInMulticommandTxException();
+  }
+
+  auto *index_query = utils::Downcast<PointIndexQuery>(parsed_query.query);
+  std::function<Notification(void)> handler;
+
+  MG_ASSERT(current_db.db_acc_, "Index query expects a current DB");
+  auto &db_acc = *current_db.db_acc_;
+
+  MG_ASSERT(current_db.db_transactional_accessor_, "Index query expects a current DB transaction");
+  auto *dba = &*current_db.execution_db_accessor_;
+
+  auto const invalidate_plan_cache = [plan_cache = db_acc->plan_cache()] {
+    plan_cache->WithLock([&](auto &cache) { cache.reset(); });
+  };
+
+  auto label_name = index_query->label_.name;
+  auto prop_name = index_query->property_.name;
+  auto *storage = db_acc->storage();
+
+  switch (index_query->action_) {
+    case PointIndexQuery::Action::CREATE: {
+      handler = [label_name = std::move(label_name), prop_name = std::move(prop_name), dba, storage,
+                 invalidate_plan_cache = std::move(invalidate_plan_cache)]() {
+        Notification index_notification(SeverityLevel::INFO);
+        index_notification.code = NotificationCode::CREATE_INDEX;
+        index_notification.title = fmt::format("Created point index on label {}, property {}.", label_name, prop_name);
+
+        auto label_id = storage->NameToLabel(label_name);
+        auto prop_id = storage->NameToProperty(prop_name);
+
+        auto maybe_index_error = dba->CreatePointIndex(label_id, prop_id);
+        utils::OnScopeExit const invalidator(invalidate_plan_cache);
+
+        if (maybe_index_error.HasError()) {
+          index_notification.code = NotificationCode::EXISTENT_INDEX;
+          index_notification.title =
+              fmt::format("Point index on label {} and property {} already exists.", label_name, prop_name);
+        }
+        return index_notification;
+      };
+      break;
+    }
+    case PointIndexQuery::Action::DROP: {
+      handler = [label_name = std::move(label_name), prop_name = std::move(prop_name), dba, storage,
+                 invalidate_plan_cache = std::move(invalidate_plan_cache)]() {
+        Notification index_notification(SeverityLevel::INFO);
+        index_notification.code = NotificationCode::DROP_INDEX;
+        index_notification.title = fmt::format("Dropped point index on label {}, property {}.", label_name, prop_name);
+
+        auto label_id = storage->NameToLabel(label_name);
+        auto prop_id = storage->NameToProperty(prop_name);
+
+        auto maybe_index_error = dba->DropPointIndex(label_id, prop_id);
+        utils::OnScopeExit const invalidator(invalidate_plan_cache);
+
+        if (maybe_index_error.HasError()) {
+          index_notification.code = NotificationCode::NONEXISTENT_INDEX;
+          index_notification.title =
+              fmt::format("Point index on label {} and property {} doesn't exist.", label_name, prop_name);
+        }
+        return index_notification;
+      };
+      break;
+    }
+  }
+
+  return PreparedQuery{
+      {},
+      std::move(parsed_query.required_privileges),
+      [handler = std::move(handler), notifications](AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable {
+        notifications->push_back(handler());
+        return QueryHandlerResult::COMMIT;
+      },
+      RWType::W};
+}
+
 PreparedQuery PrepareTextIndexQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                     std::vector<Notification> *notifications, CurrentDB &current_db) {
   if (in_explicit_transaction) {
@@ -4079,6 +4159,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         const std::string_view edge_type_index_mark{"edge-type"};
         const std::string_view edge_type_property_index_mark{"edge-type+property"};
         const std::string_view text_index_mark{"text"};
+        const std::string_view point_label_property_index_mark{"point"};
         auto info = dba->ListAllIndices();
         auto storage_acc = database->Access();
         std::vector<std::vector<TypedValue>> results;
@@ -4106,6 +4187,12 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
           results.push_back({TypedValue(fmt::format("{} (name: {})", text_index_mark, index_name)),
                              TypedValue(storage->LabelToName(label)), TypedValue(), TypedValue()});
         }
+        for (const auto &[label_id, prop_id] : info.point_label_property) {
+          results.push_back({TypedValue(point_label_property_index_mark), TypedValue(storage->LabelToName(label_id)),
+                             TypedValue(storage->PropertyToName(prop_id)),
+                             TypedValue(static_cast<int>(storage_acc->ApproximatePointCount(label_id, prop_id)))});
+        }
+
         std::sort(results.begin(), results.end(), [&label_index_mark](const auto &record_1, const auto &record_2) {
           const auto type_1 = record_1[0].ValueString();
           const auto type_2 = record_2[0].ValueString();
@@ -5092,8 +5179,9 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     // TODO: make a better analysis visitor over the `parsed_query.query`
     bool const unique_db_transaction =
         utils::Downcast<IndexQuery>(parsed_query.query) || utils::Downcast<EdgeIndexQuery>(parsed_query.query) ||
-        utils::Downcast<TextIndexQuery>(parsed_query.query) || utils::Downcast<ConstraintQuery>(parsed_query.query) ||
-        utils::Downcast<DropGraphQuery>(parsed_query.query) || utils::Downcast<CreateEnumQuery>(parsed_query.query) ||
+        utils::Downcast<PointIndexQuery>(parsed_query.query) || utils::Downcast<TextIndexQuery>(parsed_query.query) ||
+        utils::Downcast<ConstraintQuery>(parsed_query.query) || utils::Downcast<DropGraphQuery>(parsed_query.query) ||
+        utils::Downcast<CreateEnumQuery>(parsed_query.query) ||
         utils::Downcast<AlterEnumAddValueQuery>(parsed_query.query) ||
         utils::Downcast<AlterEnumUpdateValueQuery>(parsed_query.query) || utils::Downcast<TtlQuery>(parsed_query.query);
 
@@ -5153,6 +5241,9 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     } else if (utils::Downcast<EdgeIndexQuery>(parsed_query.query)) {
       prepared_query = PrepareEdgeIndexQuery(std::move(parsed_query), in_explicit_transaction_,
                                              &query_execution->notifications, current_db_);
+    } else if (utils::Downcast<PointIndexQuery>(parsed_query.query)) {
+      prepared_query = PreparePointIndexQuery(std::move(parsed_query), in_explicit_transaction_,
+                                              &query_execution->notifications, current_db_);
     } else if (utils::Downcast<TextIndexQuery>(parsed_query.query)) {
       prepared_query = PrepareTextIndexQuery(std::move(parsed_query), in_explicit_transaction_,
                                              &query_execution->notifications, current_db_);

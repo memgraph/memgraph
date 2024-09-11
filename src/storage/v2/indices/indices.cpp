@@ -51,11 +51,12 @@ void Indices::RemoveObsoleteEdgeEntries(uint64_t oldest_active_start_timestamp, 
       ->RemoveObsoleteEntries(oldest_active_start_timestamp, token);
 }
 
-void Indices::DropGraphClearIndices() const {
+void Indices::DropGraphClearIndices() {
   static_cast<InMemoryLabelIndex *>(label_index_.get())->DropGraphClearIndices();
   static_cast<InMemoryLabelPropertyIndex *>(label_property_index_.get())->DropGraphClearIndices();
   static_cast<InMemoryEdgeTypeIndex *>(edge_type_index_.get())->DropGraphClearIndices();
   static_cast<InMemoryEdgeTypePropertyIndex *>(edge_type_property_index_.get())->DropGraphClearIndices();
+  point_index_.Clear();
 }
 
 void Indices::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) const {

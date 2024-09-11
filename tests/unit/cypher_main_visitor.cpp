@@ -26,13 +26,14 @@
 // This hides the definition of the macro which causes
 // the compilation to fail.
 #include <json/json.hpp>
+// Same is true for <boost/geometry.hpp> that is included by ast.hpp
+#include "query/frontend/ast/ast.hpp"
 //////////////////////////////////////////////////////
 #include <antlr4-runtime.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
 #include "query/exceptions.hpp"
-#include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/stripped.hpp"

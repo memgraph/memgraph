@@ -114,6 +114,7 @@ memgraphCypherKeyword : cypherKeyword
                       | ON_DISK_TRANSACTIONAL
                       | PASSWORD
                       | PERIODIC
+                      | POINT
                       | PORT
                       | PRIVILEGES
                       | PULSAR
@@ -183,6 +184,7 @@ symbolicName : UnescapedSymbolicName
 query : cypherQuery
       | indexQuery
       | edgeIndexQuery
+      | pointIndexQuery
       | textIndexQuery
       | explainQuery
       | profileQuery
@@ -616,6 +618,20 @@ createEdgeIndex : CREATE EDGE INDEX ON ':' labelName ( '(' propertyKeyName ')' )
 dropEdgeIndex : DROP EDGE INDEX ON ':' labelName ( '(' propertyKeyName ')' )?;
 
 edgeIndexQuery : createEdgeIndex | dropEdgeIndex ;
+
+indexName : symbolicName ;
+
+createTextIndex : CREATE TEXT INDEX indexName ON ':' labelName ;
+
+dropTextIndex : DROP TEXT INDEX indexName ;
+
+textIndexQuery : createTextIndex | dropTextIndex;
+
+createPointIndex : CREATE POINT INDEX ON ':' labelName '(' propertyKeyName ')';
+
+dropPointIndex : DROP POINT INDEX ON ':' labelName '(' propertyKeyName ')' ;
+
+pointIndexQuery : createPointIndex | dropPointIndex ;
 
 dropGraphQuery : DROP GRAPH ;
 
