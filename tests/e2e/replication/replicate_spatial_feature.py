@@ -226,7 +226,7 @@ def test_point_index_replication(connection):
     def get_replica_cursor(name):
         return connection(BOLT_PORTS[name], "replica").cursor()
 
-    expected_result = [("point-label+property", "Node", "location", 0)]
+    expected_result = [("point", "Node", "location", 0)]
 
     replica_1_enums = get_show_index_info(get_replica_cursor("replica_1"))
     assert replica_1_enums == expected_result
@@ -242,7 +242,7 @@ def test_point_index_replication(connection):
     wait_for_replication_change(cursor, 4)
 
     # 4/
-    expected_result = [("point-label+property", "Node", "location", 1)]
+    expected_result = [("point", "Node", "location", 1)]
 
     replica_1_enums = get_show_index_info(get_replica_cursor("replica_1"))
     assert replica_1_enums == expected_result

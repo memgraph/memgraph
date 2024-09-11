@@ -68,7 +68,8 @@ bool PointIndexStorage::CreatePointIndex(LabelId label, PropertyId property,
     if (v.deleted) continue;
     if (!utils::Contains(v.labels, label)) continue;
 
-    auto maybe_value = v.properties.GetPropertyOfTypes(property, std::array{PropertyStoreType::POINT});
+    static constexpr auto point_types = std::array{PropertyStoreType::POINT};
+    auto maybe_value = v.properties.GetPropertyOfTypes(property, point_types);
     if (!maybe_value) continue;
 
     auto value = *maybe_value;

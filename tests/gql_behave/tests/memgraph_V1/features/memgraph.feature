@@ -955,8 +955,8 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             SHOW INDEX INFO
             """
         Then the result should be:
-            | index type             | label | property | count |
-            | 'point-label+property' | 'L1'  | 'prop1'  | 1     |
+            | index type | label | property | count |
+            | 'point'    | 'L1'  | 'prop1'  | 1     |
 
     Scenario: Drop point index:
         Given an empty graph
