@@ -220,7 +220,7 @@ def cleanup():
     stop_all()
 
 
-def start(context, name, procdir):
+def start(context, name, procdir=""):
     mg_instances = {}
 
     for key, value in context.items():

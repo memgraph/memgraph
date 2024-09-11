@@ -171,12 +171,15 @@ class MemgraphInstanceRunner:
         if args is not None:
             self.args = copy.deepcopy(args)
         self.args = [replace_paths(arg) for arg in self.args]
+
+        storage_snapshot_on_exit = "true" if storage_snapshot_on_exit else "false"
         args_mg = [
             self.binary_path,
             "--storage-wal-enabled",
             "--storage-snapshot-interval-sec",
             "300",
             "--storage-properties-on-edges",
+            f"--storage-snapshot-on-exit={storage_snapshot_on_exit}",
         ] + self.args
 
         if bolt_port:
