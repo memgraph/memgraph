@@ -1356,10 +1356,10 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                   if (!current_value.IsNull()) {
                     for (const auto &edge_type : edge_types->second) {
                       auto *from_vertex = current->property.out_vertex;
-                      for (const auto &out_edge : from_vertex->out_edges) {
-                        if (std::get<0>(out_edge) == edge_type) {
-                          edge_property_cleanup[std::make_pair(edge_type, current->property.key)].emplace_back(
-                              from_vertex, std::get<1>(out_edge), edge, current_value);
+                      for (const auto &[edge_type_out_edge, target_vertex, _] : from_vertex->out_edges) {
+                        if (edge_type_out_edge == edge_type) {
+                          edge_property_cleanup[{edge_type, current->property.key}].emplace_back(
+                              from_vertex, target_vertex, edge, current_value);
                         }
                       }
                     }
