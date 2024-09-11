@@ -29,6 +29,7 @@
 #include "storage/v2/indices/indices.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/replication/replication_storage_state.hpp"
+#include "storage/v2/schema_info.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/skip_list.hpp"
 
@@ -137,7 +138,7 @@ struct Recovery {
                                           utils::SkipList<EdgeMetadata> *edges_metadata,
                                           std::atomic<uint64_t> *edge_count, NameIdMapper *name_id_mapper,
                                           Indices *indices, Constraints *constraints, Config const &config,
-                                          uint64_t *wal_seq_num, EnumStore *enum_store);
+                                          uint64_t *wal_seq_num, EnumStore *enum_store, SchemaInfo *schema_info);
 
   const std::filesystem::path snapshot_directory_;
   const std::filesystem::path wal_directory_;

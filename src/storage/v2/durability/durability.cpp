@@ -344,7 +344,8 @@ std::optional<RecoveryInfo> Recovery::RecoverData(std::string *uuid, Replication
                                                   utils::SkipList<EdgeMetadata> *edges_metadata,
                                                   std::atomic<uint64_t> *edge_count, NameIdMapper *name_id_mapper,
                                                   Indices *indices, Constraints *constraints, Config const &config,
-                                                  uint64_t *wal_seq_num, EnumStore *enum_store) {
+                                                  uint64_t *wal_seq_num, EnumStore *enum_store,
+                                                  SchemaInfo *schema_info) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   spdlog::info("Recovering persisted data using snapshot ({}) and WAL directory ({}).", snapshot_directory_,
                wal_directory_);
@@ -377,7 +378,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(std::string *uuid, Replication
       spdlog::info("Starting snapshot recovery from {}.", path);
       try {
         recovered_snapshot = LoadSnapshot(path, vertices, edges, edges_metadata, epoch_history, name_id_mapper,
-                                          edge_count, config, enum_store);
+                                          edge_count, config, enum_store, schema_info);  // TODO enable/disable
         spdlog::info("Snapshot recovery successful!");
         break;
       } catch (const RecoveryFailure &e) {

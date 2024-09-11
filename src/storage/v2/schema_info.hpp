@@ -344,6 +344,142 @@ class EdgeHandler {
 struct SchemaInfo {
   //
   //
+  // Snapshot recovery
+  //
+  //
+  void RecoverVertex(Vertex *vertex) {
+    // No locking, since this should only be used to recover data
+    auto &info = tracking_[vertex->labels];
+    ++info.n;
+    for (const auto &[property, type] : vertex->properties.ExtendedPropertyTypes()) {
+      auto &prop_info = info.properties[property];
+      ++prop_info.n;
+      ++prop_info.types[type];
+    }
+  }
+
+  void RecoverEdge(EdgeTypeId edge_type, EdgeRef edge, Vertex *from, Vertex *to, bool prop_on_edges) {
+    auto &tracking_info = tracking_[EdgeKeyRef{edge_type, from->labels, to->labels}];
+    ++tracking_info.n;
+    if (prop_on_edges) {
+      for (const auto &[key, val] : edge.ptr->properties.ExtendedPropertyTypes()) {
+        auto &prop_post_info = tracking_info.properties[key];
+        ++prop_post_info.n;
+        ++prop_post_info.types[val];
+      }
+    }
+  }
+
+  //
+  //
+  // WAL recovery
+  //
+  //
+  void AddVertex(Vertex *vertex) { ++tracking_[vertex->labels].n; }
+
+  void DeleteVertex(Vertex *vertex) {
+    auto &info = tracking_[vertex->labels];
+    --info.n;
+    for (const auto &[key, val] : vertex->properties.ExtendedPropertyTypes()) {
+      auto &prop_info = info.properties[key];
+      --prop_info.n;
+      --prop_info.types[val];
+    }
+    // No edges should be present at this point
+  }
+
+  void UpdateLabels(Vertex *vertex, const utils::small_vector<LabelId> &old_labels,
+                    const utils::small_vector<LabelId> &new_labels, bool prop_on_edges) {
+    // Update vertex stats
+    SchemaInfo::UpdateLabel(*this, vertex, old_labels, new_labels);
+    // Update edge stats
+    auto update_edge = [&](EdgeTypeId edge_type, EdgeRef edge_ref, Vertex *from, Vertex *to,
+                           const utils::small_vector<LabelId> *old_from_labels,
+                           const utils::small_vector<LabelId> *old_to_labels) {
+      auto &old_tracking = tracking_[EdgeKeyRef(edge_type, old_from_labels ? *old_from_labels : from->labels,
+                                                old_to_labels ? *old_to_labels : to->labels)];
+      auto &new_tracking = tracking_[EdgeKeyRef(edge_type, from->labels, to->labels)];
+      --old_tracking.n;
+      ++new_tracking.n;
+      if (prop_on_edges) {
+        // No need for edge lock since all edge property operations are unique access
+        for (const auto &[property, type] : edge_ref.ptr->properties.ExtendedPropertyTypes()) {
+          auto &old_info = old_tracking.properties[property];
+          --old_info.n;
+          --old_info.types[type];
+          auto &new_info = new_tracking.properties[property];
+          ++new_info.n;
+          ++new_info.types[type];
+        }
+      }
+    };
+
+    for (const auto [edge_type, other_vertex, edge_ref] : vertex->in_edges) {
+      update_edge(edge_type, edge_ref, other_vertex, vertex, {}, &old_labels);
+    }
+    for (const auto [edge_type, other_vertex, edge_ref] : vertex->out_edges) {
+      update_edge(edge_type, edge_ref, vertex, other_vertex, &old_labels, {});
+    }
+  }
+
+  void CreateEdge(Vertex *from, Vertex *to, EdgeTypeId edge_type) {
+    auto lock = std::unique_lock{tracking_.analytical_shared_access_protection_};
+    auto &tracking_info = tracking_[EdgeKeyRef{edge_type, from->labels, to->labels}];
+    ++tracking_info.n;
+  }
+
+  void DeleteEdge(EdgeTypeId edge_type, EdgeRef edge, Vertex *from, Vertex *to, bool prop_on_edges) {
+    auto &tracking_info = tracking_[EdgeKeyRef{edge_type, from->labels, to->labels}];
+    --tracking_info.n;
+    if (prop_on_edges) {
+      for (const auto &[key, type] : edge.ptr->properties.ExtendedPropertyTypes()) {
+        auto &prop_info = tracking_info.properties[key];
+        --prop_info.n;
+        --prop_info.types[type];
+      }
+    }
+  }
+
+  void SetProperty(Vertex *vertex, PropertyId property, const ExtendedPropertyType &now,
+                   const ExtendedPropertyType &before) {
+    auto &tracking_info = tracking_[vertex->labels];
+    if (now != before) {
+      if (before != ExtendedPropertyType{PropertyValueType::Null}) {
+        auto &info = tracking_info.properties[property];
+        --info.n;
+        --info.types[before];
+      }
+      if (now != ExtendedPropertyType{PropertyValueType::Null}) {
+        auto &info = tracking_info.properties[property];
+        ++info.n;
+        ++info.types[now];
+      }
+    }
+  }
+
+  void SetProperty(EdgeTypeId type, Vertex *from, Vertex *to, PropertyId property, const PropertyValue &now,
+                   const PropertyValue &before, bool prop_on_edges) {
+    auto &tracking_info = tracking_[EdgeKeyRef{type, from->labels, to->labels}];
+    if (prop_on_edges) {
+      const auto now_type = ExtendedPropertyType{now};
+      const auto before_type = ExtendedPropertyType{before};
+      if (now_type != before_type) {
+        if (before_type != ExtendedPropertyType{PropertyValueType::Null}) {
+          auto &info = tracking_info.properties[property];
+          --info.n;
+          --info.types[before_type];
+        }
+        if (now_type != ExtendedPropertyType{PropertyValueType::Null}) {
+          auto &info = tracking_info.properties[property];
+          ++info.n;
+          ++info.types[now_type];
+        }
+      }
+    }
+  }
+
+  //
+  //
   // TRANSACTIONAL IMPLEMENTATION
   //
   //
@@ -429,7 +565,7 @@ struct SchemaInfo {
     void SetProperty(EdgeTypeId type, Vertex *from, Vertex *to, PropertyId property, const PropertyValue &now,
                      const PropertyValue &before) {
       HandlePropertyDiff(type, from, to,
-                         {{property, std::make_pair(ExtendedPropertyType{now}, ExtendedPropertyType{before})}});
+                         {{property, std::pair(ExtendedPropertyType{now}, ExtendedPropertyType{before})}});
     }
 
     void SetProperty(EdgeTypeId type, Vertex *from, Vertex *to, PropertyId property,
@@ -440,7 +576,7 @@ struct SchemaInfo {
     void InitProperties(EdgeTypeId type, Vertex *from, Vertex *to, Edge *edge) {
       std::map<PropertyId, std::pair<ExtendedPropertyType, ExtendedPropertyType>> diff;
       for (const auto &[key, val] : edge->properties.ExtendedPropertyTypes()) {
-        diff[key] = std::make_pair(val, ExtendedPropertyType{PropertyValueType::Null});
+        diff[key] = std::pair(val, ExtendedPropertyType{PropertyValueType::Null});
       }
       HandlePropertyDiff(type, from, to, diff);
     }
@@ -448,7 +584,7 @@ struct SchemaInfo {
     void ClearProperties(EdgeTypeId type, Vertex *from, Vertex *to, Edge *edge) {
       std::map<PropertyId, std::pair<ExtendedPropertyType, ExtendedPropertyType>> diff;
       for (const auto &[key, val] : edge->properties.ExtendedPropertyTypes()) {
-        diff[key] = std::make_pair(ExtendedPropertyType{PropertyValueType::Null}, val);
+        diff[key] = std::pair(ExtendedPropertyType{PropertyValueType::Null}, val);
       }
       HandlePropertyDiff(type, from, to, diff);
     }
@@ -642,7 +778,7 @@ struct SchemaInfo {
     }
 
     void SetProperty(Vertex *vertex, PropertyId property, const PropertyValue &now, const PropertyValue &before) {
-      SetProperty(vertex, property, std::make_pair(ExtendedPropertyType(now), ExtendedPropertyType(before)));
+      SetProperty(vertex, property, std::pair(ExtendedPropertyType(now), ExtendedPropertyType(before)));
     }
 
     void SetProperty(Vertex *vertex, PropertyId property, std::pair<ExtendedPropertyType, ExtendedPropertyType> diff) {

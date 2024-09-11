@@ -148,9 +148,9 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
               config_.durability.storage_directory);
   }
   if (config_.durability.recover_on_startup) {
-    auto info =
-        recovery_.RecoverData(&uuid_, repl_storage_state_, &vertices_, &edges_, &edges_metadata_, &edge_count_,
-                              name_id_mapper_.get(), &indices_, &constraints_, config_, &wal_seq_num_, &enum_store_);
+    auto info = recovery_.RecoverData(&uuid_, repl_storage_state_, &vertices_, &edges_, &edges_metadata_, &edge_count_,
+                                      name_id_mapper_.get(), &indices_, &constraints_, config_, &wal_seq_num_,
+                                      &enum_store_, &schema_info_);
     if (info) {
       vertex_id_ = info->next_vertex_id;
       edge_id_ = info->next_edge_id;
@@ -1019,7 +1019,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
           could_replicate_all_sync_replicas =
               mem_storage->AppendToWal(transaction_, durability_commit_timestamp, std::move(db_acc));
 
-          if (true /* schema_info_en */) {
+          if (true /* schema_info_en */) {          // TODO disable/enable
             if (transaction_.deltas.size() < 16) {  // TODO Fine tune
               // Small transaction => process in place
               mem_storage->SchemaInfoWriteAccessor()->ProcessTransaction(
