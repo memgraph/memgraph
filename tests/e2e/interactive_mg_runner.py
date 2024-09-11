@@ -87,8 +87,6 @@ ACTIONS = {
 
 log = logging.getLogger("memgraph.tests.e2e")
 
-# TODO: (andi) Use context everywhere...
-
 
 def load_args():
     parser = ArgumentParser()
@@ -115,6 +113,9 @@ def wait_until_port_is_free(port: int) -> bool:
 
 
 def is_port_in_use(port: int) -> bool:
+    """
+    Checks if port is in use by using socket package.
+    """
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         return s.connect_ex(("localhost", port)) == 0
 
@@ -129,18 +130,18 @@ def _start(
     data_directory,
     username=None,
     password=None,
-    bolt_port: Optional[int] = None,
     ignore_auth_failure: bool = False,
     storage_snapshot_on_exit: bool = False,
 ):
     assert (
         name not in MEMGRAPH_INSTANCES.keys()
     ), "If this raises, you are trying to start an instance with the same name as the one running."
-    if not bolt_port:
-        bolt_port = extract_bolt_port(args)
+
+    bolt_port = extract_bolt_port(args)
     assert wait_until_port_is_free(
         bolt_port
     ), f"If this raises, you are trying to start an instance on a port {bolt_port} used by the running instance."
+
     management_port = extract_management_port(args)
     if management_port:
         assert wait_until_port_is_free(
@@ -148,19 +149,18 @@ def _start(
         ), f"If this raises, you are trying to start with coordinator management port {management_port} which is already in use."
 
     log_file_path = os.path.join(BUILD_DIR, "e2e", "logs", log_file)
-
-    if "coordinator" in name:
-        args.append("--nuraft-log-file=" + log_file_path)
-
     data_directory_path = os.path.join(BUILD_DIR, "e2e", "data", data_directory)
+
     mg_instance = MemgraphInstanceRunner(
         MEMGRAPH_BINARY, use_ssl, {data_directory_path}, username=username, password=password
     )
     MEMGRAPH_INSTANCES[name] = mg_instance
+
     binary_args = args + ["--log-file", log_file_path] + ["--data-directory", data_directory_path]
 
     if len(procdir) != 0:
         binary_args.append("--query-modules-directory=" + procdir)
+
     log.info(f"Starting instance with name: {name} on bolt port {bolt_port}")
     mg_instance.start(
         args=binary_args,
@@ -229,32 +229,18 @@ def start(context, name, procdir):
         args = value["args"]
         log_file = value["log_file"]
 
-        setup_queries = []
-        if "setup_queries" in value:
-            setup_queries = value["setup_queries"]
+        setup_queries = value["setup_queries"] if "setup_queries" in value else []
 
         use_ssl = False
         if "ssl" in value:
             use_ssl = bool(value["ssl"])
             value.pop("ssl")
 
-        data_directory = ""
-        if "data_directory" in value:
-            data_directory = value["data_directory"]
-        else:
-            data_directory = secrets.token_hex(4)  # Generate 8-character hex string
+        # If nothing specified, use 8-character random string.
+        data_directory = value["data_directory"] if "data_directory" in value else secrets.token_hex(4)
 
-        username = None
-        if "username" in value:
-            username = value["username"]
-
-        password = None
-        if "password" in value:
-            password = value["password"]
-
-        default_bolt_port = None
-        if "default_bolt_port" in value:
-            default_bolt_port = value["default_bolt_port"]
+        username = value["username"] if "username" in value else None
+        password = value["password"] if "password" in value else None
 
         ignore_auth_failure = value["ignore_auth_failure"] if "ignore_auth_failure" in value else False
         storage_snapshot_on_exit = value["storage_snapshot_on_exit"] if "storage_snapshot_on_exit" in value else False
@@ -269,7 +255,6 @@ def start(context, name, procdir):
             data_directory,
             username,
             password,
-            default_bolt_port,
             ignore_auth_failure=ignore_auth_failure,
             storage_snapshot_on_exit=storage_snapshot_on_exit,
         )

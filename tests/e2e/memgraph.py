@@ -158,6 +158,7 @@ class MemgraphInstanceRunner:
         setup_queries=None,
         bolt_port: Optional[int] = None,
         ignore_auth_failure: bool = False,
+        storage_snapshot_on_exit: bool = False,
     ):
         """
         Starts an instance which is not already running. Before doing anything, calls `stop` on instance.
@@ -187,7 +188,8 @@ class MemgraphInstanceRunner:
         log.info(f"Subprocess started with args {args_mg}")
         conn = self.wait_for_succesful_connection(ignore_auth_failure=ignore_auth_failure)
         log.info(f"Server started on instance with bolt port {self.host}:{bolt_port}")
-        self.execute_setup_queries(conn, setup_queries)
+        if not ignore_auth_failure:
+            self.execute_setup_queries(conn, setup_queries)
 
         assert self.is_running(), "The Memgraph process died during start!"
 

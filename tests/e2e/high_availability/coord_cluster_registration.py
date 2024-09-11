@@ -714,13 +714,10 @@ def test_register_one_coord_with_env_vars():
     interactive_mg_runner.start(
         {
             "coordinator_3": {
-                "args": [
-                    "--log-level=TRACE",
-                ],
+                "args": ["--log-level=TRACE", "--bolt-port=7692"],
                 "log_file": f"{get_logs_path(file, test_name)}/coordinator_3.log",
                 "data_directory": f"{get_data_path(file, test_name)}/coordinator_3",
                 "setup_queries": [],
-                "default_bolt_port": 7692,
             },
         },
         "coordinator_3",
@@ -920,11 +917,11 @@ def test_register_one_data_with_env_vars():
                     "TRACE",
                     "--data-recovery-on-startup=false",
                     "--replication-restore-state-on-startup=true",
+                    "--bolt-port=7689",
                 ],
                 "log_file": f"{get_logs_path(file, test_name)}/instance_3.log",
                 "data_directory": f"{get_data_path(file, test_name)}/instance_3",
                 "setup_queries": [],
-                "default_bolt_port": 7689,
             },
         },
         "instance_3",
@@ -1038,13 +1035,10 @@ def test_register_one_coord_with_env_vars_no_instances_alive_on_start():
     test_name = "test_register_one_coord_with_env_vars_no_instances_alive_on_start"
     coordinator_3_description = {
         "coordinator_3": {
-            "args": [
-                "--log-level=TRACE",
-            ],
+            "args": ["--log-level=TRACE", "--bolt-port=7692"],
             "log_file": f"{get_logs_path(file, test_name)}/coordinator_3.log",
             "data_directory": f"{get_data_path(file, test_name)}/coordinator_3",
             "setup_queries": [],
-            "default_bolt_port": 7692,
         },
     }
 
