@@ -414,16 +414,15 @@ struct SchemaInfo {
       }
     };
 
-    for (const auto [edge_type, other_vertex, edge_ref] : vertex->in_edges) {
+    for (const auto &[edge_type, other_vertex, edge_ref] : vertex->in_edges) {
       update_edge(edge_type, edge_ref, other_vertex, vertex, {}, &old_labels);
     }
-    for (const auto [edge_type, other_vertex, edge_ref] : vertex->out_edges) {
+    for (const auto &[edge_type, other_vertex, edge_ref] : vertex->out_edges) {
       update_edge(edge_type, edge_ref, vertex, other_vertex, &old_labels, {});
     }
   }
 
   void CreateEdge(Vertex *from, Vertex *to, EdgeTypeId edge_type) {
-    auto lock = std::unique_lock{tracking_.analytical_shared_access_protection_};
     auto &tracking_info = tracking_[EdgeKeyRef{edge_type, from->labels, to->labels}];
     ++tracking_info.n;
   }
@@ -440,9 +439,8 @@ struct SchemaInfo {
     }
   }
 
-  void SetProperty(Vertex *vertex, PropertyId property, const ExtendedPropertyType &now,
+  void SetProperty(auto &tracking_info, PropertyId property, const ExtendedPropertyType &now,
                    const ExtendedPropertyType &before) {
-    auto &tracking_info = tracking_[vertex->labels];
     if (now != before) {
       if (before != ExtendedPropertyType{PropertyValueType::Null}) {
         auto &info = tracking_info.properties[property];
@@ -457,24 +455,17 @@ struct SchemaInfo {
     }
   }
 
-  void SetProperty(EdgeTypeId type, Vertex *from, Vertex *to, PropertyId property, const PropertyValue &now,
-                   const PropertyValue &before, bool prop_on_edges) {
+  void SetProperty(Vertex *vertex, PropertyId property, const ExtendedPropertyType &now,
+                   const ExtendedPropertyType &before) {
+    auto &tracking_info = tracking_[vertex->labels];
+    SetProperty(tracking_info, property, now, before);
+  }
+
+  void SetProperty(EdgeTypeId type, Vertex *from, Vertex *to, PropertyId property, const ExtendedPropertyType &now,
+                   const ExtendedPropertyType &before, bool prop_on_edges) {
     auto &tracking_info = tracking_[EdgeKeyRef{type, from->labels, to->labels}];
     if (prop_on_edges) {
-      const auto now_type = ExtendedPropertyType{now};
-      const auto before_type = ExtendedPropertyType{before};
-      if (now_type != before_type) {
-        if (before_type != ExtendedPropertyType{PropertyValueType::Null}) {
-          auto &info = tracking_info.properties[property];
-          --info.n;
-          --info.types[before_type];
-        }
-        if (now_type != ExtendedPropertyType{PropertyValueType::Null}) {
-          auto &info = tracking_info.properties[property];
-          ++info.n;
-          ++info.types[now_type];
-        }
-      }
+      SetProperty(tracking_info, property, now, before);
     }
   }
 
@@ -487,7 +478,7 @@ struct SchemaInfo {
    public:
     explicit ReadAccessor(SchemaInfo &si) : schema_info_{&si}, lock_{schema_info_->tracking_.mtx_} {}
 
-    Tracking Get() const { return schema_info_->tracking_; }
+    const Tracking &Get() const { return schema_info_->tracking_; }
     nlohmann::json ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store) {
       return schema_info_->tracking_.ToJson(name_id_mapper, enum_store);
     }
@@ -562,35 +553,8 @@ struct SchemaInfo {
     }
 
     // Edge
-    void SetProperty(EdgeTypeId type, Vertex *from, Vertex *to, PropertyId property, const PropertyValue &now,
-                     const PropertyValue &before) {
-      HandlePropertyDiff(type, from, to,
-                         {{property, std::pair(ExtendedPropertyType{now}, ExtendedPropertyType{before})}});
-    }
-
-    void SetProperty(EdgeTypeId type, Vertex *from, Vertex *to, PropertyId property,
-                     std::pair<ExtendedPropertyType, ExtendedPropertyType> diff) {
-      HandlePropertyDiff(type, from, to, {{property, diff}});
-    }
-
-    void InitProperties(EdgeTypeId type, Vertex *from, Vertex *to, Edge *edge) {
-      std::map<PropertyId, std::pair<ExtendedPropertyType, ExtendedPropertyType>> diff;
-      for (const auto &[key, val] : edge->properties.ExtendedPropertyTypes()) {
-        diff[key] = std::pair(val, ExtendedPropertyType{PropertyValueType::Null});
-      }
-      HandlePropertyDiff(type, from, to, diff);
-    }
-
-    void ClearProperties(EdgeTypeId type, Vertex *from, Vertex *to, Edge *edge) {
-      std::map<PropertyId, std::pair<ExtendedPropertyType, ExtendedPropertyType>> diff;
-      for (const auto &[key, val] : edge->properties.ExtendedPropertyTypes()) {
-        diff[key] = std::pair(ExtendedPropertyType{PropertyValueType::Null}, val);
-      }
-      HandlePropertyDiff(type, from, to, diff);
-    }
-
-    void HandlePropertyDiff(EdgeTypeId type, Vertex *from, Vertex *to,
-                            const std::map<PropertyId, std::pair<ExtendedPropertyType, ExtendedPropertyType>> &diff) {
+    void SetProperty(EdgeTypeId type, Vertex *from, Vertex *to, PropertyId property, ExtendedPropertyType now,
+                     ExtendedPropertyType before) {
       auto from_lock = std::unique_lock{from->lock, std::defer_lock};
       auto to_lock = std::unique_lock{to->lock, std::defer_lock};
 
@@ -609,19 +573,8 @@ struct SchemaInfo {
       from_lock.unlock();
       if (to_lock.owns_lock()) to_lock.unlock();
 
-      for (const auto &[property, diff] : diff) {
-        if (diff.first != diff.second) {
-          if (diff.second != ExtendedPropertyType{PropertyValueType::Null}) {
-            auto &info = tracking_info.properties[property];
-            --info.n;
-            --info.types[diff.second];
-          }
-          if (diff.first != ExtendedPropertyType{PropertyValueType::Null}) {
-            auto &info = tracking_info.properties[property];
-            ++info.n;
-            ++info.types[diff.first];
-          }
-        }
+      if (properties_on_edges_) {
+        schema_info_->SetProperty(tracking_info, property, now, before);
       }
     }
 
@@ -713,17 +666,14 @@ struct SchemaInfo {
 
     // Vertex
     void CreateVertex(Vertex *vertex) {
-      // DMG_ASSERT(vertex->lock.is_locked(), "Trying to read from an unlocked vertex; LINE {}", __LINE__);
       auto lock = std::unique_lock{schema_info_->tracking_.analytical_shared_access_protection_};
-      ++schema_info_->tracking_[vertex->labels].n;
+      schema_info_->AddVertex(vertex);
     }
 
     void DeleteVertex(Vertex *vertex) {
       DMG_ASSERT(vertex->lock.is_locked(), "Trying to read from an unlocked vertex; LINE {}", __LINE__);
       auto lock = std::unique_lock{schema_info_->tracking_.analytical_shared_access_protection_};
-      --schema_info_->tracking_[vertex->labels].n;
-      ClearProperties_(vertex);
-      // No edges should be present at this point
+      schema_info_->DeleteVertex(vertex);
     }
 
     // Calling this after change has been applied
@@ -759,57 +709,22 @@ struct SchemaInfo {
       DMG_ASSERT(to->lock.is_locked(), "Trying to read from an unlocked vertex; LINE {}", __LINE__);
       // Empty edge; just update the top level stats
       auto lock = std::unique_lock{schema_info_->tracking_.analytical_shared_access_protection_};
-      auto &tracking_info = schema_info_->tracking_[EdgeKeyRef{edge_type, from->labels, to->labels}];
-      ++tracking_info.n;
+      schema_info_->CreateEdge(from, to, edge_type);
     }
 
     void DeleteEdge(Vertex *from, Vertex *to, EdgeTypeId edge_type, EdgeRef edge) {
       // Vertices changed by the tx ( no need to lock )
       auto lock = std::unique_lock{schema_info_->tracking_.analytical_shared_access_protection_};
-      auto &tracking_info = schema_info_->tracking_[EdgeKeyRef{edge_type, from->labels, to->labels}];
-      --tracking_info.n;
-      if (property_on_edges_) {
-        for (const auto &[key, type] : edge.ptr->properties.ExtendedPropertyTypes()) {
-          auto &prop_info = tracking_info.properties[key];
-          --prop_info.n;
-          --prop_info.types[type];
-        }
-      }
+      schema_info_->DeleteEdge(edge_type, edge, from, to, property_on_edges_);
     }
 
-    void SetProperty(Vertex *vertex, PropertyId property, const PropertyValue &now, const PropertyValue &before) {
-      SetProperty(vertex, property, std::pair(ExtendedPropertyType(now), ExtendedPropertyType(before)));
-    }
-
-    void SetProperty(Vertex *vertex, PropertyId property, std::pair<ExtendedPropertyType, ExtendedPropertyType> diff) {
+    void SetProperty(Vertex *vertex, PropertyId property, ExtendedPropertyType now, ExtendedPropertyType before) {
       DMG_ASSERT(vertex->lock.is_locked(), "Trying to read from an unlocked vertex; LINE {}", __LINE__);
       auto lock = std::unique_lock{schema_info_->tracking_.analytical_shared_access_protection_};
-      auto &tracking_info = schema_info_->tracking_[vertex->labels];
-      if (diff.first != diff.second) {
-        if (diff.second != ExtendedPropertyType{PropertyValueType::Null}) {
-          auto &info = tracking_info.properties[property];
-          --info.n;
-          --info.types[diff.second];
-        }
-        if (diff.first != ExtendedPropertyType{PropertyValueType::Null}) {
-          auto &info = tracking_info.properties[property];
-          ++info.n;
-          ++info.types[diff.first];
-        }
-      }
+      schema_info_->SetProperty(vertex, property, now, before);
     }
 
    private:
-    void ClearProperties_(Vertex *vertex) {
-      DMG_ASSERT(vertex->lock.is_locked(), "Trying to read from an unlocked vertex; LINE {}", __LINE__);
-      auto &tracking_info = schema_info_->tracking_[vertex->labels];
-      for (const auto &[key, val] : vertex->properties.ExtendedPropertyTypes()) {
-        auto &info = tracking_info.properties[key];
-        --info.n;
-        --info.types[val];
-      }
-    }
-
     SchemaInfo *schema_info_;
     boost::shared_lock<boost::shared_mutex> lock_;
     boost::upgrade_lock<boost::shared_mutex> upgrade_lock_;
