@@ -95,6 +95,7 @@ def get_memgraph_instances_description(test_name: str, data_recovery_on_startup:
                 "--management-port=10121",
             ],
             "log_file": f"high_availability/single_coordinator/{test_name}/coordinator.log",
+            "data_directory": f"{TEMP_DIR}/coordinator",
             "setup_queries": [
                 "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
                 "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",
@@ -189,6 +190,7 @@ def get_memgraph_instances_description_4_instances(test_name: str, data_recovery
                 "--management-port=10121",
             ],
             "log_file": f"high_availability/single_coordinator/{test_name}/coordinator.log",
+            "data_directory": f"{TEMP_DIR}/coordinator",
             "setup_queries": [
                 "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
                 "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",

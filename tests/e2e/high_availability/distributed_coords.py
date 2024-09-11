@@ -11,19 +11,18 @@
 
 import concurrent.futures
 import os
-import shutil
 import sys
 import tempfile
 import time
-from typing import List
 
 import interactive_mg_runner
 import pytest
 from common import (
     connect,
     execute_and_fetch_all,
+    find_instance_and_assert_instances,
     ignore_elapsed_time_from_results,
-    safe_execute,
+    update_tuple_value,
 )
 from mg_utils import (
     mg_assert_until,
@@ -264,75 +263,6 @@ def get_instances_description_no_setup_4_coords(temp_dir, test_name: str, use_du
             "setup_queries": [],
         },
     }
-
-
-def find_instance_and_assert_instances(
-    instance_role: str, num_coordinators: int = 3, coord_ids_to_skip_validation=None, wait_period=10
-):
-    if coord_ids_to_skip_validation is None:
-        coord_ids_to_skip_validation = set()
-
-    start_time = time.time()
-
-    def find_instances():
-        all_instances = []
-        for i in range(0, num_coordinators):
-            if (i + 1) in coord_ids_to_skip_validation:
-                continue
-            coord_cursor = connect(host="localhost", port=7690 + i).cursor()
-
-            def show_instances():
-                return ignore_elapsed_time_from_results(
-                    sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;")))
-                )
-
-            instances = show_instances()
-            for instance in instances:
-                if instance[-1] == instance_role:
-                    all_instances.append(instance[0])  # coordinator name
-
-        return all_instances
-
-    all_instances = []
-    expected_num_instances = num_coordinators - len(coord_ids_to_skip_validation)
-    while True:
-        if len(all_instances) == expected_num_instances or time.time() - start_time > wait_period:
-            break
-        all_instances = find_instances()
-        time.sleep(0.5)
-
-    assert (
-        len(all_instances) == expected_num_instances
-    ), f"{instance_role}s not found, got {all_instances}, expected {expected_num_instances}, as num_coordinators: {num_coordinators}, coord_ids_to_skip_validation: {coord_ids_to_skip_validation}"
-
-    instance = all_instances[0]
-
-    for l in all_instances:
-        assert l == instance, "Leaders are not the same"
-
-    assert instance is not None and instance != "" and len(all_instances) > 0, f"{instance_role} not found"
-    return instance
-
-
-def update_tuple_value(
-    list_tuples: List, searching_key: str, searching_index: int, index_in_tuple_value: int, new_value: str
-):
-    def find_tuple():
-        for i, tuple_obj in enumerate(list_tuples):
-            if tuple_obj[searching_index] != searching_key:
-                continue
-            return i
-        return None
-
-    index_tuple = find_tuple()
-    assert index_tuple is not None, "Tuple not found"
-
-    tuple_obj = list_tuples[index_tuple]
-    tuple_obj_list = list(tuple_obj)
-    tuple_obj_list[index_in_tuple_value] = new_value
-    list_tuples[index_tuple] = tuple(tuple_obj_list)
-
-    return list_tuples
 
 
 @pytest.mark.parametrize("use_durability", [True, False])
@@ -2488,7 +2418,26 @@ def test_coordinator_gets_info_on_other_coordinators():
     def show_instances_coord4():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_4, "SHOW INSTANCES;"))))
 
-    data = [
+    coord2_down_data = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "down", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
+        ("coordinator_4", "localhost:7693", "localhost:10114", "localhost:10124", "up", "follower"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
+        ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
+    ]
+    mg_sleep_and_assert(coord2_down_data, show_instances_coord3)
+    mg_sleep_and_assert(coord2_down_data, show_instances_coord1)
+    mg_sleep_and_assert(coord2_down_data, show_instances_coord4)
+
+    # 7
+
+    interactive_mg_runner.start(inner_instances_description, "coordinator_2")
+
+    # 8
+
+    coord2_up_data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
@@ -2497,19 +2446,10 @@ def test_coordinator_gets_info_on_other_coordinators():
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
-    mg_sleep_and_assert(data, show_instances_coord3)
-    mg_sleep_and_assert(data, show_instances_coord1)
-    mg_sleep_and_assert(data, show_instances_coord4)
-
-    # 7
-
-    interactive_mg_runner.start(inner_instances_description, "coordinator_2")
-
-    # 8
 
     coord_cursor_2 = connect(host="localhost", port=7691).cursor()
 
-    mg_sleep_and_assert(data, show_instances_coord2)
+    mg_sleep_and_assert(coord2_up_data, show_instances_coord2)
 
     interactive_mg_runner.stop_all(keep_directories=False)
 

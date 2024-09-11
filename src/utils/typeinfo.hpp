@@ -251,6 +251,7 @@ enum class TypeId : uint64_t {
   AST_DROP_ENUM_QUERY,
   AST_SHOW_SCHEMA_INFO_QUERY,
   AST_TTL_QUERY,
+  AST_SESSION_TRACE_QUERY,
 
   // Symbol
   SYMBOL = 4000,

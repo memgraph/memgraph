@@ -3264,4 +3264,13 @@ antlrcpp::Any CypherMainVisitor::visitTtlQuery(MemgraphCypher::TtlQueryContext *
   return ttl_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitSetSessionTraceQuery(MemgraphCypher::SetSessionTraceQueryContext *ctx) {
+  auto *session_trace_query = storage_->Create<SessionTraceQuery>();
+
+  session_trace_query->enabled_ = ctx->ON() != nullptr;
+  query_ = session_trace_query;
+
+  return session_trace_query;
+}
+
 }  // namespace memgraph::query::frontend
