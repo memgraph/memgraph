@@ -223,6 +223,7 @@ struct Tracking {
 
   nlohmann::json ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store);
 
+  mutable utils::RWSpinLock mtx_;
   mutable utils::RWSpinLock analytical_shared_access_protection_;
 
  private:
@@ -341,24 +342,40 @@ class EdgeHandler {
 };
 
 struct SchemaInfo {
-  class GlobalAccessor {
+  //
+  //
+  // TRANSACTIONAL IMPLEMENTATION
+  //
+  //
+  class ReadAccessor {
    public:
-    explicit GlobalAccessor(SchemaInfo &si) : schema_info_{&si}, lock_{schema_info_->operation_ordering_mutex_} {}
-
-    // SchemaInfo API
-    void Clear() { schema_info_->tracking_.Clear(); }
+    explicit ReadAccessor(SchemaInfo &si) : schema_info_{&si}, lock_{schema_info_->tracking_.mtx_} {}
 
     Tracking Get() const { return schema_info_->tracking_; }
-    Tracking Move() { return std::move(schema_info_->tracking_); }
-    void Set(Tracking tracking) { schema_info_->tracking_ = std::move(tracking); }
-
     nlohmann::json ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store) {
       return schema_info_->tracking_.ToJson(name_id_mapper, enum_store);
     }
 
    private:
     SchemaInfo *schema_info_;
-    boost::unique_lock<boost::shared_mutex> lock_;
+    std::shared_lock<utils::RWSpinLock> lock_;
+  };
+
+  class WriteAccessor {
+   public:
+    explicit WriteAccessor(SchemaInfo &si) : schema_info_{&si}, lock_{schema_info_->tracking_.mtx_} {}
+
+    void Clear() { schema_info_->tracking_.Clear(); }
+    Tracking Move() { return std::move(schema_info_->tracking_); }
+    void Set(Tracking tracking) { schema_info_->tracking_ = std::move(tracking); }
+
+    void ProcessTransaction(Transaction &transaction, bool properties_on_edges) {
+      schema_info_->tracking_.ProcessTransaction(transaction, properties_on_edges);
+    }
+
+   private:
+    SchemaInfo *schema_info_;
+    std::unique_lock<utils::RWSpinLock> lock_;
   };
 
   //
@@ -366,10 +383,10 @@ struct SchemaInfo {
   // ANALYTICAL IMPLEMENTATION
   //
   //
-  class Accessor;
-  class UniqueAccessor {
+  class AnalyticalAccessor;
+  class AnalyticalUniqueAccessor {
    public:
-    explicit UniqueAccessor(SchemaInfo &si, bool prop_on_edges)
+    explicit AnalyticalUniqueAccessor(SchemaInfo &si, bool prop_on_edges)
         : schema_info_{&si}, lock_{schema_info_->operation_ordering_mutex_}, properties_on_edges_{prop_on_edges} {}
 
     // Vertex
@@ -538,7 +555,7 @@ struct SchemaInfo {
     boost::unique_lock<boost::shared_mutex> lock_;
     bool properties_on_edges_;
 
-    friend Accessor;
+    friend AnalyticalAccessor;
   };
 
   // tracking_ only needs to be locked here.
@@ -547,13 +564,13 @@ struct SchemaInfo {
   // When in analytical mode, we have 2 accessors; UniqueAccessor (which guarantees only a single reader/writer) and
   // Accessor (with shared access). Since multiple operators can be calling the Accessor functions, we need to protect
   // tracking_.
-  class Accessor {
+  class AnalyticalAccessor {
    public:
-    explicit Accessor(SchemaInfo &si, bool prop_on_edges)
+    explicit AnalyticalAccessor(SchemaInfo &si, bool prop_on_edges)
         : schema_info_{&si}, lock_{schema_info_->operation_ordering_mutex_}, property_on_edges_(prop_on_edges) {}
 
     // Downgrade accessor
-    explicit Accessor(UniqueAccessor &&unique)
+    explicit AnalyticalAccessor(AnalyticalUniqueAccessor &&unique)
         : schema_info_{unique.schema_info_},
           upgrade_lock_{std::move(unique.lock_)},
           property_on_edges_{unique.properties_on_edges_} {}
@@ -663,14 +680,19 @@ struct SchemaInfo {
     bool property_on_edges_;
   };
 
-  Accessor CreateAccessor(bool prop_on_edges) { return Accessor{*this, prop_on_edges}; }
-  UniqueAccessor CreateUniqueAccessor(bool prop_on_edges) { return UniqueAccessor{*this, prop_on_edges}; }
-  GlobalAccessor CreateGlobalAccessor() { return GlobalAccessor{*this}; }
+  ReadAccessor CreateReadAccessor() { return ReadAccessor{*this}; }
+  WriteAccessor CreateWriteAccessor() { return WriteAccessor{*this}; }
+
+  AnalyticalAccessor CreateAccessor(bool prop_on_edges) { return AnalyticalAccessor{*this, prop_on_edges}; }
+  AnalyticalUniqueAccessor CreateUniqueAccessor(bool prop_on_edges) {
+    return AnalyticalUniqueAccessor{*this, prop_on_edges};
+  }
 
  private:
-  friend Accessor;
-  friend UniqueAccessor;
-  friend GlobalAccessor;
+  friend ReadAccessor;
+  friend WriteAccessor;
+  friend AnalyticalAccessor;
+  friend AnalyticalUniqueAccessor;
 
   static void UpdateLabel(SchemaInfo &schema_info, Vertex *vertex, const utils::small_vector<LabelId> old_labels,
                           const utils::small_vector<LabelId> new_labels) {

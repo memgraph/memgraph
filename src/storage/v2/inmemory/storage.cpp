@@ -1019,13 +1019,17 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
           could_replicate_all_sync_replicas =
               mem_storage->AppendToWal(transaction_, durability_commit_timestamp, std::move(db_acc));
 
-          std::optional<Tracking> stats;
-          if (auto acc = mem_storage->SchemaInfoGlobalAccessor()) {
-            stats.emplace(acc->Get());
-          }
-          if (stats) {
-            stats->ProcessTransaction(transaction_, mem_storage->config_.salient.items.properties_on_edges);
-            mem_storage->SchemaInfoGlobalAccessor()->Set(std::move(*stats));
+          if (true /* schema_info_en */) {
+            if (transaction_.deltas.size() < 16) {  // TODO Fine tune
+              // Small transaction => process in place
+              mem_storage->SchemaInfoWriteAccessor()->ProcessTransaction(
+                  transaction_, mem_storage->config_.salient.items.properties_on_edges);
+            } else {
+              // Large transaction => make a local copy of the schema, process and move back
+              auto stats = mem_storage->SchemaInfoReadAccessor()->Get();
+              stats.ProcessTransaction(transaction_, mem_storage->config_.salient.items.properties_on_edges);
+              mem_storage->SchemaInfoWriteAccessor()->Set(std::move(stats));
+            }
           }
 
           // TODO: release lock, and update all deltas to have a local copy of the commit timestamp
@@ -2807,7 +2811,7 @@ void InMemoryStorage::InMemoryAccessor::DropGraph() {
   mem_storage->indices_.DropGraphClearIndices();
   mem_storage->constraints_.DropGraphClearConstraints();
 
-  if (auto acc = mem_storage->SchemaInfoGlobalAccessor(); acc) acc->Clear();
+  if (auto acc = mem_storage->SchemaInfoWriteAccessor(); acc) acc->Clear();
 
   mem_storage->vertices_.clear();
   mem_storage->edges_.clear();

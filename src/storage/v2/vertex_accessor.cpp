@@ -113,7 +113,7 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
   }
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   // This has to be called before any object gets locked
-  std::optional<std::variant<SchemaInfo::Accessor, SchemaInfo::UniqueAccessor>> schema_acc;
+  std::optional<std::variant<SchemaInfo::AnalyticalAccessor, SchemaInfo::AnalyticalUniqueAccessor>> schema_acc;
   if (auto schema_unique_acc = storage_->SchemaInfoUniqueAccessor(); schema_unique_acc) {
     schema_acc = std::move(*schema_unique_acc);
   }
@@ -125,7 +125,8 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
   // Now that the vertex is locked, we can check if it has any edges and if it doesn't, we can downgrade the accessor
   if (schema_acc) {
     if (vertex_->in_edges.empty() && vertex_->out_edges.empty()) {
-      schema_acc->emplace<SchemaInfo::Accessor>(std::get<SchemaInfo::UniqueAccessor>(std::move(*schema_acc)));
+      schema_acc->emplace<SchemaInfo::AnalyticalAccessor>(
+          std::get<SchemaInfo::AnalyticalUniqueAccessor>(std::move(*schema_acc)));
     }
   }
 
@@ -164,10 +165,10 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
   // NOTE Has to be called at the end because it needs to be able to release the vertex lock (in case edges need to be
   // updated)
   if (schema_acc) {
-    std::visit(
-        utils::Overloaded([&](SchemaInfo::Accessor &acc) { acc.AddLabel(vertex_, label); },
-                          [&](SchemaInfo::UniqueAccessor &acc) { acc.AddLabel(vertex_, label, std::move(guard)); }),
-        *schema_acc);
+    std::visit(utils::Overloaded(
+                   [&](SchemaInfo::AnalyticalAccessor &acc) { acc.AddLabel(vertex_, label); },
+                   [&](SchemaInfo::AnalyticalUniqueAccessor &acc) { acc.AddLabel(vertex_, label, std::move(guard)); }),
+               *schema_acc);
   }
   return true;
 }
@@ -178,7 +179,7 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
     throw query::WriteVertexOperationInEdgeImportModeException();
   }
   // This has to be called before any object gets locked
-  std::optional<std::variant<SchemaInfo::Accessor, SchemaInfo::UniqueAccessor>> schema_acc;
+  std::optional<std::variant<SchemaInfo::AnalyticalAccessor, SchemaInfo::AnalyticalUniqueAccessor>> schema_acc;
   if (auto schema_unique_acc = storage_->SchemaInfoUniqueAccessor(); schema_unique_acc) {
     schema_acc = std::move(*schema_unique_acc);
   }
@@ -190,7 +191,8 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
   // Now that the vertex is locked, we can check if it has any edges and if it doesn't, we can downgrade the accessor
   if (schema_acc) {
     if (vertex_->in_edges.empty() && vertex_->out_edges.empty()) {
-      schema_acc->emplace<SchemaInfo::Accessor>(std::get<SchemaInfo::UniqueAccessor>(std::move(*schema_acc)));
+      schema_acc->emplace<SchemaInfo::AnalyticalAccessor>(
+          std::get<SchemaInfo::AnalyticalUniqueAccessor>(std::move(*schema_acc)));
     }
   }
 
@@ -211,10 +213,11 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
   // NOTE Has to be called at the end because it needs to be able to release the vertex lock (in case edges need to be
   // updated)
   if (schema_acc) {
-    std::visit(
-        utils::Overloaded([&](SchemaInfo::Accessor &acc) { acc.RemoveLabel(vertex_, label); },
-                          [&](SchemaInfo::UniqueAccessor &acc) { acc.RemoveLabel(vertex_, label, std::move(guard)); }),
-        *schema_acc);
+    std::visit(utils::Overloaded([&](SchemaInfo::AnalyticalAccessor &acc) { acc.RemoveLabel(vertex_, label); },
+                                 [&](SchemaInfo::AnalyticalUniqueAccessor &acc) {
+                                   acc.RemoveLabel(vertex_, label, std::move(guard));
+                                 }),
+               *schema_acc);
   }
   return true;
 }

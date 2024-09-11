@@ -582,21 +582,22 @@ class Storage {
   // Mutable methods only safe if we have UniqueAccess to this storage
   EnumStore enum_store_;
 
-  std::optional<SchemaInfo::Accessor> SchemaInfoAccessor() {
+  std::optional<SchemaInfo::AnalyticalAccessor> SchemaInfoAccessor() {
     if (storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL) {
       return schema_info_.CreateAccessor(config_.salient.items.properties_on_edges);
     }
     return std::nullopt;
   }
 
-  std::optional<SchemaInfo::UniqueAccessor> SchemaInfoUniqueAccessor() {
+  std::optional<SchemaInfo::AnalyticalUniqueAccessor> SchemaInfoUniqueAccessor() {
     if (storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL) {
       return schema_info_.CreateUniqueAccessor(config_.salient.items.properties_on_edges);
     }
     return std::nullopt;
   }
 
-  std::optional<SchemaInfo::GlobalAccessor> SchemaInfoGlobalAccessor() { return schema_info_.CreateGlobalAccessor(); }
+  std::optional<SchemaInfo::ReadAccessor> SchemaInfoReadAccessor() { return schema_info_.CreateReadAccessor(); }
+  std::optional<SchemaInfo::WriteAccessor> SchemaInfoWriteAccessor() { return schema_info_.CreateWriteAccessor(); }
 
   SchemaInfo schema_info_;
 };

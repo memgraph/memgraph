@@ -110,7 +110,7 @@ TYPED_TEST(SchemaInfoTest, SingleVertex) {
 
   // Empty
   {
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_TRUE(json["nodes"].empty());
     ASSERT_TRUE(json["edges"].empty());
   }
@@ -120,7 +120,7 @@ TYPED_TEST(SchemaInfoTest, SingleVertex) {
     auto acc = in_memory->Access();
     acc->CreateVertex();
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_EQ(json["nodes"].size(), 1);
     ASSERT_EQ(json["edges"].size(), 0);
     ASSERT_EQ(json["nodes"][0]["count"], 1);
@@ -135,7 +135,7 @@ TYPED_TEST(SchemaInfoTest, SingleVertex) {
       ASSERT_FALSE(acc->DetachDelete({&v}, {}, true).HasError());
     }
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_EQ(json["nodes"].size(), 0);
     ASSERT_EQ(json["edges"].size(), 0);
   }
@@ -146,7 +146,7 @@ TYPED_TEST(SchemaInfoTest, SingleVertex) {
     auto v = acc->CreateVertex();
     ASSERT_FALSE(v.AddLabel(l).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_EQ(json["nodes"].size(), 1);
     ASSERT_EQ(json["edges"].size(), 0);
     ASSERT_EQ(json["nodes"][0]["count"], 1);
@@ -162,7 +162,7 @@ TYPED_TEST(SchemaInfoTest, SingleVertex) {
       ASSERT_FALSE(acc->DetachDelete({&v}, {}, true).HasError());
     }
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_EQ(json["nodes"].size(), 0);
     ASSERT_EQ(json["edges"].size(), 0);
   }
@@ -176,7 +176,7 @@ TYPED_TEST(SchemaInfoTest, SingleVertex) {
     ASSERT_FALSE(v.SetProperty(p, memgraph::storage::PropertyValue{false}).HasError());
     ASSERT_FALSE(v.SetProperty(p, memgraph::storage::PropertyValue{12}).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_EQ(json["nodes"].size(), 1);
     ASSERT_EQ(json["edges"].size(), 0);
     ASSERT_EQ(json["nodes"][0]["count"], 1);
@@ -197,7 +197,7 @@ TYPED_TEST(SchemaInfoTest, SingleVertex) {
       ASSERT_FALSE(acc->DetachDelete({&v}, {}, true).HasError());
     }
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_EQ(json["nodes"].size(), 0);
     ASSERT_EQ(json["edges"].size(), 0);
   }
@@ -216,7 +216,7 @@ TYPED_TEST(SchemaInfoTest, SingleVertex) {
     ASSERT_FALSE(v.SetProperty(p, memgraph::storage::PropertyValue{12}).HasError());
     ASSERT_FALSE(v.ClearProperties().HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_EQ(json["nodes"].size(), 1);
     ASSERT_EQ(json["edges"].size(), 0);
     ASSERT_EQ(json["nodes"][0]["count"], 1);
@@ -233,7 +233,7 @@ TYPED_TEST(SchemaInfoTest, SingleVertex) {
       ASSERT_FALSE(acc->DetachDelete({&v}, {}, true).HasError());
     }
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_EQ(json["nodes"].size(), 0);
     ASSERT_EQ(json["edges"].size(), 0);
   }
@@ -259,7 +259,7 @@ TYPED_TEST(SchemaInfoTest, SingleVertex) {
                      ->SetProperty(p2, memgraph::storage::PropertyValue{false})
                      .HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_EQ(json["nodes"].size(), 1);
     ASSERT_EQ(json["edges"].size(), 0);
     ASSERT_EQ(json["nodes"][0]["count"], 1);
@@ -290,7 +290,7 @@ TYPED_TEST(SchemaInfoTest, SingleVertex) {
       ASSERT_FALSE(acc->DetachDelete({&v}, {}, true).HasError());
     }
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_EQ(json["nodes"].size(), 0);
     ASSERT_EQ(json["edges"].size(), 0);
   }
@@ -304,7 +304,7 @@ TYPED_TEST(SchemaInfoTest, SingleVertex) {
     ASSERT_FALSE(v.SetProperty(p2, memgraph::storage::PropertyValue{"abc"}).HasError());
     ASSERT_FALSE(acc->DeleteVertex(&v).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_EQ(json["nodes"].size(), 0);
     ASSERT_EQ(json["edges"].size(), 0);
   }
@@ -317,7 +317,7 @@ TYPED_TEST(SchemaInfoTest, SingleVertex) {
     ASSERT_FALSE(v.SetProperty(p, memgraph::storage::PropertyValue{12}).HasError());
     ASSERT_FALSE(v.SetProperty(p2, memgraph::storage::PropertyValue{"abc"}).HasError());
     acc->Abort();
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     if (in_memory->storage_mode_ == memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
       ASSERT_EQ(json["nodes"].size(), 0);
       ASSERT_EQ(json["edges"].size(), 0);
@@ -364,7 +364,7 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
 
   // Empty
   {
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_TRUE(json["nodes"].empty());
     ASSERT_TRUE(json["edges"].empty());
   }
@@ -374,7 +374,7 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
     auto acc = in_memory->Access();
     acc->CreateVertex();
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_EQ(json["nodes"].size(), 1);
     ASSERT_EQ(json["edges"].size(), 0);
     ASSERT_EQ(json["nodes"][0]["count"], 1);
@@ -388,7 +388,7 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
     auto v = acc->CreateVertex();
     ASSERT_FALSE(v.AddLabel(l).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_EQ(json["nodes"].size(), 2);
     ASSERT_EQ(json["edges"].size(), 0);
 
@@ -415,7 +415,7 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
     ASSERT_FALSE(v.AddLabel(l2).HasError());
     ASSERT_FALSE(v.SetProperty(p, memgraph::storage::PropertyValue{12}).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_EQ(json["nodes"].size(), 3);
     ASSERT_EQ(json["edges"].size(), 0);
 
@@ -457,7 +457,7 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
     ASSERT_FALSE(v.SetProperty(p, memgraph::storage::PropertyValue{12}).HasError());
     ASSERT_FALSE(v.ClearProperties().HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_EQ(json["nodes"].size(), 4);
     ASSERT_EQ(json["edges"].size(), 0);
 
@@ -510,7 +510,7 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
                      ->SetProperty(p2, memgraph::storage::PropertyValue{false})
                      .HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_EQ(json["nodes"].size(), 4);
     ASSERT_EQ(json["edges"].size(), 0);
 
@@ -567,7 +567,7 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
     ASSERT_FALSE(v.SetProperty(p2, memgraph::storage::PropertyValue{"abc"}).HasError());
     ASSERT_FALSE(acc->DeleteVertex(&v).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_EQ(json["nodes"].size(), 4);
     ASSERT_EQ(json["edges"].size(), 0);
 
@@ -623,7 +623,7 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
     ASSERT_FALSE(v.SetProperty(p, memgraph::storage::PropertyValue{12}).HasError());
     ASSERT_FALSE(v.SetProperty(p2, memgraph::storage::PropertyValue{"abc"}).HasError());
     acc->Abort();
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_EQ(json["nodes"].size(), 4);
     ASSERT_EQ(json["edges"].size(), 0);
 
@@ -678,7 +678,7 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
     ASSERT_TRUE(v);
     ASSERT_FALSE(v->SetProperty(p2, memgraph::storage::PropertyValue{"String"}).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_EQ(json["nodes"].size(), 4);
     ASSERT_EQ(json["edges"].size(), 0);
 
@@ -737,7 +737,7 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
     ASSERT_FALSE(v3.SetProperty(p2, memgraph::storage::PropertyValue{123}).HasError());
     ASSERT_FALSE(v4.SetProperty(p2, memgraph::storage::PropertyValue{true}).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_EQ(json["nodes"].size(), 4);
     ASSERT_EQ(json["edges"].size(), 0);
 
@@ -800,7 +800,7 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
     ASSERT_TRUE(v);
     ASSERT_FALSE(v->AddLabel(l).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_EQ(json["nodes"].size(), 4);
     ASSERT_EQ(json["edges"].size(), 0);
 
@@ -867,7 +867,7 @@ TYPED_TEST(SchemaInfoTest, MultipleVertices) {
     ASSERT_TRUE(v);
     ASSERT_FALSE(acc->DeleteVertex(&*v).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_EQ(json["nodes"].size(), 4);
     ASSERT_EQ(json["edges"].size(), 0);
 
@@ -928,7 +928,7 @@ TYPED_TEST(SchemaInfoTest, SingleEdge) {
 
   // Empty
   {
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_TRUE(json["nodes"].empty());
     ASSERT_TRUE(json["edges"].empty());
   }
@@ -944,7 +944,7 @@ TYPED_TEST(SchemaInfoTest, SingleEdge) {
     ASSERT_FALSE(edge.HasError());
     edge_gid = edge->Gid();
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_EQ(json["nodes"].size(), 1);
     ASSERT_EQ(json["nodes"][0]["count"], 2);
     ASSERT_EQ(json["edges"].size(), 1);
@@ -966,7 +966,7 @@ TYPED_TEST(SchemaInfoTest, SingleEdge) {
     ASSERT_TRUE(edge_acc);
     ASSERT_FALSE(acc->DeleteEdge(&*edge_acc).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_EQ(json["nodes"].size(), 1);
     ASSERT_EQ(json["nodes"][0]["count"], 2);
     ASSERT_EQ(json["edges"].size(), 0);
@@ -988,7 +988,7 @@ TYPED_TEST(SchemaInfoTest, SingleEdge) {
     ASSERT_TRUE(v1);
     ASSERT_FALSE(v1->AddLabel(l).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_EQ(json["nodes"].size(), 2);
     ASSERT_EQ(json["edges"].size(), 1);
     ASSERT_EQ(json["edges"][0]["type"], "E2");
@@ -1009,7 +1009,7 @@ TYPED_TEST(SchemaInfoTest, SingleEdge) {
     ASSERT_TRUE(edge_acc);
     ASSERT_FALSE(acc->DeleteEdge(&*edge_acc).HasError());
     acc->Abort();
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_EQ(json["nodes"].size(), 2);
     ASSERT_EQ(json["edges"].size(), 1);
     ASSERT_EQ(json["edges"][0]["type"], "E2");
@@ -1026,7 +1026,7 @@ TYPED_TEST(SchemaInfoTest, SingleEdge) {
     ASSERT_TRUE(v2);
     ASSERT_FALSE(v2->AddLabel(l2).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_EQ(json["nodes"].size(), 2);
     ASSERT_EQ(json["edges"].size(), 1);
     ASSERT_EQ(json["edges"][0]["type"], "E2");
@@ -1046,7 +1046,7 @@ TYPED_TEST(SchemaInfoTest, SingleEdge) {
     ASSERT_TRUE(v2);
     ASSERT_FALSE(v2->AddLabel(l3).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_EQ(json["nodes"].size(), 2);
     ASSERT_EQ(json["edges"].size(), 1);
     ASSERT_EQ(json["edges"][0]["type"], "E2");
@@ -1067,7 +1067,7 @@ TYPED_TEST(SchemaInfoTest, SingleEdge) {
     ASSERT_FALSE(edge.HasError());
     ASSERT_FALSE(acc->DeleteEdge(&edge.GetValue()).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_EQ(json["nodes"].size(), 2);
     ASSERT_EQ(json["edges"].size(), 1);
     ASSERT_EQ(json["edges"][0]["type"], "E2");
@@ -1092,7 +1092,7 @@ TYPED_TEST(SchemaInfoTest, SingleEdge) {
     ASSERT_TRUE(v2);
     ASSERT_FALSE(v2->RemoveLabel(l3).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_EQ(json["nodes"].size(), 2);
     ASSERT_EQ(json["edges"].size(), 0);
   }
@@ -1104,7 +1104,7 @@ TYPED_TEST(SchemaInfoTest, SingleEdge) {
       ASSERT_FALSE(acc->DetachDelete({&v}, {}, true).HasError());
     }
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_EQ(json["nodes"].size(), 0);
     ASSERT_EQ(json["edges"].size(), 0);
   }
@@ -1125,7 +1125,7 @@ TYPED_TEST(SchemaInfoTest, MultipleEdges) {
 
   // Empty
   {
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_TRUE(json["nodes"].empty());
     ASSERT_TRUE(json["edges"].empty());
   }
@@ -1146,7 +1146,7 @@ TYPED_TEST(SchemaInfoTest, MultipleEdges) {
     e2_gid = edge2->Gid();
     ASSERT_FALSE(acc->CreateEdge(&v1, &v2, e3).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_EQ(json["nodes"].size(), 1);
     ASSERT_EQ(json["nodes"][0]["count"], 3);
     const auto &json_edges = json["edges"];
@@ -1184,7 +1184,7 @@ TYPED_TEST(SchemaInfoTest, MultipleEdges) {
     ASSERT_TRUE(edge_acc);
     ASSERT_FALSE(acc->DeleteEdge(&*edge_acc).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_EQ(json["nodes"].size(), 1);
     ASSERT_EQ(json["nodes"][0]["count"], 3);
     const auto &json_edges = json["edges"];
@@ -1212,7 +1212,7 @@ TYPED_TEST(SchemaInfoTest, MultipleEdges) {
     ASSERT_TRUE(v1);
     ASSERT_FALSE(v1->AddLabel(l).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_EQ(json["nodes"].size(), 2);
     ASSERT_EQ(json["nodes"][0]["count"], 1);
     ASSERT_EQ(json["nodes"][1]["count"], 2);
@@ -1245,7 +1245,7 @@ TYPED_TEST(SchemaInfoTest, MultipleEdges) {
     ASSERT_TRUE(edge_acc);
     ASSERT_FALSE(acc->DeleteEdge(&*edge_acc).HasError());
     acc->Abort();
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_EQ(json["nodes"].size(), 2);
     ASSERT_EQ(json["nodes"][0]["count"], 1);
     ASSERT_EQ(json["nodes"][1]["count"], 2);
@@ -1281,7 +1281,7 @@ TYPED_TEST(SchemaInfoTest, MultipleEdges) {
     ASSERT_FALSE(acc->CreateEdge(&v1, &v2, e3).HasError());
     ASSERT_FALSE(acc->CreateEdge(&v1, &v2, e).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_EQ(json["nodes"].size(), 4);
     const auto &json_edges = json["edges"];
 
@@ -1326,7 +1326,7 @@ TYPED_TEST(SchemaInfoTest, MultipleEdges) {
       ASSERT_FALSE(acc->DetachDelete({&v}, {}, true).HasError());
     }
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_EQ(json["nodes"].size(), 0);
     ASSERT_EQ(json["edges"].size(), 0);
   }
@@ -1347,7 +1347,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, SingleEdge) {
 
   // Empty
   {
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_TRUE(json["nodes"].empty());
     ASSERT_TRUE(json["edges"].empty());
   }
@@ -1363,7 +1363,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, SingleEdge) {
     ASSERT_FALSE(edge.HasError());
     edge_gid = edge->Gid();
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_EQ(json["nodes"].size(), 1);
     ASSERT_EQ(json["nodes"][0]["count"], 2);
     ASSERT_EQ(json["edges"].size(), 1);
@@ -1387,7 +1387,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, SingleEdge) {
     ASSERT_FALSE(edge_acc->SetProperty(p, PropertyValue{true}).HasError());
     ASSERT_FALSE(edge_acc->SetProperty(p, PropertyValue{12}).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_EQ(json["nodes"].size(), 1);
     ASSERT_EQ(json["nodes"][0]["count"], 2);
     ASSERT_EQ(json["edges"].size(), 1);
@@ -1416,7 +1416,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, SingleEdge) {
     ASSERT_TRUE(v1);
     ASSERT_FALSE(v1->AddLabel(l).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_EQ(json["nodes"].size(), 2);
     ASSERT_EQ(json["edges"].size(), 1);
     ASSERT_EQ(json["edges"].size(), 1);
@@ -1449,7 +1449,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, SingleEdge) {
     ASSERT_TRUE(edge_acc);
     ASSERT_FALSE(acc->DeleteEdge(&*edge_acc).HasError());
     acc->Abort();
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_EQ(json["nodes"].size(), 2);
     ASSERT_EQ(json["edges"].size(), 1);
     ASSERT_EQ(json["edges"].size(), 1);
@@ -1478,7 +1478,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, SingleEdge) {
     ASSERT_TRUE(v2);
     ASSERT_FALSE(v2->AddLabel(l2).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_EQ(json["nodes"].size(), 2);
     ASSERT_EQ(json["edges"].size(), 1);
     ASSERT_EQ(json["edges"].size(), 1);
@@ -1510,7 +1510,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, SingleEdge) {
     ASSERT_TRUE(v2);
     ASSERT_FALSE(v2->AddLabel(l3).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_EQ(json["nodes"].size(), 2);
     ASSERT_EQ(json["edges"].size(), 1);
     ASSERT_EQ(json["edges"].size(), 1);
@@ -1541,7 +1541,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, SingleEdge) {
     ASSERT_EQ(edges->edges.size(), 1);
     ASSERT_FALSE(edges->edges[0].SetProperty(p2, PropertyValue{}).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_EQ(json["nodes"].size(), 2);
     ASSERT_EQ(json["edges"].size(), 1);
     ASSERT_EQ(json["edges"].size(), 1);
@@ -1575,7 +1575,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, SingleEdge) {
       ASSERT_FALSE(edge->SetProperty(p, PropertyValue{12}).HasError());
       ASSERT_FALSE(acc->Commit().HasError());
 
-      const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+      const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
       ASSERT_EQ(json["nodes"].size(), 3);
       ASSERT_EQ(json["edges"].size(), 2);
     }
@@ -1589,7 +1589,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, SingleEdge) {
     ASSERT_TRUE(edge_acc);
     ASSERT_FALSE(acc->DeleteEdge(&*edge_acc).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
 
     ASSERT_EQ(json["nodes"].size(), 3);
     ASSERT_EQ(json["edges"].size(), 1);
@@ -1613,7 +1613,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, SingleEdge) {
       ASSERT_FALSE(acc->DetachDelete({&v}, {}, true).HasError());
     }
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_EQ(json["nodes"].size(), 0);
     ASSERT_EQ(json["edges"].size(), 0);
   }
@@ -1633,7 +1633,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, ConcurrentEdges) {
 
   // Empty
   {
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_TRUE(json["nodes"].empty());
     ASSERT_TRUE(json["edges"].empty());
   }
@@ -1676,8 +1676,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, ConcurrentEdges) {
     ASSERT_FALSE(tx1->Commit().HasError());
 
     // Check
-    const auto json_mid =
-        schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json_mid = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
 
     if (in_memory->storage_mode_ == memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
       ASSERT_EQ(json_mid["nodes"].size(), 2);
@@ -1732,7 +1731,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, ConcurrentEdges) {
     ASSERT_FALSE(tx2->Commit().HasError());
 
     // Check
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_EQ(json["nodes"].size(), 2);
     ASSERT_TRUE(std::any_of(json["nodes"].begin(), json["nodes"].end(), [&](const auto &in) {
       return in == nlohmann::json::object({{"count", 1},
@@ -1764,7 +1763,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, ConcurrentEdges) {
       ASSERT_FALSE(acc->DetachDelete({&v}, {}, true).HasError());
     }
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_EQ(json["nodes"].size(), 0);
     ASSERT_EQ(json["edges"].size(), 0);
   }
@@ -1813,8 +1812,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, ConcurrentEdges) {
     ASSERT_FALSE(tx1->Commit().HasError());
 
     // Check
-    const auto json_mid =
-        schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json_mid = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     if (in_memory->storage_mode_ == memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
       const auto json_nodes = json_mid["nodes"];
       ASSERT_EQ(json_nodes.size(), 2);
@@ -1869,7 +1867,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, ConcurrentEdges) {
     tx2->Abort();
 
     // Check
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     if (in_memory->storage_mode_ == memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
       const auto json_nodes = json["nodes"];
       ASSERT_EQ(json_nodes.size(), 2);
@@ -1949,7 +1947,7 @@ TYPED_TEST(SchemaInfoTest, AllPropertyTypes) {
 
   // Empty
   {
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_TRUE(json["nodes"].empty());
     ASSERT_TRUE(json["edges"].empty());
   }
@@ -1980,7 +1978,7 @@ TYPED_TEST(SchemaInfoTest, AllPropertyTypes) {
     ASSERT_FALSE(v1.SetProperty(p16, PropertyValue{Point3d{}}).HasError());
     ASSERT_FALSE(acc->Commit().HasError());
 
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
 
     const auto &node_json = json["nodes"];
     ASSERT_EQ(node_json.size(), 1);
@@ -2208,7 +2206,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, AllPropertyTypes) {
 
   // Empty
   {
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
     ASSERT_TRUE(json["nodes"].empty());
     ASSERT_TRUE(json["edges"].empty());
   }
@@ -2226,7 +2224,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, AllPropertyTypes) {
 
     ASSERT_FALSE(acc->Commit().HasError());
 
-    const auto json = schema_info.CreateGlobalAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    const auto json = schema_info.CreateReadAccessor().ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
 
     check_json(json["nodes"]);
     check_json(json["edges"]);

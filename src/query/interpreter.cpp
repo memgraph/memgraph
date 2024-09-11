@@ -5034,16 +5034,80 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
 
   Callback callback;
   callback.header = {"Schema"};
-  callback.fn = [db_acc = *current_db.db_acc_]() mutable -> std::vector<std::vector<TypedValue>> {
+  callback.fn = [db = *current_db.db_acc_, db_acc = current_db.execution_db_accessor_,
+                 storage_acc =
+                     current_db.db_transactional_accessor_.get()]() mutable -> std::vector<std::vector<TypedValue>> {
     std::vector<std::vector<TypedValue>> schema;
-    auto *storage = db_acc->storage();
-    auto schema_acc = storage->SchemaInfoGlobalAccessor();
+    auto *storage = db->storage();
+    auto schema_acc = storage->SchemaInfoReadAccessor();
     if (schema_acc) {
-      const auto json = schema_acc->ToJson(*storage->name_id_mapper_, storage->enum_store_);
-      const auto printed = json.dump(2 /* indent */);
-      for (const auto &row : utils::Split(utils::Trim(printed), "\n")) {
-        schema.push_back(std::vector<TypedValue>{TypedValue(utils::Replace(row, "\"", ""))});
+      // SCHEMA INFO
+      auto json = schema_acc->ToJson(*storage->name_id_mapper_, storage->enum_store_);
+      schema_acc.reset();
+
+      // INDICES
+      auto &node_indexes = json["node_indexes"];
+      node_indexes = nlohmann::json::array();
+      auto &edge_indexes = json["edge_indexes"];
+      edge_indexes = nlohmann::json::array();
+      auto index_info = db_acc->ListAllIndices();
+      // Vertex label indices
+      for (const auto label_id : index_info.label) {
+        node_indexes.push_back(nlohmann::json::object({{"labels", {storage->LabelToName(label_id)}},
+                                                       {"properties", nlohmann::json::array()},
+                                                       {"count", storage_acc->ApproximateVertexCount(label_id)}}));
       }
+      // Vertex label property indices
+      for (const auto [label_id, property] : index_info.label_property) {
+        node_indexes.push_back(
+            nlohmann::json::object({{"labels", {storage->LabelToName(label_id)}},
+                                    {"properties", {storage->PropertyToName(property)}},
+                                    {"count", storage_acc->ApproximateVertexCount(label_id, property)}}));
+      }
+      // Edge type indices
+      for (const auto type : index_info.edge_type) {
+        edge_indexes.push_back(nlohmann::json::object({{"edge_type", {storage->EdgeTypeToName(type)}},
+                                                       {"properties", nlohmann::json::array()},
+                                                       {"count", storage_acc->ApproximateEdgeCount(type)}}));
+      }
+      // Edge type property indices
+      for (const auto [type, property] : index_info.edge_type_property) {
+        edge_indexes.push_back(nlohmann::json::object({{"edge_type", {storage->EdgeTypeToName(type)}},
+                                                       {"properties", {storage->PropertyToName(property)}},
+                                                       {"count", storage_acc->ApproximateEdgeCount(type, property)}}));
+      }
+
+      // CONSTRAINTS
+      auto &node_constraints = json["node_constraints"];
+      node_constraints = nlohmann::json::array();
+      auto constraint_info = db_acc->ListAllConstraints();
+      // Existence
+      for (const auto [label_id, property] : constraint_info.existence) {
+        node_constraints.push_back(nlohmann::json::object({{"type", "existence"},
+                                                           {"labels", {storage->LabelToName(label_id)}},
+                                                           {"properties", {storage->PropertyToName(property)}}}));
+      }
+      // Unique
+      for (const auto &[label_id, properties] : constraint_info.unique) {
+        auto json_properties = nlohmann::json::array();
+        for (const auto property : properties) {
+          json_properties.emplace_back(storage->PropertyToName(property));
+        }
+        node_constraints.push_back(nlohmann::json::object({{"type", "existence"},
+                                                           {"labels", {storage->LabelToName(label_id)}},
+                                                           {"properties", std::move(json_properties)}}));
+      }
+
+      // ENUMS
+      auto [enums, _] = json.emplace("enums", nlohmann::json::array());
+      for (auto [type, values] : storage->enum_store_.AllRegistered()) {
+        auto json_values = nlohmann::json::array();
+        for (const auto &val : values) json_values.push_back(val);
+        enums->push_back(nlohmann::json::object({{"name", type}, {"values", std::move(json_values)}}));
+      }
+
+      // Pack json into query result
+      schema.push_back(std::vector<TypedValue>{TypedValue(json.dump())});
     } else {
       throw QueryException("SchemaInfo disabled.");
     }
@@ -5059,7 +5123,7 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
                          }
 
                          if (pull_plan->Pull(stream, n)) {
-                           return QueryHandlerResult::NOTHING;
+                           return QueryHandlerResult::COMMIT;
                          }
                          return std::nullopt;
                        },
@@ -5231,7 +5295,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         utils::Downcast<ExplainQuery>(parsed_query.query) || utils::Downcast<ProfileQuery>(parsed_query.query) ||
         utils::Downcast<DumpQuery>(parsed_query.query) || utils::Downcast<TriggerQuery>(parsed_query.query) ||
         utils::Downcast<AnalyzeGraphQuery>(parsed_query.query) ||
-        utils::Downcast<DatabaseInfoQuery>(parsed_query.query) || utils::Downcast<ShowEnumsQuery>(parsed_query.query);
+        utils::Downcast<DatabaseInfoQuery>(parsed_query.query) || utils::Downcast<ShowEnumsQuery>(parsed_query.query) ||
+        utils::Downcast<ShowSchemaInfoQuery>(parsed_query.query);
 
     if (!in_explicit_transaction_ && requires_db_transaction) {
       // TODO: ATM only a single database, will change when we have multiple database transactions
