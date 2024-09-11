@@ -100,6 +100,11 @@ class DiskStorage final : public Storage {
 
     uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property) const override;
 
+    uint64_t ApproximatePointCount(LabelId label, PropertyId property) const override {
+      // Point index does not exist for on disk
+      return 0;
+    }
+
     std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId & /*label*/) const override {
       return {};
     }
@@ -191,6 +196,12 @@ class DiskStorage final : public Storage {
     utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type) override;
 
     utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type, PropertyId property) override;
+
+    utils::BasicResult<storage::StorageIndexDefinitionError, void> CreatePointIndex(
+        storage::LabelId label, storage::PropertyId property) override;
+
+    utils::BasicResult<storage::StorageIndexDefinitionError, void> DropPointIndex(
+        storage::LabelId label, storage::PropertyId property) override;
 
     utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
         LabelId label, PropertyId property) override;
@@ -352,6 +363,8 @@ class DiskStorage final : public Storage {
   EdgeImportMode edge_import_status_{EdgeImportMode::INACTIVE};
   std::unique_ptr<EdgeImportModeCache> edge_import_mode_cache_{nullptr};
   std::atomic<uint64_t> vertex_count_{0};
+  /// Disk does not have point index, yet an empty/null object is needed to make in_memory code for point index simple.
+  static PointIndexStorage empty_point_index_;
 };
 
 }  // namespace memgraph::storage

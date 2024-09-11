@@ -141,5 +141,131 @@ def test_point_replication(connection):
     assert replica_2_enums == expected_result
 
 
+def test_point_index_replication(connection):
+    # Goal: That point types are replicated to REPLICAs
+    # 0/ Setup replication
+    # 1/ Create Point index on MAIN
+    # 2/ Validate point index has arrived at REPLICA
+    # 3/ Create point entries on MAIN
+    # 4/ Validate index count on REPLICA is correct
+    # 5/ Drop point index on MAIN
+    # 6/ Validate index has been droped on REPLICA
+
+    MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
+        "replica_1": {
+            "args": [
+                "--bolt-port",
+                f"{BOLT_PORTS['replica_1']}",
+                "--log-level=TRACE",
+            ],
+            "log_file": "replica1.log",
+            "setup_queries": [
+                f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_1']};",
+            ],
+        },
+        "replica_2": {
+            "args": [
+                "--bolt-port",
+                f"{BOLT_PORTS['replica_2']}",
+                "--log-level=TRACE",
+            ],
+            "log_file": "replica2.log",
+            "setup_queries": [
+                f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_2']};",
+            ],
+        },
+        "main": {
+            "args": [
+                "--bolt-port",
+                f"{BOLT_PORTS['main']}",
+                "--log-level=TRACE",
+            ],
+            "log_file": "main.log",
+            "setup_queries": [
+                f"REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_1']}';",
+                f"REGISTER REPLICA replica_2 ASYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_2']}';",
+            ],
+        },
+    }
+
+    # 0/
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL)
+    cursor = connection(BOLT_PORTS["main"], "main").cursor()
+
+    def wait_for_replication_change(cursor, ts):
+        expected_data = [
+            (
+                "replica_1",
+                "127.0.0.1:10001",
+                "sync",
+                {"behind": None, "status": "ready", "ts": 0},
+                {"memgraph": {"behind": 0, "status": "ready", "ts": ts}},
+            ),
+            (
+                "replica_2",
+                "127.0.0.1:10002",
+                "async",
+                {"behind": None, "status": "ready", "ts": 0},
+                {"memgraph": {"behind": 0, "status": "ready", "ts": ts}},
+            ),
+        ]
+
+        mg_sleep_and_assert_collection(expected_data, show_replicas_func(cursor))
+
+    # 1/
+    execute_and_fetch_all(
+        cursor,
+        "CREATE POINT INDEX ON :Node(location);",
+    )
+    wait_for_replication_change(cursor, 2)
+
+    # 2/
+    def get_show_index_info(cursor):
+        return execute_and_fetch_all(cursor, f"SHOW INDEX INFO;")
+
+    def get_replica_cursor(name):
+        return connection(BOLT_PORTS[name], "replica").cursor()
+
+    expected_result = [("point", "Node", "location", 0)]
+
+    replica_1_enums = get_show_index_info(get_replica_cursor("replica_1"))
+    assert replica_1_enums == expected_result
+
+    replica_2_enums = get_show_index_info(get_replica_cursor("replica_2"))
+    assert replica_2_enums == expected_result
+
+    # 3/
+    execute_and_fetch_all(
+        cursor,
+        "CREATE (:Node{location: point({x:1, y:1})});",
+    )
+    wait_for_replication_change(cursor, 4)
+
+    # 4/
+    expected_result = [("point", "Node", "location", 1)]
+
+    replica_1_enums = get_show_index_info(get_replica_cursor("replica_1"))
+    assert replica_1_enums == expected_result
+
+    replica_2_enums = get_show_index_info(get_replica_cursor("replica_2"))
+    assert replica_2_enums == expected_result
+
+    # 5/
+    execute_and_fetch_all(
+        cursor,
+        "DROP POINT INDEX ON :Node(location);",
+    )
+    wait_for_replication_change(cursor, 6)
+
+    # 6/
+    expected_result = []
+
+    replica_1_enums = get_show_index_info(get_replica_cursor("replica_1"))
+    assert replica_1_enums == expected_result
+
+    replica_2_enums = get_show_index_info(get_replica_cursor("replica_2"))
+    assert replica_2_enums == expected_result
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

@@ -57,6 +57,7 @@ extern const Event SnapshotCreationLatency_us;
 
 extern const Event ActiveLabelIndices;
 extern const Event ActiveLabelPropertyIndices;
+extern const Event ActivePointIndices;
 extern const Event ActiveTextIndices;
 }  // namespace memgraph::metrics
 
@@ -70,6 +71,7 @@ struct IndicesInfo {
   std::vector<EdgeTypeId> edge_type;
   std::vector<std::pair<EdgeTypeId, PropertyId>> edge_type_property;
   std::vector<std::pair<std::string, LabelId>> text_indices;
+  std::vector<std::pair<LabelId, PropertyId>> point_label_property;
 };
 
 struct ConstraintsInfo {
@@ -224,6 +226,8 @@ class Storage {
 
     virtual uint64_t ApproximateEdgeCount(EdgeTypeId id, PropertyId property) const = 0;
 
+    virtual uint64_t ApproximatePointCount(LabelId label, PropertyId property) const = 0;
+
     virtual std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const = 0;
 
     virtual std::optional<storage::LabelPropertyIndexStats> GetIndexStats(
@@ -346,6 +350,12 @@ class Storage {
     virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type,
                                                                             PropertyId property) = 0;
 
+    virtual utils::BasicResult<storage::StorageIndexDefinitionError, void> CreatePointIndex(
+        storage::LabelId label, storage::PropertyId property) = 0;
+
+    virtual utils::BasicResult<storage::StorageIndexDefinitionError, void> DropPointIndex(
+        storage::LabelId label, storage::PropertyId property) = 0;
+
     void CreateTextIndex(const std::string &index_name, LabelId label, query::DbAccessor *db);
 
     void DropTextIndex(const std::string &index_name);
@@ -413,6 +423,7 @@ class Storage {
     Storage *storage_;
     std::shared_lock<utils::ResourceLock> storage_guard_;
     std::unique_lock<utils::ResourceLock> unique_guard_;  // TODO: Split the accessor into Shared/Unique
+    /// IMPORTANT: transaction_ has to be constructed after the guards (so that destruction is in correct order)
     Transaction transaction_;
     std::optional<uint64_t> commit_timestamp_;
     bool is_transaction_active_;

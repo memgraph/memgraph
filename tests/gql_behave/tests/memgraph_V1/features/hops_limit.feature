@@ -28,10 +28,7 @@ Feature: Hops Limit
 
     Scenario: Test hops limit DFS test02 - partial results
         Given graph "simple_binary_tree"
-        And having executed:
-            """
-            CREATE INDEX ON :Node(name)
-            """
+        And with new index :Node(name)
         When executing query:
             """
             USING HOPS LIMIT 2 MATCH p=(a:Node {name: 'A'})-[:CONNECTED *]->(d:Node {name: 'D'}) return p
@@ -43,11 +40,7 @@ Feature: Hops Limit
 
     Scenario: Test hops limit DFS test03 - partial results
         Given graph "simple_binary_tree"
-        And having executed:
-            """
-            CREATE INDEX ON :Node(name)
-            """
-
+        And with new index :Node(name)
         When executing query:
             """
             USING HOPS LIMIT 1 MATCH p=(a:Node {name: 'A'})-[:CONNECTED *]->(d:Node {name: 'D'}) return p
@@ -86,10 +79,7 @@ Feature: Hops Limit
 
     Scenario: Test hops limit BFS test02 - partial results
         Given graph "simple_binary_tree"
-        And having executed:
-            """
-            CREATE INDEX ON :Node(name)
-            """
+        And with new index :Node(name)
         When executing query:
             """
             USING HOPS LIMIT 3 MATCH p=(a:Node {name: 'A'})-[:CONNECTED *BFS]->(d:Node {name: 'D'}) return p
@@ -101,11 +91,7 @@ Feature: Hops Limit
 
     Scenario: Test hops limit BFS test03 - partial results
         Given graph "simple_binary_tree"
-        And having executed:
-            """
-            CREATE INDEX ON :Node(name)
-            """
-
+        And with new index :Node(name)
         When executing query:
             """
             USING HOPS LIMIT 2 MATCH p=(a:Node {name: 'A'})-[:CONNECTED *BFS]->(d:Node {name: 'D'}) return p

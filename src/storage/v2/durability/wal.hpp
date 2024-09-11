@@ -80,6 +80,8 @@ struct WalDeltaData {
     ENUM_CREATE,
     ENUM_ALTER_ADD,
     ENUM_ALTER_UPDATE,
+    POINT_INDEX_CREATE,
+    POINT_INDEX_DROP,
   };
 
   Type type{Type::TRANSACTION_END};
@@ -208,6 +210,8 @@ constexpr bool IsWalDeltaDataTypeTransactionEndVersion15(const WalDeltaData::Typ
     case WalDeltaData::Type::ENUM_CREATE:
     case WalDeltaData::Type::ENUM_ALTER_ADD:
     case WalDeltaData::Type::ENUM_ALTER_UPDATE:
+    case WalDeltaData::Type::POINT_INDEX_CREATE:
+    case WalDeltaData::Type::POINT_INDEX_DROP:
       return true;  // TODO: Still true?
   }
 }

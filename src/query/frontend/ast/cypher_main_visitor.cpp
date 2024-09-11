@@ -280,6 +280,13 @@ antlrcpp::Any CypherMainVisitor::visitIndexQuery(MemgraphCypher::IndexQueryConte
   return index_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitPointIndexQuery(MemgraphCypher::PointIndexQueryContext *ctx) {
+  MG_ASSERT(ctx->children.size() == 1, "PointIndexQuery should have exactly one child!");
+  auto *point_index_query = std::any_cast<PointIndexQuery *>(ctx->children[0]->accept(this));
+  query_ = point_index_query;
+  return point_index_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitTextIndexQuery(MemgraphCypher::TextIndexQueryContext *ctx) {
   MG_ASSERT(ctx->children.size() == 1, "TextIndexQuery should have exactly one child!");
   auto *text_index_query = std::any_cast<TextIndexQuery *>(ctx->children[0]->accept(this));
@@ -335,6 +342,22 @@ antlrcpp::Any CypherMainVisitor::visitDropEdgeIndex(MemgraphCypher::DropEdgeInde
     index_query->properties_ = {key};
   }
   index_query->edge_type_ = AddEdgeType(std::any_cast<std::string>(ctx->labelName()->accept(this)));
+  return index_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitCreatePointIndex(MemgraphCypher::CreatePointIndexContext *ctx) {
+  auto *index_query = storage_->Create<PointIndexQuery>();
+  index_query->action_ = PointIndexQuery::Action::CREATE;
+  index_query->label_ = AddLabel(std::any_cast<std::string>(ctx->labelName()->accept(this)));
+  index_query->property_ = std::any_cast<PropertyIx>(ctx->propertyKeyName()->accept(this));
+  return index_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitDropPointIndex(MemgraphCypher::DropPointIndexContext *ctx) {
+  auto *index_query = storage_->Create<PointIndexQuery>();
+  index_query->action_ = PointIndexQuery::Action::DROP;
+  index_query->label_ = AddLabel(std::any_cast<std::string>(ctx->labelName()->accept(this)));
+  index_query->property_ = std::any_cast<PropertyIx>(ctx->propertyKeyName()->accept(this));
   return index_query;
 }
 
