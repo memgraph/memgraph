@@ -45,7 +45,7 @@ env:
 
 jobs:
   core:
-    if: ${{ inputs.run_core == 'true' }}
+    if: ${{ inputs.run_core == 'true' }}diff_release
     name: "Core tests"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
     timeout-minutes: 60
