@@ -422,10 +422,10 @@ def test_even_number_coords(use_durability, test_name):
     # 7
 
     leader_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "leader"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
-        ("coordinator_4", "localhost:7693", "localhost:10114", "localhost:10124", "up", "leader"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "follower"),
+        ("coordinator_4", "localhost:7693", "localhost:10114", "localhost:10124", "up", "follower"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "replica"),
