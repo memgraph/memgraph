@@ -17,16 +17,16 @@ import mgclient
 
 def get_data_path(file: str, test: str):
     """
-    Data is stored in high_availabiity folder.
+    Data is stored in high_availability folder.
     """
-    return f"high_availabiity/{file}/{test}"
+    return f"high_availability/{file}/{test}"
 
 
 def get_logs_path(file: str, test: str):
     """
-    Logs are stored in high_availabiity folder.
+    Logs are stored in high_availability folder.
     """
-    return f"high_availabiity/{file}/{test}"
+    return f"high_availability/{file}/{test}"
 
 
 # Elapse time is the last element in results hence such slicing works.

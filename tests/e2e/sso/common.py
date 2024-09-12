@@ -3,14 +3,14 @@ import os
 
 def get_data_path(file: str, test: str):
     """
-    Data is stored in high_availabiity folder.
+    Data is stored in sso folder.
     """
     return f"sso/{file}/{test}"
 
 
 def get_logs_path(file: str, test: str):
     """
-    Logs are stored in high_availabiity folder.
+    Logs are stored in sso folder.
     """
     return f"sso/{file}/{test}"
 

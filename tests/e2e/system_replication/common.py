@@ -16,14 +16,14 @@ import mgclient
 
 def get_data_path(file: str, test: str):
     """
-    Data is stored in high_availabiity folder.
+    Data is stored in system replication folder.
     """
     return f"system_replication/{file}/{test}"
 
 
 def get_logs_path(file: str, test: str):
     """
-    Logs are stored in high_availabiity folder.
+    Logs are stored in system replication folder.
     """
     return f"system_replication/{file}/{test}"
 
