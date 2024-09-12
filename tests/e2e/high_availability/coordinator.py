@@ -10,7 +10,6 @@
 # licenses/APL.txt.
 
 import os
-import shutil
 import sys
 
 import interactive_mg_runner
@@ -171,7 +170,7 @@ def test_coordinator_cannot_call_show_replicas():
     [7687, 7688, 7689],
 )
 def test_main_and_replicas_cannot_call_show_repl_cluster(port):
-    setup_test(test_name="test_main_and_replicas_cannot_call_show_repl_cluster")
+    setup_test(test_name=f"test_main_and_replicas_cannot_call_show_repl_cluster_{port}")
     cursor = connect(host="localhost", port=port).cursor()
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(cursor, "SHOW INSTANCES;")
@@ -183,7 +182,7 @@ def test_main_and_replicas_cannot_call_show_repl_cluster(port):
     [7687, 7688, 7689],
 )
 def test_main_and_replicas_cannot_register_coord_server(port):
-    setup_test(test_name="test_main_and_replicas_cannot_register_coord_server")
+    setup_test(test_name=f"test_main_and_replicas_cannot_register_coord_server_{port}")
     cursor = connect(host="localhost", port=port).cursor()
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(
