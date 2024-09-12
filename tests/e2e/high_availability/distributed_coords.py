@@ -289,7 +289,7 @@ def test_even_number_coords(use_durability):
 
     # 1
     inner_instances_description = get_instances_description_no_setup_4_coords(
-        test_name="test_even_number_coords_" + str(use_durability), use_durability=use_durability
+        test_name=f"test_even_number_coords_{use_durability}", use_durability=use_durability
     )
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
@@ -2280,9 +2280,7 @@ def test_coordinator_gets_info_on_other_coordinators():
     # 1
     test_name = "test_coordinator_gets_info_on_other_coordinators"
 
-    inner_instances_description = get_instances_description_no_setup(
-        test_name="test_coordinator_gets_info_on_other_coordinators"
-    )
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
@@ -3163,7 +3161,7 @@ def test_follower_have_correct_health():
 
     # 1
     inner_instances_description = get_instances_description_no_setup(
-        test_name="test_one_coord_down_with_durability_resume", use_durability=True
+        test_name="test_follower_have_correct_health", use_durability=True
     )
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
