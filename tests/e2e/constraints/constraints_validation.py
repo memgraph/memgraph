@@ -159,5 +159,74 @@ def test_existence_constraint_fails_when_creating_node_null_property(memgraph):
         memgraph.execute("CREATE (:Node {prop: null});")
 
 
+# TODO: Remove drop constraint after adding type constraints to gqlalchemy
+
+
+def test_type_constraint_passes(memgraph):
+    memgraph.execute("CREATE CONSTRAINT ON (n:Node) ASSERT n.prop IS TYPED INTEGER;")
+
+    memgraph.execute("CREATE (n:Node {prop:1}) RETURN n;")
+    memgraph.execute("MATCH (n:Node) SET n.prop = 10;")
+
+    memgraph.execute("DROP CONSTRAINT ON (n:Node) ASSERT n.prop IS TYPED INTEGER;")
+
+
+def test_type_constraint_violation_on_creation(memgraph):
+    memgraph.execute("CREATE (n:Node {prop:'str'}) RETURN n;")
+
+    with pytest.raises(GQLAlchemyError):
+        memgraph.execute("CREATE CONSTRAINT ON (n:Node) ASSERT n.prop IS TYPED INTEGER;")
+
+    memgraph.execute("DROP CONSTRAINT ON (n:Node) ASSERT n.prop IS TYPED INTEGER;")
+
+
+def test_type_constraint_violation_on_new_node(memgraph):
+    memgraph.execute("CREATE CONSTRAINT ON (n:Node) ASSERT n.prop IS TYPED INTEGER;")
+
+    with pytest.raises(GQLAlchemyError):
+        memgraph.execute("CREATE (n:Node {prop:'prop'}) RETURN n;")
+
+    memgraph.execute("DROP CONSTRAINT ON (n:Node) ASSERT n.prop IS TYPED INTEGER;")
+
+
+def test_type_constraint_violation_on_property_change(memgraph):
+    memgraph.execute("CREATE CONSTRAINT ON (n:Node) ASSERT n.prop IS TYPED INTEGER;")
+
+    memgraph.execute("CREATE (n:Node {prop:1}) RETURN n;")
+    with pytest.raises(GQLAlchemyError):
+        memgraph.execute("MATCH (n:Node) SET n.prop = 'prop';")
+
+    memgraph.execute("DROP CONSTRAINT ON (n:Node) ASSERT n.prop IS TYPED INTEGER;")
+
+
+def test_type_constraint_violation_on_new_prop(memgraph):
+    memgraph.execute("CREATE CONSTRAINT ON (n:Node) ASSERT n.prop IS TYPED INTEGER;")
+
+    memgraph.execute("CREATE (n:Node {prop1:1}) RETURN n;")
+    with pytest.raises(GQLAlchemyError):
+        memgraph.execute("MATCH (n:Node) SET n.prop = 'prop';")
+
+    memgraph.execute("DROP CONSTRAINT ON (n:Node) ASSERT n.prop IS TYPED INTEGER;")
+
+
+def test_type_constraint_violation_on_label_change(memgraph):
+    memgraph.execute("CREATE CONSTRAINT ON (n:Node) ASSERT n.prop IS TYPED INTEGER;")
+
+    memgraph.execute("CREATE (n:Node1 {prop1:1}) RETURN n;")
+    with pytest.raises(GQLAlchemyError):
+        memgraph.execute("MATCH (n) REMOVE n:Node1 SET n:Node SET n.prop = 'prop';")
+
+    memgraph.execute("DROP CONSTRAINT ON (n:Node) ASSERT n.prop IS TYPED INTEGER;")
+
+
+def test_type_constraint_pass_on_label_change(memgraph):
+    memgraph.execute("CREATE CONSTRAINT ON (n:Node) ASSERT n.prop IS TYPED INTEGER;")
+
+    memgraph.execute("CREATE (n:Node1 {prop1:1}) RETURN n;")
+    memgraph.execute("MATCH (n) REMOVE n:Node1 SET n:Node SET n.prop = 5;")
+
+    memgraph.execute("DROP CONSTRAINT ON (n:Node) ASSERT n.prop IS TYPED INTEGER;")
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
