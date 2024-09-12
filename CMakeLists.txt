@@ -196,14 +196,14 @@ add_compile_definitions(BOOST_ASIO_USE_TS_EXECUTOR_AS_DEFAULT)
 add_compile_options(
         -Wall
         -Werror=non-virtual-dtor
-        -Werror=unused-private-field
         -Werror=switch
         -Werror=switch-bool
         -Werror=return-type
-        -Werror=return-stack-address
-        -Wno-c99-designator
         -Wmissing-field-initializers
         -Werror=implicit-fallthrough
+        $<$<CXX_COMPILER_ID:Clang>:-Werror=unused-private-field>
+        $<$<CXX_COMPILER_ID:Clang>:-Werror=return-stack-address>
+        $<$<CXX_COMPILER_ID:Clang>:-Wno-c99-designator>
         $<$<CXX_COMPILER_ID:Clang>:-Werror=reorder-init-list>
 )
 
@@ -223,9 +223,11 @@ set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libgcc -static-lib
 add_link_options(-fuse-ld=lld)
 # NOTE: Moving to latest Clang (probably starting from 15), lld stopped to work
 # without explicit link_directories call.
-string(REPLACE ":" " " LD_LIBS $ENV{LD_LIBRARY_PATH})
-separate_arguments(LD_LIBS)
-link_directories(${LD_LIBS})
+if (DEFINED ENV{LD_LIBRARY_PATH})
+  string(REPLACE ":" " " LD_LIBS $ENV{LD_LIBRARY_PATH})
+  separate_arguments(LD_LIBS)
+  link_directories(${LD_LIBS})
+endif ()
 
 # After linker is set, check we can use link-time optimization
 cmake_policy(SET CMP0138 NEW)
