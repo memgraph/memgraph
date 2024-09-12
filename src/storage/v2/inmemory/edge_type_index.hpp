@@ -112,7 +112,8 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
   Iterable Edges(EdgeTypeId edge_type, View view, Storage *storage, Transaction *transaction);
 
  private:
-  std::map<EdgeTypeId, utils::SkipList<Entry>> index_;
+  std::map<EdgeTypeId, utils::SkipList<Entry>> index_;  // This should be a std::map because we use it with assumption
+                                                        // that it's sorted
 };
 
 }  // namespace memgraph::storage
