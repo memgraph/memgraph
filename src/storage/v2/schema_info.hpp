@@ -223,9 +223,6 @@ struct Tracking {
 
   nlohmann::json ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store);
 
-  mutable utils::RWSpinLock mtx_;
-  mutable utils::RWSpinLock analytical_shared_access_protection_;
-
  private:
   void CleanUp();
 
@@ -463,8 +460,8 @@ struct SchemaInfo {
 
   void SetProperty(EdgeTypeId type, Vertex *from, Vertex *to, PropertyId property, const ExtendedPropertyType &now,
                    const ExtendedPropertyType &before, bool prop_on_edges) {
-    auto &tracking_info = tracking_[EdgeKeyRef{type, from->labels, to->labels}];
     if (prop_on_edges) {
+      auto &tracking_info = tracking_[EdgeKeyRef{type, from->labels, to->labels}];
       SetProperty(tracking_info, property, now, before);
     }
   }
@@ -476,7 +473,7 @@ struct SchemaInfo {
   //
   class ReadAccessor {
    public:
-    explicit ReadAccessor(SchemaInfo &si) : schema_info_{&si}, lock_{schema_info_->tracking_.mtx_} {}
+    explicit ReadAccessor(SchemaInfo &si) : schema_info_{&si}, lock_{schema_info_->mtx_} {}
 
     const Tracking &Get() const { return schema_info_->tracking_; }
     nlohmann::json ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store) {
@@ -490,7 +487,7 @@ struct SchemaInfo {
 
   class WriteAccessor {
    public:
-    explicit WriteAccessor(SchemaInfo &si) : schema_info_{&si}, lock_{schema_info_->tracking_.mtx_} {}
+    explicit WriteAccessor(SchemaInfo &si) : schema_info_{&si}, lock_{schema_info_->mtx_} {}
 
     void Clear() { schema_info_->tracking_.Clear(); }
     Tracking Move() { return std::move(schema_info_->tracking_); }
@@ -666,13 +663,13 @@ struct SchemaInfo {
 
     // Vertex
     void CreateVertex(Vertex *vertex) {
-      auto lock = std::unique_lock{schema_info_->tracking_.analytical_shared_access_protection_};
+      auto lock = std::unique_lock{schema_info_->mtx_};
       schema_info_->AddVertex(vertex);
     }
 
     void DeleteVertex(Vertex *vertex) {
       DMG_ASSERT(vertex->lock.is_locked(), "Trying to read from an unlocked vertex; LINE {}", __LINE__);
-      auto lock = std::unique_lock{schema_info_->tracking_.analytical_shared_access_protection_};
+      auto lock = std::unique_lock{schema_info_->mtx_};
       schema_info_->DeleteVertex(vertex);
     }
 
@@ -688,7 +685,7 @@ struct SchemaInfo {
       DMG_ASSERT(itr != old_labels.end(), "Trying to recreate labels pre commit, but label not found!");
       *itr = old_labels.back();
       old_labels.pop_back();
-      auto lock = std::unique_lock{schema_info_->tracking_.analytical_shared_access_protection_};
+      auto lock = std::unique_lock{schema_info_->mtx_};
       SchemaInfo::UpdateLabel(*schema_info_, vertex, old_labels, vertex->labels);
     }
 
@@ -700,7 +697,7 @@ struct SchemaInfo {
       // Move all stats and edges to new label
       auto old_labels = vertex->labels;
       old_labels.push_back(label);
-      auto lock = std::unique_lock{schema_info_->tracking_.analytical_shared_access_protection_};
+      auto lock = std::unique_lock{schema_info_->mtx_};
       SchemaInfo::UpdateLabel(*schema_info_, vertex, old_labels, vertex->labels);
     }
 
@@ -708,19 +705,19 @@ struct SchemaInfo {
       DMG_ASSERT(from->lock.is_locked(), "Trying to read from an unlocked vertex; LINE {}", __LINE__);
       DMG_ASSERT(to->lock.is_locked(), "Trying to read from an unlocked vertex; LINE {}", __LINE__);
       // Empty edge; just update the top level stats
-      auto lock = std::unique_lock{schema_info_->tracking_.analytical_shared_access_protection_};
+      auto lock = std::unique_lock{schema_info_->mtx_};
       schema_info_->CreateEdge(from, to, edge_type);
     }
 
     void DeleteEdge(Vertex *from, Vertex *to, EdgeTypeId edge_type, EdgeRef edge) {
       // Vertices changed by the tx ( no need to lock )
-      auto lock = std::unique_lock{schema_info_->tracking_.analytical_shared_access_protection_};
+      auto lock = std::unique_lock{schema_info_->mtx_};
       schema_info_->DeleteEdge(edge_type, edge, from, to, property_on_edges_);
     }
 
     void SetProperty(Vertex *vertex, PropertyId property, ExtendedPropertyType now, ExtendedPropertyType before) {
       DMG_ASSERT(vertex->lock.is_locked(), "Trying to read from an unlocked vertex; LINE {}", __LINE__);
-      auto lock = std::unique_lock{schema_info_->tracking_.analytical_shared_access_protection_};
+      auto lock = std::unique_lock{schema_info_->mtx_};
       schema_info_->SetProperty(vertex, property, now, before);
     }
 
@@ -764,6 +761,7 @@ struct SchemaInfo {
 
   Tracking tracking_;
   mutable boost::shared_mutex operation_ordering_mutex_;
+  mutable utils::RWSpinLock mtx_;
 };
 
 }  // namespace memgraph::storage

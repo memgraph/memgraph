@@ -51,6 +51,12 @@ struct yeilder {
 struct RWSpinLock {
   RWSpinLock() = default;
 
+  ~RWSpinLock() = default;
+  RWSpinLock(const RWSpinLock &) = delete;
+  RWSpinLock &operator=(const RWSpinLock &) = delete;
+  RWSpinLock(RWSpinLock &&) = default;
+  RWSpinLock &operator=(RWSpinLock &&) = default;
+
   void lock() {
     // spin: to grant the UNIQUE_LOCKED bit
     while (true) {
