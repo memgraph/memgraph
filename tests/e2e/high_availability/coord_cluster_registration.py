@@ -34,6 +34,11 @@ interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactiv
 file = "coord_cluster_registration"
 
 
+@pytest.fixture
+def test_name(request):
+    return request.node.name
+
+
 def get_instances_description(test_name: str):
     return {
         "instance_1": {
@@ -221,13 +226,14 @@ def unset_env_flags():
 
 @pytest.fixture(autouse=True)
 def cleanup_after_test():
+    # Run the test
     yield
-    # Stop + delete directories
+    # Stop + delete directories after running the test
     interactive_mg_runner.stop_all(keep_directories=False)
 
 
-def test_register_repl_instances_then_coordinators():
-    MEMGRAPH_INSTANCES_DESCRIPTION = get_instances_description(test_name="register_repl_instances_then_coordinators")
+def test_register_repl_instances_then_coordinators(test_name):
+    MEMGRAPH_INSTANCES_DESCRIPTION = get_instances_description(test_name=test_name)
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
 
     coordinator3_cursor = connect(host="localhost", port=7692).cursor()
@@ -288,8 +294,8 @@ def test_register_repl_instances_then_coordinators():
     mg_sleep_and_assert(leader_data, check_coordinator2)
 
 
-def test_register_coordinator_then_repl_instances():
-    MEMGRAPH_INSTANCES_DESCRIPTION = get_instances_description(test_name="register_coordinator_then_repl_instances")
+def test_register_coordinator_then_repl_instances(test_name):
+    MEMGRAPH_INSTANCES_DESCRIPTION = get_instances_description(test_name=test_name)
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
 
     coordinator3_cursor = connect(host="localhost", port=7692).cursor()
@@ -350,9 +356,9 @@ def test_register_coordinator_then_repl_instances():
     mg_sleep_and_assert(data, check_coordinator2)
 
 
-def test_coordinators_communication_with_restarts():
+def test_coordinators_communication_with_restarts(test_name):
     # 1 Start all instances
-    MEMGRAPH_INSTANCES_DESCRIPTION = get_instances_description(test_name="coordinators_communication_with_restarts")
+    MEMGRAPH_INSTANCES_DESCRIPTION = get_instances_description(test_name=test_name)
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
 
     coordinator3_cursor = connect(host="localhost", port=7692).cursor()
@@ -442,10 +448,8 @@ def test_coordinators_communication_with_restarts():
     "kill_instance",
     [True, False],
 )
-def test_unregister_replicas(kill_instance):
-    MEMGRAPH_INSTANCES_DESCRIPTION = get_instances_description(
-        test_name="test_unregister_replicas_kill_instance_" + str(kill_instance)
-    )
+def test_unregister_replicas(kill_instance, test_name):
+    MEMGRAPH_INSTANCES_DESCRIPTION = get_instances_description(test_name=test_name)
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
 
     coordinator1_cursor = connect(host="localhost", port=7690).cursor()
@@ -571,8 +575,8 @@ def test_unregister_replicas(kill_instance):
     mg_sleep_and_assert(expected_replicas, check_main)
 
 
-def test_unregister_main():
-    MEMGRAPH_INSTANCES_DESCRIPTION = get_instances_description(test_name="test_unregister_main")
+def test_unregister_main(test_name):
+    MEMGRAPH_INSTANCES_DESCRIPTION = get_instances_description(test_name=test_name)
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
 
     coordinator1_cursor = connect(host="localhost", port=7690).cursor()
@@ -683,8 +687,7 @@ def test_unregister_main():
     mg_sleep_and_assert(expected_replicas, check_main)
 
 
-def test_register_one_coord_with_env_vars():
-    test_name = "test_register_one_coord_with_env_vars"
+def test_register_one_coord_with_env_vars(test_name):
     memgraph_instances_desc = get_instances_description_no_coord(test_name=test_name)
     interactive_mg_runner.start_all(memgraph_instances_desc, keep_directories=False)
 
@@ -810,7 +813,7 @@ def test_register_one_coord_with_env_vars():
     unset_env_flags()
 
 
-def test_register_one_data_with_env_vars():
+def test_register_one_data_with_env_vars(test_name):
     """
     This test checks that instance can be set with env flags
 
@@ -820,7 +823,6 @@ def test_register_one_data_with_env_vars():
     4. check everything works
     """
     unset_env_flags()
-    test_name = "test_register_one_data_with_env_vars"
     MEMGRAPH_INSTANCES_DESCRIPTION = {
         "instance_1": {
             "args": [
@@ -991,7 +993,7 @@ def test_register_one_data_with_env_vars():
     interactive_mg_runner.stop_all()
 
 
-def test_register_one_coord_with_env_vars_no_instances_alive_on_start():
+def test_register_one_coord_with_env_vars_no_instances_alive_on_start(test_name):
     # This test checks that there are no errors when starting coordinator
     # in case other instances are not set up yet.
     # On setting instances and resetting coordinator everything should be set up
@@ -1003,7 +1005,6 @@ def test_register_one_coord_with_env_vars_no_instances_alive_on_start():
     # 5. Again start coord which should use env setup
     # 6. Check everything works
 
-    test_name = "test_register_one_coord_with_env_vars_no_instances_alive_on_start"
     memgraph_instances_desc = get_instances_description_no_coord(test_name=test_name)
 
     os.environ["MEMGRAPH_EXPERIMENTAL_ENABLED"] = "high-availability"
@@ -1032,7 +1033,6 @@ def test_register_one_coord_with_env_vars_no_instances_alive_on_start():
     with open(init_queries_file, "w") as writer:
         writer.writelines("\n".join(setup_queries))
 
-    test_name = "test_register_one_coord_with_env_vars_no_instances_alive_on_start"
     coordinator_3_description = {
         "coordinator_3": {
             "args": ["--log-level=TRACE", "--bolt-port=7692"],
@@ -1164,8 +1164,8 @@ def test_register_one_coord_with_env_vars_no_instances_alive_on_start():
     unset_env_flags()
 
 
-def test_add_coord_instance_fails():
-    memgraph_instances_description_all = get_instances_description(test_name="test_add_coord_instance_fails")
+def test_add_coord_instance_fails(test_name):
+    memgraph_instances_description_all = get_instances_description(test_name=test_name)
     interactive_mg_runner.start_all(memgraph_instances_description_all, keep_directories=False)
 
     coordinator3_cursor = connect(host="localhost", port=7692).cursor()

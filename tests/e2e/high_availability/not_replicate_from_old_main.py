@@ -31,9 +31,16 @@ interactive_mg_runner.BUILD_DIR = os.path.normpath(os.path.join(interactive_mg_r
 interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactive_mg_runner.BUILD_DIR, "memgraph"))
 
 
+@pytest.fixture
+def test_name(request):
+    return request.node.name
+
+
 @pytest.fixture(autouse=True)
 def cleanup_after_test():
+    # Run the test
     yield
+    # Stop and delete directories after running the test
     interactive_mg_runner.stop_all(keep_directories=False)
 
 
@@ -146,7 +153,7 @@ def test_replication_works_on_failover():
     interactive_mg_runner.stop_all()
 
 
-def test_not_replicate_old_main_register_new_cluster():
+def test_not_replicate_old_main_register_new_cluster(test_name):
     # Goal of this test is to check that although replica is registered in one cluster
     # it can be re-registered to new cluster
     # This flow checks if Registering replica is idempotent and that old main cannot talk to replica
@@ -157,7 +164,6 @@ def test_not_replicate_old_main_register_new_cluster():
     # 5. Old main should not talk to new replica
     # 6. New main should talk to replica
 
-    test_name = "test_not_replicate_old_main_register_new_cluster"
     MEMGRAPH_FISRT_COORD_CLUSTER_DESCRIPTION = {
         "shared_instance": {
             "args": [

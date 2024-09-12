@@ -33,20 +33,24 @@ file = "ttl"
 
 @pytest.fixture(autouse=True)
 def cleanup_after_test():
+    # Run the test
     yield
-    # Stop + delete directories
+    # Stop + delete directories after running the test
     interactive_mg_runner.stop_all(keep_directories=False)
 
 
-def test_ttl_replication(connection):
+@pytest.fixture
+def test_name(request):
+    return request.node.name
+
+
+def test_ttl_replication(connection, test_name):
     # Goal: Execute TTL on MAIN and check results on REPLICA
     # 0/ Setup replication
     # 1/ MAIN Create dataset
     # 2/ MAIN Configure TTL
     # 3/ Validate that TTL is working on MAIN
     # 4/ Validate that nodes have been deleted on REPLICA as well
-
-    test_name = "test_ttl_replication"
 
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
@@ -113,7 +117,7 @@ def test_ttl_replication(connection):
     mg_sleep_and_assert([(True,)], partial(n_deltas, cursor_replica2))
 
 
-def test_ttl_on_replica(connection):
+def test_ttl_on_replica(connection, test_name):
     # Goal: Check that TTL can be configured on REPLICA,
     #       but is executed only when the instance is MAIN
     # 0/ Setup MAIN
@@ -123,8 +127,6 @@ def test_ttl_on_replica(connection):
     # 4/ Verify that TTL is not running
     # 5/ Switch REPLICA back to MAIN
     # 6/ Verify that TTL is running
-
-    test_name = "test_ttl_on_replica"
 
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "main": {

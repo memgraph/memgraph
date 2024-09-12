@@ -29,10 +29,16 @@ REPLICATION_PORTS = {"replica_1": 10001, "replica_2": 10002}
 file = "replicate_point"
 
 
+@pytest.fixture
+def test_name(request):
+    return request.node.name
+
+
 @pytest.fixture(autouse=True)
 def cleanup_after_test():
+    # Run the test
     yield
-    # Stop + delete directories
+    # Stop + delete directories after running the test
     interactive_mg_runner.stop_all(keep_directories=False)
 
 
@@ -43,13 +49,11 @@ def show_replicas_func(cursor):
     return func
 
 
-def test_point_replication(connection):
+def test_point_replication(connection, test_name):
     # Goal: That point types are replicated to REPLICAs
     # 0/ Setup replication
     # 1/ Create Vertex with points property on MAIN
     # 2/ Validate points property has arrived at REPLICA
-
-    test_name = "test_point_replication"
 
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {

@@ -36,10 +36,16 @@ def set_eq(actual, expected):
     return len(actual) == len(expected) and all([x in actual for x in expected])
 
 
+@pytest.fixture
+def test_name(request):
+    return request.node.name
+
+
 @pytest.fixture(autouse=True)
 def cleanup_after_test():
+    # Run the test
     yield
-    # Stop + delete directories
+    # Stop + delete directories after running the test
     interactive_mg_runner.stop_all(keep_directories=False)
 
 
@@ -206,7 +212,7 @@ def get_number_of_edges_func(cursor, db_name):
     return func
 
 
-def test_manual_databases_create_multitenancy_replication(connection):
+def test_manual_databases_create_multitenancy_replication(connection, test_name):
     # Goal: to show that replication can be established against REPLICA which already
     # has the clean databases we need
     # 0/ MAIN CREATE DATABASE A + B
@@ -214,8 +220,6 @@ def test_manual_databases_create_multitenancy_replication(connection):
     #    Setup replication
     # 1/ Write to MAIN A, Write to MAIN B
     # 2/ Validate replication of changes to A + B have arrived at REPLICA
-
-    test_name = "test_manual_databases_create_multitenancy_replication"
 
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
@@ -313,15 +317,13 @@ def test_manual_databases_create_multitenancy_replication(connection):
     assert get_number_of_edges_func(cursor_replica2, "B")() == 1
 
 
-def test_manual_databases_create_multitenancy_replication_branching(connection):
+def test_manual_databases_create_multitenancy_replication_branching(connection, test_name):
     # Goal: to show that replication can be established against REPLICA which already
     # has all the databases and the same data
     # 0/ MAIN CREATE DATABASE A + B and fill with data
     #    REPLICA CREATE DATABASE A + B and fil with exact data
     #    Setup REPLICA
     # 1/ Registering REPLICA on MAIN should not fail due to tenant branching
-
-    test_name = "test_manual_databases_create_multitenancy_replication_branching"
 
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
@@ -402,7 +404,7 @@ def test_manual_databases_create_multitenancy_replication_branching(connection):
     assert not failed
 
 
-def test_manual_databases_create_multitenancy_replication_dirty_replica(connection):
+def test_manual_databases_create_multitenancy_replication_dirty_replica(connection, test_name):
     # Goal: to show that replication can be established against REPLICA which already
     # has all the databases we need, even when they branched
     # 0/ MAIN CREATE DATABASE A
@@ -411,8 +413,6 @@ def test_manual_databases_create_multitenancy_replication_dirty_replica(connecti
     #    Setup REPLICA
     # 1/ Register replica; should fail
 
-    test_name = "test_manual_databases_create_multitenancy_replication_dirty_replica"
-
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
             "args": [
@@ -481,7 +481,7 @@ def test_manual_databases_create_multitenancy_replication_dirty_replica(connecti
     assert not failed
 
 
-def test_manual_databases_create_multitenancy_replication_main_behind(connection):
+def test_manual_databases_create_multitenancy_replication_main_behind(connection, test_name):
     # Goal: to show that replication can be established against REPLICA which has
     # different branched databases
     # 0/ REPLICA CREATE DATABASE A
@@ -489,8 +489,6 @@ def test_manual_databases_create_multitenancy_replication_main_behind(connection
     #    Setup replication
     # 1/ MAIN CREATE DATABASE A
     # 2/ Check that database has been replicated
-
-    test_name = "test_manual_databases_create_multitenancy_replication_main_behind"
 
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
@@ -573,7 +571,7 @@ def test_manual_databases_create_multitenancy_replication_main_behind(connection
     mg_sleep_and_assert(databases_on_main, show_databases_func(replica_cursor))
 
 
-def test_automatic_databases_create_multitenancy_replication(connection):
+def test_automatic_databases_create_multitenancy_replication(connection, test_name):
     # Goal: to show that replication can be established against REPLICA where a new databases
     # needs replication
     # 0/ Setup replication
@@ -582,7 +580,6 @@ def test_automatic_databases_create_multitenancy_replication(connection):
     # 3/ Validate replication of changes to A have arrived at REPLICA
 
     # 0/
-    test_name = "test_automatic_databases_create_multitenancy_replication"
     MEMGRAPH_INSTANCES_DESCRIPTION = create_memgraph_instances_with_role_recovery(test_name)
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
 
@@ -641,15 +638,13 @@ def test_automatic_databases_create_multitenancy_replication(connection):
     assert get_number_of_edges_func(cursor_replica, "B")() == 0
 
 
-def test_automatic_databases_multitenancy_replication_predefined(connection):
+def test_automatic_databases_multitenancy_replication_predefined(connection, test_name):
     # Goal: to show that replication can be established against REPLICA which doesn't
     # have any additional databases; MAIN's database clean at registration time
     # 0/ MAIN CREATE DATABASE A + B
     #    Setup replication
     # 1/ Write to MAIN A, Write to MAIN B
     # 2/ Validate replication of changes to A + B have arrived at REPLICA
-
-    test_name = "test_automatic_databases_multitenancy_replication_predefined"
 
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
@@ -713,15 +708,13 @@ def test_automatic_databases_multitenancy_replication_predefined(connection):
     assert get_number_of_edges_func(cursor_replica, "B")() == 1
 
 
-def test_automatic_databases_create_multitenancy_replication_dirty_main(connection):
+def test_automatic_databases_create_multitenancy_replication_dirty_main(connection, test_name):
     # Goal: to show that replication can be established against REPLICA which doesn't
     # have any additional databases; MAIN's database dirty at registration time
     # 0/ MAIN CREATE DATABASE A
     #    MAIN write to A
     #    Setup replication
     # 1/ Validate
-
-    test_name = "test_automatic_databases_create_multitenancy_replication_dirty_main"
 
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
@@ -778,7 +771,7 @@ def test_automatic_databases_create_multitenancy_replication_dirty_main(connecti
 
 
 @pytest.mark.parametrize("replica_name", [("replica_1"), ("replica_2")])
-def test_multitenancy_replication_restart_replica_w_fc(connection, replica_name):
+def test_multitenancy_replication_restart_replica_w_fc(connection, replica_name, test_name):
     # Goal: show that a replica can be recovered with the frequent checker
     # 0/ Setup replication
     # 1/ MAIN CREATE DATABASE A and B
@@ -786,7 +779,6 @@ def test_multitenancy_replication_restart_replica_w_fc(connection, replica_name)
     # 3/ Restart replica
     # 4/ Validate data on replica
 
-    test_name = f"test_multitenancy_replication_restart_replica_w_fc_{replica_name}"
     MEMGRAPH_INSTANCES_DESCRIPTION = create_memgraph_instances_with_role_recovery(test_name)
     # 0/
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
@@ -895,7 +887,7 @@ def test_multitenancy_replication_restart_replica_w_fc(connection, replica_name)
 
 
 @pytest.mark.parametrize("replica_name", [("replica_1"), ("replica_2")])
-def test_multitenancy_replication_restart_replica_wo_fc(connection, replica_name):
+def test_multitenancy_replication_restart_replica_wo_fc(connection, replica_name, test_name):
     # Goal: show that a replica can be recovered without the frequent checker detecting it being down
     # needs replicating over
     # 0/ Setup replication
@@ -905,7 +897,6 @@ def test_multitenancy_replication_restart_replica_wo_fc(connection, replica_name
     # 4/ Validate data on replica
 
     # 0/
-    test_name = f"test_multitenancy_replication_restart_replica_wo_fc_{replica_name}"
     MEMGRAPH_INSTANCES_DESCRIPTION = create_memgraph_instances_with_role_recovery(test_name)
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
 
@@ -959,7 +950,7 @@ def test_multitenancy_replication_restart_replica_wo_fc(connection, replica_name
 
 
 @pytest.mark.parametrize("replica_name", [("replica_1"), ("replica_2")])
-def test_multitenancy_replication_restart_replica_w_fc_w_rec(connection, replica_name):
+def test_multitenancy_replication_restart_replica_w_fc_w_rec(connection, replica_name, test_name):
     # Goal: show that a replica recovers data on reconnect
     # needs replicating over
     # 0/ Setup replication
@@ -969,7 +960,6 @@ def test_multitenancy_replication_restart_replica_w_fc_w_rec(connection, replica
     # 4/ Validate data on replica
 
     # 0/
-    test_name = f"test_multitenancy_replication_restart_replica_w_fc_w_rec_{replica_name}"
     MEMGRAPH_INSTANCES_DESCRIPTION_WITH_RECOVERY = get_instances_with_recovery(test_name)
 
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_WITH_RECOVERY, keep_directories=False)
@@ -1002,7 +992,7 @@ def test_multitenancy_replication_restart_replica_w_fc_w_rec(connection, replica
 
 
 @pytest.mark.parametrize("replica_name", [("replica_1"), ("replica_2")])
-def test_multitenancy_replication_drop_replica(connection, replica_name):
+def test_multitenancy_replication_drop_replica(connection, replica_name, test_name):
     # Goal: show that the cluster can recover if a replica is dropped and registered again
     # 0/ Setup replication
     # 1/ MAIN CREATE DATABASE A and B
@@ -1011,7 +1001,6 @@ def test_multitenancy_replication_drop_replica(connection, replica_name):
     # 4/ Validate data on replica
 
     # 0/
-    test_name = f"test_multitenancy_replication_drop_replica_{replica_name}"
     MEMGRAPH_INSTANCES_DESCRIPTION = create_memgraph_instances_with_role_recovery(test_name)
 
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
@@ -1064,7 +1053,7 @@ def test_multitenancy_replication_drop_replica(connection, replica_name):
     assert get_number_of_edges_func(cursor_replica, "B")() == 0
 
 
-def test_multitenancy_replication_restart_main(connection):
+def test_multitenancy_replication_restart_main(connection, test_name):
     # Goal: show that the cluster can restore to a correct state if the MAIN restarts
     # 0/ Setup replication
     # 1/ MAIN CREATE DATABASE A and B
@@ -1073,7 +1062,6 @@ def test_multitenancy_replication_restart_main(connection):
     # 4/ Validate data on replica
 
     # 0/
-    test_name = "test_multitenancy_replication_restart_main"
     MEMGRAPH_INSTANCES_DESCRIPTION_WITH_RECOVERY = get_instances_with_recovery(test_name)
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_WITH_RECOVERY, keep_directories=False)
     setup_replication(connection)
@@ -1112,7 +1100,7 @@ def test_multitenancy_replication_restart_main(connection):
     assert get_number_of_edges_func(cursor_replica, "B")() == 0
 
 
-def test_automatic_databases_drop_multitenancy_replication(connection):
+def test_automatic_databases_drop_multitenancy_replication(connection, test_name):
     # Goal: show that drop database can be replicated
     # 0/ Setup replication
     # 1/ MAIN CREATE DATABASE A
@@ -1122,7 +1110,6 @@ def test_automatic_databases_drop_multitenancy_replication(connection):
     # 5/ Check that the drop replicated
 
     # 0/
-    test_name = "test_automatic_databases_drop_multitenancy_replication"
     MEMGRAPH_INSTANCES_DESCRIPTION = create_memgraph_instances_with_role_recovery(test_name)
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
 
@@ -1181,7 +1168,7 @@ def test_automatic_databases_drop_multitenancy_replication(connection):
 
 
 @pytest.mark.parametrize("replica_name", [("replica_1"), ("replica_2")])
-def test_drop_multitenancy_replication_restart_replica(connection, replica_name):
+def test_drop_multitenancy_replication_restart_replica(connection, replica_name, test_name):
     # Goal: show that the drop database can be restored
     # 0/ Setup replication
     # 1/ MAIN CREATE DATABASE A and B
@@ -1190,7 +1177,6 @@ def test_drop_multitenancy_replication_restart_replica(connection, replica_name)
     # 4/ Validate data on replica
 
     # 0/
-    test_name = f"test_drop_multitenancy_replication_restart_replica_{replica_name}"
     MEMGRAPH_INSTANCES_DESCRIPTION = create_memgraph_instances_with_role_recovery(test_name)
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
 
@@ -1221,7 +1207,7 @@ def test_drop_multitenancy_replication_restart_replica(connection, replica_name)
     mg_sleep_and_assert(databases_on_main, show_databases_func(replica_cursor))
 
 
-def test_multitenancy_drop_while_replica_using(connection):
+def test_multitenancy_drop_while_replica_using(connection, test_name):
     # Goal: show that the replica can handle a transaction on a database being dropped (will persist until tx finishes)
     # 0/ Setup replication
     # 1/ MAIN CREATE DATABASE A
@@ -1232,7 +1218,6 @@ def test_multitenancy_drop_while_replica_using(connection):
     # 6/ Validate that the transaction is still active and working and that the replica2 is not pointing to anything
 
     # 0/
-    test_name = "test_multitenancy_drop_while_replica_using"
     MEMGRAPH_INSTANCES_DESCRIPTION = create_memgraph_instances_with_role_recovery(test_name)
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
 
@@ -1318,7 +1303,7 @@ def test_multitenancy_drop_while_replica_using(connection):
     assert failed
 
 
-def test_multitenancy_drop_and_recreate_while_replica_using(connection):
+def test_multitenancy_drop_and_recreate_while_replica_using(connection, test_name):
     # Goal: show that the replica can handle a transaction on a database being dropped and the same name reused
     # Original storage should persist in a nameless state until tx is over
     # needs replicating over
@@ -1331,7 +1316,6 @@ def test_multitenancy_drop_and_recreate_while_replica_using(connection):
     # 6/ Validate that the transaction is still active and working and that the replica2 is not pointing to anything
 
     # 0/
-    test_name = "test_multitenancy_drop_and_recreate_while_replica_using"
     MEMGRAPH_INSTANCES_DESCRIPTION = create_memgraph_instances_with_role_recovery(test_name)
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
 

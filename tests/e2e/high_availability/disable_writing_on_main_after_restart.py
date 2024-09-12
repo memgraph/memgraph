@@ -33,6 +33,7 @@ interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactiv
 file = "disable_writing_on_main_after_restart"
 test_name = "test_writing_disabled_on_main_restart"
 
+
 MEMGRAPH_INSTANCES_DESCRIPTION = {
     "instance_1": {
         "args": [
@@ -142,8 +143,9 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
 
 @pytest.fixture(autouse=True)
 def cleanup_after_test():
+    # Run the test
     yield
-    # Stop + delete directories
+    # Stop + delete directories after running the test
     interactive_mg_runner.stop_all(keep_directories=False)
 
 

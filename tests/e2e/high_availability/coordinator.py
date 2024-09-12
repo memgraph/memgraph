@@ -33,6 +33,11 @@ interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactiv
 file = "coordinator"
 
 
+@pytest.fixture
+def test_name(request):
+    return request.node.name
+
+
 def get_memgraph_instances_description(test_name: str):
     return {
         "instance_1": {
@@ -117,34 +122,36 @@ def setup_test(test_name: str):
 
 @pytest.fixture(autouse=True)
 def cleanup_after_test():
+    # Run the test
     yield
+    # Clean after running
     interactive_mg_runner.stop_all(keep_directories=False)
 
 
-def test_disable_cypher_queries():
-    cursor = setup_test(test_name="test_disable_cypher_queries")
+def test_disable_cypher_queries(test_name):
+    cursor = setup_test(test_name=test_name)
 
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(cursor, "CREATE (n:TestNode {prop: 'test'})")
     assert str(e.value) == "Coordinator can run only coordinator queries!"
 
 
-def test_coordinator_cannot_be_replica_role():
-    cursor = setup_test(test_name="test_coordinator_cannot_be_replica_role")
+def test_coordinator_cannot_be_replica_role(test_name):
+    cursor = setup_test(test_name=test_name)
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10001;")
     assert str(e.value) == "Coordinator can run only coordinator queries!"
 
 
-def test_coordinator_cannot_run_show_repl_role():
-    cursor = setup_test(test_name="test_coordinator_cannot_run_show_repl_role")
+def test_coordinator_cannot_run_show_repl_role(test_name):
+    cursor = setup_test(test_name=test_name)
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(cursor, "SHOW REPLICATION ROLE;")
     assert str(e.value) == "Coordinator can run only coordinator queries!"
 
 
-def test_coordinator_show_instances():
-    cursor = setup_test(test_name="test_coordinator_show_instances")
+def test_coordinator_show_instances(test_name):
+    cursor = setup_test(test_name=test_name)
 
     def retrieve_data():
         return sorted(ignore_elapsed_time_from_results(list(execute_and_fetch_all(cursor, "SHOW INSTANCES;"))))
@@ -158,8 +165,8 @@ def test_coordinator_show_instances():
     mg_sleep_and_assert(expected_data, retrieve_data)
 
 
-def test_coordinator_cannot_call_show_replicas():
-    cursor = setup_test(test_name="test_coordinator_cannot_call_show_replicas")
+def test_coordinator_cannot_call_show_replicas(test_name):
+    cursor = setup_test(test_name=test_name)
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(cursor, "SHOW REPLICAS;")
     assert str(e.value) == "Coordinator can run only coordinator queries!"
@@ -169,8 +176,8 @@ def test_coordinator_cannot_call_show_replicas():
     "port",
     [7687, 7688, 7689],
 )
-def test_main_and_replicas_cannot_call_show_repl_cluster(port):
-    setup_test(test_name=f"test_main_and_replicas_cannot_call_show_repl_cluster_{port}")
+def test_main_and_replicas_cannot_call_show_repl_cluster(port, test_name):
+    setup_test(test_name=test_name)
     cursor = connect(host="localhost", port=port).cursor()
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(cursor, "SHOW INSTANCES;")
@@ -181,8 +188,8 @@ def test_main_and_replicas_cannot_call_show_repl_cluster(port):
     "port",
     [7687, 7688, 7689],
 )
-def test_main_and_replicas_cannot_register_coord_server(port):
-    setup_test(test_name=f"test_main_and_replicas_cannot_register_coord_server_{port}")
+def test_main_and_replicas_cannot_register_coord_server(port, test_name):
+    setup_test(test_name=test_name)
     cursor = connect(host="localhost", port=port).cursor()
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(

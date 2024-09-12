@@ -30,9 +30,15 @@ file = "show_while_creating_invalid_state"
 
 @pytest.fixture(autouse=True)
 def cleanup_after_test():
+    # Run the test
     yield
-    # Stop + delete directories
+    # Stop + delete directories after running the test
     interactive_mg_runner.stop_all(keep_directories=False)
+
+
+@pytest.fixture
+def test_name(request):
+    return request.node.name
 
 
 def get_instances_description(test_name: str):
@@ -70,14 +76,12 @@ def get_instances_description(test_name: str):
     }
 
 
-def test_show_replicas(connection):
+def test_show_replicas(connection, test_name):
     # Goal of this test is to check the SHOW REPLICAS command.
     # 0/ We start all replicas manually: we want to be able to kill them ourselves without relying on external tooling to kill processes.
     # 1/ We check that all replicas have the correct state: they should all be ready.
     # 2/ We drop one replica. It should not appear anymore in the SHOW REPLICAS command.
     # 3/ We kill another replica. It should become invalid in the SHOW REPLICAS command.
-
-    test_name = "test_show_replicas"
 
     instances = get_instances_description(test_name)
 
@@ -211,7 +215,7 @@ def test_show_replicas(connection):
     assert all([x in actual_data for x in expected_data])
 
 
-def test_drop_replicas(connection):
+def test_drop_replicas(connection, test_name):
     # Goal of this test is to check the DROP REPLICAS command.
     # 0/ Manually start main and all replicas
     # 1/ Check status of the replicas
@@ -229,8 +233,6 @@ def test_drop_replicas(connection):
 
     def retrieve_data():
         return execute_and_fetch_all(cursor, "SHOW REPLICAS;")
-
-    test_name = "test_drop_replicas"
 
     instances = get_instances_description(test_name)
 
@@ -519,7 +521,7 @@ def test_drop_replicas(connection):
         "false",
     ],
 )
-def test_basic_recovery(recover_data_on_startup, connection):
+def test_basic_recovery(recover_data_on_startup, connection, test_name):
     # Goal of this test is to check the recovery of main.
     # 0/ We start all replicas manually: we want to be able to kill them ourselves without relying on external tooling to kill processes.
     # 1/ We check that all replicas have the correct state: they should all be ready.
@@ -538,8 +540,6 @@ def test_basic_recovery(recover_data_on_startup, connection):
     # 14/ Check the states of replicas.
     # 15/ Add some data again.
     # 16/ Check the data is added to all replicas.
-
-    test_name = f"test_basic_recovery_{recover_data_on_startup}"
 
     # 0/
     CONFIGURATION = {
@@ -949,7 +949,7 @@ def test_basic_recovery(recover_data_on_startup, connection):
         assert interactive_mg_runner.MEMGRAPH_INSTANCES[f"replica_{index}"].query(QUERY_TO_CHECK) == res_from_main
 
 
-def test_replication_role_recovery(connection):
+def test_replication_role_recovery(connection, test_name):
     # Goal of this test is to check the recovery of main and replica role.
     # 0/ We start all replicas manually: we want to be able to kill them ourselves without relying on external tooling to kill processes.
     # 1/ We check that all replicas have the correct state: they should all be ready.
@@ -963,8 +963,6 @@ def test_replication_role_recovery(connection):
     # 9/ We add data to main.
     # 10/ We start the replica again. We observe that the replica has the same
     #     data as main because it synced and added lost data.
-
-    test_name = "test_replication_role_recovery"
 
     # 0/
     CONFIGURATION = {
@@ -1103,11 +1101,9 @@ def test_replication_role_recovery(connection):
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["replica"].query(QUERY_TO_CHECK)
 
 
-def test_conflict_at_startup(connection):
+def test_conflict_at_startup(connection, test_name):
     # Goal of this test is to check starting up several instance with different replicas' configuration directory works as expected.
     # main_1 and main_2 have different directory.
-
-    test_name = "test_conflict_at_startup"
 
     CONFIGURATION = {
         "main_1": {
@@ -1132,15 +1128,13 @@ def test_conflict_at_startup(connection):
     assert execute_and_fetch_all(cursor_2, "SHOW REPLICATION ROLE;")[0][0] == "main"
 
 
-def test_basic_recovery_when_replica_is_kill_when_main_is_down():
+def test_basic_recovery_when_replica_is_kill_when_main_is_down(test_name):
     # Goal of this test is to check the recovery of main.
     # 0/ We start all replicas manually: we want to be able to kill them ourselves without relying on external tooling to kill processes.
     # 1/ We check that all replicas have the correct state: they should all be ready.
     # 2/ We kill main then kill a replica.
     # 3/ We re-start main: it should be able to restart.
     # 4/ Check status of replica: replica_2 is invalid.
-
-    test_name = "test_basic_recovery_when_replica_is_kill_when_main_is_down"
 
     CONFIGURATION = {
         "replica_1": {
@@ -1234,7 +1228,7 @@ def test_basic_recovery_when_replica_is_kill_when_main_is_down():
     assert all([x in actual_data for x in expected_data])
 
 
-def test_async_replication_when_main_is_killed():
+def test_async_replication_when_main_is_killed(test_name):
     # Goal of the test is to check that when main is randomly killed:
     # -the ASYNC replica always contains a valid subset of data of main.
     # We run the test 20 times, it should never fail.
@@ -1243,8 +1237,6 @@ def test_async_replication_when_main_is_killed():
     # 1/ Register replicas.
     # 2/ Insert data in main, and randomly kill it.
     # 3/ Check that the ASYNC replica has a valid subset.
-
-    test_name = "test_async_replication_when_main_is_killed"
 
     for test_repetition in range(20):
         # 0/
@@ -1260,7 +1252,6 @@ def test_async_replication_when_main_is_killed():
                 "log_file": f"{get_logs_path(file, test_name)}/main.log",
             },
         }
-        print(f"test_repetition: {test_repetition}")
         interactive_mg_runner.kill_all(keep_directories=False)
         interactive_mg_runner.start_all(CONFIGURATION, keep_directories=False)
 
@@ -1313,7 +1304,7 @@ def test_async_replication_when_main_is_killed():
         assert total_sum == expected_sum, main_killed
 
 
-def test_sync_replication_when_main_is_killed():
+def test_sync_replication_when_main_is_killed(test_name):
     # Goal of the test is to check that when main is randomly killed:
     # -the SYNC replica always contains the exact data that was in main.
     # We run the test 20 times, it should never fail.
@@ -1322,8 +1313,6 @@ def test_sync_replication_when_main_is_killed():
     # 1/ Register replica.
     # 2/ Insert data in main, and randomly kill it.
     # 3/ Check that the SYNC replica has exactly the same data than main.
-
-    test_name = "test_sync_replication_when_main_is_killed"
 
     for _ in range(20):
         # 0/
@@ -1455,7 +1444,7 @@ def test_attempt_to_write_data_on_main_when_async_replica_is_down():
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["async_replica2"].query(QUERY_TO_CHECK)
 
 
-def test_attempt_to_write_data_on_main_when_sync_replica_is_down(connection):
+def test_attempt_to_write_data_on_main_when_sync_replica_is_down(connection, test_name):
     # Goal of this test is to check that main cannot write new data if a sync replica is down.
     # 0/ Start main and sync replicas.
     # 1/ Check status of replicas.
@@ -1464,8 +1453,6 @@ def test_attempt_to_write_data_on_main_when_sync_replica_is_down(connection):
     # 4/ Add some data to main. It should be added to main and replica2
     # 5/ Check the status of replicas.
     # 6/ Restart the replica that was killed and check that it is up to date with main.
-
-    test_name = "test_attempt_to_write_data_on_main_when_sync_replica_is_down"
 
     CONFIGURATION = {
         "sync_replica1": {
@@ -1601,7 +1588,7 @@ def test_attempt_to_write_data_on_main_when_sync_replica_is_down(connection):
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
 
 
-def test_attempt_to_create_indexes_on_main_when_async_replica_is_down(connection):
+def test_attempt_to_create_indexes_on_main_when_async_replica_is_down(connection, test_name):
     # Goal of this test is to check that main can create new indexes/constraints if an async replica is down.
     # 0/ Start main and async replicas.
     # 1/ Check status of replicas.
@@ -1610,8 +1597,6 @@ def test_attempt_to_create_indexes_on_main_when_async_replica_is_down(connection
     # 4/ Try to add some more indexes to main.
     # 5/ Check the status of replicas.
     # 6/ Check that the indexes were added to main and remaining replica.
-
-    test_name = "test_attempt_to_create_indexes_on_main_when_async_replica_is_down"
 
     CONFIGURATION = {
         "async_replica1": {
@@ -1704,7 +1689,7 @@ def test_attempt_to_create_indexes_on_main_when_async_replica_is_down(connection
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["async_replica2"].query(QUERY_TO_CHECK)
 
 
-def test_attempt_to_create_indexes_on_main_when_sync_replica_is_down(connection):
+def test_attempt_to_create_indexes_on_main_when_sync_replica_is_down(connection, test_name):
     # Goal of this test is to check creation of new indexes/constraints when a sync replica is down.
     # 0/ Start main and sync replicas.
     # 1/ Check status of replicas.
@@ -1713,8 +1698,6 @@ def test_attempt_to_create_indexes_on_main_when_sync_replica_is_down(connection)
     # 4/ Add some more indexes to main. It should be added to main and replica2
     # 5/ Check the status of replicas.
     # 6/ Restart the replica that was killed and check that it is up to date with main.
-
-    test_name = "test_attempt_to_create_indexes_on_main_when_sync_replica_is_down"
 
     CONFIGURATION = {
         "sync_replica1": {
@@ -1849,7 +1832,7 @@ def test_attempt_to_create_indexes_on_main_when_sync_replica_is_down(connection)
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
 
 
-def test_trigger_on_create_before_commit_with_offline_sync_replica(connection):
+def test_trigger_on_create_before_commit_with_offline_sync_replica(connection, test_name):
     # 0/ Start all.
     # 1/ Create the trigger
     # 2/ Create a node. We expect two nodes created (our Not_Magic and the Magic created by trigger).
@@ -1859,8 +1842,6 @@ def test_trigger_on_create_before_commit_with_offline_sync_replica(connection):
     # 6/ Create new node.
     # 7/ Check that we have two nodes.
     # 8/ Re-start the replica and check it's online and that it has two nodes.
-
-    test_name = "test_trigger_on_create_before_commit_with_offline_sync_replica"
 
     CONFIGURATION = {
         "sync_replica1": {
@@ -1971,7 +1952,7 @@ def test_trigger_on_create_before_commit_with_offline_sync_replica(connection):
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
 
 
-def test_trigger_on_update_before_commit_with_offline_sync_replica(connection):
+def test_trigger_on_update_before_commit_with_offline_sync_replica(connection, test_name):
     # 0/ Start all.
     # 1/ Create the trigger
     # 2/ Create a node.
@@ -1982,8 +1963,6 @@ def test_trigger_on_update_before_commit_with_offline_sync_replica(connection):
     # 7/ Update the node.
     # 8/ Check that we have two nodes.
     # 9/ Re-start the replica and check it's online and that it has two nodes.
-
-    test_name = "test_trigger_on_update_before_commit_with_offline_sync_replica"
 
     CONFIGURATION = {
         "sync_replica1": {
@@ -2097,7 +2076,7 @@ def test_trigger_on_update_before_commit_with_offline_sync_replica(connection):
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
 
 
-def test_trigger_on_delete_before_commit_with_offline_sync_replica(connection):
+def test_trigger_on_delete_before_commit_with_offline_sync_replica(connection, test_name):
     # 0/ Start all.
     # 1/ Create the trigger
     # 2/ Create a node.
@@ -2108,8 +2087,6 @@ def test_trigger_on_delete_before_commit_with_offline_sync_replica(connection):
     # 7/ Delete the node.
     # 8/ Check that we have one node.
     # 9/ Re-start the replica and check it's online and that it has one node, and the correct one.
-
-    test_name = "test_trigger_on_delete_before_commit_with_offline_sync_replica"
 
     CONFIGURATION = {
         "sync_replica1": {
@@ -2228,7 +2205,7 @@ def test_trigger_on_delete_before_commit_with_offline_sync_replica(connection):
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
 
 
-def test_trigger_on_create_before_and_after_commit_with_offline_sync_replica(connection):
+def test_trigger_on_create_before_and_after_commit_with_offline_sync_replica(connection, test_name):
     # 0/ Start all.
     # 1/ Create the triggers
     # 2/ Create a node. We expect three nodes created (1 node created + the two created by triggers).
@@ -2238,8 +2215,6 @@ def test_trigger_on_create_before_and_after_commit_with_offline_sync_replica(con
     # 6/ Create new node.
     # 7/ Check that we have three nodes.
     # 8/ Re-start the replica and check it's online and that it has three nodes.
-
-    test_name = "test_trigger_on_create_before_and_after_commit_with_offline_sync_replica"
 
     CONFIGURATION = {
         "sync_replica1": {
@@ -2354,7 +2329,7 @@ def test_trigger_on_create_before_and_after_commit_with_offline_sync_replica(con
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
 
 
-def test_triggers_on_create_before_commit_with_offline_sync_replica(connection):
+def test_triggers_on_create_before_commit_with_offline_sync_replica(connection, test_name):
     # 0/ Start all.
     # 1/ Create the two triggers
     # 2/ Create a node. We expect three nodes.
@@ -2364,8 +2339,6 @@ def test_triggers_on_create_before_commit_with_offline_sync_replica(connection):
     # 6/ Create new node.
     # 7/ Check that we have three nodes.
     # 8/ Re-start the replica and check it's online and that it has two nodes.
-
-    test_name = "test_triggers_on_create_before_commit_with_offline_sync_replica"
 
     CONFIGURATION = {
         "sync_replica1": {
@@ -2485,11 +2458,9 @@ def test_triggers_on_create_before_commit_with_offline_sync_replica(connection):
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
 
 
-def test_replication_not_messed_up_by_CreateSnapshot(connection):
+def test_replication_not_messed_up_by_CreateSnapshot(connection, test_name):
     # Goal of this test is to check the replica can not run CreateSnapshot
     # 1/ CREATE SNAPSHOT should raise a DatabaseError
-
-    test_name = "test_replication_not_messed_up_by_CreateSnapshot"
 
     MEMGRAPH_INSTANCES_DESCRIPTION = get_instances_description(test_name)
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)

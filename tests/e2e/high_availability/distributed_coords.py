@@ -43,6 +43,11 @@ interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactiv
 file = "distributed_coords"
 
 
+@pytest.fixture
+def test_name(request):
+    return request.node.name
+
+
 def get_instances_description_no_setup(test_name: str, use_durability: bool = True):
     return {
         "instance_1": {
@@ -270,13 +275,14 @@ def get_instances_description_no_setup_4_coords(test_name: str, use_durability: 
 
 @pytest.fixture(autouse=True)
 def cleanup_after_test():
+    # Run the test
     yield
-    # Stop + delete directories
+    # Stop + delete directories after running the test
     interactive_mg_runner.stop_all(keep_directories=False)
 
 
 @pytest.mark.parametrize("use_durability", [True, False])
-def test_even_number_coords(use_durability):
+def test_even_number_coords(use_durability, test_name):
     # Goal is to check that nothing gets broken on even number of coords when 2 coords are down
     # 1. Start all instances.
     # 2. Check that all instances are up and that one of the instances is a main.
@@ -289,7 +295,7 @@ def test_even_number_coords(use_durability):
 
     # 1
     inner_instances_description = get_instances_description_no_setup_4_coords(
-        test_name=f"test_even_number_coords_{use_durability}", use_durability=use_durability
+        test_name=test_name, use_durability=use_durability
     )
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
@@ -456,7 +462,7 @@ def test_even_number_coords(use_durability):
     interactive_mg_runner.stop_all(keep_directories=False)
 
 
-def test_old_main_comes_back_on_new_leader_as_replica():
+def test_old_main_comes_back_on_new_leader_as_replica(test_name):
     # 1. Start all instances.
     # 2. Kill the main instance
     # 3. Kill the leader
@@ -464,9 +470,7 @@ def test_old_main_comes_back_on_new_leader_as_replica():
     # 5. Run SHOW INSTANCES on the new leader and check that the old main instance is registered as a replica
     # 6. Start again previous leader
 
-    inner_instances_description = get_instances_description_no_setup(
-        test_name="test_old_main_comes_back_on_new_leader_as_replica"
-    )
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
@@ -624,8 +628,8 @@ def test_old_main_comes_back_on_new_leader_as_replica():
     interactive_mg_runner.stop_all(keep_directories=False)
 
 
-def test_distributed_automatic_failover():
-    inner_instances_description = get_instances_description_no_setup(test_name="test_distributed_automatic_failover")
+def test_distributed_automatic_failover(test_name):
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
@@ -720,10 +724,8 @@ def test_distributed_automatic_failover():
     interactive_mg_runner.stop_all(keep_directories=False)
 
 
-def test_distributed_automatic_failover_with_leadership_change():
-    inner_instances_description = get_instances_description_no_setup(
-        test_name="test_distributed_automatic_failover_with_leadership_change"
-    )
+def test_distributed_automatic_failover_with_leadership_change(test_name):
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
@@ -850,14 +852,12 @@ def test_distributed_automatic_failover_with_leadership_change():
     interactive_mg_runner.stop_all(keep_directories=False)
 
 
-def test_no_leader_after_leader_and_follower_die():
+def test_no_leader_after_leader_and_follower_die(test_name):
     # 1. Register all but one replication instance on the first leader.
     # 2. Kill the leader and a follower.
     # 3. Check that the remaining follower is not promoted to leader by trying to register remaining replication instance.
 
-    inner_memgraph_instances = get_instances_description_no_setup(
-        test_name="test_no_leader_after_leader_and_follower_die"
-    )
+    inner_memgraph_instances = get_instances_description_no_setup(test_name=test_name)
     interactive_mg_runner.start_all(inner_memgraph_instances, keep_directories=False)
 
     coord_cursor_3 = connect(host="localhost", port=7692).cursor()
@@ -894,16 +894,14 @@ def test_no_leader_after_leader_and_follower_die():
     interactive_mg_runner.stop_all(keep_directories=False)
 
 
-def test_old_main_comes_back_on_new_leader_as_main():
+def test_old_main_comes_back_on_new_leader_as_main(test_name):
     # 1. Start all instances.
     # 2. Kill all instances
     # 3. Kill the leader
     # 4. Start the old main instance
     # 5. Run SHOW INSTANCES on the new leader and check that the old main instance is main once again
 
-    inner_memgraph_instances = get_instances_description_no_setup(
-        test_name="test_old_main_comes_back_on_new_leader_as_main"
-    )
+    inner_memgraph_instances = get_instances_description_no_setup(test_name=test_name)
     interactive_mg_runner.start_all(inner_memgraph_instances, keep_directories=False)
 
     coord_cursor_3 = connect(host="localhost", port=7692).cursor()
@@ -992,9 +990,8 @@ def test_old_main_comes_back_on_new_leader_as_main():
     interactive_mg_runner.stop_all(keep_directories=False)
 
 
-def test_registering_4_coords():
+def test_registering_4_coords(test_name):
     # Goal of this test is to assure registering of multiple coordinators in row works
-    test_name = "test_registering_4_coords"
     INSTANCES_DESCRIPTION = {
         "instance_1": {
             "args": [
@@ -1129,7 +1126,7 @@ def test_registering_4_coords():
     interactive_mg_runner.stop_all(keep_directories=False)
 
 
-def test_registering_coord_log_store():
+def test_registering_coord_log_store(test_name):
     # Goal of this test is to assure registering a bunch of instances and de-registering works properly
     # w.r.t nuRaft log
     # 1. Start basic instances # 3 logs
@@ -1143,7 +1140,6 @@ def test_registering_coord_log_store():
     # 9. Drop 1 new instance # 1 log -> 2nd snapshot
     # 10. Check correct state
 
-    test_name = "test_registering_coord_log_store"
     INSTANCES_DESCRIPTION = {
         "instance_1": {
             "args": [
@@ -1384,7 +1380,7 @@ def test_registering_coord_log_store():
     interactive_mg_runner.stop_all(keep_directories=False)
 
 
-def test_multiple_failovers_in_row_no_leadership_change():
+def test_multiple_failovers_in_row_no_leadership_change(test_name):
     # Goal of this test is to assure multiple failovers in row work without leadership change
     # 1. Start basic instances
     # 2. Check all is there
@@ -1402,9 +1398,7 @@ def test_multiple_failovers_in_row_no_leadership_change():
     # 13. Expect data to be replicated
 
     # 1
-    inner_memgraph_instances = get_instances_description_no_setup(
-        test_name="test_multiple_failovers_in_row_no_leadership_change"
-    )
+    inner_memgraph_instances = get_instances_description_no_setup(test_name=test_name)
     interactive_mg_runner.start_all(inner_memgraph_instances, keep_directories=False)
 
     coord_cursor_3 = connect(host="localhost", port=7692).cursor()
@@ -1570,7 +1564,7 @@ def test_multiple_failovers_in_row_no_leadership_change():
     interactive_mg_runner.stop_all(keep_directories=False)
 
 
-def test_multiple_old_mains_single_failover():
+def test_multiple_old_mains_single_failover(test_name):
     # Goal of this test is to check when leadership changes
     # and we have old MAIN down, that we don't start failover
     # 1. Start all instances.
@@ -1582,9 +1576,7 @@ def test_multiple_old_mains_single_failover():
     # 7. Second main should write data to new instance all the time
 
     # 1
-    inner_instances_description = get_instances_description_no_setup(
-        test_name="test_multiple_old_mains_single_failover"
-    )
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
@@ -1730,7 +1722,7 @@ def test_multiple_old_mains_single_failover():
     interactive_mg_runner.stop_all(keep_directories=False)
 
 
-def test_force_reset_works_after_failed_registration():
+def test_force_reset_works_after_failed_registration(test_name):
     # Goal of this test is to check that force reset works after failed registration
     # 1. Start all instances.
     # 2. Check everything works correctly
@@ -1739,9 +1731,7 @@ def test_force_reset_works_after_failed_registration():
     # 5. Check that everything works correctly
 
     # 1
-    inner_instances_description = get_instances_description_no_setup(
-        test_name="test_force_reset_works_after_failed_registration"
-    )
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
@@ -1869,7 +1859,7 @@ def test_force_reset_works_after_failed_registration():
     interactive_mg_runner.stop_all(keep_directories=False)
 
 
-def test_force_reset_works_after_failed_registration_and_replica_down():
+def test_force_reset_works_after_failed_registration_and_replica_down(test_name):
     # Goal of this test is to check when action fails, that force reset happens
     # and everything works correctly when REPLICA is down (can be demoted but doesn't have to - we demote it)
     # 1. Start all instances.
@@ -1882,9 +1872,7 @@ def test_force_reset_works_after_failed_registration_and_replica_down():
     # 7. Check that replica is correctly demoted to replica
 
     # 1
-    inner_instances_description = get_instances_description_no_setup(
-        test_name="test_force_reset_works_after_failed_registration_and_replica_down"
-    )
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
@@ -2073,7 +2061,7 @@ def test_force_reset_works_after_failed_registration_and_replica_down():
     interactive_mg_runner.stop_all(keep_directories=False)
 
 
-def test_force_reset_works_after_failed_registration_and_2_coordinators_down():
+def test_force_reset_works_after_failed_registration_and_2_coordinators_down(test_name):
     # Goal of this test is to check when action fails, that force reset happens
     # and everything works correctly after majority of coordinators is back up
     # 1. Start all instances.
@@ -2086,9 +2074,7 @@ def test_force_reset_works_after_failed_registration_and_2_coordinators_down():
     # 8. Check that everything works correctly
 
     # 1
-    inner_instances_description = get_instances_description_no_setup(
-        test_name="test_force_reset_works_after_failed_registration_and_2_coordinators_down"
-    )
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
@@ -2265,7 +2251,7 @@ def test_force_reset_works_after_failed_registration_and_2_coordinators_down():
     interactive_mg_runner.stop_all(keep_directories=False)
 
 
-def test_coordinator_gets_info_on_other_coordinators():
+def test_coordinator_gets_info_on_other_coordinators(test_name):
     # Goal of this test is to check that coordinator which has cluster state
     # after restart gets info on other cluster also which is added in meantime
     # 1. Start all instances.
@@ -2278,7 +2264,6 @@ def test_coordinator_gets_info_on_other_coordinators():
     # 8. Check that such coordinator has correct info
 
     # 1
-    test_name = "test_coordinator_gets_info_on_other_coordinators"
 
     inner_instances_description = get_instances_description_no_setup(test_name=test_name)
 
@@ -2435,13 +2420,13 @@ def test_coordinator_gets_info_on_other_coordinators():
     interactive_mg_runner.stop_all(keep_directories=False)
 
 
-def test_registration_works_after_main_set():
+def test_registration_works_after_main_set(test_name):
     # This test tries to register first main and set it to main and afterwards register other instances
     # 1. Start all instances.
     # 2. Check everything works correctly
 
     # 1
-    inner_instances_description = get_instances_description_no_setup(test_name="test_registration_works_after_main_set")
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
@@ -2516,16 +2501,14 @@ def test_registration_works_after_main_set():
     interactive_mg_runner.stop_all(keep_directories=False)
 
 
-def test_coordinator_not_leader_registration_does_not_work():
+def test_coordinator_not_leader_registration_does_not_work(test_name):
     # Goal of this test is to check that it is not possible to register instance on follower coord
     # 1. Start all instances.
     # 2. Check everything works correctly
     # 3. Try to register instance on follower coord
 
     # 1
-    inner_instances_description = get_instances_description_no_setup(
-        test_name="test_coordinator_not_leader_registration_does_not_work"
-    )
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
@@ -2613,7 +2596,7 @@ def test_coordinator_not_leader_registration_does_not_work():
     interactive_mg_runner.stop_all(keep_directories=False)
 
 
-def test_coordinator_user_action_demote_instance_to_replica():
+def test_coordinator_user_action_demote_instance_to_replica(test_name):
     # Goal of this test is to check that it is not possible to register instance on follower coord
     # 1. Start all instances.
     # 2. Check everything works correctly
@@ -2621,9 +2604,7 @@ def test_coordinator_user_action_demote_instance_to_replica():
     # 4. Check we have correct state
 
     # 1
-    inner_instances_description = get_instances_description_no_setup(
-        test_name="test_coordinator_user_action_demote_instance_to_replica", use_durability=True
-    )
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name, use_durability=True)
 
     FAILOVER_PERIOD = 2
     inner_instances_description["instance_1"]["args"].append(f"--instance-down-timeout-sec={FAILOVER_PERIOD}")
@@ -2739,7 +2720,7 @@ def test_coordinator_user_action_demote_instance_to_replica():
     interactive_mg_runner.stop_all(keep_directories=False)
 
 
-def test_coordinator_user_action_force_reset_works():
+def test_coordinator_user_action_force_reset_works(test_name):
     # Goal of this test is to check that it is not possible to register instance on follower coord
     # 1. Start all instances.
     # 2. Check everything works correctly
@@ -2747,9 +2728,7 @@ def test_coordinator_user_action_force_reset_works():
     # 4. Check we have correct state
 
     # 1
-    inner_instances_description = get_instances_description_no_setup(
-        test_name="test_coordinator_user_action_force_reset_works", use_durability=True
-    )
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name, use_durability=True)
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
@@ -2846,7 +2825,7 @@ def test_coordinator_user_action_force_reset_works():
     interactive_mg_runner.stop_all(keep_directories=False)
 
 
-def test_all_coords_down_resume():
+def test_all_coords_down_resume(test_name):
     # Goal of this test is to check that coordinators are able to resume, if cluster is able to resume where it
     # left off if all coordinators go down
 
@@ -2857,9 +2836,7 @@ def test_all_coords_down_resume():
     # 5. Check everything works correctly
 
     # 1
-    inner_instances_description = get_instances_description_no_setup(
-        test_name="test_all_coords_down_resume", use_durability=True
-    )
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name, use_durability=True)
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
@@ -2972,7 +2949,7 @@ def test_all_coords_down_resume():
     interactive_mg_runner.stop_all(keep_directories=False)
 
 
-def test_one_coord_down_with_durability_resume():
+def test_one_coord_down_with_durability_resume(test_name):
     # Goal of this test is to check that coordinators are able to resume, if cluster is able to resume where it
     # left off if all coordinators go down
 
@@ -2983,9 +2960,7 @@ def test_one_coord_down_with_durability_resume():
     # 5. Check everything works correctly
 
     # 1
-    inner_instances_description = get_instances_description_no_setup(
-        test_name="test_one_coord_down_with_durability_resume", use_durability=True
-    )
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name, use_durability=True)
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
@@ -3076,14 +3051,12 @@ def test_one_coord_down_with_durability_resume():
     interactive_mg_runner.stop_all(keep_directories=False)
 
 
-def test_registration_does_not_deadlock_when_instance_is_down():
+def test_registration_does_not_deadlock_when_instance_is_down(test_name):
     # Goal of this test is to assert that system doesn't deadlock in case of failure on registration
 
     # 1
     interactive_mg_runner.stop_all(keep_directories=False)
-    inner_instances_description = get_instances_description_no_setup(
-        test_name="test_registration_does_not_deadlock_when_instance_is_down", use_durability=True
-    )
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name, use_durability=True)
 
     interactive_mg_runner.start(inner_instances_description, "coordinator_1")
     interactive_mg_runner.start(inner_instances_description, "coordinator_2")
@@ -3149,7 +3122,7 @@ def test_registration_does_not_deadlock_when_instance_is_down():
     interactive_mg_runner.stop_all(keep_directories=False)
 
 
-def test_follower_have_correct_health():
+def test_follower_have_correct_health(test_name):
     # Goal of this test is to check that coordinators are able to resume, if cluster is able to resume where it
     # left off if all coordinators go down
 
@@ -3160,9 +3133,7 @@ def test_follower_have_correct_health():
     # 5. Check everything works correctly
 
     # 1
-    inner_instances_description = get_instances_description_no_setup(
-        test_name="test_follower_have_correct_health", use_durability=True
-    )
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name, use_durability=True)
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
@@ -3202,11 +3173,11 @@ def test_follower_have_correct_health():
     interactive_mg_runner.stop_all(keep_directories=False)
 
 
-def test_first_coord_restarts():
+def test_first_coord_restarts(test_name):
     # Goal of this test is to check that first coordinator can restart without any issues
 
     # 1
-    inner_instances_description = get_instances_description_no_setup(test_name="test_first_coord_restarts")
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
 
     interactive_mg_runner.start(inner_instances_description, "coordinator_1")
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()

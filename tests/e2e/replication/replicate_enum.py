@@ -32,9 +32,15 @@ file = "replicate_enum"
 
 @pytest.fixture(autouse=True)
 def cleanup_after_test():
+    # Run the test
     yield
-    # Stop + delete directories
+    # Stop + delete directories after running the test
     interactive_mg_runner.stop_all(keep_directories=False)
+
+
+@pytest.fixture
+def test_name(request):
+    return request.node.name
 
 
 def show_replicas_func(cursor):
@@ -44,7 +50,7 @@ def show_replicas_func(cursor):
     return func
 
 
-def test_enum_replication(connection):
+def test_enum_replication(connection, test_name):
     # Goal: That Enum definition is replicated to REPLICAs
     # 0/ Setup replication
     # 1/ MAIN CREATE ENUM
@@ -55,8 +61,6 @@ def test_enum_replication(connection):
     # 6/ Validate Enum has updated at REPLICA
     # 7/ Alter Enum by updating value on MAIN
     # 8/ Validate Enum has updated at REPLICA
-
-    test_name = "test_enum_replication"
 
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {

@@ -21,7 +21,7 @@ INSTANCE_NAME = "test_instance"
 file = "test_sso"
 
 
-def get_instances(test_name):
+def get_instances(test_name: str):
     return {
         INSTANCE_NAME: {
             "args": ["--bolt-port=7687", "--log-level=TRACE", "--data-recovery-on-startup=true"],

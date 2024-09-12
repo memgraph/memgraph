@@ -32,10 +32,16 @@ REPLICATION_PORTS = {"replica_1": 10001, "replica_2": 10002}
 file = "auth"
 
 
+@pytest.fixture
+def test_name(request):
+    return request.node.name
+
+
 @pytest.fixture(autouse=True)
 def cleanup_after_test():
+    # Run the test
     yield
-    # Stop + delete directories
+    # Stop + delete directories after running the test
     interactive_mg_runner.stop_all(keep_directories=False)
 
 
@@ -144,12 +150,10 @@ def main_and_repl_queries(cursor):
     return n_exceptions
 
 
-def test_auth_queries_on_replica(connection):
+def test_auth_queries_on_replica(connection, test_name):
     # Goal: check that write auth queries are forbidden on REPLICAs
     # 0/ Setup replication cluster
     # 1/ Check queries
-
-    test_name = "test_auth_queries_on_replica"
 
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
@@ -206,15 +210,13 @@ def test_auth_queries_on_replica(connection):
     assert main_and_repl_queries(cursor_replica_2) == 0
 
 
-def test_manual_users_recovery(connection):
+def test_manual_users_recovery(connection, test_name):
     # Goal: show system recovery in action at registration time
     # 0/ MAIN CREATE USER user1, user2
     #    REPLICA CREATE USER user3, user4
     #    Setup replication cluster
     # 1/ Check that both MAIN and REPLICA have user1 and user2
     # 2/ Check connections on REPLICAS
-
-    test_name = "test_manual_users_recovery"
 
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
@@ -280,14 +282,12 @@ def test_manual_users_recovery(connection):
     connection(BOLT_PORTS["replica_2"], "replica", "user2", "password").cursor()
 
 
-def test_env_users_recovery(connection):
+def test_env_users_recovery(connection, test_name):
     # Goal: show system recovery in action at registration time
     # 0/ Set users from the environment
     #    MAIN gets users from the environment
     #    Setup replication cluster
     # 1/ Check that both MAIN and REPLICA have user1
-
-    test_name = "test_env_users_recovery"
 
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
@@ -358,7 +358,7 @@ def test_env_users_recovery(connection):
     )
 
 
-def test_manual_roles_recovery(connection):
+def test_manual_roles_recovery(connection, test_name):
     # Goal: show system recovery in action at registration time
     # 0/ MAIN CREATE USER user1, user2
     #    REPLICA CREATE USER user3, user4
@@ -366,8 +366,6 @@ def test_manual_roles_recovery(connection):
     # 1/ Check that both MAIN and REPLICA have user1 and user2
     # 2/ Check that role1 and role2 are replicated
     # 3/ Check that user1 has role1
-
-    test_name = "test_manual_roles_recovery"
 
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
@@ -448,13 +446,11 @@ def test_manual_roles_recovery(connection):
     )
 
 
-def test_auth_config_recovery(connection):
+def test_auth_config_recovery(connection, test_name):
     # Goal: show we are replicating Auth::Config
     # 0/ Setup auth configuration and compliant users
     # 1/ Check that both MAIN and REPLICA have the same users
     # 2/ Check that REPLICAS have the same config
-
-    test_name = "test_auth_config_recovery"
 
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
@@ -545,10 +541,8 @@ def test_auth_config_recovery(connection):
     user_test(cursor_replica_2)
 
 
-def test_auth_replication(connection):
+def test_auth_replication(connection, test_name):
     # Goal: show that individual auth queries get replicated
-
-    test_name = "test_auth_replication"
 
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {

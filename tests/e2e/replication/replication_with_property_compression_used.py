@@ -29,10 +29,16 @@ BOLT_PORTS = {"main": 7687, "replica_1": 7688, "replica_2": 7689}
 REPLICATION_PORTS = {"replica_1": 10001, "replica_2": 10002}
 
 
+@pytest.fixture
+def test_name(request):
+    return request.node.name
+
+
 @pytest.fixture(autouse=True)
 def cleanup_after_test():
+    # Run the test
     yield
-    # Stop + delete directories
+    # Stop + delete directories after running the test
     interactive_mg_runner.stop_all(keep_directories=False)
 
 
@@ -43,7 +49,7 @@ def show_replicas_func(cursor):
     return func
 
 
-def test_replication_with_compression_on(connection):
+def test_replication_with_compression_on(connection, test_name):
     # Goal: That data is correctly replicated while compression is used.
     # 0/ Setup replication
     # 1/ MAIN CREATE Vertex with compressible property
@@ -52,8 +58,6 @@ def test_replication_with_compression_on(connection):
     # 4/ Validate property has arrived at REPLICA
     # 5/ Delete property on MAIN
     # 6/ Validate property has been deleted at REPLICA
-
-    test_name = "test_replication_with_compression_on"
 
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
