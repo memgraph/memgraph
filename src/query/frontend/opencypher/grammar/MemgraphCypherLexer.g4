@@ -125,7 +125,6 @@ PASSWORD                : P A S S W O R D ;
 PERIODIC                : P E R I O D I C ;
 POINT                   : P O I N T ;
 PORT                    : P O R T ;
-POINT                   : P O I N T ;
 PRIVILEGES              : P R I V I L E G E S ;
 PULSAR                  : P U L S A R ;
 QUOTE                   : Q U O T E ;
