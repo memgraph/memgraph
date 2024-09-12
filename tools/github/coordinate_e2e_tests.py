@@ -5,7 +5,7 @@ This script is used to coordinate the execution of e2e tests in parallel.
 It starts multiple containers, each container executes a workload from the list of workloads.
 The script is used to find workloads in the build directory of the container and then execute them.
 The script takes care of creating docker image from running container, starting multiple containers in parallel,
-executing workloads in parallel and then stopping the containers.
+executing workloads in parallel and then killing the containers.
 
 
 """
@@ -19,15 +19,17 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from queue import Queue
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 
 import docker
 import yaml
 
-from query_modules.nxalg import center
-
 CONTAINER_NAME_PREFIX = "container-"
 LOGS_PATH = "/build/logs/"
+
+
+def get_container_logs_path(container_root_dir):
+    return f"{container_root_dir}{LOGS_PATH}"
 
 
 def clear_directory(path):
@@ -57,11 +59,6 @@ class AtomicInteger:
     def increment(self):
         with self._lock:
             self.value += 1
-            return self.value
-
-    def decrement(self):
-        with self._lock:
-            self.value -= 1
             return self.value
 
     def get(self):
@@ -146,8 +143,11 @@ class DockerHandler:
     def start_container_from_image(self, image_tag, id: int):
         return self._client.containers.run(image=image_tag, detach=True, name=f"{get_container_name(id)}", remove=True)
 
-    def stop_container(self, container):
-        container.stop()
+    def kill_container(self, container):
+        container.kill()
+
+    def remove_container(self, container):
+        container.remove_container()
 
     def get_client(self):
         return self._client
@@ -163,27 +163,36 @@ class SynchronizedContainerCopy:
     def __init__(self):
         self._lock = threading.Lock()
 
-    def copy_logs(self, src_container_name, dest_container_name, container_path, temp_dir):
+    def copy_logs(self, src_container_name, dest_container_name, folder_name_in_container, folder_name_on_machine):
         with self._lock:
             try:
-                clear_directory(temp_dir)
+                clear_directory(folder_name_on_machine)
             except Exception as e:
                 pass  # ignore
 
-            folder_name = f"{temp_dir}/logs"
-            create_directory(f"{folder_name}")
+            create_directory(folder_name_on_machine)
 
             subprocess.run(
-                f"docker exec {src_container_name} bash -c 'if [ ! -d '{folder_name}' ]; then mkdir -p '{folder_name}'; fi'",
+                f"docker exec {src_container_name} bash -c 'if [ ! -d '{folder_name_in_container}' ]; then mkdir -p '{folder_name_in_container}'; fi'",
                 shell=True,
                 check=True,
             )
+            subprocess.run(
+                f"docker exec {dest_container_name} bash -c 'if [ ! -d '{folder_name_in_container}' ]; then mkdir -p '{folder_name_in_container}'; fi'",
+                shell=True,
+                check=True,
+            )
+
             # Copy logs from source container to temporary directory
-            copy_from_src_command = f"docker cp {src_container_name}:{container_path} {temp_dir}/logs"
+            copy_from_src_command = (
+                f"docker cp {src_container_name}:{folder_name_in_container} {folder_name_on_machine}"
+            )
             subprocess.run(copy_from_src_command, shell=True, check=True)
 
             # Copy logs from temporary directory to destination container
-            copy_to_dest_command = f"docker cp {temp_dir}/logs {dest_container_name}:{container_path}"
+            copy_to_dest_command = (
+                f"docker cp {folder_name_on_machine} {dest_container_name}:{folder_name_in_container}"
+            )
             subprocess.run(copy_to_dest_command, shell=True, check=True)
 
             try:
@@ -255,19 +264,23 @@ def find_workloads_for_testing(container, container_root_directory, project_root
 
 
 def copy_output_to_container(
-    container_to_copy, file_prefix_name, container_root_dir, formated_stdout_output, formated_stderr_output
+    container_to_copy, file_prefix_name, container_path, formated_stdout_output, formated_stderr_output
 ):
     """
     This function writes formatted stdout and stderr output to temporary files.
-    Afterwards it copies those files to the container_to_copy in the container_root_dir/LOGS_PATH directory.
+    Afterwards it copies those files to the container_to_copy in the container_path directory.
 
     :param container_to_copy: Container ID to which output will be copied
     :param file_prefix_name: Name of container where output was generated
-    :param container_root_dir: Path to memgraph folder in container from root
+    :param container_path: Path to folder where to copy output
     :param formated_stdout_output: stdout output from the container
     :param formated_stderr_output:
     :return:
     """
+
+    clear_directory(temp_dir)
+    create_directory(temp_dir)
+
     stdout_file_path = os.path.join(temp_dir, f"{file_prefix_name}_stdout.log")
     stderr_file_path = os.path.join(temp_dir, f"{file_prefix_name}_stderr.log")
 
@@ -279,9 +292,15 @@ def copy_output_to_container(
     with open(stderr_file_path, "w") as stderr_file:
         stderr_file.write(formated_stderr_output)
 
+    subprocess.run(
+        f"docker exec {container_to_copy} bash -c 'if [ ! -d '{container_path}' ]; then mkdir -p '{container_path}'; fi'",
+        shell=True,
+        check=True,
+    )
+
     # Copy files to Docker container
-    copy_stdout_command = f"docker cp {stdout_file_path} {container_to_copy}:{container_root_dir}{LOGS_PATH}"
-    copy_stderr_command = f"docker cp {stderr_file_path} {container_to_copy}:{container_root_dir}{LOGS_PATH}"
+    copy_stdout_command = f"docker cp {stdout_file_path} {container_to_copy}:{container_path}"
+    copy_stderr_command = f"docker cp {stderr_file_path} {container_to_copy}:{container_path}"
 
     subprocess.run(copy_stdout_command, shell=True, check=True)
     subprocess.run(copy_stderr_command, shell=True, check=True)
@@ -364,7 +383,7 @@ def process_workloads(
     try:
         synchronized_print.print(f">>>>Copying logs from {get_container_name(id)}")
         thread_safe_container_copy.copy_logs(
-            container.id, original_container_id, f"{container_root_dir}{LOGS_PATH}", temp_dir
+            container.id, original_container_id, get_container_logs_path(container_root_dir), temp_dir
         )
         synchronized_print.print(f">>>>Copied logs from {get_container_name(id)}")
     except Exception as e:
@@ -373,9 +392,9 @@ def process_workloads(
         error_counter.increment()
         synchronized_print.print(f"Exception occurred while copying logs from {get_container_name(id)}: {e}")
 
-    synchronized_print.print(f">>>>Stopping {get_container_name(id)}")
-    docker_handler.stop_container(container)
-    synchronized_print.print(f">>>>Stopped {get_container_name(id)}")
+    synchronized_print.print(f">>>>Killing {get_container_name(id)}")
+    docker_handler.kill_container(container)
+    synchronized_print.print(f">>>>Killed {get_container_name(id)}")
 
     tasks_executed.sort(key=lambda x: x[2], reverse=True)
     synchronized_map.insert_elem(
@@ -424,7 +443,19 @@ def remove_image(docker_handler, image_name, max_tries=10):
     return False
 
 
-def get_and_delete_containers(docker_handler):
+def force_kill_and_remove_container(docker_handler, container):
+    try:
+        docker_handler.kill_container(container)
+    except Exception as _:
+        pass
+
+    try:
+        docker_handler.remove_container(container)
+    except Exception as _:
+        pass
+
+
+def get_and_delete_containers(docker_handler, image_name):
     global CONTAINER_NAME_PREFIX
 
     all_containers = docker_handler.get_client().containers.list(all=True)
@@ -432,31 +463,53 @@ def get_and_delete_containers(docker_handler):
 
     for container in all_containers:
         if any(name.startswith(CONTAINER_NAME_PREFIX) for name in container.name.split(",")):
-            try:
-                container.kill()
-            except Exception as _:
-                pass
-
-            try:
-                container.remove_container()
-            except Exception as _:
-                pass
+            print("Removing container: ", container.name)
+            force_kill_and_remove_container(docker_handler, container)
+            print("Removed container: ", container.name)
             deleted_containers.append(container.name)
 
-    return deleted_containers
+        elif container.image.tags and any(image_name in tag for tag in container.image.tags):
+            print("Removing container: ", container.name)
+            force_kill_and_remove_container(docker_handler, container)
+            print("Removed container: ", container.name)
+            deleted_containers.append(container.name)
+
+    print(deleted_containers)
+
+    all_containers = docker_handler.get_client().containers.list()
+    for container in all_containers:
+        if container.status not in ["running", "created", "restarting"]:
+            continue
+        if any(name.startswith(CONTAINER_NAME_PREFIX) for name in container.name.split(",")):
+            return False
+
+        elif container.image.tags and any(image_name in tag for tag in container.image.tags):
+            return False
+
+    return True
 
 
 def cleanup_state(docker_handler, image_name):
+    # First delete all containers referencing the image
+    # Afterwards you can rm image
     try:
-        ok = remove_image(docker_handler, image_name)
-        assert (ok, "Failed to remove image")
+        ok = get_and_delete_containers(docker_handler, image_name)
+        print(f"Deleted containers: {ok}")
+        if not ok:
+            exit(1)
     except Exception as _:
-        assert (False, "Failed to remove image")
+        print("Failed to remove containers")
+        exit(1)
 
     try:
-        get_and_delete_containers(docker_handler)
+        # This shouldn't fail
+        ok = remove_image(docker_handler, image_name)
+        print(f"Remove image {image_name}: {ok}")
+        if not ok:
+            exit(1)
     except Exception as _:
-        assert (False, "Failed to remove containers")
+        print("Failed to remove image")
+        exit(1)
 
 
 def get_workloads_from_container(docker_handler, image_name, container_root_dir, project_root_dir):
@@ -466,8 +519,8 @@ def get_workloads_from_container(docker_handler, image_name, container_root_dir,
 
     # Start one container needed for finding workloads
     workloads = find_workloads_for_testing(container_0, container_root_dir, project_root_dir)
-    print(f"Stopping container {container_0}")
-    docker_handler.stop_container(container_0)
+    print(f"Killing container {container_0}")
+    docker_handler.kill_container(container_0)
     print(f">>>>Workloads {len(workloads)} found!")
     return workloads
 
@@ -534,7 +587,7 @@ def print_diff_summary(result, args):
         copy_output_to_container(
             args.original_container_id,
             f"{get_container_name(id)}",
-            args.container_root_dir,
+            get_container_logs_path(args.container_root_dir),
             formated_stdout_output,
             formated_stderr_output,
         )
@@ -546,8 +599,9 @@ def print_diff_summary(result, args):
         for task in container_info.tasks_executed:
             print(f"\t\t\t {task}")
 
-        if container_info.exception:
-            print(f"\t\t{get_container_name(id)} failed with exception: {container_info.exception}")
+        if container_info.exceptions:
+            exceptions = "\n\t".join(container_info.exceptions)
+            print(f"\t\t{get_container_name(id)} failed with exception:\n {exceptions}")
 
         print(f">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
     print("END OF DIFF SUMMARY")
@@ -571,7 +625,6 @@ def print_errors_summary(result):
 
 
 def main():
-    error = False
     docker_handler = DockerHandler()
     args = parse_arguments()
     image_name = f"{args.original_container_id}-e2e"
@@ -581,10 +634,7 @@ def main():
     try:
         create_image_from_container(docker_handler, args.original_container_id, image_name)
     except Exception as e:
-        print(f"Exception occurred: {e}")
-        error = True
-
-    if error:
+        print(f"Exception occurred on container create: {e}")
         cleanup_state(docker_handler, image_name)
         exit(1)
 
@@ -594,18 +644,16 @@ def main():
             docker_handler, image_name, args.container_root_dir, args.project_root_dir
         )
     except Exception as e:
-        print(f"Exception occurred: {e}")
-        error = True
-
-    if error:
+        print(f"Exception occurred on getting workflows: {e}")
         cleanup_state(docker_handler, image_name)
         exit(1)
 
+    error = False
     result = None
     try:
         result, error = run_workloads_in_parallel(workloads, args, image_name)
     except Exception as e:
-        print(f"Exception occurred: {e}")
+        print(f"Exception occurred on run workflows: {e}")
         error = True
 
     if result is not None:
@@ -613,7 +661,7 @@ def main():
             print_diff_summary(result, args)
             print_errors_summary(result)
         except Exception as e:
-            print(f"Exception occurred: {e}")
+            print(f"Exception occurred on printing summary: {e}")
             error = True
 
     cleanup_state(docker_handler, image_name)
