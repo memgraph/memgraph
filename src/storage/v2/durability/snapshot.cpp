@@ -2125,11 +2125,13 @@ RecoveredSnapshot LoadSnapshotVersion17(const std::filesystem::path &path, utils
   return {info, recovery_info, std::move(indices_constraints)};
 }
 
-RecoveredSnapshot LoadSnapshotVersion18(const std::filesystem::path &path, utils::SkipList<Vertex> *vertices,
-                                        utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata,
-                                        std::deque<std::pair<std::string, uint64_t>> *epoch_history,
-                                        NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
-                                        const Config &config, memgraph::storage::EnumStore *enum_store) {
+/// We messed up and accidentally introduced a version bump in a release it was not needed for
+/// hence same load for 18 will work for 19
+RecoveredSnapshot LoadSnapshotVersion18or19(const std::filesystem::path &path, utils::SkipList<Vertex> *vertices,
+                                            utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata,
+                                            std::deque<std::pair<std::string, uint64_t>> *epoch_history,
+                                            NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
+                                            const Config &config, memgraph::storage::EnumStore *enum_store) {
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
 
@@ -2595,9 +2597,9 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
     return LoadSnapshotVersion17(path, vertices, edges, edges_metadata, epoch_history, name_id_mapper, edge_count,
                                  config);
   }
-  if (*version == 18U) {
-    return LoadSnapshotVersion18(path, vertices, edges, edges_metadata, epoch_history, name_id_mapper, edge_count,
-                                 config, enum_store);
+  if (*version == 18U || *version == 19U) {
+    return LoadSnapshotVersion18or19(path, vertices, edges, edges_metadata, epoch_history, name_id_mapper, edge_count,
+                                     config, enum_store);
   }
 
   // Cleanup of loaded data in case of failure.
