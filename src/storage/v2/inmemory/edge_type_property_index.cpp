@@ -15,6 +15,7 @@
 #include "storage/v2/edge_info_helpers.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
+#include "storage/v2/property_value.hpp"
 #include "utils/counter.hpp"
 
 namespace {
@@ -188,6 +189,21 @@ void InMemoryEdgeTypePropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active
 
       it = next_it;
     }
+  }
+}
+
+void InMemoryEdgeTypePropertyIndex::AbortEntries(
+    std::pair<EdgeTypeId, PropertyId> edge_type_property,
+    std::span<std::tuple<Vertex *const, Vertex *const, Edge *const, PropertyValue> const> edges,
+    uint64_t exact_start_timestamp) {
+  auto it = index_.find(edge_type_property);
+  if (it == index_.end()) {
+    return;
+  }
+
+  auto acc = it->second.access();
+  for (const auto &[from_vertex, to_vertex, edge, value] : edges) {
+    acc.remove(Entry{value, from_vertex, to_vertex, edge, exact_start_timestamp});
   }
 }
 

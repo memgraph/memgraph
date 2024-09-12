@@ -53,6 +53,9 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
 
   void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token);
 
+  void AbortEntries(EdgeTypeId edge_type, std::span<std::tuple<Vertex *const, Vertex *const, Edge *const> const> edges,
+                    uint64_t exact_start_timestamp);
+
   uint64_t ApproximateEdgeCount(EdgeTypeId edge_type) const override;
 
   void UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, EdgeTypeId edge_type,
@@ -62,6 +65,8 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
                                 EdgeTypeId edge_type, const Transaction &tx) override;
 
   void DropGraphClearIndices() override;
+
+  std::vector<EdgeTypeId> Analysis() const;
 
   static constexpr std::size_t kEdgeTypeIdPos = 0U;
   static constexpr std::size_t kVertexPos = 1U;
@@ -107,7 +112,8 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
   Iterable Edges(EdgeTypeId edge_type, View view, Storage *storage, Transaction *transaction);
 
  private:
-  std::map<EdgeTypeId, utils::SkipList<Entry>> index_;
+  std::map<EdgeTypeId, utils::SkipList<Entry>> index_;  // This should be a std::map because we use it with assumption
+                                                        // that it's sorted
 };
 
 }  // namespace memgraph::storage

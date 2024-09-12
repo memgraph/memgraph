@@ -9,13 +9,14 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <shared_mutex>
-#include <thread>
-
 #include "gtest/gtest.h"
 
 #include "utils/rw_lock.hpp"
 #include "utils/timer.hpp"
+
+#include <latch>
+#include <shared_mutex>
+#include <thread>
 
 using namespace std::chrono_literals;
 
@@ -41,22 +42,32 @@ TEST(RWLock, MultipleReaders) {
 
 TEST(RWLock, SingleWriter) {
   memgraph::utils::RWLock rwlock(memgraph::utils::RWLock::Priority::READ);
+  auto count_down = std::latch{3};
 
-  std::vector<std::thread> threads;
   memgraph::utils::Timer timer;
-  for (int i = 0; i < 3; ++i) {
-    threads.push_back(std::thread([&rwlock] {
-      auto lock = std::unique_lock{rwlock};
-      std::this_thread::sleep_for(100ms);
-    }));
+  std::chrono::duration<double> start;
+
+  auto j1 = [&] {
+    count_down.arrive_and_wait();
+    auto lock = std::unique_lock{rwlock};
+    std::this_thread::sleep_for(100ms);
+  };
+  auto j2 = [&] {
+    start = timer.Elapsed();  // time from here to avoid the timing cost of setting up threads
+    j1();
+  };
+
+  {
+    auto threads = std::vector<std::jthread>{};
+    threads.emplace_back(j1);
+    threads.emplace_back(j1);
+    threads.emplace_back(j2);
   }
 
-  for (int i = 0; i < 3; ++i) {
-    threads[i].join();
-  }
+  auto total_time = timer.Elapsed() - start;
 
-  EXPECT_LE(timer.Elapsed(), 350ms);
-  EXPECT_GE(timer.Elapsed(), 290ms);
+  EXPECT_LE(total_time, 350ms);
+  EXPECT_GE(total_time, 290ms);
 }
 
 TEST(RWLock, ReadPriority) {

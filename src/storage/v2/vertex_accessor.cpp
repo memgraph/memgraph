@@ -28,6 +28,7 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
 #include "storage/v2/storage.hpp"
+#include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex_info_cache.hpp"
 #include "storage/v2/vertex_info_helpers.hpp"
 #include "storage/v2/view.hpp"
@@ -142,7 +143,7 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
   storage_->constraints_.unique_constraints_->UpdateOnAddLabel(label, *vertex_, transaction_->start_timestamp);
   if (transaction_->constraint_verification_info) transaction_->constraint_verification_info->AddedLabel(vertex_);
   storage_->indices_.UpdateOnAddLabel(label, vertex_, *transaction_);
-  transaction_->manyDeltasCache.Invalidate(vertex_, label);
+  transaction_->UpdateOnChangeLabel(label, vertex_);
 
   return true;
 }
@@ -169,7 +170,7 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
   /// TODO: some by pointers, some by reference => not good, make it better
   storage_->constraints_.unique_constraints_->UpdateOnRemoveLabel(label, *vertex_, transaction_->start_timestamp);
   storage_->indices_.UpdateOnRemoveLabel(label, vertex_, *transaction_);
-  transaction_->manyDeltasCache.Invalidate(vertex_, label);
+  transaction_->UpdateOnChangeLabel(label, vertex_);
 
   return true;
 }
@@ -268,7 +269,7 @@ Result<utils::small_vector<LabelId>> VertexAccessor::Labels(View view) const {
   return std::move(labels);
 }
 
-Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const PropertyValue &value) {
+Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const PropertyValue &new_value) const {
   if (transaction_->edge_import_mode_active) {
     throw query::WriteVertexOperationInEdgeImportModeException();
   }
@@ -280,43 +281,43 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
 
   if (vertex_->deleted) return Error::DELETED_OBJECT;
 
-  PropertyValue current_value;
+  PropertyValue old_value;
   const bool skip_duplicate_write = !storage_->config_.salient.items.delta_on_identical_property_update;
-  auto const set_property_impl = [transaction = transaction_, vertex = vertex_, &value, &property, &current_value,
+  auto const set_property_impl = [transaction = transaction_, vertex = vertex_, &new_value, &property, &old_value,
                                   skip_duplicate_write]() {
-    current_value = vertex->properties.GetProperty(property);
+    old_value = vertex->properties.GetProperty(property);
     // We could skip setting the value if the previous one is the same to the new
     // one. This would save some memory as a delta would not be created as well as
     // avoid copying the value. The reason we are not doing that is because the
     // current code always follows the logical pattern of "create a delta" and
     // "modify in-place". Additionally, the created delta will make other
     // transactions get a SERIALIZATION_ERROR.
-    if (skip_duplicate_write && current_value == value) {
+    if (skip_duplicate_write && old_value == new_value) {
       return true;
     }
 
-    CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, current_value);
-    vertex->properties.SetProperty(property, value);
+    CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, old_value);
+    vertex->properties.SetProperty(property, new_value);
 
     return false;
   };
 
   auto early_exit = utils::AtomicMemoryBlock(set_property_impl);
   if (early_exit) {
-    return std::move(current_value);
+    return std::move(old_value);
   }
 
   if (transaction_->constraint_verification_info) {
-    if (!value.IsNull()) {
+    if (!new_value.IsNull()) {
       transaction_->constraint_verification_info->AddedProperty(vertex_);
     } else {
       transaction_->constraint_verification_info->RemovedProperty(vertex_);
     }
   }
-  storage_->indices_.UpdateOnSetProperty(property, value, vertex_, *transaction_);
-  transaction_->manyDeltasCache.Invalidate(vertex_, property);
+  storage_->indices_.UpdateOnSetProperty(property, new_value, vertex_, *transaction_);
+  transaction_->UpdateOnSetProperty(property, old_value, new_value, vertex_);
 
-  return std::move(current_value);
+  return std::move(old_value);
 }
 
 Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
@@ -336,12 +337,12 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
       result = false;
       return;
     }
-    for (const auto &[property, value] : properties) {
+    for (const auto &[property, new_value] : properties) {
       CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, PropertyValue());
-      storage->indices_.UpdateOnSetProperty(property, value, vertex, *transaction);
-      transaction->manyDeltasCache.Invalidate(vertex, property);
+      storage->indices_.UpdateOnSetProperty(property, new_value, vertex, *transaction);
+      transaction->UpdateOnSetProperty(property, PropertyValue{}, new_value, vertex);
       if (transaction->constraint_verification_info) {
-        if (!value.IsNull()) {
+        if (!new_value.IsNull()) {
           transaction->constraint_verification_info->AddedProperty(vertex);
         } else {
           transaction->constraint_verification_info->RemovedProperty(vertex);
@@ -379,8 +380,8 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
     for (auto &[id, old_value, new_value] : *id_old_new_change) {
       storage->indices_.UpdateOnSetProperty(id, new_value, vertex, *transaction);
       if (skip_duplicate_update && old_value == new_value) continue;
-      CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), id, std::move(old_value));
-      transaction->manyDeltasCache.Invalidate(vertex, id);
+      CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), id, old_value);
+      transaction->UpdateOnSetProperty(id, old_value, new_value, vertex);
       if (transaction->constraint_verification_info) {
         if (!new_value.IsNull()) {
           transaction->constraint_verification_info->AddedProperty(vertex);
@@ -411,10 +412,11 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
     if (!properties.has_value()) {
       return;
     }
-    for (const auto &[property, value] : *properties) {
-      CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, value);
-      storage->indices_.UpdateOnSetProperty(property, PropertyValue(), vertex, *transaction);
-      transaction->manyDeltasCache.Invalidate(vertex, property);
+    auto new_value = PropertyValue();
+    for (const auto &[property, old_value] : *properties) {
+      CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, old_value);
+      storage->indices_.UpdateOnSetProperty(property, new_value, vertex, *transaction);
+      transaction->UpdateOnSetProperty(property, old_value, new_value, vertex);
     }
     if (transaction->constraint_verification_info) {
       transaction->constraint_verification_info->RemovedProperty(vertex);

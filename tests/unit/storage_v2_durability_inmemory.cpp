@@ -93,6 +93,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     auto label_unindexed = store->NameToLabel("base_unindexed");
     auto property_id = store->NameToProperty("id");
     auto property_extra = store->NameToProperty("extra");
+    auto property_point = store->NameToProperty("point");
     auto et1 = store->NameToEdgeType("base_et1");
     auto et2 = store->NameToEdgeType("base_et2");
 
@@ -134,6 +135,12 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       ASSERT_TRUE(acc->GetIndexStats(label_indexed, property_id));
       ASSERT_FALSE(acc->Commit().HasError());
     }
+    {
+      // Create point index.
+      auto unique_acc = store->UniqueAccess();
+      ASSERT_FALSE(unique_acc->CreatePointIndex(label_indexed, property_point).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
 
     {
       // Create existence constraint.
@@ -159,40 +166,46 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       } else {
         ASSERT_TRUE(vertex.AddLabel(label_unindexed).HasValue());
       }
+
+      // every 44th has a point value
+      if (i % (11 * 4) == 0) {
+        switch (i % 4) {
+          using enum memgraph::storage::CoordinateReferenceSystem;
+          case 0: {
+            auto pv = memgraph::storage::PropertyValue(memgraph::storage::Point2d(Cartesian_2d, i, 2.0));
+            ASSERT_TRUE(vertex.SetProperty(property_point, pv).HasValue());
+            break;
+          }
+          case 1: {
+            auto pv = memgraph::storage::PropertyValue(memgraph::storage::Point3d(Cartesian_3d, i, 2.0, 3.0));
+            ASSERT_TRUE(vertex.SetProperty(property_point, pv).HasValue());
+            break;
+          }
+          case 2: {
+            auto pv = memgraph::storage::PropertyValue(memgraph::storage::Point2d(WGS84_2d, i, 2.0));
+            ASSERT_TRUE(vertex.SetProperty(property_point, pv).HasValue());
+            break;
+          }
+          case 3: {
+            auto pv = memgraph::storage::PropertyValue(memgraph::storage::Point3d(WGS84_3d, i, 2.0, 3.0));
+            ASSERT_TRUE(vertex.SetProperty(property_point, pv).HasValue());
+            break;
+          }
+        }
+      }
+
+      // lower 1/3 and top 1/2 have ids
       if (i < kNumBaseVertices / 3 || i >= kNumBaseVertices / 2) {
+        // some are enums
         if (i % 5 == 0) {
           ASSERT_TRUE(vertex.SetProperty(property_id, memgraph::storage::PropertyValue(enum_val)).HasValue());
-        } else if (i % (7 * 4) == 0) {
-          switch (i % 4) {
-            using enum memgraph::storage::CoordinateReferenceSystem;
-            case 0: {
-              auto pv = memgraph::storage::PropertyValue(memgraph::storage::Point2d(Cartesian_2d, i, 2.0));
-              ASSERT_TRUE(vertex.SetProperty(property_id, pv).HasValue());
-              break;
-            }
-            case 1: {
-              auto pv = memgraph::storage::PropertyValue(memgraph::storage::Point3d(Cartesian_3d, i, 2.0, 3.0));
-              ASSERT_TRUE(vertex.SetProperty(property_id, pv).HasValue());
-              break;
-            }
-            case 2: {
-              auto pv = memgraph::storage::PropertyValue(memgraph::storage::Point2d(WGS84_2d, i, 2.0));
-              ASSERT_TRUE(vertex.SetProperty(property_id, pv).HasValue());
-              break;
-            }
-            case 3: {
-              auto pv = memgraph::storage::PropertyValue(memgraph::storage::Point3d(WGS84_3d, i, 2.0, 3.0));
-              ASSERT_TRUE(vertex.SetProperty(property_id, pv).HasValue());
-              break;
-            }
-          }
-
         } else {
+          // rest are ints
           ASSERT_TRUE(
               vertex.SetProperty(property_id, memgraph::storage::PropertyValue(static_cast<int64_t>(i))).HasValue());
         }
       }
-      ASSERT_FALSE(acc->Commit().HasError());
+      ASSERT_FALSE(acc->Commit().HasError()) << i;
     }
 
     // Create edges.
@@ -341,6 +354,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     auto base_label_unindexed = store->NameToLabel("base_unindexed");
     auto property_id = store->NameToProperty("id");
     auto property_extra = store->NameToProperty("extra");
+    auto property_point = store->NameToProperty("point");
     auto et1 = store->NameToEdgeType("base_et1");
     auto et2 = store->NameToEdgeType("base_et2");
 
@@ -366,6 +380,8 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         case DatasetType::ONLY_BASE:
           ASSERT_THAT(info.label, UnorderedElementsAre(base_label_unindexed));
           ASSERT_THAT(info.label_property, UnorderedElementsAre(std::make_pair(base_label_indexed, property_id)));
+          ASSERT_THAT(info.point_label_property,
+                      UnorderedElementsAre(std::make_pair(base_label_indexed, property_point)));
           break;
         case DatasetType::ONLY_EXTENDED:
           ASSERT_THAT(info.label, UnorderedElementsAre(extended_label_unused));
@@ -380,16 +396,22 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_THAT(info.label_property,
                       UnorderedElementsAre(std::make_pair(base_label_indexed, property_id),
                                            std::make_pair(extended_label_indexed, property_count)));
+          ASSERT_THAT(info.point_label_property,
+                      UnorderedElementsAre(std::make_pair(base_label_indexed, property_point)));
           break;
         case DatasetType::BASE_WITH_EDGE_TYPE_INDEXED:
           ASSERT_THAT(info.label, UnorderedElementsAre(base_label_unindexed));
           ASSERT_THAT(info.label_property, UnorderedElementsAre(std::make_pair(base_label_indexed, property_id)));
           ASSERT_THAT(info.edge_type, UnorderedElementsAre(et1));
+          ASSERT_THAT(info.point_label_property,
+                      UnorderedElementsAre(std::make_pair(base_label_indexed, property_point)));
           break;
         case DatasetType::BASE_WITH_EDGE_TYPE_PROPERTY_INDEXED:
           ASSERT_THAT(info.label, UnorderedElementsAre(base_label_unindexed));
           ASSERT_THAT(info.label_property, UnorderedElementsAre(std::make_pair(base_label_indexed, property_id)));
           ASSERT_THAT(info.edge_type_property, UnorderedElementsAre(std::make_pair(et1, property_id)));
+          ASSERT_THAT(info.point_label_property,
+                      UnorderedElementsAre(std::make_pair(base_label_indexed, property_point)));
           break;
       }
     }
@@ -410,6 +432,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_EQ(lp_stats->statistic, 3.4);
           ASSERT_EQ(lp_stats->avg_group_size, 5.6);
           ASSERT_EQ(lp_stats->avg_degree, 0.0);
+          ASSERT_EQ(acc->ApproximatePointCount(base_label_indexed, property_point), 12);
           break;
         }
         case DatasetType::BASE_WITH_EDGE_TYPE_PROPERTY_INDEXED: {
@@ -424,6 +447,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_EQ(lp_stats->statistic, 3.4);
           ASSERT_EQ(lp_stats->avg_group_size, 5.6);
           ASSERT_EQ(lp_stats->avg_degree, 0.0);
+          ASSERT_EQ(acc->ApproximatePointCount(base_label_indexed, property_point), 12);
           break;
         }
         case DatasetType::ONLY_EXTENDED: {
@@ -441,8 +465,11 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           break;
         }
         case DatasetType::ONLY_BASE_WITH_EXTENDED_INDICES_AND_CONSTRAINTS:
-        case DatasetType::ONLY_EXTENDED_WITH_BASE_INDICES_AND_CONSTRAINTS:
         case DatasetType::BASE_WITH_EXTENDED: {
+          ASSERT_EQ(acc->ApproximatePointCount(base_label_indexed, property_point), 12);
+          [[fallthrough]];
+        }
+        case DatasetType::ONLY_EXTENDED_WITH_BASE_INDICES_AND_CONSTRAINTS: {
           const auto l_stats = acc->GetIndexStats(base_label_unindexed);
           ASSERT_TRUE(l_stats);
           ASSERT_EQ(l_stats->count, 1);
@@ -541,41 +568,44 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         }
         auto properties = vertex->Properties(memgraph::storage::View::OLD);
         ASSERT_TRUE(properties.HasValue());
+
+        auto has_property_point = i % (11 * 4) == 0;
+        if (has_property_point) {
+          switch (i % 4) {
+            using enum memgraph::storage::CoordinateReferenceSystem;
+            case 0: {
+              auto pv = memgraph::storage::PropertyValue(memgraph::storage::Point2d(Cartesian_2d, i, 2.0));
+              ASSERT_EQ((*properties)[property_point], pv);
+              break;
+            }
+            case 1: {
+              auto pv = memgraph::storage::PropertyValue(memgraph::storage::Point3d(Cartesian_3d, i, 2.0, 3.0));
+              ASSERT_EQ((*properties)[property_point], pv);
+              break;
+            }
+            case 2: {
+              auto pv = memgraph::storage::PropertyValue(memgraph::storage::Point2d(WGS84_2d, i, 2.0));
+              ASSERT_EQ((*properties)[property_point], pv);
+              break;
+            }
+            case 3: {
+              auto pv = memgraph::storage::PropertyValue(memgraph::storage::Point3d(WGS84_3d, i, 2.0, 3.0));
+              ASSERT_EQ((*properties)[property_point], pv);
+              break;
+            }
+          }
+        }
+
         if (i < kNumBaseVertices / 3 || i >= kNumBaseVertices / 2) {
-          ASSERT_EQ(properties->size(), 1);
+          ASSERT_EQ(properties->size(), (has_property_point) ? 2 : 1);
           if (i % 5 == 0) {
             ASSERT_EQ((*properties)[property_id], memgraph::storage::PropertyValue(enum_val));
-          } else if (i % (7 * 4) == 0) {
-            switch (i % 4) {
-              using enum memgraph::storage::CoordinateReferenceSystem;
-              case 0: {
-                auto pv = memgraph::storage::PropertyValue(memgraph::storage::Point2d(Cartesian_2d, i, 2.0));
-                ASSERT_EQ((*properties)[property_id], pv);
-                break;
-              }
-              case 1: {
-                auto pv = memgraph::storage::PropertyValue(memgraph::storage::Point3d(Cartesian_3d, i, 2.0, 3.0));
-                ASSERT_EQ((*properties)[property_id], pv);
-                break;
-              }
-              case 2: {
-                auto pv = memgraph::storage::PropertyValue(memgraph::storage::Point2d(WGS84_2d, i, 2.0));
-                ASSERT_EQ((*properties)[property_id], pv);
-                break;
-              }
-              case 3: {
-                auto pv = memgraph::storage::PropertyValue(memgraph::storage::Point3d(WGS84_3d, i, 2.0, 3.0));
-                ASSERT_EQ((*properties)[property_id], pv);
-                break;
-              }
-            }
-
           } else {
             ASSERT_EQ((*properties)[property_id], memgraph::storage::PropertyValue(static_cast<int64_t>(i)));
           }
 
         } else {
-          ASSERT_EQ(properties->size(), 0);
+          ASSERT_EQ(properties->size(), (has_property_point) ? 1 : 0);
         }
       }
 

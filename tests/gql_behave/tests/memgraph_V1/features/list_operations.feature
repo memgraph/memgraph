@@ -421,10 +421,7 @@ Feature: List operators
 
     Scenario: Multiple list pattern comprehensions in Return and label index
         Given graph "graph_keanu"
-        And having executed
-            """
-            CREATE INDEX ON :Person;
-            """
+        And with new index :Person
         When executing query:
             """
             MATCH (n:Person)

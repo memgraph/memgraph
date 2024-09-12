@@ -57,6 +57,10 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
 
   void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token);
 
+  void AbortEntries(std::pair<EdgeTypeId, PropertyId> edge_type_property,
+                    std::span<std::tuple<Vertex *const, Vertex *const, Edge *const, PropertyValue> const> edges,
+                    uint64_t exact_start_timestamp);
+
   uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property) const override;
 
   // Functions that update the index
@@ -67,6 +71,15 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
                                 EdgeTypeId edge_type, PropertyId property, const Transaction &tx) override;
 
   void DropGraphClearIndices() override;
+
+  IndexStats Analysis() const {
+    IndexStats stats;
+    for (const auto &[key, _] : index_) {
+      stats.et2p[key.first].push_back(key.second);
+      stats.p2et[key.second].push_back(key.first);
+    }
+    return stats;
+  }
 
   static constexpr std::size_t kEdgeTypeIdPos = 0U;
   static constexpr std::size_t kVertexPos = 1U;
