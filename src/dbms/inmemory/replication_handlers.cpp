@@ -14,6 +14,7 @@
 #include "dbms/constants.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "replication/replication_server.hpp"
+#include "storage/v2/constraints/type_constraints_type.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/version.hpp"
@@ -949,10 +950,32 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
         break;
       }
       case storage::durability::WalDeltaData::Type::TYPE_CONSTRAINT_CREATE: {
-        // TODO: TYPE
+        spdlog::trace("       Create IS TYPED {} constraint on :{} ({})",
+                      storage::TypeConstraintsTypeToString(delta.operation_label_property_type.type),
+                      delta.operation_label_property_type.label, delta.operation_label_property_type.property);
+
+        auto *transaction = get_transaction_accessor(delta_timestamp, kUniqueAccess);
+        auto ret =
+            transaction->CreateTypeConstraint(storage->NameToLabel(delta.operation_label_properties.label),
+                                              storage->NameToProperty(delta.operation_label_property_type.property),
+                                              delta.operation_label_property_type.type);
+        if (ret.HasError()) {
+          throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
+        }
         break;
       }
       case storage::durability::WalDeltaData::Type::TYPE_CONSTRAINT_DROP: {
+        spdlog::trace("       Drop IS TYPED {} constraint on :{} ({})",
+                      storage::TypeConstraintsTypeToString(delta.operation_label_property_type.type),
+                      delta.operation_label_property_type.label, delta.operation_label_property_type.property);
+
+        auto *transaction = get_transaction_accessor(delta_timestamp, kUniqueAccess);
+        auto ret =
+            transaction->DropTypeConstraint(storage->NameToLabel(delta.operation_label_properties.label),
+                                            storage->NameToProperty(delta.operation_label_property_type.property));
+        if (ret.HasError()) {
+          throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
+        }
         break;
       }
       case WalDeltaData::Type::ENUM_CREATE: {

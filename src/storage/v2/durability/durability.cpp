@@ -308,6 +308,12 @@ void RecoverUniqueConstraints(const RecoveredIndicesAndConstraints::ConstraintsM
   spdlog::info("Constraints are recreated from metadata.");
 }
 
+void RecoverTypeConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &constraints_metadata,
+                            Constraints *constraints, utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
+                            const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info) {
+  // TODO TYPE CONSTRAINTS
+}
+
 void RecoverIndicesStatsAndConstraints(utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
                                        Indices *indices, Constraints *constraints, Config const &config,
                                        RecoveryInfo const &recovery_info,

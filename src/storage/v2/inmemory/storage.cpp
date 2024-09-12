@@ -1765,7 +1765,7 @@ InMemoryStorage::InMemoryAccessor::CreateTypeConstraint(LabelId label, PropertyI
   return {};
 }
 
-utils::BasicResult<StorageExistenceConstraintDroppingError, void> InMemoryStorage::InMemoryAccessor::DropTypeConstraint(
+utils::BasicResult<StorageTypeConstraintDroppingError, void> InMemoryStorage::InMemoryAccessor::DropTypeConstraint(
     LabelId label, PropertyId property) {
   MG_ASSERT(unique_guard_.owns_lock(), "Dropping IS TYPED constraint requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
@@ -2458,7 +2458,10 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
       }
       case MetadataDelta::Action::TYPE_CONSTRAINT_CREATE:
       case MetadataDelta::Action::TYPE_CONSTRAINT_DROP: {
-        // throw utils::NotYetImplemented("TODO");
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeTypeConstraint(encoder, *name_id_mapper_, md_delta.label_property_type.label,
+                               md_delta.label_property_type.property, md_delta.label_property_type.type);
+        });
         break;
       }
       case MetadataDelta::Action::ENUM_CREATE: {

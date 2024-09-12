@@ -65,6 +65,7 @@ target_sources(mg-storage-v2
         property_store.hpp
         property_value.hpp
         transaction.hpp
+        constraints/type_constraints_type.hpp
         vertex_info_cache.hpp
         vertex_info_cache_fwd.hpp
         schema_info.hpp

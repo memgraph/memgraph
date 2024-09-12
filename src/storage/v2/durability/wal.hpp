@@ -17,6 +17,7 @@
 #include <string>
 
 #include "storage/v2/config.hpp"
+#include "storage/v2/constraints/type_constraints.hpp"
 #include "storage/v2/delta.hpp"
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/serialization.hpp"
@@ -126,6 +127,11 @@ struct WalDeltaData {
     std::set<std::string, std::less<>> properties;
   } operation_label_properties;
 
+  struct {
+    std::string label;
+    std::string property;
+    TypeConstraintsType type;
+  } operation_label_property_type;
   struct {
     std::string edge_type;
   } operation_edge_type;
@@ -273,6 +279,8 @@ void EncodeEnumCreate(BaseEncoder &encoder, EnumStore const &enum_store, EnumTyp
 void EncodeLabel(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label);
 void EncodeLabelProperties(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label,
                            std::set<PropertyId> const &properties);
+void EncodeTypeConstraint(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label, PropertyId property,
+                          TypeConstraintsType type);
 void EncodeLabelProperty(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label, PropertyId prop);
 void EncodeLabelPropertyStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label, PropertyId prop,
                               LabelPropertyIndexStats const &stats);
