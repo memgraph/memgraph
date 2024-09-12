@@ -74,10 +74,10 @@ ReturnType VertexDeletedConnectedEdges(Vertex *vertex, Edge *edge, const Transac
 namespace memgraph::storage {
 
 bool InMemoryEdgeTypePropertyIndex::Entry::operator<(const Entry &rhs) const {
-  if (edge->gid < rhs.edge->gid) {
+  if (value < rhs.value) {
     return true;
   }
-  if (edge->gid > rhs.edge->gid) {
+  if (rhs.value < value) {
     return false;
   }
   return std::make_tuple(value, from_vertex, to_vertex, edge, timestamp) <
