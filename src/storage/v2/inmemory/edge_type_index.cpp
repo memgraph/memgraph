@@ -156,6 +156,19 @@ uint64_t InMemoryEdgeTypeIndex::ApproximateEdgeCount(EdgeTypeId edge_type) const
   return 0;
 }
 
+void InMemoryEdgeTypeIndex::AbortEntries(EdgeTypeId edge_type,
+                                         std::span<std::tuple<Vertex *const, Vertex *const, Edge *const> const> edges,
+                                         uint64_t exact_start_timestamp) {
+  auto const it = index_.find(edge_type);
+  if (it == index_.end()) return;
+
+  auto &index_storage = it->second;
+  auto acc = index_storage.access();
+  for (const auto &[from_vertex, to_vertex, edge] : edges) {
+    acc.remove(Entry{from_vertex, to_vertex, edge, exact_start_timestamp});
+  }
+}
+
 void InMemoryEdgeTypeIndex::UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, EdgeTypeId edge_type,
                                                  const Transaction &tx) {
   auto it = index_.find(edge_type);
@@ -283,6 +296,15 @@ InMemoryEdgeTypeIndex::Iterable InMemoryEdgeTypeIndex::Edges(EdgeTypeId edge_typ
   const auto it = index_.find(edge_type);
   MG_ASSERT(it != index_.end(), "Index for edge-type {} doesn't exist", edge_type.AsUint());
   return {it->second.access(), view, storage, transaction};
+}
+
+std::vector<EdgeTypeId> InMemoryEdgeTypeIndex::Analysis() const {
+  std::vector<EdgeTypeId> res;
+  res.reserve(index_.size());
+  for (const auto &[edge_type, _] : index_) {
+    res.emplace_back(edge_type);
+  }
+  return res;
 }
 
 }  // namespace memgraph::storage

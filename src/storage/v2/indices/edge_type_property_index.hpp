@@ -19,6 +19,11 @@ namespace memgraph::storage {
 
 class EdgeTypePropertyIndex {
  public:
+  struct IndexStats {
+    std::map<EdgeTypeId, std::vector<PropertyId>> et2p;
+    std::map<PropertyId, std::vector<EdgeTypeId>> p2et;
+  };
+
   EdgeTypePropertyIndex() = default;
 
   EdgeTypePropertyIndex(const EdgeTypePropertyIndex &) = delete;

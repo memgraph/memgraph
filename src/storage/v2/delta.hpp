@@ -216,6 +216,15 @@ struct Delta {
             .key = key,
             .value = std::pmr::polymorphic_allocator<Delta>{res}.new_object<pmr::PropertyValue>(std::move(value))} {}
 
+  Delta(SetPropertyTag /*tag*/, Vertex *out_vertex, PropertyId key, PropertyValue value,
+        std::atomic<uint64_t> *timestamp, uint64_t command_id, utils::PageSlabMemoryResource *res)
+      : timestamp(timestamp),
+        command_id(command_id),
+        property{.action = Action::SET_PROPERTY,
+                 .key = key,
+                 .value = std::pmr::polymorphic_allocator<Delta>{res}.new_object<pmr::PropertyValue>(std::move(value)),
+                 .out_vertex = out_vertex} {}
+
   Delta(AddInEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
         uint64_t command_id)
       : timestamp(timestamp),
@@ -267,6 +276,7 @@ struct Delta {
       Action action;
       PropertyId key;
       storage::pmr::PropertyValue *value = nullptr;
+      Vertex *out_vertex{nullptr};  // Used by edge's delta to easily rebuild the edge
     } property;
     struct {
       Action action;
