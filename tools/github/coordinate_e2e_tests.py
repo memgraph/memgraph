@@ -6,8 +6,6 @@ It starts multiple containers, each container executes a workload from the list 
 The script is used to find workloads in the build directory of the container and then execute them.
 The script takes care of creating docker image from running container, starting multiple containers in parallel,
 executing workloads in parallel and then killing the containers.
-
-
 """
 import argparse
 import os
@@ -26,10 +24,15 @@ import yaml
 
 CONTAINER_NAME_PREFIX = "container-"
 LOGS_PATH = "/build/logs/"
+TESTS_PATH = "/build/tests/e2e/"
 
 
 def get_container_logs_path(container_root_dir):
     return f"{container_root_dir}{LOGS_PATH}"
+
+
+def get_container_tests_path(container_root_dir):
+    return f"{container_root_dir}{TESTS_PATH}"
 
 
 def clear_directory(path):
@@ -217,7 +220,7 @@ temp_dir = tempfile.TemporaryDirectory().name
 synchronized_container_copy = SynchronizedContainerCopy()
 
 
-def find_workloads_for_testing(container, container_root_directory, project_root_directory) -> List[Tuple[str, str]]:
+def find_workloads_for_testing(container, tests_dir, project_root_directory) -> List[Tuple[str, str]]:
     """
     E2E tests work by testing only folders which are in build directory, as all the folders are not copied there.
     Once we found all the folders in the build directory of the container (we need therefore running container as we can't get build folders from root dir),
@@ -231,16 +234,17 @@ def find_workloads_for_testing(container, container_root_directory, project_root
     Getting workloads.yaml content with docker cp is a bit more difficult, that is why two folder paths are combined.
 
     :param container: ID of container which has executed build command for e2e tests
-    :param container_root_directory: path to the root directory to memgraph folder inside container, i.e. /home/mg/memgraph/
+    :param tests_dir: path to the test dir in in container, i.e. /home/mg/memgraph/build/tests/e2e/
     :param project_root_directory: path to the root directory of memgraph folder in current structure in the github actions
     :return: List of tuples
         Each tuple contains folder name and workload name from workloads.yaml file
         i.e. [('high_availability', 'Distributed coords part 2'), ...]
     """
-    # everything inside bash -c command should have ' as quotes
+    # This command finds all folders in the build directory of the container
+
     docker_command = (
         f"docker exec -u mg {container.id} bash -c "
-        f"\" find {container_root_directory}/build/tests/e2e/ -mindepth 1 -maxdepth 1 -type d -printf '%f\\n' \""
+        f"\" find {tests_dir} -mindepth 1 -maxdepth 1 -type d -printf '%f\\n' \""
     )
 
     result = subprocess.run(docker_command, shell=True, capture_output=True, text=True)
@@ -319,6 +323,21 @@ def process_workloads(
     thread_safe_container_copy: SynchronizedContainerCopy,
     original_container_id: str,
 ):
+    """
+    Setup command needs to source virtual environment and set up environment variables.
+    This command is executed before running python3 runner.py --workloads-root-directory {workload_folder} --workload-name '{workload_name}'.
+    Runner.py executes workloads in build/tests/e2e/ directory of the container.
+
+    :param id: ID of the container
+    :param image_name: Name of the image from which to start container
+    :param setup_command: Command executed before running python3 runner.py --workloads-root-directory {workload_folder} --workload-name '{workload_name}'
+    :param synchronized_queue: Queue from which to get workloads to execute
+    :param synchronized_map: Map in which to store results
+    :param container_root_dir: Root directory of the container for memgraph folder
+    :param thread_safe_container_copy: Container copy object to copy logs from one container to another
+    :param original_container_id: ID of the container to which to copy logs
+    :return: None
+    """
     docker_handler = DockerHandler()
     synchronized_print.print(f">>>>Starting {get_container_name(id)}")
     container = docker_handler.start_container_from_image(image_name, id)
@@ -490,8 +509,15 @@ def get_and_delete_containers(docker_handler, image_name):
 
 
 def cleanup_state(docker_handler, image_name):
-    # First delete all containers referencing the image
-    # Afterwards you can rm image
+    """
+    Must not throw exception, as it is used to cleanup state before and after running e2e tests.
+
+    First we delete all containers which are referencing the image.
+    Afterwards we remove the image.
+    :param docker_handler: docker handler to execute commands
+    :param image_name: name of image to remove and find containers referencing it
+    :return:
+    """
     try:
         ok = get_and_delete_containers(docker_handler, image_name)
         print(f"Deleted containers: {ok}")
@@ -513,12 +539,25 @@ def cleanup_state(docker_handler, image_name):
 
 
 def get_workloads_from_container(docker_handler, image_name, container_root_dir, project_root_dir):
+    """
+    This function starts container from image, uses container to filter appropriate workloads and then kills the container.
+
+    :param docker_handler: Handler to use to start container
+    :param image_name: image name from which to start container
+    :param container_root_dir: Root dir, where memgraph folder is located in container
+    :param project_root_dir: Root dir, where memgraph folder is located in project
+    :return:
+    """
     print(f"Starting container from image {image_name}")
     container_0 = docker_handler.start_container_from_image(image_name, 0)
-    assert container_0 is not None, "Container not started!"
+    if container_0 is None:
+        print(f"Failed to start container from image {image_name}")
+        return None
 
     # Start one container needed for finding workloads
-    workloads = find_workloads_for_testing(container_0, container_root_dir, project_root_dir)
+    workloads = find_workloads_for_testing(
+        container_0, f"{get_container_tests_path(container_root_dir)}", project_root_dir
+    )
     print(f"Killing container {container_0}")
     docker_handler.kill_container(container_0)
     print(f">>>>Workloads {len(workloads)} found!")
@@ -526,6 +565,14 @@ def get_workloads_from_container(docker_handler, image_name, container_root_dir,
 
 
 def create_image_from_container(docker_handler, original_container_id, image_name):
+    """
+    Creates image from container with original_container_id and tags it with image_name
+    This image is used to start other containers which will execute workloads in parallel.
+    :param docker_handler: docker handler
+    :param original_container_id: container id in which we executed build command
+    :param image_name: name of the image to create
+    :return: None
+    """
     print(f"Committing container {original_container_id} to {image_name}")
     ok = docker_handler.commit_image(original_container_id, image_name)
 
@@ -629,6 +676,8 @@ def main():
     args = parse_arguments()
     image_name = f"{args.original_container_id}-e2e"
 
+    # Cleanup state before starting, there could be image left on system from previous run
+    # Containers must not/should not be present on the system as they produce problems for other diffs
     cleanup_state(docker_handler, image_name)
 
     try:
@@ -638,13 +687,16 @@ def main():
         cleanup_state(docker_handler, image_name)
         exit(1)
 
-    workloads = []
+    workloads = None
     try:
         workloads = get_workloads_from_container(
             docker_handler, image_name, args.container_root_dir, args.project_root_dir
         )
     except Exception as e:
         print(f"Exception occurred on getting workflows: {e}")
+        workloads = None
+
+    if workloads is None:
         cleanup_state(docker_handler, image_name)
         exit(1)
 
@@ -664,6 +716,8 @@ def main():
             print(f"Exception occurred on printing summary: {e}")
             error = True
 
+    # Cleanup state after running, we don't want to leave image on the system
+    # Containers must not/should not be present on the system as they produce problems for other diffs
     cleanup_state(docker_handler, image_name)
 
     if error_counter.get() > 0 or error:
