@@ -11,11 +11,14 @@
 
 #pragma once
 
+#include <optional>
 #include <set>
 
 #include "storage/v2/id_types.hpp"
 
 namespace memgraph::storage {
+
+enum class TypeConstraintsType : uint8_t;
 
 struct ConstraintViolation {
   enum class Type {
@@ -24,8 +27,17 @@ struct ConstraintViolation {
     TYPE,
   };
 
+  template <typename Properties>
+  ConstraintViolation(Type type, LabelId label, TypeConstraintsType property_type, Properties &&properties)
+      : type(type), label(label), property_type(property_type), properties(std::forward<Properties>(properties)) {}
+
+  template <typename Properties>
+  ConstraintViolation(Type type, LabelId label, Properties &&properties)
+      : type(type), label(label), properties(std::forward<Properties>(properties)) {}
+
   Type type;
   LabelId label;
+  std::optional<TypeConstraintsType> property_type;
 
   // While multiple properties are supported by unique constraints, the
   // `properties` set will always have exactly one element in the case of
@@ -34,7 +46,8 @@ struct ConstraintViolation {
 };
 
 inline bool operator==(const ConstraintViolation &lhs, const ConstraintViolation &rhs) {
-  return lhs.type == rhs.type && lhs.label == rhs.label && lhs.properties == rhs.properties;
+  return lhs.type == rhs.type && lhs.label == rhs.label && lhs.properties == rhs.properties &&
+         lhs.property_type == rhs.property_type;
 }
 
 }  // namespace memgraph::storage

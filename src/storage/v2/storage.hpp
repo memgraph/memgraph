@@ -391,7 +391,7 @@ class Storage {
                                                                    const std::set<PropertyId> &properties) = 0;
 
     virtual utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateTypeConstraint(
-        LabelId label, PropertyId property, TypeConstraints::Type type) = 0;
+        LabelId label, PropertyId property, TypeConstraintsType type) = 0;
 
     virtual utils::BasicResult<StorageExistenceConstraintDroppingError, void> DropTypeConstraint(
         LabelId label, PropertyId property) = 0;

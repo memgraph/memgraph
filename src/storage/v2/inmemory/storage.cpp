@@ -35,6 +35,7 @@
 #include "storage/v2/schema_info.hpp"
 #include "utils/atomic_memory_block.hpp"
 #include "utils/event_gauge.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/stat.hpp"
 
@@ -73,6 +74,8 @@ constexpr auto ActionToStorageOperation(MetadataDelta::Action action) -> durabil
     add_case(EXISTENCE_CONSTRAINT_DROP);
     add_case(UNIQUE_CONSTRAINT_CREATE);
     add_case(UNIQUE_CONSTRAINT_DROP);
+    add_case(TYPE_CONSTRAINT_CREATE);
+    add_case(TYPE_CONSTRAINT_DROP);
     add_case(ENUM_CREATE);
     add_case(ENUM_ALTER_ADD);
     add_case(ENUM_ALTER_UPDATE);
@@ -1745,8 +1748,7 @@ UniqueConstraints::DeletionStatus InMemoryStorage::InMemoryAccessor::DropUniqueC
 }
 
 utils::BasicResult<StorageExistenceConstraintDefinitionError, void>
-InMemoryStorage::InMemoryAccessor::CreateTypeConstraint(LabelId label, PropertyId property,
-                                                        TypeConstraints::Type type) {
+InMemoryStorage::InMemoryAccessor::CreateTypeConstraint(LabelId label, PropertyId property, TypeConstraintsType type) {
   MG_ASSERT(unique_guard_.owns_lock(), "Creating IS TYPED constraint requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *type_constraints = in_memory->constraints_.type_constraints_.get();
@@ -1768,11 +1770,11 @@ utils::BasicResult<StorageExistenceConstraintDroppingError, void> InMemoryStorag
   MG_ASSERT(unique_guard_.owns_lock(), "Dropping IS TYPED constraint requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *type_constraints = in_memory->constraints_.type_constraints_.get();
-  if (!type_constraints->DropConstraint(label, property)) {
+  auto maybe_type = type_constraints->DropConstraint(label, property);
+  if (!maybe_type) {
     return StorageTypeConstraintDroppingError{ConstraintDefinitionError{}};
   }
-  // TODO: maybe need type for delta (reconstruction)
-  transaction_.md_deltas.emplace_back(MetadataDelta::type_constraint_drop, label, property);
+  transaction_.md_deltas.emplace_back(MetadataDelta::type_constraint_drop, label, property, *maybe_type);
   return {};
 }
 
@@ -2452,6 +2454,11 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
           EncodeLabelProperties(encoder, *name_id_mapper_, md_delta.label_properties.label,
                                 md_delta.label_properties.properties);
         });
+        break;
+      }
+      case MetadataDelta::Action::TYPE_CONSTRAINT_CREATE:
+      case MetadataDelta::Action::TYPE_CONSTRAINT_DROP: {
+        // throw utils::NotYetImplemented("TODO");
         break;
       }
       case MetadataDelta::Action::ENUM_CREATE: {

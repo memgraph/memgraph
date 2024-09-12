@@ -22,6 +22,7 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/schema_info.hpp"
 #include "storage/v2/vertex.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/logging.hpp"
 
@@ -107,6 +108,8 @@ constexpr Marker OperationToMarker(StorageMetadataOperation operation) {
     add_case(TEXT_INDEX_DROP);
     add_case(UNIQUE_CONSTRAINT_CREATE);
     add_case(UNIQUE_CONSTRAINT_DROP);
+    add_case(TYPE_CONSTRAINT_CREATE);
+    add_case(TYPE_CONSTRAINT_DROP);
     add_case(POINT_INDEX_CREATE);
     add_case(POINT_INDEX_DROP);
   }
@@ -172,6 +175,8 @@ constexpr WalDeltaData::Type MarkerToWalDeltaDataType(Marker marker) {
     add_case(TRANSACTION_END);
     add_case(UNIQUE_CONSTRAINT_CREATE);
     add_case(UNIQUE_CONSTRAINT_DROP);
+    add_case(TYPE_CONSTRAINT_CREATE);
+    add_case(TYPE_CONSTRAINT_DROP);
     add_case(VERTEX_ADD_LABEL);
     add_case(VERTEX_CREATE);
     add_case(VERTEX_DELETE);
@@ -396,6 +401,11 @@ WalDeltaData ReadSkipWalDeltaData(BaseDecoder *decoder) {
           if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
         }
       }
+      break;
+    }
+    case WalDeltaData::Type::TYPE_CONSTRAINT_CREATE:
+    case WalDeltaData::Type::TYPE_CONSTRAINT_DROP: {
+      // throw utils::NotYetImplemented("TODO");
       break;
     }
     case WalDeltaData::Type::TEXT_INDEX_CREATE:
@@ -639,6 +649,10 @@ bool operator==(const WalDeltaData &a, const WalDeltaData &b) {
     case WalDeltaData::Type::UNIQUE_CONSTRAINT_DROP:
       return a.operation_label_properties.label == b.operation_label_properties.label &&
              a.operation_label_properties.properties == b.operation_label_properties.properties;
+    case WalDeltaData::Type::TYPE_CONSTRAINT_CREATE:
+    case WalDeltaData::Type::TYPE_CONSTRAINT_DROP:
+      // throw utils::NotYetImplemented("TODO");
+      return true;
     case WalDeltaData::Type::EDGE_INDEX_CREATE:
     case WalDeltaData::Type::EDGE_INDEX_DROP:
       return a.operation_edge_type.edge_type == b.operation_edge_type.edge_type;
@@ -1131,6 +1145,11 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
           }
           RemoveRecoveredIndexConstraint(&indices_constraints->constraints.unique, {label_id, property_ids},
                                          "The unique constraint doesn't exist!");
+          break;
+        }
+        case WalDeltaData::Type::TYPE_CONSTRAINT_CREATE:
+        case WalDeltaData::Type::TYPE_CONSTRAINT_DROP: {
+          // throw utils::NotYetImplemented("TODO");
           break;
         }
         case WalDeltaData::Type::ENUM_CREATE: {

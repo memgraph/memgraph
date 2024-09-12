@@ -948,6 +948,13 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
         }
         break;
       }
+      case storage::durability::WalDeltaData::Type::TYPE_CONSTRAINT_CREATE: {
+        // TODO: TYPE
+        break;
+      }
+      case storage::durability::WalDeltaData::Type::TYPE_CONSTRAINT_DROP: {
+        break;
+      }
       case WalDeltaData::Type::ENUM_CREATE: {
         std::stringstream ss;
         utils::PrintIterable(ss, delta.operation_enum_create.evalues);

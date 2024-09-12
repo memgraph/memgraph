@@ -3182,7 +3182,7 @@ struct Constraint {
   enum class Type { EXISTS, UNIQUE, NODE_KEY, TYPE };
 
   memgraph::query::Constraint::Type type;
-  std::optional<storage::TypeConstraints::Type> type_constraint;
+  std::optional<storage::TypeConstraintsType> type_constraint;
   memgraph::query::LabelIx label;
   std::vector<memgraph::query::PropertyIx> properties;
 

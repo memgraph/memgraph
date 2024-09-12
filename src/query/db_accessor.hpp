@@ -838,7 +838,7 @@ class DbAccessor final {
   }
 
   utils::BasicResult<storage::StorageExistenceConstraintDefinitionError, void> CreateTypeConstraint(
-      storage::LabelId label, storage::PropertyId property, storage::TypeConstraints::Type type) {
+      storage::LabelId label, storage::PropertyId property, storage::TypeConstraintsType type) {
     return accessor_->CreateTypeConstraint(label, property, type);
   }
 

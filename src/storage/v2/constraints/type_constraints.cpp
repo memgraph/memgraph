@@ -20,7 +20,7 @@ namespace memgraph::storage {
 [[nodiscard]] std::optional<ConstraintViolation> TypeConstraints::ValidateVertexOnConstraint(const Vertex &vertex,
                                                                                              LabelId label,
                                                                                              PropertyId property,
-                                                                                             Type type) {
+                                                                                             TypeConstraintsType type) {
   if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
     return std::nullopt;
   }
@@ -29,8 +29,8 @@ namespace memgraph::storage {
     return std::nullopt;
   }
 
-  if (TypeConstraints::PropertyValueToType(prop_value) != type) {
-    return ConstraintViolation{ConstraintViolation::Type::TYPE, label, std::set<PropertyId>{property}};
+  if (PropertyValueToTypeConstraintType(prop_value) != type) {
+    return ConstraintViolation{ConstraintViolation::Type::TYPE, label, type, std::set<PropertyId>{property}};
   }
   return std::nullopt;
 }
@@ -66,7 +66,7 @@ namespace memgraph::storage {
 }
 
 [[nodiscard]] std::optional<ConstraintViolation> TypeConstraints::ValidateVerticesOnConstraint(
-    utils::SkipList<Vertex>::Accessor vertices, LabelId label, PropertyId property, Type type) {
+    utils::SkipList<Vertex>::Accessor vertices, LabelId label, PropertyId property, TypeConstraintsType type) {
   for (auto const &vertex : vertices) {
     if (auto violation = ValidateVertexOnConstraint(vertex, label, property, type); violation.has_value()) {
       return violation;
@@ -81,7 +81,7 @@ bool TypeConstraints::ConstraintExists(LabelId label, PropertyId property) const
   return constraints_.contains({label, property});
 }
 
-bool TypeConstraints::InsertConstraint(LabelId label, PropertyId property, TypeConstraints::Type type) {
+bool TypeConstraints::InsertConstraint(LabelId label, PropertyId property, TypeConstraintsType type) {
   if (ConstraintExists(label, property)) {
     return false;
   }
@@ -89,54 +89,16 @@ bool TypeConstraints::InsertConstraint(LabelId label, PropertyId property, TypeC
   return true;
 }
 
-bool TypeConstraints::DropConstraint(LabelId label, PropertyId property) {
+std::optional<TypeConstraintsType> TypeConstraints::DropConstraint(LabelId label, PropertyId property) {
   auto it = constraints_.find({label, property});
   if (it == constraints_.end()) {
-    return false;
+    return std::nullopt;
   }
+  auto type = it->second;
   constraints_.erase(it);
-  return true;
+  return type;
 }
 
 void TypeConstraints::DropGraphClearConstraints() { constraints_.clear(); }
-
-TypeConstraints::Type TypeConstraints::PropertyValueToType(const PropertyValue &property) {
-  switch (property.type()) {
-    case PropertyValueType::String:
-      return TypeConstraints::Type::STRING;
-    case PropertyValueType::Bool:
-      return TypeConstraints::Type::BOOLEAN;
-    case PropertyValueType::Int:
-      return TypeConstraints::Type::INTEGER;
-    case PropertyValueType::Double:
-      return TypeConstraints::Type::FLOAT;
-    case PropertyValueType::List:
-      return TypeConstraints::Type::LIST;
-    case PropertyValueType::Map:
-      return TypeConstraints::Type::MAP;
-    case PropertyValueType::TemporalData: {
-      auto const temporal = property.ValueTemporalData();
-      switch (temporal.type) {
-        case TemporalType::Date:
-          return TypeConstraints::Type::DATE;
-        case TemporalType::LocalTime:
-          return TypeConstraints::Type::LOCALTIME;
-        case TemporalType::LocalDateTime:
-          return TypeConstraints::Type::LOCALDATETIME;
-        case TemporalType::Duration:
-          return TypeConstraints::Type::DURATION;
-      }
-    }
-    case PropertyValueType::ZonedTemporalData:
-      return TypeConstraints::Type::ZONEDDATETIME;
-    case PropertyValueType::Enum:
-      return TypeConstraints::Type::ENUM;
-    case PropertyValueType::Point2d:
-    case PropertyValueType::Point3d:
-      return TypeConstraints::Type::POINT;
-    case PropertyValueType::Null:
-      MG_ASSERT(false, "Unexpected conversion from PropertyValueType::Null to TypeConstraint::Type");
-  }
-}
 
 }  // namespace memgraph::storage

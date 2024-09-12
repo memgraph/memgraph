@@ -78,6 +78,8 @@ struct WalDeltaData {
     EXISTENCE_CONSTRAINT_DROP,
     UNIQUE_CONSTRAINT_CREATE,
     UNIQUE_CONSTRAINT_DROP,
+    TYPE_CONSTRAINT_CREATE,
+    TYPE_CONSTRAINT_DROP,
     ENUM_CREATE,
     ENUM_ALTER_ADD,
     ENUM_ALTER_UPDATE,
@@ -213,7 +215,10 @@ constexpr bool IsWalDeltaDataTypeTransactionEndVersion15(const WalDeltaData::Typ
     case WalDeltaData::Type::ENUM_ALTER_UPDATE:
     case WalDeltaData::Type::POINT_INDEX_CREATE:
     case WalDeltaData::Type::POINT_INDEX_DROP:
+    case WalDeltaData::Type::TYPE_CONSTRAINT_CREATE:
+    case WalDeltaData::Type::TYPE_CONSTRAINT_DROP:
       return true;  // TODO: Still true?
+      break;
   }
 }
 

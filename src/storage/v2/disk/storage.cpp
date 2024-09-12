@@ -1755,6 +1755,13 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
             return StorageManipulationError{PersistenceError{}};
           }
         } break;
+
+        case MetadataDelta::Action::TYPE_CONSTRAINT_CREATE:
+        case MetadataDelta::Action::TYPE_CONSTRAINT_DROP: {
+          throw utils::NotYetImplemented("Type constraints are not implemented for DiskStorage.");
+          break;
+        }
+
         case MetadataDelta::Action::ENUM_CREATE:
         case MetadataDelta::Action::ENUM_ALTER_ADD:
         case MetadataDelta::Action::ENUM_ALTER_UPDATE: {
@@ -2148,7 +2155,7 @@ UniqueConstraints::DeletionStatus DiskStorage::DiskAccessor::DropUniqueConstrain
 }
 
 utils::BasicResult<StorageExistenceConstraintDefinitionError, void> DiskStorage::DiskAccessor::CreateTypeConstraint(
-    LabelId /**/, PropertyId /**/, TypeConstraints::Type /**/) {
+    LabelId /**/, PropertyId /**/, TypeConstraintsType /**/) {
   throw utils::NotYetImplemented("Type constraints are not yet implemented for on-disk storage");
 }
 

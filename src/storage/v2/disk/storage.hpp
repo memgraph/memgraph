@@ -233,7 +233,7 @@ class DiskStorage final : public Storage {
                                                            const std::set<PropertyId> &properties) override;
 
     utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateTypeConstraint(
-        LabelId label, PropertyId property, TypeConstraints::Type type) override;
+        LabelId label, PropertyId property, TypeConstraintsType type) override;
 
     utils::BasicResult<StorageExistenceConstraintDroppingError, void> DropTypeConstraint(LabelId label,
                                                                                          PropertyId property) override;

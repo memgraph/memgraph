@@ -429,7 +429,7 @@ class InMemoryStorage final : public Storage {
 
     /// TODO COMMENT
     utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateTypeConstraint(
-        LabelId label, PropertyId property, TypeConstraints::Type type) override;
+        LabelId label, PropertyId property, TypeConstraintsType type) override;
 
     /// TODO COMMENT
     utils::BasicResult<StorageExistenceConstraintDroppingError, void> DropTypeConstraint(LabelId label,

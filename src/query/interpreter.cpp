@@ -89,6 +89,7 @@
 #include "replication/state.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/constraints/constraint_violation.hpp"
+#include "storage/v2/constraints/type_constraints.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/edge_import_mode.hpp"
@@ -4568,16 +4569,17 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
             if (maybe_constraint_error.HasError()) {
               const auto &error = maybe_constraint_error.GetError();
               std::visit(
-                  [storage, &label_name, &properties_stringified, &constraint_notification]<typename T>(T &&arg) {
+                  [storage, &label_name, &properties_stringified, &constraint_notification,
+                   &constraint_type]<typename T>(T &&arg) {
                     using ErrorType = std::remove_cvref_t<T>;
                     if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
                       auto &violation = arg;
                       MG_ASSERT(violation.properties.size() == 1U);
                       auto property_name = storage->PropertyToName(*violation.properties.begin());
-                      throw QueryRuntimeException(  // TODO add type to error message
-                          "Unable to create IS TYPED constraint :{}({}), because an "
+                      throw QueryRuntimeException(
+                          "Unable to create IS TYPED {} constraint :{}({}), because an "
                           "existing node violates it.",
-                          label_name, property_name);
+                          storage::TypeConstraintsTypeToString(*constraint_type), label_name, property_name);
                     } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintDefinitionError>) {
                       constraint_notification.code = NotificationCode::EXISTENT_CONSTRAINT;
                       constraint_notification.title =
@@ -5751,9 +5753,9 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
                   const auto &label_name = db_accessor.LabelToName(constraint_violation.label);
                   MG_ASSERT(constraint_violation.properties.size() == 1U);
                   const auto &property_name = db_accessor.PropertyToName(*constraint_violation.properties.begin());
-                  // TODO: Add which type it should be
-                  spdlog::warn("Trigger '{}' failed to commit due to type constraint violation on: {}({}) ",
-                               trigger.Name(), label_name, property_name);
+                  spdlog::warn("Trigger '{}' failed to commit due to type constraint violation on: {}({}) IS TYPED {}",
+                               trigger.Name(), label_name, property_name,
+                               storage::TypeConstraintsTypeToString(*constraint_violation.property_type));
                   break;
                 }
               }
@@ -5933,12 +5935,9 @@ void Interpreter::Commit() {
                                      property_names_stream.str());
               }
               case storage::ConstraintViolation::Type::TYPE: {
-                // TODO: This should never get triggered since type constraints get checked immediately and not at
+                // This should never get triggered since type constraints get checked immediately and not at
                 // commit time
-                auto &property_name = execution_db_accessor->PropertyToName(*constraint_violation.properties.begin());
-                // TODO: add which type it should be:
-                throw QueryException("Unable to commit due to type constraint violation on :{}({})", label_name,
-                                     property_name);
+                MG_ASSERT(false, "Encountered type constraint violation while commiting which should never happen.");
               }
             }
           } else if constexpr (std::is_same_v<ErrorType, storage::SerializationError>) {
