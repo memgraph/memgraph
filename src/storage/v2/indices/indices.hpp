@@ -51,12 +51,19 @@ struct Indices {
                     uint64_t exact_start_timestamp) const;
   void AbortEntries(LabelId label, std::span<std::pair<PropertyValue, Vertex *> const> vertices,
                     uint64_t exact_start_timestamp) const;
+  void AbortEntries(EdgeTypeId edge_type, std::span<std::tuple<Vertex *const, Vertex *const, Edge *const> const> edges,
+                    uint64_t exact_start_timestamp) const;
+  void AbortEntries(std::pair<EdgeTypeId, PropertyId> edge_type_property,
+                    std::span<std::tuple<Vertex *const, Vertex *const, Edge *const, PropertyValue> const> edges,
+                    uint64_t exact_start_timestamp) const;
 
   void DropGraphClearIndices();
 
   struct IndexStats {
     std::vector<LabelId> label;
     LabelPropertyIndex::IndexStats property_label;
+    std::vector<EdgeTypeId> edge_type;
+    EdgeTypePropertyIndex::IndexStats property_edge_type;
   };
   IndexStats Analysis() const;
 

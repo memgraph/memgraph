@@ -16,6 +16,7 @@
 #include <optional>
 #include "dbms/constants.hpp"
 #include "flags/experimental.hpp"
+#include "flags/general.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "memory/global_memory_control.hpp"
 #include "storage/v2/durability/durability.hpp"
@@ -1191,6 +1192,13 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     std::map<LabelId, std::vector<Vertex *>> label_cleanup;
     std::map<LabelId, std::vector<std::pair<PropertyValue, Vertex *>>> label_property_cleanup;
     std::map<PropertyId, std::vector<std::pair<PropertyValue, Vertex *>>> property_cleanup;
+    std::map<EdgeTypeId, std::vector<std::tuple<Vertex *const, Vertex *const, Edge *const>>> edge_type_cleanup;
+    std::map<std::pair<EdgeTypeId, PropertyId>,
+             std::vector<std::tuple<Vertex *const, Vertex *const, Edge *const, PropertyValue>>>
+        edge_type_property_cleanup;
+    std::map<std::pair<EdgeTypeId, PropertyId>,
+             std::vector<std::tuple<Vertex *const, Vertex *const, Edge *const, PropertyValue>>>
+        edge_property_cleanup;
 
     auto delta_size = transaction_.deltas.size();
     for (const auto &delta : transaction_.deltas) {
@@ -1292,6 +1300,23 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 // redundant. Also, `Edge/DELETE_OBJECT` isn't available when edge
                 // properties are disabled.
                 storage_->edge_count_.fetch_add(-1, std::memory_order_acq_rel);
+
+                if (!FLAGS_storage_properties_on_edges) break;
+                if (std::binary_search(index_stats.edge_type.begin(), index_stats.edge_type.end(),
+                                       current->vertex_edge.edge_type)) {
+                  edge_type_cleanup[current->vertex_edge.edge_type].emplace_back(vertex, current->vertex_edge.vertex,
+                                                                                 current->vertex_edge.edge.ptr);
+                }
+                const auto &properties = index_stats.property_edge_type.et2p.find(current->vertex_edge.edge_type);
+                if (properties != index_stats.property_edge_type.et2p.end()) {
+                  for (const auto &property : properties->second) {
+                    auto current_value = current->vertex_edge.edge.ptr->properties.GetProperty(property);
+                    if (!current_value.IsNull()) {
+                      edge_type_property_cleanup[std::make_pair(current->vertex_edge.edge_type, property)].emplace_back(
+                          vertex, current->vertex_edge.vertex, current->vertex_edge.edge.ptr, std::move(current_value));
+                    }
+                  }
+                }
                 break;
               }
               case Delta::Action::DELETE_DESERIALIZED_OBJECT:
@@ -1323,6 +1348,24 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
             switch (current->action) {
               case Delta::Action::SET_PROPERTY: {
                 edge->properties.SetProperty(current->property.key, *current->property.value);
+                if (!FLAGS_storage_properties_on_edges) break;
+
+                const auto &edge_types = index_stats.property_edge_type.p2et.find(current->property.key);
+                if (edge_types != index_stats.property_edge_type.p2et.end()) {
+                  auto current_value = edge->properties.GetProperty(current->property.key);
+                  if (!current_value.IsNull()) {
+                    for (const auto &edge_type : edge_types->second) {
+                      auto *from_vertex = current->property.out_vertex;
+                      for (const auto &[edge_type_out_edge, target_vertex, _] : from_vertex->out_edges) {
+                        if (edge_type_out_edge == edge_type) {
+                          edge_property_cleanup[{edge_type, current->property.key}].emplace_back(
+                              from_vertex, target_vertex, edge, current_value);
+                        }
+                      }
+                    }
+                  }
+                }
+
                 break;
               }
               case Delta::Action::DELETE_DESERIALIZED_OBJECT:
@@ -1406,6 +1449,15 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       }
       if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
         storage_->indices_.text_index_.Rollback();
+      }
+      for (auto const &[edge_type, edge] : edge_type_cleanup) {
+        storage_->indices_.AbortEntries(edge_type, edge, transaction_.start_timestamp);
+      }
+      for (auto const &[edge_type_property, edge] : edge_type_property_cleanup) {
+        storage_->indices_.AbortEntries(edge_type_property, edge, transaction_.start_timestamp);
+      }
+      for (auto const &[edge_type_property, edge] : edge_property_cleanup) {
+        storage_->indices_.AbortEntries(edge_type_property, edge, transaction_.start_timestamp);
       }
 
       // VERTICES
