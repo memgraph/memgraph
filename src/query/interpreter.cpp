@@ -5022,18 +5022,12 @@ PreparedQuery PrepareSessionTraceQuery(ParsedQuery parsed_query, CurrentDB &curr
 }
 
 PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, CurrentDB &current_db) {
-#ifdef MG_ENTERPRISE
-
   if (current_db.db_acc_->get()->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
     throw ShowSchemaInfoOnDiskException();
   }
 
-  if (!license::global_license_checker.IsEnterpriseValidFast()) {
-    throw QueryException("Trying to use enterprise feature without a valid license.");
-  }
-
   Callback callback;
-  callback.header = {"Schema"};
+  callback.header = {"schema"};
   callback.fn = [db = *current_db.db_acc_, db_acc = current_db.execution_db_accessor_,
                  storage_acc =
                      current_db.db_transactional_accessor_.get()]() mutable -> std::vector<std::vector<TypedValue>> {
@@ -5058,7 +5052,7 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
                                                        {"count", storage_acc->ApproximateVertexCount(label_id)}}));
       }
       // Vertex label property indices
-      for (const auto [label_id, property] : index_info.label_property) {
+      for (const auto &[label_id, property] : index_info.label_property) {
         node_indexes.push_back(
             nlohmann::json::object({{"labels", {storage->LabelToName(label_id)}},
                                     {"properties", {storage->PropertyToName(property)}},
@@ -5071,7 +5065,7 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
                                                        {"count", storage_acc->ApproximateEdgeCount(type)}}));
       }
       // Edge type property indices
-      for (const auto [type, property] : index_info.edge_type_property) {
+      for (const auto &[type, property] : index_info.edge_type_property) {
         edge_indexes.push_back(nlohmann::json::object({{"edge_type", {storage->EdgeTypeToName(type)}},
                                                        {"properties", {storage->PropertyToName(property)}},
                                                        {"count", storage_acc->ApproximateEdgeCount(type, property)}}));
@@ -5082,7 +5076,7 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       node_constraints = nlohmann::json::array();
       auto constraint_info = db_acc->ListAllConstraints();
       // Existence
-      for (const auto [label_id, property] : constraint_info.existence) {
+      for (const auto &[label_id, property] : constraint_info.existence) {
         node_constraints.push_back(nlohmann::json::object({{"type", "existence"},
                                                            {"labels", {storage->LabelToName(label_id)}},
                                                            {"properties", {storage->PropertyToName(property)}}}));
@@ -5128,9 +5122,6 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
                          return std::nullopt;
                        },
                        RWType::R, current_db.db_acc_->get()->name()};
-#else
-  throw QueryException("Query not supported.");
-#endif
 }
 
 std::optional<uint64_t> Interpreter::GetTransactionId() const { return current_transaction_; }
