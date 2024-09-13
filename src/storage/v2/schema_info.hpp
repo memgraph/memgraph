@@ -59,7 +59,7 @@ struct PropertyInfo {
   int n{0};
   std::unordered_map<ExtendedPropertyType, int, PropertyTypeHash> types;
 
-  nlohmann::json ToJson(const EnumStore &enum_store, std::string_view key) const;
+  nlohmann::json ToJson(const EnumStore &enum_store, std::string_view key, uint32_t max_count) const;
 };
 struct TrackingInfo {
   int n{0};

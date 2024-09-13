@@ -288,10 +288,11 @@ void Tracking::CleanUp() {
   }
 }
 
-nlohmann::json PropertyInfo::ToJson(const EnumStore &enum_store, std::string_view key) const {
+nlohmann::json PropertyInfo::ToJson(const EnumStore &enum_store, std::string_view key, uint32_t max_count) const {
   nlohmann::json::object_t property_info;
   property_info.emplace("key", key);
   property_info.emplace("count", n);
+  property_info.emplace("filling_factor", (100.0 * n) / max_count);
   const auto &[types_itr, _] = property_info.emplace("types", nlohmann::json::array_t{});
   for (const auto &type : types) {
     nlohmann::json::object_t type_info;
@@ -354,7 +355,7 @@ nlohmann::json TrackingInfo::ToJson(NameIdMapper &name_id_mapper, const EnumStor
   tracking_info.emplace("count", n);
   const auto &[prop_itr, __] = tracking_info.emplace("properties", nlohmann::json::array_t{});
   for (const auto &[p, info] : properties) {
-    prop_itr->second.emplace_back(info.ToJson(enum_store, name_id_mapper.IdToName(p.AsUint())));
+    prop_itr->second.emplace_back(info.ToJson(enum_store, name_id_mapper.IdToName(p.AsUint()), std::max(n, 1)));
   }
   return tracking_info;
 }
