@@ -555,7 +555,7 @@ class ScanAll : public memgraph::query::plan::LogicalOperator {
   /// transaction sees along with their modifications.
   storage::View view_;
 
-  std::string ToString() const override { return fmt::format("ScanAll ({})", output_symbol_.name()); }
+  std::string ToString() const override;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<ScanAll>();
@@ -585,9 +585,7 @@ class ScanAllByLabel : public memgraph::query::plan::ScanAll {
 
   storage::LabelId label_;
 
-  std::string ToString() const override {
-    return fmt::format("ScanAllByLabel ({} :{})", output_symbol_.name(), dba_->LabelToName(label_));
-  }
+  std::string ToString() const override;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<ScanAllByLabel>();
@@ -627,14 +625,7 @@ class ScanAllByEdge : public memgraph::query::plan::ScanAll {
   std::shared_ptr<LogicalOperator> input() const override { return input_; }
   void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
 
-  std::string ToString() const override {
-    return fmt::format(
-        "ScanAllByEdge ({}){}[{}{}]{}({})", common_.node1_symbol.name(),
-        common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-", common_.edge_symbol.name(),
-        utils::IterableToString(common_.edge_types, "|",
-                                [this](const auto &edge_type) { return ":" + dba_->EdgeTypeToName(edge_type); }),
-        common_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-", common_.node2_symbol.name());
-  }
+  std::string ToString() const override;
 
   storage::EdgeTypeId GetEdgeType() { return common_.edge_types[0]; }
 
@@ -665,14 +656,7 @@ class ScanAllByEdgeType : public memgraph::query::plan::ScanAllByEdge {
   std::shared_ptr<LogicalOperator> input() const override { return input_; }
   void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
 
-  std::string ToString() const override {
-    return fmt::format(
-        "ScanAllByEdgeType ({}){}[{}{}]{}({})", common_.node1_symbol.name(),
-        common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-", common_.edge_symbol.name(),
-        utils::IterableToString(common_.edge_types, "|",
-                                [this](const auto &edge_type) { return ":" + dba_->EdgeTypeToName(edge_type); }),
-        common_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-", common_.node2_symbol.name());
-  }
+  std::string ToString() const override;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<ScanAllByEdgeType>();
@@ -699,15 +683,7 @@ class ScanAllByEdgeTypeProperty : public memgraph::query::plan::ScanAllByEdge {
   std::shared_ptr<LogicalOperator> input() const override { return input_; }
   void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
 
-  std::string ToString() const override {
-    return fmt::format(
-        "ScanAllByEdgeTypeProperty ({0}){1}[{2}{3} {{{4}}}]{5}({6})", common_.node1_symbol.name(),
-        common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-", common_.edge_symbol.name(),
-        utils::IterableToString(common_.edge_types, "|",
-                                [this](const auto &edge_type) { return ":" + dba_->EdgeTypeToName(edge_type); }),
-        dba_->PropertyToName(property_), common_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-",
-        common_.node2_symbol.name());
-  }
+  std::string ToString() const override;
 
   storage::PropertyId property_;
 
@@ -738,15 +714,7 @@ class ScanAllByEdgeTypePropertyValue : public memgraph::query::plan::ScanAllByEd
   std::shared_ptr<LogicalOperator> input() const override { return input_; }
   void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
 
-  std::string ToString() const override {
-    return fmt::format(
-        "ScanAllByEdgeTypePropertyValue ({0}){1}[{2}{3} {{{4}}}]{5}({6})", common_.node1_symbol.name(),
-        common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-", common_.edge_symbol.name(),
-        utils::IterableToString(common_.edge_types, "|",
-                                [this](const auto &edge_type) { return ":" + dba_->EdgeTypeToName(edge_type); }),
-        dba_->PropertyToName(property_), common_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-",
-        common_.node2_symbol.name());
-  }
+  std::string ToString() const override;
 
   storage::PropertyId property_;
   Expression *expression_;
@@ -782,15 +750,7 @@ class ScanAllByEdgeTypePropertyRange : public memgraph::query::plan::ScanAllByEd
   std::shared_ptr<LogicalOperator> input() const override { return input_; }
   void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
 
-  std::string ToString() const override {
-    return fmt::format(
-        "ScanAllByEdgeTypePropertyRange ({0}){1}[{2}{3} {{{4}}}]{5}({6})", common_.node1_symbol.name(),
-        common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-", common_.edge_symbol.name(),
-        utils::IterableToString(common_.edge_types, "|",
-                                [this](const auto &edge_type) { return ":" + dba_->EdgeTypeToName(edge_type); }),
-        dba_->PropertyToName(property_), common_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-",
-        common_.node2_symbol.name());
-  }
+  std::string ToString() const override;
 
   storage::PropertyId property_;
   std::optional<Bound> lower_bound_;
@@ -805,14 +765,10 @@ class ScanAllByEdgeTypePropertyRange : public memgraph::query::plan::ScanAllByEd
     if (lower_bound_) {
       object->lower_bound_.emplace(
           utils::Bound<Expression *>(lower_bound_->value()->Clone(storage), lower_bound_->type()));
-    } else {
-      object->lower_bound_ = std::nullopt;
     }
     if (upper_bound_) {
       object->upper_bound_.emplace(
           utils::Bound<Expression *>(upper_bound_->value()->Clone(storage), upper_bound_->type()));
-    } else {
-      object->upper_bound_ = std::nullopt;
     }
     return object;
   }
@@ -858,10 +814,7 @@ class ScanAllByLabelPropertyRange : public memgraph::query::plan::ScanAll {
   std::optional<Bound> lower_bound_;
   std::optional<Bound> upper_bound_;
 
-  std::string ToString() const override {
-    return fmt::format("ScanAllByLabelPropertyRange ({0} :{1} {{{2}}})", output_symbol_.name(),
-                       dba_->LabelToName(label_), dba_->PropertyToName(property_));
-  }
+  std::string ToString() const override;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<ScanAllByLabelPropertyRange>();
@@ -873,14 +826,10 @@ class ScanAllByLabelPropertyRange : public memgraph::query::plan::ScanAll {
     if (lower_bound_) {
       object->lower_bound_.emplace(
           utils::Bound<Expression *>(lower_bound_->value()->Clone(storage), lower_bound_->type()));
-    } else {
-      object->lower_bound_ = std::nullopt;
     }
     if (upper_bound_) {
       object->upper_bound_.emplace(
           utils::Bound<Expression *>(upper_bound_->value()->Clone(storage), upper_bound_->type()));
-    } else {
-      object->upper_bound_ = std::nullopt;
     }
     return object;
   }
@@ -919,10 +868,7 @@ class ScanAllByLabelPropertyValue : public memgraph::query::plan::ScanAll {
   storage::PropertyId property_;
   Expression *expression_;
 
-  std::string ToString() const override {
-    return fmt::format("ScanAllByLabelPropertyValue ({0} :{1} {{{2}}})", output_symbol_.name(),
-                       dba_->LabelToName(label_), dba_->PropertyToName(property_));
-  }
+  std::string ToString() const override;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<ScanAllByLabelPropertyValue>();
@@ -957,10 +903,7 @@ class ScanAllByLabelProperty : public memgraph::query::plan::ScanAll {
   storage::PropertyId property_;
   Expression *expression_;
 
-  std::string ToString() const override {
-    return fmt::format("ScanAllByLabelProperty ({0} :{1} {{{2}}})", output_symbol_.name(), dba_->LabelToName(label_),
-                       dba_->PropertyToName(property_));
-  }
+  std::string ToString() const override;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<ScanAllByLabelProperty>();
@@ -989,7 +932,7 @@ class ScanAllById : public memgraph::query::plan::ScanAll {
 
   Expression *expression_;
 
-  std::string ToString() const override { return fmt::format("ScanAllById ({})", output_symbol_.name()); }
+  std::string ToString() const override;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<ScanAllById>();
@@ -1016,7 +959,7 @@ class ScanAllByEdgeId : public memgraph::query::plan::ScanAllByEdge {
   std::shared_ptr<LogicalOperator> input() const override { return input_; }
   void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
 
-  std::string ToString() const override { return fmt::format("ScanAllByEdgeId ({})", common_.edge_symbol.name()); }
+  std::string ToString() const override;
 
   Expression *expression_;
 

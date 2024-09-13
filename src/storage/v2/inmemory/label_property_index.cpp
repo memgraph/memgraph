@@ -16,6 +16,7 @@
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
+#include "storage/v2/inmemory/property_constants.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
@@ -235,26 +236,6 @@ void InMemoryLabelPropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
   }
 }
 
-// These constants represent the smallest possible value of each type that is
-// contained in a `PropertyValue`. Note that numbers (integers and doubles) are
-// treated as the same "type" in `PropertyValue`.
-const PropertyValue kSmallestBool = PropertyValue(false);
-// NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
-static_assert(-std::numeric_limits<double>::infinity() < std::numeric_limits<int64_t>::min());
-const PropertyValue kSmallestNumber = PropertyValue(-std::numeric_limits<double>::infinity());
-const PropertyValue kSmallestString = PropertyValue("");
-const PropertyValue kSmallestList = PropertyValue(std::vector<PropertyValue>());
-const PropertyValue kSmallestMap = PropertyValue(PropertyValue::map_t{});
-const PropertyValue kSmallestTemporalData =
-    PropertyValue(TemporalData{static_cast<TemporalType>(0), std::numeric_limits<int64_t>::min()});
-const PropertyValue kSmallestZonedTemporalData = PropertyValue(
-    ZonedTemporalData{static_cast<ZonedTemporalType>(0), utils::AsSysTime(std::numeric_limits<int64_t>::min()),
-                      utils::Timezone(std::chrono::minutes{-utils::MAX_OFFSET_MINUTES})});
-const PropertyValue kSmallestEnum = PropertyValue(Enum{EnumTypeId{0}, EnumValueId{0}});
-const PropertyValue kSmallestPoint2d = PropertyValue(Point2d{CoordinateReferenceSystem::WGS84_2d, -180, -90});
-const PropertyValue kSmallestPoint3d =
-    PropertyValue(Point3d{CoordinateReferenceSystem::WGS84_3d, -180, -90, -std::numeric_limits<double>::infinity()});
-
 InMemoryLabelPropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor,
                                                utils::SkipList<Vertex>::ConstAccessor vertices_accessor, LabelId label,
                                                PropertyId property,
@@ -275,14 +256,6 @@ InMemoryLabelPropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor 
   // are returned by the iterator. We ensure this by supplying either an
   // inclusive lower bound of the same type, or an exclusive upper bound of the
   // following type. If neither bound is set we yield all items in the index.
-
-  // First we statically verify that our assumptions about the `PropertyValue`
-  // type ordering holds.
-  static_assert(PropertyValue::Type::Bool < PropertyValue::Type::Int);
-  static_assert(PropertyValue::Type::Int < PropertyValue::Type::Double);
-  static_assert(PropertyValue::Type::Double < PropertyValue::Type::String);
-  static_assert(PropertyValue::Type::String < PropertyValue::Type::List);
-  static_assert(PropertyValue::Type::List < PropertyValue::Type::Map);
 
   // Remove any bounds that are set to `Null` because that isn't a valid value.
   if (lower_bound_ && lower_bound_->value().IsNull()) {
