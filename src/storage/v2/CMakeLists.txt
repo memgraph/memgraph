@@ -71,7 +71,6 @@ target_sources(mg-storage-v2
 
 find_package(gflags REQUIRED)
 find_package(Threads REQUIRED)
-find_package(Boost REQUIRED COMPONENTS thread)
 
 target_include_directories(mg-storage-v2 PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(mg-storage-v2
@@ -91,5 +90,4 @@ target_link_libraries(mg-storage-v2
     tantivy_text_search
     strong_type::strong_type
     rangev3
-    Boost::thread
 )

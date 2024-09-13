@@ -17,6 +17,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <shared_mutex>
 #include <tuple>
 #include <unordered_map>
 #include <unordered_set>
@@ -35,9 +36,6 @@
 #include "utils/logging.hpp"
 #include "utils/rw_spin_lock.hpp"
 #include "utils/small_vector.hpp"
-
-#include <boost/thread/shared_lock_guard.hpp>
-#include <boost/thread/shared_mutex.hpp>
 
 // TODO Add namespace schema_info
 namespace memgraph::storage {
@@ -638,10 +636,8 @@ struct SchemaInfo {
     }
 
     SchemaInfo *schema_info_;
-    boost::unique_lock<boost::shared_mutex> lock_;
+    std::unique_lock<std::shared_mutex> lock_;
     bool properties_on_edges_;
-
-    friend AnalyticalAccessor;
   };
 
   // tracking_ only needs to be locked here.
@@ -654,12 +650,6 @@ struct SchemaInfo {
    public:
     explicit AnalyticalAccessor(SchemaInfo &si, bool prop_on_edges)
         : schema_info_{&si}, lock_{schema_info_->operation_ordering_mutex_}, property_on_edges_(prop_on_edges) {}
-
-    // Downgrade accessor
-    explicit AnalyticalAccessor(AnalyticalUniqueAccessor &&unique)
-        : schema_info_{unique.schema_info_},
-          upgrade_lock_{std::move(unique.lock_)},
-          property_on_edges_{unique.properties_on_edges_} {}
 
     // Vertex
     void CreateVertex(Vertex *vertex) {
@@ -723,8 +713,7 @@ struct SchemaInfo {
 
    private:
     SchemaInfo *schema_info_;
-    boost::shared_lock<boost::shared_mutex> lock_;
-    boost::upgrade_lock<boost::shared_mutex> upgrade_lock_;
+    std::shared_lock<std::shared_mutex> lock_;
     bool property_on_edges_;
   };
 
@@ -760,7 +749,7 @@ struct SchemaInfo {
   }
 
   Tracking tracking_;
-  mutable boost::shared_mutex operation_ordering_mutex_;
+  mutable std::shared_mutex operation_ordering_mutex_;
   mutable utils::RWSpinLock mtx_;
 };
 

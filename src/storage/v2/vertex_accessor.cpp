@@ -113,20 +113,29 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
   }
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   // This has to be called before any object gets locked
+  // 1. do a optimistic shared lock
+  // 2. lock vertex and check
+  // 3. if unique lock is needed unlock both the vertex and accessor
+  // 4. take unique access and re-lock vertex
   std::optional<std::variant<SchemaInfo::AnalyticalAccessor, SchemaInfo::AnalyticalUniqueAccessor>> schema_acc;
-  if (auto schema_unique_acc = storage_->SchemaInfoUniqueAccessor(); schema_unique_acc) {
-    schema_acc = std::move(*schema_unique_acc);
+  if (auto schema_shared_acc = storage_->SchemaInfoAccessor(); schema_shared_acc) {
+    schema_acc = std::move(*schema_shared_acc);
   }
   auto guard = std::unique_lock{vertex_->lock};
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
   if (vertex_->deleted) return Error::DELETED_OBJECT;
 
-  // Now that the vertex is locked, we can check if it has any edges and if it doesn't, we can downgrade the accessor
+  // Now that the vertex is locked, we can check if it has any edges and if it does, we can upgrade the accessor
   if (schema_acc) {
-    if (vertex_->in_edges.empty() && vertex_->out_edges.empty()) {
-      schema_acc->emplace<SchemaInfo::AnalyticalAccessor>(
-          std::get<SchemaInfo::AnalyticalUniqueAccessor>(std::move(*schema_acc)));
+    if (!vertex_->in_edges.empty() || !vertex_->out_edges.empty()) {
+      guard.unlock();
+      schema_acc.reset();
+      schema_acc = *storage_->SchemaInfoUniqueAccessor();
+      guard.lock();
+      // Need to re-check for serialization errors
+      if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
+      if (vertex_->deleted) return Error::DELETED_OBJECT;
     }
   }
 
@@ -179,20 +188,29 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
     throw query::WriteVertexOperationInEdgeImportModeException();
   }
   // This has to be called before any object gets locked
+  // 1. do an optimistic shared lock
+  // 2. lock vertex and check
+  // 3. if unique lock is needed unlock both the vertex and accessor
+  // 4. take unique access and re-lock vertex
   std::optional<std::variant<SchemaInfo::AnalyticalAccessor, SchemaInfo::AnalyticalUniqueAccessor>> schema_acc;
-  if (auto schema_unique_acc = storage_->SchemaInfoUniqueAccessor(); schema_unique_acc) {
-    schema_acc = std::move(*schema_unique_acc);
+  if (auto schema_shared_acc = storage_->SchemaInfoAccessor(); schema_shared_acc) {
+    schema_acc = std::move(*schema_shared_acc);
   }
   auto guard = std::unique_lock{vertex_->lock};
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
   if (vertex_->deleted) return Error::DELETED_OBJECT;
 
-  // Now that the vertex is locked, we can check if it has any edges and if it doesn't, we can downgrade the accessor
+  // Now that the vertex is locked, we can check if it has any edges and if it does, we can upgrade the accessor
   if (schema_acc) {
-    if (vertex_->in_edges.empty() && vertex_->out_edges.empty()) {
-      schema_acc->emplace<SchemaInfo::AnalyticalAccessor>(
-          std::get<SchemaInfo::AnalyticalUniqueAccessor>(std::move(*schema_acc)));
+    if (!vertex_->in_edges.empty() || !vertex_->out_edges.empty()) {
+      guard.unlock();
+      schema_acc.reset();
+      schema_acc = *storage_->SchemaInfoUniqueAccessor();
+      guard.lock();
+      // Need to re-check for serialization errors
+      if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
+      if (vertex_->deleted) return Error::DELETED_OBJECT;
     }
   }
 
