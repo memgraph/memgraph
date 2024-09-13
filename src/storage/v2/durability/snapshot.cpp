@@ -3045,7 +3045,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
     // Recover type constraints.
     // Snapshot version should be checked since type constraints were
     // implemented in later versions of snapshot.
-    if (*version >= kVersion) {  // TODO TYPE CONSTRAINTS UPDATE THIS TO SPATIAL VERSION
+    if (*version >= kPointIndexAndTypeConstraints) {
       auto size = snapshot.ReadUint();
       if (!size) throw RecoveryFailure("Couldn't read the number of type constraints!");
       spdlog::info("Recovering metadata of {} type constraints.", *size);
