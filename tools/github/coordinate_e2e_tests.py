@@ -17,7 +17,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from queue import Queue
-from typing import List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import docker
 import yaml
@@ -25,6 +25,8 @@ import yaml
 CONTAINER_NAME_PREFIX = "container-"
 LOGS_PATH = "/build/logs/"
 TESTS_PATH = "/build/tests/e2e/"
+
+SINGLE_THREAD_WORKLOADS = {"ON CREATE Triggers"}
 
 
 def get_container_logs_path(container_root_dir):
@@ -340,10 +342,12 @@ def process_workloads(
     """
     docker_handler = DockerHandler()
     synchronized_print.print(f">>>>Starting {get_container_name(id)}")
-    container = docker_handler.start_container_from_image(image_name, id)
-    if container is None:
+    container = None
+    try:
+        container = docker_handler.start_container_from_image(image_name, id)
+    except Exception as e:
+        synchronized_print.print(f"Exception occurred while starting container {id}: {e}")
         error_counter.increment()
-        synchronized_print.print(f"Failed to start container {id}")
         return
 
     synchronized_print.print(f">>>>Started {get_container_name(id)} with id {container.id}")
@@ -386,7 +390,10 @@ def process_workloads(
                 )
                 error_counter.increment()
                 failure = True
-                exceptions.append(res_stdout_formatted)
+                # exceptions.append(res_stdout_formatted)
+                exceptions.append(
+                    f"Fail! Container id: {get_container_name(id)} failed workload: {workload_name} using docker command {docker_command}"
+                )
                 break
             else:
                 synchronized_print.print(
@@ -620,11 +627,45 @@ def run_workloads_in_parallel(workloads, args, image_name) -> Tuple[dict, bool]:
     return result, error
 
 
+def run_workloads_in_single_thread(workloads, id, args, image_name) -> Tuple[dict, bool]:
+    synchronized_queue = SynchronizedQueue(workloads)
+    thread = None
+    error = False
+    try:
+        thread = threading.Thread(
+            target=process_workloads,
+            args=(
+                id,
+                image_name,
+                args.setup_command,
+                synchronized_queue,
+                synchronized_map,
+                args.container_root_dir,
+                synchronized_container_copy,
+                args.original_container_id,
+            ),
+        )
+
+        thread.start()
+        thread.join()
+
+    except Exception as e:
+        print(f"Exception occurred: {e}")
+        error = True
+    finally:
+        if thread is not None:
+            if thread.is_alive():
+                thread.join()
+    result = synchronized_map.reset_and_get()
+
+    return result, error
+
+
 def print_diff_summary(result, args):
     print("DIFF SUMMARY:")
     for id, container_info in result.items():
         print(f">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
-        print(f"\t\tContainer id: {id} \n ")
+        print(f"\t\t{container_info.container_name} \n ")
 
         stdout, stderr = [out[0] for out in container_info.output], [out[1] for out in container_info.output]
 
@@ -633,7 +674,7 @@ def print_diff_summary(result, args):
 
         copy_output_to_container(
             args.original_container_id,
-            f"{get_container_name(id)}",
+            f"{container_info.container_name}",
             get_container_logs_path(args.container_root_dir),
             formated_stdout_output,
             formated_stderr_output,
@@ -641,14 +682,10 @@ def print_diff_summary(result, args):
 
         total_time = sum([x[2] for x in container_info.tasks_executed])
         print(
-            f"\t\t{get_container_name(id)} executed {len(container_info.tasks_executed)} tasks in {total_time} seconds."
+            f"\t\t{container_info.container_name} executed {len(container_info.tasks_executed)} tasks in {total_time} seconds."
         )
         for task in container_info.tasks_executed:
             print(f"\t\t\t {task}")
-
-        if container_info.exceptions:
-            exceptions = "\n\t".join(container_info.exceptions)
-            print(f"\t\t{get_container_name(id)} failed with exception:\n {exceptions}")
 
         print(f">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
     print("END OF DIFF SUMMARY")
@@ -669,6 +706,33 @@ def print_errors_summary(result):
                 print(f"{get_container_name(id)} exception:\n {exceptions}.")
                 print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
     print("END OF ERRORS SUMMARY")
+
+
+def split_workloads(workloads: List[Tuple[str, str]]):
+    """
+    This function splits workloads in workloads which require multiple threads to execute properly, and
+    rest of them which can be executed in parallel
+    :param workloads: All workloads
+    :return: single thread execution ones, and other workloads
+    """
+    global SINGLE_THREAD_WORKLOADS
+
+    single_thread_execution_workloads_split = [
+        workload for workload in workloads if workload[1] in SINGLE_THREAD_WORKLOADS
+    ]
+    other_workloads_split = [workload for workload in workloads if workload[1] not in SINGLE_THREAD_WORKLOADS]
+
+    return single_thread_execution_workloads_split, other_workloads_split
+
+
+def try_print_summaries(result: Optional[Dict[id, ContainerInfo]], args):
+    if result is None:
+        return
+    try:
+        print_diff_summary(result, args)
+        print_errors_summary(result)
+    except Exception as e:
+        print(f"Exception occurred on printing summary: {e}")
 
 
 def main():
@@ -700,28 +764,45 @@ def main():
         cleanup_state(docker_handler, image_name)
         exit(1)
 
-    error = False
-    result = None
+    workload_single_thread, workload_parallel = split_workloads(workloads)
+
+    print(f"Workloads single thread {workload_single_thread}")
+
+    error_parallel = False
+    result_parallel = None
     try:
-        result, error = run_workloads_in_parallel(workloads, args, image_name)
+        result_parallel, error_parallel = run_workloads_in_parallel(workload_parallel, args, image_name)
     except Exception as e:
         print(f"Exception occurred on run workflows: {e}")
-        error = True
+        error_parallel = True
 
-    if result is not None:
-        try:
-            print_diff_summary(result, args)
-            print_errors_summary(result)
-        except Exception as e:
-            print(f"Exception occurred on printing summary: {e}")
-            error = True
+    if error_parallel or error_counter.get() > 0:
+        try_print_summaries(result_parallel, args)
+        cleanup_state(docker_handler, image_name)
+        exit(1)
+
+    result_single_thread = None
+    error_single_thread = False
+    try:
+        result_single_thread, error_single_thread = run_workloads_in_single_thread(
+            workload_single_thread, args.threads * 2, args, image_name
+        )
+    except Exception as e:
+        print(f"Exception occurred on run workflows: {e}")
+        error_single_thread = True
+
+    if error_single_thread or error_counter.get() > 0:
+        try_print_summaries(result_single_thread, args)
+        cleanup_state(docker_handler, image_name)
+        exit(1)
+
+    result = {**result_parallel, **result_single_thread}
+
+    try_print_summaries(result, args)
 
     # Cleanup state after running, we don't want to leave image on the system
     # Containers must not/should not be present on the system as they produce problems for other diffs
     cleanup_state(docker_handler, image_name)
-
-    if error_counter.get() > 0 or error:
-        exit(1)
 
 
 main()
