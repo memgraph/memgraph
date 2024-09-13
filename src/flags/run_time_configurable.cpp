@@ -153,19 +153,18 @@ void Initialize() {
     // Get flag info
     gflags::CommandLineFlagInfo info;
     gflags::GetCommandLineFlagInfo(flag.c_str(), &info);
+
+    // Generate settings callback
+    auto callback = [update = GenHandler(flag, key), post_update = std::move(post_update)] {
+      const auto &val = update();
+      post_update(val);
+    };
     // Register setting
-    auto update = GenHandler(flag, key);
-    memgraph::utils::global_settings.RegisterSetting(
-        key, info.default_value,
-        [update, post_update = std::move(post_update)] {
-          const auto &val = update();
-          post_update(val);
-        },
-        validator);
+    memgraph::utils::global_settings.RegisterSetting(key, info.default_value, callback, validator);
 
     if (restore && info.is_default) {
       // No input from the user, restore persistent value from settings
-      update();
+      callback();
     } else {
       // Override with current value - user defined a new value or the run-time flag is not persistent between starts
       memgraph::utils::global_settings.SetValue(key, info.current_value);
