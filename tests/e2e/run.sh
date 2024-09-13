@@ -3,7 +3,9 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$SCRIPT_DIR"
 
 print_help() {
-  echo -e "$0 ["workload name string"]"
+  echo "    run args   1. Positional argument, workload name as string"
+  echo "               2. If you specify --save-data-dir, whole data directory will get preserved."
+  echo "               3. If you specify --clean-logs-dir, all logs will get deleted."
   echo -e ""
   echo -e "  NOTE: some tests require enterprise licence key,"
   echo -e "        to run those define the folowing env vars:"
@@ -20,13 +22,14 @@ check_license() {
 source "$SCRIPT_DIR/../util.sh"
 setup_node
 
-if [ "$#" -eq 0 ]; then
+num_args="$#"
+if [ $num_args -eq 0 ]; then
   check_license
   # NOTE: If you want to run all tests under specific folder/section just
   # replace the dot (root directory below) with the folder name, e.g.
   # `--workloads-root-directory replication`.
   python3 runner.py --workloads-root-directory "$SCRIPT_DIR/../../build/tests/e2e"
-elif [ "$#" -eq 1 ]; then
+elif [ $num_args -ge 1 ]; then
   if [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
     print_help
   fi
@@ -34,7 +37,8 @@ elif [ "$#" -eq 1 ]; then
   # NOTE: --workload-name comes from each individual folder/section
   # workloads.yaml file. E.g. `streams/workloads.yaml` has a list of
   # `workloads:` and each workload has it's `-name`.
-  python3 runner.py --workloads-root-directory "$SCRIPT_DIR/../../build/tests/e2e" --workload-name "$1"
+  # Python script will parse remaining args
+  python3 runner.py --workloads-root-directory "$SCRIPT_DIR/../../build/tests/e2e" --workload-name "$1" "${@:2}"
 else
   print_help
 fi
