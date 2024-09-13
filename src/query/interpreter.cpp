@@ -90,6 +90,7 @@
 #include "spdlog/spdlog.h"
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/constraints/type_constraints.hpp"
+#include "storage/v2/constraints/type_constraints_type.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/edge_import_mode.hpp"
@@ -4219,14 +4220,14 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
       break;
     }
     case DatabaseInfoQuery::InfoType::CONSTRAINT: {
-      header = {"constraint type", "label", "properties"};
+      header = {"constraint type", "label", "properties", "type"};
       handler = [storage = current_db.db_acc_->get()->storage(), dba] {
         auto info = dba->ListAllConstraints();
         std::vector<std::vector<TypedValue>> results;
-        results.reserve(info.existence.size() + info.unique.size());
+        results.reserve(info.existence.size() + info.unique.size() + info.type.size());
         for (const auto &item : info.existence) {
           results.push_back({TypedValue("exists"), TypedValue(storage->LabelToName(item.first)),
-                             TypedValue(storage->PropertyToName(item.second))});
+                             TypedValue(storage->PropertyToName(item.second)), TypedValue("")});
         }
         for (const auto &item : info.unique) {
           std::vector<TypedValue> properties;
@@ -4234,8 +4235,13 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
           for (const auto &property : item.second) {
             properties.emplace_back(storage->PropertyToName(property));
           }
-          results.push_back(
-              {TypedValue("unique"), TypedValue(storage->LabelToName(item.first)), TypedValue(std::move(properties))});
+          results.push_back({TypedValue("unique"), TypedValue(storage->LabelToName(item.first)),
+                             TypedValue(std::move(properties)), TypedValue("")});
+        }
+        for (const auto &[label, property, type] : info.type) {
+          results.push_back({TypedValue("type"), TypedValue(storage->LabelToName(label)),
+                             TypedValue(storage->PropertyToName(property)),
+                             TypedValue(storage::TypeConstraintsTypeToString(type))});
         }
         return std::pair{results, QueryHandlerResult::COMMIT};
       };

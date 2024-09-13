@@ -3570,6 +3570,16 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
         }
       }
     }
+    // Write type constraints
+    {
+      auto type_constraints = storage->constraints_.type_constraints_->ListConstraints();
+      snapshot.WriteUint(type_constraints.size());
+      for (const auto &[label, property, type] : type_constraints) {
+        write_mapping(label);
+        write_mapping(property);
+        snapshot.WriteUint(static_cast<uint64_t>(type));
+      }
+    }
   }
 
   // Write mapper data.

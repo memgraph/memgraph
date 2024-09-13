@@ -49,6 +49,8 @@ class TypeConstraints {
   bool ConstraintExists(LabelId label, PropertyId property) const;
   bool InsertConstraint(LabelId label, PropertyId property, TypeConstraintsType type);
   std::optional<TypeConstraintsType> DropConstraint(LabelId label, PropertyId property);
+
+  std::vector<std::tuple<LabelId, PropertyId, TypeConstraintsType>> ListConstraints() const;
   void DropGraphClearConstraints();
 
  private:

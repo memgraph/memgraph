@@ -28,6 +28,7 @@
 #include "storage/v2/commit_log.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/constraints/type_constraints.hpp"
+#include "storage/v2/constraints/type_constraints_type.hpp"
 #include "storage/v2/database_access.hpp"
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/wal.hpp"
@@ -79,6 +80,7 @@ struct IndicesInfo {
 struct ConstraintsInfo {
   std::vector<std::pair<LabelId, PropertyId>> existence;
   std::vector<std::pair<LabelId, std::set<PropertyId>>> unique;
+  std::vector<std::tuple<LabelId, PropertyId, TypeConstraintsType>> type;
 };
 
 struct StorageInfo {

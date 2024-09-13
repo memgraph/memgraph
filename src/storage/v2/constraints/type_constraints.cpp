@@ -11,6 +11,7 @@
 
 #include "type_constraints.hpp"
 #include <optional>
+#include "storage/v2/constraints/type_constraints_type.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/logging.hpp"
@@ -97,6 +98,15 @@ std::optional<TypeConstraintsType> TypeConstraints::DropConstraint(LabelId label
   auto type = it->second;
   constraints_.erase(it);
   return type;
+}
+
+std::vector<std::tuple<LabelId, PropertyId, TypeConstraintsType>> TypeConstraints::ListConstraints() const {
+  std::vector<std::tuple<LabelId, PropertyId, TypeConstraintsType>> constraints;
+  constraints.reserve(constraints_.size());
+  for (const auto &[label_props, type] : constraints_) {
+    constraints.emplace_back(label_props.first, label_props.second, type);
+  }
+  return constraints;
 }
 
 void TypeConstraints::DropGraphClearConstraints() { constraints_.clear(); }

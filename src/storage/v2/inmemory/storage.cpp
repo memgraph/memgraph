@@ -2818,7 +2818,8 @@ IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
 ConstraintsInfo InMemoryStorage::InMemoryAccessor::ListAllConstraints() const {
   const auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   return {mem_storage->constraints_.existence_constraints_->ListConstraints(),
-          mem_storage->constraints_.unique_constraints_->ListConstraints()};
+          mem_storage->constraints_.unique_constraints_->ListConstraints(),
+          mem_storage->constraints_.type_constraints_->ListConstraints()};
 }
 
 void InMemoryStorage::InMemoryAccessor::SetIndexStats(const storage::LabelId &label, const LabelIndexStats &stats) {
