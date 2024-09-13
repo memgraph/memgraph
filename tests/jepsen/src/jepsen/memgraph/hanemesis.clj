@@ -86,6 +86,7 @@
            (gen/sleep 5)
            {:type :info, :f :stop-partition-halves}])))
 
+
 (defn nemesis
   "Composite nemesis and generator"
   [nemesis-opts nodes-config]
