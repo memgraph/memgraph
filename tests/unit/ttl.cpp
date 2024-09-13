@@ -16,6 +16,7 @@
 
 #include "dbms/database.hpp"
 #include "disk_test_utils.hpp"
+#include "flags/run_time_configurable.hpp"
 #include "query/interpreter_context.hpp"
 #include "query/time_to_live/time_to_live.hpp"
 #include "storage/v2/disk/storage.hpp"
@@ -308,6 +309,29 @@ TYPED_TEST(TTLFixture, Durability) {
       EXPECT_TRUE(ttl.Running());
     }
   }
+}
+
+// Needs user-defined timezone
+TEST(TtlInfo, PersistentTimezone) {
+  memgraph::utils::global_settings.Initialize("/tmp/ttl");
+  memgraph::flags::run_time::Initialize();
+  // Default value
+  EXPECT_EQ(memgraph::flags::run_time::GetTimezone()->name(), "Etc/UTC");
+  // New value
+  memgraph::utils::global_settings.SetValue("timezone", "Europe/Rome");
+  EXPECT_EQ(memgraph::flags::run_time::GetTimezone()->name(), "Europe/Rome");
+  memgraph::utils::global_settings.Finalize();
+
+  // Recover previous value
+  memgraph::utils::global_settings.Initialize("/tmp/ttl");
+  memgraph::flags::run_time::Initialize();
+  EXPECT_EQ(memgraph::flags::run_time::GetTimezone()->name(), "Europe/Rome");
+  memgraph::utils::global_settings.Finalize();
+
+  memgraph::utils::OnScopeExit clean_up([] {
+    memgraph::utils::global_settings.Finalize();
+    std::filesystem::remove_all("/tmp/ttl");
+  });
 }
 
 // Needs user-defined timezone
