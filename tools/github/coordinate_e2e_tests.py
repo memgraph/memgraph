@@ -26,7 +26,7 @@ CONTAINER_NAME_PREFIX = "container-"
 LOGS_PATH = "/build/logs/"
 TESTS_PATH = "/build/tests/e2e/"
 
-SINGLE_THREAD_WORKLOADS = {"ON CREATE Triggers"}
+CONTENTION_WORKLOADS = {"triggers", "high_availability", "replication", "replication_experimental"}
 
 
 def get_container_logs_path(container_root_dir):
@@ -589,12 +589,12 @@ def create_image_from_container(docker_handler, original_container_id, image_nam
     print(f"Committed image {image_name}")
 
 
-def run_workloads_in_parallel(workloads, args, image_name) -> Tuple[dict, bool]:
+def run_workloads_in_parallel(workloads, args, image_name, id_start: int, id_end: int) -> Tuple[dict, bool]:
     synchronized_queue = SynchronizedQueue(workloads)
     threads = []
     error = False
     try:
-        for i in range(1, args.threads + 1):
+        for i in range(id_start, id_end):
             thread = threading.Thread(
                 target=process_workloads,
                 args=(
@@ -620,40 +620,6 @@ def run_workloads_in_parallel(workloads, args, image_name) -> Tuple[dict, bool]:
         error = True
     finally:
         for thread in threads:
-            if thread.is_alive():
-                thread.join()
-    result = synchronized_map.reset_and_get()
-
-    return result, error
-
-
-def run_workloads_in_single_thread(workloads, id, args, image_name) -> Tuple[dict, bool]:
-    synchronized_queue = SynchronizedQueue(workloads)
-    thread = None
-    error = False
-    try:
-        thread = threading.Thread(
-            target=process_workloads,
-            args=(
-                id,
-                image_name,
-                args.setup_command,
-                synchronized_queue,
-                synchronized_map,
-                args.container_root_dir,
-                synchronized_container_copy,
-                args.original_container_id,
-            ),
-        )
-
-        thread.start()
-        thread.join()
-
-    except Exception as e:
-        print(f"Exception occurred: {e}")
-        error = True
-    finally:
-        if thread is not None:
             if thread.is_alive():
                 thread.join()
     result = synchronized_map.reset_and_get()
@@ -715,12 +681,12 @@ def split_workloads(workloads: List[Tuple[str, str]]):
     :param workloads: All workloads
     :return: single thread execution ones, and other workloads
     """
-    global SINGLE_THREAD_WORKLOADS
+    global CONTENTION_WORKLOADS
 
     single_thread_execution_workloads_split = [
-        workload for workload in workloads if workload[1] in SINGLE_THREAD_WORKLOADS
+        workload for workload in workloads if workload[0] in CONTENTION_WORKLOADS
     ]
-    other_workloads_split = [workload for workload in workloads if workload[1] not in SINGLE_THREAD_WORKLOADS]
+    other_workloads_split = [workload for workload in workloads if workload[0] not in CONTENTION_WORKLOADS]
 
     return single_thread_execution_workloads_split, other_workloads_split
 
@@ -770,8 +736,11 @@ def main():
 
     error_parallel = False
     result_parallel = None
+    end_id = args.threads + 1
     try:
-        result_parallel, error_parallel = run_workloads_in_parallel(workload_parallel, args, image_name)
+        result_parallel, error_parallel = run_workloads_in_parallel(
+            workload_parallel, args, image_name, id_start=1, id_end=end_id
+        )
     except Exception as e:
         print(f"Exception occurred on run workflows: {e}")
         error_parallel = True
@@ -781,22 +750,29 @@ def main():
         cleanup_state(docker_handler, image_name)
         exit(1)
 
-    result_single_thread = None
-    error_single_thread = False
+    result_contention_on_threads = None
+    error_contention_on_threads = False
+
+    # This part needs better resource control
+    # Probably for each workload define max number of threads needed, split workloads
+    NUM_PROC = 24  # we expect there are 24 thread on each machine
+    MAX_REQUIREMENT_THREADS = 6  # needs double checking, HA mostly uses 6 threads
+    num_threads_to_use = NUM_PROC / MAX_REQUIREMENT_THREADS
+    start_id = end_id
     try:
-        result_single_thread, error_single_thread = run_workloads_in_single_thread(
-            workload_single_thread, args.threads * 2, args, image_name
+        result_contention_on_threads, error_contention_on_threads = run_workloads_in_parallel(
+            workload_single_thread, args, image_name, id_start=start_id, id_end=start_id + num_threads_to_use
         )
     except Exception as e:
         print(f"Exception occurred on run workflows: {e}")
-        error_single_thread = True
+        error_contention_on_threads = True
 
-    if error_single_thread or error_counter.get() > 0:
-        try_print_summaries(result_single_thread, args)
+    if error_contention_on_threads or error_counter.get() > 0:
+        try_print_summaries(result_contention_on_threads, args)
         cleanup_state(docker_handler, image_name)
         exit(1)
 
-    result = {**result_parallel, **result_single_thread}
+    result = {**result_parallel, **result_contention_on_threads}
 
     try_print_summaries(result, args)
 
