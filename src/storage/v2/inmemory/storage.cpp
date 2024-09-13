@@ -150,7 +150,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
   if (config_.durability.recover_on_startup) {
     auto info = recovery_.RecoverData(&uuid_, repl_storage_state_, &vertices_, &edges_, &edges_metadata_, &edge_count_,
                                       name_id_mapper_.get(), &indices_, &constraints_, config_, &wal_seq_num_,
-                                      &enum_store_, &schema_info_);
+                                      &enum_store_, &schema_info_, [this](Gid edge_gid) { return FindEdge(edge_gid); });
     if (info) {
       vertex_id_ = info->next_vertex_id;
       edge_id_ = info->next_edge_id;
@@ -1806,59 +1806,12 @@ EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, Pro
 }
 
 std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdge(Gid gid, View view) {
-  using EdgeInfo = std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>;
-  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-
-  auto edge_acc = mem_storage->edges_.access();
-  auto edge_it = edge_acc.find(gid);
-  if (edge_it == edge_acc.end()) {
+  const auto maybe_edge_info = static_cast<InMemoryStorage *>(storage_)->FindEdge(gid);
+  if (!maybe_edge_info) {
     return std::nullopt;
   }
-
-  auto *edge_ptr = &(*edge_it);
-  auto vertices_acc = mem_storage->vertices_.access();
-
-  auto extract_edge_info = [&](Vertex *from_vertex) -> EdgeInfo {
-    for (auto &out_edge : from_vertex->out_edges) {
-      if (std::get<2>(out_edge).ptr == edge_ptr) {
-        return std::tuple(std::get<2>(out_edge), std::get<0>(out_edge), from_vertex, std::get<1>(out_edge));
-      }
-    }
-    return std::nullopt;
-  };
-
-  auto edge_accessor_from_info = [this, view](EdgeInfo &maybe_edge_info) -> std::optional<EdgeAccessor> {
-    if (!maybe_edge_info) {
-      return std::nullopt;
-    }
-
-    auto &edge_info = *maybe_edge_info;
-    return EdgeAccessor::Create(std::get<0>(edge_info), std::get<1>(edge_info), std::get<2>(edge_info),
-                                std::get<3>(edge_info), storage_, &transaction_, view);
-  };
-
-  if (mem_storage->config_.salient.items.enable_edges_metadata) {
-    auto edge_metadata_acc = mem_storage->edges_metadata_.access();
-    auto edge_metadata_it = edge_metadata_acc.find(gid);
-    MG_ASSERT(edge_metadata_it != edge_metadata_acc.end(), "Invalid database state!");
-
-    auto maybe_edge_info = extract_edge_info(edge_metadata_it->from_vertex);
-    return edge_accessor_from_info(maybe_edge_info);
-  }
-
-  // If metadata on edges is not enabled we will have to do
-  // a full scan.
-  auto maybe_edge_info = std::invoke([&]() -> EdgeInfo {
-    for (auto &from_vertex : vertices_acc) {
-      auto maybe_edge_info = extract_edge_info(&from_vertex);
-      if (maybe_edge_info) {
-        return maybe_edge_info;
-      }
-    }
-    return std::nullopt;
-  });
-
-  return edge_accessor_from_info(maybe_edge_info);
+  const auto &[edge_ref, edge_type, from, to] = *maybe_edge_info;
+  return EdgeAccessor::Create(edge_ref, edge_type, from, to, storage_, &transaction_, view);
 }
 
 Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) {
@@ -2750,6 +2703,52 @@ void InMemoryStorage::CreateSnapshotHandler(
     });
   }
 }
+
+std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>> InMemoryStorage::FindEdge(Gid gid) {
+  using EdgeInfo = std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>;
+
+  auto edge_acc = edges_.access();
+  auto edge_it = edge_acc.find(gid);
+  if (edge_it == edge_acc.end()) {
+    return std::nullopt;
+  }
+
+  auto *edge_ptr = &(*edge_it);
+  auto vertices_acc = vertices_.access();
+
+  auto extract_edge_info = [&](Vertex *from_vertex) -> EdgeInfo {
+    for (auto &out_edge : from_vertex->out_edges) {
+      if (std::get<2>(out_edge).ptr == edge_ptr) {
+        return std::tuple(std::get<2>(out_edge), std::get<0>(out_edge), from_vertex, std::get<1>(out_edge));
+      }
+    }
+    return std::nullopt;
+  };
+
+  if (config_.salient.items.enable_edges_metadata) {
+    auto edge_metadata_acc = edges_metadata_.access();
+    auto edge_metadata_it = edge_metadata_acc.find(gid);
+    MG_ASSERT(edge_metadata_it != edge_metadata_acc.end(), "Invalid database state!");
+
+    auto maybe_edge_info = extract_edge_info(edge_metadata_it->from_vertex);
+    return maybe_edge_info;
+  }
+
+  // If metadata on edges is not enabled we will have to do
+  // a full scan.
+  auto maybe_edge_info = std::invoke([&]() -> EdgeInfo {
+    for (auto &from_vertex : vertices_acc) {
+      auto maybe_edge_info = extract_edge_info(&from_vertex);
+      if (maybe_edge_info) {
+        return maybe_edge_info;
+      }
+    }
+    return std::nullopt;
+  });
+
+  return maybe_edge_info;
+}
+
 IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory->indices_.label_index_.get());

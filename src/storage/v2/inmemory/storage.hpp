@@ -537,6 +537,8 @@ class InMemoryStorage final : public Storage {
 
   void UpdateEdgesMetadataOnModification(Edge *edge, Vertex *from_vertex);
 
+  std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>> FindEdge(Gid gid);
+
   // Main object storage
   utils::SkipList<storage::Vertex> vertices_;
   utils::SkipList<storage::Edge> edges_;

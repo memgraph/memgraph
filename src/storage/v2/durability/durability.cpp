@@ -339,13 +339,12 @@ std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfoIndices(const R
              : std::nullopt;
 }
 
-std::optional<RecoveryInfo> Recovery::RecoverData(std::string *uuid, ReplicationStorageState &repl_storage_state,
-                                                  utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
-                                                  utils::SkipList<EdgeMetadata> *edges_metadata,
-                                                  std::atomic<uint64_t> *edge_count, NameIdMapper *name_id_mapper,
-                                                  Indices *indices, Constraints *constraints, Config const &config,
-                                                  uint64_t *wal_seq_num, EnumStore *enum_store,
-                                                  SchemaInfo *schema_info) {
+std::optional<RecoveryInfo> Recovery::RecoverData(
+    std::string *uuid, ReplicationStorageState &repl_storage_state, utils::SkipList<Vertex> *vertices,
+    utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata, std::atomic<uint64_t> *edge_count,
+    NameIdMapper *name_id_mapper, Indices *indices, Constraints *constraints, Config const &config,
+    uint64_t *wal_seq_num, EnumStore *enum_store, SchemaInfo *schema_info,
+    std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   spdlog::info("Recovering persisted data using snapshot ({}) and WAL directory ({}).", snapshot_directory_,
                wal_directory_);
@@ -500,7 +499,8 @@ std::optional<RecoveryInfo> Recovery::RecoverData(std::string *uuid, Replication
 
       try {
         auto info = LoadWal(wal_file.path, &indices_constraints, last_loaded_timestamp, vertices, edges, name_id_mapper,
-                            edge_count, config.salient.items, enum_store, schema_info);  // TODO enable/disable
+                            edge_count, config.salient.items, enum_store, schema_info,
+                            std::move(find_edge));  // TODO enable/disable
         recovery_info.next_vertex_id = std::max(recovery_info.next_vertex_id, info.next_vertex_id);
         recovery_info.next_edge_id = std::max(recovery_info.next_edge_id, info.next_edge_id);
         recovery_info.next_timestamp = std::max(recovery_info.next_timestamp, info.next_timestamp);

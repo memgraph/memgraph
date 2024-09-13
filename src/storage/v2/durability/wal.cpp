@@ -791,7 +791,8 @@ void EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp) {
 RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConstraints *indices_constraints,
                      const std::optional<uint64_t> last_loaded_timestamp, utils::SkipList<Vertex> *vertices,
                      utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
-                     SalientConfig::Items items, EnumStore *enum_store, SchemaInfo *schema_info) {
+                     SalientConfig::Items items, EnumStore *enum_store, SchemaInfo *schema_info,
+                     std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge) {
   spdlog::info("Trying to load WAL file {}.", path);
   RecoveryInfo ret;
 
@@ -967,11 +968,15 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
           auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(delta.vertex_edge_set_property.property));
           auto &property_value = delta.vertex_edge_set_property.value;
 
-          // if (schema_info) {
-          //   const auto old_type = vertex->properties.GetExtendedPropertyType(property_id);
-          //   schema_info->SetProperty(edge_type_id, from_vertex, to_vertex, property_id,
-          //                            ExtendedPropertyType{property_value}, old_type);
-          // }
+          // TODO Add edge set property delta to WAL
+          if (schema_info) {
+            const auto old_type = edge->properties.GetExtendedPropertyType(property_id);
+            const auto maybe_edge = find_edge(edge->gid);
+            if (!maybe_edge) throw RecoveryFailure("Recovery failed, edge not found.");
+            const auto &[edge_ref, edge_type, from, to] = *maybe_edge;
+            schema_info->SetProperty(edge_type, from, to, property_id, ExtendedPropertyType{property_value}, old_type,
+                                     items.properties_on_edges);
+          }
 
           edge->properties.SetProperty(property_id, property_value);
           break;
