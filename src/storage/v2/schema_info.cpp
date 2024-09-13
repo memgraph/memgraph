@@ -308,13 +308,13 @@ nlohmann::json PropertyInfo::ToJson(const EnumStore &enum_store, std::string_vie
           ss << "Null";
           break;
         case PropertyValueType::Bool:
-          ss << "Bool";
+          ss << "Boolean";
           break;
         case PropertyValueType::Int:
-          ss << "Int";
+          ss << "Integer";
           break;
         case PropertyValueType::Double:
-          ss << "Double";
+          ss << "Float";
           break;
         case PropertyValueType::String:
           ss << "String";

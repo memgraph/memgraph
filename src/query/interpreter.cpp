@@ -5093,7 +5093,7 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
         for (const auto property : properties) {
           json_properties.emplace_back(storage->PropertyToName(property));
         }
-        node_constraints.push_back(nlohmann::json::object({{"type", "existence"},
+        node_constraints.push_back(nlohmann::json::object({{"type", "unique"},
                                                            {"labels", {storage->LabelToName(label_id)}},
                                                            {"properties", std::move(json_properties)}}));
       }
