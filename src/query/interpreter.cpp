@@ -5038,10 +5038,8 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       auto json = storage->SchemaInfoReadAccessor().ToJson(*storage->name_id_mapper_, storage->enum_store_);
 
       // INDICES
-      auto &node_indexes = json["node_indexes"];
-      node_indexes = nlohmann::json::array();
-      auto &edge_indexes = json["edge_indexes"];
-      edge_indexes = nlohmann::json::array();
+      auto node_indexes = nlohmann::json::array();
+      auto edge_indexes = nlohmann::json::array();
       auto index_info = db_acc->ListAllIndices();
       // Vertex label indices
       for (const auto label_id : index_info.label) {
@@ -5068,10 +5066,11 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
                                                        {"properties", {storage->PropertyToName(property)}},
                                                        {"count", storage_acc->ApproximateEdgeCount(type, property)}}));
       }
+      json.emplace("node_indexes", std::move(node_indexes));
+      json.emplace("edge_indexes", std::move(edge_indexes));
 
       // CONSTRAINTS
-      auto &node_constraints = json["node_constraints"];
-      node_constraints = nlohmann::json::array();
+      auto node_constraints = nlohmann::json::array();
       auto constraint_info = db_acc->ListAllConstraints();
       // Existence
       for (const auto &[label_id, property] : constraint_info.existence) {
@@ -5089,14 +5088,16 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
                                                            {"labels", {storage->LabelToName(label_id)}},
                                                            {"properties", std::move(json_properties)}}));
       }
+      json.emplace("node_constraints", std::move(node_constraints));
 
       // ENUMS
-      auto [enums, _] = json.emplace("enums", nlohmann::json::array());
+      auto enums = nlohmann::json::array();
       for (auto [type, values] : storage->enum_store_.AllRegistered()) {
         auto json_values = nlohmann::json::array();
         for (const auto &val : values) json_values.push_back(val);
-        enums->push_back(nlohmann::json::object({{"name", type}, {"values", std::move(json_values)}}));
+        enums.push_back(nlohmann::json::object({{"name", type}, {"values", std::move(json_values)}}));
       }
+      json.emplace("enums", std::move(enums));
 
       // Pack json into query result
       schema.push_back(std::vector<TypedValue>{TypedValue(json.dump())});
