@@ -5033,11 +5033,9 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
                      current_db.db_transactional_accessor_.get()]() mutable -> std::vector<std::vector<TypedValue>> {
     std::vector<std::vector<TypedValue>> schema;
     auto *storage = db->storage();
-    auto schema_acc = storage->SchemaInfoReadAccessor();
-    if (schema_acc) {
+    if (storage->config_.salient.items.enable_schema_info) {
       // SCHEMA INFO
-      auto json = schema_acc->ToJson(*storage->name_id_mapper_, storage->enum_store_);
-      schema_acc.reset();
+      auto json = storage->SchemaInfoReadAccessor().ToJson(*storage->name_id_mapper_, storage->enum_store_);
 
       // INDICES
       auto &node_indexes = json["node_indexes"];

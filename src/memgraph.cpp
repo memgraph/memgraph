@@ -381,6 +381,7 @@ int main(int argc, char **argv) {
                         .enable_edges_metadata =
                             FLAGS_storage_properties_on_edges ? FLAGS_storage_enable_edges_metadata : false,
                         .enable_schema_metadata = FLAGS_storage_enable_schema_metadata,
+                        .enable_schema_info = FLAGS_schema_info_enabled,
                         .enable_label_index_auto_creation = FLAGS_storage_automatic_label_index_creation_enabled,
                         .enable_edge_type_index_auto_creation =
                             FLAGS_storage_automatic_edge_type_index_creation_enabled,  // NOLINT(misc-include-cleaner)

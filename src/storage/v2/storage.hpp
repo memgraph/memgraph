@@ -583,21 +583,19 @@ class Storage {
   EnumStore enum_store_;
 
   std::optional<SchemaInfo::AnalyticalAccessor> SchemaInfoAccessor() {
-    if (storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL) {
-      return schema_info_.CreateAccessor(config_.salient.items.properties_on_edges);
-    }
-    return std::nullopt;
+    if (!config_.salient.items.enable_schema_info) return std::nullopt;
+    if (storage_mode_ != StorageMode::IN_MEMORY_ANALYTICAL) return std::nullopt;
+    return schema_info_.CreateAccessor(config_.salient.items.properties_on_edges);
   }
 
   std::optional<SchemaInfo::AnalyticalUniqueAccessor> SchemaInfoUniqueAccessor() {
-    if (storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL) {
-      return schema_info_.CreateUniqueAccessor(config_.salient.items.properties_on_edges);
-    }
-    return std::nullopt;
+    if (!config_.salient.items.enable_schema_info) return std::nullopt;
+    if (storage_mode_ != StorageMode::IN_MEMORY_ANALYTICAL) return std::nullopt;
+    return schema_info_.CreateUniqueAccessor(config_.salient.items.properties_on_edges);
   }
 
-  std::optional<SchemaInfo::ReadAccessor> SchemaInfoReadAccessor() { return schema_info_.CreateReadAccessor(); }
-  std::optional<SchemaInfo::WriteAccessor> SchemaInfoWriteAccessor() { return schema_info_.CreateWriteAccessor(); }
+  SchemaInfo::ReadAccessor SchemaInfoReadAccessor() { return schema_info_.CreateReadAccessor(); }
+  SchemaInfo::WriteAccessor SchemaInfoWriteAccessor() { return schema_info_.CreateWriteAccessor(); }
 
   SchemaInfo schema_info_;
 };

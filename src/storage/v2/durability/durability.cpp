@@ -376,8 +376,9 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
       }
       spdlog::info("Starting snapshot recovery from {}.", path);
       try {
-        recovered_snapshot = LoadSnapshot(path, vertices, edges, edges_metadata, epoch_history, name_id_mapper,
-                                          edge_count, config, enum_store, schema_info);  // TODO enable/disable
+        recovered_snapshot =
+            LoadSnapshot(path, vertices, edges, edges_metadata, epoch_history, name_id_mapper, edge_count, config,
+                         enum_store, config.salient.items.enable_schema_info ? schema_info : nullptr);
         spdlog::info("Snapshot recovery successful!");
         break;
       } catch (const RecoveryFailure &e) {
@@ -499,8 +500,8 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
 
       try {
         auto info = LoadWal(wal_file.path, &indices_constraints, last_loaded_timestamp, vertices, edges, name_id_mapper,
-                            edge_count, config.salient.items, enum_store, schema_info,
-                            std::move(find_edge));  // TODO enable/disable
+                            edge_count, config.salient.items, enum_store,
+                            config.salient.items.enable_schema_info ? schema_info : nullptr, std::move(find_edge));
         recovery_info.next_vertex_id = std::max(recovery_info.next_vertex_id, info.next_vertex_id);
         recovery_info.next_edge_id = std::max(recovery_info.next_edge_id, info.next_edge_id);
         recovery_info.next_timestamp = std::max(recovery_info.next_timestamp, info.next_timestamp);

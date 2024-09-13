@@ -286,7 +286,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
     auto recovered_snapshot = storage::durability::LoadSnapshot(
         *maybe_snapshot_path, &storage->vertices_, &storage->edges_, &storage->edges_metadata_,
         &storage->repl_storage_state_.history, storage->name_id_mapper_.get(), &storage->edge_count_, storage->config_,
-        &storage->enum_store_, &storage->schema_info_);  // TODO disabled/enable
+        &storage->enum_store_, storage->config_.salient.items.enable_schema_info ? &storage->schema_info_ : nullptr);
     spdlog::debug("Snapshot loaded successfully");
     // If this step is present it should always be the first step of
     // the recovery so we use the UUID we read from snasphost
