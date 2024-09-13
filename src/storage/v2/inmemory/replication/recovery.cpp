@@ -173,84 +173,76 @@ std::vector<RecoveryStep> GetRecoverySteps(uint64_t replica_commit, utils::FileR
     latest_snapshot.emplace(std::move(snapshot_files.back()));
   }
 
-  auto add_snapshot = [&](std::vector<durability::WalDurabilityInfo>::reverse_iterator *wal_chain_it = {}) {
-    if (!latest_snapshot) return;
+  auto add_snapshot = [&]() {
+    // Handle snapshot step
     const auto lock_success = locker_acc.AddPath(latest_snapshot->path);
     MG_ASSERT(!lock_success.HasError(), "Tried to lock a non-existent snapshot path.");
     recovery_steps.emplace_back(std::in_place_type_t<RecoverySnapshot>{}, std::move(latest_snapshot->path));
     last_durable_timestamp = std::max(last_durable_timestamp, latest_snapshot->start_timestamp);
-    // Update what's the last wal file needed
-    if (!wal_chain_it) return;
-    // Assert that the WAL chain starts before the snapshot and then remove the unnecessary WALs
-    MG_ASSERT(latest_snapshot->start_timestamp > (*wal_chain_it)->from_timestamp,
-              "WAL chain does not start before the snapshot.");
-    // Going from older to newest WAL
-    // TODO This way we always send at least one WAL, rewrite to avoid that case
-    for (; *wal_chain_it != wal_files->rbegin(); --(*wal_chain_it)) {
-      if ((*wal_chain_it)->to_timestamp > latest_snapshot->start_timestamp) {
-        // Got to the first WAL file with data not contained in the snapshot
-        break;
-      }
-    }
   };
 
-  // Check if we need the snapshot or if the WAL chain is enough
-  if (!wal_files->empty()) {
-    // Find WAL chain that contains the replica's commit timestamp
-    auto wal_chain_it = wal_files->rbegin();
+  // There is a WAL chain and the data is newer than what the replica has
+  if (!wal_files->empty() && wal_files->back().to_timestamp > replica_commit) {
+    // Check what part of the WAL chain is needed
     bool covered_by_wals = false;
-    auto prev_seq{wal_chain_it->seq_num};
-    // Going from oldest to newest
-    for (; wal_chain_it != wal_files->rend(); ++wal_chain_it) {
-      if (prev_seq - wal_chain_it->seq_num > 1) {
+    auto prev_seq{wal_files->back().seq_num};
+    int first_useful_wal = wal_files->size() - 1;
+    // Going from newest to oldest
+    for (; first_useful_wal >= 0; --first_useful_wal) {
+      const auto &wal = wal_files.value()[first_useful_wal];
+      if (prev_seq - wal.seq_num > 1) {
         // Broken chain, must have a snapshot that covers the missing commits
         // Useful chain start from the previous (newer) wal file
-        --wal_chain_it;
+        ++first_useful_wal;
         break;
       }
-
-      prev_seq = wal_chain_it->seq_num;
-
+      prev_seq = wal.seq_num;
       // Got to the oldest necessary WAL file
-      if (wal_chain_it->from_timestamp <= replica_commit + 1) {
+      if (wal.from_timestamp <= replica_commit + 1) {
         covered_by_wals = true;
         break;
       }
     }
-
-    // The WAL chain could be complete, but the first WAL could have a != 0 timestamp; check for the 0 sequence number
-    covered_by_wals |= prev_seq == 0;
-
-    // Finished the WAL chain; we have to have a WAL that is older than replica OR a snapshot
+    first_useful_wal = std::max(first_useful_wal, 0);  // -1 still means we need the whole chain
+    // Finished the WAL chain, but still missing some data
     if (!covered_by_wals) {
-      MG_ASSERT(latest_snapshot, "Missing snapshot, while the WAL chain does not cover enough time.");
-      // WALs do not cover the replica; add snapshot (if not added)
-      if (recovery_steps.empty()) {
-        // Add snapshot to recovery steps
-        add_snapshot(&wal_chain_it);
+      const auto &wal = wal_files.value()[first_useful_wal];
+      // We might not need the snapshot if there is no additional information contained in it
+      if (latest_snapshot) {
+        MG_ASSERT(latest_snapshot->start_timestamp > wal.from_timestamp || wal.seq_num == 0,
+                  "Replication steps incomplete; broken data chain.");
+        if (latest_snapshot->start_timestamp > replica_commit) {
+          // There is some data we need in the snapshot
+          add_snapshot();
+          // Go along the WAL chain and remove unecessary parts (going from oldest to newest WAL)
+          for (; first_useful_wal < wal_files->size(); ++first_useful_wal) {
+            const auto &wal = wal_files.value()[first_useful_wal];
+            if (wal.to_timestamp > latest_snapshot->start_timestamp) {
+              // Got to the first WAL file with data not contained in the snapshot
+              break;
+            }
+          }
+        }
       } else {
-        MG_ASSERT(std::holds_alternative<RecoverySnapshot>(recovery_steps.front()),
-                  "First recovery step is not RecoverySnapshot!");
+        MG_ASSERT(wal.seq_num == 0, "Replication steps incomplete; missing data.");
       }
     }
-
     // Copy and lock the chain part we need, from oldest to newest
-    auto wal_it = (wal_chain_it == wal_files->rend()) ? wal_files->begin() : wal_chain_it.base() - 1;
-    RecoveryWals rw{};
-    rw.reserve(std::distance(wal_it, wal_files->end()));
-    for (; wal_it != wal_files->end(); ++wal_it) {
-      const auto lock_success = locker_acc.AddPath(wal_it->path);
-      MG_ASSERT(!lock_success.HasError(), "Tried to lock a nonexistant WAL path.");
-      rw.emplace_back(std::move(wal_it->path));
-    }
-    if (!rw.empty()) {
+    if (first_useful_wal < wal_files->size()) {
+      RecoveryWals rw{};
+      rw.reserve(wal_files->size() - first_useful_wal);
+      for (; first_useful_wal < wal_files->size(); ++first_useful_wal) {
+        auto &wal = wal_files.value()[first_useful_wal];
+        const auto lock_success = locker_acc.AddPath(wal.path);
+        MG_ASSERT(!lock_success.HasError(), "Tried to lock a nonexistant WAL path.");
+        rw.emplace_back(std::move(wal.path));
+      }
       recovery_steps.emplace_back(std::in_place_type_t<RecoveryWals>{}, std::move(rw));
     }
 
   } else {
-    // No WAL chain, check if we need the snapshot
-    if (!current_wal_from_timestamp || replica_commit < *current_wal_from_timestamp) {
-      // No current wal or current wal too new
+    if (latest_snapshot && latest_snapshot->start_timestamp > replica_commit) {
+      // There is some data we need in the snapshot
       add_snapshot();
     }
   }
