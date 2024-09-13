@@ -9,13 +9,26 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-import mgclient
 import typing
 
+import mgclient
 
-def execute_and_fetch_all(
-    cursor: mgclient.Cursor, query: str, params: dict = {}
-) -> typing.List[tuple]:
+
+def get_data_path(file: str, test: str):
+    """
+    Data is stored in replication folder.
+    """
+    return f"replication/{file}/{test}"
+
+
+def get_logs_path(file: str, test: str):
+    """
+    Logs are stored in replication folder.
+    """
+    return f"replication/{file}/{test}"
+
+
+def execute_and_fetch_all(cursor: mgclient.Cursor, query: str, params: dict = {}) -> typing.List[tuple]:
     cursor.execute(query, params)
     return cursor.fetchall()
 

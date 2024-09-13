@@ -114,5 +114,4 @@
        (c/exec :rm :-rf mgdata)
        (c/exec :rm :-rf mglog)))
     db/LogFiles
-    (log-files [_ _ _]
-      [mglog])))
+    (log-files [_ _ _] [mglog])))

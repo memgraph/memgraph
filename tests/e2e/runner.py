@@ -14,6 +14,7 @@
 import atexit
 import logging
 import os
+import shutil
 import subprocess
 import time
 from argparse import ArgumentParser
@@ -34,6 +35,8 @@ def load_args():
     parser.add_argument("--workloads-root-directory", required=True)
     parser.add_argument("--workload-name", default=None, required=False)
     parser.add_argument("--debug", default=False, required=False)
+    parser.add_argument("--save-data-dir", default=False, required=False, action="store_true")
+    parser.add_argument("--clean-logs-dir", default=False, required=False, action="store_true")
     return parser.parse_args()
 
 
@@ -105,3 +108,13 @@ if __name__ == "__main__":
     args = load_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(asctime)s %(name)s] %(message)s")
     run(args)
+    if not args.save_data_dir:
+        try:
+            shutil.rmtree(os.path.join(BUILD_DIR, "e2e", "data"))
+        except:
+            pass
+    if args.clean_logs_dir:
+        try:
+            shutil.rmtree(os.path.join(BUILD_DIR, "e2e", "logs"))
+        except:
+            pass
