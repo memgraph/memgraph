@@ -517,6 +517,7 @@ inline auto Filters::erase(Filters::const_iterator first, Filters::const_iterato
   return all_filters_.erase(first, last);
 }
 
+// Returns label filters. Labels can refer to node and its labels or to an edge with respective edge type
 inline auto Filters::FilteredLabels(const Symbol &symbol) const -> std::unordered_set<LabelIx> {
   std::unordered_set<LabelIx> labels;
   for (const auto &filter : all_filters_) {
