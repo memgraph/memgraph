@@ -19,6 +19,7 @@
 #include "storage/v2/indices/edge_type_property_index.hpp"
 #include "storage/v2/indices/label_index.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
+#include "storage/v2/indices/point_index.hpp"
 #include "storage/v2/indices/text_index.hpp"
 #include "storage/v2/storage_mode.hpp"
 
@@ -50,12 +51,19 @@ struct Indices {
                     uint64_t exact_start_timestamp) const;
   void AbortEntries(LabelId label, std::span<std::pair<PropertyValue, Vertex *> const> vertices,
                     uint64_t exact_start_timestamp) const;
+  void AbortEntries(EdgeTypeId edge_type, std::span<std::tuple<Vertex *const, Vertex *const, Edge *const> const> edges,
+                    uint64_t exact_start_timestamp) const;
+  void AbortEntries(std::pair<EdgeTypeId, PropertyId> edge_type_property,
+                    std::span<std::tuple<Vertex *const, Vertex *const, Edge *const, PropertyValue> const> edges,
+                    uint64_t exact_start_timestamp) const;
 
-  void DropGraphClearIndices() const;
+  void DropGraphClearIndices();
 
   struct IndexStats {
     std::vector<LabelId> label;
     LabelPropertyIndex::IndexStats property_label;
+    std::vector<EdgeTypeId> edge_type;
+    EdgeTypePropertyIndex::IndexStats property_edge_type;
   };
   IndexStats Analysis() const;
 
@@ -87,6 +95,7 @@ struct Indices {
   std::unique_ptr<EdgeTypeIndex> edge_type_index_;
   std::unique_ptr<EdgeTypePropertyIndex> edge_type_property_index_;
   mutable TextIndex text_index_;
+  PointIndexStorage point_index_;
 };
 
 }  // namespace memgraph::storage

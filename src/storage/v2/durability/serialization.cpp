@@ -531,6 +531,8 @@ std::optional<PropertyValue> Decoder::ReadPropertyValue() {
     case Marker::DELTA_ENUM_CREATE:
     case Marker::DELTA_ENUM_ALTER_ADD:
     case Marker::DELTA_ENUM_ALTER_UPDATE:
+    case Marker::DELTA_POINT_INDEX_CREATE:
+    case Marker::DELTA_POINT_INDEX_DROP:
     case Marker::VALUE_FALSE:
     case Marker::VALUE_TRUE:
       return std::nullopt;
@@ -657,6 +659,8 @@ bool Decoder::SkipPropertyValue() {
     case Marker::DELTA_ENUM_CREATE:
     case Marker::DELTA_ENUM_ALTER_ADD:
     case Marker::DELTA_ENUM_ALTER_UPDATE:
+    case Marker::DELTA_POINT_INDEX_CREATE:
+    case Marker::DELTA_POINT_INDEX_DROP:
     case Marker::VALUE_FALSE:
     case Marker::VALUE_TRUE:
       return false;
