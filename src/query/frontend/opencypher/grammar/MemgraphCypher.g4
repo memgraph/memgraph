@@ -107,11 +107,14 @@ memgraphCypherKeyword : cypherKeyword
                       | NODE_LABELS
                       | NOTHING
                       | OF_TOKEN
+                      | OFF
+                      | ON
                       | ON_DISK_TRANSACTIONAL
                       | NULLIF
                       | ON_DISK_TRANSACTIONAL
                       | PASSWORD
                       | PERIODIC
+                      | POINT
                       | PORT
                       | PRIVILEGES
                       | PULSAR
@@ -151,6 +154,7 @@ memgraphCypherKeyword : cypherKeyword
                       | TIMEOUT
                       | TO
                       | TOPICS
+                      | TRACE
                       | TRANSACTION
                       | TRANSACTIONS
                       | TRANSACTION_MANAGEMENT
@@ -180,6 +184,7 @@ symbolicName : UnescapedSymbolicName
 query : cypherQuery
       | indexQuery
       | edgeIndexQuery
+      | pointIndexQuery
       | textIndexQuery
       | explainQuery
       | profileQuery
@@ -214,6 +219,7 @@ query : cypherQuery
       | dropEnumQuery
       | showSchemaInfoQuery
       | ttlQuery
+      | setSessionTraceQuery
       ;
 
 cypherQuery : ( preQueryDirectives )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
@@ -390,6 +396,8 @@ revokeDatabaseFromUserOrRole : REVOKE DATABASE db=wildcardName FROM userOrRole=u
 showDatabasePrivileges : SHOW DATABASE PRIVILEGES FOR userOrRole=userOrRoleName ;
 
 setMainDatabase : SET MAIN DATABASE db=symbolicName FOR userOrRole=userOrRoleName ;
+
+setSessionTraceQuery : SET SESSION TRACE (ON | OFF) ;
 
 privilege : CREATE
           | DELETE
@@ -610,6 +618,20 @@ createEdgeIndex : CREATE EDGE INDEX ON ':' labelName ( '(' propertyKeyName ')' )
 dropEdgeIndex : DROP EDGE INDEX ON ':' labelName ( '(' propertyKeyName ')' )?;
 
 edgeIndexQuery : createEdgeIndex | dropEdgeIndex ;
+
+indexName : symbolicName ;
+
+createTextIndex : CREATE TEXT INDEX indexName ON ':' labelName ;
+
+dropTextIndex : DROP TEXT INDEX indexName ;
+
+textIndexQuery : createTextIndex | dropTextIndex;
+
+createPointIndex : CREATE POINT INDEX ON ':' labelName '(' propertyKeyName ')';
+
+dropPointIndex : DROP POINT INDEX ON ':' labelName '(' propertyKeyName ')' ;
+
+pointIndexQuery : createPointIndex | dropPointIndex ;
 
 dropGraphQuery : DROP GRAPH ;
 

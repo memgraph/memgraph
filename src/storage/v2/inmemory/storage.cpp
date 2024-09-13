@@ -16,6 +16,7 @@
 #include <optional>
 #include "dbms/constants.hpp"
 #include "flags/experimental.hpp"
+#include "flags/general.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "memory/global_memory_control.hpp"
 #include "storage/v2/durability/durability.hpp"
@@ -74,6 +75,8 @@ constexpr auto ActionToStorageOperation(MetadataDelta::Action action) -> durabil
     add_case(ENUM_CREATE);
     add_case(ENUM_ALTER_ADD);
     add_case(ENUM_ALTER_UPDATE);
+    add_case(POINT_INDEX_CREATE);
+    add_case(POINT_INDEX_DROP);
   }
 #undef add_case
 }
@@ -962,11 +965,10 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
       }
 
       if (!unique_constraint_violation) {
+        // Durability stage
         [[maybe_unused]] bool const is_main_or_replica_write =
             reparg.IsMain() || reparg.desired_commit_timestamp.has_value();
 
-        // TODO Figure out if we can assert this
-        // DMG_ASSERT(is_main_or_replica_write, "Should only get here on writes");
         // Currently there are queries that write to some subsystem that are allowed on a replica
         // ex. analyze graph stats
         // There are probably others. We not to check all of them and figure out if they are allowed and what are
@@ -995,6 +997,10 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
           // Update the last commit timestamp
           mem_storage->repl_storage_state_.last_commit_timestamp_.store(durability_commit_timestamp);
         }
+
+        // Install the new point index, if needed
+        mem_storage->indices_.point_index_.InstallNewPointIndex(transaction_.point_index_change_collector_,
+                                                                transaction_.point_index_ctx_);
 
         // TODO: can and should this be moved earlier?
         mem_storage->commit_log_->MarkFinished(start_timestamp);
@@ -1186,6 +1192,13 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     std::map<LabelId, std::vector<Vertex *>> label_cleanup;
     std::map<LabelId, std::vector<std::pair<PropertyValue, Vertex *>>> label_property_cleanup;
     std::map<PropertyId, std::vector<std::pair<PropertyValue, Vertex *>>> property_cleanup;
+    std::map<EdgeTypeId, std::vector<std::tuple<Vertex *const, Vertex *const, Edge *const>>> edge_type_cleanup;
+    std::map<std::pair<EdgeTypeId, PropertyId>,
+             std::vector<std::tuple<Vertex *const, Vertex *const, Edge *const, PropertyValue>>>
+        edge_type_property_cleanup;
+    std::map<std::pair<EdgeTypeId, PropertyId>,
+             std::vector<std::tuple<Vertex *const, Vertex *const, Edge *const, PropertyValue>>>
+        edge_property_cleanup;
 
     auto delta_size = transaction_.deltas.size();
     for (const auto &delta : transaction_.deltas) {
@@ -1287,6 +1300,23 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 // redundant. Also, `Edge/DELETE_OBJECT` isn't available when edge
                 // properties are disabled.
                 storage_->edge_count_.fetch_add(-1, std::memory_order_acq_rel);
+
+                if (!FLAGS_storage_properties_on_edges) break;
+                if (std::binary_search(index_stats.edge_type.begin(), index_stats.edge_type.end(),
+                                       current->vertex_edge.edge_type)) {
+                  edge_type_cleanup[current->vertex_edge.edge_type].emplace_back(vertex, current->vertex_edge.vertex,
+                                                                                 current->vertex_edge.edge.ptr);
+                }
+                const auto &properties = index_stats.property_edge_type.et2p.find(current->vertex_edge.edge_type);
+                if (properties != index_stats.property_edge_type.et2p.end()) {
+                  for (const auto &property : properties->second) {
+                    auto current_value = current->vertex_edge.edge.ptr->properties.GetProperty(property);
+                    if (!current_value.IsNull()) {
+                      edge_type_property_cleanup[std::make_pair(current->vertex_edge.edge_type, property)].emplace_back(
+                          vertex, current->vertex_edge.vertex, current->vertex_edge.edge.ptr, std::move(current_value));
+                    }
+                  }
+                }
                 break;
               }
               case Delta::Action::DELETE_DESERIALIZED_OBJECT:
@@ -1318,6 +1348,24 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
             switch (current->action) {
               case Delta::Action::SET_PROPERTY: {
                 edge->properties.SetProperty(current->property.key, *current->property.value);
+                if (!FLAGS_storage_properties_on_edges) break;
+
+                const auto &edge_types = index_stats.property_edge_type.p2et.find(current->property.key);
+                if (edge_types != index_stats.property_edge_type.p2et.end()) {
+                  auto current_value = edge->properties.GetProperty(current->property.key);
+                  if (!current_value.IsNull()) {
+                    for (const auto &edge_type : edge_types->second) {
+                      auto *from_vertex = current->property.out_vertex;
+                      for (const auto &[edge_type_out_edge, target_vertex, _] : from_vertex->out_edges) {
+                        if (edge_type_out_edge == edge_type) {
+                          edge_property_cleanup[{edge_type, current->property.key}].emplace_back(
+                              from_vertex, target_vertex, edge, current_value);
+                        }
+                      }
+                    }
+                  }
+                }
+
                 break;
               }
               case Delta::Action::DELETE_DESERIALIZED_OBJECT:
@@ -1401,6 +1449,15 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       }
       if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
         storage_->indices_.text_index_.Rollback();
+      }
+      for (auto const &[edge_type, edge] : edge_type_cleanup) {
+        storage_->indices_.AbortEntries(edge_type, edge, transaction_.start_timestamp);
+      }
+      for (auto const &[edge_type_property, edge] : edge_type_property_cleanup) {
+        storage_->indices_.AbortEntries(edge_type_property, edge, transaction_.start_timestamp);
+      }
+      for (auto const &[edge_type_property, edge] : edge_property_cleanup) {
+        storage_->indices_.AbortEntries(edge_type_property, edge, transaction_.start_timestamp);
       }
 
       // VERTICES
@@ -1552,6 +1609,34 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::edge_property_index_drop, edge_type, property);
+  return {};
+}
+
+utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreatePointIndex(
+    storage::LabelId label, storage::PropertyId property) {
+  MG_ASSERT(unique_guard_.owns_lock(), "Creating point index requires a unique access to the storage!");
+  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  auto &point_index = in_memory->indices_.point_index_;
+  if (!point_index.CreatePointIndex(label, property, in_memory->vertices_.access())) {
+    return StorageIndexDefinitionError{IndexDefinitionError{}};
+  }
+  transaction_.md_deltas.emplace_back(MetadataDelta::point_index_create, label, property);
+  // We don't care if there is a replication error because on main node the change will go through
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ActivePointIndices);
+  return {};
+}
+
+utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropPointIndex(
+    storage::LabelId label, storage::PropertyId property) {
+  MG_ASSERT(unique_guard_.owns_lock(), "Dropping point index requires a unique access to the storage!");
+  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  auto &point_index = in_memory->indices_.point_index_;
+  if (!point_index.DropPointIndex(label, property)) {
+    return StorageIndexDefinitionError{IndexDefinitionError{}};
+  }
+  transaction_.md_deltas.emplace_back(MetadataDelta::point_index_drop, label, property);
+  // We don't care if there is a replication error because on main node the change will go through
+  memgraph::metrics::DecrementCounter(memgraph::metrics::ActivePointIndices);
   return {};
 }
 
@@ -1739,12 +1824,22 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
   // `timestamp`) below.
   uint64_t transaction_id = 0;
   uint64_t start_timestamp = 0;
+  std::optional<PointIndexContext> point_index_context;
   {
     auto guard = std::lock_guard{engine_lock_};
     transaction_id = transaction_id_++;
     start_timestamp = timestamp_++;
+    // IMPORTANT: this is retrieved while under the lock so that the index is consistant with the timestamp
+    point_index_context = indices_.point_index_.CreatePointIndexContext();
   }
-  return {transaction_id, start_timestamp, isolation_level, storage_mode, false, !constraints_.empty()};
+  DMG_ASSERT(point_index_context.has_value(), "Expected a value, even if got 0 point indexes");
+  return {transaction_id,
+          start_timestamp,
+          isolation_level,
+          storage_mode,
+          false,
+          !constraints_.empty(),
+          *std::move(point_index_context)};
 }
 
 void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
@@ -2293,7 +2388,9 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
       case MetadataDelta::Action::LABEL_PROPERTY_INDEX_CREATE:
       case MetadataDelta::Action::LABEL_PROPERTY_INDEX_DROP:
       case MetadataDelta::Action::EXISTENCE_CONSTRAINT_CREATE:
-      case MetadataDelta::Action::EXISTENCE_CONSTRAINT_DROP: {
+      case MetadataDelta::Action::EXISTENCE_CONSTRAINT_DROP:
+      case MetadataDelta::Action::POINT_INDEX_CREATE:
+      case MetadataDelta::Action::POINT_INDEX_DROP: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
           EncodeLabelProperty(encoder, *name_id_mapper_, md_delta.label_property.label,
                               md_delta.label_property.property);
@@ -2619,8 +2716,11 @@ IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
   auto *mem_edge_type_property_index =
       static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
   auto &text_index = storage_->indices_.text_index_;
-  return {mem_label_index->ListIndices(), mem_label_property_index->ListIndices(), mem_edge_type_index->ListIndices(),
-          mem_edge_type_property_index->ListIndices(), text_index.ListIndices()};
+  auto &point_index = storage_->indices_.point_index_;
+
+  return {mem_label_index->ListIndices(),     mem_label_property_index->ListIndices(),
+          mem_edge_type_index->ListIndices(), mem_edge_type_property_index->ListIndices(),
+          text_index.ListIndices(),           point_index.ListIndices()};
 }
 ConstraintsInfo InMemoryStorage::InMemoryAccessor::ListAllConstraints() const {
   const auto *mem_storage = static_cast<InMemoryStorage *>(storage_);

@@ -118,25 +118,7 @@ constexpr uint32_t SizeToByteSize(Size size) {
   }
 }
 
-// All of these values must have the lowest 4 bits set to zero because they are
-// used to store two `Size` values as described in the comment above.
-enum class Type : uint8_t {
-  EMPTY = 0x00,  // Special value used to indicate end of buffer.
-  NONE = 0x10,   // NONE used instead of NULL because NULL is defined to
-                 // something...
-  BOOL = 0x20,
-  INT = 0x30,
-  DOUBLE = 0x40,
-  STRING = 0x50,
-  LIST = 0x60,
-  MAP = 0x70,
-  TEMPORAL_DATA = 0x80,
-  ZONED_TEMPORAL_DATA = 0x90,
-  OFFSET_ZONED_TEMPORAL_DATA = 0xA0,
-  ENUM = 0xB0,
-  POINT_2D = 0xC0,
-  POINT_3D = 0xD0,
-};
+using Type = PropertyStoreType;
 
 const uint8_t kMaskType = 0xf0;
 const uint8_t kMaskIdSize = 0x0c;
@@ -215,6 +197,10 @@ const uint8_t kShiftIdSize = 2;
 //       encoded as `uint8_t`, `uint16_t`, `uint32_t` or `uint64_t` uses the largest of both
 //     - encoded property ID
 //     - encoded property value as two ints, enum type then enum value, both same size
+//   * POINT
+//     - type; payload size is used to encode the crs type (this only works becuase there are 4 sizes + 4 crs types)
+//     - encoded property ID
+//     - encoded value as 2 (for 2D) or 3 (for 3D) doubles forced to be encoded as int64
 
 const auto TZ_NAME_LENGTH_SIZE = Size::INT8;
 // As the underlying type for zoned temporal data is std::chrono::zoned_time, valid timezone names are limited
@@ -546,8 +532,9 @@ auto SizeToCrs(Size value) -> CoordinateReferenceSystem {
 // Function used to encode a PropertyValue into a byte stream.
 std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const PropertyValue &value) {
   switch (value.type()) {
-    case PropertyValue::Type::Null:
+    case PropertyValue::Type::Null: {
       return {{Type::NONE, Size::INT8}};
+    }
     case PropertyValue::Type::Bool: {
       if (value.ValueBool()) {
         return {{Type::BOOL, Size::INT64}};
@@ -676,14 +663,14 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const P
       auto const &point = value.ValuePoint2d();
       if (!writer->WriteDoubleForceInt64(point.x())) return std::nullopt;
       if (!writer->WriteDoubleForceInt64(point.y())) return std::nullopt;
-      return {{Type::POINT_2D, CrsToSize(point.crs())}};
+      return {{Type::POINT, CrsToSize(point.crs())}};
     }
     case PropertyValue::Type::Point3d: {
       auto const &point = value.ValuePoint3d();
       if (!writer->WriteDoubleForceInt64(point.x())) return std::nullopt;
       if (!writer->WriteDoubleForceInt64(point.y())) return std::nullopt;
       if (!writer->WriteDoubleForceInt64(point.z())) return std::nullopt;
-      return {{Type::POINT_3D, CrsToSize(point.crs())}};
+      return {{Type::POINT, CrsToSize(point.crs())}};
     }
   }
 }
@@ -873,26 +860,19 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       value = PropertyValue(Enum{EnumTypeId{*e_type}, EnumValueId{*e_value}});
       return true;
     }
-    case Type::POINT_2D: {
+    case Type::POINT: {
       auto crs = SizeToCrs(payload_size);
-      if (!valid2d(crs)) return false;
       auto x_opt = reader->ReadDouble(Size::INT64);  // because we forced it as int64 on write
       if (!x_opt) return false;
       auto y_opt = reader->ReadDouble(Size::INT64);  // because we forced it as int64 on write
       if (!y_opt) return false;
-      value = PropertyValue(Point2d{crs, *x_opt, *y_opt});
-      return true;
-    }
-    case Type::POINT_3D: {
-      auto crs = SizeToCrs(payload_size);
-      if (!valid3d(crs)) return false;
-      auto x_opt = reader->ReadDouble(Size::INT64);  // because we forced it as int64 on write
-      if (!x_opt) return false;
-      auto y_opt = reader->ReadDouble(Size::INT64);  // because we forced it as int64 on write
-      if (!y_opt) return false;
-      auto z_opt = reader->ReadDouble(Size::INT64);  // because we forced it as int64 on write
-      if (!z_opt) return false;
-      value = PropertyValue(Point3d{crs, *x_opt, *y_opt, *z_opt});
+      if (valid2d(crs)) {
+        value = PropertyValue(Point2d{crs, *x_opt, *y_opt});
+      } else {
+        auto z_opt = reader->ReadDouble(Size::INT64);  // because we forced it as int64 on write
+        if (!z_opt) return false;
+        value = PropertyValue(Point3d{crs, *x_opt, *y_opt, *z_opt});
+      }
       return true;
     }
   }
@@ -997,14 +977,9 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       property_size += bytes;
       return true;
     }
-    case Type::POINT_2D: {
-      auto bytes_size = 2 * SizeToByteSize(Size::INT64);
-      if (!reader->SkipBytes(bytes_size)) return false;
-      property_size += bytes_size;
-      return true;
-    }
-    case Type::POINT_3D: {
-      auto bytes_size = 3 * SizeToByteSize(Size::INT64);
+    case Type::POINT: {
+      auto payload_members = valid2d(SizeToCrs(payload_size)) ? 2 : 3;
+      auto bytes_size = payload_members * SizeToByteSize(Size::INT64);
       if (!reader->SkipBytes(bytes_size)) return false;
       property_size += bytes_size;
       return true;
@@ -1072,12 +1047,9 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       auto bytes_to_skip = 2 * SizeToByteSize(payload_size);
       return reader->SkipBytes(bytes_to_skip);
     }
-    case Type::POINT_2D: {
-      auto bytes_to_skip = 2 * SizeToByteSize(Size::INT64);
-      return reader->SkipBytes(bytes_to_skip);
-    }
-    case Type::POINT_3D: {
-      auto bytes_to_skip = 3 * SizeToByteSize(Size::INT64);
+    case Type::POINT: {
+      auto payload_members = valid2d(SizeToCrs(payload_size)) ? 2 : 3;
+      auto bytes_to_skip = payload_members * SizeToByteSize(Size::INT64);
       return reader->SkipBytes(bytes_to_skip);
     }
   }
@@ -1199,27 +1171,21 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       if (!e_value) return false;
       return value.ValueEnum() == Enum{EnumTypeId{*e_type}, EnumValueId{*e_value}};
     }
-    case Type::POINT_2D: {
-      if (!value.IsPoint2d()) return false;
-
-      const auto x = reader->ReadDoubleForce64();
-      if (!x) return false;
-      const auto y = reader->ReadDoubleForce64();
-      if (!y) return false;
-
-      return value.ValuePoint2d() == Point2d{SizeToCrs(payload_size), *x, *y};
-    }
-    case Type::POINT_3D: {
-      if (!value.IsPoint3d()) return false;
-
-      const auto x = reader->ReadDoubleForce64();
-      if (!x) return false;
-      const auto y = reader->ReadDoubleForce64();
-      if (!y) return false;
-      const auto z = reader->ReadDoubleForce64();
-      if (!z) return false;
-
-      return value.ValuePoint3d() == Point3d{SizeToCrs(payload_size), *x, *y, *z};
+    case Type::POINT: {
+      auto crs = SizeToCrs(payload_size);
+      auto x_opt = reader->ReadDouble(Size::INT64);  // because we forced it as int64 on write
+      if (!x_opt) return false;
+      auto y_opt = reader->ReadDouble(Size::INT64);  // because we forced it as int64 on write
+      if (!y_opt) return false;
+      if (valid2d(crs) && value.IsPoint2d()) {
+        return value.ValuePoint2d() == Point2d{crs, *x_opt, *y_opt};
+      }
+      if (valid3d(crs) && value.IsPoint3d()) {
+        auto z_opt = reader->ReadDouble(Size::INT64);  // because we forced it as int64 on write
+        if (!z_opt) return false;
+        return value.ValuePoint3d() == Point3d{crs, *x_opt, *y_opt, *z_opt};
+      }
+      return false;
     }
   }
 }
@@ -2102,6 +2068,65 @@ void PropertyStore::SetBuffer(const std::string_view buffer) {
   if (buffer_info.storage_mode == StorageMode::BUFFER) {
     SetSizeData(buffer_, view.size_bytes(), view.data());
   }
+}
+
+std::vector<PropertyId> PropertyStore::PropertiesOfTypes(std::span<Type const> types) const {
+  auto get_properties = [&](Reader &reader) {
+    std::vector<PropertyId> props;
+    while (true) {
+      auto metadata = reader.ReadMetadata();
+      if (!metadata || metadata->type == Type::EMPTY) break;
+
+      auto property_id = reader.ReadUint(metadata->id_size);
+      if (!property_id) break;
+
+      if (utils::Contains(types, metadata->type)) {
+        props.emplace_back(PropertyId::FromUint(*property_id));
+      }
+
+      if (!SkipPropertyValue(&reader, metadata->type, metadata->payload_size)) break;
+    }
+    return props;
+  };
+  return WithReader(get_properties);
+}
+
+std::optional<PropertyValue> PropertyStore::GetPropertyOfTypes(PropertyId property, std::span<Type const> types) const {
+  auto get_properties = [&](Reader &reader) -> std::optional<PropertyValue> {
+    PropertyValue value;
+    while (true) {
+      auto metadata = reader.ReadMetadata();
+      if (!metadata || metadata->type == Type::EMPTY) {
+        return std::nullopt;
+      }
+
+      auto property_id = reader.ReadUint(metadata->id_size);
+      if (!property_id) {
+        return std::nullopt;
+      }
+
+      // found property
+      if (*property_id == property.AsUint()) {
+        // check its the type we are looking for
+        if (!utils::Contains(types, metadata->type)) {
+          return std::nullopt;
+        }
+        if (!DecodePropertyValue(&reader, metadata->type, metadata->payload_size, value)) {
+          return std::nullopt;
+        }
+
+        return value;
+      }
+      // Don't load the value if this isn't the expected property.
+      if (!SkipPropertyValue(&reader, metadata->type, metadata->payload_size)) {
+        return std::nullopt;
+      }
+      if (*property_id > property.AsUint()) return std::nullopt;
+    }
+    return std::nullopt;
+  };
+
+  return WithReader(get_properties);
 }
 
 }  // namespace memgraph::storage

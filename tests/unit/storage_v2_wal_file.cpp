@@ -47,6 +47,8 @@ memgraph::storage::durability::WalDeltaData::Type StorageMetadataOperationToWalD
     add_case(LABEL_INDEX_STATS_CLEAR);
     add_case(LABEL_PROPERTY_INDEX_CREATE);
     add_case(LABEL_PROPERTY_INDEX_DROP);
+    add_case(POINT_INDEX_CREATE);
+    add_case(POINT_INDEX_DROP);
     add_case(LABEL_PROPERTY_INDEX_STATS_SET);
     add_case(LABEL_PROPERTY_INDEX_STATS_CLEAR);
     add_case(TEXT_INDEX_CREATE);
@@ -72,7 +74,8 @@ class DeltaGenerator final {
     explicit Transaction(DeltaGenerator *gen)
         : gen_(gen),
           transaction_(gen->transaction_id_++, gen->timestamp_++, memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION,
-                       gen->storage_mode_, false, false) {}
+                       gen->storage_mode_, false, false,
+                       memgraph::storage::PointIndexStorage{}.CreatePointIndexContext()) {}
 
    public:
     memgraph::storage::Vertex *CreateVertex() {
@@ -318,6 +321,8 @@ class DeltaGenerator final {
       }
       case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_CREATE:
       case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_DROP:
+      case memgraph::storage::durability::StorageMetadataOperation::POINT_INDEX_CREATE:
+      case memgraph::storage::durability::StorageMetadataOperation::POINT_INDEX_DROP:
       case memgraph::storage::durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_CREATE:
       case memgraph::storage::durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_DROP: {
         apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
@@ -385,6 +390,8 @@ class DeltaGenerator final {
           break;
         case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_CREATE:
         case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_DROP:
+        case memgraph::storage::durability::StorageMetadataOperation::POINT_INDEX_CREATE:
+        case memgraph::storage::durability::StorageMetadataOperation::POINT_INDEX_DROP:
         case memgraph::storage::durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_CREATE:
         case memgraph::storage::durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_DROP:
           data.operation_label_property.label = label;

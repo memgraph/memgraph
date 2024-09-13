@@ -161,6 +161,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitEdgeIndexQuery(MemgraphCypher::EdgeIndexQueryContext *ctx) override;
 
   /**
+   * @return PointIndexQuery*
+   */
+  antlrcpp::Any visitPointIndexQuery(MemgraphCypher::PointIndexQueryContext *ctx) override;
+
+  /**
    * @return TextIndexQuery*
    */
   antlrcpp::Any visitTextIndexQuery(MemgraphCypher::TextIndexQueryContext *ctx) override;
@@ -543,12 +548,22 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitDropEdgeIndex(MemgraphCypher::DropEdgeIndexContext *ctx) override;
 
   /**
-   * @return TextIndexQuery*
+   * @return CreatePointIndexQuery*
+   */
+  antlrcpp::Any visitCreatePointIndex(MemgraphCypher::CreatePointIndexContext *ctx) override;
+
+  /**
+   * @return DropPointIndexQuery*
+   */
+  antlrcpp::Any visitDropPointIndex(MemgraphCypher::DropPointIndexContext *ctx) override;
+
+  /**
+   * @return CreateTextIndexQuery*
    */
   antlrcpp::Any visitCreateTextIndex(MemgraphCypher::CreateTextIndexContext *ctx) override;
 
   /**
-   * @return TextIndexQuery*
+   * @return DropTextIndexQuery*
    */
   antlrcpp::Any visitDropTextIndex(MemgraphCypher::DropTextIndexContext *ctx) override;
 
@@ -1150,6 +1165,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return TtlQuery*
    */
   antlrcpp::Any visitTtlQuery(MemgraphCypher::TtlQueryContext *ctx) override;
+
+  /**
+   * @return SetSessionTraceQuery*
+   */
+  antlrcpp::Any visitSetSessionTraceQuery(MemgraphCypher::SetSessionTraceQueryContext *ctx) override;
 
  public:
   Query *query() { return query_; }

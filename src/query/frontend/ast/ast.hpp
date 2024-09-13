@@ -2347,6 +2347,37 @@ class EdgeIndexQuery : public memgraph::query::Query {
   friend class AstStorage;
 };
 
+class PointIndexQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  enum class Action { CREATE, DROP };
+
+  PointIndexQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  memgraph::query::PointIndexQuery::Action action_;
+  memgraph::query::LabelIx label_;
+  memgraph::query::PropertyIx property_;
+
+  PointIndexQuery *Clone(AstStorage *storage) const override {
+    PointIndexQuery *object = storage->Create<PointIndexQuery>();
+    object->action_ = action_;
+    object->label_ = storage->GetLabelIx(label_.name);
+    object->property_ = storage->GetPropertyIx(property_.name);
+    return object;
+  }
+
+ protected:
+  PointIndexQuery(Action action, LabelIx label, PropertyIx property)
+      : action_(action), label_(std::move(label)), property_(std::move(property)) {}
+
+ private:
+  friend class AstStorage;
+};
+
 class TextIndexQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
@@ -4082,6 +4113,27 @@ class TtlQuery : public memgraph::query::Query {
     object->type_ = type_;
     object->period_ = period_ ? period_->Clone(storage) : nullptr;
     object->specific_time_ = specific_time_ ? specific_time_->Clone(storage) : nullptr;
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
+class SessionTraceQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  SessionTraceQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  bool enabled_{false};
+
+  SessionTraceQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<SessionTraceQuery>();
+    object->enabled_ = enabled_;
     return object;
   }
 

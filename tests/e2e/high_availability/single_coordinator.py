@@ -9,17 +9,16 @@
 # licenses/APL.txt.
 
 import os
-import shutil
 import sys
-import tempfile
 
 import interactive_mg_runner
 import pytest
 from common import (
     connect,
     execute_and_fetch_all,
+    get_data_path,
+    get_logs_path,
     ignore_elapsed_time_from_results,
-    safe_execute,
 )
 from mg_utils import mg_sleep_and_assert, mg_sleep_and_assert_collection
 
@@ -30,7 +29,12 @@ interactive_mg_runner.PROJECT_DIR = os.path.normpath(
 interactive_mg_runner.BUILD_DIR = os.path.normpath(os.path.join(interactive_mg_runner.PROJECT_DIR, "build"))
 interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactive_mg_runner.BUILD_DIR, "memgraph"))
 
-TEMP_DIR = tempfile.TemporaryDirectory().name
+file = "single_coordinator"
+
+
+@pytest.fixture
+def test_name(request):
+    return request.node.name
 
 
 def get_memgraph_instances_description(test_name: str, data_recovery_on_startup: str = "false"):
@@ -47,8 +51,8 @@ def get_memgraph_instances_description(test_name: str, data_recovery_on_startup:
                 "--replication-restore-state-on-startup=true",
                 f"--data-recovery-on-startup={data_recovery_on_startup}",
             ],
-            "log_file": f"high_availability/single_coordinator/{test_name}/instance_1.log",
-            "data_directory": f"{TEMP_DIR}/instance_1",
+            "log_file": f"{get_logs_path(file, test_name)}/instance_1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/instance_1",
             "setup_queries": [],
         },
         "instance_2": {
@@ -63,8 +67,8 @@ def get_memgraph_instances_description(test_name: str, data_recovery_on_startup:
                 "--replication-restore-state-on-startup=true",
                 f"--data-recovery-on-startup={data_recovery_on_startup}",
             ],
-            "log_file": f"high_availability/single_coordinator/{test_name}/instance_2.log",
-            "data_directory": f"{TEMP_DIR}/instance_2",
+            "log_file": f"{get_logs_path(file, test_name)}/instance_2.log",
+            "data_directory": f"{get_data_path(file, test_name)}/instance_2",
             "setup_queries": [],
         },
         "instance_3": {
@@ -79,8 +83,8 @@ def get_memgraph_instances_description(test_name: str, data_recovery_on_startup:
                 "--replication-restore-state-on-startup=true",
                 f"--data-recovery-on-startup={data_recovery_on_startup}",
             ],
-            "log_file": f"high_availability/single_coordinator/{test_name}/instance_3.log",
-            "data_directory": f"{TEMP_DIR}/instance_3",
+            "log_file": f"{get_logs_path(file, test_name)}/instance_3.log",
+            "data_directory": f"{get_data_path(file, test_name)}/instance_3",
             "setup_queries": [],
         },
         "coordinator": {
@@ -94,8 +98,8 @@ def get_memgraph_instances_description(test_name: str, data_recovery_on_startup:
                 "--coordinator-hostname=localhost",
                 "--management-port=10121",
             ],
-            "log_file": f"high_availability/single_coordinator/{test_name}/coordinator.log",
-            "data_directory": f"{TEMP_DIR}/coordinator",
+            "log_file": f"{get_logs_path(file, test_name)}/coordinator.log",
+            "data_directory": f"{get_data_path(file, test_name)}/coordinator",
             "setup_queries": [
                 "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
                 "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",
@@ -121,8 +125,8 @@ def get_memgraph_instances_description_4_instances(test_name: str, data_recovery
                 "true",
                 f"--data-recovery-on-startup={data_recovery_on_startup}",
             ],
-            "log_file": f"high_availability/single_coordinator/{test_name}/instance_1.log",
-            "data_directory": f"{TEMP_DIR}/instance_1",
+            "log_file": f"{get_logs_path(file, test_name)}/instance_1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/instance_1",
             "setup_queries": [],
         },
         "instance_2": {
@@ -138,8 +142,8 @@ def get_memgraph_instances_description_4_instances(test_name: str, data_recovery
                 "true",
                 f"--data-recovery-on-startup={data_recovery_on_startup}",
             ],
-            "log_file": f"high_availability/single_coordinator/{test_name}/instance_2.log",
-            "data_directory": f"{TEMP_DIR}/instance_2",
+            "log_file": f"{get_logs_path(file, test_name)}/instance_2.log",
+            "data_directory": f"{get_data_path(file, test_name)}/instance_2",
             "setup_queries": [],
         },
         "instance_3": {
@@ -156,8 +160,8 @@ def get_memgraph_instances_description_4_instances(test_name: str, data_recovery
                 "--data-recovery-on-startup",
                 f"{data_recovery_on_startup}",
             ],
-            "log_file": f"high_availability/single_coordinator/{test_name}/instance_3.log",
-            "data_directory": f"{TEMP_DIR}/instance_3",
+            "log_file": f"{get_logs_path(file, test_name)}/instance_3.log",
+            "data_directory": f"{get_data_path(file, test_name)}/instance_3",
             "setup_queries": [],
         },
         "instance_4": {
@@ -174,8 +178,8 @@ def get_memgraph_instances_description_4_instances(test_name: str, data_recovery
                 "--data-recovery-on-startup",
                 f"{data_recovery_on_startup}",
             ],
-            "log_file": f"high_availability/single_coordinator/{test_name}/instance_4.log",
-            "data_directory": f"{TEMP_DIR}/instance_4",
+            "log_file": f"{get_logs_path(file, test_name)}/instance_4.log",
+            "data_directory": f"{get_data_path(file, test_name)}/instance_4",
             "setup_queries": [],
         },
         "coordinator": {
@@ -189,8 +193,8 @@ def get_memgraph_instances_description_4_instances(test_name: str, data_recovery
                 "--coordinator-hostname=localhost",
                 "--management-port=10121",
             ],
-            "log_file": f"high_availability/single_coordinator/{test_name}/coordinator.log",
-            "data_directory": f"{TEMP_DIR}/coordinator",
+            "log_file": f"{get_logs_path(file, test_name)}/coordinator.log",
+            "data_directory": f"{get_data_path(file, test_name)}/coordinator",
             "setup_queries": [
                 "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
                 "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",
@@ -202,8 +206,16 @@ def get_memgraph_instances_description_4_instances(test_name: str, data_recovery
     }
 
 
+@pytest.fixture(autouse=True)
+def cleanup_after_test():
+    # Run the test
+    yield
+    # Stop and delete directories after cleaning the test
+    interactive_mg_runner.stop_all(keep_directories=False)
+
+
 @pytest.mark.parametrize("data_recovery", ["false", "true"])
-def test_replication_works_on_failover_replica_1_epoch_2_commits_away(data_recovery):
+def test_replication_works_on_failover_replica_1_epoch_2_commits_away(data_recovery, test_name):
     # Goal of this test is to check the replication works after failover command.
     # 1. We start all replicas, main and coordinator manually
     # 2. We check that main has correct state
@@ -219,10 +231,8 @@ def test_replication_works_on_failover_replica_1_epoch_2_commits_away(data_recov
     # 12. Start old MAIN (instance_3)
     # 13. Expect data to be copied to instance_3
 
-    safe_execute(shutil.rmtree, TEMP_DIR)
     memgraph_instances_description = get_memgraph_instances_description(
-        test_name="test_replication_works_on_failover_replica_1_epoch_2_commits_away_data_recovery_"
-        + str(data_recovery),
+        test_name=test_name,
         data_recovery_on_startup=data_recovery,
     )
 
@@ -353,7 +363,7 @@ def test_replication_works_on_failover_replica_1_epoch_2_commits_away(data_recov
 
 
 @pytest.mark.parametrize("data_recovery", ["false", "true"])
-def test_replication_works_on_failover_replica_2_epochs_more_commits_away(data_recovery):
+def test_replication_works_on_failover_replica_2_epochs_more_commits_away(data_recovery, test_name):
     # Goal of this test is to check the replication works after failover command if one
     # instance missed couple of epochs but data is still available on one of the instances
 
@@ -373,9 +383,8 @@ def test_replication_works_on_failover_replica_2_epochs_more_commits_away(data_r
     # 14. All other instances wake up
     # 15. Everything is replicated
 
-    safe_execute(shutil.rmtree, TEMP_DIR)
     memgraph_instances_description = get_memgraph_instances_description_4_instances(
-        test_name="test_replication_works_on_failover_replica_2_epochs_more_commits_away_" + data_recovery,
+        test_name=test_name,
         data_recovery_on_startup=data_recovery,
     )
     # 1
@@ -564,7 +573,7 @@ def test_replication_works_on_failover_replica_2_epochs_more_commits_away(data_r
 
 
 @pytest.mark.parametrize("data_recovery", ["true"])
-def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_recovery):
+def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_recovery, test_name):
     # Goal of this test is to check the replication works forcefully if replica misses epoch
     # 1. We start all replicas, main and coordinator manually
     # 2. We check that main has correct state
@@ -581,9 +590,8 @@ def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_reco
     # 13 instance 2 up
     # 14 Force data from instance 1 to instance 2
 
-    safe_execute(shutil.rmtree, TEMP_DIR)
     memgraph_instances_description = get_memgraph_instances_description_4_instances(
-        test_name="test_replication_forcefully_works_on_failover_replica_misses_epoch_" + data_recovery,
+        test_name=test_name,
         data_recovery_on_startup=data_recovery,
     )
 
@@ -761,7 +769,7 @@ def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_reco
 
 
 @pytest.mark.parametrize("data_recovery", ["false", "true"])
-def test_replication_correct_replica_chosen_up_to_date_data(data_recovery):
+def test_replication_correct_replica_chosen_up_to_date_data(data_recovery, test_name):
     # Goal of this test is to check that correct replica instance as new MAIN is chosen
     # 1. We start all replicas, main and coordinator manually
     # 2. We check that main has correct state
@@ -779,9 +787,8 @@ def test_replication_correct_replica_chosen_up_to_date_data(data_recovery):
 
     # 1
 
-    safe_execute(shutil.rmtree, TEMP_DIR)
     memgraph_instances_description = get_memgraph_instances_description_4_instances(
-        test_name="test_replication_correct_replica_chosen_up_to_date_data_" + str(data_recovery),
+        test_name=test_name,
         data_recovery_on_startup=data_recovery,
     )
     interactive_mg_runner.start_all(memgraph_instances_description, keep_directories=False)
@@ -839,7 +846,6 @@ def test_replication_correct_replica_chosen_up_to_date_data(data_recovery):
     def retrieve_data_show_instances():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;"))))
 
-    # TODO(antoniofilipovic) Before fixing durability, if this is removed we also have an issue. Check after fix
     expected_data_on_coord = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
         ("instance_1", "localhost:7688", "", "localhost:10011", "up", "replica"),
@@ -939,7 +945,7 @@ def test_replication_correct_replica_chosen_up_to_date_data(data_recovery):
     mg_sleep_and_assert(3, get_vertex_count)
 
 
-def test_replication_works_on_failover_simple():
+def test_replication_works_on_failover_simple(test_name):
     # Goal of this test is to check the replication works after failover command.
     # 1. We start all replicas, main and coordinator manually
     # 2. We check that main has correct state
@@ -949,10 +955,7 @@ def test_replication_works_on_failover_simple():
     # 6. We check that vertex appears on new replica
     # 7. We bring back main up
     # 8. Expect data to be copied to main
-    safe_execute(shutil.rmtree, TEMP_DIR)
-    memgraph_instances_description = get_memgraph_instances_description(
-        test_name="test_replication_works_on_failover_simple"
-    )
+    memgraph_instances_description = get_memgraph_instances_description(test_name=test_name)
     # 1
     interactive_mg_runner.start_all(memgraph_instances_description, keep_directories=False)
 
@@ -1064,7 +1067,7 @@ def test_replication_works_on_failover_simple():
     mg_sleep_and_assert(1, retrieve_vertices_count)
 
 
-def test_replication_works_on_replica_instance_restart():
+def test_replication_works_on_replica_instance_restart(test_name):
     # Goal of this test is to check the replication works after replica goes down and restarts
     # 1. We start all replicas, main and coordinator manually: we want to be able to kill them ourselves without relying on external tooling to kill processes.
     # 2. We check that main has correct state
@@ -1072,10 +1075,7 @@ def test_replication_works_on_replica_instance_restart():
     # 4. We check that main cannot replicate to replica
     # 5. We bring replica back up
     # 6. We check that replica gets data
-    safe_execute(shutil.rmtree, TEMP_DIR)
-    memgraph_instances_description = get_memgraph_instances_description(
-        test_name="test_replication_works_on_replica_instance_restart"
-    )
+    memgraph_instances_description = get_memgraph_instances_description(test_name=test_name)
     # 1
     interactive_mg_runner.start_all(memgraph_instances_description, keep_directories=False)
 
@@ -1213,9 +1213,8 @@ def test_replication_works_on_replica_instance_restart():
     assert res_instance_2 == 2
 
 
-def test_show_instances():
-    safe_execute(shutil.rmtree, TEMP_DIR)
-    memgraph_instances_description = get_memgraph_instances_description(test_name="test_show_instances")
+def test_show_instances(test_name):
+    memgraph_instances_description = get_memgraph_instances_description(test_name=test_name)
     interactive_mg_runner.start_all(memgraph_instances_description, keep_directories=False)
 
     instance1_cursor = connect(host="localhost", port=7688).cursor()
@@ -1268,9 +1267,8 @@ def test_show_instances():
     mg_sleep_and_assert(expected_data, show_repl_cluster)
 
 
-def test_simple_automatic_failover():
-    safe_execute(shutil.rmtree, TEMP_DIR)
-    memgraph_instances_description = get_memgraph_instances_description(test_name="test_simple_automatic_failover")
+def test_simple_automatic_failover(test_name):
+    memgraph_instances_description = get_memgraph_instances_description(test_name=test_name)
     interactive_mg_runner.start_all(memgraph_instances_description, keep_directories=False)
 
     main_cursor = connect(host="localhost", port=7687).cursor()
@@ -1355,12 +1353,8 @@ def test_simple_automatic_failover():
     mg_sleep_and_assert_collection(expected_data_on_new_main_old_alive, retrieve_data_show_replicas)
 
 
-def test_registering_replica_fails_name_exists():
-    safe_execute(shutil.rmtree, TEMP_DIR)
-
-    memgraph_instances_description = get_memgraph_instances_description(
-        test_name="test_registering_replica_fails_name_exists"
-    )
+def test_registering_replica_fails_name_exists(test_name):
+    memgraph_instances_description = get_memgraph_instances_description(test_name=test_name)
     interactive_mg_runner.start_all(memgraph_instances_description, keep_directories=False)
 
     coord_cursor = connect(host="localhost", port=7690).cursor()
@@ -1370,14 +1364,10 @@ def test_registering_replica_fails_name_exists():
             "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7693', 'management_server': 'localhost:10051', 'replication_server': 'localhost:10111'};",
         )
     assert str(e.value) == "Couldn't register replica instance since instance with such name already exists!"
-    shutil.rmtree(TEMP_DIR)
 
 
-def test_registering_replica_fails_endpoint_exists():
-    safe_execute(shutil.rmtree, TEMP_DIR)
-    memgraph_instances_description = get_memgraph_instances_description(
-        test_name="test_registering_replica_fails_endpoint_exists"
-    )
+def test_registering_replica_fails_endpoint_exists(test_name):
+    memgraph_instances_description = get_memgraph_instances_description(test_name=test_name)
 
     interactive_mg_runner.start_all(memgraph_instances_description, keep_directories=False)
 
@@ -1392,9 +1382,8 @@ def test_registering_replica_fails_endpoint_exists():
     )
 
 
-def test_replica_instance_restarts():
-    safe_execute(shutil.rmtree, TEMP_DIR)
-    memgraph_instances_description = get_memgraph_instances_description(test_name="test_replica_instance_restarts")
+def test_replica_instance_restarts(test_name):
+    memgraph_instances_description = get_memgraph_instances_description(test_name=test_name)
     interactive_mg_runner.start_all(memgraph_instances_description, keep_directories=False)
 
     cursor = connect(host="localhost", port=7690).cursor()
@@ -1433,11 +1422,8 @@ def test_replica_instance_restarts():
     mg_sleep_and_assert(expected_data_replica, retrieve_data_show_repl_role_instance1)
 
 
-def test_automatic_failover_main_back_as_replica():
-    safe_execute(shutil.rmtree, TEMP_DIR)
-    memgraph_instances_description = get_memgraph_instances_description(
-        test_name="test_automatic_failover_main_back_as_replica"
-    )
+def test_automatic_failover_main_back_as_replica(test_name):
+    memgraph_instances_description = get_memgraph_instances_description(test_name=test_name)
 
     interactive_mg_runner.start_all(memgraph_instances_description, keep_directories=False)
 
@@ -1474,12 +1460,8 @@ def test_automatic_failover_main_back_as_replica():
     mg_sleep_and_assert([("replica",)], retrieve_data_show_repl_role_instance3)
 
 
-def test_automatic_failover_main_back_as_main():
-    safe_execute(shutil.rmtree, TEMP_DIR)
-
-    memgraph_instances_description = get_memgraph_instances_description(
-        test_name="test_automatic_failover_main_back_as_main"
-    )
+def test_automatic_failover_main_back_as_main(test_name):
+    memgraph_instances_description = get_memgraph_instances_description(test_name=test_name)
 
     interactive_mg_runner.start_all(memgraph_instances_description, keep_directories=False)
 
@@ -1543,10 +1525,8 @@ def test_automatic_failover_main_back_as_main():
     mg_sleep_and_assert([("main",)], retrieve_data_show_repl_role_instance3)
 
 
-def test_disable_multiple_mains():
-    safe_execute(shutil.rmtree, TEMP_DIR)
-
-    memgraph_instances_description = get_memgraph_instances_description(test_name="disable_multiple_mains")
+def test_disable_multiple_mains(test_name):
+    memgraph_instances_description = get_memgraph_instances_description(test_name=test_name)
     interactive_mg_runner.start_all(memgraph_instances_description, keep_directories=False)
 
     coord_cursor = connect(host="localhost", port=7690).cursor()

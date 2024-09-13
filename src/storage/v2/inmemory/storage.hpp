@@ -221,6 +221,10 @@ class InMemoryStorage final : public Storage {
           edge_type, property, lower, upper);
     }
 
+    uint64_t ApproximatePointCount(LabelId label, PropertyId property) const override {
+      return storage_->indices_.point_index_.ApproximatePointCount(label, property);
+    }
+
     template <typename TResult, typename TIndex, typename TIndexKey>
     std::optional<TResult> GetIndexStatsForIndex(TIndex *index, TIndexKey &&key) const {
       return index->GetIndexStats(key);
@@ -373,6 +377,12 @@ class InMemoryStorage final : public Storage {
     /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index does not exist.
     utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type, PropertyId property) override;
+
+    utils::BasicResult<StorageIndexDefinitionError, void> CreatePointIndex(storage::LabelId label,
+                                                                           storage::PropertyId property) override;
+
+    utils::BasicResult<StorageIndexDefinitionError, void> DropPointIndex(storage::LabelId label,
+                                                                         storage::PropertyId property) override;
 
     /// Returns void if the existence constraint has been created.
     /// Returns `StorageExistenceConstraintDefinitionError` if an error occures. Error can be:

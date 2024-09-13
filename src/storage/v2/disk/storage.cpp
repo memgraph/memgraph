@@ -1761,6 +1761,9 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
           throw utils::NotYetImplemented("Enum types is not implemented for DiskStorage.");
           break;
         }
+        case MetadataDelta::Action::POINT_INDEX_CREATE:
+        case MetadataDelta::Action::POINT_INDEX_DROP:
+          throw utils::NotYetImplemented("Point index is not implemented for DiskStorage.");
       }
     }
   } else if (transaction_.deltas.empty() ||
@@ -2072,6 +2075,16 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
       "Edge-type index related operations are not yet supported using on-disk storage mode.");
 }
 
+utils::BasicResult<storage::StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreatePointIndex(
+    storage::LabelId /*label*/, storage::PropertyId /*property*/) {
+  throw utils::NotYetImplemented("Point index related operations are not yet supported using on-disk storage mode.");
+}
+
+utils::BasicResult<storage::StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropPointIndex(
+    storage::LabelId /*label*/, storage::PropertyId /*property*/) {
+  throw utils::NotYetImplemented("Point index related operations are not yet supported using on-disk storage mode.");
+}
+
 utils::BasicResult<StorageExistenceConstraintDefinitionError, void>
 DiskStorage::DiskAccessor::CreateExistenceConstraint(LabelId label, PropertyId property) {
   MG_ASSERT(unique_guard_.owns_lock(), "Create existence constraint requires a unique access to the storage!");
@@ -2136,6 +2149,9 @@ UniqueConstraints::DeletionStatus DiskStorage::DiskAccessor::DropUniqueConstrain
 
 void DiskStorage::DiskAccessor::DropGraph() {}
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+PointIndexStorage DiskStorage::empty_point_index_ = PointIndexStorage{};
+
 Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) {
   /// We acquire the transaction engine lock here because we access (and
   /// modify) the transaction engine variables (`transaction_id` and
@@ -2150,8 +2166,13 @@ Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, Stora
     edge_import_mode_active = edge_import_status_ == EdgeImportMode::ACTIVE;
   }
 
-  return {transaction_id, start_timestamp,         isolation_level,
-          storage_mode,   edge_import_mode_active, !constraints_.empty()};
+  return {transaction_id,
+          start_timestamp,
+          isolation_level,
+          storage_mode,
+          edge_import_mode_active,
+          !constraints_.empty(),
+          empty_point_index_.CreatePointIndexContext()};
 }
 
 uint64_t DiskStorage::GetCommitTimestamp() { return timestamp_++; }
@@ -2189,11 +2210,9 @@ IndicesInfo DiskStorage::DiskAccessor::ListAllIndices() const {
   auto *disk_label_property_index =
       static_cast<DiskLabelPropertyIndex *>(on_disk->indices_.label_property_index_.get());
   auto &text_index = storage_->indices_.text_index_;
-  return {disk_label_index->ListIndices(),
-          disk_label_property_index->ListIndices(),
-          {/* edge type indices */},
-          {/* edge_type_property */},
-          text_index.ListIndices()};
+  return {disk_label_index->ListIndices(), disk_label_property_index->ListIndices(),
+          {/* edge type indices */},       {/* edge_type_property */},
+          text_index.ListIndices(),        {/*  */}};
 }
 ConstraintsInfo DiskStorage::DiskAccessor::ListAllConstraints() const {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);

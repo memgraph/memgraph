@@ -197,6 +197,9 @@ constexpr utils::TypeInfo query::IndexQuery::kType{utils::TypeId::AST_INDEX_QUER
 constexpr utils::TypeInfo query::EdgeIndexQuery::kType{utils::TypeId::AST_EDGE_INDEX_QUERY, "EdgeIndexQuery",
                                                        &query::Query::kType};
 
+constexpr utils::TypeInfo query::PointIndexQuery::kType{utils::TypeId::AST_POINT_INDEX_QUERY, "PointIndexQuery",
+                                                        &query::Query::kType};
+
 constexpr utils::TypeInfo query::TextIndexQuery::kType{utils::TypeId::AST_TEXT_INDEX_QUERY, "TextIndexQuery",
                                                        &query::Query::kType};
 
@@ -341,5 +344,8 @@ constexpr utils::TypeInfo query::ShowSchemaInfoQuery::kType{utils::TypeId::AST_S
                                                             "ShowSchemaInfoQuery", &query::Query::kType};
 
 constexpr utils::TypeInfo query::TtlQuery::kType{utils::TypeId::AST_TTL_QUERY, "TtlQuery", &query::Query::kType};
+
+constexpr utils::TypeInfo query::SessionTraceQuery::kType{utils::TypeId::AST_SESSION_TRACE_QUERY, "SessionTraceQuery",
+                                                          &query::Query::kType};
 
 }  // namespace memgraph

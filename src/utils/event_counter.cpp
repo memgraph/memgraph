@@ -71,6 +71,7 @@
                                                                                                                      \
   M(ActiveLabelIndices, Index, "Number of active label indices in the system.")                                      \
   M(ActiveLabelPropertyIndices, Index, "Number of active label property indices in the system.")                     \
+  M(ActivePointIndices, Index, "Number of active point indices in the system.")                                      \
   M(ActiveTextIndices, Index, "Number of active text indices in the system.")                                        \
                                                                                                                      \
   M(StreamsCreated, Stream, "Number of Streams created.")                                                            \
