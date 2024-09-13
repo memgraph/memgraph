@@ -30,7 +30,8 @@
    :partition-halves? true})
 
 (defn compose-gen
-  "Composes final generator used in the test from workload and nemesis configuration. Used for HA testing and single-instance testing."
+  "Composes final generator used in the test from workload and nemesis configuration. Used for HA testing and single-instance testing.
+  "
   [opts workload nemesis]
   (gen/time-limit
    (:time-limit opts)
