@@ -29,14 +29,20 @@
    :kill-node?        true
    :partition-halves? true})
 
+(defn compose-gen
+  "Composes final generator used in the test from workload and nemesis configuration. Used for HA testing and single-instance testing."
+  [opts workload nemesis]
+  (gen/time-limit
+   (:time-limit opts)
+   (gen/nemesis (:generator nemesis) (:generator workload))))
+
 (defn memgraph-ha-test
   "Given an options map from the command line runner constructs a test map for HA tests."
   [opts]
   (let [workload ((get workloads (:workload opts)) opts)
         nemesis (hanemesis/nemesis nemesis-configuration (:nodes-config opts))
-        gen      (->> (:generator workload)
-                      (gen/nemesis (:generator nemesis))
-                      (gen/time-limit (:time-limit opts)))]
+        gen (compose-gen opts workload nemesis)]
+
     (merge tests/noop-test
            opts
            {:pure-generators true
@@ -57,9 +63,8 @@
   [opts]
   (let [workload ((get workloads (:workload opts)) opts)
         nemesis  (nemesis/nemesis nemesis-configuration)
-        gen      (->> (:generator workload)
-                      (gen/nemesis (:generator nemesis))
-                      (gen/time-limit (:time-limit opts)))
+        gen (compose-gen opts workload nemesis)
+        ; If final generator exists in the workload, then modify gen, otherwise use what you already have.
         gen      (if-let [final-generator (:final-generator workload)]
                    (gen/phases gen
                                (gen/log "Healing cluster.")
@@ -145,8 +150,7 @@
                           :organization organization})]
     (if (or (= workload :high_availability) (= workload :habank))
       (memgraph-ha-test test-opts)
-      (memgraph-test test-opts)))
-  )
+      (memgraph-test test-opts))))
 
 (def cli-opts
   "CLI options for tests."
