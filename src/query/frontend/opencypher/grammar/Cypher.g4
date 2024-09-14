@@ -357,6 +357,7 @@ doubleLiteral : FloatingLiteral ;
 enumValueAccess : symbolicName ':' ':' symbolicName ;
 
 cypherKeyword : ALL
+              | ALLSHORTEST
               | AND
               | ANY
               | AS
@@ -394,8 +395,8 @@ cypherKeyword : ALL
               | IS
               | KB
               | KEY
-              | LIMIT
               | L_SKIP
+              | LIMIT
               | MATCH
               | MB
               | MEMORY
@@ -430,7 +431,6 @@ cypherKeyword : ALL
               | WHERE
               | WITH
               | WSHORTEST
-              | ALLSHORTEST
               | XOR
               | YIELD
               ;

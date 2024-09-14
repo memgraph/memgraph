@@ -69,6 +69,7 @@ DashPart           : '­' | '‐' | '‑' | '‒' | '–' | '—' | '―'
 
 /* Cypher reserved words. */
 ALL            : A L L ;
+ALLSHORTEST    : A L L S H O R T E S T ;
 AND            : A N D ;
 ANY            : A N Y ;
 AS             : A S ;
@@ -106,8 +107,8 @@ INSTANCE       : I N S T A N C E ;
 IS             : I S ;
 KB             : K B ;
 KEY            : K E Y ;
-LIMIT          : L I M I T ;
 L_SKIP         : S K I P ;
+LIMIT          : L I M I T ;
 MATCH          : M A T C H ;
 MB             : M B ;
 MEMORY         : M E M O R Y ;
@@ -142,7 +143,6 @@ WHEN           : W H E N ;
 WHERE          : W H E R E ;
 WITH           : W I T H ;
 WSHORTEST      : W S H O R T E S T ;
-ALLSHORTEST    : A L L S H O R T E S T ;
 XOR            : X O R ;
 YIELD          : Y I E L D ;
 
