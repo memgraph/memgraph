@@ -17,7 +17,9 @@
 #include <filesystem>
 #include <string_view>
 
+#include "storage/v2/constraints/type_constraints_type.hpp"
 #include "storage/v2/durability/exceptions.hpp"
+#include "storage/v2/durability/serialization.hpp"
 #include "storage/v2/durability/version.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
@@ -57,6 +59,8 @@ memgraph::storage::durability::WalDeltaData::Type StorageMetadataOperationToWalD
     add_case(EXISTENCE_CONSTRAINT_DROP);
     add_case(UNIQUE_CONSTRAINT_CREATE);
     add_case(UNIQUE_CONSTRAINT_DROP);
+    add_case(TYPE_CONSTRAINT_CREATE);
+    add_case(TYPE_CONSTRAINT_DROP);
     add_case(ENUM_CREATE);
     add_case(ENUM_ALTER_ADD);
     add_case(ENUM_ALTER_UPDATE);
@@ -350,6 +354,15 @@ class DeltaGenerator final {
         });
         break;
       }
+      case memgraph::storage::durability::StorageMetadataOperation::TYPE_CONSTRAINT_CREATE:
+      case memgraph::storage::durability::StorageMetadataOperation::TYPE_CONSTRAINT_DROP: {
+        apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
+          EncodeTypeConstraint(encoder, mapper_, label_id, *property_ids.begin(),
+                               memgraph::storage::TypeConstraintsType::INTEGER);
+        });
+      }
+
+      break;
       case memgraph::storage::durability::StorageMetadataOperation::ENUM_CREATE: {
         ASSERT_TRUE(enum_type_id.has_value());
         apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
@@ -406,6 +419,12 @@ class DeltaGenerator final {
         case memgraph::storage::durability::StorageMetadataOperation::UNIQUE_CONSTRAINT_DROP:
           data.operation_label_properties.label = label;
           data.operation_label_properties.properties = properties;
+          break;
+        case memgraph::storage::durability::StorageMetadataOperation::TYPE_CONSTRAINT_CREATE:
+        case memgraph::storage::durability::StorageMetadataOperation::TYPE_CONSTRAINT_DROP:
+          data.operation_label_property_type.label = label;
+          data.operation_label_property_type.property = *properties.begin();
+          data.operation_label_property_type.type = memgraph::storage::TypeConstraintsType::INTEGER;
           break;
         case memgraph::storage::durability::StorageMetadataOperation::TEXT_INDEX_CREATE:
         case memgraph::storage::durability::StorageMetadataOperation::TEXT_INDEX_DROP:

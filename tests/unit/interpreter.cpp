@@ -653,20 +653,22 @@ TYPED_TEST(InterpreterTest, UniqueConstraintTest) {
   // Show constraint info.
   {
     auto stream = this->Interpret("SHOW CONSTRAINT INFO");
-    ASSERT_EQ(stream.GetHeader().size(), 3U);
+    ASSERT_EQ(stream.GetHeader().size(), 4U);
     const auto &header = stream.GetHeader();
     ASSERT_EQ(header[0], "constraint type");
     ASSERT_EQ(header[1], "label");
     ASSERT_EQ(header[2], "properties");
+    ASSERT_EQ(header[3], "type");
     ASSERT_EQ(stream.GetResults().size(), 1U);
     const auto &result = stream.GetResults().front();
-    ASSERT_EQ(result.size(), 3U);
+    ASSERT_EQ(result.size(), 4U);
     ASSERT_EQ(result[0].ValueString(), "unique");
     ASSERT_EQ(result[1].ValueString(), "A");
     const auto &properties = result[2].ValueList();
     ASSERT_EQ(properties.size(), 2U);
     ASSERT_EQ(properties[0].ValueString(), "a");
     ASSERT_EQ(properties[1].ValueString(), "b");
+    ASSERT_EQ(result[3].ValueString(), "");
   }
 
   // Drop constraint.
