@@ -3061,7 +3061,8 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
             &indices_constraints.constraints.type,
             {get_label_from_id(*label), get_property_from_id(*property), static_cast<TypeConstraintsType>(*type)},
             "The type constraint already exists!");
-        SPDLOG_TRACE("Recovered metadata for IS TYPED {} constraint for :{}({})", TypeConstraintsTypeToString(*type),
+        SPDLOG_TRACE("Recovered metadata for IS TYPED {} constraint for :{}({})",
+                     TypeConstraintsTypeToString(static_cast<TypeConstraintsType>(*type)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
       }

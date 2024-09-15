@@ -312,8 +312,8 @@ void RecoverUniqueConstraints(const RecoveredIndicesAndConstraints::ConstraintsM
 
 void RecoverTypeConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &constraints_metadata,
                             Constraints *constraints, utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
-                            const std::optional<ParallelizedSchemaCreationInfo> &) {
-  // TODO: paralel recovery
+                            const std::optional<ParallelizedSchemaCreationInfo> & /**/) {
+  // TODO: parallel recovery
   spdlog::info("Recreating {} type constraints from metadata.", constraints_metadata.type.size());
   for (const auto &[label, property, type] : constraints_metadata.type) {
     if (constraints->type_constraints_->ConstraintExists(label, property)) {

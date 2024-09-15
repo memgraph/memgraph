@@ -4576,7 +4576,8 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
               const auto &error = maybe_constraint_error.GetError();
               std::visit(
                   [storage, &label_name, &properties_stringified, &constraint_notification,
-                   &constraint_type]<typename T>(T &&arg) {
+                   &constraint_type]<typename T>(T const &arg) {  // TODO: using universal reference gives clang tidy
+                                                                  // error but it used above with no problem?
                     using ErrorType = std::remove_cvref_t<T>;
                     if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
                       auto &violation = arg;
