@@ -31,6 +31,7 @@
 #include "storage/v2/config.hpp"
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/constraints/existence_constraints.hpp"
+#include "storage/v2/constraints/type_constraints_type.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/marker.hpp"
 #include "storage/v2/durability/paths.hpp"
@@ -152,6 +153,14 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       // Create unique constraint.
       auto unique_acc = store->UniqueAccess();
       ASSERT_FALSE(unique_acc->CreateUniqueConstraint(label_unindexed, {property_id, property_extra}).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
+    {
+      // Create type constraint.
+      auto unique_acc = store->UniqueAccess();
+      ASSERT_FALSE(
+          unique_acc->CreateTypeConstraint(label_indexed, property_point, memgraph::storage::TypeConstraintsType::POINT)
+              .HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
 
@@ -507,11 +516,14 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_THAT(info.existence, UnorderedElementsAre(std::make_pair(base_label_unindexed, property_id)));
           ASSERT_THAT(info.unique, UnorderedElementsAre(
                                        std::make_pair(base_label_unindexed, std::set{property_id, property_extra})));
+          ASSERT_THAT(info.type, UnorderedElementsAre(std::make_tuple(base_label_indexed, property_point,
+                                                                      memgraph::storage::TypeConstraintsType::POINT)));
           break;
         case DatasetType::ONLY_EXTENDED:
           ASSERT_THAT(info.existence, UnorderedElementsAre(std::make_pair(extended_label_unused, property_count)));
           ASSERT_THAT(info.unique,
                       UnorderedElementsAre(std::make_pair(extended_label_unused, std::set{property_count})));
+          ASSERT_TRUE(info.type.empty());
           break;
         case DatasetType::ONLY_BASE_WITH_EXTENDED_INDICES_AND_CONSTRAINTS:
         case DatasetType::ONLY_EXTENDED_WITH_BASE_INDICES_AND_CONSTRAINTS:
@@ -521,6 +533,8 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_THAT(info.unique,
                       UnorderedElementsAre(std::make_pair(base_label_unindexed, std::set{property_id, property_extra}),
                                            std::make_pair(extended_label_unused, std::set{property_count})));
+          ASSERT_THAT(info.type, UnorderedElementsAre(std::make_tuple(base_label_indexed, property_point,
+                                                                      memgraph::storage::TypeConstraintsType::POINT)));
           break;
       }
     }
