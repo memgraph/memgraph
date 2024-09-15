@@ -146,6 +146,7 @@ static const Marker kMarkersAll[] = {
     Marker::DELTA_POINT_INDEX_CREATE,
     Marker::DELTA_POINT_INDEX_DROP,
     Marker::DELTA_TYPE_CONSTRAINT_CREATE,
+    Marker::DELTA_TYPE_CONSTRAINT_DROP,
     Marker::DELTA_POINT_INDEX_DROP,
     Marker::VALUE_FALSE,
     Marker::VALUE_TRUE,

@@ -358,7 +358,7 @@ class DeltaGenerator final {
       case memgraph::storage::durability::StorageMetadataOperation::TYPE_CONSTRAINT_DROP: {
         apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
           EncodeTypeConstraint(encoder, mapper_, label_id, *property_ids.begin(),
-                               memgraph::storage::TypeConstraintsType::INTEGER);
+                               memgraph::storage::TypeConstraintsType::STRING);
         });
       }
 
@@ -424,7 +424,7 @@ class DeltaGenerator final {
         case memgraph::storage::durability::StorageMetadataOperation::TYPE_CONSTRAINT_DROP:
           data.operation_label_property_type.label = label;
           data.operation_label_property_type.property = *properties.begin();
-          data.operation_label_property_type.type = memgraph::storage::TypeConstraintsType::INTEGER;
+          data.operation_label_property_type.type = memgraph::storage::TypeConstraintsType::STRING;
           break;
         case memgraph::storage::durability::StorageMetadataOperation::TEXT_INDEX_CREATE:
         case memgraph::storage::durability::StorageMetadataOperation::TEXT_INDEX_DROP:
@@ -442,7 +442,7 @@ class DeltaGenerator final {
           break;
         case memgraph::storage::durability::StorageMetadataOperation::ENUM_CREATE:
           data.operation_enum_create.etype = enum_type;
-          data.operation_enum_create.evalues = {"TODO"};
+          data.operation_enum_create.evalues = {"TODO"};  // TODO ?
           break;
         case memgraph::storage::durability::StorageMetadataOperation::ENUM_ALTER_ADD:
           data.operation_enum_alter_add.etype = enum_type;
@@ -780,6 +780,8 @@ GENERATE_SIMPLE_TEST(AllGlobalOperations, {
   OPERATION_TX(EXISTENCE_CONSTRAINT_DROP, "hello", {"world"});
   OPERATION_TX(UNIQUE_CONSTRAINT_CREATE, "hello", {"world", "and", "universe"});
   OPERATION_TX(UNIQUE_CONSTRAINT_DROP, "hello", {"world", "and", "universe"});
+  OPERATION_TX(TYPE_CONSTRAINT_CREATE, "hello", {"world"})
+  OPERATION_TX(TYPE_CONSTRAINT_DROP, "hello", {"world"});
 });
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
