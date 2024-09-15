@@ -19,11 +19,11 @@ namespace memgraph::storage {
 Constraints::Constraints(const Config &config, StorageMode storage_mode) {
   std::invoke([this, config, storage_mode]() {
     existence_constraints_ = std::make_unique<ExistenceConstraints>();
+    type_constraints_ = std::make_unique<TypeConstraints>();
     switch (storage_mode) {
       case StorageMode::IN_MEMORY_TRANSACTIONAL:
       case StorageMode::IN_MEMORY_ANALYTICAL:
         unique_constraints_ = std::make_unique<InMemoryUniqueConstraints>();
-        type_constraints_ = std::make_unique<TypeConstraints>();
         break;
       case StorageMode::ON_DISK_TRANSACTIONAL:
         unique_constraints_ = std::make_unique<DiskUniqueConstraints>(config);

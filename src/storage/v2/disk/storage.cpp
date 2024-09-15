@@ -2234,6 +2234,7 @@ IndicesInfo DiskStorage::DiskAccessor::ListAllIndices() const {
 ConstraintsInfo DiskStorage::DiskAccessor::ListAllConstraints() const {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   return {disk_storage->constraints_.existence_constraints_->ListConstraints(),
-          disk_storage->constraints_.unique_constraints_->ListConstraints()};
+          disk_storage->constraints_.unique_constraints_->ListConstraints(),
+          disk_storage->constraints_.type_constraints_->ListConstraints()};
 }
 }  // namespace memgraph::storage
