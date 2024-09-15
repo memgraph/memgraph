@@ -43,6 +43,7 @@
 #include "query/procedure/module.hpp"
 #include "query/typed_value.hpp"
 
+#include "storage/v2/constraints/type_constraints_type.hpp"
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
 #include "utils/variant_helpers.hpp"
@@ -2931,6 +2932,18 @@ TEST_P(CypherMainVisitorTest, CreateConstraint) {
     EXPECT_THAT(query->constraint_.properties,
                 UnorderedElementsAre(ast_generator.Prop("prop1"), ast_generator.Prop("prop2")));
   }
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<ConstraintQuery *>(
+        ast_generator.ParseQuery("CREATE CONSTRAINT ON (n:label) ASSERT n.prop IS TYPED STRING;"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->action_type_, ConstraintQuery::ActionType::CREATE);
+    EXPECT_EQ(query->constraint_.type, Constraint::Type::TYPE);
+    EXPECT_EQ(query->constraint_.label, ast_generator.Label("label"));
+    EXPECT_THAT(query->constraint_.properties, UnorderedElementsAre(ast_generator.Prop("prop")));
+    EXPECT_TRUE(query->constraint_.type_constraint.has_value());
+    EXPECT_EQ(query->constraint_.type_constraint, memgraph::storage::TypeConstraintsType::STRING);
+  }
 }
 
 TEST_P(CypherMainVisitorTest, DropConstraint) {
@@ -2997,6 +3010,18 @@ TEST_P(CypherMainVisitorTest, DropConstraint) {
     EXPECT_EQ(query->constraint_.label, ast_generator.Label("label"));
     EXPECT_THAT(query->constraint_.properties,
                 UnorderedElementsAre(ast_generator.Prop("prop1"), ast_generator.Prop("prop2")));
+  }
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<ConstraintQuery *>(
+        ast_generator.ParseQuery("DROP CONSTRAINT ON (n:label) ASSERT n.prop IS TYPED STRING;"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->action_type_, ConstraintQuery::ActionType::DROP);
+    EXPECT_EQ(query->constraint_.type, Constraint::Type::TYPE);
+    EXPECT_EQ(query->constraint_.label, ast_generator.Label("label"));
+    EXPECT_THAT(query->constraint_.properties, UnorderedElementsAre(ast_generator.Prop("prop")));
+    EXPECT_TRUE(query->constraint_.type_constraint.has_value());
+    EXPECT_EQ(query->constraint_.type_constraint, memgraph::storage::TypeConstraintsType::STRING);
   }
 }
 
