@@ -25,11 +25,14 @@ namespace memgraph::storage {
     return std::nullopt;
   }
 
-  auto prop_value =
-      vertex.properties.GetPropertyOfTypes(property, std::array{TypeConstraintsTypeToPropertyStoreType(type)});
+  auto prop_value = vertex.properties.GetProperty(property);
+  if (prop_value.IsNull()) {
+    return std::nullopt;
+  }
 
-  // Have to check types are equal because of temporal types
-  if (!prop_value || PropertyValueToTypeConstraintType(*prop_value) != type) {
+  // auto prop_value =
+  //     vertex.properties.GetPropertyOfTypes(property, std::array{TypeConstraintsTypeToPropertyStoreType(type)});
+  if (PropertyValueToTypeConstraintType(prop_value) != type) {
     return ConstraintViolation{ConstraintViolation::Type::TYPE, label, type, std::set<PropertyId>{property}};
   }
 
