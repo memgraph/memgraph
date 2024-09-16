@@ -23,7 +23,6 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/schema_info.hpp"
 #include "storage/v2/vertex.hpp"
-#include "utils/exceptions.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/logging.hpp"
 

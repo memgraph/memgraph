@@ -14,7 +14,6 @@
 #include "storage/v2/constraints/type_constraints_type.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/algorithm.hpp"
-#include "utils/logging.hpp"
 
 namespace memgraph::storage {
 

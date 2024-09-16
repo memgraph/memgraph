@@ -35,8 +35,6 @@
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/procedure/callable_alias_mapper.hpp"
 #include "query/procedure/module.hpp"
-#include "storage/v2/constraints/type_constraints.hpp"
-#include "storage/v2/property_value.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/string.hpp"

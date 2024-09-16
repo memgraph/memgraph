@@ -27,7 +27,6 @@
 #include "storage/v2/all_vertices_iterable.hpp"
 #include "storage/v2/commit_log.hpp"
 #include "storage/v2/config.hpp"
-#include "storage/v2/constraints/type_constraints.hpp"
 #include "storage/v2/constraints/type_constraints_type.hpp"
 #include "storage/v2/database_access.hpp"
 #include "storage/v2/durability/paths.hpp"

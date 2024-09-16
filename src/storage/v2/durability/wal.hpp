@@ -17,7 +17,6 @@
 #include <string>
 
 #include "storage/v2/config.hpp"
-#include "storage/v2/constraints/type_constraints.hpp"
 #include "storage/v2/delta.hpp"
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/serialization.hpp"

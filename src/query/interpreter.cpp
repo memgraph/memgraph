@@ -89,7 +89,6 @@
 #include "replication/state.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/constraints/constraint_violation.hpp"
-#include "storage/v2/constraints/type_constraints.hpp"
 #include "storage/v2/constraints/type_constraints_type.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/edge.hpp"

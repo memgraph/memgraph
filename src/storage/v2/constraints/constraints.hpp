@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include <memory>
 #include <span>
 
 #include "storage/v2/config.hpp"

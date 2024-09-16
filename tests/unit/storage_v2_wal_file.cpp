@@ -28,7 +28,6 @@
 #include "storage_test_utils.hpp"
 #include "utils/file.hpp"
 #include "utils/file_locker.hpp"
-#include "utils/memory.hpp"
 #include "utils/uuid.hpp"
 
 // Helper function used to convert between enum types.
