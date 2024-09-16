@@ -138,6 +138,8 @@ extern const Event QueryExecutionLatency_us;
 extern const Event CommitedTransactions;
 extern const Event RollbackedTransactions;
 extern const Event ActiveTransactions;
+
+extern const Event ShowSchema;
 }  // namespace memgraph::metrics
 
 void memgraph::query::CurrentDB::SetupDatabaseTransaction(
@@ -770,14 +772,21 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         // If the license is not valid we create users with admin access
         if (!valid_enterprise_license) {
           spdlog::warn("Granting all the privileges to {}.", username);
-          auth->GrantPrivilege(username, kPrivilegesAll
+          auth->GrantPrivilege(
+              username, kPrivilegesAll
 #ifdef MG_ENTERPRISE
-                               ,
-                               {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}},
-                               {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}}
+              ,
+              {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}},
+              {
+                {
+                  {
+                    AuthQuery::FineGrainedPrivilege::CREATE_DELETE, { query::kAsterisk }
+                  }
+                }
+              }
 #endif
-                               ,
-                               &*interpreter->system_transaction_);
+              ,
+              &*interpreter->system_transaction_);
         }
 
         return std::vector<std::vector<TypedValue>>();
@@ -5031,6 +5040,8 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
   callback.fn = [db = *current_db.db_acc_, db_acc = current_db.execution_db_accessor_,
                  storage_acc =
                      current_db.db_transactional_accessor_.get()]() mutable -> std::vector<std::vector<TypedValue>> {
+    memgraph::metrics::IncrementCounter(memgraph::metrics::ShowSchema);
+
     std::vector<std::vector<TypedValue>> schema;
     auto *storage = db->storage();
     if (storage->config_.salient.items.enable_schema_info) {

@@ -219,6 +219,9 @@ struct Tracking {
     edge_state_.clear();
   }
 
+  size_t NumberOfVertices() const { return vertex_state_.size(); }
+  size_t NumberOfEdges() const { return edge_state_.size(); }
+
   nlohmann::json ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store);
 
  private:
@@ -477,6 +480,9 @@ struct SchemaInfo {
     nlohmann::json ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store) {
       return schema_info_->tracking_.ToJson(name_id_mapper, enum_store);
     }
+
+    size_t NumberOfVertices() const { return schema_info_->tracking_.NumberOfVertices(); }
+    size_t NumberOfEdges() const { return schema_info_->tracking_.NumberOfEdges(); }
 
    private:
     SchemaInfo *schema_info_;

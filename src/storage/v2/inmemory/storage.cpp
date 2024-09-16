@@ -2258,6 +2258,14 @@ StorageInfo InMemoryStorage::GetBaseInfo() {
     return dir;
   };
   info.disk_usage = utils::GetDirDiskUsage<false>(update_path(config_.durability.storage_directory));
+  if (config_.salient.items.enable_schema_info) {
+    auto schema_acc = SchemaInfoReadAccessor();
+    info.schema_vertex_count = schema_acc.NumberOfVertices();
+    info.schema_edge_count = schema_acc.NumberOfEdges();
+  } else {
+    info.schema_vertex_count = 0;
+    info.schema_edge_count = 0;
+  }
   return info;
 }
 

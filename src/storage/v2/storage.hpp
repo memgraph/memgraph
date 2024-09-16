@@ -99,6 +99,8 @@ struct StorageInfo {
   bool durability_wal_enabled;
   bool property_store_compression_enabled;
   utils::CompressionLevel property_store_compression_level;
+  uint64_t schema_vertex_count;
+  uint64_t schema_edge_count;
 };
 
 struct EventInfo {
@@ -126,7 +128,8 @@ static inline nlohmann::json ToJson(const StorageInfo &info) {
                        {"WAL_enabled", info.durability_wal_enabled}};
   res["property_store_compression_enabled"] = info.property_store_compression_enabled;
   res["property_store_compression_level"] = utils::CompressionLevelToString(info.property_store_compression_level);
-
+  res["schema_vertex_count"] = info.schema_vertex_count;
+  res["schema_edge_count"] = info.schema_edge_count;
   return res;
 }
 
