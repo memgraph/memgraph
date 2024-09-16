@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -154,24 +154,24 @@ auto MakeCartesianProduct(std::vector<TSet> sets) {
 
 namespace impl {
 
-class NodeSymbolHash {
+class PatternAtomSymbolHash {
  public:
-  explicit NodeSymbolHash(const SymbolTable &symbol_table) : symbol_table_(symbol_table) {}
+  explicit PatternAtomSymbolHash(const SymbolTable &symbol_table) : symbol_table_(symbol_table) {}
 
-  size_t operator()(const NodeAtom *node_atom) const {
-    return std::hash<Symbol>{}(symbol_table_.at(*node_atom->identifier_));
+  size_t operator()(const PatternAtom *pattern_atom) const {
+    return std::hash<Symbol>{}(symbol_table_.at(*pattern_atom->identifier_));
   }
 
  private:
   const SymbolTable &symbol_table_;
 };
 
-class NodeSymbolEqual {
+class PatternAtomSymbolEqual {
  public:
-  explicit NodeSymbolEqual(const SymbolTable &symbol_table) : symbol_table_(symbol_table) {}
+  explicit PatternAtomSymbolEqual(const SymbolTable &symbol_table) : symbol_table_(symbol_table) {}
 
-  bool operator()(const NodeAtom *node_atom1, const NodeAtom *node_atom2) const {
-    return symbol_table_.at(*node_atom1->identifier_) == symbol_table_.at(*node_atom2->identifier_);
+  bool operator()(const PatternAtom *pattern_atom1, const PatternAtom *pattern_atom2) const {
+    return symbol_table_.at(*pattern_atom1->identifier_) == symbol_table_.at(*pattern_atom2->identifier_);
   }
 
  private:
@@ -198,7 +198,7 @@ class VaryMatchingStart {
     reference operator*() const { return current_matching_; }
     pointer operator->() const { return &current_matching_; }
     bool operator==(const iterator &other) const {
-      return self_ == other.self_ && start_nodes_it_ == other.start_nodes_it_;
+      return self_ == other.self_ && start_atoms_it_ == other.start_atoms_it_;
     }
     bool operator!=(const iterator &other) const { return !(*this == other); }
 
@@ -207,12 +207,13 @@ class VaryMatchingStart {
     // assignment.
     VaryMatchingStart *self_;
     Matching current_matching_;
-    // Iterator over start nodes. Optional is used for differentiating the case
-    // when there are no start nodes vs. VaryMatchingStart::iterator itself
-    // being at the end. When there are no nodes, this iterator needs to produce
+    // Iterator over start nodes and edges. Optional is used for differentiating the case
+    // when there are no start nodes and edges vs. VaryMatchingStart::iterator itself
+    // being at the end. When there are no nodes or edges, this iterator needs to produce
     // a single result, which is the original matching passed in. Setting
-    // start_nodes_it_ to end signifies the end of our iteration.
-    std::optional<std::unordered_set<NodeAtom *, NodeSymbolHash, NodeSymbolEqual>::iterator> start_nodes_it_;
+    // start_atoms_it_ to end signifies the end of our iteration.
+    std::optional<std::unordered_set<PatternAtom *, PatternAtomSymbolHash, PatternAtomSymbolEqual>::iterator>
+        start_atoms_it_;
   };
 
   auto begin() { return iterator(this, false); }
@@ -222,7 +223,7 @@ class VaryMatchingStart {
   friend class iterator;
   Matching matching_;
   const SymbolTable &symbol_table_;
-  std::unordered_set<NodeAtom *, NodeSymbolHash, NodeSymbolEqual> nodes_;
+  std::unordered_set<PatternAtom *, PatternAtomSymbolHash, PatternAtomSymbolEqual> graph_atoms_;
 };
 
 // Similar to VaryMatchingStart, but varies the starting nodes for all given

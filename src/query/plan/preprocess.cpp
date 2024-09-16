@@ -175,11 +175,13 @@ void AddExpansionsToMatching(std::vector<Expansion> &expansions, Matching &match
     // Matching may already have some expansions, so offset our index.
     const size_t expansion_ix = matching.expansions.size();
     const auto &node1_sym = symbol_table.at(*expansion.node1->identifier_);
-    matching.node_symbol_to_expansions[node1_sym].insert(expansion_ix);
+    matching.atom_symbol_to_expansions[node1_sym].insert(expansion_ix);
 
     if (expansion.edge) {
       const auto &node2_sym = symbol_table.at(*expansion.node2->identifier_);
-      matching.node_symbol_to_expansions[node2_sym].insert(expansion_ix);
+      matching.atom_symbol_to_expansions[node2_sym].insert(expansion_ix);
+      const auto &edge_sym = symbol_table.at(*expansion.edge->identifier_);
+      matching.atom_symbol_to_expansions[edge_sym].insert(expansion_ix);
     }
 
     matching.expansions.push_back(expansion);
@@ -253,6 +255,8 @@ void Filters::EraseFilter(const FilterInfo &filter) {
                      all_filters_.end());
 }
 
+// Tries to erase the filter which contains a label of a symbol
+// Filtered label can refer to a node and its label, or an edge and its edge type
 void Filters::EraseLabelFilter(const Symbol &symbol, const LabelIx &label, std::vector<Expression *> *removed_filters) {
   for (auto filter_it = all_filters_.begin(); filter_it != all_filters_.end();) {
     if (filter_it->type != FilterInfo::Type::Label) {

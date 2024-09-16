@@ -23,11 +23,12 @@
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 #include "query/plan/pretty_print.hpp"
-#include "query/plan/rewrite/edge_type_index_lookup.hpp"
+#include "query/plan/rewrite/edge_index_lookup.hpp"
 #include "query/plan/rewrite/enum.hpp"
 #include "query/plan/rewrite/index_lookup.hpp"
 #include "query/plan/rewrite/join.hpp"
 #include "query/plan/rewrite/periodic_delete.hpp"
+#include "query/plan/rewrite/plan_validator.hpp"
 #include "query/plan/rule_based_planner.hpp"
 #include "query/plan/variable_start_planner.hpp"
 #include "query/plan/vertex_count_cache.hpp"
@@ -38,6 +39,12 @@ class AstStorage;
 class SymbolTable;
 
 namespace plan {
+
+// Custom pipe operator to chain functions
+template <typename T, typename F>
+auto operator|(T &&value, F &&func) -> decltype(func(std::forward<T>(value))) {
+  return func(std::forward<T>(value));
+}
 
 class PostProcessor final {
   Parameters parameters_;
@@ -55,18 +62,18 @@ class PostProcessor final {
 
   template <class TPlanningContext>
   std::unique_ptr<LogicalOperator> Rewrite(std::unique_ptr<LogicalOperator> plan, TPlanningContext *context) {
-    auto enum_constants_plan =
-        RewriteEnumAccess(std::move(plan), context->symbol_table, context->ast_storage, context->db);
-    auto index_lookup_plan = RewriteWithIndexLookup(std::move(enum_constants_plan), context->symbol_table,
-                                                    context->ast_storage, context->db, index_hints_);
-    auto join_plan =
-        RewriteWithJoinRewriter(std::move(index_lookup_plan), context->symbol_table, context->ast_storage, context->db);
-    auto edge_index_plan = RewriteWithEdgeTypeIndexRewriter(std::move(join_plan), context->symbol_table,
-                                                            context->ast_storage, context->db);
-    auto periodic_delete_plan =
-        RewritePeriodicDelete(std::move(edge_index_plan), context->symbol_table, context->ast_storage, context->db);
-    return periodic_delete_plan;
+    auto &ast = context->ast_storage;
+    auto &symbol_table = context->symbol_table;
+    auto &db = context->db;
+
+    return std::move(plan) | [&](auto p) { return RewriteEnumAccess(std::move(p), symbol_table, ast, db); } |
+           [&](auto p) { return RewriteWithIndexLookup(std::move(p), symbol_table, ast, db, index_hints_); } |
+           [&](auto p) { return RewriteWithJoinRewriter(std::move(p), symbol_table, ast, db); } |
+           [&](auto p) { return RewriteWithEdgeIndexRewriter(std::move(p), symbol_table, ast, db); } |
+           [&](auto p) { return RewritePeriodicDelete(std::move(p), symbol_table, ast, db); };
   }
+
+  bool IsValidPlan(const std::unique_ptr<LogicalOperator> &plan) { return query::plan::ValidatePlan(*plan); }
 
   template <class TVertexCounts>
   PlanCost EstimatePlanCost(const std::unique_ptr<LogicalOperator> &plan, TVertexCounts *vertex_counts,
@@ -117,10 +124,15 @@ auto MakeLogicalPlan(TPlanningContext *context, TPlanPostProcess *post_process, 
   std::optional<ProcessedPlan> curr_plan;
   if (use_variable_planner) {
     auto plans = MakeLogicalPlanForSingleQuery<VariableStartPlanner>(query_parts, context);
+    bool valid_plan_found = false;
     for (auto plan : plans) {
       // Plans are generated lazily and the current plan will disappear, so
       // it's ok to move it.
       auto rewritten_plan = post_process->Rewrite(std::move(plan), context);
+      if (!post_process->IsValidPlan(rewritten_plan)) {
+        continue;
+      }
+      valid_plan_found = true;
       auto plan_cost = post_process->EstimatePlanCost(rewritten_plan, &vertex_counts, *context->symbol_table);
       // if we have a plan that uses index hints, we reject all the plans that don't use index hinting because we want
       // to force the plan using the index hints to be executed
@@ -139,6 +151,8 @@ auto MakeLogicalPlan(TPlanningContext *context, TPlanPostProcess *post_process, 
         total_cost = plan_cost.cost;
       }
     }
+
+    MG_ASSERT(valid_plan_found, "Could not create a valid query plan!");
   } else {
     auto plan = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(query_parts, context);
     auto rewritten_plan = post_process->Rewrite(std::move(plan), context);

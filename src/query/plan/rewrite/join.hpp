@@ -77,7 +77,67 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
-  bool PostVisit(ScanAll &scan) override {
+  bool PostVisit(ScanAll &op) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(ScanAllByEdge &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByEdge &op) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(ScanAllByEdgeId &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByEdgeId &op) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(ScanAllByEdgeType &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByEdgeType &op) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(ScanAllByEdgeTypeProperty &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByEdgeTypeProperty &op) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(ScanAllByEdgeTypePropertyValue &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByEdgeTypePropertyValue &op) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(ScanAllByEdgeTypePropertyRange &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByEdgeTypePropertyRange &op) override {
     prev_ops_.pop_back();
     return true;
   }

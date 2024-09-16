@@ -19,6 +19,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/edge_type_index.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
+#include "storage/v2/vertex_accessor.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/synchronized.hpp"
 
@@ -74,13 +75,14 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
 
   class Iterable {
    public:
-    Iterable(utils::SkipList<Entry>::Accessor index_accessor, View view, Storage *storage, Transaction *transaction);
+    Iterable(utils::SkipList<Entry>::Accessor index_accessor, EdgeTypeId edge_type, View view, Storage *storage,
+             Transaction *transaction);
 
     class Iterator {
      public:
       Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator);
 
-      EdgeAccessor const &operator*() const { return current_edge_accessor_; }
+      EdgeAccessor const &operator*() const { return current_accessor_; }
 
       bool operator==(const Iterator &other) const { return index_iterator_ == other.index_iterator_; }
       bool operator!=(const Iterator &other) const { return index_iterator_ != other.index_iterator_; }
@@ -89,12 +91,11 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
 
      private:
       void AdvanceUntilValid();
-      std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *> GetEdgeInfo();
 
       Iterable *self_;
       utils::SkipList<Entry>::Iterator index_iterator_;
-      EdgeAccessor current_edge_accessor_;
       EdgeRef current_edge_{nullptr};
+      EdgeAccessor current_accessor_;
     };
 
     Iterator begin() { return {this, index_accessor_.begin()}; }
@@ -102,6 +103,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
 
    private:
     utils::SkipList<Entry>::Accessor index_accessor_;
+    [[maybe_unused]] EdgeTypeId edge_type_;
     View view_;
     Storage *storage_;
     Transaction *transaction_;

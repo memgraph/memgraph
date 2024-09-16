@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -140,15 +140,14 @@ ScanAllTuple MakeScanAllByLabel(AstStorage &storage, SymbolTable &symbol_table, 
  */
 ScanAllTuple MakeScanAllByLabelPropertyRange(AstStorage &storage, SymbolTable &symbol_table, std::string identifier,
                                              memgraph::storage::LabelId label, memgraph::storage::PropertyId property,
-                                             const std::string &property_name, std::optional<Bound> lower_bound,
-                                             std::optional<Bound> upper_bound,
+                                             std::optional<Bound> lower_bound, std::optional<Bound> upper_bound,
                                              std::shared_ptr<LogicalOperator> input = {nullptr},
                                              memgraph::storage::View view = memgraph::storage::View::OLD) {
   auto *node = memgraph::query::test_common::GetNode(storage, identifier);
   auto symbol = symbol_table.CreateSymbol(identifier, true);
   node->identifier_->MapTo(symbol);
-  auto logical_op = std::make_shared<ScanAllByLabelPropertyRange>(input, symbol, label, property, property_name,
-                                                                  lower_bound, upper_bound, view);
+  auto logical_op =
+      std::make_shared<ScanAllByLabelPropertyRange>(input, symbol, label, property, lower_bound, upper_bound, view);
   return ScanAllTuple{node, logical_op, symbol};
 }
 
@@ -160,14 +159,12 @@ ScanAllTuple MakeScanAllByLabelPropertyRange(AstStorage &storage, SymbolTable &s
  */
 ScanAllTuple MakeScanAllByLabelPropertyValue(AstStorage &storage, SymbolTable &symbol_table, std::string identifier,
                                              memgraph::storage::LabelId label, memgraph::storage::PropertyId property,
-                                             const std::string &property_name, Expression *value,
-                                             std::shared_ptr<LogicalOperator> input = {nullptr},
+                                             Expression *value, std::shared_ptr<LogicalOperator> input = {nullptr},
                                              memgraph::storage::View view = memgraph::storage::View::OLD) {
   auto *node = memgraph::query::test_common::GetNode(storage, identifier);
   auto symbol = symbol_table.CreateSymbol(identifier, true);
   node->identifier_->MapTo(symbol);
-  auto logical_op =
-      std::make_shared<ScanAllByLabelPropertyValue>(input, symbol, label, property, property_name, value, view);
+  auto logical_op = std::make_shared<ScanAllByLabelPropertyValue>(input, symbol, label, property, value, view);
   return ScanAllTuple{node, logical_op, symbol};
 }
 
