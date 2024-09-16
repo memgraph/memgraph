@@ -99,11 +99,13 @@ memgraphCypherKeyword : cypherKeyword
                       | KAFKA
                       | LABELS
                       | LEVEL
+                      | LIST
                       | LOAD
                       | LOCALDATETIME
                       | LOCALTIME
                       | LOCK
                       | MAIN
+                      | MAP
                       | MODE
                       | MODULE_READ
                       | MODULE_WRITE
