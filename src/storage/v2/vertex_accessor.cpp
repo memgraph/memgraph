@@ -22,6 +22,7 @@
 #include "query/exceptions.hpp"
 #include "query/hops_limit.hpp"
 #include "storage/v2/constraints/constraint_violation.hpp"
+#include "storage/v2/constraints/type_constraints_type.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/edge_accessor.hpp"
@@ -147,12 +148,13 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
     vertex->labels.push_back(label);
   });
 
-  // TODO: optimize this, check constraint before linking, maybe not so bad since not on hot path
   if (storage_->constraints_.HasTypeConstraints()) {
-    auto violation = storage_->constraints_.type_constraints_->Validate(*vertex_, label);
-    if (violation.has_value()) {
-      // TODO: better message, different exception
-      throw query::QueryException("Type constraint violation");
+    auto maybe_violation = storage_->constraints_.type_constraints_->Validate(*vertex_, label);
+    if (maybe_violation.has_value()) {
+      auto violation = *maybe_violation;
+      throw query::QueryException(
+          "IS TYPED {} violation on {}({})", TypeConstraintsTypeToString(*violation.property_type),
+          storage_->LabelToName(violation.label), storage_->PropertyToName(*violation.properties.begin()));
     }
   }
 
@@ -378,12 +380,13 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
     if (schema_acc)
       schema_acc->SetProperty(vertex, property, ExtendedPropertyType{new_value}, ExtendedPropertyType{old_value});
 
-    // TODO: optimize this, check constraint before linking, maybe not so bad since not on hot path
     if (storage_->constraints_.HasTypeConstraints()) {
-      auto violation = storage_->constraints_.type_constraints_->Validate(*vertex_, property);
-      if (violation.has_value()) {
-        // TODO: better message, different exception
-        throw query::QueryException("Type constraint violation");
+      auto maybe_violation = storage_->constraints_.type_constraints_->Validate(*vertex_, property);
+      if (maybe_violation.has_value()) {
+        auto violation = *maybe_violation;
+        throw query::QueryException(
+            "IS TYPED {} violation on {}({})", TypeConstraintsTypeToString(*violation.property_type),
+            storage_->LabelToName(violation.label), storage_->PropertyToName(*violation.properties.begin()));
       }
     }
 
@@ -444,10 +447,12 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
         }
         // TODO If not performant enough there is also InitProperty()
         if (storage->constraints_.HasTypeConstraints()) {
-          auto violation = storage->constraints_.type_constraints_->Validate(*vertex);
-          if (violation.has_value()) {
-            // TODO: better message, different exception
-            throw query::QueryException("Type constraint violation");
+          auto maybe_violation = storage->constraints_.type_constraints_->Validate(*vertex);
+          if (maybe_violation.has_value()) {
+            auto violation = *maybe_violation;
+            throw query::QueryException(
+                "IS TYPED {} violation on {}({})", TypeConstraintsTypeToString(*violation.property_type),
+                storage->LabelToName(violation.label), storage->PropertyToName(*violation.properties.begin()));
           }
         }
         result = true;
@@ -497,10 +502,12 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
         schema_acc->SetProperty(vertex, id, ExtendedPropertyType{new_value}, ExtendedPropertyType{old_value});
     }
     if (storage->constraints_.HasTypeConstraints()) {
-      auto violation = storage->constraints_.type_constraints_->Validate(*vertex);
-      if (violation.has_value()) {
-        // TODO: better message, different exception
-        throw query::QueryException("Type constraint violation");
+      auto maybe_violation = storage->constraints_.type_constraints_->Validate(*vertex);
+      if (maybe_violation.has_value()) {
+        auto violation = *maybe_violation;
+        throw query::QueryException(
+            "IS TYPED {} violation on {}({})", TypeConstraintsTypeToString(*violation.property_type),
+            storage->LabelToName(violation.label), storage->PropertyToName(*violation.properties.begin()));
       }
     }
   });
