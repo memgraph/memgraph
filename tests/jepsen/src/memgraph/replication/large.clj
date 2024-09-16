@@ -189,5 +189,4 @@
               :timeline (timeline/html)})
    :generator (repl-utils/replication-gen (gen/mix [read-nodes add-nodes]))
    :final-generator {:clients (gen/once read-nodes) :recovery-time 40}
-   :nemesis-config (nemesis/create)
-   })
+   :nemesis-config (nemesis/create)})
