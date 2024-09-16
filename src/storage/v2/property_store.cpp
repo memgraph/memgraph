@@ -1329,12 +1329,17 @@ enum class ExpectedPropertyStatus {
         return ExpectedPropertyStatus::EQUAL;
       }
     } break;
-    case POINT_2D:
-      type = ExtendedPropertyType{PropertyValue::Type::Point2d};
-      break;
-    case POINT_3D:
-      type = ExtendedPropertyType{PropertyValue::Type::Point3d};
-      break;
+    case POINT: {
+      // Found the property
+      if (*property_id == expected_property.AsUint()) {
+        PropertyValue value;
+        if (!DecodePropertyValue(reader, metadata->type, metadata->payload_size, value))
+          return ExpectedPropertyStatus::MISSING_DATA;
+        type = ExtendedPropertyType{
+            value.type()};  // PropertyStoreType has only Point; while PropertyValueType has point 2d and 3d
+        return ExpectedPropertyStatus::EQUAL;
+      }
+    } break;
   }
 
   if (*property_id == expected_property.AsUint()) {
@@ -1450,12 +1455,13 @@ enum class ExpectedPropertyStatus {
       type = ExtendedPropertyType{value.ValueEnum().type_id()};
       return PropertyId::FromUint(*property_id);
     }
-    case POINT_2D:
-      type = ExtendedPropertyType{PropertyValue::Type::Point2d};
-      break;
-    case POINT_3D:
-      type = ExtendedPropertyType{PropertyValue::Type::Point3d};
-      break;
+    case POINT: {
+      PropertyValue value;
+      if (!DecodePropertyValue(reader, metadata->type, metadata->payload_size, value)) return std::nullopt;
+      type = ExtendedPropertyType{
+          value.type()};  // PropertyStoreType has only Point; while PropertyValueType has point 2d and 3d
+      return PropertyId::FromUint(*property_id);
+    }
   }
 
   if (!SkipPropertyValue(reader, metadata->type, metadata->payload_size)) return std::nullopt;
