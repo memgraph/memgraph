@@ -3161,7 +3161,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabelProperty) {
                           Bound::Type upper_type) {
     SymbolTable symbol_table;
     auto scan_all =
-        MakeScanAllByLabelPropertyRange(this->storage, symbol_table, "n", label, prop, "prop",
+        MakeScanAllByLabelPropertyRange(this->storage, symbol_table, "n", label, prop,
                                         Bound{LITERAL(lower), lower_type}, Bound{LITERAL(upper), upper_type});
     // RETURN n
     auto output = NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))->MapTo(symbol_table.CreateSymbol("n", true));
@@ -3268,7 +3268,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyEqualityNoError) {
   EXPECT_EQ(2, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
   // MATCH (n :label {prop: 42})
   SymbolTable symbol_table;
-  auto scan_all = MakeScanAllByLabelPropertyValue(this->storage, symbol_table, "n", label, prop, "prop", LITERAL(42));
+  auto scan_all = MakeScanAllByLabelPropertyValue(this->storage, symbol_table, "n", label, prop, LITERAL(42));
   // RETURN n
   auto output = NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))->MapTo(symbol_table.CreateSymbol("n", true));
   auto produce = MakeProduce(scan_all.op_, output);
@@ -3311,7 +3311,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyValueError) {
   auto *ident_m = IDENT("m");
   ident_m->MapTo(scan_all.sym_);
   auto scan_index =
-      MakeScanAllByLabelPropertyValue(this->storage, symbol_table, "n", label, prop, "prop", ident_m, scan_all.op_);
+      MakeScanAllByLabelPropertyValue(this->storage, symbol_table, "n", label, prop, ident_m, scan_all.op_);
   auto context = MakeContext(this->storage, symbol_table, &dba);
   EXPECT_THROW(PullAll(*scan_index.op_, &context), QueryRuntimeException);
 }
@@ -3346,22 +3346,21 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyRangeError) {
   {
     // Lower bound isn't property value
     auto scan_index =
-        MakeScanAllByLabelPropertyRange(this->storage, symbol_table, "n", label, prop, "prop",
+        MakeScanAllByLabelPropertyRange(this->storage, symbol_table, "n", label, prop,
                                         Bound{ident_m, Bound::Type::INCLUSIVE}, std::nullopt, scan_all.op_);
     auto context = MakeContext(this->storage, symbol_table, &dba);
     EXPECT_THROW(PullAll(*scan_index.op_, &context), QueryRuntimeException);
   }
   {
     // Upper bound isn't property value
-    auto scan_index =
-        MakeScanAllByLabelPropertyRange(this->storage, symbol_table, "n", label, prop, "prop", std::nullopt,
-                                        Bound{ident_m, Bound::Type::INCLUSIVE}, scan_all.op_);
+    auto scan_index = MakeScanAllByLabelPropertyRange(this->storage, symbol_table, "n", label, prop, std::nullopt,
+                                                      Bound{ident_m, Bound::Type::INCLUSIVE}, scan_all.op_);
     auto context = MakeContext(this->storage, symbol_table, &dba);
     EXPECT_THROW(PullAll(*scan_index.op_, &context), QueryRuntimeException);
   }
   {
     // Both bounds aren't property value
-    auto scan_index = MakeScanAllByLabelPropertyRange(this->storage, symbol_table, "n", label, prop, "prop",
+    auto scan_index = MakeScanAllByLabelPropertyRange(this->storage, symbol_table, "n", label, prop,
                                                       Bound{ident_m, Bound::Type::INCLUSIVE},
                                                       Bound{ident_m, Bound::Type::INCLUSIVE}, scan_all.op_);
     auto context = MakeContext(this->storage, symbol_table, &dba);
@@ -3396,8 +3395,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyEqualNull) {
   EXPECT_EQ(2, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
   // MATCH (n :label {prop: 42})
   SymbolTable symbol_table;
-  auto scan_all =
-      MakeScanAllByLabelPropertyValue(this->storage, symbol_table, "n", label, prop, "prop", LITERAL(TypedValue()));
+  auto scan_all = MakeScanAllByLabelPropertyValue(this->storage, symbol_table, "n", label, prop, LITERAL(TypedValue()));
   // RETURN n
   auto output = NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))->MapTo(symbol_table.CreateSymbol("n", true));
   auto produce = MakeProduce(scan_all.op_, output);
@@ -3433,7 +3431,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyRangeNull) {
   EXPECT_EQ(2, CountIterable(dba.Vertices(memgraph::storage::View::OLD)));
   // MATCH (n :label) WHERE null <= n.prop < null
   SymbolTable symbol_table;
-  auto scan_all = MakeScanAllByLabelPropertyRange(this->storage, symbol_table, "n", label, prop, "prop",
+  auto scan_all = MakeScanAllByLabelPropertyRange(this->storage, symbol_table, "n", label, prop,
                                                   Bound{LITERAL(TypedValue()), Bound::Type::INCLUSIVE},
                                                   Bound{LITERAL(TypedValue()), Bound::Type::EXCLUSIVE});
   // RETURN n
@@ -3475,8 +3473,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyNoValueInIndexContinuation) {
   x_expr->MapTo(x);
 
   // MATCH (n :label {prop: x})
-  auto scan_all =
-      MakeScanAllByLabelPropertyValue(this->storage, symbol_table, "n", label, prop, "prop", x_expr, unwind);
+  auto scan_all = MakeScanAllByLabelPropertyValue(this->storage, symbol_table, "n", label, prop, x_expr, unwind);
 
   auto context = MakeContext(this->storage, symbol_table, &dba);
   EXPECT_EQ(PullAll(*scan_all.op_, &context), 1);
@@ -3519,7 +3516,7 @@ TYPED_TEST(QueryPlan, ScanAllEqualsScanAllByLabelProperty) {
     auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     auto scan_all_by_label_property_value =
-        MakeScanAllByLabelPropertyValue(this->storage, symbol_table, "n", label, prop, "prop", LITERAL(prop_value));
+        MakeScanAllByLabelPropertyValue(this->storage, symbol_table, "n", label, prop, LITERAL(prop_value));
     auto output = NEXPR("n", IDENT("n")->MapTo(scan_all_by_label_property_value.sym_))
                       ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce(scan_all_by_label_property_value.op_, output);

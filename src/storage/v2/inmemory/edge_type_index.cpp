@@ -198,15 +198,19 @@ void InMemoryEdgeTypeIndex::UpdateOnEdgeModification(Vertex *old_from, Vertex *o
 
 void InMemoryEdgeTypeIndex::DropGraphClearIndices() { index_.clear(); }
 
-InMemoryEdgeTypeIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor, View view, Storage *storage,
-                                          Transaction *transaction)
-    : index_accessor_(std::move(index_accessor)), view_(view), storage_(storage), transaction_(transaction) {}
+InMemoryEdgeTypeIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor, EdgeTypeId edge_type,
+                                          View view, Storage *storage, Transaction *transaction)
+    : index_accessor_(std::move(index_accessor)),
+      edge_type_(edge_type),
+      view_(view),
+      storage_(storage),
+      transaction_(transaction) {}
 
 InMemoryEdgeTypeIndex::Iterable::Iterator::Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator)
     : self_(self),
       index_iterator_(index_iterator),
-      current_edge_accessor_(EdgeRef{nullptr}, EdgeTypeId::FromInt(0), nullptr, nullptr, self_->storage_, nullptr),
-      current_edge_(nullptr) {
+      current_edge_(nullptr),
+      current_accessor_(EdgeRef{nullptr}, EdgeTypeId::FromInt(0), nullptr, nullptr, self_->storage_, nullptr) {
   AdvanceUntilValid();
 }
 
@@ -218,71 +222,24 @@ InMemoryEdgeTypeIndex::Iterable::Iterator &InMemoryEdgeTypeIndex::Iterable::Iter
 
 void InMemoryEdgeTypeIndex::Iterable::Iterator::AdvanceUntilValid() {
   for (; index_iterator_ != self_->index_accessor_.end(); ++index_iterator_) {
-    auto *from_vertex = index_iterator_->from_vertex;
-    auto *to_vertex = index_iterator_->to_vertex;
-
     if (!CanSeeEntityWithTimestamp(index_iterator_->timestamp, self_->transaction_)) {
       continue;
     }
 
-    if (!IsEdgeVisible(index_iterator_->edge, self_->transaction_, self_->view_) || from_vertex->deleted ||
-        to_vertex->deleted) {
-      continue;
-    }
+    auto *from_vertex = index_iterator_->from_vertex;
+    auto *to_vertex = index_iterator_->to_vertex;
+    auto edge_ref = EdgeRef(index_iterator_->edge);
 
-    const bool edge_was_deleted = index_iterator_->edge->deleted;
-    auto [edge_ref, edge_type, deleted_from_vertex, deleted_to_vertex] = GetEdgeInfo();
-    MG_ASSERT(edge_ref != EdgeRef(nullptr), "Invalid database state!");
-
-    if (edge_was_deleted) {
-      from_vertex = deleted_from_vertex;
-      to_vertex = deleted_to_vertex;
-    }
-
-    auto accessor = EdgeAccessor{edge_ref, edge_type, from_vertex, to_vertex, self_->storage_, self_->transaction_};
+    auto accessor =
+        EdgeAccessor{edge_ref, self_->edge_type_, from_vertex, to_vertex, self_->storage_, self_->transaction_};
     if (!accessor.IsVisible(self_->view_)) {
       continue;
     }
 
-    current_edge_accessor_ = accessor;
     current_edge_ = edge_ref;
+    current_accessor_ = accessor;
     break;
   }
-}
-
-std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *> InMemoryEdgeTypeIndex::Iterable::Iterator::GetEdgeInfo() {
-  auto *from_vertex = index_iterator_->from_vertex;
-  auto *to_vertex = index_iterator_->to_vertex;
-
-  if (index_iterator_->edge->deleted) {
-    const auto missing_in_edge =
-        VertexDeletedConnectedEdges(from_vertex, index_iterator_->edge, self_->transaction_, self_->view_);
-    const auto missing_out_edge =
-        VertexDeletedConnectedEdges(to_vertex, index_iterator_->edge, self_->transaction_, self_->view_);
-    if (missing_in_edge && missing_out_edge &&
-        std::get<kEdgeRefPos>(*missing_in_edge) == std::get<kEdgeRefPos>(*missing_out_edge)) {
-      return std::make_tuple(std::get<kEdgeRefPos>(*missing_in_edge), std::get<kEdgeTypeIdPos>(*missing_in_edge),
-                             to_vertex, from_vertex);
-    }
-  }
-
-  const auto &from_edges = from_vertex->out_edges;
-  const auto &to_edges = to_vertex->in_edges;
-
-  auto it = std::find_if(from_edges.begin(), from_edges.end(), [&](const auto &from_entry) {
-    const auto &from_edge = std::get<kEdgeRefPos>(from_entry);
-    return std::any_of(to_edges.begin(), to_edges.end(), [&](const auto &to_entry) {
-      const auto &to_edge = std::get<kEdgeRefPos>(to_entry);
-      return index_iterator_->edge->gid == from_edge.ptr->gid && from_edge.ptr->gid == to_edge.ptr->gid;
-    });
-  });
-
-  if (it != from_edges.end()) {
-    const auto &from_edge = std::get<kEdgeRefPos>(*it);
-    return std::make_tuple(from_edge, std::get<kEdgeTypeIdPos>(*it), from_vertex, to_vertex);
-  }
-
-  return {EdgeRef(nullptr), EdgeTypeId::FromUint(0U), nullptr, nullptr};
 }
 
 void InMemoryEdgeTypeIndex::RunGC() {
@@ -295,7 +252,7 @@ InMemoryEdgeTypeIndex::Iterable InMemoryEdgeTypeIndex::Edges(EdgeTypeId edge_typ
                                                              Transaction *transaction) {
   const auto it = index_.find(edge_type);
   MG_ASSERT(it != index_.end(), "Index for edge-type {} doesn't exist", edge_type.AsUint());
-  return {it->second.access(), view, storage, transaction};
+  return {it->second.access(), edge_type, view, storage, transaction};
 }
 
 std::vector<EdgeTypeId> InMemoryEdgeTypeIndex::Analysis() const {

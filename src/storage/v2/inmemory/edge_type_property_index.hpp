@@ -21,6 +21,7 @@
 #include "storage/v2/indices/edge_type_property_index.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/vertex_accessor.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/synchronized.hpp"
 
@@ -63,6 +64,12 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
 
   uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property) const override;
 
+  uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property, const PropertyValue &value) const override;
+
+  uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property,
+                                const std::optional<utils::Bound<PropertyValue>> &lower,
+                                const std::optional<utils::Bound<PropertyValue>> &upper) const override;
+
   // Functions that update the index
   void UpdateOnSetProperty(Vertex *from_vertex, Vertex *to_vertex, Edge *edge, EdgeTypeId edge_type,
                            PropertyId property, PropertyValue value, uint64_t timestamp) override;
@@ -87,13 +94,16 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
 
   class Iterable {
    public:
-    Iterable(utils::SkipList<Entry>::Accessor index_accessor, View view, Storage *storage, Transaction *transaction);
+    Iterable(utils::SkipList<Entry>::Accessor index_accessor, EdgeTypeId edge_type, PropertyId property,
+             const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+             const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
+             Transaction *transaction);
 
     class Iterator {
      public:
       Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator);
 
-      EdgeAccessor const &operator*() const { return current_edge_accessor_; }
+      EdgeAccessor const &operator*() const { return current_accessor_; }
 
       bool operator==(const Iterator &other) const { return index_iterator_ == other.index_iterator_; }
       bool operator!=(const Iterator &other) const { return index_iterator_ != other.index_iterator_; }
@@ -102,12 +112,11 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
 
      private:
       void AdvanceUntilValid();
-      std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *> GetEdgeInfo();
 
       Iterable *self_;
       utils::SkipList<Entry>::Iterator index_iterator_;
-      EdgeAccessor current_edge_accessor_;
       EdgeRef current_edge_{nullptr};
+      EdgeAccessor current_accessor_;
     };
 
     Iterator begin() { return {this, index_accessor_.begin()}; }
@@ -115,6 +124,11 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
 
    private:
     utils::SkipList<Entry>::Accessor index_accessor_;
+    [[maybe_unused]] EdgeTypeId edge_type_;
+    [[maybe_unused]] PropertyId property_;
+    std::optional<utils::Bound<PropertyValue>> lower_bound_;
+    std::optional<utils::Bound<PropertyValue>> upper_bound_;
+    bool bounds_valid_{true};
     View view_;
     Storage *storage_;
     Transaction *transaction_;
@@ -122,7 +136,10 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
 
   void RunGC();
 
-  Iterable Edges(EdgeTypeId edge_type, PropertyId property, View view, Storage *storage, Transaction *transaction);
+  Iterable Edges(EdgeTypeId edge_type, PropertyId property,
+                 const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+                 const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
+                 Transaction *transaction);
 
  private:
   std::map<std::pair<EdgeTypeId, PropertyId>, utils::SkipList<Entry>> index_;

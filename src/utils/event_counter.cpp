@@ -26,7 +26,14 @@
   M(ScanAllByLabelPropertyValueOperator, Operator, "Number of times ScanAllByLabelPropertyValue operator was used.") \
   M(ScanAllByLabelPropertyOperator, Operator, "Number of times ScanAllByLabelProperty operator was used.")           \
   M(ScanAllByIdOperator, Operator, "Number of times ScanAllById operator was used.")                                 \
+  M(ScanAllByEdgeOperator, Operator, "Number of times ScanAllByEdgeOperator operator was used.")                     \
   M(ScanAllByEdgeTypeOperator, Operator, "Number of times ScanAllByEdgeTypeOperator operator was used.")             \
+  M(ScanAllByEdgeTypePropertyOperator, Operator,                                                                     \
+    "Number of times ScanAllByEdgeTypePropertyOperator operator was used.")                                          \
+  M(ScanAllByEdgeTypePropertyValueOperator, Operator,                                                                \
+    "Number of times ScanAllByEdgeTypePropertyValueOperator operator was used.")                                     \
+  M(ScanAllByEdgeTypePropertyRangeOperator, Operator,                                                                \
+    "Number of times ScanAllByEdgeTypePropertyRangeOperator operator was used.")                                     \
   M(ScanAllByEdgeIdOperator, Operator, "Number of times ScanAllByEdgeIdOperator operator was used.")                 \
   M(ExpandOperator, Operator, "Number of times Expand operator was used.")                                           \
   M(ExpandVariableOperator, Operator, "Number of times ExpandVariable operator was used.")                           \

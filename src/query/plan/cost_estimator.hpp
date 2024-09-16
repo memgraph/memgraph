@@ -90,6 +90,10 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     static constexpr double MakeScanAllByLabelPropertyValue{1.1};
     static constexpr double MakeScanAllByLabelPropertyRange{1.1};
     static constexpr double MakeScanAllByLabelProperty{1.1};
+    static constexpr double kScanAllByEdgeType{1.1};
+    static constexpr double MakeScanAllByEdgeTypePropertyValue{1.1};
+    static constexpr double MakeScanAllByEdgeTypePropertyRange{1.1};
+    static constexpr double MakeScanAllByEdgeTypeProperty{1.1};
     static constexpr double kExpand{2.0};
     static constexpr double kExpandVariable{3.0};
     static constexpr double kFilter{1.5};
@@ -221,6 +225,67 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     }
 
     IncrementCost(CostParam::MakeScanAllByLabelProperty);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByEdgeType &op) override {
+    auto edge_type = op.GetEdgeType();
+    cardinality_ *= db_accessor_->EdgesCount(edge_type);
+    IncrementCost(CostParam::kScanAllByEdgeType);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByEdgeTypePropertyValue &op) override {
+    auto edge_type = op.GetEdgeType();
+    auto property_value = ConstPropertyValue(op.expression_);
+    double factor = 1.0;
+    if (property_value)
+      // get the exact influence based on ScanAllByEdge(label, property, value)
+      factor = db_accessor_->EdgesCount(edge_type, op.property_, property_value.value());
+    else
+      // estimate the influence as ScanAllByEdge(label, property) * filtering
+      factor = db_accessor_->EdgesCount(edge_type, op.property_) * CardParam::kFilter;
+
+    cardinality_ *= factor;
+
+    // ScanAll performs some work for every element that is produced
+    IncrementCost(CostParam::MakeScanAllByEdgeTypePropertyValue);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByEdgeTypePropertyRange &op) override {
+    auto edge_type = op.GetEdgeType();
+
+    // this cardinality estimation depends on Bound expressions.
+    // if they are literals we can evaluate cardinality properly
+    auto lower = BoundToPropertyValue(op.lower_bound_);
+    auto upper = BoundToPropertyValue(op.upper_bound_);
+
+    int64_t factor = 1;
+    if (upper || lower)
+      // if we have either Bound<PropertyValue>, use the value index
+      factor = db_accessor_->EdgesCount(edge_type, op.property_, lower, upper);
+    else
+      // no values, but we still have the label
+      factor = db_accessor_->EdgesCount(edge_type, op.property_);
+
+    // if we failed to take either bound from the op into account, then apply
+    // the filtering constant to the factor
+    if ((op.upper_bound_ && !upper) || (op.lower_bound_ && !lower)) factor *= CardParam::kFilter;
+
+    cardinality_ *= factor;
+
+    // ScanAll performs some work for every element that is produced
+    IncrementCost(CostParam::MakeScanAllByEdgeTypePropertyRange);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByEdgeTypeProperty &op) override {
+    auto edge_type = op.GetEdgeType();
+    const auto factor = db_accessor_->EdgesCount(edge_type, op.property_);
+    cardinality_ *= factor;
+
+    IncrementCost(CostParam::MakeScanAllByEdgeTypeProperty);
     return true;
   }
 

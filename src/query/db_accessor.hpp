@@ -492,6 +492,17 @@ class DbAccessor final {
     return EdgesIterable(accessor_->Edges(edge_type, property, view));
   }
 
+  EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type, storage::PropertyId property,
+                      const storage::PropertyValue value) {
+    return EdgesIterable(accessor_->Edges(edge_type, property, value, view));
+  }
+
+  EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type, storage::PropertyId property,
+                      const std::optional<utils::Bound<storage::PropertyValue>> &lower,
+                      const std::optional<utils::Bound<storage::PropertyValue>> &upper) {
+    return EdgesIterable(accessor_->Edges(edge_type, property, lower, upper, view));
+  }
+
   VertexAccessor InsertVertex() { return VertexAccessor(accessor_->CreateVertex()); }
 
   storage::Result<EdgeAccessor> InsertEdge(VertexAccessor *from, VertexAccessor *to,
@@ -721,6 +732,23 @@ class DbAccessor final {
                         const std::optional<utils::Bound<storage::PropertyValue>> &lower,
                         const std::optional<utils::Bound<storage::PropertyValue>> &upper) const {
     return accessor_->ApproximateVertexCount(label, property, lower, upper);
+  }
+
+  int64_t EdgesCount(storage::EdgeTypeId edge_type) const { return accessor_->ApproximateEdgeCount(edge_type); }
+
+  int64_t EdgesCount(storage::EdgeTypeId edge_type, storage::PropertyId property) const {
+    return accessor_->ApproximateEdgeCount(edge_type, property);
+  }
+
+  int64_t EdgesCount(storage::EdgeTypeId edge_type, storage::PropertyId property,
+                     const storage::PropertyValue &value) const {
+    return accessor_->ApproximateEdgeCount(edge_type, property, value);
+  }
+
+  int64_t EdgesCount(storage::EdgeTypeId edge_type, storage::PropertyId property,
+                     const std::optional<utils::Bound<storage::PropertyValue>> &lower,
+                     const std::optional<utils::Bound<storage::PropertyValue>> &upper) const {
+    return accessor_->ApproximateEdgeCount(edge_type, property, lower, upper);
   }
 
   std::vector<storage::LabelId> ListAllPossiblyPresentVertexLabels() const {
