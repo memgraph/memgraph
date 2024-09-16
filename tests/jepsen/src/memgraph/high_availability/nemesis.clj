@@ -1,4 +1,4 @@
-(ns memgraph.hanemesis
+(ns memgraph.high-availability.nemesis
   "Memgraph nemesis for HA cluster"
   (:require [jepsen
              [nemesis :as nemesis]
@@ -65,7 +65,7 @@
                       nodes-config))
 
 (defn full-nemesis
-  "Can kill and restart all processess and initiate network partitions."
+  "Can kill, restart all processess and initiate network partitions."
   [nodes-config]
   (nemesis/compose
    {{:kill-node    :start
@@ -73,7 +73,7 @@
     {:start-partition-halves :start
      :stop-partition-halves  :stop} (nemesis/partition-random-halves)}))
 
-(defn full-generator
+(defn nemesis-generator
   "Construct nemesis generator."
   []
   (gen/phases
@@ -87,15 +87,9 @@
            (gen/sleep 5)
            {:type :info, :f :stop-partition-halves}])))
 
-
-(defn nemesis
-  "Composite nemesis and generator"
-  [nemesis-opts nodes-config]
+(defn create
+  "Create a map which contains a nemesis configuration for running HA bank test."
+  [nodes-config]
   {:nemesis (full-nemesis nodes-config)
-   :generator (full-generator)
-   :final-generator
-
-   (map utils/op
-        (remove nil?
-                [(when (:partition-halves? nemesis-opts) :stop-partition-halves)
-                 (when (:kill-node? nemesis-opts) :restart-node)]))})
+   :generator (nemesis-generator)
+   :final-generator (map utils/op [:stop-partition-halves :restart-node])})

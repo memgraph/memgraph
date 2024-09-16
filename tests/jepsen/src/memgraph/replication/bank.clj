@@ -17,6 +17,7 @@
             [jepsen.checker.timeline :as timeline]
             [jepsen.checker.perf :as perf]
             [memgraph.replication.utils :as repl-utils]
+            [memgraph.replication.nemesis :as nemesis]
             [memgraph.query :as mgquery]
             [memgraph.utils :as utils]))
 
@@ -270,7 +271,7 @@
           {:valid? true})))))
 
 (defn workload
-  "Basic test workload"
+  "Workload for running bank test."
   [opts]
   {:client    (Client. (:nodes-config opts))
    :checker   (checker/compose
@@ -278,4 +279,5 @@
                 :timeline (timeline/html)
                 :plot     (plotter)})
    :generator (repl-utils/replication-gen (gen/mix [read-balances valid-transfer]))
+   :nemesis-config (nemesis/create)
    :final-generator {:clients (gen/once read-balances) :recovery-time 20}})

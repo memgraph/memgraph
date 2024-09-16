@@ -8,6 +8,7 @@
              [generator :as gen]]
             [jepsen.checker.timeline :as timeline]
             [memgraph.replication.utils :as repl-utils]
+            [memgraph.replication.nemesis :as nemesis]
             [memgraph.query :as mgquery]
             [memgraph.utils :as utils]))
 
@@ -186,6 +187,7 @@
    :checker (checker/compose
              {:large    (large-checker)
               :timeline (timeline/html)})
-   :generator (repl-utils/replication-gen
-               (gen/mix [read-nodes add-nodes]))
-   :final-generator {:clients (gen/once read-nodes) :recovery-time 40}})
+   :generator (repl-utils/replication-gen (gen/mix [read-nodes add-nodes]))
+   :final-generator {:clients (gen/once read-nodes) :recovery-time 40}
+   :nemesis-config (nemesis/create)
+   })

@@ -12,10 +12,7 @@
    [memgraph.high-availability.bank :as habank]
    [memgraph.replication.bank :as bank]
    [memgraph.replication.large :as large]
-   [memgraph
-    [support :as support]
-    [hanemesis :as hanemesis]
-    [nemesis :as nemesis]]))
+   [memgraph.support :as support]))
 
 (defn unhandled-exceptions
   "Wraps jepsen.checker/unhandled-exceptions in a way that if exceptions exist, valid? false is returned.
@@ -59,53 +56,26 @@
    :large                     large/workload
    :habank                    habank/workload})
 
-(def nemesis-configuration
-  "Nemesis configuration"
-  {:interval          5
-   :kill-node?        true
-   :partition-halves? true})
-
 (defn compose-gen
-  "Composes final generator used in the test from workload and nemesis configuration. Used for HA testing and single-instance testing.
-  "
-  [opts workload nemesis]
-  (gen/time-limit
-   (:time-limit opts)
-   (gen/nemesis (:generator nemesis) (:generator workload))))
-
-(defn memgraph-ha-test
-  "Given an options map from the command line runner constructs a test map for HA tests."
-  [opts]
-  (let [workload ((get workloads (:workload opts)) opts)
-        nemesis (hanemesis/nemesis nemesis-configuration (:nodes-config opts))
-        gen (compose-gen opts workload nemesis)]
-
-    (merge tests/noop-test
-           opts
-           {:pure-generators true
-            :name            (str "test-" (name (:workload opts)))
-            :db              (support/db opts)
-            :client          (:client workload)
-            :checker         (checker/compose
-                              {:stats      (checker/stats)
-                               :exceptions (unhandled-exceptions)
-                               :log-checker (checker/log-file-pattern #"assert|NullPointerException|json.exception.parse_error" "memgraph.log")
-                               :workload   (:checker workload)})
-            :nodes           (keys (:nodes-config opts))
-            :nemesis        (:nemesis nemesis)
-            :generator      gen})))
+  "Composes final generator used in the test from client generator and nemesis generator."
+  [time-limit client-generator nemesis-generator]
+  (gen/time-limit time-limit
+                  (gen/nemesis nemesis-generator client-generator)))
 
 (defn memgraph-test
   "Given an options map from the command line runner constructs a test map."
   [opts]
-  (let [workload ((get workloads (:workload opts)) opts)
-        nemesis  (nemesis/nemesis nemesis-configuration)
-        gen (compose-gen opts workload nemesis)
+  (let [time-limit (:time-limit opts)
+        workload (((:workload opts) workloads) opts)
+        client-generator (:generator workload)
+        nemesis-config (:nemesis-config workload)
+        nemesis-generator (:generator nemesis-config)
+        gen (compose-gen time-limit client-generator nemesis-generator)
         ; If final generator exists in the workload, then modify gen, otherwise use what you already have.
         gen      (if-let [final-generator (:final-generator workload)]
                    (gen/phases gen
                                (gen/log "Healing cluster.")
-                               (gen/nemesis (:final-generator nemesis))
+                               (gen/nemesis (:final-generator nemesis-config))
                                (gen/log "Waiting for recovery")
                                (gen/sleep (:recovery-time final-generator))
                                (gen/clients (:clients final-generator)))
@@ -121,7 +91,8 @@
                                :exceptions (unhandled-exceptions)
                                :log-checker (checker/log-file-pattern #"assert|NullPointerException|json.exception.parse_error" "memgraph.log")
                                :workload   (:checker workload)})
-            :nemesis         (:nemesis nemesis)
+            :nodes           (keys (:nodes-config opts))
+            :nemesis         (:nemesis nemesis-config)
             :generator       gen})))
 
 (defn throw-if-key-missing-in-any
@@ -185,9 +156,7 @@
                           :sync-after-n-txn sync-after-n-txn
                           :license licence
                           :organization organization})]
-    (if (or (= workload :high_availability) (= workload :habank))
-      (memgraph-ha-test test-opts)
-      (memgraph-test test-opts))))
+    (memgraph-test test-opts)))
 
 (def cli-opts
   "CLI options for tests."

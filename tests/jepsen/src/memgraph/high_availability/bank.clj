@@ -9,6 +9,7 @@
              [generator :as gen]
              [client :as jclient]]
             [jepsen.checker.timeline :as timeline]
+            [memgraph.high-availability.nemesis :as nemesis]
             [memgraph.utils :as utils]
             [memgraph.query :as mgquery]))
 
@@ -461,4 +462,4 @@
                  {:habank     (habank-checker)
                   :timeline (timeline/html)})
      :generator (ha-gen (gen/mix [setup-cluster initialize-data show-instances-reads read-balances valid-transfer]))
-     :final-generator {:clients (gen/once show-instances-reads) :recovery-time 20}}))
+     :nemesis-config (nemesis/create nodes-config)}))
