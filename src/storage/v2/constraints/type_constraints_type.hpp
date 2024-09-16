@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <string>
 
+#include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
 
 namespace memgraph::storage {
@@ -101,6 +102,34 @@ inline TypeConstraintsType PropertyValueToTypeConstraintType(const PropertyValue
       return TypeConstraintsType::POINT;
     case PropertyValueType::Null:
       MG_ASSERT(false, "Unexpected conversion from PropertyValueType::Null to TypeConstraint::Type");
+  }
+}
+
+inline PropertyStoreType TypeConstraintsTypeToPropertyStoreType(TypeConstraintsType type) {
+  switch (type) {
+    case TypeConstraintsType::STRING:
+      return PropertyStoreType::STRING;
+    case TypeConstraintsType::BOOLEAN:
+      return PropertyStoreType::BOOL;
+    case TypeConstraintsType::INTEGER:
+      return PropertyStoreType::INT;
+    case TypeConstraintsType::FLOAT:
+      return PropertyStoreType::DOUBLE;
+    case TypeConstraintsType::LIST:
+      return PropertyStoreType::LIST;
+    case TypeConstraintsType::MAP:
+      return PropertyStoreType::MAP;
+    case TypeConstraintsType::DURATION:
+    case TypeConstraintsType::DATE:
+    case TypeConstraintsType::LOCALTIME:
+    case TypeConstraintsType::LOCALDATETIME:
+      return PropertyStoreType::TEMPORAL_DATA;
+    case TypeConstraintsType::ZONEDDATETIME:
+      return PropertyStoreType::ZONED_TEMPORAL_DATA;
+    case TypeConstraintsType::ENUM:
+      return PropertyStoreType::ENUM;
+    case TypeConstraintsType::POINT:
+      return PropertyStoreType::POINT;
   }
 }
 

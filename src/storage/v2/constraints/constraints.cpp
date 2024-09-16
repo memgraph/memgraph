@@ -42,6 +42,6 @@ void Constraints::DropGraphClearConstraints() const {
   type_constraints_->DropGraphClearConstraints();
 }
 
-bool Constraints::HasTypeConstraints() const { return type_constraints_->HasTypeConstraints(); }
+bool Constraints::HasTypeConstraints() const { return !type_constraints_->empty(); }
 
 }  // namespace memgraph::storage

@@ -41,11 +41,11 @@ class TypeConstraints {
   [[nodiscard]] static std::optional<ConstraintViolation> ValidateVerticesOnConstraint(
       utils::SkipList<Vertex>::Accessor vertices, LabelId label, PropertyId property, TypeConstraintsType type);
 
-  [[nodiscard]] std::optional<ConstraintViolation> Validate(const Vertex &vertex);
-  [[nodiscard]] std::optional<ConstraintViolation> Validate(const Vertex &vertex, LabelId label);
-  [[nodiscard]] std::optional<ConstraintViolation> Validate(const Vertex &vertex, PropertyId property);
+  [[nodiscard]] std::optional<ConstraintViolation> Validate(const Vertex &vertex) const;
+  [[nodiscard]] std::optional<ConstraintViolation> Validate(const Vertex &vertex, LabelId label) const;
+  [[nodiscard]] std::optional<ConstraintViolation> Validate(const Vertex &vertex, PropertyId property) const;
 
-  bool HasTypeConstraints() const;
+  bool empty() const;
   bool ConstraintExists(LabelId label, PropertyId property) const;
   bool InsertConstraint(LabelId label, PropertyId property, TypeConstraintsType type);
   bool DropConstraint(LabelId label, PropertyId property, TypeConstraintsType type);

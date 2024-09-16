@@ -159,10 +159,10 @@ struct MetadataDelta {
       : action(Action::UNIQUE_CONSTRAINT_DROP), label_properties{label, std::move(properties)} {}
 
   MetadataDelta(TypeConstraintCreate /*tag*/, LabelId label, PropertyId property, TypeConstraintsType type)
-      : action(Action::TYPE_CONSTRAINT_CREATE), label_property_type{label, property, .type = type} {}
+      : action(Action::TYPE_CONSTRAINT_CREATE), label_property_type{label, property, type} {}
 
   MetadataDelta(TypeConstraintDrop /*tag*/, LabelId label, PropertyId property, TypeConstraintsType type)
-      : action(Action::TYPE_CONSTRAINT_DROP), label_property_type{label, property, .type = type} {}
+      : action(Action::TYPE_CONSTRAINT_DROP), label_property_type{label, property, type} {}
 
   MetadataDelta(EnumCreate /*tag*/, EnumTypeId etype) : action(Action::ENUM_CREATE), enum_create_info{.etype = etype} {}
 

@@ -38,7 +38,9 @@ struct Constraints {
   std::unique_ptr<UniqueConstraints> unique_constraints_;
   std::unique_ptr<TypeConstraints> type_constraints_;
 
-  bool empty() const { return existence_constraints_->empty() && unique_constraints_->empty(); }
+  bool empty() const {
+    return existence_constraints_->empty() && unique_constraints_->empty() && type_constraints_->empty();
+  }
 };
 
 }  // namespace memgraph::storage
