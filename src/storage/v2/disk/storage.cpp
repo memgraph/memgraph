@@ -2160,7 +2160,7 @@ utils::BasicResult<StorageExistenceConstraintDefinitionError, void> DiskStorage:
 }
 
 utils::BasicResult<StorageExistenceConstraintDroppingError, void> DiskStorage::DiskAccessor::DropTypeConstraint(
-    LabelId /**/, PropertyId /**/) {
+    LabelId /**/, PropertyId /**/, TypeConstraintsType /**/) {
   throw utils::NotYetImplemented("Type constraints are not yet implemented for on-disk storage");
 }
 

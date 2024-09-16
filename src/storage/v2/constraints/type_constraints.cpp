@@ -90,14 +90,16 @@ bool TypeConstraints::InsertConstraint(LabelId label, PropertyId property, TypeC
   return true;
 }
 
-std::optional<TypeConstraintsType> TypeConstraints::DropConstraint(LabelId label, PropertyId property) {
+bool TypeConstraints::DropConstraint(LabelId label, PropertyId property, TypeConstraintsType type) {
   auto it = constraints_.find({label, property});
   if (it == constraints_.end()) {
-    return std::nullopt;
+    return false;
   }
-  auto type = it->second;
+  if (it->second != type) {
+    return false;
+  }
   constraints_.erase(it);
-  return type;
+  return true;
 }
 
 std::vector<std::tuple<LabelId, PropertyId, TypeConstraintsType>> TypeConstraints::ListConstraints() const {

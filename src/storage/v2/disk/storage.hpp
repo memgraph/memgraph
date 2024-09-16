@@ -235,8 +235,8 @@ class DiskStorage final : public Storage {
     utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateTypeConstraint(
         LabelId label, PropertyId property, TypeConstraintsType type) override;
 
-    utils::BasicResult<StorageExistenceConstraintDroppingError, void> DropTypeConstraint(LabelId label,
-                                                                                         PropertyId property) override;
+    utils::BasicResult<StorageExistenceConstraintDroppingError, void> DropTypeConstraint(
+        LabelId label, PropertyId property, TypeConstraintsType type) override;
 
     void DropGraph() override;
   };

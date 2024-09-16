@@ -843,8 +843,8 @@ class DbAccessor final {
   }
 
   utils::BasicResult<storage::StorageExistenceConstraintDroppingError, void> DropTypeConstraint(
-      storage::LabelId label, storage::PropertyId property) {
-    return accessor_->DropTypeConstraint(label, property);
+      storage::LabelId label, storage::PropertyId property, storage::TypeConstraintsType type) {
+    return accessor_->DropTypeConstraint(label, property, type);
   }
 
   void DropGraph() { return accessor_->DropGraph(); }

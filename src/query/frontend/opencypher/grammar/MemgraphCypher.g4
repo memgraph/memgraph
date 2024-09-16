@@ -675,6 +675,8 @@ typeConstraintType : BOOLEAN
              | STRING
              | INTEGER
              | FLOAT
+             | LIST
+             | MAP
              | DATE
              | LOCALTIME
              | LOCALDATETIME

@@ -972,7 +972,8 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
         auto *transaction = get_transaction_accessor(delta_timestamp, kUniqueAccess);
         auto ret =
             transaction->DropTypeConstraint(storage->NameToLabel(delta.operation_label_property_type.label),
-                                            storage->NameToProperty(delta.operation_label_property_type.property));
+                                            storage->NameToProperty(delta.operation_label_property_type.property),
+                                            delta.operation_label_property_type.type);
         if (ret.HasError()) {
           throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
         }

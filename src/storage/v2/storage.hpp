@@ -396,7 +396,7 @@ class Storage {
         LabelId label, PropertyId property, TypeConstraintsType type) = 0;
 
     virtual utils::BasicResult<StorageExistenceConstraintDroppingError, void> DropTypeConstraint(
-        LabelId label, PropertyId property) = 0;
+        LabelId label, PropertyId property, TypeConstraintsType type) = 0;
 
     virtual void DropGraph() = 0;
 

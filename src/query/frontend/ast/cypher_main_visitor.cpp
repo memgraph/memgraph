@@ -225,6 +225,12 @@ antlrcpp::Any CypherMainVisitor::visitTypeConstraintType(MemgraphCypher::TypeCon
   if (ctx->FLOAT()) {
     return memgraph::storage::TypeConstraintsType::FLOAT;
   }
+  if (ctx->LIST()) {
+    return memgraph::storage::TypeConstraintsType::LIST;
+  }
+  if (ctx->MAP()) {
+    return memgraph::storage::TypeConstraintsType::MAP;
+  }
   if (ctx->DATE()) {
     return memgraph::storage::TypeConstraintsType::DATE;
   }

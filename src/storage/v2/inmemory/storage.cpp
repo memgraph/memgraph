@@ -1766,15 +1766,15 @@ InMemoryStorage::InMemoryAccessor::CreateTypeConstraint(LabelId label, PropertyI
 }
 
 utils::BasicResult<StorageTypeConstraintDroppingError, void> InMemoryStorage::InMemoryAccessor::DropTypeConstraint(
-    LabelId label, PropertyId property) {
+    LabelId label, PropertyId property, TypeConstraintsType type) {
   MG_ASSERT(unique_guard_.owns_lock(), "Dropping IS TYPED constraint requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *type_constraints = in_memory->constraints_.type_constraints_.get();
-  auto maybe_type = type_constraints->DropConstraint(label, property);
-  if (!maybe_type) {
+  auto deleted_constraint = type_constraints->DropConstraint(label, property, type);
+  if (!deleted_constraint) {
     return StorageTypeConstraintDroppingError{ConstraintDefinitionError{}};
   }
-  transaction_.md_deltas.emplace_back(MetadataDelta::type_constraint_drop, label, property, *maybe_type);
+  transaction_.md_deltas.emplace_back(MetadataDelta::type_constraint_drop, label, property, type);
   return {};
 }
 
