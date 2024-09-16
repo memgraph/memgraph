@@ -1,4 +1,4 @@
-(ns memgraph.high-availability.bank
+(ns memgraph.high-availability.bank.test
   "Jepsen's bank test adapted to fit as Memgraph High Availability."
   (:require [neo4j-clj.core :as dbclient]
             [clojure.tools.logging :refer [info]]
@@ -9,7 +9,7 @@
              [generator :as gen]
              [client :as jclient]]
             [jepsen.checker.timeline :as timeline]
-            [memgraph.high-availability.nemesis :as nemesis]
+            [memgraph.high-availability.bank.nemesis :as nemesis]
             [memgraph.utils :as utils]
             [memgraph.query :as mgquery]))
 

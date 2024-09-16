@@ -9,7 +9,7 @@
     [history :as history]
     [tests :as tests]]
    [tesser.core :as tesser]
-   [memgraph.high-availability.bank :as habank]
+   [memgraph.high-availability.bank.test :as habank]
    [memgraph.replication.bank :as bank]
    [memgraph.replication.large :as large]
    [memgraph.support :as support]))

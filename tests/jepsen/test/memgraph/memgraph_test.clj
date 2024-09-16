@@ -1,6 +1,6 @@
 (ns memgraph.memgraph-test
   (:require [clojure.test :refer :all]
-            [memgraph.high-availability.bank :as habank]
+            [memgraph.high-availability.bank.test :as habank]
             [memgraph
              [utils :as utils]
              [query :as query]]))

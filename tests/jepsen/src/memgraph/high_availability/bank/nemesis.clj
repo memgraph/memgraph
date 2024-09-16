@@ -1,4 +1,4 @@
-(ns memgraph.high-availability.nemesis
+(ns memgraph.high-availability.bank.nemesis
   "Memgraph nemesis for HA cluster"
   (:require [jepsen
              [nemesis :as nemesis]
