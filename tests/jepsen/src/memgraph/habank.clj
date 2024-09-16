@@ -11,7 +11,6 @@
             [jepsen.checker.timeline :as timeline]
             [memgraph
              [haclient :as haclient]
-             [client :as mgclient]
              [utils :as utils]]))
 
 (def registered-replication-instances? (atom false))
@@ -41,7 +40,7 @@
 (defn accounts-exist?
   "Check if accounts are created."
   [session]
-  (let [accounts (mgclient/get-all-accounts session)
+  (let [accounts (haclient/get-all-accounts session)
         safe-accounts (or accounts [])
         extracted-accounts (->> safe-accounts (map :n) (reduce conj []))]
     (not-empty extracted-accounts)))
@@ -51,9 +50,9 @@
   if the account you're transfering money from has enough
   money."
   [tx op from to amount]
-  (when (-> (mgclient/get-account tx {:id from}) first :n :balance (>= amount))
-    (mgclient/update-balance tx {:id from :amount (- amount)})
-    (mgclient/update-balance tx {:id to :amount amount}))
+  (when (-> (haclient/get-account tx {:id from}) first :n :balance (>= amount))
+    (haclient/update-balance tx {:id from :amount (- amount)})
+    (haclient/update-balance tx {:id to :amount amount}))
   (info "Transfered money from account" from "to account" to "with amount" amount)
   (assoc op :type :ok))
 
@@ -97,10 +96,10 @@
   "Delete existing accounts and create new ones."
   [txn op]
   (info "Deleting all accounts...")
-  (mgclient/detach-delete-all txn)
+  (haclient/detach-delete-all txn)
   (info "Creating accounts...")
   (dotimes [i utils/account-num]
-    (mgclient/create-account txn {:id i :balance utils/starting-balance})
+    (haclient/create-account txn {:id i :balance utils/starting-balance})
     (info "Created account:" i))
   (assoc op :type :ok))
 
@@ -132,7 +131,7 @@
         :show-instances-read (if (coord-instance? node)
                                (try
                                  (utils/with-session bolt-conn session ; Use bolt connection for running show instances.
-                                   (let [instances (->> (mgclient/get-all-instances session) (reduce conj []))]
+                                   (let [instances (->> (haclient/get-all-instances session) (reduce conj []))]
                                      (assoc op
                                             :type :ok
                                             :value {:instances instances :node node})))
@@ -145,7 +144,7 @@
         :read-balances (if (data-instance? node)
                          (try
                            (utils/with-session bolt-conn session
-                             (let [accounts (->> (mgclient/get-all-accounts session) (map :n) (reduce conj []))
+                             (let [accounts (->> (haclient/get-all-accounts session) (map :n) (reduce conj []))
                                    total (reduce + (map :balance accounts))]
                                (assoc op
                                       :type :ok
