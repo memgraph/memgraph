@@ -486,7 +486,7 @@ copy_memgraph() {
         fi
         artifact="build logs"
         artifact_name="logs"
-        container_artifact_path="$MGBUILD_BUILD_DIR/$artifact_name"
+        container_artifact_path="$MGBUILD_BUILD_DIR/e2e/logs"
         host_dir="$PROJECT_BUILD_DIR"
         shift 1
       ;;
@@ -536,6 +536,10 @@ copy_memgraph() {
     artifact_name=$artifact_name_override
   fi
   local host_artifact_path="$host_dir/$artifact_name"
+  echo "Host dir: '$host_dir'"
+  echo "Artifact name: '$artifact_name'"
+  echo "Host artifact path: '$host_artifact_path'"
+  echo "Container artifact path: '$container_artifact_path'"
   echo -e "Copying memgraph $artifact from $build_container to host ..."
   mkdir -p "$host_dir"
   if [[ "$artifact" == "package" ]]; then

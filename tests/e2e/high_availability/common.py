@@ -15,6 +15,20 @@ import typing
 import mgclient
 
 
+def get_data_path(file: str, test: str):
+    """
+    Data is stored in high_availability folder.
+    """
+    return f"high_availability/{file}/{test}"
+
+
+def get_logs_path(file: str, test: str):
+    """
+    Logs are stored in high_availability folder.
+    """
+    return f"high_availability/{file}/{test}"
+
+
 # Elapse time is the last element in results hence such slicing works.
 def ignore_elapsed_time_from_results(results: typing.List[tuple]) -> typing.List[tuple]:
     return [result[:-1] for result in results]
