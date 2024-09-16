@@ -16,8 +16,39 @@
              [util :as util]]
             [jepsen.checker.timeline :as timeline]
             [jepsen.checker.perf :as perf]
-            [memgraph.replication.query :as mgquery]
-            [memgraph.replication.utils :as utils]))
+            [memgraph.replication.utils :as repl-utils]
+            [memgraph.query :as mgquery]
+            [memgraph.utils :as utils]))
+
+(def account-num
+  "Number of accounts to be created. Random number in [5, 10]" (+ 5 (rand-int 6)))
+
+(def starting-balance
+  "Starting balance of each account" (rand-nth [400 450 500 550 600 650]))
+
+(def max-transfer-amount
+  "Maximum amount of money that can be transferred in one transaction. Random number in [20, 30]"
+  (+ 20 (rand-int 11)))
+
+(defn transfer
+  "Transfer money from one account to another by some amount"
+  [_ _]
+  {:type :invoke
+   :f :transfer
+   :value {:from   (rand-int account-num)
+           :to     (rand-int account-num)
+           :amount (+ 1 (rand-int max-transfer-amount))}})
+
+(def valid-transfer
+  "Filter only valid transfers (where :from and :to are different)"
+  (gen/filter (fn [op] (not= (-> op :value :from)
+                             (-> op :value :to)))
+              transfer))
+
+(defn read-balances
+  "Read the current state of all accounts"
+  [_ _]
+  {:type :invoke, :f :read-balances, :value nil})
 
 (defn transfer-money
   "Transfer money from one account to another by some amount
@@ -34,7 +65,7 @@
   ; Open connection to the node. Setup each node.
   (open! [this _test node]
     (info "Opening connection to node" node)
-    (mgquery/replication-open-connection this node nodes-config))
+    (repl-utils/replication-open-connection this node nodes-config))
   ; On main detach-delete-all and create accounts.
   (setup! [this _test]
     (when (= (:replication-role this) :main)
@@ -42,10 +73,10 @@
         (utils/with-session (:conn this) session
           (do
             (mgquery/detach-delete-all session)
-            (info "Creating" utils/account-num "accounts")
-            (dotimes [i utils/account-num]
+            (info "Creating" account-num "accounts")
+            (dotimes [i account-num]
               (info "Creating account:" i)
-              (mgquery/create-account session {:id i :balance utils/starting-balance}))))
+              (mgquery/create-account session {:id i :balance starting-balance}))))
         (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
           (info (utils/node-is-down (:node this)))))))
   (invoke! [this _test op]
@@ -63,9 +94,9 @@
                    :value {:accounts accounts
                            :node (:node this)
                            :total total
-                           :correct (= total (* utils/account-num utils/starting-balance))})))
+                           :correct (= total (* account-num starting-balance))})))
         (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
-          (utils/process-service-unavilable-exc op (:node this)))
+          (utils/process-service-unavailable-exc op (:node this)))
         (catch Exception e
           (assoc op :type :fail :value (str e))))
 
@@ -98,7 +129,7 @@
                        (:amount transfer-info)))
                     (assoc op :type :ok)
                     (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
-                      (utils/process-service-unavilable-exc op (:node this)))
+                      (utils/process-service-unavailable-exc op (:node this)))
                     (catch Exception e
                       (if (or
                            (utils/sync-replica-down? e)
@@ -134,7 +165,7 @@
                                     (map :node)
                                     (into #{}))
 
-            bad-reads (utils/analyze-bank-data-reads ok-reads utils/account-num utils/starting-balance)
+            bad-reads (utils/analyze-bank-data-reads ok-reads account-num starting-balance)
 
             empty-nodes (utils/analyze-empty-data-nodes ok-reads)
 
@@ -246,5 +277,5 @@
                {:bank     (bank-checker)
                 :timeline (timeline/html)
                 :plot     (plotter)})
-   :generator (mgquery/replication-gen (gen/mix [utils/read-balances utils/valid-transfer]))
-   :final-generator {:clients (gen/once utils/read-balances) :recovery-time 20}})
+   :generator (repl-utils/replication-gen (gen/mix [read-balances valid-transfer]))
+   :final-generator {:clients (gen/once read-balances) :recovery-time 20}})

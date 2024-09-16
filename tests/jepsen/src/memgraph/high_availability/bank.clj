@@ -9,13 +9,42 @@
              [generator :as gen]
              [client :as jclient]]
             [jepsen.checker.timeline :as timeline]
-            [memgraph.high-availability.utils :as utils]
-            [memgraph.high-availability.query :as mgquery]
-             ))
+            [memgraph.utils :as utils]
+            [memgraph.query :as mgquery]))
 
 (def registered-replication-instances? (atom false))
 (def added-coordinator-instances? (atom false))
 (def main-set? (atom false))
+
+(defn read-balances
+  "Read the current state of all accounts"
+  [_ _]
+  {:type :invoke, :f :read-balances, :value nil})
+
+(def account-num
+  "Number of accounts to be created. Random number in [5, 10]" (+ 5 (rand-int 6)))
+
+(def starting-balance
+  "Starting balance of each account" (rand-nth [400 450 500 550 600 650]))
+
+(def max-transfer-amount
+  "Maximum amount of money that can be transferred in one transaction. Random number in [20, 30]"
+  (+ 20 (rand-int 11)))
+
+(defn transfer
+  "Transfer money from one account to another by some amount"
+  [_ _]
+  {:type :invoke
+   :f :transfer
+   :value {:from   (rand-int account-num)
+           :to     (rand-int account-num)
+           :amount (+ 1 (rand-int max-transfer-amount))}})
+
+(def valid-transfer
+  "Filter only valid transfers (where :from and :to are different)"
+  (gen/filter (fn [op] (not= (-> op :value :from)
+                             (-> op :value :to)))
+              transfer))
 
 (defn data-instance?
   "Is node data instances?"
@@ -98,8 +127,8 @@
   (info "Deleting all accounts...")
   (mgquery/detach-delete-all txn)
   (info "Creating accounts...")
-  (dotimes [i utils/account-num]
-    (mgquery/create-account txn {:id i :balance utils/starting-balance})
+  (dotimes [i account-num]
+    (mgquery/create-account txn {:id i :balance starting-balance})
     (info "Created account:" i))
   (assoc op :type :ok))
 
@@ -136,7 +165,7 @@
                                             :type :ok
                                             :value {:instances instances :node node})))
                                  (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
-                                   (utils/process-service-unavilable-exc op node))
+                                   (utils/process-service-unavailable-exc op node))
                                  (catch Exception e
                                    (assoc op :type :fail :value (str e))))
                                (assoc op :type :info :value "Not coord"))
@@ -151,9 +180,9 @@
                                       :value {:accounts accounts
                                               :node node
                                               :total total
-                                              :correct (= total (* utils/account-num utils/starting-balance))})))
+                                              :correct (= total (* account-num starting-balance))})))
                            (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
-                             (utils/process-service-unavilable-exc op node))
+                             (utils/process-service-unavailable-exc op node))
                            (catch Exception e
                              (assoc op :type :fail :value (str e))))
                          (assoc op :type :info :value "Not data instance"))
@@ -209,7 +238,7 @@
 
             (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
               (info "Registering instances failed because node" node "is down.")
-              (utils/process-service-unavilable-exc op node))
+              (utils/process-service-unavailable-exc op node))
             (catch Exception e
               (if (string/includes? (str e) "not a leader")
                 (assoc op :type :info :value "Not a leader")
@@ -226,7 +255,7 @@
                 (insert-data txn op) ; Return assoc op :type :ok
                 (assoc op :type :info :value "Accounts already exist.")))
             (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
-              (utils/process-service-unavilable-exc op node))
+              (utils/process-service-unavailable-exc op node))
             (catch Exception e
               (if (utils/sync-replica-down? e)
                   ; If sync replica is down during initialization, that is fine. Our current SYNC replication will still continue to replicate to this
@@ -350,7 +379,7 @@
                                     (map :node)
                                     (into #{}))
 
-            bad-data-reads (utils/analyze-bank-data-reads ok-data-reads utils/account-num utils/starting-balance)
+            bad-data-reads (utils/analyze-bank-data-reads ok-data-reads account-num starting-balance)
 
             empty-data-nodes (utils/analyze-empty-data-nodes ok-data-reads)
 
@@ -431,5 +460,5 @@
      :checker   (checker/compose
                  {:habank     (habank-checker)
                   :timeline (timeline/html)})
-     :generator (ha-gen (gen/mix [setup-cluster initialize-data show-instances-reads utils/read-balances utils/valid-transfer]))
+     :generator (ha-gen (gen/mix [setup-cluster initialize-data show-instances-reads read-balances valid-transfer]))
      :final-generator {:clients (gen/once show-instances-reads) :recovery-time 20}}))

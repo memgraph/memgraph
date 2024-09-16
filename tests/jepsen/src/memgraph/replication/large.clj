@@ -7,8 +7,9 @@
              [client :as client]
              [generator :as gen]]
             [jepsen.checker.timeline :as timeline]
-            [memgraph.replication.query :as mgquery]
-            [memgraph.replication.utils :as utils]))
+            [memgraph.replication.utils :as repl-utils]
+            [memgraph.query :as mgquery]
+            [memgraph.utils :as utils]))
 
 ; It is important that at least once applying deltas passes to replicas. Before this value was 100k so the instance never had
 ; enough time to apply all deltas.
@@ -23,7 +24,7 @@
 (defrecord Client [nodes-config]
   client/Client
   (open! [this _test node]
-    (mgquery/replication-open-connection this node nodes-config))
+    (repl-utils/replication-open-connection this node nodes-config))
   (setup! [this _test]
     (when (= (:replication-role this) :main)
       (try
@@ -47,7 +48,7 @@
                                      :c)
                          :node (:node this)}))
         (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
-          (utils/process-service-unavilable-exc op (:node this)))
+          (utils/process-service-unavailable-exc op (:node this)))
         (catch Exception e
           (assoc op :type :fail :value (str e))))
 
@@ -72,7 +73,7 @@
                     (create-nodes session)
                     (assoc op :type :ok :value "Nodes created."))
                   (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
-                    (utils/process-service-unavilable-exc op (:node this)))
+                    (utils/process-service-unavailable-exc op (:node this)))
                   (catch Exception e
                     (if (utils/sync-replica-down? e)
                       (assoc op :type :ok :value (str e)); Exception due to down sync replica is accepted/expected. Here we return ok because
@@ -185,6 +186,6 @@
    :checker (checker/compose
              {:large    (large-checker)
               :timeline (timeline/html)})
-   :generator (mgquery/replication-gen
+   :generator (repl-utils/replication-gen
                (gen/mix [read-nodes add-nodes]))
    :final-generator {:clients (gen/once read-nodes) :recovery-time 40}})

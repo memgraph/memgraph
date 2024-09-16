@@ -1,4 +1,4 @@
-(ns memgraph.high-availability.query
+(ns memgraph.query
   "Neo4j Clojure driver helper functions/macros"
   (:require [neo4j-clj.core :as dbclient]
             [clojure.tools.logging :refer [info]]))
@@ -88,3 +88,28 @@
               "'}")]
      (info "Adding coordinator instance" query)
      query)))
+
+(defn replication-mode-str
+  [node-config]
+  (case (:replication-mode node-config)
+    :async "ASYNC"
+    :sync  "SYNC"))
+
+; Used by replication-invoke-case
+(defn create-register-replica-query
+  [name node-config]
+  (dbclient/create-query
+   (str "REGISTER REPLICA "
+        name
+        " "
+        (replication-mode-str node-config)
+        " TO '"
+        name
+        ":"
+        (:port node-config)
+        "'")))
+
+(defn create-set-replica-role-query
+  [port]
+  (dbclient/create-query
+   (str "SET REPLICATION ROLE TO REPLICA WITH PORT " port)))
