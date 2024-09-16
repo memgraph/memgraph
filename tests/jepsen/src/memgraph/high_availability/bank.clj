@@ -1,4 +1,4 @@
-(ns memgraph.habank
+(ns memgraph.high-availability.bank
   "Jepsen's bank test adapted to fit as Memgraph High Availability."
   (:require [neo4j-clj.core :as dbclient]
             [clojure.tools.logging :refer [info]]
@@ -7,11 +7,11 @@
             [jepsen
              [checker :as checker]
              [generator :as gen]
-             [client :as client]]
+             [client :as jclient]]
             [jepsen.checker.timeline :as timeline]
-            [memgraph
-             [haclient :as haclient]
-             [utils :as utils]]))
+            [memgraph.high-availability.utils :as utils]
+            [memgraph.high-availability.query :as mgquery]
+             ))
 
 (def registered-replication-instances? (atom false))
 (def added-coordinator-instances? (atom false))
@@ -40,7 +40,7 @@
 (defn accounts-exist?
   "Check if accounts are created."
   [session]
-  (let [accounts (haclient/get-all-accounts session)
+  (let [accounts (mgquery/get-all-accounts session)
         safe-accounts (or accounts [])
         extracted-accounts (->> safe-accounts (map :n) (reduce conj []))]
     (not-empty extracted-accounts)))
@@ -50,9 +50,9 @@
   if the account you're transfering money from has enough
   money."
   [tx op from to amount]
-  (when (-> (haclient/get-account tx {:id from}) first :n :balance (>= amount))
-    (haclient/update-balance tx {:id from :amount (- amount)})
-    (haclient/update-balance tx {:id to :amount amount}))
+  (when (-> (mgquery/get-account tx {:id from}) first :n :balance (>= amount))
+    (mgquery/update-balance tx {:id from :amount (- amount)})
+    (mgquery/update-balance tx {:id to :amount amount}))
   (info "Transfered money from account" from "to account" to "with amount" amount)
   (assoc op :type :ok))
 
@@ -62,7 +62,7 @@
   (doseq [repl-config (filter #(contains? (val %) :replication-port)
                               nodes-config)]
     (try
-      ((haclient/register-replication-instance
+      ((mgquery/register-replication-instance
         (first repl-config)
         (second repl-config)) session)
       (info "Registered replication instance:" (first repl-config))
@@ -78,7 +78,7 @@
                             (filter #(not= (key %) myself)) ; Don't register itself
                             (filter #(contains? (val %) :coordinator-id)))]
     (try
-      ((haclient/add-coordinator-instance
+      ((mgquery/add-coordinator-instance
         (first coord-config) (second coord-config)) session)
       (info "Added coordinator:" (first coord-config))
       (catch Exception e
@@ -89,22 +89,22 @@
 (defn set-instance-to-main
   "Set instance to main."
   [session first-main]
-  ((haclient/set-instance-to-main first-main) session)
+  ((mgquery/set-instance-to-main first-main) session)
   (info "Set instance" first-main "to main."))
 
 (defn insert-data
   "Delete existing accounts and create new ones."
   [txn op]
   (info "Deleting all accounts...")
-  (haclient/detach-delete-all txn)
+  (mgquery/detach-delete-all txn)
   (info "Creating accounts...")
   (dotimes [i utils/account-num]
-    (haclient/create-account txn {:id i :balance utils/starting-balance})
+    (mgquery/create-account txn {:id i :balance utils/starting-balance})
     (info "Created account:" i))
   (assoc op :type :ok))
 
 (defrecord Client [nodes-config first-leader first-main license organization]
-  client/Client
+  jclient/Client
   ; Open Bolt connection to all nodes.
   (open! [this _test node]
     (info "Opening bolt connection to node..." node)
@@ -118,8 +118,8 @@
   (setup! [this _test]
     (try
       (utils/with-session (:bolt-conn this) session
-        ((haclient/set-db-setting "enterprise.license" license) session)
-        ((haclient/set-db-setting "organization.name" organization) session))
+        ((mgquery/set-db-setting "enterprise.license" license) session)
+        ((mgquery/set-db-setting "organization.name" organization) session))
       (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
         (info (utils/node-is-down (:node this))))))
 
@@ -131,7 +131,7 @@
         :show-instances-read (if (coord-instance? node)
                                (try
                                  (utils/with-session bolt-conn session ; Use bolt connection for running show instances.
-                                   (let [instances (->> (haclient/get-all-instances session) (reduce conj []))]
+                                   (let [instances (->> (mgquery/get-all-instances session) (reduce conj []))]
                                      (assoc op
                                             :type :ok
                                             :value {:instances instances :node node})))
@@ -144,7 +144,7 @@
         :read-balances (if (data-instance? node)
                          (try
                            (utils/with-session bolt-conn session
-                             (let [accounts (->> (haclient/get-all-accounts session) (map :n) (reduce conj []))
+                             (let [accounts (->> (mgquery/get-all-accounts session) (map :n) (reduce conj []))
                                    total (reduce + (map :balance accounts))]
                                (assoc op
                                       :type :ok

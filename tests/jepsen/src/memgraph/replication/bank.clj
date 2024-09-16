@@ -1,4 +1,4 @@
-(ns memgraph.bank
+(ns memgraph.replication.bank
   "Bank account test on Memgraph.
   The test should do random transfers on
   the main instance while randomly reading
@@ -16,9 +16,8 @@
              [util :as util]]
             [jepsen.checker.timeline :as timeline]
             [jepsen.checker.perf :as perf]
-            [memgraph
-             [client :as mgclient]
-             [utils :as utils]]))
+            [memgraph.replication.query :as mgquery]
+            [memgraph.replication.utils :as utils]))
 
 (defn transfer-money
   "Transfer money from one account to another by some amount
@@ -26,27 +25,27 @@
   money."
   [conn from to amount]
   (dbclient/with-transaction conn tx
-    (when (-> (mgclient/get-account tx {:id from}) first :n :balance (>= amount))
-      (mgclient/update-balance tx {:id from :amount (- amount)})
-      (mgclient/update-balance tx {:id to :amount amount}))))
+    (when (-> (mgquery/get-account tx {:id from}) first :n :balance (>= amount))
+      (mgquery/update-balance tx {:id from :amount (- amount)})
+      (mgquery/update-balance tx {:id to :amount amount}))))
 
 (defrecord Client [nodes-config]
   client/Client
   ; Open connection to the node. Setup each node.
   (open! [this _test node]
     (info "Opening connection to node" node)
-    (mgclient/replication-open-connection this node nodes-config))
+    (mgquery/replication-open-connection this node nodes-config))
   ; On main detach-delete-all and create accounts.
   (setup! [this _test]
     (when (= (:replication-role this) :main)
       (try
         (utils/with-session (:conn this) session
           (do
-            (mgclient/detach-delete-all session)
+            (mgquery/detach-delete-all session)
             (info "Creating" utils/account-num "accounts")
             (dotimes [i utils/account-num]
               (info "Creating account:" i)
-              (mgclient/create-account session {:id i :balance utils/starting-balance}))))
+              (mgquery/create-account session {:id i :balance utils/starting-balance}))))
         (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
           (info (utils/node-is-down (:node this)))))))
   (invoke! [this _test op]
@@ -57,7 +56,7 @@
       :read-balances
       (try
         (utils/with-session (:conn this) session
-          (let [accounts (->> (mgclient/get-all-accounts session) (map :n) (reduce conj []))
+          (let [accounts (->> (mgquery/get-all-accounts session) (map :n) (reduce conj []))
                 total (reduce + (map :balance accounts))]
             (assoc op
                    :type :ok
@@ -77,7 +76,7 @@
                                       nodes-config)]
                       (try
                         (utils/with-session (:conn this) session
-                          ((mgclient/create-register-replica-query
+                          ((mgquery/create-register-replica-query
                             (first n)
                             (second n)) session))
                         (catch Exception _e)))
@@ -112,7 +111,7 @@
     (when (= (:replication-role this) :main)
       (utils/with-session (:conn this) session
         (try
-          (mgclient/detach-delete-all session)
+          (mgquery/detach-delete-all session)
           (catch Exception _)))))
   (close! [this _test]
     (dbclient/disconnect (:conn this))))
@@ -247,5 +246,5 @@
                {:bank     (bank-checker)
                 :timeline (timeline/html)
                 :plot     (plotter)})
-   :generator (mgclient/replication-gen (gen/mix [utils/read-balances utils/valid-transfer]))
+   :generator (mgquery/replication-gen (gen/mix [utils/read-balances utils/valid-transfer]))
    :final-generator {:clients (gen/once utils/read-balances) :recovery-time 20}})

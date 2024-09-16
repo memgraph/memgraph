@@ -1,4 +1,4 @@
-(ns memgraph.large
+(ns memgraph.replication.large
   "Large write test"
   (:require [neo4j-clj.core :as dbclient]
             [clojure.tools.logging :refer [info]]
@@ -7,9 +7,8 @@
              [client :as client]
              [generator :as gen]]
             [jepsen.checker.timeline :as timeline]
-            [memgraph
-             [utils :as utils]
-             [client :as mgclient]]))
+            [memgraph.replication.query :as mgquery]
+            [memgraph.replication.utils :as utils]))
 
 ; It is important that at least once applying deltas passes to replicas. Before this value was 100k so the instance never had
 ; enough time to apply all deltas.
@@ -24,12 +23,12 @@
 (defrecord Client [nodes-config]
   client/Client
   (open! [this _test node]
-    (mgclient/replication-open-connection this node nodes-config))
+    (mgquery/replication-open-connection this node nodes-config))
   (setup! [this _test]
     (when (= (:replication-role this) :main)
       (try
         (utils/with-session (:conn this) session
-          (mgclient/detach-delete-all session)
+          (mgquery/detach-delete-all session)
           (info "Initial nodes deleted.")
           (create-nodes session)
           (info "Initial nodes created."))
@@ -59,7 +58,7 @@
                                       nodes-config)]
                       (try
                         (utils/with-session (:conn this) session
-                          ((mgclient/create-register-replica-query
+                          ((mgquery/create-register-replica-query
                             (first n)
                             (second n)) session))
                         (catch Exception _e)))
@@ -85,7 +84,7 @@
       (utils/with-session (:conn this) session
         (try
           ; Can fail for various reasons, not important at this point.
-          (mgclient/detach-delete-all session)
+          (mgquery/detach-delete-all session)
           (catch Exception _)))))
   (close! [this _test]
     (dbclient/disconnect (:conn this))))
@@ -186,6 +185,6 @@
    :checker (checker/compose
              {:large    (large-checker)
               :timeline (timeline/html)})
-   :generator (mgclient/replication-gen
+   :generator (mgquery/replication-gen
                (gen/mix [read-nodes add-nodes]))
    :final-generator {:clients (gen/once read-nodes) :recovery-time 40}})

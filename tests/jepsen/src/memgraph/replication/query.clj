@@ -1,4 +1,4 @@
-(ns memgraph.client
+(ns memgraph.replication.query
   "Neo4j Clojure driver helper functions/macros"
   (:require [neo4j-clj.core :as dbclient]
             [clojure.tools.logging :refer [info]]

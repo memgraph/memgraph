@@ -1,8 +1,8 @@
-(ns jepsen.memgraph.memgraph-test
+(ns memgraph.memgraph-test
   (:require [clojure.test :refer :all]
+            [memgraph.high-availability.bank :as habank]
             [memgraph
              [utils :as utils]
-             [habank :as habank]
              [client :as client]
              [large :as large]]))
 
