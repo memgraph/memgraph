@@ -152,7 +152,7 @@ def test_hops_count_2():
     number_of_hops = get_summary("MATCH (a:Person {name: 'Alice'})-[:DRIVES]->(e:Car {name: 'BMW'}) RETURN e")[
         "number_of_hops"
     ]
-    assert number_of_hops == 3  # scans by e and then expand to a
+    assert number_of_hops == 2  # scans by a and then expand to e
 
     number_of_hops = get_summary("MATCH (a:Person)-[:DRIVES]->(e:Car) RETURN e")["number_of_hops"]
     assert number_of_hops == 4  # scans by e and then expand to a
@@ -187,7 +187,7 @@ def test_hops_count_3():
 
     # expand
     number_of_hops = get_summary("MATCH (a:Person {name: 'Alice'})-[:KNOWS]->(e:Person) RETURN e")["number_of_hops"]
-    assert number_of_hops == 4  # scans by e and then expand to a
+    assert number_of_hops == 2  # scans by a and then expand to e
 
 
 if __name__ == "__main__":
