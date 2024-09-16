@@ -27,6 +27,7 @@
 #include <utility>
 
 #include "dbms/database.hpp"
+#include "license/license.hpp"
 #include "replication/state.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/constraints/constraints.hpp"
@@ -1483,6 +1484,7 @@ TEST_F(DurabilityTest, SnapshotWithoutPropertiesOnEdgesRecoveryWithPropertiesOnE
   ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover snapshot.
+  memgraph::license::global_license_checker.CheckEnvLicense();
   memgraph::storage::Config config{
       .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
       .salient = {.items = {.properties_on_edges = true}},
