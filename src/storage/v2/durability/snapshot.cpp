@@ -15,6 +15,7 @@
 
 #include "flags/experimental.hpp"
 #include "flags/run_time_configurable.hpp"
+#include "license/license.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/constraints/type_constraints_type.hpp"
 #include "storage/v2/durability/exceptions.hpp"
@@ -3048,6 +3049,20 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
     if (*version >= kPointIndexAndTypeConstraints) {
       auto size = snapshot.ReadUint();
       if (!size) throw RecoveryFailure("Couldn't read the number of type constraints!");
+
+      if (*size > 0) {
+#ifdef MG_ENTERPRISE
+        if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+          throw RecoveryFailure(
+              "Detected type constraints in snapshot but they are only available with a valid Enterprise "
+              "License!");
+        }
+#else
+        throw RecoveryFailure(
+            "Detected type constraints in snapshot but they are only available in Memgraph Enterprise build!");
+#endif
+      }
+
       spdlog::info("Recovering metadata of {} type constraints.", *size);
       for (uint64_t i = 0; i < *size; ++i) {
         auto label = snapshot.ReadUint();

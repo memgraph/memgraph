@@ -4562,6 +4562,14 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
           break;
         }
         case Constraint::Type::TYPE: {
+#ifdef MG_ENTERPRISE
+          if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+            throw QueryRuntimeException("Type constraints are only available with a valid Enterprise License!");
+          }
+#else
+          throw QueryRuntimeException("Type constraints are only available in Memgraph Enterprise build!");
+#endif
+
           auto const maybe_constraint_type = constraint_query->constraint_.type_constraint;
           MG_ASSERT(maybe_constraint_type.has_value());
           auto const constraint_type = *maybe_constraint_type;
@@ -4673,6 +4681,13 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
           break;
         }
         case Constraint::Type::TYPE: {
+#ifdef MG_ENTERPRISE
+          if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+            throw QueryRuntimeException("Type constraints are only available with a valid Enterprise License!");
+          }
+#else
+          throw QueryRuntimeException("Type constraints are only available in Memgraph Enterprise build!");
+#endif
           auto const maybe_constraint_type = constraint_query->constraint_.type_constraint;
           MG_ASSERT(maybe_constraint_type.has_value());
           auto const constraint_type = *maybe_constraint_type;
