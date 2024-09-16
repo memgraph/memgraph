@@ -1,9 +1,10 @@
 (ns jepsen.memgraph.memgraph-test
   (:require [clojure.test :refer :all]
-            [jepsen.memgraph.utils :as utils]
-            [jepsen.memgraph.habank :as habank]
-            [jepsen.memgraph.client :as client]
-            [jepsen.memgraph.large :as large]))
+            [memgraph
+             [utils :as utils]
+             [habank :as habank]
+             [client :as client]
+             [large :as large]]))
 
 (deftest get-instance-url
   (testing "Get instance URL."

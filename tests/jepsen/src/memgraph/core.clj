@@ -1,4 +1,4 @@
-(ns jepsen.memgraph.core
+(ns memgraph.core
   (:gen-class)
   (:require
    [jepsen [cli :as cli]
@@ -6,7 +6,7 @@
     [generator :as gen]
     [tests :as tests]]
    [clojure.tools.logging :refer [info]]
-   [jepsen.memgraph
+   [memgraph
     [bank :as bank]
     [large :as large]
     [habank :as habank]

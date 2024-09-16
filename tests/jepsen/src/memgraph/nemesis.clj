@@ -1,10 +1,11 @@
-(ns jepsen.memgraph.nemesis
+(ns memgraph.nemesis
   "Memgraph nemesis"
   (:require [jepsen [nemesis :as nemesis]
              [util :as util]
              [generator :as gen]]
-            [jepsen.memgraph.support :as s]
-            [jepsen.memgraph.utils :as utils]))
+            [memgraph
+             [support :as s]
+             [utils :as utils]]))
 
 (defn node-killer
   "Responds to :start by killing a random subset of nodes, and to :stop

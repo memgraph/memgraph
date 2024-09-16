@@ -1,4 +1,4 @@
-(ns jepsen.memgraph.edn
+(ns memgraph.edn
   (:require [clojure.edn :as edn]))
 
 (defn load-configuration

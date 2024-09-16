@@ -1,4 +1,4 @@
-(ns jepsen.memgraph.bank
+(ns memgraph.bank
   "Bank account test on Memgraph.
   The test should do random transfers on
   the main instance while randomly reading
@@ -16,8 +16,9 @@
              [util :as util]]
             [jepsen.checker.timeline :as timeline]
             [jepsen.checker.perf :as perf]
-            [jepsen.memgraph.client :as mgclient]
-            [jepsen.memgraph.utils :as utils]))
+            [memgraph
+             [client :as mgclient]
+             [utils :as utils]]))
 
 (defn transfer-money
   "Transfer money from one account to another by some amount

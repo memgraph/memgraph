@@ -1,17 +1,18 @@
-(ns jepsen.memgraph.habank
+(ns memgraph.habank
   "Jepsen's bank test adapted to fit as Memgraph High Availability."
   (:require [neo4j-clj.core :as dbclient]
             [clojure.tools.logging :refer [info]]
+            [clojure.core :as c]
             [clojure.string :as string]
             [jepsen
              [checker :as checker]
              [generator :as gen]
              [client :as client]]
             [jepsen.checker.timeline :as timeline]
-            [jepsen.memgraph.haclient :as haclient]
-            [jepsen.memgraph.client :as mgclient]
-            [jepsen.memgraph.utils :as utils]
-            [clojure.core :as c]))
+            [memgraph
+             [haclient :as haclient]
+             [client :as mgclient]
+             [utils :as utils]]))
 
 (def registered-replication-instances? (atom false))
 (def added-coordinator-instances? (atom false))

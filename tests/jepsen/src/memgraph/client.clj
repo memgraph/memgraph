@@ -1,9 +1,10 @@
-(ns jepsen.memgraph.client
+(ns memgraph.client
   "Neo4j Clojure driver helper functions/macros"
   (:require [neo4j-clj.core :as dbclient]
             [clojure.tools.logging :refer [info]]
             [jepsen [generator :as gen]]
-            [jepsen.memgraph.utils :as utils]))
+            [memgraph
+             [utils :as utils]]))
 
 (dbclient/defquery detach-delete-all
   "MATCH (n) DETACH DELETE n;")

@@ -1,4 +1,4 @@
-(ns jepsen.memgraph.utils
+(ns memgraph.utils
   (:require
    [neo4j-clj.core :as dbclient]
    [clojure.string :as string]

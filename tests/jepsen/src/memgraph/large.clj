@@ -1,4 +1,4 @@
-(ns jepsen.memgraph.large
+(ns memgraph.large
   "Large write test"
   (:require [neo4j-clj.core :as dbclient]
             [clojure.tools.logging :refer [info]]
@@ -7,8 +7,9 @@
              [client :as client]
              [generator :as gen]]
             [jepsen.checker.timeline :as timeline]
-            [jepsen.memgraph.utils :as utils]
-            [jepsen.memgraph.client :as mgclient]))
+            [memgraph
+             [utils :as utils]
+             [client :as mgclient]]))
 
 ; It is important that at least once applying deltas passes to replicas. Before this value was 100k so the instance never had
 ; enough time to apply all deltas.

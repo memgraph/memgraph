@@ -1,4 +1,4 @@
-(ns jepsen.memgraph.haclient
+(ns memgraph.haclient
   "Neo4j Clojure driver helper functions/macros"
   (:require [neo4j-clj.core :as dbclient]
             [clojure.tools.logging :refer [info]]))

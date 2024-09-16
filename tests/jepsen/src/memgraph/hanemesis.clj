@@ -1,12 +1,13 @@
-(ns jepsen.memgraph.hanemesis
+(ns memgraph.hanemesis
   "Memgraph nemesis for HA cluster"
   (:require [jepsen
              [nemesis :as nemesis]
              [generator :as gen]
              [util :as util]
              [control :as c]]
-            [jepsen.memgraph.support :as s]
-            [jepsen.memgraph.utils :as utils]))
+            [memgraph
+             [support :as s]
+             [utils :as utils]]))
 
 (defn node-start-stopper
   "Takes a targeting function which, given a list of nodes, returns a single
