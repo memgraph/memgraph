@@ -2154,7 +2154,8 @@ RecoveredSnapshot LoadSnapshotVersion18or19(const std::filesystem::path &path, u
                                             utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata,
                                             std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                             NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
-                                            const Config &config, memgraph::storage::EnumStore *enum_store) {
+                                            SchemaInfo *schema_info, const Config &config,
+                                            memgraph::storage::EnumStore *enum_store) {
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
 
@@ -2295,10 +2296,10 @@ RecoveredSnapshot LoadSnapshotVersion18or19(const std::filesystem::path &path, u
     const auto vertex_batches = ReadBatchInfos(snapshot);
     RecoverOnMultipleThreads(
         config.durability.recovery_thread_count,
-        [path, vertices, &vertex_batches, &get_label_from_id, &get_property_from_id, &last_vertex_gid](
+        [path, vertices, &vertex_batches, &get_label_from_id, &get_property_from_id, &last_vertex_gid, schema_info](
             const size_t batch_index, const BatchInfo &batch) {
-          const auto last_vertex_gid_in_batch =
-              LoadPartialVertices(path, *vertices, batch.offset, batch.count, get_label_from_id, get_property_from_id);
+          const auto last_vertex_gid_in_batch = LoadPartialVertices(
+              path, *vertices, schema_info, batch.offset, batch.count, get_label_from_id, get_property_from_id);
           if (batch_index == vertex_batches.size() - 1) {
             last_vertex_gid = last_vertex_gid_in_batch;
           }
@@ -2318,9 +2319,11 @@ RecoveredSnapshot LoadSnapshotVersion18or19(const std::filesystem::path &path, u
     RecoverOnMultipleThreads(
         config.durability.recovery_thread_count,
         [path, vertices, edges, edges_metadata, edge_count, items = config.salient.items, snapshot_has_edges,
-         &get_edge_type_from_id, &highest_edge_gid, &recovery_info](const size_t batch_index, const BatchInfo &batch) {
-          const auto result = LoadPartialConnectivity(path, *vertices, *edges, *edges_metadata, batch.offset,
-                                                      batch.count, items, snapshot_has_edges, get_edge_type_from_id);
+         &get_edge_type_from_id, &highest_edge_gid, &recovery_info,
+         schema_info](const size_t batch_index, const BatchInfo &batch) {
+          const auto result =
+              LoadPartialConnectivity(path, *vertices, *edges, *edges_metadata, schema_info, batch.offset, batch.count,
+                                      items, snapshot_has_edges, get_edge_type_from_id);
           edge_count->fetch_add(result.edge_count);
           auto known_highest_edge_gid = highest_edge_gid.load();
           while (known_highest_edge_gid < result.highest_edge_id) {
@@ -2622,7 +2625,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
   }
   if (*version == 18U || *version == 19U) {
     return LoadSnapshotVersion18or19(path, vertices, edges, edges_metadata, epoch_history, name_id_mapper, edge_count,
-                                     config, enum_store);
+                                     schema_info, config, enum_store);
   }
 
   // Cleanup of loaded data in case of failure.
