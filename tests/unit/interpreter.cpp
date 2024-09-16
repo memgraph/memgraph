@@ -658,7 +658,7 @@ TYPED_TEST(InterpreterTest, UniqueConstraintTest) {
     ASSERT_EQ(header[0], "constraint type");
     ASSERT_EQ(header[1], "label");
     ASSERT_EQ(header[2], "properties");
-    ASSERT_EQ(header[3], "type");
+    ASSERT_EQ(header[3], "data_type");
     ASSERT_EQ(stream.GetResults().size(), 1U);
     const auto &result = stream.GetResults().front();
     ASSERT_EQ(result.size(), 4U);

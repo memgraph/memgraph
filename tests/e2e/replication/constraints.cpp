@@ -63,7 +63,7 @@ int main(int argc, char **argv) {
           const auto label_name = constraints[0][1].ValueString();
           const auto property_name = constraints[0][2].ValueString();
           const auto type = constraints[0][3].ValueString();
-          if (constraint_type != "type" || label_name != "Node" || property_name != "id" || type != "INTEGER") {
+          if (constraint_type != "data_type" || label_name != "Node" || property_name != "id" || type != "INTEGER") {
             LOG_FATAL("{} does NOT have a valid type constraint created.", database_endpoint);
           }
         }

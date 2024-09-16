@@ -4220,7 +4220,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
       break;
     }
     case DatabaseInfoQuery::InfoType::CONSTRAINT: {
-      header = {"constraint type", "label", "properties", "type"};
+      header = {"constraint type", "label", "properties", "data_type"};
       handler = [storage = current_db.db_acc_->get()->storage(), dba] {
         auto info = dba->ListAllConstraints();
         std::vector<std::vector<TypedValue>> results;
@@ -4239,7 +4239,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
                              TypedValue(std::move(properties)), TypedValue("")});
         }
         for (const auto &[label, property, type] : info.type) {
-          results.push_back({TypedValue("type"), TypedValue(storage->LabelToName(label)),
+          results.push_back({TypedValue("data_type"), TypedValue(storage->LabelToName(label)),
                              TypedValue(storage->PropertyToName(property)),
                              TypedValue(storage::TypeConstraintsTypeToString(type))});
         }

@@ -236,6 +236,7 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
   // Capture all constraints
   std::set<DatabaseState::LabelPropertyItem> existence_constraints;
   std::set<DatabaseState::LabelPropertiesItem> unique_constraints;
+  // TODO: TYPE CONSTRAINTS
   {
     auto info = dba->ListAllConstraints();
     for (const auto &item : info.existence) {
