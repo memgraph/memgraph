@@ -32,6 +32,7 @@
 #include "query/trigger_context.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/config.hpp"
+#include "storage/v2/constraints/type_constraints_type.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -87,6 +88,12 @@ struct DatabaseState {
     std::string property;
   };
 
+  struct LabelPropertyType {
+    std::string label;
+    std::string property;
+    memgraph::storage::TypeConstraintsType type;
+  };
+
   std::set<Vertex> vertices;
   std::set<Edge> edges;
   std::set<LabelItem> label_indices;
@@ -95,6 +102,7 @@ struct DatabaseState {
   std::set<PointItem> point_indices;
   std::set<LabelPropertyItem> existence_constraints;
   std::set<LabelPropertiesItem> unique_constraints;
+  std::set<LabelPropertyType> type_constraints;
 };
 
 bool operator<(const DatabaseState::Vertex &first, const DatabaseState::Vertex &second) {
@@ -132,6 +140,11 @@ bool operator<(const DatabaseState::LabelPropertiesItem &first, const DatabaseSt
   if (first.label != second.label) return first.label < second.label;
   return first.properties < second.properties;
 }
+bool operator<(const DatabaseState::LabelPropertyType &first, const DatabaseState::LabelPropertyType &second) {
+  if (first.label != second.label) return first.label < second.label;
+  if (first.property != second.property) return first.property < second.property;
+  return first.type < second.type;
+}
 
 bool operator==(const DatabaseState::Vertex &first, const DatabaseState::Vertex &second) {
   return first.id == second.id && first.labels == second.labels && first.props == second.props;
@@ -162,11 +175,15 @@ bool operator==(const DatabaseState::LabelPropertiesItem &first, const DatabaseS
   return first.label == second.label && first.properties == second.properties;
 }
 
+bool operator==(const DatabaseState::LabelPropertyType &first, const DatabaseState::LabelPropertyType &second) {
+  return first.label == second.label && first.property == second.property && first.type == second.type;
+}
+
 bool operator==(const DatabaseState &first, const DatabaseState &second) {
   return first.vertices == second.vertices && first.edges == second.edges &&
          first.label_indices == second.label_indices && first.label_property_indices == second.label_property_indices &&
          first.existence_constraints == second.existence_constraints &&
-         first.unique_constraints == second.unique_constraints;
+         first.unique_constraints == second.unique_constraints && first.type_constraints == second.type_constraints;
 }
 
 DatabaseState GetState(memgraph::storage::Storage *db) {
@@ -236,7 +253,7 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
   // Capture all constraints
   std::set<DatabaseState::LabelPropertyItem> existence_constraints;
   std::set<DatabaseState::LabelPropertiesItem> unique_constraints;
-  // TODO: TYPE CONSTRAINTS
+  std::set<DatabaseState::LabelPropertyType> type_constraints;
   {
     auto info = dba->ListAllConstraints();
     for (const auto &item : info.existence) {
@@ -249,10 +266,14 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
       }
       unique_constraints.insert({dba->LabelToName(item.first), std::move(properties)});
     }
+    for (const auto &[label, property, type] : info.type) {
+      type_constraints.insert({dba->LabelToName(label), dba->PropertyToName(property), type});
+    }
   }
 
-  return {vertices,     edges,         label_indices,         label_property_indices,
-          text_indices, point_indices, existence_constraints, unique_constraints};
+  return {vertices,        edges,         label_indices,         label_property_indices,
+          text_indices,    point_indices, existence_constraints, unique_constraints,
+          type_constraints};
 }
 
 auto Execute(memgraph::query::InterpreterContext *context, memgraph::dbms::DatabaseAccess db,
@@ -1315,4 +1336,54 @@ TYPED_TEST(DumpTest, DumpDatabaseWithTriggers) {
                   "CREATE TRIGGER test_trigger ON () CREATE AFTER COMMIT EXECUTE UNWIND createdVertices AS newNodes "
                   "SET newNodes.created = timestamp();");
   }
+}
+
+TYPED_TEST(DumpTest, DumpTypeConstraints) {
+  if (this->config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL) {
+    GTEST_SKIP() << "Type constraints are not implemented for on-disk";
+  }
+
+  {
+    auto unique_acc = this->db->UniqueAccess();
+    auto res = unique_acc->CreateExistenceConstraint(this->db->storage()->NameToLabel("PERSON"),
+                                                     this->db->storage()->NameToProperty("name"));
+    ASSERT_FALSE(res.HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
+  {
+    auto unique_acc = this->db->UniqueAccess();
+    auto res = unique_acc->CreateUniqueConstraint(this->db->storage()->NameToLabel("PERSON"),
+                                                  {this->db->storage()->NameToProperty("name")});
+    ASSERT_TRUE(res.HasValue());
+    ASSERT_EQ(res.GetValue(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
+  {
+    auto unique_acc = this->db->UniqueAccess();
+    auto res = unique_acc->CreateTypeConstraint(this->db->storage()->NameToLabel("PERSON"),
+                                                this->db->storage()->NameToProperty("name"),
+                                                memgraph::storage::TypeConstraintsType::INTEGER);
+    ASSERT_FALSE(res.HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
+  {
+    auto unique_acc = this->db->UniqueAccess();
+    auto res = unique_acc->CreateTypeConstraint(this->db->storage()->NameToLabel("PERSON"),
+                                                this->db->storage()->NameToProperty("surname"),
+                                                memgraph::storage::TypeConstraintsType::STRING);
+    ASSERT_FALSE(res.HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
+
+  ResultStreamFaker stream(this->db->storage());
+  memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
+  {
+    auto acc = this->db->Access();
+    memgraph::query::DbAccessor dba(acc.get());
+    memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
+  }
+  VerifyQueries(stream.GetResults(), "CREATE CONSTRAINT ON (u:`PERSON`) ASSERT EXISTS (u.`name`);",
+                "CREATE CONSTRAINT ON (u:`PERSON`) ASSERT u.`name` IS UNIQUE;",
+                "CREATE CONSTRAINT ON (u:`PERSON`) ASSERT u.`name` IS TYPED INTEGER;",
+                "CREATE CONSTRAINT ON (u:`PERSON`) ASSERT u.`surname` IS TYPED STRING;");
 }
