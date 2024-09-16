@@ -1,20 +1,56 @@
 (ns memgraph.core
   (:gen-class)
   (:require
+   [clojure.tools.logging :refer [info]]
+   [clojure.edn :as edn]
    [jepsen [cli :as cli]
     [checker :as checker]
     [generator :as gen]
+    [history :as history]
     [tests :as tests]]
-   [clojure.tools.logging :refer [info]]
+   [tesser.core :as tesser]
    [memgraph
     [bank :as bank]
     [large :as large]
     [habank :as habank]
     [support :as support]
     [hanemesis :as hanemesis]
-    [nemesis :as nemesis]
-    [utils :as utils]
-    [edn :as e]]))
+    [nemesis :as nemesis]]))
+
+(defn unhandled-exceptions
+  "Wraps jepsen.checker/unhandled-exceptions in a way that if exceptions exist, valid? false is returned.
+  Returns information about unhandled exceptions: a sequence of maps sorted in
+  descending frequency order, each with:
+
+      :class    The class of the exception thrown
+      :count    How many of this exception we observed
+      :example  An example operation"
+  []
+  (reify checker/Checker
+    (check [_this _test history _opts]
+      (let [exes (->> (tesser/filter history/info?)
+                      (tesser/filter :exception)
+                      (tesser/group-by (comp :type first :via :exception))
+                      (tesser/into [])
+                      (history/tesser history)
+                      vals
+                      (sort-by count)
+                      reverse
+                      (map (fn [ops]
+                             (let [op (first ops)
+                                   e  (:exception op)]
+                               {:count (count ops)
+                                :class (-> e :via first :type)
+                                :example op}))))]
+        (if (seq exes)
+          {:valid?      false
+           :exceptions  exes}
+          {:valid? true})))))
+
+(defn load-configuration
+  "Load edn configuration file."
+  [path]
+  (-> path slurp edn/read-string))
 
 (def workloads
   "A map of workload names to functions that can take opts and construct
@@ -52,7 +88,7 @@
             :client          (:client workload)
             :checker         (checker/compose
                               {:stats      (checker/stats)
-                               :exceptions (utils/unhandled-exceptions)
+                               :exceptions (unhandled-exceptions)
                                :log-checker (checker/log-file-pattern #"assert|NullPointerException|json.exception.parse_error" "memgraph.log")
                                :workload   (:checker workload)})
             :nodes           (keys (:nodes-config opts))
@@ -82,7 +118,7 @@
             :client          (:client workload)
             :checker         (checker/compose
                               {:stats      (checker/stats)
-                               :exceptions (utils/unhandled-exceptions)
+                               :exceptions (unhandled-exceptions)
                                :log-checker (checker/log-file-pattern #"assert|NullPointerException|json.exception.parse_error" "memgraph.log")
                                :workload   (:checker workload)})
             :nemesis         (:nemesis nemesis)
@@ -168,7 +204,7 @@
     :default nil]
    ["-o" "--organization ORGANIZATION" "Memgraph organization name" :default nil]
    [nil "--nodes-config PATH" "Path to a file containing the config for each node."
-    :parse-fn #(-> % e/load-configuration)]])
+    :parse-fn #(-> % load-configuration)]])
 
 (defn -main
   "Handles command line arguments. Can either run a test, or a web server for
