@@ -135,7 +135,7 @@
                 (assoc op :type :info :value "Not a leader")
                 (assoc op :type :fail :value (str e)))))
 
-          (assoc op :type :info :value "Not coordinator")))))
+          (assoc op :type :info :value "Not first leader")))))
 
   (teardown! [_this _test])
   (close! [this _test]
@@ -188,7 +188,7 @@
                            (filter #(= :show-instances-read (:f %)))
                            (map :value))
             partial-instances (->> si-reads
-                                  (filter #(not= 6 (count (:instances %)))))
+                                   (filter #(not= 6 (count (:instances %)))))
             ; All reads grouped by node {node->instances}
             coord->instances (->> si-reads
                                   (group-by :node)
@@ -243,13 +243,14 @@
   {:type :invoke :f :setup-cluster :value nil})
 
 (defn client-generator
-  "Client generator. On each thread first sleep for 5s so that cluster setup can finish and then mix operations."
+  "Client generator."
   []
   (gen/each-thread
    (gen/phases
+    (gen/once setup-cluster)
     (gen/sleep 5)
     (cycle
-     [(gen/mix [setup-cluster show-instances-reads])]))))
+     [(gen/mix [show-instances-reads])]))))
 
 (defn workload
   "Basic HA workload."
