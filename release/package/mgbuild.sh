@@ -784,9 +784,10 @@ echo "Using $docker_compose_cmd"
 case $command in
     build)
       cd $SCRIPT_DIR
-      git_ref_flag=""
-      rust_version_flag=""
-      node_version_flag=""
+      # Default values for --git-ref, --rust-version and --node-version
+      git_ref_flag="--build-arg GIT_REF=master"
+      rust_version_flag="--build-arg RUST_VERSION=1.80"
+      node_version_flag="--build-arg NODE_VERSION=20"
       while [[ "$#" -gt 0 ]]; do
         case "$1" in
             --git-ref)
