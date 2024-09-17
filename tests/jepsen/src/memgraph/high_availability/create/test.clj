@@ -9,6 +9,7 @@
              [generator :as gen]
              [client :as jclient]]
             [jepsen.checker.timeline :as timeline]
+            [memgraph.high-availability.utils :as hautils]
             [memgraph.high-availability.create.nemesis :as nemesis]
             [memgraph.utils :as utils]
             [memgraph.query :as mgquery]))
@@ -16,11 +17,19 @@
 (def registered-replication-instances? (atom false))
 (def added-coordinator-instances? (atom false))
 (def main-set? (atom false))
+(def batches-inserted (atom 0))
 
-(defn coord-instance?
-  "Is node coordinator instances?"
-  [node]
-  (some #(= % node) #{"n4" "n5" "n6"}))
+(def batch-size 1000)
+
+(defn batch-start-idx
+  "Calculates start index for the new batch. E.g 1, 1001, 2001..."
+  []
+  (+ 1 (* (deref batches-inserted) batch-size)))
+
+(defn batch-end-idx
+  "Calculates end index for the new batch. End index will not be included. E.g 1001, 2001"
+  [batch-start-idx]
+  (+ batch-start-idx batch-size))
 
 (defn random-coord
   "Get random leader."
@@ -68,6 +77,16 @@
   ((mgquery/set-instance-to-main first-main) session)
   (info "Set instance" first-main "to main."))
 
+(defn mg-add-nodes
+  "Add nodes as part of the txn."
+  [start-idx end-idx txn]
+  ((mgquery/add-nodes start-idx end-idx) txn))
+
+(defn mg-get-nodes
+  "Get all nodes as part of the txn."
+  [txn]
+  (mgquery/collect-ids txn))
+
 (defrecord Client [nodes-config first-leader first-main license organization]
   jclient/Client
   ; Open Bolt connection to all nodes.
@@ -92,8 +111,40 @@
     (let [bolt-conn (:bolt-conn this)
           node (:node this)]
       (case (:f op)
-      ; Show instances should be run only on coordinator.
-        :show-instances-read (if (coord-instance? node)
+        :get-nodes (if (hautils/data-instance? node)
+                     (try
+                       (dbclient/with-transaction bolt-conn txn
+                         (mg-get-nodes txn)
+                         (assoc op :type :ok :value (str "Nodes fetches on" node)))
+
+                       (catch Exception e
+                         (assoc op :type :fail :value (str e))))
+                     (assoc op :type :info :value "Not data instance."))
+
+        :add-nodes (if (hautils/data-instance? node)
+                     (try
+                       (dbclient/with-transaction bolt-conn txn
+                         (let [start-idx (batch-start-idx)
+                               end-idx (batch-end-idx start-idx)]
+                           (mg-add-nodes start-idx end-idx txn)
+                           (swap! batches-inserted + 1)
+                           (assoc op :type :ok :value (str "Nodes with indices [" start-idx "," end-idx "] created."))))
+
+                       (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
+                         (utils/process-service-unavailable-exc op node))
+
+                       (catch Exception e
+                         (if (or
+                              (utils/query-forbidden-on-replica? e)
+                              (utils/query-forbidden-on-main? e)
+                              (utils/sync-replica-down? e))
+                           (assoc op :type :info :value (str e))
+                           (assoc op :type :fail :value (str e)))))
+
+                     (assoc op :type :info :value "Not data instance."))
+
+; Show instances should be run only on coordinators/
+        :show-instances-read (if (hautils/coord-instance? node)
                                (try
                                  (utils/with-session bolt-conn session ; Use bolt connection for running show instances.
                                    (let [instances (->> (mgquery/get-all-instances session) (reduce conj []))]
@@ -234,14 +285,24 @@
                 updates)))))
 
 (defn show-instances-reads
-  "Create read action."
+  "Invoke show-instances-read op."
   [_ _]
   {:type :invoke, :f :show-instances-read, :value nil})
 
 (defn setup-cluster
-  "Setup cluster operation."
+  "Invoke setup-cluster operation."
   [_ _]
   {:type :invoke :f :setup-cluster :value nil})
+
+(defn add-nodes
+  "Invoke add-nodes."
+  [_ _]
+  {:type :invoke :f :add-nodes :value nil})
+
+(defn get-nodes
+  "Invoke get-nodes op."
+  [_ _]
+  {:type :invoke :f :get-nodes :value nil})
 
 (defn client-generator
   "Client generator."
@@ -250,8 +311,8 @@
    (gen/phases
     (gen/once setup-cluster)
     (gen/sleep 5)
-    (cycle
-     [(gen/mix [show-instances-reads])]))))
+    (gen/delay 2
+               (gen/mix [show-instances-reads add-nodes])))))
 
 (defn workload
   "Basic HA workload."
@@ -266,4 +327,5 @@
                  {:hacreate     (checker)
                   :timeline (timeline/html)})
      :generator (client-generator)
+     :final-generator {:clients (gen/each-thread (gen/once get-nodes)) :recovery-time 20}
      :nemesis-config (nemesis/create nodes-config)}))
