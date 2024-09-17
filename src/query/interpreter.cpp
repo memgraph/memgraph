@@ -4578,7 +4578,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
           constraint_notification.title =
               fmt::format("Created IS TYPED {} constraint on label {} on property {}.", constraint_type_stringified,
                           constraint_query->constraint_.label.name, properties_stringified);
-          handler = [storage, dba, label, label_name = constraint_query->constraint_.label.name, &constraint_type,
+          handler = [storage, dba, label, label_name = constraint_query->constraint_.label.name, constraint_type,
                      constraint_type_stringified = std::move(constraint_type_stringified),
                      properties_stringified = std::move(properties_stringified),
                      properties = std::move(properties)](Notification & /**/) {
