@@ -187,6 +187,7 @@
                            (filter #(= :ok (:type %)))
                            (filter #(= :show-instances-read (:f %)))
                            (map :value))
+
             partial-instances (->> si-reads
                                    (filter #(not= 6 (count (:instances %)))))
             ; All reads grouped by node {node->instances}
