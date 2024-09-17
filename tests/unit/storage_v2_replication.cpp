@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <chrono>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <thread>
@@ -28,7 +29,9 @@
 #include "replication/config.hpp"
 #include "replication/state.hpp"
 #include "replication_handler/replication_handler.hpp"
+#include "storage/v2/durability/paths.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
+#include "storage/v2/replication/recovery.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/view.hpp"
 
@@ -1077,4 +1080,250 @@ TEST_F(ReplicationTest, AddingInvalidReplica) {
           .TryRegisterReplica(ReplicationClientConfig{
               .name = "REPLICA", .mode = ReplicationMode::SYNC, .repl_server_endpoint = Endpoint(local_host, ports[0])})
           .GetError() == RegisterReplicaError::ERROR_ACCEPTING_MAIN);
+}
+
+TEST_F(ReplicationTest, RecoverySteps) {
+  auto config = main_conf;
+  config.durability.recover_on_startup = true;
+  config.durability.wal_file_size_kibibytes = 1;   // Easy way to control when a new WAL is created
+  config.durability.snapshot_retention_count = 3;  // Easy way to control when to clean WALs
+  std::optional<MinMemgraph> main(config);
+  auto *in_mem = static_cast<InMemoryStorage *>(main->db.storage());
+
+  auto p = in_mem->NameToProperty("p1");
+  const auto large_property = PropertyValue{PropertyValue::list_t{1024 / sizeof(int64_t), PropertyValue{int64_t{}}}};
+
+  // Dummy file retained; not testing concurrency, just recovery steps generation
+  memgraph::utils::FileRetainer file_retainer;
+  auto file_locker = file_retainer.AddLocker();
+
+  auto large_write_to_finalize_wal = [&]() {
+    auto acc = in_mem->Access();
+    auto v = acc->CreateVertex();
+    ASSERT_TRUE(v.SetProperty(p, large_property).HasValue());
+    ASSERT_FALSE(acc->Commit().HasError());
+  };
+
+  // Nothing
+  {
+    const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem);
+    ASSERT_EQ(recovery_steps.size(), 0);
+  }
+
+  // Only Current
+  {
+    auto acc = in_mem->Access();
+    acc->CreateVertex();
+    ASSERT_FALSE(acc->Commit().HasError());
+    const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem);
+    ASSERT_EQ(recovery_steps.size(), 1);
+    ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoveryCurrentWal>(recovery_steps[0]));
+  }
+
+  // Only a single WAL
+  {
+    // Create a vertex with a property large enough to trigger WAL finalization and closing
+    // Current is generated on the next transaction
+    large_write_to_finalize_wal();
+    const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem);
+    ASSERT_EQ(recovery_steps.size(), 1);
+    ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoveryWals>(recovery_steps[0]));
+  }
+
+  // Multiple WALs
+  {
+    // Create a vertex with a property large enough to trigger WAL finalization and closing
+    // Current is generated on the next transaction
+    large_write_to_finalize_wal();
+    large_write_to_finalize_wal();
+    large_write_to_finalize_wal();
+    large_write_to_finalize_wal();
+    const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem);
+    ASSERT_EQ(recovery_steps.size(), 1);
+    ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoveryWals>(recovery_steps[0]));
+  }
+
+  // WALs + Current
+  {
+    // A new current WAL is created on the next transaction after the previous one has been finalized
+    auto acc = in_mem->Access();
+    acc->CreateVertex();
+    ASSERT_FALSE(acc->Commit().HasError());
+    const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem);
+    ASSERT_EQ(recovery_steps.size(), 2);
+    ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoveryWals>(recovery_steps[0]));
+    ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoveryCurrentWal>(recovery_steps[1]));
+  }
+
+  // Snapshot (with dirty WALs)
+  {
+    large_write_to_finalize_wal();
+    ASSERT_FALSE(in_mem->CreateSnapshot(memgraph::replication_coordination_glue::ReplicationRole::MAIN).HasError());
+    const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem);
+    ASSERT_EQ(recovery_steps.size(), 1);
+    // TODO Currently we prefer WALs over Snapshots when creating the recovery plan
+    // This is an inefficiency when the snapshot is smaller than the WALs we would send
+    // Calculate how large the two payloads would be and pick the smaller plan
+    ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoveryWals>(recovery_steps[0]));
+  }
+
+  // Only snapshot (without dirty WALs)
+  {
+    // Once we are over the allowed number of snapshots, we clean both snapshots and wals
+    ASSERT_FALSE(in_mem->CreateSnapshot(memgraph::replication_coordination_glue::ReplicationRole::MAIN).HasError());
+    ASSERT_FALSE(in_mem->CreateSnapshot(memgraph::replication_coordination_glue::ReplicationRole::MAIN).HasError());
+    ASSERT_FALSE(in_mem->CreateSnapshot(memgraph::replication_coordination_glue::ReplicationRole::MAIN).HasError());
+    const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem);
+    ASSERT_EQ(recovery_steps.size(), 1);
+    ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoverySnapshot>(recovery_steps[0]));
+  }
+
+  // Snapshot + Current
+  {
+    auto acc = in_mem->Access();
+    acc->CreateVertex();
+    ASSERT_FALSE(acc->Commit().HasError());
+    const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem);
+    ASSERT_EQ(recovery_steps.size(), 2);
+    ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoverySnapshot>(recovery_steps[0]));
+    ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoveryCurrentWal>(recovery_steps[1]));
+  }
+
+  // Snapshot + WALs (chain starts before snapshot)
+  {
+    large_write_to_finalize_wal();
+    const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem);
+    ASSERT_EQ(recovery_steps.size(), 2);
+    ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoverySnapshot>(recovery_steps[0]));
+    ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoveryWals>(recovery_steps[1]));
+  }
+
+  // Snapshot + WALs + Current
+  {
+    auto acc = in_mem->Access();
+    acc->CreateVertex();
+    ASSERT_FALSE(acc->Commit().HasError());
+    const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem);
+    ASSERT_EQ(recovery_steps.size(), 3);
+    ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoverySnapshot>(recovery_steps[0]));
+    ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoveryWals>(recovery_steps[1]));
+    ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoveryCurrentWal>(recovery_steps[2]));
+  }
+
+  // Snapshot + WALs (chain starts after the snapshot)
+  // Restart memgraph
+  // Recover only from a snapshot
+  // Create a new WAL chain (should start from sequence number 0)
+  std::error_code ec;
+  // remove all wals
+  for (const auto &entry : std::filesystem::directory_iterator(
+           in_mem->config_.durability.storage_directory / memgraph::storage::durability::kWalDirectory, ec)) {
+    std::filesystem::remove_all(entry, ec);
+    ASSERT_FALSE(ec);
+  }
+  // remove all but the last snapshot
+  std::optional<std::filesystem::path> newest_snapshot{};
+  // file clock has an unspecified epoch; this way we don't have to think about it
+  std::filesystem::file_time_type newest_write_time = std::chrono::file_clock::now() - std::chrono::years{10};
+  for (const auto &snapshot : std::filesystem::directory_iterator(in_mem->config_.durability.storage_directory /
+                                                                  memgraph::storage::durability::kSnapshotDirectory)) {
+    if (std::filesystem::is_regular_file(snapshot.status())) {
+      auto last_write_time = std::filesystem::last_write_time(snapshot);
+      if (last_write_time > newest_write_time) {  // Newer file; delete the previous file
+        newest_write_time = last_write_time;
+        if (newest_snapshot) {
+          std::filesystem::remove(*newest_snapshot, ec);
+          ASSERT_FALSE(ec);
+        }
+        newest_snapshot = snapshot.path();
+      } else {  // Delete this file
+        std::filesystem::remove(snapshot.path(), ec);
+        ASSERT_FALSE(ec);
+      }
+    }
+  }
+  // restart Memgraph
+  main.reset();
+  main.emplace(config);
+  in_mem = static_cast<InMemoryStorage *>(main->db.storage());
+  {
+    // On start we only have the snapshot to send
+    const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem);
+    ASSERT_EQ(recovery_steps.size(), 1);
+    ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoverySnapshot>(recovery_steps[0]));
+  }
+  {
+    // Add current wal
+    auto acc = in_mem->Access();
+    acc->CreateVertex();
+    ASSERT_FALSE(acc->Commit().HasError());
+    const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem);
+    ASSERT_EQ(recovery_steps.size(), 2);
+    ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoverySnapshot>(recovery_steps[0]));
+    ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoveryCurrentWal>(recovery_steps[1]));
+  }
+  {
+    // Add finalized wal
+    large_write_to_finalize_wal();
+    const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem);
+    ASSERT_EQ(recovery_steps.size(), 2);
+    ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoverySnapshot>(recovery_steps[0]));
+    ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoveryWals>(recovery_steps[1]));
+  }
+  {
+    // Add both
+    auto acc = in_mem->Access();
+    acc->CreateVertex();
+    ASSERT_FALSE(acc->Commit().HasError());
+    const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem);
+    ASSERT_EQ(recovery_steps.size(), 3);
+    ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoverySnapshot>(recovery_steps[0]));
+    ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoveryWals>(recovery_steps[1]));
+    ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoveryCurrentWal>(recovery_steps[2]));
+  }
+
+  // Snapshot + WALs (broken chain)
+  // Create a couple of WAL files
+  // Create a single snapshot
+  // Create more WALs
+  // Break the WAL chain somewhere before the snapshot
+  {
+    large_write_to_finalize_wal();
+    large_write_to_finalize_wal();
+    std::filesystem::path wal_file;
+    std::filesystem::file_time_type newest_write_time = std::chrono::file_clock::now() - std::chrono::years{10};
+    for (const auto &wal : std::filesystem::directory_iterator(in_mem->config_.durability.storage_directory /
+                                                               memgraph::storage::durability::kWalDirectory)) {
+      if (std::filesystem::is_regular_file(wal.status())) {
+        auto last_write_time = std::filesystem::last_write_time(wal);
+        if (last_write_time > newest_write_time) {
+          newest_write_time = last_write_time;
+          wal_file = wal.path();
+        }
+      }
+    }
+    large_write_to_finalize_wal();
+    ASSERT_FALSE(in_mem->CreateSnapshot(memgraph::replication_coordination_glue::ReplicationRole::MAIN).HasError());
+    large_write_to_finalize_wal();
+    large_write_to_finalize_wal();
+    large_write_to_finalize_wal();
+    std::error_code ec;
+    std::filesystem::remove(wal_file, ec);
+    ASSERT_FALSE(ec);
+    const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem);
+    ASSERT_EQ(recovery_steps.size(), 2);
+    ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoverySnapshot>(recovery_steps[0]));
+    ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoveryWals>(recovery_steps[1]));
+  }
+  // + Current
+  {
+    auto acc = in_mem->Access();
+    acc->CreateVertex();
+    ASSERT_FALSE(acc->Commit().HasError());
+    const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem);
+    ASSERT_EQ(recovery_steps.size(), 3);
+    ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoverySnapshot>(recovery_steps[0]));
+    ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoveryWals>(recovery_steps[1]));
+    ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoveryCurrentWal>(recovery_steps[2]));
+  }
 }
