@@ -42,15 +42,25 @@ TEST(RWLock, MultipleReaders) {
 
 TEST(RWLock, SingleWriter) {
   memgraph::utils::RWLock rwlock(memgraph::utils::RWLock::Priority::READ);
-  auto count_down = std::latch{3};
+  auto count_down_start = std::latch{3};
+  auto count_down_finish = std::latch{4};
 
   memgraph::utils::Timer timer;
   std::chrono::duration<double> start;
+  std::chrono::duration<double> total_time;
 
   auto j1 = [&] {
-    count_down.arrive_and_wait();
-    auto lock = std::unique_lock{rwlock};
-    std::this_thread::sleep_for(100ms);
+    // Start only when all threads exist
+    count_down_start.arrive_and_wait();
+
+    {
+      // In smallest scope possible
+      auto lock = std::unique_lock{rwlock};
+      std::this_thread::sleep_for(100ms);
+    }
+
+    // Signal that the thread's work has finished
+    count_down_finish.count_down();
   };
   auto j2 = [&] {
     start = timer.Elapsed();  // time from here to avoid the timing cost of setting up threads
@@ -61,10 +71,12 @@ TEST(RWLock, SingleWriter) {
     auto threads = std::vector<std::jthread>{};
     threads.emplace_back(j1);
     threads.emplace_back(j1);
+    std::this_thread::sleep_for(1ms);  // Give time for other threads to have started
     threads.emplace_back(j2);
+    // avoid timing cost to tear down threads
+    count_down_finish.arrive_and_wait();
+    total_time = timer.Elapsed() - start;
   }
-
-  auto total_time = timer.Elapsed() - start;
 
   EXPECT_LE(total_time, 350ms);
   EXPECT_GE(total_time, 290ms);
