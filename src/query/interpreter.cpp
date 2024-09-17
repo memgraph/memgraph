@@ -5065,6 +5065,21 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
                                     {"properties", {storage->PropertyToName(property)}},
                                     {"count", storage_acc->ApproximateVertexCount(label_id, property)}}));
       }
+      // Vertex label text
+      for (const auto &[str, label_id] : index_info.text_indices) {
+        node_indexes.push_back(nlohmann::json::object({{"labels", {storage->LabelToName(label_id)}},
+                                                       {"properties", nlohmann::json::array()},
+                                                       {"count", -1},
+                                                       {"type", "label_text"}}));
+      }
+      // Vertex label property_point
+      for (const auto &[label_id, property] : index_info.point_label_property) {
+        node_indexes.push_back(
+            nlohmann::json::object({{"labels", {storage->LabelToName(label_id)}},
+                                    {"properties", {storage->PropertyToName(property)}},
+                                    {"count", storage_acc->ApproximatePointCount(label_id, property)},
+                                    {"type", "label+property_point"}}));
+      }
       // Edge type indices
       for (const auto type : index_info.edge_type) {
         edge_indexes.push_back(nlohmann::json::object({{"edge_type", {storage->EdgeTypeToName(type)}},
