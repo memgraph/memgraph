@@ -152,6 +152,7 @@ struct Expansion {
   NodeAtom *node2 = nullptr;
   // ExpansionGroupId represents a distinct part of the matching which is not tied to any other symbols.
   ExpansionGroupId expansion_group_id = ExpansionGroupId();
+  bool expand_from_edge{false};
 };
 
 struct PatternComprehensionMatching;
@@ -485,8 +486,8 @@ struct Matching {
   std::vector<std::unordered_set<Symbol>> edge_symbols;
   /// Information on used filter expressions while matching.
   Filters filters;
-  /// Maps node symbols to expansions which bind them.
-  std::unordered_map<Symbol, std::set<size_t>> node_symbol_to_expansions{};
+  /// Maps atom symbols to expansions which bind them.
+  std::unordered_map<Symbol, std::set<size_t>> atom_symbol_to_expansions{};
   /// Tracker of the total number of expansion groups for correct assigning of expansion group IDs
   size_t number_of_expansion_groups{0};
   /// Maps every node symbol to its expansion group ID
@@ -516,6 +517,7 @@ inline auto Filters::erase(Filters::const_iterator first, Filters::const_iterato
   return all_filters_.erase(first, last);
 }
 
+// Returns label filters. Labels can refer to node and its labels or to an edge with respective edge type
 inline auto Filters::FilteredLabels(const Symbol &symbol) const -> std::unordered_set<LabelIx> {
   std::unordered_set<LabelIx> labels;
   for (const auto &filter : all_filters_) {

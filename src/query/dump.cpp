@@ -310,6 +310,11 @@ void DumpTextIndex(std::ostream *os, query::DbAccessor *dba, const std::string &
   *os << "CREATE TEXT INDEX " << EscapeName(index_name) << " ON :" << EscapeName(dba->LabelToName(label)) << ";";
 }
 
+void DumpPointIndex(std::ostream *os, query::DbAccessor *dba, storage::LabelId label, storage::PropertyId property) {
+  *os << "CREATE POINT INDEX ON :" << EscapeName(dba->LabelToName(label)) << "("
+      << EscapeName(dba->PropertyToName(property)) << ");";
+}
+
 void DumpExistenceConstraint(std::ostream *os, query::DbAccessor *dba, storage::LabelId label,
                              storage::PropertyId property) {
   *os << "CREATE CONSTRAINT ON (u:" << EscapeName(dba->LabelToName(label)) << ") ASSERT EXISTS (u."
@@ -348,6 +353,8 @@ PullPlanDump::PullPlanDump(DbAccessor *dba, dbms::DatabaseAccess db_acc)
                    CreateLabelPropertyIndicesPullChunk(),
                    // Dump all text indices
                    CreateTextIndicesPullChunk(),
+                   // Dump all point indices
+                   CreatePointIndicesPullChunk(),
                    // Dump all existence constraints
                    CreateExistenceConstraintsPullChunk(),
                    // Dump all unique constraints
@@ -553,6 +560,33 @@ PullPlanDump::PullChunk PullPlanDump::CreateTextIndicesPullChunk() {
     }
 
     if (global_index == text.size()) {
+      return local_counter;
+    }
+
+    return std::nullopt;
+  };
+}
+
+PullPlanDump::PullChunk PullPlanDump::CreatePointIndicesPullChunk() {
+  return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
+    // Delay the construction of indices vectors
+    if (!indices_info_) {
+      indices_info_.emplace(dba_->ListAllIndices());
+    }
+    const auto &point_label_properties = indices_info_->point_label_property;
+
+    size_t local_counter = 0;
+    while (global_index < point_label_properties.size() && (!n || local_counter < *n)) {
+      std::ostringstream os;
+      const auto &point_index = point_label_properties[global_index];
+      DumpPointIndex(&os, dba_, point_index.first, point_index.second);
+      stream->Result({TypedValue(os.str())});
+
+      ++global_index;
+      ++local_counter;
+    }
+
+    if (global_index == point_label_properties.size()) {
       return local_counter;
     }
 

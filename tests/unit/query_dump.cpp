@@ -82,11 +82,17 @@ struct DatabaseState {
     std::set<std::string, std::less<>> properties;
   };
 
+  struct PointItem {
+    std::string label;
+    std::string property;
+  };
+
   std::set<Vertex> vertices;
   std::set<Edge> edges;
   std::set<LabelItem> label_indices;
   std::set<LabelPropertyItem> label_property_indices;
   std::set<TextItem> text_indices;
+  std::set<PointItem> point_indices;
   std::set<LabelPropertyItem> existence_constraints;
   std::set<LabelPropertiesItem> unique_constraints;
 };
@@ -117,6 +123,11 @@ bool operator<(const DatabaseState::TextItem &first, const DatabaseState::TextIt
   return first.index_name < second.index_name && first.label < second.label;
 }
 
+bool operator<(const DatabaseState::PointItem &first, const DatabaseState::PointItem &second) {
+  if (first.label != second.label) return first.label < second.label;
+  return first.property < second.property;
+}
+
 bool operator<(const DatabaseState::LabelPropertiesItem &first, const DatabaseState::LabelPropertiesItem &second) {
   if (first.label != second.label) return first.label < second.label;
   return first.properties < second.properties;
@@ -141,6 +152,10 @@ bool operator==(const DatabaseState::LabelPropertyItem &first, const DatabaseSta
 
 bool operator==(const DatabaseState::TextItem &first, const DatabaseState::TextItem &second) {
   return first.index_name == second.index_name && first.label == second.label;
+}
+
+bool operator==(const DatabaseState::PointItem &first, const DatabaseState::PointItem &second) {
+  return first.label == second.label && first.property == second.property;
 }
 
 bool operator==(const DatabaseState::LabelPropertiesItem &first, const DatabaseState::LabelPropertiesItem &second) {
@@ -201,6 +216,7 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
   std::set<DatabaseState::LabelItem> label_indices;
   std::set<DatabaseState::LabelPropertyItem> label_property_indices;
   std::set<DatabaseState::TextItem> text_indices;
+  std::set<DatabaseState::PointItem> point_indices;
   {
     auto info = dba->ListAllIndices();
     for (const auto &item : info.label) {
@@ -211,6 +227,9 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
     }
     for (const auto &item : info.text_indices) {
       text_indices.insert({item.first, dba->LabelToName(item.second)});
+    }
+    for (const auto &item : info.point_label_property) {
+      point_indices.insert({dba->LabelToName(item.first), dba->PropertyToName(item.second)});
     }
   }
 
@@ -231,8 +250,8 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
     }
   }
 
-  return {vertices,          edges, label_indices, label_property_indices, text_indices, existence_constraints,
-          unique_constraints};
+  return {vertices,     edges,         label_indices,         label_property_indices,
+          text_indices, point_indices, existence_constraints, unique_constraints};
 }
 
 auto Execute(memgraph::query::InterpreterContext *context, memgraph::dbms::DatabaseAccess db,
@@ -319,6 +338,7 @@ class DumpTest : public ::testing::Test {
         if constexpr (std::is_same_v<StorageType, memgraph::storage::DiskStorage>) {
           config.disk = disk_test_utils::GenerateOnDiskConfig(testSuite).disk;
           config.force_on_disk = true;
+          config.salient.storage_mode = memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL;
         }
         return config;
       }()  // iile
@@ -658,6 +678,50 @@ TYPED_TEST(DumpTest, IndicesKeys) {
     }
     VerifyQueries(stream.GetResults(), "CREATE INDEX ON :`Label1`(`prop`);", "CREATE INDEX ON :`Label 2`(`prop ```);",
                   kCreateInternalIndex, "CREATE (:__mg_vertex__:`Label1`:`Label 2` {__mg_id__: 0, `p`: 1});",
+                  kDropInternalIndex, kRemoveInternalLabelProperty);
+  }
+}
+
+TYPED_TEST(DumpTest, PointIndices) {
+  if (this->config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL) {
+    GTEST_SKIP() << "Point index not implemented for ondisk";
+  }
+
+  {
+    auto dba = this->db->Access();
+    auto point = memgraph::storage::Point2d{memgraph::storage::CoordinateReferenceSystem::Cartesian_2d, 1., 1.};
+    CreateVertex(dba.get(), {"Label1", "Label 2"}, {{"p", memgraph::storage::PropertyValue(point)}}, false);
+    ASSERT_FALSE(dba->Commit().HasError());
+  }
+
+  {
+    auto unique_acc = this->db->UniqueAccess();
+    ASSERT_FALSE(
+        unique_acc
+            ->CreatePointIndex(this->db->storage()->NameToLabel("Label1"), this->db->storage()->NameToProperty("prop"))
+            .HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
+  {
+    auto unique_acc = this->db->UniqueAccess();
+    ASSERT_FALSE(unique_acc
+                     ->CreatePointIndex(this->db->storage()->NameToLabel("Label 2"),
+                                        this->db->storage()->NameToProperty("prop `"))
+                     .HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
+
+  {
+    ResultStreamFaker stream(this->db->storage());
+    memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
+    {
+      auto acc = this->db->Access();
+      memgraph::query::DbAccessor dba(acc.get());
+      memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
+    }
+    VerifyQueries(stream.GetResults(), "CREATE POINT INDEX ON :`Label1`(`prop`);",
+                  "CREATE POINT INDEX ON :`Label 2`(`prop ```);", kCreateInternalIndex,
+                  "CREATE (:__mg_vertex__:`Label1`:`Label 2` {__mg_id__: 0, `p`: POINT({ x:1, y:1, srid: 7203 })});",
                   kDropInternalIndex, kRemoveInternalLabelProperty);
   }
 }
@@ -1164,12 +1228,15 @@ TYPED_TEST(DumpTest, MultiplePartialPulls) {
   const auto edge_results = stream.GetResults();
   /// NOTE: For disk storage, the order of returned edges isn't guaranteed so we check them together and we guarantee
   /// the order by sorting.
-  VerifyQueries(
-      {edge_results.end() - 4, edge_results.end()},
-      "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 0 AND v.__mg_id__ = 1 CREATE (u)-[:`REL`]->(v);",
-      "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 0 AND v.__mg_id__ = 2 CREATE (u)-[:`REL`]->(v);",
-      "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 1 AND v.__mg_id__ = 4 CREATE (u)-[:`REL`]->(v);",
-      "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 3 AND v.__mg_id__ = 4 CREATE (u)-[:`REL`]->(v);");
+  VerifyQueries({edge_results.end() - 4, edge_results.end()},
+                "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 0 AND v.__mg_id__ = 1 CREATE "
+                "(u)-[:`REL`]->(v);",
+                "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 0 AND v.__mg_id__ = 2 CREATE "
+                "(u)-[:`REL`]->(v);",
+                "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 1 AND v.__mg_id__ = 4 CREATE "
+                "(u)-[:`REL`]->(v);",
+                "MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 3 AND v.__mg_id__ = 4 CREATE "
+                "(u)-[:`REL`]->(v);");
   offset_index += 4;
 
   check_next(kDropInternalIndex);

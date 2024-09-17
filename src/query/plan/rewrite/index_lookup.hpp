@@ -176,6 +176,66 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PreVisit(ScanAllByEdge &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByEdge &op) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(ScanAllByEdgeId &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByEdgeId &op) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(ScanAllByEdgeType &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByEdgeType &op) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(ScanAllByEdgeTypeProperty &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByEdgeTypeProperty &op) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(ScanAllByEdgeTypePropertyValue &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByEdgeTypePropertyValue &op) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(ScanAllByEdgeTypePropertyRange &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByEdgeTypePropertyRange &op) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
   bool PreVisit(ScanAll &op) override {
     prev_ops_.push_back(&op);
     return true;
@@ -919,17 +979,17 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       filters_.EraseLabelFilter(node_symbol, found_index->label, &removed_expressions);
       filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
       if (prop_filter.lower_bound_ || prop_filter.upper_bound_) {
-        return std::make_unique<ScanAllByLabelPropertyRange>(
-            input, node_symbol, GetLabel(found_index->label), GetProperty(prop_filter.property_),
-            prop_filter.property_.name, prop_filter.lower_bound_, prop_filter.upper_bound_, view);
+        return std::make_unique<ScanAllByLabelPropertyRange>(input, node_symbol, GetLabel(found_index->label),
+                                                             GetProperty(prop_filter.property_),
+                                                             prop_filter.lower_bound_, prop_filter.upper_bound_, view);
       }
       if (prop_filter.type_ == PropertyFilter::Type::REGEX_MATCH) {
         // Generate index scan using the empty string as a lower bound.
         Expression *empty_string = ast_storage_->Create<PrimitiveLiteral>("");
         auto lower_bound = utils::MakeBoundInclusive(empty_string);
-        return std::make_unique<ScanAllByLabelPropertyRange>(
-            input, node_symbol, GetLabel(found_index->label), GetProperty(prop_filter.property_),
-            prop_filter.property_.name, std::make_optional(lower_bound), std::nullopt, view);
+        return std::make_unique<ScanAllByLabelPropertyRange>(input, node_symbol, GetLabel(found_index->label),
+                                                             GetProperty(prop_filter.property_),
+                                                             std::make_optional(lower_bound), std::nullopt, view);
       }
       if (prop_filter.type_ == PropertyFilter::Type::IN) {
         // TODO(buda): ScanAllByLabelProperty + Filter should be considered
@@ -938,19 +998,18 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         auto *expression = ast_storage_->Create<Identifier>(symbol.name_);
         expression->MapTo(symbol);
         auto unwind_operator = std::make_unique<Unwind>(input, prop_filter.value_, symbol);
-        return std::make_unique<ScanAllByLabelPropertyValue>(
-            std::move(unwind_operator), node_symbol, GetLabel(found_index->label), GetProperty(prop_filter.property_),
-            prop_filter.property_.name, expression, view);
+        return std::make_unique<ScanAllByLabelPropertyValue>(std::move(unwind_operator), node_symbol,
+                                                             GetLabel(found_index->label),
+                                                             GetProperty(prop_filter.property_), expression, view);
       }
       if (prop_filter.type_ == PropertyFilter::Type::IS_NOT_NULL) {
         return std::make_unique<ScanAllByLabelProperty>(input, node_symbol, GetLabel(found_index->label),
-                                                        GetProperty(prop_filter.property_), prop_filter.property_.name,
-                                                        view);
+                                                        GetProperty(prop_filter.property_), view);
       }
       MG_ASSERT(prop_filter.value_, "Property filter should either have bounds or a value expression.");
       return std::make_unique<ScanAllByLabelPropertyValue>(input, node_symbol, GetLabel(found_index->label),
-                                                           GetProperty(prop_filter.property_),
-                                                           prop_filter.property_.name, prop_filter.value_, view);
+                                                           GetProperty(prop_filter.property_), prop_filter.value_,
+                                                           view);
     }
     auto maybe_label = FindBestLabelIndex(labels);
     if (!maybe_label) return nullptr;

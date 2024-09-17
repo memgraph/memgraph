@@ -155,6 +155,12 @@ class InMemoryStorage final : public Storage {
 
     EdgesIterable Edges(EdgeTypeId edge_type, PropertyId property, View view) override;
 
+    EdgesIterable Edges(EdgeTypeId edge_type, PropertyId property, const PropertyValue &value, View view) override;
+
+    EdgesIterable Edges(EdgeTypeId edge_type, PropertyId property,
+                        const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+                        const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) override;
+
     /// Return approximate number of all vertices in the database.
     /// Note that this is always an over-estimate and never an under-estimate.
     uint64_t ApproximateVertexCount() const override {
@@ -193,13 +199,26 @@ class InMemoryStorage final : public Storage {
           label, property, lower, upper);
     }
 
-    uint64_t ApproximateEdgeCount(EdgeTypeId id) const override {
-      return static_cast<InMemoryStorage *>(storage_)->indices_.edge_type_index_->ApproximateEdgeCount(id);
+    uint64_t ApproximateEdgeCount(EdgeTypeId edge_type) const override {
+      return static_cast<InMemoryStorage *>(storage_)->indices_.edge_type_index_->ApproximateEdgeCount(edge_type);
     }
 
     uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property) const override {
       return static_cast<InMemoryStorage *>(storage_)->indices_.edge_type_property_index_->ApproximateEdgeCount(
           edge_type, property);
+    }
+
+    uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property,
+                                  const PropertyValue &value) const override {
+      return static_cast<InMemoryStorage *>(storage_)->indices_.edge_type_property_index_->ApproximateEdgeCount(
+          edge_type, property, value);
+    }
+
+    uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property,
+                                  const std::optional<utils::Bound<PropertyValue>> &lower,
+                                  const std::optional<utils::Bound<PropertyValue>> &upper) const override {
+      return static_cast<InMemoryStorage *>(storage_)->indices_.edge_type_property_index_->ApproximateEdgeCount(
+          edge_type, property, lower, upper);
     }
 
     uint64_t ApproximatePointCount(LabelId label, PropertyId property) const override {

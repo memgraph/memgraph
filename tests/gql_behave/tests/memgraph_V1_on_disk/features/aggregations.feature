@@ -573,7 +573,7 @@ Feature: Aggregations
           """
       Then the result should be:
           | tags                                                                                                                                             |
-          | [{description: 'SYSTEM_TAG', short_code: 'TST'}, {description: 'SYSTEM_TAG', short_code: 'PRD'}, {description: 'SYSTEM_TAG', short_code: 'STG'}] |
+          | [{description: 'SYSTEM_TAG', short_code: 'STG'}, {description: 'SYSTEM_TAG', short_code: 'PRD'}, {description: 'SYSTEM_TAG', short_code: 'TST'}] |
 
     Scenario: Count directly without WITH clause 01
       Given an empty graph

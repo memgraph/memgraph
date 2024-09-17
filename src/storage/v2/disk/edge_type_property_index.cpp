@@ -41,6 +41,19 @@ uint64_t DiskEdgeTypePropertyIndex::ApproximateEdgeCount(EdgeTypeId /*edge_type*
   return 0U;
 }
 
+uint64_t DiskEdgeTypePropertyIndex::ApproximateEdgeCount(EdgeTypeId /*edge_type*/, PropertyId /*property*/,
+                                                         const PropertyValue & /*value*/) const {
+  spdlog::warn("Edge-type index related operations are not yet supported using on-disk storage mode.");
+  return 0U;
+};
+
+uint64_t DiskEdgeTypePropertyIndex::ApproximateEdgeCount(
+    EdgeTypeId /*edge_type*/, PropertyId /*property*/, const std::optional<utils::Bound<PropertyValue>> & /*lower*/,
+    const std::optional<utils::Bound<PropertyValue>> & /*upper*/) const {
+  spdlog::warn("Edge-type index related operations are not yet supported using on-disk storage mode.");
+  return 0U;
+};
+
 void DiskEdgeTypePropertyIndex::UpdateOnEdgeModification(Vertex * /*old_from*/, Vertex * /*old_to*/,
                                                          Vertex * /*new_from*/, Vertex * /*new_to*/,
                                                          EdgeRef /*edge_ref*/, EdgeTypeId /*edge_type*/,

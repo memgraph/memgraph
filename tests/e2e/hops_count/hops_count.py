@@ -49,40 +49,54 @@ def test_hops_count_1():
     # check hops count
 
     # expand variable
-    summary = get_summary("MATCH (a:Person {name: 'Alice'})-[:KNOWS*]->(e:Person {name: 'Eve'}) RETURN e")
-    assert summary["number_of_hops"] == 4
+    number_of_hops = get_summary("MATCH (a:Person {name: 'Alice'})-[:KNOWS*]->(e:Person {name: 'Eve'}) RETURN e")[
+        "number_of_hops"
+    ]
+    assert number_of_hops == 4
 
-    summary = get_summary("MATCH (a:Person {name: 'Alice'})-[:KNOWS*1..2]->(e:Person {name: 'Eve'}) RETURN e")
-    assert summary["number_of_hops"] == 2
+    number_of_hops = get_summary("MATCH (a:Person {name: 'Alice'})-[:KNOWS*1..2]->(e:Person {name: 'Eve'}) RETURN e")[
+        "number_of_hops"
+    ]
+    assert number_of_hops == 2
 
-    summary = get_summary("MATCH (a:Person {name: 'Alice'})-[:KNOWS*1..3]->(e:Person {name: 'Eve'}) RETURN e")
-    assert summary["number_of_hops"] == 3
+    number_of_hops = get_summary("MATCH (a:Person {name: 'Alice'})-[:KNOWS*1..3]->(e:Person {name: 'Eve'}) RETURN e")[
+        "number_of_hops"
+    ]
+    assert number_of_hops == 3
 
-    summary = get_summary("MATCH (a:Person)-[:KNOWS*]->(e:Person) RETURN e")
-    assert summary["number_of_hops"] == 10
+    number_of_hops = get_summary("MATCH (a:Person)-[:KNOWS*]->(e:Person) RETURN e")["number_of_hops"]
+    assert number_of_hops == 10
 
-    summary = get_summary("MATCH (a:Person)-[:KNOWS*]-(e:Person) RETURN e")
-    assert summary["number_of_hops"] == 40  # already visited nodes are counted
+    number_of_hops = get_summary("MATCH (a:Person)-[:KNOWS*]-(e:Person) RETURN e")["number_of_hops"]
+    assert number_of_hops == 40  # already visited nodes are counted
 
     # bfs expand
-    summary = get_summary("MATCH (a:Person {name: 'Alice'})-[:KNOWS *BFS]->(e:Person {name: 'Eve'}) RETURN e")
-    assert summary["number_of_hops"] == 4
+    number_of_hops = get_summary("MATCH (a:Person {name: 'Alice'})-[:KNOWS *BFS]->(e:Person {name: 'Eve'}) RETURN e")[
+        "number_of_hops"
+    ]
+    assert number_of_hops == 4
 
-    summary = get_summary("MATCH (a:Person {name: 'Alice'})-[:KNOWS *BFS 1..2]->(e:Person {name: 'Eve'}) RETURN e")
-    assert summary["number_of_hops"] == 2
+    number_of_hops = get_summary(
+        "MATCH (a:Person {name: 'Alice'})-[:KNOWS *BFS 1..2]->(e:Person {name: 'Eve'}) RETURN e"
+    )["number_of_hops"]
+    assert number_of_hops == 2
 
-    summary = get_summary("MATCH (a:Person {name: 'Alice'})-[:KNOWS *BFS 1..3]->(e:Person {name: 'Eve'}) RETURN e")
-    assert summary["number_of_hops"] == 3
+    number_of_hops = get_summary(
+        "MATCH (a:Person {name: 'Alice'})-[:KNOWS *BFS 1..3]->(e:Person {name: 'Eve'}) RETURN e"
+    )["number_of_hops"]
+    assert number_of_hops == 3
 
-    summary = get_summary("MATCH (a:Person)-[:KNOWS *BFS]->(e:Person) RETURN e")
-    assert summary["number_of_hops"] == 10
+    number_of_hops = get_summary("MATCH (a:Person)-[:KNOWS *BFS]->(e:Person) RETURN e")["number_of_hops"]
+    assert number_of_hops == 10
 
-    summary = get_summary("MATCH (a:Person)-[:KNOWS *BFS]-(e:Person) RETURN e")
-    assert summary["number_of_hops"] == 40
+    number_of_hops = get_summary("MATCH (a:Person)-[:KNOWS *BFS]-(e:Person) RETURN e")["number_of_hops"]
+    assert number_of_hops == 40
 
     # expand
-    summary = get_summary("MATCH (a:Person {name: 'Alice'})-[:KNOWS]->(e:Person {name: 'Eve'}) RETURN e")
-    assert summary["number_of_hops"] == 1
+    number_of_hops = get_summary("MATCH (a:Person {name: 'Alice'})-[:KNOWS]->(e:Person {name: 'Eve'}) RETURN e")[
+        "number_of_hops"
+    ]
+    assert number_of_hops == 1
 
 
 def test_hops_count_2():
@@ -103,31 +117,45 @@ def test_hops_count_2():
     # check hops count
 
     # expand variable
-    summary = get_summary("MATCH (a:Person {name: 'Alice'})-[:DRIVES*]->(e:Car {name: 'BMW'}) RETURN e")
-    assert summary["number_of_hops"] == 3
+    number_of_hops = get_summary("MATCH (a:Person {name: 'Alice'})-[:DRIVES*]->(e:Car {name: 'BMW'}) RETURN e")[
+        "number_of_hops"
+    ]
+    assert number_of_hops == 3
 
-    summary = get_summary("MATCH (a:Person {name: 'Alice'})-[:DRIVES* (r, n | r.since = 2015)]->(e:Car) RETURN e;")
-    assert summary["number_of_hops"] == 4
+    number_of_hops = get_summary(
+        "MATCH (a:Person {name: 'Alice'})-[:DRIVES* (r, n | r.since = 2015)]->(e:Car) RETURN e;"
+    )["number_of_hops"]
+    assert number_of_hops == 4
 
-    summary = get_summary("MATCH (a:Person {name: 'Alice'})-[:DRIVES* (r, n | r.since = 2015)]-(e:Car) RETURN e;")
-    assert summary["number_of_hops"] == 8  # scans by e and then expand to a
+    number_of_hops = get_summary(
+        "MATCH (a:Person {name: 'Alice'})-[:DRIVES* (r, n | r.since = 2015)]-(e:Car) RETURN e;"
+    )["number_of_hops"]
+    assert number_of_hops == 8  # scans by e and then expand to a
 
     # bfs expand
-    summary = get_summary("MATCH (a:Person {name: 'Alice'})-[:DRIVES *BFS]->(e:Car {name: 'BMW'}) RETURN e")
-    assert summary["number_of_hops"] == 2  # first does scan by a and then expand to e
+    number_of_hops = get_summary("MATCH (a:Person {name: 'Alice'})-[:DRIVES *BFS]->(e:Car {name: 'BMW'}) RETURN e")[
+        "number_of_hops"
+    ]
+    assert number_of_hops == 2  # first does scan by a and then expand to e
 
-    summary = get_summary("MATCH (a:Person)-[:DRIVES *BFS (r, n | r.since = 2015)]->(e:Car) RETURN e;")
-    assert summary["number_of_hops"] == 4
+    number_of_hops = get_summary("MATCH (a:Person)-[:DRIVES *BFS (r, n | r.since = 2015)]->(e:Car) RETURN e;")[
+        "number_of_hops"
+    ]
+    assert number_of_hops == 4
 
-    summary = get_summary("MATCH (a:Person)-[:DRIVES *BFS (r, n | r.since = 2015)]-(e:Car) RETURN e;")
-    assert summary["number_of_hops"] == 21
+    number_of_hops = get_summary("MATCH (a:Person)-[:DRIVES *BFS (r, n | r.since = 2015)]-(e:Car) RETURN e;")[
+        "number_of_hops"
+    ]
+    assert number_of_hops == 21
 
     # expand
-    summary = get_summary("MATCH (a:Person {name: 'Alice'})-[:DRIVES]->(e:Car {name: 'BMW'}) RETURN e")
-    assert summary["number_of_hops"] == 3  # scans by e and then expand to a
+    number_of_hops = get_summary("MATCH (a:Person {name: 'Alice'})-[:DRIVES]->(e:Car {name: 'BMW'}) RETURN e")[
+        "number_of_hops"
+    ]
+    assert number_of_hops == 2  # scans by a and then expand to e
 
-    summary = get_summary("MATCH (a:Person)-[:DRIVES]->(e:Car) RETURN e")
-    assert summary["number_of_hops"] == 4  # scans by e and then expand to a
+    number_of_hops = get_summary("MATCH (a:Person)-[:DRIVES]->(e:Car) RETURN e")["number_of_hops"]
+    assert number_of_hops == 4  # scans by e and then expand to a
 
 
 def test_hops_count_3():
@@ -148,16 +176,18 @@ def test_hops_count_3():
     # check hops count
 
     # expand variable
-    summary = get_summary("MATCH (a:Person {name: 'Alice'})-[:KNOWS*..1]->(e:Person) RETURN e")
-    assert summary["number_of_hops"] == 4  # scans by e and then expand to a
+    number_of_hops = get_summary("MATCH (a:Person {name: 'Alice'})-[:KNOWS*..1]->(e:Person) RETURN e")["number_of_hops"]
+    assert number_of_hops == 4  # scans by e and then expand to a
 
     # bfs expand
-    summary = get_summary("MATCH (a:Person {name: 'Alice'})-[:KNOWS *BFS ..1]->(e:Person) RETURN e")
-    assert summary["number_of_hops"] == 2  # first does scan by a and then expand to e
+    number_of_hops = get_summary("MATCH (a:Person {name: 'Alice'})-[:KNOWS *BFS ..1]->(e:Person) RETURN e")[
+        "number_of_hops"
+    ]
+    assert number_of_hops == 2  # first does scan by a and then expand to e
 
     # expand
-    summary = get_summary("MATCH (a:Person {name: 'Alice'})-[:KNOWS]->(e:Person) RETURN e")
-    assert summary["number_of_hops"] == 4  # scans by e and then expand to a
+    number_of_hops = get_summary("MATCH (a:Person {name: 'Alice'})-[:KNOWS]->(e:Person) RETURN e")["number_of_hops"]
+    assert number_of_hops == 2  # scans by a and then expand to e
 
 
 if __name__ == "__main__":
