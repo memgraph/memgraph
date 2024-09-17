@@ -13,6 +13,7 @@
 
 #include <storage/v2/constraints/type_constraints_type.hpp>
 #include <utility>
+#include "absl/container/flat_hash_map.h"
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/id_types.hpp"
@@ -44,6 +45,9 @@ class TypeConstraints {
   [[nodiscard]] std::optional<ConstraintViolation> Validate(const Vertex &vertex) const;
   [[nodiscard]] std::optional<ConstraintViolation> Validate(const Vertex &vertex, LabelId label) const;
   [[nodiscard]] std::optional<ConstraintViolation> Validate(const Vertex &vertex, PropertyId property) const;
+  [[nodiscard]] std::optional<ConstraintViolation> Validate(const Vertex &vertex, PropertyId property_id,
+                                                            const PropertyValue &property_value) const;
+  [[nodiscard]] std::optional<ConstraintViolation> ValidateVertices(utils::SkipList<Vertex>::Accessor vertices) const;
 
   bool empty() const;
   bool ConstraintExists(LabelId label, PropertyId property) const;
@@ -54,8 +58,7 @@ class TypeConstraints {
   void DropGraphClearConstraints();
 
  private:
-  // TODO Ivan: unordereded set doesn't work, spaceship deleted, i dont know check later
-  std::map<std::pair<LabelId, PropertyId>, TypeConstraintsType> constraints_;
+  absl::flat_hash_map<std::pair<LabelId, PropertyId>, TypeConstraintsType> constraints_;
 };
 
 }  // namespace memgraph::storage

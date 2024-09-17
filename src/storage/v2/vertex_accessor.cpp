@@ -447,12 +447,14 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
         }
         // TODO If not performant enough there is also InitProperty()
         if (storage->constraints_.HasTypeConstraints()) {
-          auto maybe_violation = storage->constraints_.type_constraints_->Validate(*vertex);
-          if (maybe_violation.has_value()) {
-            auto violation = *maybe_violation;
-            throw query::QueryException(
-                "IS TYPED {} violation on {}({})", TypeConstraintsTypeToString(*violation.property_type),
-                storage->LabelToName(violation.label), storage->PropertyToName(*violation.properties.begin()));
+          for (auto const &[property_id, property_value] : properties) {
+            auto maybe_violation = storage->constraints_.type_constraints_->Validate(*vertex, property_id, property_value);
+            if (maybe_violation.has_value()) {
+              auto violation = *maybe_violation;
+              throw query::QueryException(
+                  "IS TYPED {} violation on {}({})", TypeConstraintsTypeToString(*violation.property_type),
+                  storage->LabelToName(violation.label), storage->PropertyToName(*violation.properties.begin()));
+            }
           }
         }
         result = true;

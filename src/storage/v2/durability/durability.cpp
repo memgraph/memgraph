@@ -319,16 +319,13 @@ void RecoverTypeConstraints(const RecoveredIndicesAndConstraints::ConstraintsMet
     if (constraints->type_constraints_->ConstraintExists(label, property)) {
       throw RecoveryFailure("The type constraint already exists!");
     }
-
-    if (auto violation = TypeConstraints::ValidateVerticesOnConstraint(vertices->access(), label, property, type);
-        violation.has_value()) {
-      throw RecoveryFailure("Type constraint recovery failed because it couldn't be validated!");
-    }
-
     constraints->type_constraints_->InsertConstraint(label, property, type);
-    spdlog::info("Type constraint :{}({}) IS {} is recreated from metadata", name_id_mapper->IdToName(label.AsUint()),
-                 name_id_mapper->IdToName(property.AsUint()), TypeConstraintsTypeToString(type));
   }
+
+  if (auto violation = constraints->type_constraints_->ValidateVertices(vertices->access()); violation.has_value()) {
+    throw RecoveryFailure("Type constraint recovery failed because they couldn't be validated!");
+  }
+
   spdlog::info("Type constraints are recreated from metadata.");
 }
 
