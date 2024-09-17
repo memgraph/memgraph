@@ -2726,8 +2726,9 @@ std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>> InMemoryStora
 
   auto extract_edge_info = [&](Vertex *from_vertex) -> EdgeInfo {
     for (auto &out_edge : from_vertex->out_edges) {
-      if (std::get<2>(out_edge).ptr == edge_ptr) {
-        return std::tuple(std::get<2>(out_edge), std::get<0>(out_edge), from_vertex, std::get<1>(out_edge));
+      const auto [edge_type, other_vertex, edge_ref] = out_edge;
+      if (edge_ref.ptr == edge_ptr) {
+        return std::tuple(edge_ref, edge_type, from_vertex, other_vertex);
       }
     }
     return std::nullopt;

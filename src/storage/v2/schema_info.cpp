@@ -492,33 +492,21 @@ void VertexHandler::PostProcess(TransactionEdgeHandler &tx_edge_handler) {
 
       // Edges are defined via start/end labels, this identification has changed so update all persistent edges
       for (const auto &edge : GetRemainingPreEdges<EdgeDirection::IN>(vertex_)) {
-        const auto edge_type = std::get<0>(edge);
-        auto *other_vertex = std::get<1>(edge);
-        const auto edge_ref = std::get<2>(edge);
-
+        const auto [edge_type, other_vertex, edge_ref] = edge;
         tx_edge_handler.AppendToPostProcess(edge_ref, edge_type, other_vertex, &vertex_);
       }
       for (const auto &edge : GetRemainingPreEdges<EdgeDirection::OUT>(vertex_)) {
-        const auto edge_type = std::get<0>(edge);
-        auto *other_vertex = std::get<1>(edge);
-        const auto edge_ref = std::get<2>(edge);
-
+        const auto [edge_type, other_vertex, edge_ref] = edge;
         tx_edge_handler.AppendToPostProcess(edge_ref, edge_type, &vertex_, other_vertex);
       }
 
       // Deleted edges are using the latest label; update key
       for (const auto &edge : GetRemovedPreEdges<EdgeDirection::IN>(vertex_)) {
-        const auto edge_type = std::get<0>(edge);
-        auto *other_vertex = std::get<1>(edge);
-        const auto edge_ref = std::get<2>(edge);
-
+        const auto [edge_type, other_vertex, edge_ref] = edge;
         tx_edge_handler.UpdateRemovedEdgeKey(edge_ref, edge_type, other_vertex, &vertex_);
       }
       for (const auto &edge : GetRemovedPreEdges<EdgeDirection::OUT>(vertex_)) {
-        const auto edge_type = std::get<0>(edge);
-        auto *other_vertex = std::get<1>(edge);
-        const auto edge_ref = std::get<2>(edge);
-
+        const auto [edge_type, other_vertex, edge_ref] = edge;
         tx_edge_handler.UpdateRemovedEdgeKey(edge_ref, edge_type, &vertex_, other_vertex);
       }
     }
@@ -662,11 +650,7 @@ void TransactionEdgeHandler::PostVertexProcess() {
 
   // Update edges
   for (const auto &edge_info : post_process_edges_) {
-    const auto edge_ref = std::get<0>(edge_info);
-    const auto edge_type = std::get<1>(edge_info);
-    const auto *from = std::get<2>(edge_info);
-    const auto *to = std::get<3>(edge_info);
-
+    const auto [edge_ref, edge_type, from, to] = edge_info;
     const auto pre_edge_properties = GetPrePropertyTypes(edge_ref, true);
 
     auto from_lock = std::unique_lock{from->lock, std::defer_lock};
@@ -771,7 +755,7 @@ auto EdgeHandler::PropertyType_ActionMethod(
         out_edge = *edge_itr;
       }
 
-      auto *in_vertex = std::get<1>(out_edge);
+    const auto [edge_type, in_vertex, edge_ref] = out_edge;
       auto to_lock = std::unique_lock{in_vertex->lock, std::defer_lock};
       if (needs_to_lock_) {
         if (in_vertex == out_vertex) {
@@ -785,11 +769,11 @@ auto EdgeHandler::PropertyType_ActionMethod(
           to_lock.lock();
         }
         // Vertex labels are not guaranteed to be stable, re-generate them and use EdgeKey (not *Ref)
-        edge_key_.emplace(EdgeKeyWrapper::CopyTag{}, std::get<0>(out_edge), GetLabels(*out_vertex, commit_timestamp_),
+        edge_key_.emplace(EdgeKeyWrapper::CopyTag{}, edge_type, GetLabels(*out_vertex, commit_timestamp_),
                           GetLabels(*in_vertex, commit_timestamp_));
       } else {
         // Since the vertices are stable, no need to re-generate the labels; EdgeKeyRef can be used
-        edge_key_.emplace(EdgeKeyWrapper::RefTag{}, std::get<0>(out_edge), out_vertex->labels, in_vertex->labels);
+        edge_key_.emplace(EdgeKeyWrapper::RefTag{}, edge_type, out_vertex->labels, in_vertex->labels);
       }
     }
 

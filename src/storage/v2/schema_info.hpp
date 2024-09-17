@@ -589,9 +589,7 @@ struct SchemaInfo {
       // Locking is done in order of GID
       // First loop through the ones that can lock
       for (const auto &edge : (InEdges ? vertex->in_edges : vertex->out_edges)) {
-        const auto edge_type = std::get<0>(edge);
-        auto *other_vertex = std::get<1>(edge);
-        const auto edge_ref = std::get<2>(edge);
+        const auto [edge_type, other_vertex, edge_ref] = edge;
 
         auto guard = std::unique_lock{vertex->lock, std::defer_lock};
         auto other_guard = std::unique_lock{other_vertex->lock, std::defer_lock};

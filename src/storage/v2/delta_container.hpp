@@ -16,18 +16,18 @@
 #include "utils/allocator/page_slab_memory_resource.hpp"
 #include "utils/static_vector.hpp"
 
-#include <list>
+#include <forward_list>
 
 namespace memgraph::storage {
 namespace {
 
 template <typename T>
-using PageAlignedList = std::list<T, utils::PageAlignedAllocator<T>>;
+using PageAlignedList = std::forward_list<T, utils::PageAlignedAllocator<T>>;
 
 // assumption `sizeof(void *)` if for the node pointer inside forward_list's node
 // multiple pages is also fine, unused pages will not add to RSS
 // using 4 pages (16KiB), because that is the smallest of the large size class in jemalloc
-constexpr auto kRemainingPageSpace = (4 * utils::PageAlignedAllocator<Delta>::PAGE_SIZE) - 2 * sizeof(void *);
+constexpr auto kRemainingPageSpace = (4 * utils::PageAlignedAllocator<Delta>::PAGE_SIZE) - sizeof(void *);
 using delta_slab = memgraph::utils::static_vector<Delta, kRemainingPageSpace>;
 static_assert(alignof(void *) <= alignof(delta_slab), "assumption that above calculation is without any padding");
 static_assert(292 == delta_slab::capacity(),
@@ -240,7 +240,7 @@ struct delta_container {
     auto do_emplace = [&]() -> Delta & {
       if constexpr (std::is_constructible_v<Delta, Args...>) {
         // no need for memory_resource
-        auto &delta = deltas_.back().emplace_back(std::forward<Args>(args)...);
+        auto &delta = deltas_.front().emplace_back(std::forward<Args>(args)...);
         ++size_;
         return delta;
       } else {
@@ -248,18 +248,18 @@ struct delta_container {
         if (!memory_resource_) [[unlikely]] {
           memory_resource_ = std::make_unique<utils::PageSlabMemoryResource>();
         }
-        auto &delta = deltas_.back().emplace_back(std::forward<Args>(args)..., memory_resource_.get());
+        auto &delta = deltas_.front().emplace_back(std::forward<Args>(args)..., memory_resource_.get());
         ++size_;
         return delta;
       }
     };
 
-    if (deltas_.empty() || deltas_.back().is_full()) [[unlikely]] {
-      deltas_.emplace_back();  // New delta_slab to insert into
+    if (deltas_.empty() || deltas_.front().is_full()) [[unlikely]] {
+      deltas_.emplace_front();  // New delta_slab to insert into
       try {
         return do_emplace();
       } catch (...) {
-        deltas_.pop_back();
+        deltas_.pop_front();
         throw;
       }
     }

@@ -1819,8 +1819,10 @@ auto GetDecodedBuffer(uint8_t (&buffer)[12]) -> DecodedBuffer {
 }
 
 auto GetDecodedBuffer(uint8_t const (&buffer)[12]) -> DecodedBufferConst {
-  uint32_t size = *((uint32_t *)buffer);
-  const uint8_t *data = (uint8_t *)*((uint64_t *)&buffer[sizeof(size)]);
+  uint32_t size = 0;
+  uint8_t *data = nullptr;
+  memcpy(&size, buffer, sizeof(uint32_t));
+  memcpy(&data, buffer + sizeof(uint32_t), sizeof(uint8_t *));
 
   if (size == 0) {
     return {std::span<uint8_t>{}, StorageMode::EMPTY};
