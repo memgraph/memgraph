@@ -91,7 +91,7 @@ auto RemovedEdges_ActionMethod(
   // clang-format off
   using enum memgraph::storage::Delta::Action;
   return memgraph::utils::Overloaded{
-      // If we see ADD, that means that this edge got removed (we are not interested in those)
+      // If we see ADD, that means that this edge got removed (we are interested in those)
       memgraph::storage::ActionMethod <(dir == memgraph::storage::EdgeDirection::IN) ? ADD_IN_EDGE : ADD_OUT_EDGE> (
           [&](memgraph::storage::Delta const &delta) {
               edges.emplace_back(delta.vertex_edge.edge_type, delta.vertex_edge.vertex, delta.vertex_edge.edge);
