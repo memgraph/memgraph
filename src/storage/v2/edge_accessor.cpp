@@ -218,10 +218,9 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAc
   std::optional<ReturnType> id_old_new_change;
   utils::AtomicMemoryBlock([this, &properties, &id_old_new_change, skip_duplicate_write, &schema_acc]() {
     id_old_new_change.emplace(edge_.ptr->properties.UpdateProperties(properties));
-    for (auto &[property, old_value, new_value] : *id_old_new_change) {
+    for (auto const &[property, old_value, new_value] : *id_old_new_change) {
       if (skip_duplicate_write && old_value == new_value) continue;
-      CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), from_vertex_, property,
-                         std::move(old_value));
+      CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), from_vertex_, property, old_value);
       storage_->indices_.UpdateOnSetProperty(edge_type_, property, new_value, from_vertex_, to_vertex_, edge_.ptr,
                                              *transaction_);
       if (schema_acc)

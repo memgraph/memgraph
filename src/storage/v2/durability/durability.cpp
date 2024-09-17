@@ -501,7 +501,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
       try {
         auto info = LoadWal(wal_file.path, &indices_constraints, last_loaded_timestamp, vertices, edges, name_id_mapper,
                             edge_count, config.salient.items, enum_store,
-                            config.salient.items.enable_schema_info ? schema_info : nullptr, std::move(find_edge));
+                            config.salient.items.enable_schema_info ? schema_info : nullptr, find_edge);
         recovery_info.next_vertex_id = std::max(recovery_info.next_vertex_id, info.next_vertex_id);
         recovery_info.next_edge_id = std::max(recovery_info.next_edge_id, info.next_edge_id);
         recovery_info.next_timestamp = std::max(recovery_info.next_timestamp, info.next_timestamp);

@@ -5133,7 +5133,7 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
     return schema;
   };
 
-  return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
+  return PreparedQuery{std::move(callback.header), parsed_query.required_privileges,
                        [handler = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
                            AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
                          if (!pull_plan) {

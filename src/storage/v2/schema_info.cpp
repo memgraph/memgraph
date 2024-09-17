@@ -353,7 +353,7 @@ nlohmann::json PropertyInfo::ToJson(const EnumStore &enum_store, std::string_vie
 nlohmann::json TrackingInfo::ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store) const {
   nlohmann::json::object_t tracking_info;
   tracking_info.emplace("count", n);
-  const auto &[prop_itr, __] = tracking_info.emplace("properties", nlohmann::json::array_t{});
+  const auto &[prop_itr, _] = tracking_info.emplace("properties", nlohmann::json::array_t{});
   for (const auto &[p, info] : properties) {
     prop_itr->second.emplace_back(info.ToJson(enum_store, name_id_mapper.IdToName(p.AsUint()), std::max(n, 1)));
   }
@@ -372,8 +372,8 @@ nlohmann::json Tracking::ToJson(NameIdMapper &name_id_mapper, const EnumStore &e
   for (const auto &[labels, info] : vertex_state_) {
     auto node = nlohmann::json::object();
     const auto &[labels_itr, _] = node.emplace("labels", nlohmann::json::array_t{});
-    for (const auto l : labels) {
-      labels_itr->emplace_back(name_id_mapper.IdToName(l.AsUint()));
+    for (const auto labelId : labels) {
+      labels_itr->emplace_back(name_id_mapper.IdToName(labelId.AsUint()));
     }
     std::sort(labels_itr->begin(), labels_itr->end());
     node.update(info.ToJson(name_id_mapper, enum_store));
@@ -387,13 +387,13 @@ nlohmann::json Tracking::ToJson(NameIdMapper &name_id_mapper, const EnumStore &e
     auto edge = nlohmann::json::object();
     edge.emplace("type", name_id_mapper.IdToName(edge_type.type.AsUint()));
     const auto &[out_labels_itr, _] = edge.emplace("start_node_labels", nlohmann::json::array_t{});
-    for (const auto l : edge_type.from) {
-      out_labels_itr->emplace_back(name_id_mapper.IdToName(l.AsUint()));
+    for (const auto labelId : edge_type.from) {
+      out_labels_itr->emplace_back(name_id_mapper.IdToName(labelId.AsUint()));
     }
     std::sort(out_labels_itr->begin(), out_labels_itr->end());
     const auto &[in_labels_itr, _b] = edge.emplace("end_node_labels", nlohmann::json::array_t{});
-    for (const auto l : edge_type.to) {
-      in_labels_itr->emplace_back(name_id_mapper.IdToName(l.AsUint()));
+    for (const auto labelId : edge_type.to) {
+      in_labels_itr->emplace_back(name_id_mapper.IdToName(labelId.AsUint()));
     }
     std::sort(in_labels_itr->begin(), in_labels_itr->end());
     edge.update(info.ToJson(name_id_mapper, enum_store));
@@ -431,7 +431,7 @@ inline utils::small_vector<LabelId> GetLabels(const Vertex &vertex, uint64_t com
   return labels;
 }
 
-void VertexHandler::UpdateProperty(PropertyId key, const PropertyValue &value) {
+void VertexHandler::UpdateProperty(PropertyId /*key*/, const PropertyValue & /*value*/) {
   update_property_ = true;
   // TODO Move the post process property diff here
 }

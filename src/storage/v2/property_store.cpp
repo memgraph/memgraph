@@ -1279,8 +1279,6 @@ enum class ExpectedPropertyStatus {
   switch (metadata->type) {
     using enum Type;
     case EMPTY:
-      type = ExtendedPropertyType{PropertyValue::Type::Null};
-      break;
     case NONE:
       type = ExtendedPropertyType{PropertyValue::Type::Null};
       break;
@@ -1314,8 +1312,6 @@ enum class ExpectedPropertyStatus {
       break;
     }
     case ZONED_TEMPORAL_DATA:
-      type = ExtendedPropertyType{PropertyValue::Type::ZonedTemporalData};
-      break;
     case OFFSET_ZONED_TEMPORAL_DATA:
       type = ExtendedPropertyType{PropertyValue::Type::ZonedTemporalData};  // NOT SURE
       break;
@@ -1414,8 +1410,6 @@ enum class ExpectedPropertyStatus {
   switch (metadata->type) {
     using enum Type;
     case EMPTY:
-      type = ExtendedPropertyType{PropertyValue::Type::Null};
-      break;
     case NONE:
       type = ExtendedPropertyType{PropertyValue::Type::Null};
       break;
@@ -1444,8 +1438,6 @@ enum class ExpectedPropertyStatus {
       return PropertyId::FromUint(*property_id);
     }
     case ZONED_TEMPORAL_DATA:
-      type = ExtendedPropertyType{PropertyValue::Type::ZonedTemporalData};
-      break;
     case OFFSET_ZONED_TEMPORAL_DATA:
       type = ExtendedPropertyType{PropertyValue::Type::ZonedTemporalData};  // NOT SURE
       break;
