@@ -75,14 +75,16 @@
 (defn full-generator
   "Construct nemesis generator."
   []
-  (gen/phases (cycle [(gen/sleep 5)
-                      {:type :info, :f :kill-node}
-                      (gen/sleep 5)
-                      {:type :info, :f :restart-node}
-                      (gen/sleep 5)
-                      {:type :info, :f :start-partition-halves}
-                      (gen/sleep 5)
-                      {:type :info, :f :stop-partition-halves}])))
+  (gen/phases
+   (gen/sleep 5)
+   (cycle [(gen/sleep 5)
+           {:type :info, :f :kill-node}
+           (gen/sleep 5)
+           {:type :info, :f :restart-node}
+           (gen/sleep 5)
+           {:type :info, :f :start-partition-halves}
+           (gen/sleep 5)
+           {:type :info, :f :stop-partition-halves}])))
 
 (defn nemesis
   "Composite nemesis and generator"
@@ -90,7 +92,8 @@
   {:nemesis (full-nemesis nodes-config)
    :generator (full-generator)
    :final-generator
-   (->> [(when (:partition-halves? nemesis-opts) :stop-partition-halves)
-         (when (:kill-node? nemesis-opts) :restart-node)]
-        (remove nil?)
-        (map utils/op))})
+
+   (map utils/op
+        (remove nil?
+                [(when (:partition-halves? nemesis-opts) :stop-partition-halves)
+                 (when (:kill-node? nemesis-opts) :restart-node)]))})

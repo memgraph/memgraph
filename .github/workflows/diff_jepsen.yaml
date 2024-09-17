@@ -81,12 +81,32 @@ jobs:
           cd tests/jepsen
           ./run.sh unit-tests --binary ../../build/memgraph
 
-      - name: Run Jepsen tests
+      - name: Run replication bank test
         run: |
           cd tests/jepsen
-          ./run.sh test-all-individually \
+          ./run.sh test \
           --binary ../../build/memgraph \
-          --run-args "--time-limit 120 --concurrency 6" \
+          --run-args "--workload bank --nodes-config resources/replication-config.edn --time-limit 120 --concurrency 5" \
+          --ignore-run-stdout-logs \
+          --ignore-run-stderr-logs \
+          --nodes-no 5
+
+      - name: Run replication large test
+        run: |
+          cd tests/jepsen
+          ./run.sh test \
+          --binary ../../build/memgraph \
+          --run-args "--workload large --nodes-config resources/replication-config.edn --time-limit 60 --concurrency 5" \
+          --ignore-run-stdout-logs \
+          --ignore-run-stderr-logs \
+          --nodes-no 5
+
+      - name: Run HA bank test
+        run: |
+          cd tests/jepsen
+          ./run.sh test \
+          --binary ../../build/memgraph \
+          --run-args "--workload habank --nodes-config resources/cluster.edn --time-limit 120 --concurrency 6" \
           --ignore-run-stdout-logs \
           --ignore-run-stderr-logs \
           --nodes-no 6 \
