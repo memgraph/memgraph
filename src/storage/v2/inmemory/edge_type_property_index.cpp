@@ -259,17 +259,14 @@ uint64_t InMemoryEdgeTypePropertyIndex::ApproximateEdgeCount(
 
 void InMemoryEdgeTypePropertyIndex::UpdateOnEdgeModification(Vertex *old_from, Vertex *old_to, Vertex *new_from,
                                                              Vertex *new_to, EdgeRef edge_ref, EdgeTypeId edge_type,
-                                                             PropertyId property, const Transaction &tx) {
+                                                             PropertyId property, const PropertyValue &value,
+                                                             const Transaction &tx) {
   auto it = index_.find({edge_type, property});
   if (it == index_.end()) {
     return;
   }
-  auto acc = it->second.access();
 
-  auto entry_to_update = std::ranges::find_if(acc, [&](const auto &entry) {
-    return entry.from_vertex == old_from && entry.to_vertex == old_to && entry.edge == edge_ref.ptr;
-  });
-  const auto value = entry_to_update->value;
+  auto acc = it->second.access();
   acc.insert(Entry{value, new_from, new_to, edge_ref.ptr, tx.start_timestamp});
 }
 

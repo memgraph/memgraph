@@ -651,9 +651,9 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetFrom(EdgeAccessor
 
     auto *mem_edge_type_property_index =
         static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
-    for (const auto &[prop, _] : edge_ref.ptr->properties.Properties()) {
+    for (const auto &[prop, value] : edge_ref.ptr->properties.Properties()) {
       mem_edge_type_property_index->UpdateOnEdgeModification(old_from_vertex, to_vertex, new_from_vertex, to_vertex,
-                                                             edge_ref, edge_type, prop, transaction_);
+                                                             edge_ref, edge_type, prop, value, transaction_);
     }
 
     if (config_.enable_edges_metadata) {
@@ -769,9 +769,9 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetTo(EdgeAccessor *
                                                   edge_type, transaction_);
     auto *mem_edge_type_property_index =
         static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
-    for (const auto &[prop, _] : edge_ref.ptr->properties.Properties()) {
+    for (const auto &[prop, value] : edge_ref.ptr->properties.Properties()) {
       mem_edge_type_property_index->UpdateOnEdgeModification(from_vertex, old_to_vertex, from_vertex, new_to_vertex,
-                                                             edge_ref, edge_type, prop, transaction_);
+                                                             edge_ref, edge_type, prop, value, transaction_);
     }
 
     transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);

@@ -45,11 +45,9 @@ bool EdgeAccessor::IsDeleted() const {
 }
 
 bool EdgeAccessor::IsVisible(const View view) const {
-  bool exists = true;
-  bool deleted = true;
-  // When edges don't have properties, their isolation level is still dictated by MVCC ->
-  // iterate over the deltas of the from_vertex_ and see which deltas can be applied on edges.
-  if (!storage_->config_.salient.items.properties_on_edges) {
+  auto check_from_vertex_integrity = [&view, this]() -> bool {
+    bool exists = true;
+    bool deleted = true;
     Delta *delta = nullptr;
     {
       auto guard = std::shared_lock{from_vertex_->lock};
@@ -85,36 +83,94 @@ bool EdgeAccessor::IsVisible(const View view) const {
       }
     });
     return exists && (for_deleted_ || !deleted);
+  };
+  auto check_to_vertex_integrity = [&view, this]() -> bool {
+    bool exists = true;
+    bool deleted = true;
+    Delta *delta = nullptr;
+    {
+      auto guard = std::shared_lock{to_vertex_->lock};
+      // Initialize deleted by checking if out edges contain edge_
+      deleted = std::find_if(to_vertex_->in_edges.begin(), to_vertex_->in_edges.end(), [&](const auto &in_edge) {
+                  return std::get<2>(in_edge) == edge_;
+                }) == to_vertex_->in_edges.end();
+      delta = to_vertex_->delta;
+    }
+    ApplyDeltasForRead(transaction_, delta, view, [&](const Delta &delta) {
+      switch (delta.action) {
+        case Delta::Action::ADD_LABEL:
+        case Delta::Action::REMOVE_LABEL:
+        case Delta::Action::SET_PROPERTY:
+        case Delta::Action::REMOVE_OUT_EDGE:
+        case Delta::Action::ADD_OUT_EDGE:
+        case Delta::Action::RECREATE_OBJECT:
+        case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+        case Delta::Action::DELETE_OBJECT:
+          break;
+        case Delta::Action::ADD_IN_EDGE: {  // relevant for the from_vertex_ -> we just deleted the edge
+          if (delta.vertex_edge.edge == edge_) {
+            deleted = false;
+          }
+          break;
+        }
+        case Delta::Action::REMOVE_IN_EDGE: {  // also relevant for the from_vertex_ -> we just added the edge
+          if (delta.vertex_edge.edge == edge_) {
+            exists = false;
+          }
+          break;
+        }
+      }
+    });
+    return exists && (for_deleted_ || !deleted);
+  };
+  auto check_presence_of_edge = [&view, this]() -> bool {
+    bool deleted = true;
+    bool exists = true;
+    Delta *delta = nullptr;
+    {
+      auto guard = std::shared_lock{edge_.ptr->lock};
+      deleted = edge_.ptr->deleted;
+      delta = edge_.ptr->delta;
+    }
+    ApplyDeltasForRead(transaction_, delta, view, [&](const Delta &delta) {
+      switch (delta.action) {
+        case Delta::Action::ADD_LABEL:
+        case Delta::Action::REMOVE_LABEL:
+        case Delta::Action::SET_PROPERTY:
+        case Delta::Action::ADD_IN_EDGE:
+        case Delta::Action::ADD_OUT_EDGE:
+        case Delta::Action::REMOVE_IN_EDGE:
+        case Delta::Action::REMOVE_OUT_EDGE:
+          break;
+        case Delta::Action::RECREATE_OBJECT: {
+          deleted = false;
+          break;
+        }
+        case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+        case Delta::Action::DELETE_OBJECT: {
+          exists = false;
+          break;
+        }
+      }
+    });
+
+    return exists && (for_deleted_ || !deleted);
+  };
+
+  // When edges don't have properties, their isolation level is still dictated by MVCC ->
+  // iterate over the deltas of the from_vertex_ and see which deltas can be applied on edges.
+  if (!storage_->config_.salient.items.properties_on_edges) {
+    return check_from_vertex_integrity();
   }
 
-  Delta *delta = nullptr;
-  {
-    auto guard = std::shared_lock{edge_.ptr->lock};
-    deleted = edge_.ptr->deleted;
-    delta = edge_.ptr->delta;
-  }
-  ApplyDeltasForRead(transaction_, delta, view, [&](const Delta &delta) {
-    switch (delta.action) {
-      case Delta::Action::ADD_LABEL:
-      case Delta::Action::REMOVE_LABEL:
-      case Delta::Action::SET_PROPERTY:
-      case Delta::Action::ADD_IN_EDGE:
-      case Delta::Action::ADD_OUT_EDGE:
-      case Delta::Action::REMOVE_IN_EDGE:
-      case Delta::Action::REMOVE_OUT_EDGE:
-        break;
-      case Delta::Action::RECREATE_OBJECT: {
-        deleted = false;
-        break;
-      }
-      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-      case Delta::Action::DELETE_OBJECT: {
-        exists = false;
-        break;
-      }
-    }
-  });
-  return exists && (for_deleted_ || !deleted);
+  bool visible = check_presence_of_edge();
+  if (!visible) return false;
+
+  visible = check_from_vertex_integrity();
+  if (!visible) return false;
+
+  visible = check_to_vertex_integrity();
+  return visible;
 }
 
 VertexAccessor EdgeAccessor::FromVertex() const { return VertexAccessor{from_vertex_, storage_, transaction_}; }
