@@ -151,7 +151,7 @@ void RecoverConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadat
                         const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info) {
   RecoverExistenceConstraints(constraints_metadata, constraints, vertices, name_id_mapper, parallel_exec_info);
   RecoverUniqueConstraints(constraints_metadata, constraints, vertices, name_id_mapper, parallel_exec_info);
-  RecoverTypeConstraints(constraints_metadata, constraints, vertices, name_id_mapper, parallel_exec_info);
+  RecoverTypeConstraints(constraints_metadata, constraints, vertices, parallel_exec_info);
 }
 
 void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadata &indices_metadata, Indices *indices,
@@ -311,7 +311,7 @@ void RecoverUniqueConstraints(const RecoveredIndicesAndConstraints::ConstraintsM
 }
 
 void RecoverTypeConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &constraints_metadata,
-                            Constraints *constraints, utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
+                            Constraints *constraints, utils::SkipList<Vertex> *vertices,
                             const std::optional<ParallelizedSchemaCreationInfo> & /**/) {
   // TODO: parallel recovery
   spdlog::info("Recreating {} type constraints from metadata.", constraints_metadata.type.size());

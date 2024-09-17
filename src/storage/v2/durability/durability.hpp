@@ -129,8 +129,7 @@ void RecoverUniqueConstraints(const RecoveredIndicesAndConstraints::ConstraintsM
                               utils::SkipList<Vertex> *, NameIdMapper *,
                               const std::optional<ParallelizedSchemaCreationInfo> &);
 void RecoverTypeConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &, Constraints *,
-                            utils::SkipList<Vertex> *, NameIdMapper *,
-                            const std::optional<ParallelizedSchemaCreationInfo> &);
+                            utils::SkipList<Vertex> *, const std::optional<ParallelizedSchemaCreationInfo> &);
 struct Recovery {
  public:
   /// Recovers data either from a snapshot and/or WAL files.
