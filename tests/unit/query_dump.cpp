@@ -685,7 +685,7 @@ TYPED_TEST(DumpTest, IndicesKeys) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(DumpTest, EdgeIndicesKeys) {
   if (this->config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL) {
-    GTEST_SKIP() << "Point index not implemented for edge indices";
+    GTEST_SKIP() << "Edge index not implemented for on-disk storage mode";
   }
 
   {
