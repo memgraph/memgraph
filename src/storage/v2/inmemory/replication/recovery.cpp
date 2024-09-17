@@ -186,7 +186,7 @@ std::vector<RecoveryStep> GetRecoverySteps(uint64_t replica_commit, utils::FileR
     // Check what part of the WAL chain is needed
     bool covered_by_wals = false;
     auto prev_seq{wal_files->back().seq_num};
-    int first_useful_wal = wal_files->size() - 1;
+    int64_t first_useful_wal = (int64_t)wal_files->size() - 1;
     // Going from newest to oldest
     for (; first_useful_wal >= 0; --first_useful_wal) {
       const auto &wal = wal_files.value()[first_useful_wal];
@@ -203,7 +203,7 @@ std::vector<RecoveryStep> GetRecoverySteps(uint64_t replica_commit, utils::FileR
         break;
       }
     }
-    first_useful_wal = std::max(first_useful_wal, 0);  // -1 still means we need the whole chain
+    first_useful_wal = std::max<int64_t>(first_useful_wal, 0);  // -1 means the first useful one is at position 0
     // Finished the WAL chain, but still missing some data
     if (!covered_by_wals) {
       const auto &wal = wal_files.value()[first_useful_wal];
