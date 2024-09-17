@@ -1090,11 +1090,11 @@ RecoveredSnapshot LoadSnapshotVersion14(const std::filesystem::path &path, utils
       if (!maybe_epoch_id) {
         throw RecoveryFailure("Couldn't read epoch id!");
       }
-      const auto maybe_last_commit_timestamp = snapshot.ReadUint();
-      if (!maybe_last_commit_timestamp) {
-        throw RecoveryFailure("Couldn't read last commit timestamp!");
+      const auto maybe_last_durable_timestamp = snapshot.ReadUint();
+      if (!maybe_last_durable_timestamp) {
+        throw RecoveryFailure("Couldn't read last durable timestamp!");
       }
-      epoch_history->emplace_back(std::move(*maybe_epoch_id), *maybe_last_commit_timestamp);
+      epoch_history->emplace_back(std::move(*maybe_epoch_id), *maybe_last_durable_timestamp);
     }
   }
 
@@ -1380,11 +1380,11 @@ RecoveredSnapshot LoadSnapshotVersion15(const std::filesystem::path &path, utils
       if (!maybe_epoch_id) {
         throw RecoveryFailure("Couldn't read epoch id!");
       }
-      const auto maybe_last_commit_timestamp = snapshot.ReadUint();
-      if (!maybe_last_commit_timestamp) {
-        throw RecoveryFailure("Couldn't read last commit timestamp!");
+      const auto maybe_last_durable_timestamp = snapshot.ReadUint();
+      if (!maybe_last_durable_timestamp) {
+        throw RecoveryFailure("Couldn't read last durable timestamp!");
       }
-      epoch_history->emplace_back(std::move(*maybe_epoch_id), *maybe_last_commit_timestamp);
+      epoch_history->emplace_back(std::move(*maybe_epoch_id), *maybe_last_durable_timestamp);
     }
   }
 
@@ -1724,11 +1724,11 @@ RecoveredSnapshot LoadSnapshotVersion16(const std::filesystem::path &path, utils
       if (!maybe_epoch_id) {
         throw RecoveryFailure("Couldn't read maybe epoch id!");
       }
-      const auto maybe_last_commit_timestamp = snapshot.ReadUint();
-      if (!maybe_last_commit_timestamp) {
-        throw RecoveryFailure("Couldn't read maybe last commit timestamp!");
+      const auto maybe_last_durable_timestamp = snapshot.ReadUint();
+      if (!maybe_last_durable_timestamp) {
+        throw RecoveryFailure("Couldn't read maybe last durable timestamp!");
       }
-      epoch_history->emplace_back(std::move(*maybe_epoch_id), *maybe_last_commit_timestamp);
+      epoch_history->emplace_back(std::move(*maybe_epoch_id), *maybe_last_durable_timestamp);
     }
   }
 
@@ -2107,11 +2107,11 @@ RecoveredSnapshot LoadSnapshotVersion17(const std::filesystem::path &path, utils
       if (!maybe_epoch_id) {
         throw RecoveryFailure("Couldn't read maybe epoch id!");
       }
-      const auto maybe_last_commit_timestamp = snapshot.ReadUint();
-      if (!maybe_last_commit_timestamp) {
-        throw RecoveryFailure("Couldn't read maybe last commit timestamp!");
+      const auto maybe_last_durable_timestamp = snapshot.ReadUint();
+      if (!maybe_last_durable_timestamp) {
+        throw RecoveryFailure("Couldn't read maybe last durable timestamp!");
       }
-      epoch_history->emplace_back(std::move(*maybe_epoch_id), *maybe_last_commit_timestamp);
+      epoch_history->emplace_back(std::move(*maybe_epoch_id), *maybe_last_durable_timestamp);
     }
   }
 
@@ -3034,11 +3034,11 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
       if (!maybe_epoch_id) {
         throw RecoveryFailure("Couldn't read maybe epoch id!");
       }
-      const auto maybe_last_commit_timestamp = snapshot.ReadUint();
-      if (!maybe_last_commit_timestamp) {
-        throw RecoveryFailure("Couldn't read maybe last commit timestamp!");
+      const auto maybe_last_durable_timestamp = snapshot.ReadUint();
+      if (!maybe_last_durable_timestamp) {
+        throw RecoveryFailure("Couldn't read maybe last durable timestamp!");
       }
-      epoch_history->emplace_back(std::move(*maybe_epoch_id), *maybe_last_commit_timestamp);
+      epoch_history->emplace_back(std::move(*maybe_epoch_id), *maybe_last_durable_timestamp);
     }
   }
 
@@ -3065,8 +3065,11 @@ void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, co
       if (info.uuid != uuid) continue;
       wal_files.emplace_back(info.seq_num, info.from_timestamp, info.to_timestamp, item.path());
     } catch (const RecoveryFailure &e) {
-      spdlog::warn("Found a corrupt WAL file {} because of: {}. WAL file will be deleted.", item.path(), e.what());
-      file_retainer->DeleteFile(item.path());
+      // TODO If we want to do this we need a way to protect current wal file
+      // We can't get the engine lock here
+      // Maybe the file locker can help us. Careful, in any case we don't really want to delete it by accident.
+      // spdlog::warn("Found a corrupt WAL file {} because of: {}. WAL file will be deleted.", item.path(), e.what());
+      // file_retainer->DeleteFile(item.path());
     }
   }
 
@@ -3546,9 +3549,9 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
     offset_epoch_history = snapshot.GetPosition();
     snapshot.WriteMarker(Marker::SECTION_EPOCH_HISTORY);
     snapshot.WriteUint(epoch_history.size());
-    for (const auto &[epoch_id, last_commit_timestamp] : epoch_history) {
+    for (const auto &[epoch_id, last_durable_timestamp] : epoch_history) {
       snapshot.WriteString(epoch_id);
-      snapshot.WriteUint(last_commit_timestamp);
+      snapshot.WriteUint(last_durable_timestamp);
     }
   }
 
@@ -3600,6 +3603,9 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
       utils::DirExists(wal_directory)) {
     EnsureNecessaryWalFilesExist(wal_directory, uuid, std::move(old_snapshot_files), transaction, file_retainer);
   }
+
+  // We are not updating ldt here; we are only updating it when recovering from snapshot (because there is no other
+  // timestamp to use) and we are relaxing the ts checks on replica
 }
 
 }  // namespace memgraph::storage::durability

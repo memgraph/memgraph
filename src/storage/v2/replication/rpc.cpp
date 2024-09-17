@@ -51,6 +51,7 @@ void CurrentWalRes::Save(const CurrentWalRes &self, memgraph::slk::Builder *buil
   memgraph::slk::Save(self, builder);
 }
 void CurrentWalRes::Load(CurrentWalRes *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
+
 void TimestampReq::Save(const TimestampReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
 }
