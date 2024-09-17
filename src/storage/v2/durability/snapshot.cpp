@@ -17,7 +17,7 @@
 #include "flags/run_time_configurable.hpp"
 #include "license/license.hpp"
 #include "spdlog/spdlog.h"
-#include "storage/v2/constraints/type_constraints_type.hpp"
+#include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/durability/exceptions.hpp"
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/serialization.hpp"
@@ -3074,10 +3074,10 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
 
         AddRecoveredIndexConstraint(
             &indices_constraints.constraints.type,
-            {get_label_from_id(*label), get_property_from_id(*property), static_cast<TypeConstraintsType>(*type)},
+            {get_label_from_id(*label), get_property_from_id(*property), static_cast<TypeConstraintKind>(*type)},
             "The type constraint already exists!");
         SPDLOG_TRACE("Recovered metadata for IS TYPED {} constraint for :{}({})",
-                     TypeConstraintsTypeToString(static_cast<TypeConstraintsType>(*type)),
+                     TypeConstraintKindToString(static_cast<TypeConstraintKind>(*type)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
       }

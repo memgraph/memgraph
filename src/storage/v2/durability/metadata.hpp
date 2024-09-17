@@ -17,7 +17,7 @@
 #include <utility>
 #include <vector>
 
-#include "storage/v2/constraints/type_constraints_type.hpp"
+#include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/durability/exceptions.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
@@ -53,7 +53,7 @@ struct RecoveredIndicesAndConstraints {
   struct ConstraintsMetadata {
     std::vector<std::pair<LabelId, PropertyId>> existence;
     std::vector<std::pair<LabelId, std::set<PropertyId>>> unique;
-    std::vector<std::tuple<LabelId, PropertyId, TypeConstraintsType>> type;
+    std::vector<std::tuple<LabelId, PropertyId, TypeConstraintKind>> type;
   } constraints;
 };
 

@@ -32,7 +32,7 @@
 #include "query/trigger_context.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/config.hpp"
-#include "storage/v2/constraints/type_constraints_type.hpp"
+#include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -91,7 +91,7 @@ struct DatabaseState {
   struct LabelPropertyType {
     std::string label;
     std::string property;
-    memgraph::storage::TypeConstraintsType type;
+    memgraph::storage::TypeConstraintKind type;
   };
 
   std::set<Vertex> vertices;
@@ -1362,7 +1362,7 @@ TYPED_TEST(DumpTest, DumpTypeConstraints) {
     auto unique_acc = this->db->UniqueAccess();
     auto res = unique_acc->CreateTypeConstraint(this->db->storage()->NameToLabel("PERSON"),
                                                 this->db->storage()->NameToProperty("name"),
-                                                memgraph::storage::TypeConstraintsType::INTEGER);
+                                                memgraph::storage::TypeConstraintKind::INTEGER);
     ASSERT_FALSE(res.HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
@@ -1370,7 +1370,7 @@ TYPED_TEST(DumpTest, DumpTypeConstraints) {
     auto unique_acc = this->db->UniqueAccess();
     auto res = unique_acc->CreateTypeConstraint(this->db->storage()->NameToLabel("PERSON"),
                                                 this->db->storage()->NameToProperty("surname"),
-                                                memgraph::storage::TypeConstraintsType::STRING);
+                                                memgraph::storage::TypeConstraintKind::STRING);
     ASSERT_FALSE(res.HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }

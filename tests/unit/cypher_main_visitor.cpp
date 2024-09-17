@@ -43,7 +43,7 @@
 #include "query/procedure/module.hpp"
 #include "query/typed_value.hpp"
 
-#include "storage/v2/constraints/type_constraints_type.hpp"
+#include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
 #include "utils/variant_helpers.hpp"
@@ -2942,7 +2942,7 @@ TEST_P(CypherMainVisitorTest, CreateConstraint) {
     EXPECT_EQ(query->constraint_.label, ast_generator.Label("label"));
     EXPECT_THAT(query->constraint_.properties, UnorderedElementsAre(ast_generator.Prop("prop")));
     EXPECT_TRUE(query->constraint_.type_constraint.has_value());
-    EXPECT_EQ(query->constraint_.type_constraint, memgraph::storage::TypeConstraintsType::STRING);
+    EXPECT_EQ(query->constraint_.type_constraint, memgraph::storage::TypeConstraintKind::STRING);
   }
 }
 
@@ -3021,7 +3021,7 @@ TEST_P(CypherMainVisitorTest, DropConstraint) {
     EXPECT_EQ(query->constraint_.label, ast_generator.Label("label"));
     EXPECT_THAT(query->constraint_.properties, UnorderedElementsAre(ast_generator.Prop("prop")));
     EXPECT_TRUE(query->constraint_.type_constraint.has_value());
-    EXPECT_EQ(query->constraint_.type_constraint, memgraph::storage::TypeConstraintsType::STRING);
+    EXPECT_EQ(query->constraint_.type_constraint, memgraph::storage::TypeConstraintKind::STRING);
   }
 }
 

@@ -429,11 +429,11 @@ class InMemoryStorage final : public Storage {
 
     /// TODO COMMENT
     utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateTypeConstraint(
-        LabelId label, PropertyId property, TypeConstraintsType type) override;
+        LabelId label, PropertyId property, TypeConstraintKind type) override;
 
     /// TODO COMMENT
     utils::BasicResult<StorageExistenceConstraintDroppingError, void> DropTypeConstraint(
-        LabelId label, PropertyId property, TypeConstraintsType type) override;
+        LabelId label, PropertyId property, TypeConstraintKind type) override;
 
     void DropGraph() override;
 

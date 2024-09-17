@@ -14,7 +14,7 @@
 #include "dbms/constants.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "replication/replication_server.hpp"
-#include "storage/v2/constraints/type_constraints_type.hpp"
+#include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/version.hpp"
@@ -951,7 +951,7 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
       }
       case storage::durability::WalDeltaData::Type::TYPE_CONSTRAINT_CREATE: {
         spdlog::trace("       Create IS TYPED {} constraint on :{} ({})",
-                      storage::TypeConstraintsTypeToString(delta.operation_label_property_type.type),
+                      storage::TypeConstraintKindToString(delta.operation_label_property_type.type),
                       delta.operation_label_property_type.label, delta.operation_label_property_type.property);
 
         auto *transaction = get_transaction_accessor(delta_timestamp, kUniqueAccess);
@@ -966,7 +966,7 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
       }
       case storage::durability::WalDeltaData::Type::TYPE_CONSTRAINT_DROP: {
         spdlog::trace("       Drop IS TYPED {} constraint on :{} ({})",
-                      storage::TypeConstraintsTypeToString(delta.operation_label_property_type.type),
+                      storage::TypeConstraintKindToString(delta.operation_label_property_type.type),
                       delta.operation_label_property_type.label, delta.operation_label_property_type.property);
 
         auto *transaction = get_transaction_accessor(delta_timestamp, kUniqueAccess);

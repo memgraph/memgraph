@@ -9,6 +9,7 @@ target_sources(mg-storage-v2
         constraints/constraints.cpp
         constraints/existence_constraints.cpp
         constraints/type_constraints.cpp
+        constraints/type_constraints_validator.cpp
         disk/durable_metadata.cpp
         disk/edge_import_mode_cache.cpp
         disk/edge_type_index.cpp
@@ -65,7 +66,9 @@ target_sources(mg-storage-v2
         property_store.hpp
         property_value.hpp
         transaction.hpp
-        constraints/type_constraints_type.hpp
+        constraints/type_constraints_kind.hpp
+        constraints/type_constraints.hpp
+        constraints/type_constraints_validator.hpp
         vertex_info_cache.hpp
         vertex_info_cache_fwd.hpp
         schema_info.hpp

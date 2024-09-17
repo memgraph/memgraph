@@ -29,7 +29,7 @@
 #include "query/string_helpers.hpp"
 #include "query/trigger_context.hpp"
 #include "query/typed_value.hpp"
-#include "storage/v2/constraints/type_constraints_type.hpp"
+#include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/temporal.hpp"
@@ -332,9 +332,9 @@ void DumpUniqueConstraint(std::ostream *os, query::DbAccessor *dba, storage::Lab
 }
 
 void DumpTypeConstraint(std::ostream *os, query::DbAccessor *dba, storage::LabelId label, storage::PropertyId property,
-                        storage::TypeConstraintsType type) {
+                        storage::TypeConstraintKind type) {
   *os << "CREATE CONSTRAINT ON (u:" << EscapeName(dba->LabelToName(label)) << ") ASSERT u."
-      << EscapeName(dba->PropertyToName(property)) << " IS TYPED " << storage::TypeConstraintsTypeToString(type) << ";";
+      << EscapeName(dba->PropertyToName(property)) << " IS TYPED " << storage::TypeConstraintKindToString(type) << ";";
 }
 
 const char *triggerPhaseToString(TriggerPhase phase) {

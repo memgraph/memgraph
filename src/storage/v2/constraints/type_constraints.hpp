@@ -11,7 +11,7 @@
 
 #pragma once
 
-#include <storage/v2/constraints/type_constraints_type.hpp>
+#include <storage/v2/constraints/type_constraints_kind.hpp>
 #include <utility>
 #include "absl/container/flat_hash_map.h"
 #include "storage/v2/constraints/constraint_violation.hpp"
@@ -35,30 +35,26 @@ class TypeConstraints {
                                                   const LabelId &label, const PropertyId &property);
   };
 
-  [[nodiscard]] static std::optional<ConstraintViolation> ValidateVertexOnConstraint(const Vertex &vertex,
-                                                                                     LabelId label, PropertyId property,
-                                                                                     TypeConstraintsType type);
-
   [[nodiscard]] static std::optional<ConstraintViolation> ValidateVerticesOnConstraint(
-      utils::SkipList<Vertex>::Accessor vertices, LabelId label, PropertyId property, TypeConstraintsType type);
+      utils::SkipList<Vertex>::Accessor vertices, LabelId label, PropertyId property, TypeConstraintKind type);
 
   [[nodiscard]] std::optional<ConstraintViolation> Validate(const Vertex &vertex) const;
   [[nodiscard]] std::optional<ConstraintViolation> Validate(const Vertex &vertex, LabelId label) const;
-  [[nodiscard]] std::optional<ConstraintViolation> Validate(const Vertex &vertex, PropertyId property) const;
   [[nodiscard]] std::optional<ConstraintViolation> Validate(const Vertex &vertex, PropertyId property_id,
                                                             const PropertyValue &property_value) const;
   [[nodiscard]] std::optional<ConstraintViolation> ValidateVertices(utils::SkipList<Vertex>::Accessor vertices) const;
 
   bool empty() const;
   bool ConstraintExists(LabelId label, PropertyId property) const;
-  bool InsertConstraint(LabelId label, PropertyId property, TypeConstraintsType type);
-  bool DropConstraint(LabelId label, PropertyId property, TypeConstraintsType type);
+  bool InsertConstraint(LabelId label, PropertyId property, TypeConstraintKind type);
+  bool DropConstraint(LabelId label, PropertyId property, TypeConstraintKind type);
 
-  std::vector<std::tuple<LabelId, PropertyId, TypeConstraintsType>> ListConstraints() const;
+  std::vector<std::tuple<LabelId, PropertyId, TypeConstraintKind>> ListConstraints() const;
   void DropGraphClearConstraints();
 
  private:
-  absl::flat_hash_map<std::pair<LabelId, PropertyId>, TypeConstraintsType> constraints_;
+  absl::flat_hash_map<std::pair<LabelId, PropertyId>, TypeConstraintKind> constraints_;
+  absl::flat_hash_map<LabelId, absl::flat_hash_map<PropertyId, TypeConstraintKind>> l2p_constraints_;  // TODO: maintain
 };
 
 }  // namespace memgraph::storage

@@ -241,7 +241,7 @@ def test_type_constraint_drop_wrong_type(memgraph):
 def test_type_constraint_with_triggers_success(memgraph):
     memgraph.execute("CREATE CONSTRAINT ON (n:Node) ASSERT n.prop IS TYPED INTEGER;")
     memgraph.execute(
-        "CREATE TRIGGER test_trigger ON () CREATE AFTER COMMIT EXECUTE UNWIND createdVertices AS vertex SET vertex.prop = 42;"
+        "CREATE TRIGGER test_trigger ON () CREATE BEFORE COMMIT EXECUTE UNWIND createdVertices AS vertex SET vertex.prop = 42;"
     )
     memgraph.execute("CREATE (n:label {prop:1});")
 
@@ -255,12 +255,11 @@ def test_type_constraint_with_triggers_success(memgraph):
 def test_type_constraint_with_triggers_fail_modify(memgraph):
     memgraph.execute("CREATE CONSTRAINT ON (n:Node) ASSERT n.prop IS TYPED INTEGER;")
     memgraph.execute(
-        "CREATE TRIGGER test_trigger ON () CREATE AFTER COMMIT EXECUTE UNWIND createdVertices AS vertex SET vertex.prop = 'string';"
+        "CREATE TRIGGER test_trigger ON () CREATE BEFORE COMMIT EXECUTE UNWIND createdVertices AS vertex SET vertex.prop = 'string';"
     )
-    memgraph.execute("CREATE (n:Node {prop:1});")
 
-    properties = list(memgraph.execute_and_fetch("MATCH (n) RETURN n;"))[0]["n"]._properties
-    assert properties["prop"] == 1  # trigger fails and doesn't modify node
+    with pytest.raises(GQLAlchemyError):
+        memgraph.execute("CREATE (n:Node {prop:1});")
 
     memgraph.execute("DROP TRIGGER test_trigger;")
     memgraph.execute("DROP CONSTRAINT ON (n:Node) ASSERT n.prop IS TYPED INTEGER;")
@@ -268,11 +267,10 @@ def test_type_constraint_with_triggers_fail_modify(memgraph):
 
 def test_type_constraint_with_triggers_fail_create(memgraph):
     memgraph.execute("CREATE CONSTRAINT ON (n:Node) ASSERT n.prop IS TYPED INTEGER;")
-    memgraph.execute("CREATE TRIGGER test_trigger ON () CREATE AFTER COMMIT EXECUTE CREATE (n:Node {prop: 'string'})")
-    memgraph.execute("CREATE (n:Node {prop:1});")
+    memgraph.execute("CREATE TRIGGER test_trigger ON () CREATE BEFORE COMMIT EXECUTE CREATE (n:Node {prop: 'string'})")
 
-    nodes = list(memgraph.execute_and_fetch("MATCH (n) RETURN n;"))
-    assert len(nodes) == 1  # trigger fails and doesn't create new node
+    with pytest.raises(GQLAlchemyError):
+        memgraph.execute("CREATE (n:Node {prop:1});")
 
     memgraph.execute("DROP TRIGGER test_trigger;")
     memgraph.execute("DROP CONSTRAINT ON (n:Node) ASSERT n.prop IS TYPED INTEGER;")

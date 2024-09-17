@@ -32,7 +32,7 @@
 #include "storage/v2/config.hpp"
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/constraints/existence_constraints.hpp"
-#include "storage/v2/constraints/type_constraints_type.hpp"
+#include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/marker.hpp"
 #include "storage/v2/durability/paths.hpp"
@@ -161,7 +161,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       // Create type constraint.
       auto unique_acc = store->UniqueAccess();
       ASSERT_FALSE(
-          unique_acc->CreateTypeConstraint(label_indexed, property_point, memgraph::storage::TypeConstraintsType::POINT)
+          unique_acc->CreateTypeConstraint(label_indexed, property_point, memgraph::storage::TypeConstraintKind::POINT)
               .HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
@@ -521,7 +521,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
                                        std::make_pair(base_label_unindexed, std::set{property_id, property_extra})));
 #ifdef MG_ENTERPRISE
           ASSERT_THAT(info.type, UnorderedElementsAre(std::make_tuple(base_label_indexed, property_point,
-                                                                      memgraph::storage::TypeConstraintsType::POINT)));
+                                                                      memgraph::storage::TypeConstraintKind::POINT)));
 #endif
           break;
         case DatasetType::ONLY_EXTENDED:
@@ -540,7 +540,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
                                            std::make_pair(extended_label_unused, std::set{property_count})));
 #ifdef MG_ENTERPRISE
           ASSERT_THAT(info.type, UnorderedElementsAre(std::make_tuple(base_label_indexed, property_point,
-                                                                      memgraph::storage::TypeConstraintsType::POINT)));
+                                                                      memgraph::storage::TypeConstraintKind::POINT)));
 #endif
           break;
       }

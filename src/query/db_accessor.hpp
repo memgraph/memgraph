@@ -838,12 +838,12 @@ class DbAccessor final {
   }
 
   utils::BasicResult<storage::StorageExistenceConstraintDefinitionError, void> CreateTypeConstraint(
-      storage::LabelId label, storage::PropertyId property, storage::TypeConstraintsType type) {
+      storage::LabelId label, storage::PropertyId property, storage::TypeConstraintKind type) {
     return accessor_->CreateTypeConstraint(label, property, type);
   }
 
   utils::BasicResult<storage::StorageExistenceConstraintDroppingError, void> DropTypeConstraint(
-      storage::LabelId label, storage::PropertyId property, storage::TypeConstraintsType type) {
+      storage::LabelId label, storage::PropertyId property, storage::TypeConstraintKind type) {
     return accessor_->DropTypeConstraint(label, property, type);
   }
 

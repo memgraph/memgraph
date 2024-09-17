@@ -11,7 +11,7 @@
 
 #include "storage/v2/durability/wal.hpp"
 
-#include "storage/v2/constraints/type_constraints_type.hpp"
+#include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/delta.hpp"
 #include "storage/v2/durability/exceptions.hpp"
 #include "storage/v2/durability/marker.hpp"
@@ -416,7 +416,7 @@ WalDeltaData ReadSkipWalDeltaData(BaseDecoder *decoder) {
 
         auto type = decoder->ReadUint();
         if (!type) throw RecoveryFailure("Invalid WAL data!");
-        delta.operation_label_property_type.type = static_cast<TypeConstraintsType>(*type);
+        delta.operation_label_property_type.type = static_cast<TypeConstraintKind>(*type);
       } else {
         if (!decoder->SkipString() || !decoder->SkipString() || !decoder->ReadUint())
           throw RecoveryFailure("Invalid WAL data!");
@@ -1166,7 +1166,7 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
         case WalDeltaData::Type::TYPE_CONSTRAINT_CREATE: {
           auto label = LabelId::FromUint(name_id_mapper->NameToId(delta.operation_label_property_type.label));
           auto property = PropertyId::FromUint(name_id_mapper->NameToId(delta.operation_label_property_type.property));
-          auto type = static_cast<TypeConstraintsType>(delta.operation_label_property_type.type);
+          auto type = static_cast<TypeConstraintKind>(delta.operation_label_property_type.type);
           AddRecoveredIndexConstraint(&indices_constraints->constraints.type, {label, property, type},
                                       "The type constraint already exists!");
           break;
@@ -1174,7 +1174,7 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
         case WalDeltaData::Type::TYPE_CONSTRAINT_DROP: {
           auto label = LabelId::FromUint(name_id_mapper->NameToId(delta.operation_label_property_type.label));
           auto property = PropertyId::FromUint(name_id_mapper->NameToId(delta.operation_label_property_type.property));
-          auto type = static_cast<TypeConstraintsType>(delta.operation_label_property_type.type);
+          auto type = static_cast<TypeConstraintKind>(delta.operation_label_property_type.type);
           RemoveRecoveredIndexConstraint(&indices_constraints->constraints.type, {label, property, type},
                                          "The type constraint doesn't exist!");
           break;
@@ -1434,7 +1434,7 @@ void EncodeLabelProperties(BaseEncoder &encoder, NameIdMapper &name_id_mapper, L
 }
 
 void EncodeTypeConstraint(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label, PropertyId property,
-                          TypeConstraintsType type) {
+                          TypeConstraintKind type) {
   encoder.WriteString(name_id_mapper.IdToName(label.AsUint()));
   encoder.WriteString(name_id_mapper.IdToName(property.AsUint()));
   encoder.WriteUint(static_cast<uint64_t>(type));

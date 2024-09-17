@@ -1748,7 +1748,7 @@ UniqueConstraints::DeletionStatus InMemoryStorage::InMemoryAccessor::DropUniqueC
 }
 
 utils::BasicResult<StorageExistenceConstraintDefinitionError, void>
-InMemoryStorage::InMemoryAccessor::CreateTypeConstraint(LabelId label, PropertyId property, TypeConstraintsType type) {
+InMemoryStorage::InMemoryAccessor::CreateTypeConstraint(LabelId label, PropertyId property, TypeConstraintKind type) {
   MG_ASSERT(unique_guard_.owns_lock(), "Creating IS TYPED constraint requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *type_constraints = in_memory->constraints_.type_constraints_.get();
@@ -1766,7 +1766,7 @@ InMemoryStorage::InMemoryAccessor::CreateTypeConstraint(LabelId label, PropertyI
 }
 
 utils::BasicResult<StorageTypeConstraintDroppingError, void> InMemoryStorage::InMemoryAccessor::DropTypeConstraint(
-    LabelId label, PropertyId property, TypeConstraintsType type) {
+    LabelId label, PropertyId property, TypeConstraintKind type) {
   MG_ASSERT(unique_guard_.owns_lock(), "Dropping IS TYPED constraint requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *type_constraints = in_memory->constraints_.type_constraints_.get();

@@ -2155,12 +2155,12 @@ UniqueConstraints::DeletionStatus DiskStorage::DiskAccessor::DropUniqueConstrain
 }
 
 utils::BasicResult<StorageExistenceConstraintDefinitionError, void> DiskStorage::DiskAccessor::CreateTypeConstraint(
-    LabelId /**/, PropertyId /**/, TypeConstraintsType /**/) {
+    LabelId /**/, PropertyId /**/, TypeConstraintKind /**/) {
   throw utils::NotYetImplemented("Type constraints are not yet implemented for on-disk storage");
 }
 
 utils::BasicResult<StorageExistenceConstraintDroppingError, void> DiskStorage::DiskAccessor::DropTypeConstraint(
-    LabelId /**/, PropertyId /**/, TypeConstraintsType /**/) {
+    LabelId /**/, PropertyId /**/, TypeConstraintKind /**/) {
   throw utils::NotYetImplemented("Type constraints are not yet implemented for on-disk storage");
 }
 

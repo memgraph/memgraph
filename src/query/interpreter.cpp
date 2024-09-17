@@ -89,7 +89,7 @@
 #include "replication/state.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/constraints/constraint_violation.hpp"
-#include "storage/v2/constraints/type_constraints_type.hpp"
+#include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/edge_import_mode.hpp"
@@ -4240,7 +4240,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         for (const auto &[label, property, type] : info.type) {
           results.push_back({TypedValue("data_type"), TypedValue(storage->LabelToName(label)),
                              TypedValue(storage->PropertyToName(property)),
-                             TypedValue(storage::TypeConstraintsTypeToString(type))});
+                             TypedValue(storage::TypeConstraintKindToString(type))});
         }
         return std::pair{results, QueryHandlerResult::COMMIT};
       };
@@ -4573,7 +4573,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
           auto const maybe_constraint_type = constraint_query->constraint_.type_constraint;
           MG_ASSERT(maybe_constraint_type.has_value());
           auto const constraint_type = *maybe_constraint_type;
-          auto constraint_type_stringified = storage::TypeConstraintsTypeToString(constraint_type);
+          auto constraint_type_stringified = storage::TypeConstraintKindToString(constraint_type);
 
           constraint_notification.title =
               fmt::format("Created IS TYPED {} constraint on label {} on property {}.", constraint_type_stringified,
@@ -4691,7 +4691,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
           auto const maybe_constraint_type = constraint_query->constraint_.type_constraint;
           MG_ASSERT(maybe_constraint_type.has_value());
           auto const constraint_type = *maybe_constraint_type;
-          auto constraint_type_stringified = storage::TypeConstraintsTypeToString(constraint_type);
+          auto constraint_type_stringified = storage::TypeConstraintKindToString(constraint_type);
 
           constraint_notification.title =
               fmt::format("Dropped IS TYPED {} constraint on label {} on properties {}.", constraint_type_stringified,
@@ -5780,12 +5780,13 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
                   break;
                 }
                 case storage::ConstraintViolation::Type::TYPE: {
-                  const auto &label_name = db_accessor.LabelToName(constraint_violation.label);
                   MG_ASSERT(constraint_violation.properties.size() == 1U);
                   const auto &property_name = db_accessor.PropertyToName(*constraint_violation.properties.begin());
+                  const auto &label_name = db_accessor.LabelToName(constraint_violation.label);
                   spdlog::warn("Trigger '{}' failed to commit due to type constraint violation on: {}({}) IS TYPED {}",
                                trigger.Name(), label_name, property_name,
-                               storage::TypeConstraintsTypeToString(*constraint_violation.property_type));
+                               storage::TypeConstraintKindToString(*constraint_violation.constraint_kind));
+
                   break;
                 }
               }

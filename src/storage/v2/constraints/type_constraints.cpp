@@ -9,106 +9,112 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "type_constraints.hpp"
-#include <optional>
-#include "storage/v2/constraints/type_constraints_type.hpp"
+#include "storage/v2/constraints/type_constraints.hpp"
+
+#include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/algorithm.hpp"
 
+#include <optional>
+#include <set>
+
 namespace memgraph::storage {
 
-[[nodiscard]] std::optional<ConstraintViolation> TypeConstraints::ValidateVertexOnConstraint(const Vertex &vertex,
-                                                                                             LabelId label,
-                                                                                             PropertyId property,
-                                                                                             TypeConstraintsType type) {
-  if (vertex.deleted || !utils::Contains(vertex.labels, label)) return std::nullopt;
-
-  auto prop_value = vertex.properties.GetProperty(property);
-  if (prop_value.IsNull()) {
-    return std::nullopt;
-  }
-
-  if (PropertyValueToTypeConstraintType(prop_value) != type) {
-    return ConstraintViolation{ConstraintViolation::Type::TYPE, label, type, std::set<PropertyId>{property}};
-  }
-
-  return std::nullopt;
-}
-
-[[nodiscard]] std::optional<ConstraintViolation> TypeConstraints::Validate(const Vertex &vertex) const {
-  if (vertex.deleted) return std::nullopt;
-
-  for (auto const &[property_id, property_value] : vertex.properties.Properties()) {
-    for (auto label : vertex.labels) {
-      auto constraint_type_it = constraints_.find({label, property_id});
-      if (constraint_type_it == constraints_.end()) continue;
-
-      auto constraint_type = constraint_type_it->second;
-      if (PropertyValueToTypeConstraintType(property_value) != constraint_type) {
-        return ConstraintViolation{ConstraintViolation::Type::TYPE, label, constraint_type,
-                                   std::set<PropertyId>{property_id}};
+namespace {
+inline TypeConstraintKind PropertyValueToTypeConstraintKind(const PropertyValue &property) {
+  switch (property.type()) {
+    case PropertyValueType::String:
+      return TypeConstraintKind::STRING;
+    case PropertyValueType::Bool:
+      return TypeConstraintKind::BOOLEAN;
+    case PropertyValueType::Int:
+      return TypeConstraintKind::INTEGER;
+    case PropertyValueType::Double:
+      return TypeConstraintKind::FLOAT;
+    case PropertyValueType::List:
+      return TypeConstraintKind::LIST;
+    case PropertyValueType::Map:
+      return TypeConstraintKind::MAP;
+    case PropertyValueType::TemporalData: {
+      auto const temporal = property.ValueTemporalData();
+      switch (temporal.type) {
+        case TemporalType::Date:
+          return TypeConstraintKind::DATE;
+        case TemporalType::LocalTime:
+          return TypeConstraintKind::LOCALTIME;
+        case TemporalType::LocalDateTime:
+          return TypeConstraintKind::LOCALDATETIME;
+        case TemporalType::Duration:
+          return TypeConstraintKind::DURATION;
       }
     }
+    case PropertyValueType::ZonedTemporalData:
+      return TypeConstraintKind::ZONEDDATETIME;
+    case PropertyValueType::Enum:
+      return TypeConstraintKind::ENUM;
+    case PropertyValueType::Point2d:
+    case PropertyValueType::Point3d:
+      return TypeConstraintKind::POINT;
+    case PropertyValueType::Null:
+      MG_ASSERT(false, "Unexpected conversion from PropertyValueType::Null to TypeConstraint::Type");
+  }
+}
+
+}  // namespace
+
+[[nodiscard]] std::optional<ConstraintViolation> TypeConstraints::Validate(const Vertex &vertex) const {
+  if (constraints_.empty()) return std::nullopt;
+
+  auto validator = TypeConstraintsValidator{};
+  for (auto label : vertex.labels) {
+    auto it = l2p_constraints_.find(label);
+    if (it == l2p_constraints_.cend()) continue;
+    validator.add(label, it->second);
   }
 
-  return std::nullopt;
+  if (validator.empty()) return std::nullopt;
+
+  auto violation = vertex.properties.PropertiesMatchTypes(validator);
+  if (!violation) return std::nullopt;
+
+  auto const &[prop_id, label, kind] = *violation;
+  return ConstraintViolation{ConstraintViolation::Type::TYPE, label, kind, std::set{prop_id}};
 }
 
 [[nodiscard]] std::optional<ConstraintViolation> TypeConstraints::Validate(const Vertex &vertex, PropertyId property_id,
                                                                            const PropertyValue &property_value) const {
-  if (vertex.deleted) return std::nullopt;
-
   for (auto const label : vertex.labels) {
     auto constraint_type_it = constraints_.find({label, property_id});
     if (constraint_type_it == constraints_.end()) continue;
 
     auto constraint_type = constraint_type_it->second;
-    if (PropertyValueToTypeConstraintType(property_value) != constraint_type) {
-      return ConstraintViolation{ConstraintViolation::Type::TYPE, label, constraint_type,
-                                 std::set<PropertyId>{property_id}};
-    }
-  }
 
-  return std::nullopt;
-}
+    // fine grain test first (subtype exact check)
+    if (property_value.type() == PropertyValueType::TemporalData &&
+        TemporalMatch(property_value.ValueTemporalData().type, constraint_type))
+      continue;
+    // coarse grain after (broad type class)
+    if (PropertyValueToTypeConstraintKind(property_value) == constraint_type) continue;
 
-[[nodiscard]] std::optional<ConstraintViolation> TypeConstraints::Validate(const Vertex &vertex,
-                                                                           PropertyId property) const {
-  if (vertex.deleted) return std::nullopt;
-
-  for (auto const label : vertex.labels) {
-    auto constraint_type_it = constraints_.find({label, property});
-    if (constraint_type_it == constraints_.end()) continue;
-
-    auto constraint_type = constraint_type_it->second;
-    auto prop = vertex.properties.GetPropertyOfTypes(
-        property, std::array{TypeConstraintsTypeToPropertyStoreType(constraint_type)});
-
-    // Property must exist because it was just added!
-    if (PropertyValueToTypeConstraintType(*prop) != constraint_type) {
-      return ConstraintViolation{ConstraintViolation::Type::TYPE, label, constraint_type,
-                                 std::set<PropertyId>{property}};
-    }
+    return ConstraintViolation{
+        ConstraintViolation::Type::TYPE, {label}, constraint_type, std::set<PropertyId>{property_id}};
   }
 
   return std::nullopt;
 }
 
 [[nodiscard]] std::optional<ConstraintViolation> TypeConstraints::Validate(const Vertex &vertex, LabelId label) const {
-  if (vertex.deleted) return std::nullopt;
+  auto validator = TypeConstraintsValidator{};
+  auto it = l2p_constraints_.find(label);
+  if (it == l2p_constraints_.end()) return std::nullopt;
+  validator.add(label, it->second);
 
-  for (auto const &[property, property_value] : vertex.properties.Properties()) {
-    auto constraint_type_it = constraints_.find({label, property});
-    if (constraint_type_it == constraints_.end()) continue;
+  auto violation = vertex.properties.PropertiesMatchTypes(validator);
+  if (!violation) return std::nullopt;
 
-    auto constraint_type = constraint_type_it->second;
-    if (PropertyValueToTypeConstraintType(property_value) != constraint_type) {
-      return ConstraintViolation{ConstraintViolation::Type::TYPE, label, constraint_type,
-                                 std::set<PropertyId>{property}};
-    }
-  }
-  return std::nullopt;
+  auto const &[prop_id, _, kind] = *violation;
+  return ConstraintViolation{ConstraintViolation::Type::TYPE, label, kind, std::set{prop_id}};
 }
 
 [[nodiscard]] std::optional<ConstraintViolation> TypeConstraints::ValidateVertices(
@@ -122,11 +128,19 @@ namespace memgraph::storage {
 }
 
 [[nodiscard]] std::optional<ConstraintViolation> TypeConstraints::ValidateVerticesOnConstraint(
-    utils::SkipList<Vertex>::Accessor vertices, LabelId label, PropertyId property, TypeConstraintsType type) {
+    utils::SkipList<Vertex>::Accessor vertices, LabelId label, PropertyId property, TypeConstraintKind type) {
+  auto validator = TypeConstraintsValidator{};
+  auto constraint = absl::flat_hash_map<PropertyId, TypeConstraintKind>{{property, type}};
+  validator.add(label, constraint);
+
   for (auto const &vertex : vertices) {
-    if (auto violation = ValidateVertexOnConstraint(vertex, label, property, type); violation.has_value()) {
-      return violation;
-    }
+    if (vertex.deleted) continue;
+    if (!utils::Contains(vertex.labels, label)) continue;
+
+    auto violation = vertex.properties.PropertiesMatchTypes(validator);
+    if (!violation) continue;
+
+    return ConstraintViolation{ConstraintViolation::Type::TYPE, label, type, std::set{property}};
   }
   return std::nullopt;
 }
@@ -137,28 +151,55 @@ bool TypeConstraints::ConstraintExists(LabelId label, PropertyId property) const
   return constraints_.contains({label, property});
 }
 
-bool TypeConstraints::InsertConstraint(LabelId label, PropertyId property, TypeConstraintsType type) {
+bool TypeConstraints::InsertConstraint(LabelId label, PropertyId property, TypeConstraintKind type) {
   if (ConstraintExists(label, property)) {
     return false;
   }
   constraints_.emplace(std::make_pair(label, property), type);
+
+  // maintain l2p_constraints_
+  {
+    auto it = l2p_constraints_.find(label);
+    if (it != l2p_constraints_.end()) {
+      it->second.emplace(property, type);
+    } else {
+      l2p_constraints_.emplace(label, absl::flat_hash_map<PropertyId, TypeConstraintKind>{{property, type}});
+    }
+  }
   return true;
 }
 
-bool TypeConstraints::DropConstraint(LabelId label, PropertyId property, TypeConstraintsType type) {
-  auto it = constraints_.find({label, property});
-  if (it == constraints_.end()) {
-    return false;
+bool TypeConstraints::DropConstraint(LabelId label, PropertyId property, TypeConstraintKind type) {
+  // process constraints_
+  {
+    auto it = constraints_.find({label, property});
+    if (it == constraints_.end()) {
+      return false;
+    }
+    if (it->second != type) {
+      return false;
+    }
+    constraints_.erase(it);
   }
-  if (it->second != type) {
-    return false;
+
+  // maintain l2p_constraints_
+  {
+    auto it = l2p_constraints_.find(label);
+    if (it == l2p_constraints_.end()) {
+      DMG_ASSERT("logic bug, l2p_constraints_ not matching constraints_");
+    }
+
+    it->second.erase(property);
+    if (it->second.empty()) {
+      l2p_constraints_.erase(it);
+    }
   }
-  constraints_.erase(it);
+
   return true;
 }
 
-std::vector<std::tuple<LabelId, PropertyId, TypeConstraintsType>> TypeConstraints::ListConstraints() const {
-  std::vector<std::tuple<LabelId, PropertyId, TypeConstraintsType>> constraints;
+std::vector<std::tuple<LabelId, PropertyId, TypeConstraintKind>> TypeConstraints::ListConstraints() const {
+  std::vector<std::tuple<LabelId, PropertyId, TypeConstraintKind>> constraints;
   constraints.reserve(constraints_.size());
   for (const auto &[label_props, type] : constraints_) {
     constraints.emplace_back(label_props.first, label_props.second, type);
@@ -166,6 +207,9 @@ std::vector<std::tuple<LabelId, PropertyId, TypeConstraintsType>> TypeConstraint
   return constraints;
 }
 
-void TypeConstraints::DropGraphClearConstraints() { constraints_.clear(); }
+void TypeConstraints::DropGraphClearConstraints() {
+  constraints_.clear();
+  l2p_constraints_.clear();
+}
 
 }  // namespace memgraph::storage

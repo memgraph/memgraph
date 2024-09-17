@@ -26,7 +26,7 @@
 #include "flags/all.hpp"
 #include "gflags/gflags.h"
 #include "replication/epoch.hpp"
-#include "storage/v2/constraints/type_constraints_type.hpp"
+#include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/paths.hpp"
@@ -322,8 +322,10 @@ void RecoverTypeConstraints(const RecoveredIndicesAndConstraints::ConstraintsMet
     constraints->type_constraints_->InsertConstraint(label, property, type);
   }
 
-  if (auto violation = constraints->type_constraints_->ValidateVertices(vertices->access()); violation.has_value()) {
-    throw RecoveryFailure("Type constraint recovery failed because they couldn't be validated!");
+  if (constraints->HasTypeConstraints()) {
+    if (auto violation = constraints->type_constraints_->ValidateVertices(vertices->access()); violation.has_value()) {
+      throw RecoveryFailure("Type constraint recovery failed because they couldn't be validated!");
+    }
   }
 
   spdlog::info("Type constraints are recreated from metadata.");

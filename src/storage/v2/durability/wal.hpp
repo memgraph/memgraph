@@ -129,7 +129,7 @@ struct WalDeltaData {
   struct {
     std::string label;
     std::string property;
-    TypeConstraintsType type;
+    TypeConstraintKind type;
   } operation_label_property_type;
   struct {
     std::string edge_type;
@@ -279,7 +279,7 @@ void EncodeLabel(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId lab
 void EncodeLabelProperties(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label,
                            std::set<PropertyId> const &properties);
 void EncodeTypeConstraint(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label, PropertyId property,
-                          TypeConstraintsType type);
+                          TypeConstraintKind type);
 void EncodeLabelProperty(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label, PropertyId prop);
 void EncodeLabelPropertyStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label, PropertyId prop,
                               LabelPropertyIndexStats const &stats);

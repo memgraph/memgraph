@@ -22,7 +22,7 @@
 #include "query/exceptions.hpp"
 #include "query/hops_limit.hpp"
 #include "storage/v2/constraints/constraint_violation.hpp"
-#include "storage/v2/constraints/type_constraints_type.hpp"
+#include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/edge_accessor.hpp"
@@ -44,6 +44,14 @@
 #include "utils/variant_helpers.hpp"
 
 namespace memgraph::storage {
+
+namespace {
+void HandleTypeConstraintViolation(Storage const *storage, ConstraintViolation const &violation) {
+  throw query::QueryException("IS TYPED {} violation on {}({})", TypeConstraintKindToString(*violation.constraint_kind),
+                              storage->LabelToName(violation.label),
+                              storage->PropertyToName(*violation.properties.begin()));
+}
+}  // namespace
 
 namespace detail {
 std::pair<bool, bool> IsVisible(Vertex const *vertex, Transaction const *transaction, View view) {
@@ -149,12 +157,8 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
   });
 
   if (storage_->constraints_.HasTypeConstraints()) {
-    auto maybe_violation = storage_->constraints_.type_constraints_->Validate(*vertex_, label);
-    if (maybe_violation.has_value()) {
-      auto violation = *maybe_violation;
-      throw query::QueryException(
-          "IS TYPED {} violation on {}({})", TypeConstraintsTypeToString(*violation.property_type),
-          storage_->LabelToName(violation.label), storage_->PropertyToName(*violation.properties.begin()));
+    if (auto maybe_violation = storage_->constraints_.type_constraints_->Validate(*vertex_, label)) {
+      HandleTypeConstraintViolation(storage_, *maybe_violation);
     }
   }
 
@@ -381,12 +385,8 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
       schema_acc->SetProperty(vertex, property, ExtendedPropertyType{new_value}, ExtendedPropertyType{old_value});
 
     if (storage_->constraints_.HasTypeConstraints()) {
-      auto maybe_violation = storage_->constraints_.type_constraints_->Validate(*vertex_, property);
-      if (maybe_violation.has_value()) {
-        auto violation = *maybe_violation;
-        throw query::QueryException(
-            "IS TYPED {} violation on {}({})", TypeConstraintsTypeToString(*violation.property_type),
-            storage_->LabelToName(violation.label), storage_->PropertyToName(*violation.properties.begin()));
+      if (auto maybe_violation = storage_->constraints_.type_constraints_->Validate(*vertex_, property, new_value)) {
+        HandleTypeConstraintViolation(storage_, *maybe_violation);
       }
     }
 
@@ -448,12 +448,9 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
         // TODO If not performant enough there is also InitProperty()
         if (storage->constraints_.HasTypeConstraints()) {
           for (auto const &[property_id, property_value] : properties) {
-            auto maybe_violation = storage->constraints_.type_constraints_->Validate(*vertex, property_id, property_value);
-            if (maybe_violation.has_value()) {
-              auto violation = *maybe_violation;
-              throw query::QueryException(
-                  "IS TYPED {} violation on {}({})", TypeConstraintsTypeToString(*violation.property_type),
-                  storage->LabelToName(violation.label), storage->PropertyToName(*violation.properties.begin()));
+            if (auto maybe_violation =
+                    storage->constraints_.type_constraints_->Validate(*vertex, property_id, property_value)) {
+              HandleTypeConstraintViolation(storage, *maybe_violation);
             }
           }
         }
@@ -504,12 +501,8 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
         schema_acc->SetProperty(vertex, id, ExtendedPropertyType{new_value}, ExtendedPropertyType{old_value});
     }
     if (storage->constraints_.HasTypeConstraints()) {
-      auto maybe_violation = storage->constraints_.type_constraints_->Validate(*vertex);
-      if (maybe_violation.has_value()) {
-        auto violation = *maybe_violation;
-        throw query::QueryException(
-            "IS TYPED {} violation on {}({})", TypeConstraintsTypeToString(*violation.property_type),
-            storage->LabelToName(violation.label), storage->PropertyToName(*violation.properties.begin()));
+      if (auto maybe_violation = storage->constraints_.type_constraints_->Validate(*vertex)) {
+        HandleTypeConstraintViolation(storage, *maybe_violation);
       }
     }
   });
