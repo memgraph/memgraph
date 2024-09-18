@@ -204,14 +204,8 @@ def test_change_type_applies_on_the_edge_index(memgraph):
 
     memgraph.execute("MATCH (n)-[r]->(m) CALL edge_indices.change_type(r, 'TYPE2');")
 
-    # TODO: This behaviour is invalid and should be corrected in the storage
-    # There should be actually 0 results after this
-    # Deltas used are only for adding and removing in and out edges.
-    # There is no delta for changing the edge type so far
     actual_results = list(memgraph.execute_and_fetch("MATCH (n)-[r:TYPE]->(m) return n.id as nid, m.id as mid"))
-    actual_results = actual_results[0]
-    assert actual_results["nid"] == 1
-    assert actual_results["mid"] == 2
+    assert len(actual_results) == 0
 
     memgraph.execute("MATCH (n)-[r]->(m) CALL edge_indices.change_type(r, 'TYPE');")
 
