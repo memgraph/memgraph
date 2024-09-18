@@ -71,6 +71,8 @@ class PropertyStore {
   /// @throw std::bad_alloc
   PropertyValue GetProperty(PropertyId property) const;
 
+  ExtendedPropertyType GetExtendedPropertyType(PropertyId property) const;
+
   /// Returns the size of the encoded property in bytes.
   /// Returns 0 if the property does not exist.
   /// The time complexity of this function is O(n).
@@ -106,6 +108,10 @@ class PropertyStore {
   std::vector<PropertyId> PropertiesOfTypes(std::span<PropertyStoreType const> types) const;
 
   std::optional<PropertyValue> GetPropertyOfTypes(PropertyId property, std::span<PropertyStoreType const> types) const;
+
+  /// Returns types of properties currently stored.
+  /// @throw std::bad_alloc
+  std::map<PropertyId, ExtendedPropertyType> ExtendedPropertyTypes() const;
 
   /// Set a property value and return `true` if insertion took place. `false` is
   /// returned if assignment took place. The time complexity of this function is

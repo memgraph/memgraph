@@ -147,7 +147,7 @@ struct Point2d {
   }
 
  private:
-  CoordinateReferenceSystem crs_;
+  CoordinateReferenceSystem crs_{CoordinateReferenceSystem::Cartesian_2d};
   double x_longitude_;
   double y_latitude_;
 };
@@ -181,7 +181,7 @@ struct Point3d {
   }
 
  private:
-  CoordinateReferenceSystem crs_;
+  CoordinateReferenceSystem crs_{CoordinateReferenceSystem::Cartesian_3d};
   double x_longitude_;
   double y_latitude_;
   double z_height_;

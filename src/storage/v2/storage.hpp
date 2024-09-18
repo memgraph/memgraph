@@ -38,6 +38,7 @@
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/replication_client.hpp"
 #include "storage/v2/replication/replication_storage_state.hpp"
+#include "storage/v2/schema_info.hpp"
 #include "storage/v2/storage_error.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/transaction.hpp"
@@ -98,6 +99,8 @@ struct StorageInfo {
   bool durability_wal_enabled;
   bool property_store_compression_enabled;
   utils::CompressionLevel property_store_compression_level;
+  uint64_t schema_vertex_count;
+  uint64_t schema_edge_count;
 };
 
 struct EventInfo {
@@ -125,7 +128,8 @@ static inline nlohmann::json ToJson(const StorageInfo &info) {
                        {"WAL_enabled", info.durability_wal_enabled}};
   res["property_store_compression_enabled"] = info.property_store_compression_enabled;
   res["property_store_compression_level"] = utils::CompressionLevelToString(info.property_store_compression_level);
-
+  res["schema_vertex_count"] = info.schema_vertex_count;
+  res["schema_edge_count"] = info.schema_edge_count;
   return res;
 }
 
@@ -580,6 +584,23 @@ class Storage {
 
   // Mutable methods only safe if we have UniqueAccess to this storage
   EnumStore enum_store_;
+
+  std::optional<SchemaInfo::AnalyticalAccessor> SchemaInfoAccessor() {
+    if (!config_.salient.items.enable_schema_info) return std::nullopt;
+    if (storage_mode_ != StorageMode::IN_MEMORY_ANALYTICAL) return std::nullopt;
+    return schema_info_.CreateAccessor(config_.salient.items.properties_on_edges);
+  }
+
+  std::optional<SchemaInfo::AnalyticalUniqueAccessor> SchemaInfoUniqueAccessor() {
+    if (!config_.salient.items.enable_schema_info) return std::nullopt;
+    if (storage_mode_ != StorageMode::IN_MEMORY_ANALYTICAL) return std::nullopt;
+    return schema_info_.CreateUniqueAccessor(config_.salient.items.properties_on_edges);
+  }
+
+  SchemaInfo::ReadAccessor SchemaInfoReadAccessor() { return schema_info_.CreateReadAccessor(); }
+  SchemaInfo::WriteAccessor SchemaInfoWriteAccessor() { return schema_info_.CreateWriteAccessor(); }
+
+  SchemaInfo schema_info_;
 };
 
 }  // namespace memgraph::storage

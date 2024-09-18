@@ -47,6 +47,7 @@ target_sources(mg-storage-v2
         vertex_accessor.cpp
         vertex_info_cache.cpp
         vertices_iterable.cpp
+        schema_info.cpp
 
         PUBLIC
         FILE_SET HEADERS
@@ -65,6 +66,7 @@ target_sources(mg-storage-v2
         transaction.hpp
         vertex_info_cache.hpp
         vertex_info_cache_fwd.hpp
+        schema_info.hpp
 )
 
 find_package(gflags REQUIRED)

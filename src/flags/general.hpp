@@ -91,6 +91,9 @@ DECLARE_bool(storage_enable_edges_metadata);
 DECLARE_bool(storage_delta_on_identical_property_update);
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_bool(schema_info_enabled);
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(telemetry_enabled);
 
 // Streams flags

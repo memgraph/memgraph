@@ -42,6 +42,7 @@ struct SalientConfig {
     bool properties_on_edges{true};
     bool enable_edges_metadata{false};
     bool enable_schema_metadata{false};
+    bool enable_schema_info{false};
     bool enable_label_index_auto_creation{false};
     bool enable_edge_type_index_auto_creation{false};
     bool delta_on_identical_property_update{true};
@@ -56,6 +57,7 @@ inline void to_json(nlohmann::json &data, SalientConfig::Items const &items) {
   data = nlohmann::json{
       {"properties_on_edges", items.properties_on_edges},
       {"enable_schema_metadata", items.enable_schema_metadata},
+      {"enable_schema_info", items.enable_schema_info},
       {"enable_edges_metadata", items.enable_edges_metadata},
       {"enable_label_index_auto_creation", items.enable_label_index_auto_creation},
       {"enable_edge_type_index_auto_creation", items.enable_edge_type_index_auto_creation},
@@ -67,6 +69,7 @@ inline void from_json(const nlohmann::json &data, SalientConfig::Items &items) {
   data.at("properties_on_edges").get_to(items.properties_on_edges);
   data.at("enable_edges_metadata").get_to(items.enable_edges_metadata);
   data.at("enable_schema_metadata").get_to(items.enable_schema_metadata);
+  data.at("enable_schema_info").get_to(items.enable_schema_info);
   data.at("enable_label_index_auto_creation").get_to(items.enable_label_index_auto_creation);
   data.at("enable_edge_type_index_auto_creation").get_to(items.enable_edge_type_index_auto_creation);
   data.at("property_store_compression_enabled").get_to(items.property_store_compression_enabled);

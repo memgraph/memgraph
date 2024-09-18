@@ -481,4 +481,17 @@ class TtlInMulticommandTxException : public QueryException {
   SPECIALIZE_GET_EXCEPTION_NAME(TtlInMulticommandTxException)
 };
 
+class ShowSchemaInfoOnDiskException : public QueryException {
+ public:
+  ShowSchemaInfoOnDiskException() : QueryException("Show schema info is not supported for OnDisk.") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(ShowSchemaInfoOnDiskException)
+};
+
+class ShowSchemaInfoInMulticommandTxException : public QueryException {
+ public:
+  ShowSchemaInfoInMulticommandTxException()
+      : QueryException("Show schema info cannot be executed in multicommand transactions.") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(ShowSchemaInfoInMulticommandTxException)
+};
+
 }  // namespace memgraph::query
