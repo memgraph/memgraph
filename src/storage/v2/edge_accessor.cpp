@@ -163,8 +163,12 @@ bool EdgeAccessor::IsVisible(const View view) const {
   }
 
   bool visible = check_presence_of_edge();
-  if (!visible) return false;
+  // We don't want to check detachment for the already deleted edges
+  // That functionality is reserved for custom behaviour like triggers
+  if (!visible || for_deleted_) return visible;
 
+  // Otherwise, in normal workloads when testing versions of indices
+  // We need to check for attachment with vertices
   visible = check_from_vertex_integrity();
   if (!visible) return false;
 
