@@ -1,7 +1,31 @@
-(ns jepsen.memgraph.haclient
+(ns memgraph.query
   "Neo4j Clojure driver helper functions/macros"
   (:require [neo4j-clj.core :as dbclient]
             [clojure.tools.logging :refer [info]]))
+
+(dbclient/defquery get-all-instances
+  "SHOW INSTANCES;")
+
+(dbclient/defquery detach-delete-all
+  "MATCH (n) DETACH DELETE n;")
+
+; Implicit 1st parameter you need to send is txn. 2nd is id. 3rd balance
+(dbclient/defquery create-account
+  "CREATE (n:Account {id: $id, balance: $balance});")
+
+; Implicit 1st parameter you need to send is txn.
+(dbclient/defquery get-all-accounts
+  "MATCH (n:Account) RETURN n;")
+
+; Implicit 1st parameter you need to send is txn. 2nd is id.
+(dbclient/defquery get-account
+  "MATCH (n:Account {id: $id}) RETURN n;")
+
+; Implicit 1st parameter you need to send is txn. 2nd is id. 3d is amount.
+(dbclient/defquery update-balance
+  "MATCH (n:Account {id: $id})
+   SET n.balance = n.balance + $amount
+   RETURN n")
 
 (defn register-replication-instance
   [name node-config]
@@ -64,3 +88,28 @@
               "'}")]
      (info "Adding coordinator instance" query)
      query)))
+
+(defn replication-mode-str
+  [node-config]
+  (case (:replication-mode node-config)
+    :async "ASYNC"
+    :sync  "SYNC"))
+
+; Used by replication-invoke-case
+(defn create-register-replica-query
+  [name node-config]
+  (dbclient/create-query
+   (str "REGISTER REPLICA "
+        name
+        " "
+        (replication-mode-str node-config)
+        " TO '"
+        name
+        ":"
+        (:port node-config)
+        "'")))
+
+(defn create-set-replica-role-query
+  [port]
+  (dbclient/create-query
+   (str "SET REPLICATION ROLE TO REPLICA WITH PORT " port)))
