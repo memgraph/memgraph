@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "storage/v2/constraints/constraints.hpp"
+#include "storage/v2/constraints/type_constraints.hpp"
 #include "storage/v2/disk/unique_constraints.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
 
@@ -18,6 +19,7 @@ namespace memgraph::storage {
 Constraints::Constraints(const Config &config, StorageMode storage_mode) {
   std::invoke([this, config, storage_mode]() {
     existence_constraints_ = std::make_unique<ExistenceConstraints>();
+    type_constraints_ = std::make_unique<TypeConstraints>();
     switch (storage_mode) {
       case StorageMode::IN_MEMORY_TRANSACTIONAL:
       case StorageMode::IN_MEMORY_ANALYTICAL:
@@ -37,6 +39,9 @@ void Constraints::AbortEntries(std::span<Vertex const *const> vertices, uint64_t
 void Constraints::DropGraphClearConstraints() const {
   static_cast<InMemoryUniqueConstraints *>(unique_constraints_.get())->DropGraphClearConstraints();
   existence_constraints_->DropGraphClearConstraints();
+  type_constraints_->DropGraphClearConstraints();
 }
+
+bool Constraints::HasTypeConstraints() const { return !type_constraints_->empty(); }
 
 }  // namespace memgraph::storage

@@ -34,6 +34,7 @@ memgraphCypherKeyword : cypherKeyword
                       | BATCH_LIMIT
                       | BATCH_SIZE
                       | BEFORE
+                      | BOOLEAN
                       | BOOTSTRAP_SERVERS
                       | BUILD
                       | CALL
@@ -53,15 +54,17 @@ memgraphCypherKeyword : cypherKeyword
                       | DATA
                       | DATABASE
                       | DATABASES
+                      | DATE
                       | DELIMITER
                       | DEMOTE
                       | DENY
                       | DIRECTORY
-                      | DO
                       | DISABLE
+                      | DO
                       | DROP
                       | DUMP
                       | DURABILITY
+                      | DURATION
                       | EDGE
                       | EDGE_TYPES
                       | ENABLE
@@ -70,6 +73,7 @@ memgraphCypherKeyword : cypherKeyword
                       | EVERY
                       | EXECUTE
                       | FAILOVER
+                      | FLOAT
                       | FOR
                       | FORCE
                       | FOREACH
@@ -85,18 +89,23 @@ memgraphCypherKeyword : cypherKeyword
                       | IF
                       | IGNORE
                       | IMPORT
+                      | IN_MEMORY_ANALYTICAL
+                      | IN_MEMORY_TRANSACTIONAL
                       | INACTIVE
                       | INSTANCE
                       | INSTANCES
-                      | IN_MEMORY_ANALYTICAL
-                      | IN_MEMORY_TRANSACTIONAL
+                      | INTEGER
                       | ISOLATION
                       | KAFKA
                       | LABELS
                       | LEVEL
+                      | LIST
                       | LOAD
+                      | LOCALDATETIME
+                      | LOCALTIME
                       | LOCK
                       | MAIN
+                      | MAP
                       | MODE
                       | MODULE_READ
                       | MODULE_WRITE
@@ -106,11 +115,11 @@ memgraphCypherKeyword : cypherKeyword
                       | NO
                       | NODE_LABELS
                       | NOTHING
+                      | NULLIF
                       | OF_TOKEN
                       | OFF
                       | ON
                       | ON_DISK_TRANSACTIONAL
-                      | NULLIF
                       | ON_DISK_TRANSACTIONAL
                       | PASSWORD
                       | PERIODIC
@@ -118,6 +127,7 @@ memgraphCypherKeyword : cypherKeyword
                       | PORT
                       | PRIVILEGES
                       | PULSAR
+                      | QUOTE
                       | QUOTE
                       | READ
                       | READ_FILE
@@ -131,7 +141,6 @@ memgraphCypherKeyword : cypherKeyword
                       | ROLE
                       | ROLES
                       | ROWS
-                      | QUOTE
                       | SCHEMA
                       | SERVER
                       | SERVICE_URL
@@ -149,6 +158,7 @@ memgraphCypherKeyword : cypherKeyword
                       | STORAGE_MODE
                       | STREAM
                       | STREAMS
+                      | STRING
                       | SYNC
                       | TERMINATE
                       | TIMEOUT
@@ -156,8 +166,8 @@ memgraphCypherKeyword : cypherKeyword
                       | TOPICS
                       | TRACE
                       | TRANSACTION
-                      | TRANSACTIONS
                       | TRANSACTION_MANAGEMENT
+                      | TRANSACTIONS
                       | TRANSFORM
                       | TRIGGER
                       | TRIGGERS
@@ -174,6 +184,7 @@ memgraphCypherKeyword : cypherKeyword
                       | VALUES
                       | VERSION
                       | WEBSOCKET
+                      | ZONEDDATETIME
                       ;
 
 symbolicName : UnescapedSymbolicName
@@ -661,3 +672,18 @@ startTtlQuery: ENABLE TTL ( ( EVERY period=literal ) ( AT time=literal )?
 ttlQuery: stopTtlQuery
         | startTtlQuery
         ;
+
+typeConstraintType : BOOLEAN
+             | STRING
+             | INTEGER
+             | FLOAT
+             | LIST
+             | MAP
+             | DATE
+             | LOCALTIME
+             | LOCALDATETIME
+             | ZONEDDATETIME
+             | DURATION
+             | ENUM
+             | POINT
+             ;

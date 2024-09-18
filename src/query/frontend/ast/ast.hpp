@@ -21,6 +21,7 @@
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/procedure/module_fwd.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/constraints/type_constraints.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/string.hpp"
@@ -3178,15 +3179,17 @@ struct Constraint {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const { return kType; }
 
-  enum class Type { EXISTS, UNIQUE, NODE_KEY };
+  enum class Type { EXISTS, UNIQUE, NODE_KEY, TYPE };
 
   memgraph::query::Constraint::Type type;
+  std::optional<storage::TypeConstraintKind> type_constraint;
   memgraph::query::LabelIx label;
   std::vector<memgraph::query::PropertyIx> properties;
 
   Constraint Clone(AstStorage *storage) const {
     Constraint object;
     object.type = type;
+    object.type_constraint = type_constraint;
     object.label = storage->GetLabelIx(label.name);
     object.properties.resize(properties.size());
     for (auto i = 0; i < object.properties.size(); ++i) {

@@ -21,6 +21,8 @@
 
 #include "query/exceptions.hpp"
 #include "query/hops_limit.hpp"
+#include "storage/v2/constraints/constraint_violation.hpp"
+#include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/edge_accessor.hpp"
@@ -42,6 +44,14 @@
 #include "utils/variant_helpers.hpp"
 
 namespace memgraph::storage {
+
+namespace {
+void HandleTypeConstraintViolation(Storage const *storage, ConstraintViolation const &violation) {
+  throw query::QueryException("IS TYPED {} violation on {}({})", TypeConstraintKindToString(*violation.constraint_kind),
+                              storage->LabelToName(violation.label),
+                              storage->PropertyToName(*violation.properties.begin()));
+}
+}  // namespace
 
 namespace detail {
 std::pair<bool, bool> IsVisible(Vertex const *vertex, Transaction const *transaction, View view) {
@@ -145,6 +155,12 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
     CreateAndLinkDelta(transaction, vertex, Delta::RemoveLabelTag(), label);
     vertex->labels.push_back(label);
   });
+
+  if (storage_->constraints_.HasTypeConstraints()) {
+    if (auto maybe_violation = storage_->constraints_.type_constraints_->Validate(*vertex_, label)) {
+      HandleTypeConstraintViolation(storage_, *maybe_violation);
+    }
+  }
 
   if (storage_->config_.salient.items.enable_schema_metadata) {
     storage_->stored_node_labels_.try_insert(label);
@@ -350,7 +366,7 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
 
   PropertyValue old_value;
   const bool skip_duplicate_write = !storage_->config_.salient.items.delta_on_identical_property_update;
-  auto const set_property_impl = [transaction = transaction_, vertex = vertex_, &new_value, &property, &old_value,
+  auto const set_property_impl = [this, transaction = transaction_, vertex = vertex_, &new_value, &property, &old_value,
                                   skip_duplicate_write, &schema_acc]() {
     old_value = vertex->properties.GetProperty(property);
     // We could skip setting the value if the previous one is the same to the new
@@ -367,6 +383,12 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
     vertex->properties.SetProperty(property, new_value);
     if (schema_acc)
       schema_acc->SetProperty(vertex, property, ExtendedPropertyType{new_value}, ExtendedPropertyType{old_value});
+
+    if (storage_->constraints_.HasTypeConstraints()) {
+      if (auto maybe_violation = storage_->constraints_.type_constraints_->Validate(*vertex_, property, new_value)) {
+        HandleTypeConstraintViolation(storage_, *maybe_violation);
+      }
+    }
 
     return false;
   };
@@ -424,6 +446,14 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
             schema_acc->SetProperty(vertex, property, ExtendedPropertyType{new_value}, ExtendedPropertyType{});
         }
         // TODO If not performant enough there is also InitProperty()
+        if (storage->constraints_.HasTypeConstraints()) {
+          for (auto const &[property_id, property_value] : properties) {
+            if (auto maybe_violation =
+                    storage->constraints_.type_constraints_->Validate(*vertex, property_id, property_value)) {
+              HandleTypeConstraintViolation(storage, *maybe_violation);
+            }
+          }
+        }
         result = true;
       });
 
@@ -454,6 +484,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
     if (!id_old_new_change.has_value()) {
       return;
     }
+
     for (auto &[id, old_value, new_value] : *id_old_new_change) {
       storage->indices_.UpdateOnSetProperty(id, new_value, vertex, *transaction);
       if (skip_duplicate_update && old_value == new_value) continue;
@@ -468,6 +499,11 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
       }
       if (schema_acc)
         schema_acc->SetProperty(vertex, id, ExtendedPropertyType{new_value}, ExtendedPropertyType{old_value});
+    }
+    if (storage->constraints_.HasTypeConstraints()) {
+      if (auto maybe_violation = storage->constraints_.type_constraints_->Validate(*vertex)) {
+        HandleTypeConstraintViolation(storage, *maybe_violation);
+      }
     }
   });
 

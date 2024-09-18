@@ -60,6 +60,7 @@ struct PullPlanDump {
   PullChunk CreatePointIndicesPullChunk();
   PullChunk CreateExistenceConstraintsPullChunk();
   PullChunk CreateUniqueConstraintsPullChunk();
+  PullChunk CreateTypeConstraintsPullChunk();
   PullChunk CreateInternalIndexPullChunk();
   PullChunk CreateVertexPullChunk();
   PullChunk CreateEdgePullChunk();
