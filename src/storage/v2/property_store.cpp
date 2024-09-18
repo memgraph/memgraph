@@ -1383,6 +1383,25 @@ enum class ExpectedPropertyStatus {
   }
 }
 
+[[nodiscard]] auto NextPropertyAndType(Reader *reader) -> std::optional<PropertyStoreMemberInfo> {
+  auto metadata = reader->ReadMetadata();
+  if (!metadata) return std::nullopt;
+
+  auto property_id = reader->ReadUint(metadata->id_size);
+  if (!property_id) return std::nullopt;
+
+  // Special case: TEMPORAL_DATA has a subtype we need to extract
+  if (metadata->type == Type::TEMPORAL_DATA) {
+    auto temporal_data = DecodeTemporalData(*reader);
+    if (!temporal_data) return std::nullopt;
+    return PropertyStoreMemberInfo{PropertyId::FromUint(*property_id), metadata->type, temporal_data->type};
+  }
+
+  if (!SkipPropertyValue(reader, metadata->type, metadata->payload_size)) return std::nullopt;
+
+  return PropertyStoreMemberInfo{PropertyId::FromUint(*property_id), metadata->type, std::nullopt};
+}
+
 // Function used to decode a property (PropertyId, PropertyValue) from a byte
 // stream.
 //
@@ -2299,6 +2318,23 @@ std::optional<PropertyValue> PropertyStore::GetPropertyOfTypes(PropertyId proper
   };
 
   return WithReader(get_properties);
+}
+
+auto PropertyStore::PropertiesMatchTypes(TypeConstraintsValidator const &constraint) const
+    -> std::optional<PropertyStoreConstraintViolation> {
+  if (constraint.empty()) return std::nullopt;
+
+  auto property_matches_types = [&](Reader &reader) -> std::optional<PropertyStoreConstraintViolation> {
+    while (true) {
+      auto res = NextPropertyAndType(&reader);
+      if (!res) return std::nullopt;  // No more properties to read
+
+      if (auto violation = constraint.validate(*res); violation) {
+        return violation;
+      }
+    }
+  };
+  return WithReader(property_matches_types);
 }
 
 }  // namespace memgraph::storage

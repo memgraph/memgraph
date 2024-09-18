@@ -22,5 +22,4 @@ def memgraph(**kwargs) -> Memgraph:
     memgraph.drop_indexes()
     memgraph.ensure_constraints([])
 
-    ts = list(memgraph.execute_and_fetch("SHOW TRANSACTIONS;"))
     memgraph.drop_database()

@@ -26,6 +26,7 @@
 #include "flags/all.hpp"
 #include "gflags/gflags.h"
 #include "replication/epoch.hpp"
+#include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/paths.hpp"
@@ -150,6 +151,7 @@ void RecoverConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadat
                         const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info) {
   RecoverExistenceConstraints(constraints_metadata, constraints, vertices, name_id_mapper, parallel_exec_info);
   RecoverUniqueConstraints(constraints_metadata, constraints, vertices, name_id_mapper, parallel_exec_info);
+  RecoverTypeConstraints(constraints_metadata, constraints, vertices, parallel_exec_info);
 }
 
 void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadata &indices_metadata, Indices *indices,
@@ -306,6 +308,26 @@ void RecoverUniqueConstraints(const RecoveredIndicesAndConstraints::ConstraintsM
   }
   spdlog::info("Unique constraints are recreated from metadata.");
   spdlog::info("Constraints are recreated from metadata.");
+}
+
+void RecoverTypeConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &constraints_metadata,
+                            Constraints *constraints, utils::SkipList<Vertex> *vertices,
+                            const std::optional<ParallelizedSchemaCreationInfo> & /**/) {
+  // TODO: parallel recovery
+  spdlog::info("Recreating {} type constraints from metadata.", constraints_metadata.type.size());
+  for (const auto &[label, property, type] : constraints_metadata.type) {
+    if (!constraints->type_constraints_->InsertConstraint(label, property, type)) {
+      throw RecoveryFailure("The type constraint already exists!");
+    }
+  }
+
+  if (constraints->HasTypeConstraints()) {
+    if (auto violation = constraints->type_constraints_->ValidateVertices(vertices->access()); violation.has_value()) {
+      throw RecoveryFailure("Type constraint recovery failed because they couldn't be validated!");
+    }
+  }
+
+  spdlog::info("Type constraints are recreated from metadata.");
 }
 
 void RecoverIndicesStatsAndConstraints(utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
