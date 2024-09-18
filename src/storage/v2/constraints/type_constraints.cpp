@@ -90,12 +90,13 @@ inline TypeConstraintKind PropertyValueToTypeConstraintKind(const PropertyValue 
 
     auto constraint_type = constraint_type_it->second;
 
-    // fine grain test first (subtype exact check)
-    if (property_value.type() == PropertyValueType::TemporalData &&
-        TemporalMatch(property_value.ValueTemporalData().type, constraint_type))
-      continue;
-    // coarse grain after (broad type class)
-    if (PropertyValueToTypeConstraintKind(property_value) == constraint_type) continue;
+    if (property_value.type() == PropertyValueType::TemporalData) {
+      // fine grain (subtype exact check)
+      if (TemporalMatch(property_value.ValueTemporalData().type, constraint_type)) continue;
+    } else {
+      // coarse grain (broad type class)
+      if (PropertyValueToTypeConstraintKind(property_value) == constraint_type) continue;
+    }
 
     return ConstraintViolation{
         ConstraintViolation::Type::TYPE, {label}, constraint_type, std::set<PropertyId>{property_id}};

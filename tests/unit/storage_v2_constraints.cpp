@@ -1491,6 +1491,35 @@ TYPED_TEST(ConstraintsTest, TypeConstraintsSubtypeCheckForTemporalData) {
   }
 }
 
+TYPED_TEST(ConstraintsTest, TypeConstraintsSubtypeCheckForTemporalDataAddLabelLast) {
+  if (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "Type constraints not implemented for on-disk";
+  }
+
+  {
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    auto res = unique_acc->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::DATE);
+    ASSERT_NO_ERROR(res);
+    ASSERT_NO_ERROR(unique_acc->Commit());
+  }
+
+  {
+    auto acc1 = this->storage->Access();
+    auto vertex1 = acc1->CreateVertex();
+
+    ASSERT_NO_ERROR(vertex1.SetProperty(this->prop1, PropertyValue(TemporalData{TemporalType::LocalDateTime, 0})));
+    ASSERT_THROW(vertex1.AddLabel(this->label1), memgraph::query::QueryException);
+  }
+
+  {
+    auto acc1 = this->storage->Access();
+    auto vertex1 = acc1->CreateVertex();
+
+    ASSERT_NO_ERROR(vertex1.SetProperty(this->prop1, PropertyValue(TemporalData{TemporalType::Date, 0})));
+    ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
+  }
+}
+
 TYPED_TEST(ConstraintsTest, TypeConstraintsDrop) {
   if (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
     GTEST_SKIP() << "Type constraints not implemented for on-disk";

@@ -21,10 +21,13 @@ auto TypeConstraintsValidator::validate(PropertyStoreMemberInfo const &member_in
     auto const &constraint_map = constraint.get();
     auto it = constraint_map.find(member_info.prop_id);
     if (it == constraint_map.end()) continue;
-    // fine grain test first (subtype exact check)
-    if (member_info.temporal_type && TemporalMatch(*member_info.temporal_type, it->second)) continue;
-    // coarse grain after (broad type class)
-    if (TypeConstraintsKindToPropertyStoreType(it->second) == member_info.type) continue;
+    if (member_info.temporal_type) {
+      // fine grain (subtype exact check)
+      if (TemporalMatch(*member_info.temporal_type, it->second)) continue;
+    } else {
+      // coarse grain (broad type class)
+      if (TypeConstraintsKindToPropertyStoreType(it->second) == member_info.type) continue;
+    }
     return PropertyStoreConstraintViolation{member_info.prop_id, label, it->second};
   }
   return std::nullopt;

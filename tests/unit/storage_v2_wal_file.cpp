@@ -441,7 +441,7 @@ class DeltaGenerator final {
           break;
         case memgraph::storage::durability::StorageMetadataOperation::ENUM_CREATE:
           data.operation_enum_create.etype = enum_type;
-          data.operation_enum_create.evalues = {"TODO"};  // TODO ?
+          data.operation_enum_create.evalues = {"TODO"};
           break;
         case memgraph::storage::durability::StorageMetadataOperation::ENUM_ALTER_ADD:
           data.operation_enum_alter_add.etype = enum_type;
