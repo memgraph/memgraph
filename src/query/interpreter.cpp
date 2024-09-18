@@ -4573,13 +4573,11 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
           auto const maybe_constraint_type = constraint_query->constraint_.type_constraint;
           MG_ASSERT(maybe_constraint_type.has_value());
           auto const constraint_type = *maybe_constraint_type;
-          auto constraint_type_stringified = storage::TypeConstraintKindToString(constraint_type);
 
-          constraint_notification.title =
-              fmt::format("Created IS TYPED {} constraint on label {} on property {}.", constraint_type_stringified,
-                          constraint_query->constraint_.label.name, properties_stringified);
+          constraint_notification.title = fmt::format("Created IS TYPED {} constraint on label {} on property {}.",
+                                                      storage::TypeConstraintKindToString(constraint_type),
+                                                      constraint_query->constraint_.label.name, properties_stringified);
           handler = [storage, dba, label, label_name = constraint_query->constraint_.label.name, constraint_type,
-                     constraint_type_stringified = std::move(constraint_type_stringified),
                      properties_stringified = std::move(properties_stringified),
                      properties = std::move(properties)](Notification & /**/) {
             auto maybe_constraint_error = dba->CreateTypeConstraint(label, properties[0], constraint_type);
@@ -4588,9 +4586,8 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
               const auto &error = maybe_constraint_error.GetError();
               std::visit(
                   [storage, &label_name, &properties_stringified,
-                   &constraint_type_stringified]<typename T>(
-                      T const &arg) {  // TODO: using universal reference gives clang tidy
-                                       // error but it used above with no problem?
+                   constraint_type]<typename T>(T const &arg) {  // TODO: using universal reference gives clang tidy
+                                                                 // error but it used above with no problem?
                     using ErrorType = std::remove_cvref_t<T>;
                     if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
                       auto &violation = arg;
@@ -4599,10 +4596,11 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                       throw QueryRuntimeException(
                           "Unable to create IS TYPED {} constraint on :{}({}), because an "
                           "existing node violates it.",
-                          constraint_type_stringified, label_name, property_name);
+                          storage::TypeConstraintKindToString(constraint_type), label_name, property_name);
                     } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintDefinitionError>) {
                       throw QueryRuntimeException("Constraint IS TYPED {} on :{}({}) already exists",
-                                                  constraint_type_stringified, label_name, properties_stringified);
+                                                  storage::TypeConstraintKindToString(constraint_type), label_name,
+                                                  properties_stringified);
                     } else {
                       static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
                     }
@@ -4691,20 +4689,19 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
           auto const maybe_constraint_type = constraint_query->constraint_.type_constraint;
           MG_ASSERT(maybe_constraint_type.has_value());
           auto const constraint_type = *maybe_constraint_type;
-          auto constraint_type_stringified = storage::TypeConstraintKindToString(constraint_type);
 
           constraint_notification.title =
-              fmt::format("Dropped IS TYPED {} constraint on label {} on properties {}.", constraint_type_stringified,
+              fmt::format("Dropped IS TYPED {} constraint on label {} on properties {}.",
+                          storage::TypeConstraintKindToString(constraint_type),
                           constraint_query->constraint_.label.name, utils::Join(properties_string, ", "));
-          handler = [dba, label, label_name = constraint_query->constraint_.label.name,
-                     constraint_type = constraint_query->constraint_.type_constraint,
-                     constraint_type_stringified = std::move(constraint_type_stringified),
+          handler = [dba, label, label_name = constraint_query->constraint_.label.name, constraint_type,
                      properties_stringified = std::move(properties_stringified),
                      properties = std::move(properties)](Notification & /**/) {
-            auto maybe_constraint_error = dba->DropTypeConstraint(label, properties[0], *constraint_type);
+            auto maybe_constraint_error = dba->DropTypeConstraint(label, properties[0], constraint_type);
             if (maybe_constraint_error.HasError()) {
               throw QueryRuntimeException("Constraint IS TYPED {} on :{}({}) doesn't exist",
-                                          constraint_type_stringified, label_name, properties_stringified);
+                                          storage::TypeConstraintKindToString(constraint_type), label_name,
+                                          properties_stringified);
             }
             return std::vector<std::vector<TypedValue>>();
           };
