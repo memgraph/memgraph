@@ -89,7 +89,7 @@ TEST_F(CoordinationUtils, MemgraphDbHistorySimple) {
 }
 
 TEST_F(CoordinationUtils, MemgraphDbHistoryLastEpochDifferent) {
-  // Prioritize one with the biggest last commit timestamp on last epoch
+  // Prioritize one with the biggest last durable timestamp on last epoch
   // X = dead
   // Main      : A(24)  B(36)  C(48) D(50) E(59) X
   // replica  1: A(24)  B(12)  C(15) D(17) E(51)
@@ -202,7 +202,7 @@ TEST_F(CoordinationUtils, MemgraphDbHistoryOneInstanceAheadFewEpochs) {
 }
 
 TEST_F(CoordinationUtils, MemgraphDbHistoryInstancesHistoryDiverged) {
-  // When history diverged, also prioritize one with biggest last commit timestamp
+  // When history diverged, also prioritize one with biggest last durable timestamp
   // Main      : A(1)  B(2)   C(3)    X
   // replica  1: A(1)  B(2)   C(3)    X     X up
   // replica  2: A(1)  B(2)    X     D(5)   X up

@@ -157,7 +157,7 @@ void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handl
 
   if (!current_main_uuid.has_value() || req.main_uuid != *current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::HeartbeatReq::kType.name);
-    storage::replication::HeartbeatRes res{false, 0, ""};
+    const storage::replication::HeartbeatRes res{false, 0, ""};
     slk::Save(res, res_builder);
     return;
   }
@@ -169,8 +169,8 @@ void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handl
     return;
   }
   auto const *storage = db_acc->get()->storage();
-  storage::replication::HeartbeatRes res{true, storage->repl_storage_state_.last_commit_timestamp_.load(),
-                                         std::string{storage->repl_storage_state_.epoch_.id()}};
+  const storage::replication::HeartbeatRes res{true, storage->repl_storage_state_.last_durable_timestamp_.load(),
+                                               std::string{storage->repl_storage_state_.epoch_.id()}};
   slk::Save(res, res_builder);
 }
 
@@ -182,14 +182,14 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
 
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::AppendDeltasReq::kType.name);
-    storage::replication::AppendDeltasRes res{false, 0};
+    const storage::replication::AppendDeltasRes res{false, 0};
     slk::Save(res, res_builder);
     return;
   }
 
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
   if (!db_acc) {
-    storage::replication::AppendDeltasRes res{false, 0};
+    const storage::replication::AppendDeltasRes res{false, 0};
     slk::Save(res, res_builder);
     return;
   }
@@ -206,22 +206,20 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
     repl_storage_state.AddEpochToHistoryForce(prev_epoch);
   }
 
+  // We do not care about incoming sequence numbers, after a snapshot recovery, the sequence number is 0
+  // This is because the snapshots completely wipes the storage and durability
+  // It is also the first recovery step, so the WAL chain needs to restart from 0, otherwise the instance won't be
+  // able to recover from durable data
   if (storage->wal_file_) {
-    if (req.seq_num > storage->wal_file_->SequenceNumber() ||
-        *maybe_epoch_id != storage->repl_storage_state_.epoch_.id()) {
+    if (*maybe_epoch_id != storage->repl_storage_state_.epoch_.id()) {
       storage->wal_file_->FinalizeWal();
       storage->wal_file_.reset();
-      storage->wal_seq_num_ = req.seq_num;
-      spdlog::trace("Finalized WAL file");
-    } else {
-      MG_ASSERT(storage->wal_file_->SequenceNumber() == req.seq_num, "Invalid sequence number of current wal file");
-      storage->wal_seq_num_ = req.seq_num + 1;
+      spdlog::trace("Current WAL file finalized successfully");
     }
-  } else {
-    storage->wal_seq_num_ = req.seq_num;
   }
 
-  if (req.previous_commit_timestamp != repl_storage_state.last_commit_timestamp_.load()) {
+  // last_durable_timestamp could be set by snashot; so we cannot guarantee exactly what's the previous timestamp
+  if (req.previous_commit_timestamp > repl_storage_state.last_durable_timestamp_.load()) {
     // Empty the stream
     bool transaction_complete = false;
     while (!transaction_complete) {
@@ -232,7 +230,7 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
           storage::durability::kVersion);  // TODO: Check if we are always using the latest version when replicating
     }
 
-    storage::replication::AppendDeltasRes res{false, repl_storage_state.last_commit_timestamp_.load()};
+    const storage::replication::AppendDeltasRes res{false, repl_storage_state.last_durable_timestamp_.load()};
     slk::Save(res, res_builder);
     return;
   }
@@ -241,7 +239,7 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
       storage, &decoder,
       storage::durability::kVersion);  // TODO: Check if we are always using the latest version when replicating
 
-  storage::replication::AppendDeltasRes res{true, repl_storage_state.last_commit_timestamp_.load()};
+  const storage::replication::AppendDeltasRes res{true, repl_storage_state.last_durable_timestamp_.load()};
   slk::Save(res, res_builder);
   spdlog::debug("Replication recovery from append deltas finished, replica is now up to date!");
 }
@@ -253,13 +251,13 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
   slk::Load(&req, req_reader);
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
   if (!db_acc) {
-    storage::replication::SnapshotRes res{false, 0};
+    const storage::replication::SnapshotRes res{false, 0};
     slk::Save(res, res_builder);
     return;
   }
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::SnapshotReq::kType.name);
-    storage::replication::SnapshotRes res{false, 0};
+    const storage::replication::SnapshotRes res{false, 0};
     slk::Save(res, res_builder);
     return;
   }
@@ -298,6 +296,10 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
     storage->vertex_id_ = recovery_info.next_vertex_id;
     storage->edge_id_ = recovery_info.next_edge_id;
     storage->timestamp_ = std::max(storage->timestamp_, recovery_info.next_timestamp);
+    storage->repl_storage_state_.last_durable_timestamp_ = recovery_info.next_timestamp - 1;
+
+    // Reset WAL chain
+    storage->wal_seq_num_ = 0;
 
     spdlog::trace("Recovering indices and constraints from snapshot.");
     memgraph::storage::durability::RecoverIndicesAndStats(recovered_snapshot.indices_constraints.indices,
@@ -311,7 +313,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
   }
   storage_guard.unlock();
 
-  storage::replication::SnapshotRes res{true, storage->repl_storage_state_.last_commit_timestamp_.load()};
+  const storage::replication::SnapshotRes res{true, storage->repl_storage_state_.last_durable_timestamp_.load()};
   slk::Save(res, res_builder);
 
   spdlog::trace("Deleting old snapshot files due to snapshot recovery.");
@@ -344,13 +346,13 @@ void InMemoryReplicationHandlers::ForceResetStorageHandler(dbms::DbmsHandler *db
   slk::Load(&req, req_reader);
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.db_uuid);
   if (!db_acc) {
-    storage::replication::ForceResetStorageRes res{false, 0};
+    const storage::replication::ForceResetStorageRes res{false, 0};
     slk::Save(res, res_builder);
     return;
   }
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::SnapshotReq::kType.name);
-    storage::replication::ForceResetStorageRes res{false, 0};
+    const storage::replication::ForceResetStorageRes res{false, 0};
     slk::Save(res, res_builder);
     return;
   }
@@ -375,7 +377,7 @@ void InMemoryReplicationHandlers::ForceResetStorageHandler(dbms::DbmsHandler *db
   // Fine since we will force push when reading from WAL just random epoch with 0 timestamp, as it should be if it
   // acted as MAIN before
   storage->repl_storage_state_.epoch_.SetEpoch(std::string(utils::UUID{}));
-  storage->repl_storage_state_.last_commit_timestamp_ = 0;
+  storage->repl_storage_state_.last_durable_timestamp_ = 0;
 
   storage->repl_storage_state_.history.clear();
   storage->vertex_id_ = 0;
@@ -386,7 +388,8 @@ void InMemoryReplicationHandlers::ForceResetStorageHandler(dbms::DbmsHandler *db
   storage->vertices_.run_gc();
   storage->edges_.run_gc();
 
-  storage::replication::ForceResetStorageRes res{true, storage->repl_storage_state_.last_commit_timestamp_.load()};
+  const storage::replication::ForceResetStorageRes res{true,
+                                                       storage->repl_storage_state_.last_durable_timestamp_.load()};
   slk::Save(res, res_builder);
 
   spdlog::trace("Deleting old snapshot files.");
@@ -416,13 +419,13 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
   slk::Load(&req, req_reader);
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
   if (!db_acc) {
-    storage::replication::WalFilesRes res{false, 0};
+    const storage::replication::WalFilesRes res{false, 0};
     slk::Save(res, res_builder);
     return;
   }
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::WalFilesReq::kType.name);
-    storage::replication::WalFilesRes res{false, 0};
+    const storage::replication::WalFilesRes res{false, 0};
     slk::Save(res, res_builder);
     return;
   }
@@ -439,7 +442,7 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
     LoadWal(storage, &decoder);
   }
 
-  storage::replication::WalFilesRes res{true, storage->repl_storage_state_.last_commit_timestamp_.load()};
+  const storage::replication::WalFilesRes res{true, storage->repl_storage_state_.last_durable_timestamp_.load()};
   slk::Save(res, res_builder);
   spdlog::debug("Replication recovery from WAL files ended successfully, replica is now up to date!");
 }
@@ -451,14 +454,14 @@ void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_hand
   slk::Load(&req, req_reader);
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
   if (!db_acc) {
-    storage::replication::CurrentWalRes res{false, 0};
+    const storage::replication::CurrentWalRes res{false, 0};
     slk::Save(res, res_builder);
     return;
   }
 
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::CurrentWalReq::kType.name);
-    storage::replication::CurrentWalRes res{false, 0};
+    const storage::replication::CurrentWalRes res{false, 0};
     slk::Save(res, res_builder);
     return;
   }
@@ -470,7 +473,7 @@ void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_hand
 
   LoadWal(storage, &decoder);
 
-  storage::replication::CurrentWalRes res{true, storage->repl_storage_state_.last_commit_timestamp_.load()};
+  const storage::replication::CurrentWalRes res{true, storage->repl_storage_state_.last_durable_timestamp_.load()};
   slk::Save(res, res_builder);
   spdlog::debug("Replication recovery from current WAL ended successfully, replica is now up to date!");
 }
@@ -495,15 +498,14 @@ void InMemoryReplicationHandlers::LoadWal(storage::InMemoryStorage *storage, sto
       storage->repl_storage_state_.AddEpochToHistoryForce(prev_epoch);
     }
 
+    // We do not care about incoming sequence numbers, after a snapshot recovery, the sequence number is 0
+    // This is because the snapshots completely wipes the storage and durability
+    // It is also the first recovery step, so the WAL chain needs to restart from 0, otherwise the instance won't be
+    // able to recover from durable data
     if (storage->wal_file_) {
-      if (storage->wal_file_->SequenceNumber() != wal_info.seq_num) {
-        storage->wal_file_->FinalizeWal();
-        storage->wal_seq_num_ = wal_info.seq_num;
-        storage->wal_file_.reset();
-        spdlog::trace("WAL file {} finalized successfully", *maybe_wal_path);
-      }
-    } else {
-      storage->wal_seq_num_ = wal_info.seq_num;
+      storage->wal_file_->FinalizeWal();
+      storage->wal_file_.reset();
+      spdlog::trace("WAL file {} finalized successfully", *maybe_wal_path);
     }
     spdlog::trace("Loading WAL deltas from {}", *maybe_wal_path);
     storage::durability::Decoder wal;
@@ -531,21 +533,21 @@ void InMemoryReplicationHandlers::TimestampHandler(dbms::DbmsHandler *dbms_handl
   slk::Load(&req, req_reader);
   auto const db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
   if (!db_acc) {
-    storage::replication::TimestampRes res{false, 0};
+    const storage::replication::TimestampRes res{false, 0};
     slk::Save(res, res_builder);
     return;
   }
 
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::TimestampReq::kType.name);
-    storage::replication::CurrentWalRes res{false, 0};
+    const storage::replication::CurrentWalRes res{false, 0};
     slk::Save(res, res_builder);
     return;
   }
 
   // TODO: this handler is agnostic of InMemory, move to be reused by on-disk
   auto const *storage = db_acc->get()->storage();
-  storage::replication::TimestampRes res{true, storage->repl_storage_state_.last_commit_timestamp_.load()};
+  const storage::replication::TimestampRes res{true, storage->repl_storage_state_.last_durable_timestamp_.load()};
   slk::Save(res, res_builder);
 }
 
@@ -581,7 +583,7 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
 
   uint64_t current_delta_idx = 0;  // tracks over how many deltas we iterated, includes also skipped deltas.
   uint64_t applied_deltas = 0;     // Non-skipped deltas
-  auto max_delta_timestamp = storage->repl_storage_state_.last_commit_timestamp_.load();
+  auto max_delta_timestamp = storage->repl_storage_state_.last_durable_timestamp_.load();
   auto current_durable_commit_timestamp = max_delta_timestamp;
   for (bool transaction_complete = false; !transaction_complete; ++current_delta_idx) {
     const auto [delta_timestamp, delta] = ReadDelta(decoder);
@@ -1007,7 +1009,7 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
 
   if (commit_timestamp_and_accessor) throw utils::BasicException("Did not finish the transaction!");
 
-  storage->repl_storage_state_.last_commit_timestamp_ = max_delta_timestamp;
+  storage->repl_storage_state_.last_durable_timestamp_ = max_delta_timestamp;
 
   spdlog::debug("Applied {} deltas", applied_deltas);
   return current_delta_idx;
