@@ -5496,6 +5496,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         throw ShowSchemaInfoInMulticommandTxException();
       }
       prepared_query = PrepareShowSchemaInfoQuery(parsed_query, current_db_);
+    } else if (utils::Downcast<SessionTraceQuery>(parsed_query.query)) {
+      prepared_query = PrepareSessionTraceQuery(std::move(parsed_query), current_db_, this);
     } else {
       LOG_FATAL("Should not get here -- unknown query type!");
     }
