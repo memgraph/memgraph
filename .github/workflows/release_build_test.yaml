@@ -63,7 +63,7 @@ jobs:
 
   PackageArtifact:
     if: github.ref_type == 'tag'
-    needs: [TestIndividual]
+    # needs: [TestIndividual]
     strategy:
       fail-fast: false
       matrix:
@@ -104,7 +104,7 @@ jobs:
 
   DockerArtifact:
     if: github.ref_type == 'tag'
-    needs: [TestIndividual]
+    # needs: [TestIndividual]
     strategy:
       fail-fast: false
       matrix:
