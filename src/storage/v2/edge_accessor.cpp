@@ -124,7 +124,6 @@ bool EdgeAccessor::IsVisible(const View view) const {
   };
   auto check_presence_of_edge = [&view, this]() -> bool {
     bool deleted = true;
-    bool exists = true;
     Delta *delta = nullptr;
     {
       auto guard = std::shared_lock{edge_.ptr->lock};
@@ -147,13 +146,13 @@ bool EdgeAccessor::IsVisible(const View view) const {
         }
         case Delta::Action::DELETE_DESERIALIZED_OBJECT:
         case Delta::Action::DELETE_OBJECT: {
-          exists = false;
+          deleted = true;
           break;
         }
       }
     });
 
-    return exists && (for_deleted_ || !deleted);
+    return !deleted || for_deleted_;
   };
 
   // When edges don't have properties, their isolation level is still dictated by MVCC ->
