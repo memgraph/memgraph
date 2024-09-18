@@ -427,11 +427,13 @@ class InMemoryStorage final : public Storage {
     UniqueConstraints::DeletionStatus DropUniqueConstraint(LabelId label,
                                                            const std::set<PropertyId> &properties) override;
 
-    /// TODO COMMENT
+    /// Create type constraint,
+    /// Returns error result if already exists, or if constraint is already violated
     utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateTypeConstraint(
         LabelId label, PropertyId property, TypeConstraintKind type) override;
 
-    /// TODO COMMENT
+    /// Drop type constraint,
+    /// Returns error result if constraint does not exist.
     utils::BasicResult<StorageExistenceConstraintDroppingError, void> DropTypeConstraint(
         LabelId label, PropertyId property, TypeConstraintKind type) override;
 
