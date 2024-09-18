@@ -1286,6 +1286,52 @@ TYPED_TEST(ConstraintsTest, TypeConstraints) {
   }
 }
 
+TYPED_TEST(ConstraintsTest, TypeConstraintsInitProperties) {
+  if (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "Type constraints not implemented for on-disk";
+  }
+
+  {
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    auto res = unique_acc->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
+    ASSERT_NO_ERROR(res);
+    ASSERT_NO_ERROR(unique_acc->Commit());
+  }
+
+  {
+    auto acc1 = this->storage->Access();
+    auto vertex1 = acc1->CreateVertex();
+
+    ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
+    ASSERT_THROW(vertex1.InitProperties({{this->prop1, PropertyValue("problem")}}), memgraph::query::QueryException);
+    ASSERT_NO_ERROR(vertex1.InitProperties({{this->prop1, PropertyValue(1)}}));
+  }
+}
+
+TYPED_TEST(ConstraintsTest, TypeConstraintsUpdateProperties) {
+  if (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "Type constraints not implemented for on-disk";
+  }
+
+  {
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    auto res = unique_acc->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::INTEGER);
+    ASSERT_NO_ERROR(res);
+    ASSERT_NO_ERROR(unique_acc->Commit());
+  }
+
+  {
+    auto acc1 = this->storage->Access();
+    auto vertex1 = acc1->CreateVertex();
+
+    ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
+    auto properties1 = std::map<PropertyId, PropertyValue>{{this->prop1, PropertyValue("problem")}};
+    ASSERT_THROW(vertex1.UpdateProperties(properties1), memgraph::query::QueryException);
+    auto properties2 = std::map<PropertyId, PropertyValue>{{this->prop1, PropertyValue(1)}};
+    ASSERT_NO_ERROR(vertex1.UpdateProperties(properties2));
+  }
+}
+
 TYPED_TEST(ConstraintsTest, TypeConstraintsMultiplePropertiesSameLabel) {
   if (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
     GTEST_SKIP() << "Type constraints not implemented for on-disk";
