@@ -19,6 +19,8 @@
 #include "storage/v2/durability/version.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
+#include "storage/v2/property_value.hpp"
+#include "storage/v2/schema_info.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/logging.hpp"
@@ -789,7 +791,8 @@ void EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp) {
 RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConstraints *indices_constraints,
                      const std::optional<uint64_t> last_loaded_timestamp, utils::SkipList<Vertex> *vertices,
                      utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
-                     SalientConfig::Items items, EnumStore *enum_store) {
+                     SalientConfig::Items items, EnumStore *enum_store, SchemaInfo *schema_info,
+                     std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge) {
   spdlog::info("Trying to load WAL file {}.", path);
   RecoveryInfo ret;
 
@@ -828,6 +831,7 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
 
           ret.next_vertex_id = std::max(ret.next_vertex_id, delta.vertex_create_delete.gid.AsUint() + 1);
 
+          if (schema_info) schema_info->AddVertex(&*vertex);
           break;
         }
         case WalDeltaData::Type::VERTEX_DELETE: {
@@ -839,6 +843,7 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
           if (!vertex_acc.remove(delta.vertex_create_delete.gid))
             throw RecoveryFailure("The vertex must be removed here!");
 
+          if (schema_info) schema_info->DeleteVertex(&*vertex);
           break;
         }
         case WalDeltaData::Type::VERTEX_ADD_LABEL:
@@ -849,6 +854,9 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
           auto label_id = LabelId::FromUint(name_id_mapper->NameToId(delta.vertex_add_remove_label.label));
           auto it = std::find(vertex->labels.begin(), vertex->labels.end(), label_id);
 
+          std::optional<utils::small_vector<LabelId>> old_labels{};
+          if (schema_info) old_labels.emplace(vertex->labels);
+
           if (delta.type == WalDeltaData::Type::VERTEX_ADD_LABEL) {
             if (it != vertex->labels.end()) throw RecoveryFailure("The vertex already has the label!");
             vertex->labels.push_back(label_id);
@@ -858,6 +866,7 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
             vertex->labels.pop_back();
           }
 
+          if (schema_info) schema_info->UpdateLabels(&*vertex, *old_labels, vertex->labels, items.properties_on_edges);
           break;
         }
         case WalDeltaData::Type::VERTEX_SET_PROPERTY: {
@@ -867,8 +876,12 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
           auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(delta.vertex_edge_set_property.property));
           auto &property_value = delta.vertex_edge_set_property.value;
 
-          vertex->properties.SetProperty(property_id, property_value);
+          if (schema_info) {
+            const auto old_type = vertex->properties.GetExtendedPropertyType(property_id);
+            schema_info->SetProperty(&*vertex, property_id, ExtendedPropertyType{property_value}, old_type);
+          }
 
+          vertex->properties.SetProperty(property_id, property_value);
           break;
         }
         case WalDeltaData::Type::EDGE_CREATE: {
@@ -903,6 +916,7 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
           // Increment edge count.
           edge_count->fetch_add(1, std::memory_order_acq_rel);
 
+          if (schema_info) schema_info->CreateEdge(&*from_vertex, &*to_vertex, edge_type_id);
           break;
         }
         case WalDeltaData::Type::EDGE_DELETE: {
@@ -940,6 +954,8 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
           // Decrement edge count.
           edge_count->fetch_add(-1, std::memory_order_acq_rel);
 
+          if (schema_info)
+            schema_info->DeleteEdge(edge_type_id, edge_ref, &*from_vertex, &*to_vertex, items.properties_on_edges);
           break;
         }
         case WalDeltaData::Type::EDGE_SET_PROPERTY: {
@@ -951,6 +967,17 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
           if (edge == edge_acc.end()) throw RecoveryFailure("The edge doesn't exist!");
           auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(delta.vertex_edge_set_property.property));
           auto &property_value = delta.vertex_edge_set_property.value;
+
+          // TODO Add edge set property delta to WAL
+          if (schema_info) {
+            const auto old_type = edge->properties.GetExtendedPropertyType(property_id);
+            const auto maybe_edge = find_edge(edge->gid);
+            if (!maybe_edge) throw RecoveryFailure("Recovery failed, edge not found.");
+            const auto &[edge_ref, edge_type, from, to] = *maybe_edge;
+            schema_info->SetProperty(edge_type, from, to, property_id, ExtendedPropertyType{property_value}, old_type,
+                                     items.properties_on_edges);
+          }
+
           edge->properties.SetProperty(property_id, property_value);
           break;
         }

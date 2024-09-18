@@ -133,6 +133,8 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   if (!storage_->config_.salient.items.properties_on_edges) return Error::PROPERTIES_DISABLED;
 
+  // This needs to happen before locking the object
+  auto schema_acc = storage_->SchemaInfoUniqueAccessor();
   auto guard = std::unique_lock{edge_.ptr->lock};
 
   if (!PrepareForWrite(transaction_, edge_.ptr)) return Error::SERIALIZATION_ERROR;
@@ -141,23 +143,26 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
   using ReturnType = decltype(edge_.ptr->properties.GetProperty(property));
   std::optional<ReturnType> current_value;
   const bool skip_duplicate_write = !storage_->config_.salient.items.delta_on_identical_property_update;
-  utils::AtomicMemoryBlock(
-      [this, &current_value, &property, &value, transaction = transaction_, edge = edge_, skip_duplicate_write]() {
-        current_value.emplace(edge.ptr->properties.GetProperty(property));
-        if (skip_duplicate_write && current_value == value) {
-          return;
-        }
-        // We could skip setting the value if the previous one is the same to the new
-        // one. This would save some memory as a delta would not be created as well as
-        // avoid copying the value. The reason we are not doing that is because the
-        // current code always follows the logical pattern of "create a delta" and
-        // "modify in-place". Additionally, the created delta will make other
-        // transactions get a SERIALIZATION_ERROR.
-        CreateAndLinkDelta(transaction, edge.ptr, Delta::SetPropertyTag(), from_vertex_, property, *current_value);
-        edge.ptr->properties.SetProperty(property, value);
-        storage_->indices_.UpdateOnSetProperty(edge_type_, property, value, from_vertex_, to_vertex_, edge_.ptr,
-                                               *transaction_);
-      });
+  utils::AtomicMemoryBlock([this, &current_value, &property, &value, transaction = transaction_, edge = edge_,
+                            skip_duplicate_write, &schema_acc]() {
+    current_value.emplace(edge.ptr->properties.GetProperty(property));
+    if (skip_duplicate_write && current_value == value) {
+      return;
+    }
+    // We could skip setting the value if the previous one is the same to the new
+    // one. This would save some memory as a delta would not be created as well as
+    // avoid copying the value. The reason we are not doing that is because the
+    // current code always follows the logical pattern of "create a delta" and
+    // "modify in-place". Additionally, the created delta will make other
+    // transactions get a SERIALIZATION_ERROR.
+    CreateAndLinkDelta(transaction, edge.ptr, Delta::SetPropertyTag(), from_vertex_, property, *current_value);
+    edge.ptr->properties.SetProperty(property, value);
+    storage_->indices_.UpdateOnSetProperty(edge_type_, property, value, from_vertex_, to_vertex_, edge_.ptr,
+                                           *transaction_);
+    if (schema_acc)
+      schema_acc->SetProperty(edge_type_, from_vertex_, to_vertex_, property, ExtendedPropertyType{value},
+                              ExtendedPropertyType{*current_value});
+  });
 
   if (transaction_->IsDiskStorage()) {
     ModifiedEdgeInfo modified_edge(Delta::Action::SET_PROPERTY, from_vertex_->gid, to_vertex_->gid, edge_type_, edge_);
@@ -171,6 +176,8 @@ Result<bool> EdgeAccessor::InitProperties(const std::map<storage::PropertyId, st
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   if (!storage_->config_.salient.items.properties_on_edges) return Error::PROPERTIES_DISABLED;
 
+  // This needs to happen before locking the object
+  auto schema_acc = storage_->SchemaInfoUniqueAccessor();
   auto guard = std::unique_lock{edge_.ptr->lock};
 
   if (!PrepareForWrite(transaction_, edge_.ptr)) return Error::SERIALIZATION_ERROR;
@@ -178,12 +185,16 @@ Result<bool> EdgeAccessor::InitProperties(const std::map<storage::PropertyId, st
   if (edge_.ptr->deleted) return Error::DELETED_OBJECT;
 
   if (!edge_.ptr->properties.InitProperties(properties)) return false;
-  utils::AtomicMemoryBlock([this, &properties, transaction_ = transaction_, edge_ = edge_]() {
+  utils::AtomicMemoryBlock([this, &properties, transaction_ = transaction_, edge_ = edge_, &schema_acc]() {
     for (const auto &[property, value] : properties) {
       CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), from_vertex_, property, PropertyValue());
       storage_->indices_.UpdateOnSetProperty(edge_type_, property, value, from_vertex_, to_vertex_, edge_.ptr,
                                              *transaction_);
+      if (schema_acc)
+        schema_acc->SetProperty(edge_type_, from_vertex_, to_vertex_, property, ExtendedPropertyType{value},
+                                ExtendedPropertyType{});
     }
+    // TODO If the current implementation is too slow there is an InitProperties option
   });
 
   return true;
@@ -194,6 +205,8 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAc
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   if (!storage_->config_.salient.items.properties_on_edges) return Error::PROPERTIES_DISABLED;
 
+  // This needs to happen before locking the object
+  auto schema_acc = storage_->SchemaInfoUniqueAccessor();
   auto guard = std::unique_lock{edge_.ptr->lock};
 
   if (!PrepareForWrite(transaction_, edge_.ptr)) return Error::SERIALIZATION_ERROR;
@@ -203,15 +216,18 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAc
   const bool skip_duplicate_write = !storage_->config_.salient.items.delta_on_identical_property_update;
   using ReturnType = decltype(edge_.ptr->properties.UpdateProperties(properties));
   std::optional<ReturnType> id_old_new_change;
-  utils::AtomicMemoryBlock([this, &properties, &id_old_new_change, skip_duplicate_write]() {
+  utils::AtomicMemoryBlock([this, &properties, &id_old_new_change, skip_duplicate_write, &schema_acc]() {
     id_old_new_change.emplace(edge_.ptr->properties.UpdateProperties(properties));
-    for (auto &[property, old_value, new_value] : *id_old_new_change) {
+    for (auto const &[property, old_value, new_value] : *id_old_new_change) {
       if (skip_duplicate_write && old_value == new_value) continue;
-      CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), from_vertex_, property,
-                         std::move(old_value));
+      CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), from_vertex_, property, old_value);
       storage_->indices_.UpdateOnSetProperty(edge_type_, property, new_value, from_vertex_, to_vertex_, edge_.ptr,
                                              *transaction_);
+      if (schema_acc)
+        schema_acc->SetProperty(edge_type_, from_vertex_, to_vertex_, property, ExtendedPropertyType{new_value},
+                                ExtendedPropertyType{old_value});
     }
+    // TODO If the current implementation is too slow there is an UpdateProperties option
   });
 
   return id_old_new_change.has_value() ? std::move(id_old_new_change.value()) : ReturnType{};
@@ -220,6 +236,8 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAc
 Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
   if (!storage_->config_.salient.items.properties_on_edges) return Error::PROPERTIES_DISABLED;
 
+  // This needs to happen before locking the object
+  auto schema_acc = storage_->SchemaInfoUniqueAccessor();
   auto guard = std::unique_lock{edge_.ptr->lock};
 
   if (!PrepareForWrite(transaction_, edge_.ptr)) return Error::SERIALIZATION_ERROR;
@@ -228,14 +246,18 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
 
   using ReturnType = decltype(edge_.ptr->properties.Properties());
   std::optional<ReturnType> properties;
-  utils::AtomicMemoryBlock([&properties, this]() {
+  utils::AtomicMemoryBlock([&properties, this, &schema_acc]() {
     properties.emplace(edge_.ptr->properties.Properties());
     for (const auto &property : *properties) {
       CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), from_vertex_, property.first,
                          property.second);
       storage_->indices_.UpdateOnSetProperty(edge_type_, property.first, PropertyValue(), from_vertex_, to_vertex_,
                                              edge_.ptr, *transaction_);
+      if (schema_acc)
+        schema_acc->SetProperty(edge_type_, from_vertex_, to_vertex_, property.first, ExtendedPropertyType{},
+                                ExtendedPropertyType{property.second.type()});
     }
+    // TODO If the current implementation is too slow there is an ClearProperties option
 
     edge_.ptr->properties.ClearProperties();
   });

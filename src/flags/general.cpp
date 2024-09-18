@@ -143,6 +143,9 @@ DEFINE_bool(storage_delta_on_identical_property_update, true,
             "Controls whether updating a property with the same value should create a delta object.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(schema_info_enabled, false, "Set to true to enable run-time schema info tracking.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(telemetry_enabled, false,
             "Set to true to enable telemetry. We collect information about the "
             "running system (CPU and memory information) and information about "

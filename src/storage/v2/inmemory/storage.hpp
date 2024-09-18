@@ -21,6 +21,7 @@
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/inmemory/replication/recovery.hpp"
 #include "storage/v2/replication/replication_client.hpp"
+#include "storage/v2/schema_info.hpp"
 #include "storage/v2/storage.hpp"
 
 /// REPLICATION ///
@@ -535,6 +536,8 @@ class InMemoryStorage final : public Storage {
   void PrepareForNewEpoch() override;
 
   void UpdateEdgesMetadataOnModification(Edge *edge, Vertex *from_vertex);
+
+  std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>> FindEdge(Gid gid);
 
   // Main object storage
   utils::SkipList<storage::Vertex> vertices_;
