@@ -46,15 +46,14 @@ bool EdgeAccessor::IsDeleted() const {
 
 bool EdgeAccessor::IsVisible(const View view) const {
   auto check_from_vertex_integrity = [&view, this]() -> bool {
-    bool exists = true;
-    bool deleted = true;
+    bool attached = true;
     Delta *delta = nullptr;
     {
       auto guard = std::shared_lock{from_vertex_->lock};
       // Initialize deleted by checking if out edges contain edge_
-      deleted = std::find_if(from_vertex_->out_edges.begin(), from_vertex_->out_edges.end(), [&](const auto &out_edge) {
-                  return std::get<2>(out_edge) == edge_;
-                }) == from_vertex_->out_edges.end();
+      attached = std::find_if(from_vertex_->out_edges.begin(), from_vertex_->out_edges.end(),
+                              [&](const auto &out_edge) { return std::get<2>(out_edge) == edge_; }) !=
+                 from_vertex_->out_edges.end();
       delta = from_vertex_->delta;
     }
     ApplyDeltasForRead(transaction_, delta, view, [&](const Delta &delta) {
@@ -68,32 +67,31 @@ bool EdgeAccessor::IsVisible(const View view) const {
         case Delta::Action::DELETE_DESERIALIZED_OBJECT:
         case Delta::Action::DELETE_OBJECT:
           break;
-        case Delta::Action::ADD_OUT_EDGE: {  // relevant for the from_vertex_ -> we just deleted the edge
+        case Delta::Action::ADD_OUT_EDGE: {
           if (delta.vertex_edge.edge == edge_) {
-            deleted = false;
+            attached = true;
           }
           break;
         }
-        case Delta::Action::REMOVE_OUT_EDGE: {  // also relevant for the from_vertex_ -> we just added the edge
+        case Delta::Action::REMOVE_OUT_EDGE: {
           if (delta.vertex_edge.edge == edge_) {
-            exists = false;
+            attached = false;
           }
           break;
         }
       }
     });
-    return exists && (for_deleted_ || !deleted);
+    return attached;
   };
   auto check_to_vertex_integrity = [&view, this]() -> bool {
-    bool exists = true;
-    bool deleted = true;
+    bool attached = true;
     Delta *delta = nullptr;
     {
       auto guard = std::shared_lock{to_vertex_->lock};
       // Initialize deleted by checking if out edges contain edge_
-      deleted = std::find_if(to_vertex_->in_edges.begin(), to_vertex_->in_edges.end(), [&](const auto &in_edge) {
-                  return std::get<2>(in_edge) == edge_;
-                }) == to_vertex_->in_edges.end();
+      attached = std::find_if(to_vertex_->in_edges.begin(), to_vertex_->in_edges.end(), [&](const auto &in_edge) {
+                   return std::get<2>(in_edge) == edge_;
+                 }) != to_vertex_->in_edges.end();
       delta = to_vertex_->delta;
     }
     ApplyDeltasForRead(transaction_, delta, view, [&](const Delta &delta) {
@@ -107,21 +105,21 @@ bool EdgeAccessor::IsVisible(const View view) const {
         case Delta::Action::DELETE_DESERIALIZED_OBJECT:
         case Delta::Action::DELETE_OBJECT:
           break;
-        case Delta::Action::ADD_IN_EDGE: {  // relevant for the from_vertex_ -> we just deleted the edge
+        case Delta::Action::ADD_IN_EDGE: {
           if (delta.vertex_edge.edge == edge_) {
-            deleted = false;
+            attached = true;
           }
           break;
         }
-        case Delta::Action::REMOVE_IN_EDGE: {  // also relevant for the from_vertex_ -> we just added the edge
+        case Delta::Action::REMOVE_IN_EDGE: {
           if (delta.vertex_edge.edge == edge_) {
-            exists = false;
+            attached = false;
           }
           break;
         }
       }
     });
-    return exists && (for_deleted_ || !deleted);
+    return attached;
   };
   auto check_presence_of_edge = [&view, this]() -> bool {
     bool deleted = true;
