@@ -19,17 +19,42 @@
 (def main-set? (atom false))
 (def batches-inserted (atom 0))
 
-(def batch-size 1000)
+(def batch-size 5000)
+
+(defn hamming-sim
+  "Calculates hamming distance between two sequences."
+  [seq1 seq2]
+  (let [seq1-size (count seq1)
+        seq2-size (count seq2)
+        max-size (max seq1-size seq2-size)
+        size-diff (abs (- seq2-size seq1-size))
+        elemwise-diff (reduce +
+                              (map (fn [elem1 elem2]
+                                     (if (= elem1 elem2) 0 1))
+
+                                   seq1 seq2))
+        sim (- 1 (/ (+ elemwise-diff size-diff) max-size))]
+    sim))
 
 (defn batch-start-idx
   "Calculates start index for the new batch. E.g 1, 1001, 2001..."
   []
   (+ 1 (* (deref batches-inserted) batch-size)))
 
+(defn get-expected-number-indices
+  "Calculates the number of vertices that should've been inserted."
+  []
+  (* (deref batches-inserted) batch-size))
+
+(defn get-expected-indices
+  "Returns the range of all indices that should've been inserted."
+  []
+  (range 1 (+ 1 (* (deref batches-inserted) batch-size))))
+
 (defn batch-end-idx
   "Calculates end index for the new batch. End index will not be included. E.g 1001, 2001"
   [batch-start-idx]
-  (+ batch-start-idx batch-size))
+  (+ batch-start-idx (- batch-size 1)))
 
 (defn random-coord
   "Get random leader."
@@ -114,9 +139,9 @@
         :get-nodes (if (hautils/data-instance? node)
                      (try
                        (dbclient/with-transaction bolt-conn txn
-                         (mg-get-nodes txn)
-                         (assoc op :type :ok :value (str "Nodes fetches on" node)))
-
+                         (let [indices (->> (mg-get-nodes txn) (map :id) (reduce conj []))]
+                           (assoc op :type :ok :value {:indices indices :node node})))
+                        ; There shouldn't be any other exception since nemesis will heal all nodes as part of its final generator.
                        (catch Exception e
                          (assoc op :type :fail :value (str e))))
                      (assoc op :type :info :value "Not data instance."))
@@ -147,7 +172,7 @@
         :show-instances-read (if (hautils/coord-instance? node)
                                (try
                                  (utils/with-session bolt-conn session ; Use bolt connection for running show instances.
-                                   (let [instances (->> (mgquery/get-all-instances session) (reduce conj []))]
+                                   (let [instances (reduce conj [] (mgquery/get-all-instances session))]
                                      (assoc op
                                             :type :ok
                                             :value {:instances instances :node node})))
@@ -155,7 +180,7 @@
                                    (utils/process-service-unavailable-exc op node))
                                  (catch Exception e
                                    (assoc op :type :fail :value (str e))))
-                               (assoc op :type :info :value "Not coord"))
+                               (assoc op :type :info :value "Not coordinator"))
         :setup-cluster
         ; If nothing was done before, registration will be done on the 1st leader and all good.
         ; If leader didn't change but registration was done, we won't even try to register -> all good again.
@@ -220,13 +245,47 @@
   [roles]
   (> (count (get-mains roles)) 1))
 
+(defn coll-has-duplicates
+  "Check if the collection has duplicates by comparing the size of set and seq."
+  [coll]
+  (not= (count coll) (count (set coll))))
+
 (defn checker
   "Checker."
   []
   (reify checker/Checker
     (check [_checker _test history _opts]
       ; si prefix stands for show-instances
-      (let [failed-setup-cluster (->> history
+      (let [ok-get-nodes (->> history
+                              (filter #(= :ok (:type %)))
+                              (filter #(= :get-nodes (:f %)))
+                              (map :value))
+            expected-ids-number (get-expected-number-indices)
+
+            expected-ids (get-expected-indices)
+
+            n1-ids (->> ok-get-nodes
+                        (filter #(= "n1" (:node %)))
+                        first
+                        (:indices))
+
+            n1-consistency (hamming-sim expected-ids n1-ids)
+
+            n2-ids (->> ok-get-nodes
+                        (filter #(= "n2" (:node %)))
+                        first
+                        (:indices))
+
+            n2-consistency (hamming-sim expected-ids n2-ids)
+
+            n3-ids (->> ok-get-nodes
+                        (filter #(= "n3" (:node %)))
+                        first
+                        (:indices))
+
+            n3-consistency (hamming-sim expected-ids n3-ids)
+
+            failed-setup-cluster (->> history
                                       (filter #(= :fail (:type %)))
                                       (filter #(= :setup-cluster (:f %)))
                                       (map :value))
@@ -264,16 +323,29 @@
                                      (empty? more-than-one-main)
                                      (empty? partial-instances)
                                      (empty? failed-setup-cluster)
-                                     (empty? failed-show-instances))
+                                     (empty? failed-show-instances)
+                                     (= n1-consistency 1)
+                                     (= n2-consistency 1)
+                                     (= n3-consistency 1))
                             :empty-partial-coordinators? (empty? partial-coordinators) ; coordinators which have missing coordinators in their reads
                             :empty-more-than-one-main-nodes? (empty? more-than-one-main) ; nodes on which more-than-one-main was detected
                             :correct-coordinators? (= coordinators #{"n4" "n5" "n6"})
+                            :n1-no-duplicated-ids? (false? (coll-has-duplicates n1-ids))
+                            :n1-consistency (float n1-consistency)
+                            :n2-no-duplicated-ids? (false? (coll-has-duplicates n2-ids))
+                            :n2-consistency (float n2-consistency)
+                            :n3-no-duplicated-ids? (false? (coll-has-duplicates n3-ids))
+                            :n3-consistency (float n3-consistency)
+                            :total-indices expected-ids-number
                             :empty-failed-setup-cluster? (empty? failed-setup-cluster) ; There shouldn't be any failed setup cluster operations.
                             :empty-failed-show-instances? (empty? failed-show-instances) ; There shouldn't be any failed show instances operations.
                             :empty-partial-instances? (empty? partial-instances)}
 
             updates [{:key :coordinators :condition (not (:correct-coordinators? initial-result)) :value coordinators}
                      {:key :partial-instances :condition (not (:empty-partial-instances? initial-result)) :value partial-instances}
+                     {:key :n1-ids :condition (or (not= 1 n1-consistency) (false? (:n1-no-duplicated-ids? initial-result))) :value n1-ids}
+                     {:key :n2-ids :condition (or (not= 1 n2-consistency) (false? (:n2-no-duplicated-ids? initial-result))) :value n2-ids}
+                     {:key :n3-ids :condition (or (not= 1 n3-consistency) (false? (:n3-no-duplicated-ids? initial-result))) :value n3-ids}
                      {:key :failed-setup-cluster :condition (not (:empty-failed-setup-cluster? initial-result)) :value failed-setup-cluster}
                      {:key :failed-show-instances :condition (not (:empty-failed-show-instances? initial-result)) :value failed-show-instances}]]
 
@@ -327,5 +399,5 @@
                  {:hacreate     (checker)
                   :timeline (timeline/html)})
      :generator (client-generator)
-     :final-generator {:clients (gen/each-thread (gen/once get-nodes)) :recovery-time 20}
+     :final-generator {:clients (gen/each-thread (gen/once get-nodes)) :recovery-time 30}
      :nemesis-config (nemesis/create nodes-config)}))

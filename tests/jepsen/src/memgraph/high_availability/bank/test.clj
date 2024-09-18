@@ -160,7 +160,7 @@
                                    (utils/process-service-unavailable-exc op node))
                                  (catch Exception e
                                    (assoc op :type :fail :value (str e))))
-                               (assoc op :type :info :value "Not coord"))
+                               (assoc op :type :info :value "Not coordinator"))
       ; Reading balances should be done only on data instances -> use bolt connection.
         :read-balances (if (hautils/data-instance? node)
                          (try

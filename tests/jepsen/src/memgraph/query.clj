@@ -29,7 +29,7 @@
 
 (dbclient/defquery collect-ids
   "MATCH (n:Node)
-  RETURN collect(n.id);
+  RETURN n.id as id;
   ")
 
 (defn add-nodes

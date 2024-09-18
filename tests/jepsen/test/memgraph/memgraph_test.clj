@@ -1,9 +1,24 @@
 (ns memgraph.memgraph-test
   (:require [clojure.test :refer :all]
             [memgraph.high-availability.bank.test :as habank]
+            [memgraph.high-availability.create.test :as hacreate]
             [memgraph
              [utils :as utils]
              [query :as query]]))
+
+(deftest hamming
+  (testing "H1"
+    (is (= hacreate/hamming-sim [1 2 3] [1 2 3]) 1))
+
+  (testing "H2"
+    (is (= hacreate/hamming-sim [1 2 3] [1 2]) 2/3))
+
+  (testing "H3"
+    (is (= hacreate/hamming-sim (range 1 11) (range 1 21)) 1/2))
+
+  (testing "H3"
+    (is (= hacreate/hamming-sim (range 1 11) (range 2 16)) 0))
+  )
 
 (deftest get-instance-url
   (testing "Get instance URL."
