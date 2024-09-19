@@ -1,4 +1,4 @@
-name: "Release build and test"
+name: "Diff-release"
 
 on:
   workflow_call:
