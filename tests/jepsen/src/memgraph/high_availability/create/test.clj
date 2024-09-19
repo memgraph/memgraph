@@ -3,6 +3,7 @@
   (:require [neo4j-clj.core :as dbclient]
             [clojure.tools.logging :refer [info]]
             [clojure.core :as c]
+            [clojure.set :as set]
             [clojure.string :as string]
             [jepsen
              [checker :as checker]
@@ -22,7 +23,7 @@
 (def batch-size 5000)
 
 (defn hamming-sim
-  "Calculates hamming distance between two sequences."
+  "Calculates Hamming distance between two sequences. Used as a consistency measure when the order is important."
   [seq1 seq2]
   (let [seq1-size (count seq1)
         seq2-size (count seq2)
@@ -35,6 +36,21 @@
                                    seq1 seq2))
         sim (- 1 (/ (+ elemwise-diff size-diff) max-size))]
     sim))
+
+(defn jaccard-sim
+  "Calculates Jaccard similarity between two input sequences."
+  [seq1 seq2]
+  (let [seq1-set (set seq1)
+        seq2-set (set seq2)
+        jaccard-int (set/intersection seq1-set seq2-set)
+        jaccard-un (set/union seq1-set seq2-set)
+        sim (/ (count jaccard-int) (count jaccard-un))]
+    sim))
+
+(defn missing-intervals
+  "Finds missing intervals from the sequence. Accepts expected number of indices which serves as the largest number from the interval and
+  the sequence to be analyzed."
+  [seq max-idx])
 
 (defn batch-start-idx
   "Calculates start index for the new batch. E.g 1, 1001, 2001..."
@@ -147,24 +163,37 @@
                      (assoc op :type :info :value "Not data instance."))
 
         :add-nodes (if (hautils/data-instance? node)
-                     (try
-                       (dbclient/with-transaction bolt-conn txn
-                         (let [start-idx (batch-start-idx)
-                               end-idx (batch-end-idx start-idx)]
+
+                     (let [start-idx (batch-start-idx)
+                           end-idx (batch-end-idx start-idx)]
+                       (try
+                         (swap! batches-inserted inc)
+                         (dbclient/with-transaction bolt-conn txn
+                                                    ; If query failed because the instance got killed, we should catch TransientException -> this will be logged as
+                           ; fail result.
                            (mg-add-nodes start-idx end-idx txn)
-                           (swap! batches-inserted + 1)
-                           (assoc op :type :ok :value (str "Nodes with indices [" start-idx "," end-idx "] created."))))
+                           (assoc op :type :ok :value (str "Nodes with indices [" start-idx "," end-idx "] created.")))
 
-                       (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
-                         (utils/process-service-unavailable-exc op node))
+                         (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
+                           (do
+                             (swap! batches-inserted dec)
+                             (utils/process-service-unavailable-exc op node)))
 
-                       (catch Exception e
-                         (if (or
-                              (utils/query-forbidden-on-replica? e)
-                              (utils/query-forbidden-on-main? e)
-                              (utils/sync-replica-down? e))
-                           (assoc op :type :info :value (str e))
-                           (assoc op :type :fail :value (str e)))))
+                         (catch Exception e
+                           ; Even if sync replica is down, nodes will get created on the main.
+                           (cond (utils/sync-replica-down? e)
+                                 (assoc op :type :ok :value (str "Nodes with indices [" start-idx "," end-idx "] created. SYNC replica is down."))
+
+                                 (or (utils/query-forbidden-on-replica? e)
+                                     (utils/query-forbidden-on-main? e))
+                                 (do
+                                   (swap! batches-inserted dec)
+                                   (assoc op :type :info :value (str e)))
+
+                                 :else
+                                 (do
+                                   (swap! batches-inserted dec)
+                                   (assoc op :type :fail :value (str e)))))))
 
                      (assoc op :type :info :value "Not data instance."))
 
@@ -269,21 +298,27 @@
                         first
                         (:indices))
 
-            n1-consistency (hamming-sim expected-ids n1-ids)
+            n1-hamming-consistency (hamming-sim expected-ids n1-ids)
+
+            n1-jaccard-consistency (jaccard-sim expected-ids n1-ids)
 
             n2-ids (->> ok-get-nodes
                         (filter #(= "n2" (:node %)))
                         first
                         (:indices))
 
-            n2-consistency (hamming-sim expected-ids n2-ids)
+            n2-hamming-consistency (hamming-sim expected-ids n2-ids)
+
+            n2-jaccard-consistency (jaccard-sim expected-ids n2-ids)
 
             n3-ids (->> ok-get-nodes
                         (filter #(= "n3" (:node %)))
                         first
                         (:indices))
 
-            n3-consistency (hamming-sim expected-ids n3-ids)
+            n3-hamming-consistency (hamming-sim expected-ids n3-ids)
+
+            n3-jaccard-consistency (jaccard-sim expected-ids n3-ids)
 
             failed-setup-cluster (->> history
                                       (filter #(= :fail (:type %)))
@@ -324,18 +359,21 @@
                                      (empty? partial-instances)
                                      (empty? failed-setup-cluster)
                                      (empty? failed-show-instances)
-                                     (= n1-consistency 1)
-                                     (= n2-consistency 1)
-                                     (= n3-consistency 1))
+                                     (= n1-jaccard-consistency 1)
+                                     (= n2-jaccard-consistency 1)
+                                     (= n3-jaccard-consistency 1))
                             :empty-partial-coordinators? (empty? partial-coordinators) ; coordinators which have missing coordinators in their reads
                             :empty-more-than-one-main-nodes? (empty? more-than-one-main) ; nodes on which more-than-one-main was detected
                             :correct-coordinators? (= coordinators #{"n4" "n5" "n6"})
                             :n1-no-duplicated-ids? (false? (coll-has-duplicates n1-ids))
-                            :n1-consistency (float n1-consistency)
+                            :n1-hamming-consistency (float n1-hamming-consistency)
+                            :n1-jaccard-consistency (float n1-jaccard-consistency)
                             :n2-no-duplicated-ids? (false? (coll-has-duplicates n2-ids))
-                            :n2-consistency (float n2-consistency)
+                            :n2-hamming-consistency (float n2-hamming-consistency)
+                            :n2-jaccard-consistency (float n2-jaccard-consistency)
                             :n3-no-duplicated-ids? (false? (coll-has-duplicates n3-ids))
-                            :n3-consistency (float n3-consistency)
+                            :n3-hamming-consistency (float n3-hamming-consistency)
+                            :n3-jaccard-consistency (float n3-jaccard-consistency)
                             :total-indices expected-ids-number
                             :empty-failed-setup-cluster? (empty? failed-setup-cluster) ; There shouldn't be any failed setup cluster operations.
                             :empty-failed-show-instances? (empty? failed-show-instances) ; There shouldn't be any failed show instances operations.
@@ -343,9 +381,9 @@
 
             updates [{:key :coordinators :condition (not (:correct-coordinators? initial-result)) :value coordinators}
                      {:key :partial-instances :condition (not (:empty-partial-instances? initial-result)) :value partial-instances}
-                     {:key :n1-ids :condition (or (not= 1 n1-consistency) (false? (:n1-no-duplicated-ids? initial-result))) :value n1-ids}
-                     {:key :n2-ids :condition (or (not= 1 n2-consistency) (false? (:n2-no-duplicated-ids? initial-result))) :value n2-ids}
-                     {:key :n3-ids :condition (or (not= 1 n3-consistency) (false? (:n3-no-duplicated-ids? initial-result))) :value n3-ids}
+                     {:key :n1-ids :condition (or (not= 1 n1-jaccard-consistency) (false? (:n1-no-duplicated-ids? initial-result))) :value n1-ids}
+                     {:key :n2-ids :condition (or (not= 1 n2-jaccard-consistency) (false? (:n2-no-duplicated-ids? initial-result))) :value n2-ids}
+                     {:key :n3-ids :condition (or (not= 1 n3-jaccard-consistency) (false? (:n3-no-duplicated-ids? initial-result))) :value n3-ids}
                      {:key :failed-setup-cluster :condition (not (:empty-failed-setup-cluster? initial-result)) :value failed-setup-cluster}
                      {:key :failed-show-instances :condition (not (:empty-failed-show-instances? initial-result)) :value failed-show-instances}]]
 

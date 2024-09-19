@@ -140,9 +140,9 @@
   (gen/phases
    (gen/sleep 5)
    (cycle [{:type :info, :f :kill-node}
-           (gen/sleep 5)
+           (gen/sleep 10)
            {:type :info, :f :heal-node}
-           (gen/sleep 5)])))
+           (gen/sleep 20)])))
 
 (defn create
   "Create a map which contains a nemesis configuration for running HA bank test."
