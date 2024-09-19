@@ -1,4 +1,4 @@
-name: "Debug build and test"
+name: "Diff-debug"
 
 on:
   workflow_call:
