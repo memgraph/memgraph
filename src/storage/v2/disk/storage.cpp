@@ -1755,6 +1755,13 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
             return StorageManipulationError{PersistenceError{}};
           }
         } break;
+
+        case MetadataDelta::Action::TYPE_CONSTRAINT_CREATE:
+        case MetadataDelta::Action::TYPE_CONSTRAINT_DROP: {
+          throw utils::NotYetImplemented("Type constraints are not implemented for DiskStorage.");
+          break;
+        }
+
         case MetadataDelta::Action::ENUM_CREATE:
         case MetadataDelta::Action::ENUM_ALTER_ADD:
         case MetadataDelta::Action::ENUM_ALTER_UPDATE: {
@@ -2147,6 +2154,16 @@ UniqueConstraints::DeletionStatus DiskStorage::DiskAccessor::DropUniqueConstrain
   return UniqueConstraints::DeletionStatus::SUCCESS;
 }
 
+utils::BasicResult<StorageExistenceConstraintDefinitionError, void> DiskStorage::DiskAccessor::CreateTypeConstraint(
+    LabelId /**/, PropertyId /**/, TypeConstraintKind /**/) {
+  throw utils::NotYetImplemented("Type constraints are not yet implemented for on-disk storage");
+}
+
+utils::BasicResult<StorageExistenceConstraintDroppingError, void> DiskStorage::DiskAccessor::DropTypeConstraint(
+    LabelId /**/, PropertyId /**/, TypeConstraintKind /**/) {
+  throw utils::NotYetImplemented("Type constraints are not yet implemented for on-disk storage");
+}
+
 void DiskStorage::DiskAccessor::DropGraph() {}
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
@@ -2217,6 +2234,7 @@ IndicesInfo DiskStorage::DiskAccessor::ListAllIndices() const {
 ConstraintsInfo DiskStorage::DiskAccessor::ListAllConstraints() const {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   return {disk_storage->constraints_.existence_constraints_->ListConstraints(),
-          disk_storage->constraints_.unique_constraints_->ListConstraints()};
+          disk_storage->constraints_.unique_constraints_->ListConstraints(),
+          disk_storage->constraints_.type_constraints_->ListConstraints()};
 }
 }  // namespace memgraph::storage

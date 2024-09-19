@@ -30,7 +30,7 @@ const uint64_t kEdgeIndicesVersion{17};
 const uint64_t kEnumsVersion{18};
 // We prematurely bumped the version when making the point datatype as part of 2.19
 const uint64_t kAccidentalVersionBump1{19};
-const uint64_t kPointIndex{20};
+const uint64_t kPointIndexAndTypeConstraints{20};
 
 // Magic values written to the start of a snapshot/WAL file to identify it.
 const std::string kSnapshotMagic{"MGsn"};

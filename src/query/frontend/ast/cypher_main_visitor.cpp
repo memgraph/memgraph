@@ -172,27 +172,85 @@ antlrcpp::Any CypherMainVisitor::visitConstraintQuery(MemgraphCypher::Constraint
 
 antlrcpp::Any CypherMainVisitor::visitConstraint(MemgraphCypher::ConstraintContext *ctx) {
   Constraint constraint;
-  MG_ASSERT(ctx->EXISTS() || ctx->UNIQUE() || (ctx->NODE() && ctx->KEY()));
+  MG_ASSERT(ctx->EXISTS() || ctx->UNIQUE() || (ctx->NODE() && ctx->KEY()) || (ctx->IS() && ctx->TYPED()));
   if (ctx->EXISTS()) {
     constraint.type = Constraint::Type::EXISTS;
   } else if (ctx->UNIQUE()) {
     constraint.type = Constraint::Type::UNIQUE;
   } else if (ctx->NODE() && ctx->KEY()) {
     constraint.type = Constraint::Type::NODE_KEY;
+  } else if (ctx->IS() && ctx->TYPED()) {
+    constraint.type = Constraint::Type::TYPE;
+    constraint.type_constraint =
+        std::any_cast<memgraph::storage::TypeConstraintKind>(visitTypeConstraintType(ctx->typeConstraintType()));
   }
   constraint.label = AddLabel(std::any_cast<std::string>(ctx->labelName()->accept(this)));
   auto node_name = std::any_cast<std::string>(ctx->nodeName->symbolicName()->accept(this));
-  for (const auto &var_ctx : ctx->constraintPropertyList()->variable()) {
-    auto var_name = std::any_cast<std::string>(var_ctx->symbolicName()->accept(this));
-    if (var_name != node_name) {
+
+  auto check_equality = [](auto const &variable_name, auto const &node_name) {
+    if (variable_name != node_name) {
       throw SemanticException("All constraint variable should reference node '{}'", node_name);
     }
-  }
-  for (const auto &prop_lookup : ctx->constraintPropertyList()->propertyLookup()) {
-    constraint.properties.push_back(std::any_cast<PropertyIx>(prop_lookup->propertyKeyName()->accept(this)));
+  };
+
+  if (constraint.type != Constraint::Type::TYPE) {
+    for (const auto &var_ctx : ctx->constraintPropertyList()->variable()) {
+      auto var_name = std::any_cast<std::string>(var_ctx->symbolicName()->accept(this));
+      check_equality(var_name, node_name);
+    }
+    for (const auto &prop_lookup : ctx->constraintPropertyList()->propertyLookup()) {
+      constraint.properties.push_back(std::any_cast<PropertyIx>(prop_lookup->propertyKeyName()->accept(this)));
+    }
+  } else {
+    auto var_name = std::any_cast<std::string>(ctx->variable(0)->symbolicName()->accept(this));
+    check_equality(var_name, node_name);
+    constraint.properties.push_back(std::any_cast<PropertyIx>(ctx->propertyLookup()->propertyKeyName()->accept(this)));
   }
 
   return constraint;
+}
+
+antlrcpp::Any CypherMainVisitor::visitTypeConstraintType(MemgraphCypher::TypeConstraintTypeContext *ctx) {
+  if (ctx->BOOLEAN()) {
+    return memgraph::storage::TypeConstraintKind::BOOLEAN;
+  }
+  if (ctx->STRING()) {
+    return memgraph::storage::TypeConstraintKind::STRING;
+  }
+  if (ctx->INTEGER()) {
+    return memgraph::storage::TypeConstraintKind::INTEGER;
+  }
+  if (ctx->FLOAT()) {
+    return memgraph::storage::TypeConstraintKind::FLOAT;
+  }
+  if (ctx->LIST()) {
+    return memgraph::storage::TypeConstraintKind::LIST;
+  }
+  if (ctx->MAP()) {
+    return memgraph::storage::TypeConstraintKind::MAP;
+  }
+  if (ctx->DATE()) {
+    return memgraph::storage::TypeConstraintKind::DATE;
+  }
+  if (ctx->LOCALTIME()) {
+    return memgraph::storage::TypeConstraintKind::LOCALTIME;
+  }
+  if (ctx->LOCALDATETIME()) {
+    return memgraph::storage::TypeConstraintKind::LOCALDATETIME;
+  }
+  if (ctx->ZONEDDATETIME()) {
+    return memgraph::storage::TypeConstraintKind::ZONEDDATETIME;
+  }
+  if (ctx->DURATION()) {
+    return memgraph::storage::TypeConstraintKind::DURATION;
+  }
+  if (ctx->ENUM()) {
+    return memgraph::storage::TypeConstraintKind::ENUM;
+  }
+  if (ctx->POINT()) {
+    return memgraph::storage::TypeConstraintKind::POINT;
+  }
+  throw SyntaxException("Unknown type constraint type!");
 }
 
 antlrcpp::Any CypherMainVisitor::visitCypherQuery(MemgraphCypher::CypherQueryContext *ctx) {

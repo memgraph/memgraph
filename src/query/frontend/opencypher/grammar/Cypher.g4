@@ -37,6 +37,7 @@ constraintQuery : ( CREATE | DROP ) CONSTRAINT ON constraint ;
 constraint : '(' nodeName=variable ':' labelName ')' ASSERT EXISTS '(' constraintPropertyList ')'
            | '(' nodeName=variable ':' labelName ')' ASSERT constraintPropertyList IS UNIQUE
            | '(' nodeName=variable ':' labelName ')' ASSERT '(' constraintPropertyList ')' IS NODE KEY
+           | '(' nodeName=variable ':' labelName ')' ASSERT variable propertyLookup IS TYPED typeConstraintType
            ;
 
 constraintPropertyList : variable propertyLookup ( ',' variable propertyLookup )* ;
@@ -356,6 +357,7 @@ doubleLiteral : FloatingLiteral ;
 enumValueAccess : symbolicName ':' ':' symbolicName ;
 
 cypherKeyword : ALL
+              | ALLSHORTEST
               | AND
               | ANY
               | AS
@@ -393,8 +395,8 @@ cypherKeyword : ALL
               | IS
               | KB
               | KEY
-              | LIMIT
               | L_SKIP
+              | LIMIT
               | MATCH
               | MB
               | MEMORY
@@ -420,6 +422,7 @@ cypherKeyword : ALL
               | STORAGE
               | THEN
               | TRUE
+              | TYPED
               | UNION
               | UNIQUE
               | UNLIMITED
@@ -428,7 +431,6 @@ cypherKeyword : ALL
               | WHERE
               | WITH
               | WSHORTEST
-              | ALLSHORTEST
               | XOR
               | YIELD
               ;

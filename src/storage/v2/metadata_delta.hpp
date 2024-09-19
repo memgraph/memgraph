@@ -13,6 +13,7 @@
 
 #include <set>
 
+#include "storage/v2/constraints/type_constraints.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
@@ -40,6 +41,8 @@ struct MetadataDelta {
     EXISTENCE_CONSTRAINT_DROP,
     UNIQUE_CONSTRAINT_CREATE,
     UNIQUE_CONSTRAINT_DROP,
+    TYPE_CONSTRAINT_CREATE,
+    TYPE_CONSTRAINT_DROP,
     ENUM_CREATE,
     ENUM_ALTER_ADD,
     ENUM_ALTER_UPDATE,
@@ -87,6 +90,10 @@ struct MetadataDelta {
   } unique_constraint_create;
   static constexpr struct UniqueConstraintDrop {
   } unique_constraint_drop;
+  static constexpr struct TypeConstraintCreate {
+  } type_constraint_create;
+  static constexpr struct TypeConstraintDrop {
+  } type_constraint_drop;
   static constexpr struct EnumCreate {
   } enum_create;
   static constexpr struct EnumAlterAdd {
@@ -151,6 +158,12 @@ struct MetadataDelta {
   MetadataDelta(UniqueConstraintDrop /*tag*/, LabelId label, std::set<PropertyId> properties)
       : action(Action::UNIQUE_CONSTRAINT_DROP), label_properties{label, std::move(properties)} {}
 
+  MetadataDelta(TypeConstraintCreate /*tag*/, LabelId label, PropertyId property, TypeConstraintKind type)
+      : action(Action::TYPE_CONSTRAINT_CREATE), label_property_type{label, property, type} {}
+
+  MetadataDelta(TypeConstraintDrop /*tag*/, LabelId label, PropertyId property, TypeConstraintKind type)
+      : action(Action::TYPE_CONSTRAINT_DROP), label_property_type{label, property, type} {}
+
   MetadataDelta(EnumCreate /*tag*/, EnumTypeId etype) : action(Action::ENUM_CREATE), enum_create_info{.etype = etype} {}
 
   MetadataDelta(EnumAlterAdd /*tag*/, Enum value)
@@ -181,6 +194,8 @@ struct MetadataDelta {
       case Action::EDGE_PROPERTY_INDEX_DROP:
       case EXISTENCE_CONSTRAINT_CREATE:
       case EXISTENCE_CONSTRAINT_DROP:
+      case TYPE_CONSTRAINT_CREATE:
+      case TYPE_CONSTRAINT_DROP:
       case ENUM_CREATE:
       case ENUM_ALTER_ADD:
       case ENUM_ALTER_UPDATE:
@@ -227,6 +242,12 @@ struct MetadataDelta {
       PropertyId property;
       LabelPropertyIndexStats stats;
     } label_property_stats;
+
+    struct {
+      LabelId label;
+      PropertyId property;
+      TypeConstraintKind type;
+    } label_property_type;
 
     struct {
       EdgeTypeId edge_type;

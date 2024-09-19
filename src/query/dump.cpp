@@ -29,6 +29,7 @@
 #include "query/string_helpers.hpp"
 #include "query/trigger_context.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/temporal.hpp"
@@ -330,6 +331,12 @@ void DumpUniqueConstraint(std::ostream *os, query::DbAccessor *dba, storage::Lab
   *os << " IS UNIQUE;";
 }
 
+void DumpTypeConstraint(std::ostream *os, query::DbAccessor *dba, storage::LabelId label, storage::PropertyId property,
+                        storage::TypeConstraintKind type) {
+  *os << "CREATE CONSTRAINT ON (u:" << EscapeName(dba->LabelToName(label)) << ") ASSERT u."
+      << EscapeName(dba->PropertyToName(property)) << " IS TYPED " << storage::TypeConstraintKindToString(type) << ";";
+}
+
 const char *triggerPhaseToString(TriggerPhase phase) {
   switch (phase) {
     case TriggerPhase::BEFORE_COMMIT:
@@ -359,6 +366,8 @@ PullPlanDump::PullPlanDump(DbAccessor *dba, dbms::DatabaseAccess db_acc)
                    CreateExistenceConstraintsPullChunk(),
                    // Dump all unique constraints
                    CreateUniqueConstraintsPullChunk(),
+                   // Dump all type constraints
+                   CreateTypeConstraintsPullChunk(),
                    // Create internal index for faster edge creation
                    CreateInternalIndexPullChunk(),
                    // Dump all vertices
@@ -641,6 +650,33 @@ PullPlanDump::PullChunk PullPlanDump::CreateUniqueConstraintsPullChunk() {
     }
 
     if (global_index == unique.size()) {
+      return local_counter;
+    }
+
+    return std::nullopt;
+  };
+}
+
+PullPlanDump::PullChunk PullPlanDump::CreateTypeConstraintsPullChunk() {
+  return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
+    // Delay the construction of constraint vectors
+    if (!constraints_info_) {
+      constraints_info_.emplace(dba_->ListAllConstraints());
+    }
+
+    const auto &type = constraints_info_->type;
+    size_t local_counter = 0;
+    while (global_index < type.size() && (!n || local_counter < *n)) {
+      const auto &[label, property, data_type] = type[global_index];
+      std::ostringstream os;
+      DumpTypeConstraint(&os, dba_, label, property, data_type);
+      stream->Result({TypedValue(os.str())});
+
+      ++global_index;
+      ++local_counter;
+    }
+
+    if (global_index == type.size()) {
       return local_counter;
     }
 

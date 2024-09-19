@@ -1,0 +1,20 @@
+schema_setup: &schema_setup
+  cluster:
+    main:
+      args:
+        [
+          "--bolt-port",
+          "7687",
+          "--log-level=TRACE",
+          "--experimental-enabled=text-search",
+          "--schema-info-enabled",
+        ]
+      log_file: "schema_info.log"
+      setup_queries: []
+      validation_queries: []
+
+workloads:
+  - name: "Show schema info"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["schema_info/schema_info.py"]
+    <<: *schema_setup

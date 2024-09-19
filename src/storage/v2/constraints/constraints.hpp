@@ -15,6 +15,7 @@
 
 #include "storage/v2/config.hpp"
 #include "storage/v2/constraints/existence_constraints.hpp"
+#include "storage/v2/constraints/type_constraints.hpp"
 #include "storage/v2/constraints/unique_constraints.hpp"
 #include "storage/v2/storage_mode.hpp"
 
@@ -31,10 +32,15 @@ struct Constraints {
 
   void AbortEntries(std::span<Vertex const *const> vertices, uint64_t exact_start_timestamp) const;
   void DropGraphClearConstraints() const;
+  bool HasTypeConstraints() const;
 
   std::unique_ptr<ExistenceConstraints> existence_constraints_;
   std::unique_ptr<UniqueConstraints> unique_constraints_;
-  bool empty() const { return existence_constraints_->empty() && unique_constraints_->empty(); }
+  std::unique_ptr<TypeConstraints> type_constraints_;
+
+  bool empty() const {
+    return existence_constraints_->empty() && unique_constraints_->empty() && type_constraints_->empty();
+  }
 };
 
 }  // namespace memgraph::storage

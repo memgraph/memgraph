@@ -88,6 +88,8 @@
 #include "replication/config.hpp"
 #include "replication/state.hpp"
 #include "spdlog/spdlog.h"
+#include "storage/v2/constraints/constraint_violation.hpp"
+#include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/edge_import_mode.hpp"
@@ -4217,14 +4219,14 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
       break;
     }
     case DatabaseInfoQuery::InfoType::CONSTRAINT: {
-      header = {"constraint type", "label", "properties"};
+      header = {"constraint type", "label", "properties", "data_type"};
       handler = [storage = current_db.db_acc_->get()->storage(), dba] {
         auto info = dba->ListAllConstraints();
         std::vector<std::vector<TypedValue>> results;
-        results.reserve(info.existence.size() + info.unique.size());
+        results.reserve(info.existence.size() + info.unique.size() + info.type.size());
         for (const auto &item : info.existence) {
           results.push_back({TypedValue("exists"), TypedValue(storage->LabelToName(item.first)),
-                             TypedValue(storage->PropertyToName(item.second))});
+                             TypedValue(storage->PropertyToName(item.second)), TypedValue("")});
         }
         for (const auto &item : info.unique) {
           std::vector<TypedValue> properties;
@@ -4232,8 +4234,13 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
           for (const auto &property : item.second) {
             properties.emplace_back(storage->PropertyToName(property));
           }
-          results.push_back(
-              {TypedValue("unique"), TypedValue(storage->LabelToName(item.first)), TypedValue(std::move(properties))});
+          results.push_back({TypedValue("unique"), TypedValue(storage->LabelToName(item.first)),
+                             TypedValue(std::move(properties)), TypedValue("")});
+        }
+        for (const auto &[label, property, type] : info.type) {
+          results.push_back({TypedValue("data_type"), TypedValue(storage->LabelToName(label)),
+                             TypedValue(storage->PropertyToName(property)),
+                             TypedValue(storage::TypeConstraintKindToString(type))});
         }
         return std::pair{results, QueryHandlerResult::COMMIT};
       };
@@ -4449,9 +4456,10 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
       constraint_notification.code = NotificationCode::CREATE_CONSTRAINT;
 
       switch (constraint_query->constraint_.type) {
-        case Constraint::Type::NODE_KEY:
+        case Constraint::Type::NODE_KEY: {
           throw utils::NotYetImplemented("Node key constraints");
-        case Constraint::Type::EXISTS:
+        }
+        case Constraint::Type::EXISTS: {
           if (properties.empty() || properties.size() > 1) {
             throw SyntaxException("Exactly one property must be used for existence constraints.");
           }
@@ -4488,7 +4496,8 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
             }
           };
           break;
-        case Constraint::Type::UNIQUE:
+        }
+        case Constraint::Type::UNIQUE: {
           std::set<storage::PropertyId> property_set;
           for (const auto &property : properties) {
             property_set.insert(property);
@@ -4551,6 +4560,48 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
             }
           };
           break;
+        }
+        case Constraint::Type::TYPE: {
+          auto const maybe_constraint_type = constraint_query->constraint_.type_constraint;
+          MG_ASSERT(maybe_constraint_type.has_value());
+          auto const constraint_type = *maybe_constraint_type;
+
+          constraint_notification.title = fmt::format("Created IS TYPED {} constraint on label {} on property {}.",
+                                                      storage::TypeConstraintKindToString(constraint_type),
+                                                      constraint_query->constraint_.label.name, properties_stringified);
+          handler = [storage, dba, label, label_name = constraint_query->constraint_.label.name, constraint_type,
+                     properties_stringified = std::move(properties_stringified),
+                     properties = std::move(properties)](Notification & /**/) {
+            auto maybe_constraint_error = dba->CreateTypeConstraint(label, properties[0], constraint_type);
+
+            if (maybe_constraint_error.HasError()) {
+              const auto &error = maybe_constraint_error.GetError();
+              std::visit(
+                  [storage, &label_name, &properties_stringified,
+                   constraint_type]<typename T>(T const &arg) {  // TODO: using universal reference gives clang tidy
+                                                                 // error but it used above with no problem?
+                    using ErrorType = std::remove_cvref_t<T>;
+                    if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
+                      auto &violation = arg;
+                      MG_ASSERT(violation.properties.size() == 1U);
+                      auto property_name = storage->PropertyToName(*violation.properties.begin());
+                      throw QueryRuntimeException(
+                          "Unable to create IS TYPED {} constraint on :{}({}), because an "
+                          "existing node violates it.",
+                          storage::TypeConstraintKindToString(constraint_type), label_name, property_name);
+                    } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintDefinitionError>) {
+                      throw QueryRuntimeException("Constraint IS TYPED {} on :{}({}) already exists",
+                                                  storage::TypeConstraintKindToString(constraint_type), label_name,
+                                                  properties_stringified);
+                    } else {
+                      static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
+                    }
+                  },
+                  error);
+            }
+          };
+          break;
+        }
       }
     } break;
     case ConstraintQuery::ActionType::DROP: {
@@ -4559,7 +4610,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
       switch (constraint_query->constraint_.type) {
         case Constraint::Type::NODE_KEY:
           throw utils::NotYetImplemented("Node key constraints");
-        case Constraint::Type::EXISTS:
+        case Constraint::Type::EXISTS: {
           if (properties.empty() || properties.size() > 1) {
             throw SyntaxException("Exactly one property must be used for existence constraints.");
           }
@@ -4578,7 +4629,8 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
             return std::vector<std::vector<TypedValue>>();
           };
           break;
-        case Constraint::Type::UNIQUE:
+        }
+        case Constraint::Type::UNIQUE: {
           std::set<storage::PropertyId> property_set;
           for (const auto &property : properties) {
             property_set.insert(property);
@@ -4616,6 +4668,30 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
             }
             return std::vector<std::vector<TypedValue>>();
           };
+          break;
+        }
+        case Constraint::Type::TYPE: {
+          auto const maybe_constraint_type = constraint_query->constraint_.type_constraint;
+          MG_ASSERT(maybe_constraint_type.has_value());
+          auto const constraint_type = *maybe_constraint_type;
+
+          constraint_notification.title =
+              fmt::format("Dropped IS TYPED {} constraint on label {} on properties {}.",
+                          storage::TypeConstraintKindToString(constraint_type),
+                          constraint_query->constraint_.label.name, utils::Join(properties_string, ", "));
+          handler = [dba, label, label_name = constraint_query->constraint_.label.name, constraint_type,
+                     properties_stringified = std::move(properties_stringified),
+                     properties = std::move(properties)](Notification & /**/) {
+            auto maybe_constraint_error = dba->DropTypeConstraint(label, properties[0], constraint_type);
+            if (maybe_constraint_error.HasError()) {
+              throw QueryRuntimeException("Constraint IS TYPED {} on :{}({}) doesn't exist",
+                                          storage::TypeConstraintKindToString(constraint_type), label_name,
+                                          properties_stringified);
+            }
+            return std::vector<std::vector<TypedValue>>();
+          };
+          break;
+        }
       }
     } break;
   }
@@ -5113,6 +5189,14 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
         node_constraints.push_back(nlohmann::json::object({{"type", "unique"},
                                                            {"labels", {storage->LabelToName(label_id)}},
                                                            {"properties", std::move(json_properties)}}));
+      }
+      // Type
+      for (const auto &[label_id, property, constraint_kind] : constraint_info.type) {
+        node_constraints.push_back(
+            nlohmann::json::object({{"type", "data_type"},
+                                    {"labels", {storage->LabelToName(label_id)}},
+                                    {"properties", {storage->PropertyToName(property)}},
+                                    {"data_type", TypeConstraintKindToString(constraint_kind)}}));
       }
       json.emplace("node_constraints", std::move(node_constraints));
 
@@ -5685,6 +5769,16 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
                                trigger.Name(), label_name, property_names_stream.str());
                   break;
                 }
+                case storage::ConstraintViolation::Type::TYPE: {
+                  MG_ASSERT(constraint_violation.properties.size() == 1U);
+                  const auto &property_name = db_accessor.PropertyToName(*constraint_violation.properties.begin());
+                  const auto &label_name = db_accessor.LabelToName(constraint_violation.label);
+                  spdlog::warn("Trigger '{}' failed to commit due to type constraint violation on: {}({}) IS TYPED {}",
+                               trigger.Name(), label_name, property_name,
+                               storage::TypeConstraintKindToString(*constraint_violation.constraint_kind));
+
+                  break;
+                }
               }
             } else if constexpr (std::is_same_v<ErrorType, storage::SerializationError>) {
               throw QueryException("Unable to commit due to serialization error.");
@@ -5860,6 +5954,11 @@ void Interpreter::Commit() {
                                      });
                 throw QueryException("Unable to commit due to unique constraint violation on :{}({})", label_name,
                                      property_names_stream.str());
+              }
+              case storage::ConstraintViolation::Type::TYPE: {
+                // This should never get triggered since type constraints get checked immediately and not at
+                // commit time
+                MG_ASSERT(false, "Encountered type constraint violation while commiting which should never happen.");
               }
             }
           } else if constexpr (std::is_same_v<ErrorType, storage::SerializationError>) {

@@ -128,6 +128,8 @@ void RecoverExistenceConstraints(const RecoveredIndicesAndConstraints::Constrain
 void RecoverUniqueConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &, Constraints *,
                               utils::SkipList<Vertex> *, NameIdMapper *,
                               const std::optional<ParallelizedSchemaCreationInfo> &);
+void RecoverTypeConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &, Constraints *,
+                            utils::SkipList<Vertex> *, const std::optional<ParallelizedSchemaCreationInfo> &);
 struct Recovery {
  public:
   /// Recovers data either from a snapshot and/or WAL files.

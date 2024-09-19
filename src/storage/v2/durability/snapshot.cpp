@@ -15,7 +15,9 @@
 
 #include "flags/experimental.hpp"
 #include "flags/run_time_configurable.hpp"
+#include "license/license.hpp"
 #include "spdlog/spdlog.h"
+#include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/durability/exceptions.hpp"
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/serialization.hpp"
@@ -3040,6 +3042,35 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
       }
       spdlog::info("Metadata of unique constraints are recovered.");
     }
+
+    // Recover type constraints.
+    // Snapshot version should be checked since type constraints were
+    // implemented in later versions of snapshot.
+    if (*version >= kPointIndexAndTypeConstraints) {
+      auto size = snapshot.ReadUint();
+      if (!size) throw RecoveryFailure("Couldn't read the number of type constraints!");
+
+      spdlog::info("Recovering metadata of {} type constraints.", *size);
+      for (uint64_t i = 0; i < *size; ++i) {
+        auto label = snapshot.ReadUint();
+        if (!label) throw RecoveryFailure("Couldn't read label of type constraints!");
+        auto property = snapshot.ReadUint();
+        if (!property) throw RecoveryFailure("Couldn't read property of type constraint!");
+        auto type = snapshot.ReadUint();
+        if (!type) throw RecoveryFailure("Couldn't read type of type constraint!");
+
+        AddRecoveredIndexConstraint(
+            &indices_constraints.constraints.type,
+            {get_label_from_id(*label), get_property_from_id(*property), static_cast<TypeConstraintKind>(*type)},
+            "The type constraint already exists!");
+        SPDLOG_TRACE("Recovered metadata for IS TYPED {} constraint for :{}({})",
+                     TypeConstraintKindToString(static_cast<TypeConstraintKind>(*type)),
+                     name_id_mapper->IdToName(snapshot_id_map.at(*label)),
+                     name_id_mapper->IdToName(snapshot_id_map.at(*property)));
+      }
+      spdlog::info("Metadata of type constraints are recovered.");
+    }
+
     spdlog::info("Metadata of constraints are recovered.");
   }
 
@@ -3540,6 +3571,16 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
         for (const auto &property : item.second) {
           write_mapping(property);
         }
+      }
+    }
+    // Write type constraints
+    {
+      auto type_constraints = storage->constraints_.type_constraints_->ListConstraints();
+      snapshot.WriteUint(type_constraints.size());
+      for (const auto &[label, property, type] : type_constraints) {
+        write_mapping(label);
+        write_mapping(property);
+        snapshot.WriteUint(static_cast<uint64_t>(type));
       }
     }
   }

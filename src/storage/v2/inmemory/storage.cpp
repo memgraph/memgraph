@@ -35,6 +35,7 @@
 #include "storage/v2/schema_info.hpp"
 #include "utils/atomic_memory_block.hpp"
 #include "utils/event_gauge.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/stat.hpp"
 
@@ -73,6 +74,8 @@ constexpr auto ActionToStorageOperation(MetadataDelta::Action action) -> durabil
     add_case(EXISTENCE_CONSTRAINT_DROP);
     add_case(UNIQUE_CONSTRAINT_CREATE);
     add_case(UNIQUE_CONSTRAINT_DROP);
+    add_case(TYPE_CONSTRAINT_CREATE);
+    add_case(TYPE_CONSTRAINT_DROP);
     add_case(ENUM_CREATE);
     add_case(ENUM_ALTER_ADD);
     add_case(ENUM_ALTER_UPDATE);
@@ -1744,6 +1747,37 @@ UniqueConstraints::DeletionStatus InMemoryStorage::InMemoryAccessor::DropUniqueC
   return UniqueConstraints::DeletionStatus::SUCCESS;
 }
 
+utils::BasicResult<StorageExistenceConstraintDefinitionError, void>
+InMemoryStorage::InMemoryAccessor::CreateTypeConstraint(LabelId label, PropertyId property, TypeConstraintKind type) {
+  MG_ASSERT(unique_guard_.owns_lock(), "Creating IS TYPED constraint requires a unique access to the storage!");
+  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  auto *type_constraints = in_memory->constraints_.type_constraints_.get();
+  if (type_constraints->ConstraintExists(label, property)) {
+    return StorageTypeConstraintDefinitionError{ConstraintDefinitionError{}};
+  }
+  if (auto violation =
+          TypeConstraints::ValidateVerticesOnConstraint(in_memory->vertices_.access(), label, property, type);
+      violation.has_value()) {
+    return StorageTypeConstraintDefinitionError{violation.value()};
+  }
+  type_constraints->InsertConstraint(label, property, type);
+  transaction_.md_deltas.emplace_back(MetadataDelta::type_constraint_create, label, property, type);
+  return {};
+}
+
+utils::BasicResult<StorageTypeConstraintDroppingError, void> InMemoryStorage::InMemoryAccessor::DropTypeConstraint(
+    LabelId label, PropertyId property, TypeConstraintKind type) {
+  MG_ASSERT(unique_guard_.owns_lock(), "Dropping IS TYPED constraint requires a unique access to the storage!");
+  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  auto *type_constraints = in_memory->constraints_.type_constraints_.get();
+  auto deleted_constraint = type_constraints->DropConstraint(label, property, type);
+  if (!deleted_constraint) {
+    return StorageTypeConstraintDroppingError{ConstraintDefinitionError{}};
+  }
+  transaction_.md_deltas.emplace_back(MetadataDelta::type_constraint_drop, label, property, type);
+  return {};
+}
+
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, View view) {
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get());
   return VerticesIterable(mem_label_index->Vertices(label, view, storage_, &transaction_));
@@ -2422,6 +2456,14 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
         });
         break;
       }
+      case MetadataDelta::Action::TYPE_CONSTRAINT_CREATE:
+      case MetadataDelta::Action::TYPE_CONSTRAINT_DROP: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeTypeConstraint(encoder, *name_id_mapper_, md_delta.label_property_type.label,
+                               md_delta.label_property_type.property, md_delta.label_property_type.type);
+        });
+        break;
+      }
       case MetadataDelta::Action::ENUM_CREATE: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
           EncodeEnumCreate(encoder, enum_store_, md_delta.enum_create_info.etype);
@@ -2776,7 +2818,8 @@ IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
 ConstraintsInfo InMemoryStorage::InMemoryAccessor::ListAllConstraints() const {
   const auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   return {mem_storage->constraints_.existence_constraints_->ListConstraints(),
-          mem_storage->constraints_.unique_constraints_->ListConstraints()};
+          mem_storage->constraints_.unique_constraints_->ListConstraints(),
+          mem_storage->constraints_.type_constraints_->ListConstraints()};
 }
 
 void InMemoryStorage::InMemoryAccessor::SetIndexStats(const storage::LabelId &label, const LabelIndexStats &stats) {

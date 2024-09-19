@@ -11,6 +11,7 @@
 
 #include "storage/v2/durability/wal.hpp"
 
+#include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/delta.hpp"
 #include "storage/v2/durability/exceptions.hpp"
 #include "storage/v2/durability/marker.hpp"
@@ -107,6 +108,8 @@ constexpr Marker OperationToMarker(StorageMetadataOperation operation) {
     add_case(TEXT_INDEX_DROP);
     add_case(UNIQUE_CONSTRAINT_CREATE);
     add_case(UNIQUE_CONSTRAINT_DROP);
+    add_case(TYPE_CONSTRAINT_CREATE);
+    add_case(TYPE_CONSTRAINT_DROP);
     add_case(POINT_INDEX_CREATE);
     add_case(POINT_INDEX_DROP);
   }
@@ -172,6 +175,8 @@ constexpr WalDeltaData::Type MarkerToWalDeltaDataType(Marker marker) {
     add_case(TRANSACTION_END);
     add_case(UNIQUE_CONSTRAINT_CREATE);
     add_case(UNIQUE_CONSTRAINT_DROP);
+    add_case(TYPE_CONSTRAINT_CREATE);
+    add_case(TYPE_CONSTRAINT_DROP);
     add_case(VERTEX_ADD_LABEL);
     add_case(VERTEX_CREATE);
     add_case(VERTEX_DELETE);
@@ -395,6 +400,26 @@ WalDeltaData ReadSkipWalDeltaData(BaseDecoder *decoder) {
         for (uint64_t i = 0; i < *properties_count; ++i) {
           if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
         }
+      }
+      break;
+    }
+    case WalDeltaData::Type::TYPE_CONSTRAINT_CREATE:
+    case WalDeltaData::Type::TYPE_CONSTRAINT_DROP: {
+      if constexpr (read_data) {
+        auto label = decoder->ReadString();
+        if (!label) throw RecoveryFailure("Invalid WAL data!");
+        delta.operation_label_property_type.label = std::move(*label);
+
+        auto property = decoder->ReadString();
+        if (!property) throw RecoveryFailure("Invalid WAL data!");
+        delta.operation_label_property_type.property = std::move(*property);
+
+        auto type = decoder->ReadUint();
+        if (!type) throw RecoveryFailure("Invalid WAL data!");
+        delta.operation_label_property_type.type = static_cast<TypeConstraintKind>(*type);
+      } else {
+        if (!decoder->SkipString() || !decoder->SkipString() || !decoder->ReadUint())
+          throw RecoveryFailure("Invalid WAL data!");
       }
       break;
     }
@@ -639,6 +664,11 @@ bool operator==(const WalDeltaData &a, const WalDeltaData &b) {
     case WalDeltaData::Type::UNIQUE_CONSTRAINT_DROP:
       return a.operation_label_properties.label == b.operation_label_properties.label &&
              a.operation_label_properties.properties == b.operation_label_properties.properties;
+    case WalDeltaData::Type::TYPE_CONSTRAINT_CREATE:
+    case WalDeltaData::Type::TYPE_CONSTRAINT_DROP:
+      return a.operation_label_property_type.label == b.operation_label_property_type.label &&
+             a.operation_label_property_type.property == b.operation_label_property_type.property &&
+             a.operation_label_property_type.type == b.operation_label_property_type.type;
     case WalDeltaData::Type::EDGE_INDEX_CREATE:
     case WalDeltaData::Type::EDGE_INDEX_DROP:
       return a.operation_edge_type.edge_type == b.operation_edge_type.edge_type;
@@ -1133,6 +1163,22 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
                                          "The unique constraint doesn't exist!");
           break;
         }
+        case WalDeltaData::Type::TYPE_CONSTRAINT_CREATE: {
+          auto label = LabelId::FromUint(name_id_mapper->NameToId(delta.operation_label_property_type.label));
+          auto property = PropertyId::FromUint(name_id_mapper->NameToId(delta.operation_label_property_type.property));
+          auto type = static_cast<TypeConstraintKind>(delta.operation_label_property_type.type);
+          AddRecoveredIndexConstraint(&indices_constraints->constraints.type, {label, property, type},
+                                      "The type constraint already exists!");
+          break;
+        }
+        case WalDeltaData::Type::TYPE_CONSTRAINT_DROP: {
+          auto label = LabelId::FromUint(name_id_mapper->NameToId(delta.operation_label_property_type.label));
+          auto property = PropertyId::FromUint(name_id_mapper->NameToId(delta.operation_label_property_type.property));
+          auto type = static_cast<TypeConstraintKind>(delta.operation_label_property_type.type);
+          RemoveRecoveredIndexConstraint(&indices_constraints->constraints.type, {label, property, type},
+                                         "The type constraint doesn't exist!");
+          break;
+        }
         case WalDeltaData::Type::ENUM_CREATE: {
           auto res = enum_store->RegisterEnum(delta.operation_enum_create.etype, delta.operation_enum_create.evalues);
           if (res.HasError()) {
@@ -1385,6 +1431,13 @@ void EncodeLabelProperties(BaseEncoder &encoder, NameIdMapper &name_id_mapper, L
   for (const auto &property : properties) {
     encoder.WriteString(name_id_mapper.IdToName(property.AsUint()));
   }
+}
+
+void EncodeTypeConstraint(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label, PropertyId property,
+                          TypeConstraintKind type) {
+  encoder.WriteString(name_id_mapper.IdToName(label.AsUint()));
+  encoder.WriteString(name_id_mapper.IdToName(property.AsUint()));
+  encoder.WriteUint(static_cast<uint64_t>(type));
 }
 
 void EncodeTextIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, std::string_view text_index_name,
