@@ -5205,6 +5205,14 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
                                                            {"labels", {storage->LabelToName(label_id)}},
                                                            {"properties", std::move(json_properties)}}));
       }
+      // Type
+      for (const auto &[label_id, property, constraint_kind] : constraint_info.type) {
+        node_constraints.push_back(
+            nlohmann::json::object({{"type", "data_type"},
+                                    {"labels", {storage->LabelToName(label_id)}},
+                                    {"properties", {storage->PropertyToName(property)}},
+                                    {"data_type", TypeConstraintKindToString(constraint_kind)}}));
+      }
       json.emplace("node_constraints", std::move(node_constraints));
 
       // ENUMS
