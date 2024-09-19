@@ -156,7 +156,6 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       ASSERT_FALSE(unique_acc->CreateUniqueConstraint(label_unindexed, {property_id, property_extra}).HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
-#ifdef MG_ENTERPRISE
     {
       // Create type constraint.
       auto unique_acc = store->UniqueAccess();
@@ -165,7 +164,6 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
               .HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
-#endif
 
     // Create vertices.
     auto enum_val = *store->enum_store_.ToEnum("enum1", "v2");
@@ -519,10 +517,8 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_THAT(info.existence, UnorderedElementsAre(std::make_pair(base_label_unindexed, property_id)));
           ASSERT_THAT(info.unique, UnorderedElementsAre(
                                        std::make_pair(base_label_unindexed, std::set{property_id, property_extra})));
-#ifdef MG_ENTERPRISE
           ASSERT_THAT(info.type, UnorderedElementsAre(std::make_tuple(base_label_indexed, property_point,
                                                                       memgraph::storage::TypeConstraintKind::POINT)));
-#endif
           break;
         case DatasetType::ONLY_EXTENDED:
           ASSERT_THAT(info.existence, UnorderedElementsAre(std::make_pair(extended_label_unused, property_count)));
@@ -538,10 +534,8 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_THAT(info.unique,
                       UnorderedElementsAre(std::make_pair(base_label_unindexed, std::set{property_id, property_extra}),
                                            std::make_pair(extended_label_unused, std::set{property_count})));
-#ifdef MG_ENTERPRISE
           ASSERT_THAT(info.type, UnorderedElementsAre(std::make_tuple(base_label_indexed, property_point,
                                                                       memgraph::storage::TypeConstraintKind::POINT)));
-#endif
           break;
       }
     }
