@@ -143,16 +143,14 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
       const bool is_child_cartesian = input->GetTypeInfo() == Cartesian::kType;
       if (is_child_cartesian) {
-        std::vector<Symbol> modified_symbols;
+        std::unordered_set<Symbol> modified_symbols;
         for (const auto &filter : op.all_filters_) {
-          if (filter.property_filter) {
-            modified_symbols.push_back(filter.property_filter->symbol_);
-          }
+          modified_symbols.insert(filter.used_symbols.begin(), filter.used_symbols.end());
         }
         auto does_modify = [&]() {
           // Number of symbols is small
           for (const auto &sym_in : input->ModifiedSymbols(*symbol_table_)) {
-            if (std::find(modified_symbols.begin(), modified_symbols.end(), sym_in) != modified_symbols.end()) {
+            if (modified_symbols.find(sym_in) != modified_symbols.end()) {
               return true;
             }
           }
