@@ -6,19 +6,65 @@
              [utils :as utils]
              [query :as query]]))
 
-(deftest hamming
-  (testing "H1"
-    (is (= hacreate/hamming-sim [1 2 3] [1 2 3]) 1))
+(deftest hacreate-test
+  (testing "Hamming1"
+    (is (= (hacreate/hamming-sim [1 2 3] [1 2 3]) 1)))
 
-  (testing "H2"
-    (is (= hacreate/hamming-sim [1 2 3] [1 2]) 2/3))
+  (testing "Hamming2"
+    (is (= (hacreate/hamming-sim [1 2 3] [1 2]) 2/3)))
 
-  (testing "H3"
-    (is (= hacreate/hamming-sim (range 1 11) (range 1 21)) 1/2))
+  (testing "Hamming3"
+    (is (= (hacreate/hamming-sim [1 2 3] [2 3]) 0)))
 
-  (testing "H3"
-    (is (= hacreate/hamming-sim (range 1 11) (range 2 16)) 0))
-  )
+  (testing "Hamming4"
+    (is (= (hacreate/hamming-sim (range 1 11) (range 1 21)) 1/2)))
+
+  (testing "Hamming5"
+    (is (= (hacreate/hamming-sim (range 1 11) (range 2 16)) 0)))
+
+
+  (testing "Jaccard1"
+    (is (= (hacreate/jaccard-sim [1 2 3] [1 2 3]) 1)))
+
+  (testing "Jaccard2"
+    (is (= (hacreate/jaccard-sim [1 2 3] [1 2]) 2/3)))
+
+  (testing "Jaccard3"
+    (is (= (hacreate/jaccard-sim [1 2 3] [2 3]) 2/3)))
+
+  (testing "Jaccard4"
+    (is (= (hacreate/jaccard-sim (range 1 11) (range 1 16)) 2/3)))
+
+
+  (testing "sequence->intervals1"
+    (let [my-seq [1 2 3 4 5 8 9 10]]
+      (is (= (hacreate/sequence->intervals my-seq) [[1 5] [8 10]]))))
+
+  (testing "sequence->intervals2"
+    (let [my-seq [1 2 3 4 5 8 9 9 10 12]]
+      (is (= (hacreate/sequence->intervals my-seq) [[1 5] [8 9] [9 10] [12 12]]))))
+
+  (testing "sequence->intervals3"
+    (let [my-seq (apply vector (concat (range 1 5001) (range 10001 15001)))]
+      (is (= (hacreate/sequence->intervals my-seq) [[1 5000] [10001 15000]]))))
+
+  (testing "sequence->intervals4"
+    (let [my-seq (apply vector (concat (range 5001 10001) (range 50001 55001) (range 110001 115001)))]
+      (is (= (hacreate/sequence->intervals my-seq) [[5001 10000] [50001 55000] [110001 115000]]))))
+
+  (testing "sequence->intervals5"
+    (let [my-seq []]
+      (is (= (hacreate/sequence->intervals my-seq) []))))
+
+  (testing "duplicates1"
+    (let [my-seq [1 1 2 2 3 3]]
+
+      (is (= (hacreate/duplicates my-seq) [1 2 3]))))
+
+  (testing "duplicates2"
+    (let [my-seq '(1 2 2 3 3 4 4 4 10 12 100 100 76541 76541)]
+
+      (is (= (hacreate/duplicates my-seq) [2 3 4 100 76541])))))
 
 (deftest get-instance-url
   (testing "Get instance URL."

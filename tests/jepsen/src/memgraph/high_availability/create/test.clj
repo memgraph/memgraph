@@ -79,11 +79,6 @@
 
       coll-intervals)))
 
-(defn missing-intervals
-  "Finds missing intervals from the sequence. Accepts expected number of indices which serves as the largest number from the interval and
-  the sequence to be analyzed."
-  [seq max-idx])
-
 (defn batch-start-idx
   "Calculates start index for the new batch. E.g 1, 1001, 2001..."
   []
@@ -323,6 +318,8 @@
 
             n1-duplicates (duplicates n1-ids)
 
+            n1-duplicates-intervals (sequence->intervals n1-duplicates)
+
             n1-hamming-consistency (hamming-sim expected-ids n1-ids)
 
             n1-jaccard-consistency (jaccard-sim expected-ids n1-ids)
@@ -334,6 +331,8 @@
 
             n2-duplicates (duplicates n2-ids)
 
+            n2-duplicates-intervals (sequence->intervals n2-duplicates)
+
             n2-hamming-consistency (hamming-sim expected-ids n2-ids)
 
             n2-jaccard-consistency (jaccard-sim expected-ids n2-ids)
@@ -344,6 +343,8 @@
                         (:indices))
 
             n3-duplicates (duplicates n3-ids)
+
+            n3-duplicates-intervals (sequence->intervals n3-duplicates)
 
             n3-hamming-consistency (hamming-sim expected-ids n3-ids)
 
@@ -413,9 +414,9 @@
 
             updates [{:key :coordinators :condition (not (:correct-coordinators? initial-result)) :value coordinators}
                      {:key :partial-instances :condition (not (:empty-partial-instances? initial-result)) :value partial-instances}
-                     {:key :n1-duplicates :condition (false? (:empty-n1-duplicates? initial-result)) :value n1-duplicates}
-                     {:key :n2-duplicates :condition (false? (:empty-n2-duplicates? initial-result)) :value n2-duplicates}
-                     {:key :n3-duplicates :condition (false? (:empty-n3-duplicates? initial-result)) :value n3-duplicates}
+                     {:key :n1-duplicates-intervals :condition (false? (:empty-n1-duplicates? initial-result)) :value n1-duplicates-intervals}
+                     {:key :n2-duplicates-intervals :condition (false? (:empty-n2-duplicates? initial-result)) :value n2-duplicates-intervals}
+                     {:key :n3-duplicates-intervals :condition (false? (:empty-n3-duplicates? initial-result)) :value n3-duplicates-intervals}
                      {:key :failed-setup-cluster :condition (not (:empty-failed-setup-cluster? initial-result)) :value failed-setup-cluster}
                      {:key :failed-show-instances :condition (not (:empty-failed-show-instances? initial-result)) :value failed-show-instances}]]
 
