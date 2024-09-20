@@ -48,13 +48,36 @@
     sim))
 
 (defn duplicates
-  "Function returns all duplicated values from the sequence seq. The collection doesn't need to be sorted."
+  "Function returns all duplicated values from the sequence seq. The input seq doesn't need to be sorted."
   [seq]
   (let [freqs (frequencies seq)]
     (->> freqs
          (filter #(> (val %) 1))
          (map key)
-         (apply sorted-set))))
+         (apply sorted-set)
+         (apply vector))))
+
+(defn sequence->intervals
+  "Compresses a sorted sequence represented as a vector into intervals. Each interval is represented by a vector where the 1st element represents
+  starting idx and the 2nd element represent last index from the interval. Interval is included from both sides. In total runs in O(n).
+  "
+  [coll]
+  (assert (vector? coll) "Input must be a vector.")
+  (if (empty? coll)
+    []
+    (let [coll-size (count coll) ; O(1)
+          head-coll (subvec coll 0 (dec coll-size)) ; O(1), no new structure is being created.
+          shifted-coll (rest coll) ; returns a sequence. O(1), leverages laziness.
+          indices (range 0 (dec coll-size)) ; lazy sequence of numbers
+          split-indices-with-nil (map (fn [index orig shifted]
+                                        (when (not= (inc orig) shifted)
+                                          index)) indices head-coll shifted-coll) ; also lazy sequence. O(1) at this point.
+          end-intervals (filter some? split-indices-with-nil) ; O(1) at this point.
+          start-intervals (conj (map inc end-intervals) 0) ; could start materializing
+          end-intervals (c/concat end-intervals [(dec coll-size)]); could start materializing
+          coll-intervals (map (fn [start end] [(nth coll start) (nth coll end)]) start-intervals end-intervals)]
+
+      coll-intervals)))
 
 (defn missing-intervals
   "Finds missing intervals from the sequence. Accepts expected number of indices which serves as the largest number from the interval and
