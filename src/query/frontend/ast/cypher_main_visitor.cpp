@@ -2923,13 +2923,13 @@ antlrcpp::Any CypherMainVisitor::visitNumberLiteral(MemgraphCypher::NumberLitera
 antlrcpp::Any CypherMainVisitor::visitFunctionInvocation(MemgraphCypher::FunctionInvocationContext *ctx) {
   const auto is_distinct = ctx->DISTINCT() != nullptr;
   auto function_name = std::any_cast<std::string>(ctx->functionName()->accept(this));
+  auto upper_function_name = utils::ToUpperCase(function_name);
   std::vector<Expression *> expressions;
   for (auto *expression : ctx->expression()) {
     expressions.push_back(std::any_cast<Expression *>(expression->accept(this)));
   }
 
   if (expressions.size() == 1U) {
-    auto upper_function_name = utils::ToUpperCase(function_name);
     if (upper_function_name == Aggregation::kCount) {
       return static_cast<Expression *>(
           storage_->Create<Aggregation>(expressions[0], nullptr, Aggregation::Op::COUNT, is_distinct));
@@ -2961,14 +2961,13 @@ antlrcpp::Any CypherMainVisitor::visitFunctionInvocation(MemgraphCypher::Functio
   }
 
   if (expressions.size() == 2U) {
-    auto upper_function_name = utils::ToUpperCase(function_name);
     if (upper_function_name == Aggregation::kCollect) {
       return static_cast<Expression *>(
           storage_->Create<Aggregation>(expressions[1], expressions[0], Aggregation::Op::COLLECT_MAP, is_distinct));
     }
   }
 
-  auto *function_expr = storage_->Create<Function>(function_name, expressions);
+  auto *function_expr = storage_->Create<Function>(upper_function_name, expressions);
 
   // Don't cache queries which call user-defined functions. For performance reasons we want to avoid
   // repeativly finding the function at call time, this means user-defined functions have there lifetime
