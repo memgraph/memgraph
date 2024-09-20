@@ -756,8 +756,10 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
     auto tz_str_length = reader.ReadUint(TZ_NAME_LENGTH_SIZE);
     if (!tz_str_length) return std::nullopt;
     zoned_temporal_data_size += (1 + *tz_str_length);
+    reader.SkipBytes(*tz_str_length);
   } else if (metadata->type == Type::OFFSET_ZONED_TEMPORAL_DATA) {
     zoned_temporal_data_size += 2;  // tz_offset_int is 16-bit
+    reader.SkipBytes(2);
   }
 
   return zoned_temporal_data_size;
@@ -887,14 +889,11 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
     case Type::BOOL: {
       return true;
     }
-    case Type::INT: {
-      reader->ReadInt(payload_size);
-      property_size += SizeToByteSize(payload_size);
-      return true;
-    }
+    case Type::INT:
     case Type::DOUBLE: {
-      reader->ReadDouble(payload_size);
-      property_size += SizeToByteSize(payload_size);
+      const auto size = SizeToByteSize(payload_size);
+      property_size += size;
+      reader->SkipBytes(size);
       return true;
     }
     case Type::STRING: {
@@ -902,7 +901,6 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       if (!size) return false;
       property_size += SizeToByteSize(payload_size);
 
-      std::string str_v(*size, '\0');
       if (!reader->SkipBytes(*size)) return false;
       property_size += *size;
 
@@ -942,8 +940,7 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
 
         map_property_size += SizeToByteSize(metadata->id_size);
 
-        std::string key(*key_size, '\0');
-        if (!reader->ReadBytes(key.data(), *key_size)) return false;
+        if (!reader->SkipBytes(*key_size)) return false;
 
         map_property_size += *key_size;
 
@@ -1271,6 +1268,87 @@ enum class ExpectedPropertyStatus {
                                                      : ExpectedPropertyStatus::GREATER;
 }
 
+[[nodiscard]] ExpectedPropertyStatus DecodeExpectedPropertyType(Reader *reader, PropertyId expected_property,
+                                                                ExtendedPropertyType &type) {
+  auto metadata = reader->ReadMetadata();
+  if (!metadata) return ExpectedPropertyStatus::MISSING_DATA;
+
+  auto property_id = reader->ReadUint(metadata->id_size);
+  if (!property_id) return ExpectedPropertyStatus::MISSING_DATA;
+
+  switch (metadata->type) {
+    using enum Type;
+    case EMPTY:
+    case NONE:
+      type = ExtendedPropertyType{PropertyValue::Type::Null};
+      break;
+    case BOOL:
+      type = ExtendedPropertyType{PropertyValue::Type::Bool};
+      break;
+    case INT:
+      type = ExtendedPropertyType{PropertyValue::Type::Int};
+      break;
+    case DOUBLE:
+      type = ExtendedPropertyType{PropertyValue::Type::Double};
+      break;
+    case STRING:
+      type = ExtendedPropertyType{PropertyValue::Type::String};
+      break;
+    case LIST:
+      type = ExtendedPropertyType{PropertyValue::Type::List};
+      break;
+    case MAP:
+      type = ExtendedPropertyType{PropertyValue::Type::Map};
+      break;
+    case TEMPORAL_DATA: {
+      // Found the property
+      if (*property_id == expected_property.AsUint()) {
+        PropertyValue value;
+        if (!DecodePropertyValue(reader, metadata->type, metadata->payload_size, value))
+          return ExpectedPropertyStatus::MISSING_DATA;
+        type = ExtendedPropertyType{value.ValueTemporalData().type};
+        return ExpectedPropertyStatus::EQUAL;
+      }
+      break;
+    }
+    case ZONED_TEMPORAL_DATA:
+    case OFFSET_ZONED_TEMPORAL_DATA:
+      type = ExtendedPropertyType{PropertyValue::Type::ZonedTemporalData};  // NOT SURE
+      break;
+    case ENUM: {
+      // Found the property
+      if (*property_id == expected_property.AsUint()) {
+        PropertyValue value;
+        if (!DecodePropertyValue(reader, metadata->type, metadata->payload_size, value))
+          return ExpectedPropertyStatus::MISSING_DATA;
+        type = ExtendedPropertyType{value.ValueEnum().type_id()};
+        return ExpectedPropertyStatus::EQUAL;
+      }
+    } break;
+    case POINT: {
+      // Found the property
+      if (*property_id == expected_property.AsUint()) {
+        PropertyValue value;
+        if (!DecodePropertyValue(reader, metadata->type, metadata->payload_size, value))
+          return ExpectedPropertyStatus::MISSING_DATA;
+        type = ExtendedPropertyType{
+            value.type()};  // PropertyStoreType has only Point; while PropertyValueType has point 2d and 3d
+        return ExpectedPropertyStatus::EQUAL;
+      }
+    } break;
+  }
+
+  if (*property_id == expected_property.AsUint()) {
+    return ExpectedPropertyStatus::EQUAL;
+  }
+
+  // Don't load the value if this isn't the expected property.
+  if (!SkipPropertyValue(reader, metadata->type, metadata->payload_size)) return ExpectedPropertyStatus::MISSING_DATA;
+
+  return (*property_id < expected_property.AsUint()) ? ExpectedPropertyStatus::SMALLER
+                                                     : ExpectedPropertyStatus::GREATER;
+}
+
 // Function used to check a property exists (PropertyId) from a byte stream.
 // It will skip the encoded PropertyValue.
 //
@@ -1305,6 +1383,25 @@ enum class ExpectedPropertyStatus {
   }
 }
 
+[[nodiscard]] auto NextPropertyAndType(Reader *reader) -> std::optional<PropertyStoreMemberInfo> {
+  auto metadata = reader->ReadMetadata();
+  if (!metadata) return std::nullopt;
+
+  auto property_id = reader->ReadUint(metadata->id_size);
+  if (!property_id) return std::nullopt;
+
+  // Special case: TEMPORAL_DATA has a subtype we need to extract
+  if (metadata->type == Type::TEMPORAL_DATA) {
+    auto temporal_data = DecodeTemporalData(*reader);
+    if (!temporal_data) return std::nullopt;
+    return PropertyStoreMemberInfo{PropertyId::FromUint(*property_id), metadata->type, temporal_data->type};
+  }
+
+  if (!SkipPropertyValue(reader, metadata->type, metadata->payload_size)) return std::nullopt;
+
+  return PropertyStoreMemberInfo{PropertyId::FromUint(*property_id), metadata->type, std::nullopt};
+}
+
 // Function used to decode a property (PropertyId, PropertyValue) from a byte
 // stream.
 //
@@ -1318,6 +1415,67 @@ enum class ExpectedPropertyStatus {
   if (!property_id) return std::nullopt;
 
   if (!DecodePropertyValue(reader, metadata->type, metadata->payload_size, value)) return std::nullopt;
+
+  return PropertyId::FromUint(*property_id);
+}
+
+[[nodiscard]] std::optional<PropertyId> DecodeAnyExtendedPropertyType(Reader *reader, ExtendedPropertyType &type) {
+  auto metadata = reader->ReadMetadata();
+  if (!metadata) return std::nullopt;
+
+  auto property_id = reader->ReadUint(metadata->id_size);
+  if (!property_id) return std::nullopt;
+
+  switch (metadata->type) {
+    using enum Type;
+    case EMPTY:
+    case NONE:
+      type = ExtendedPropertyType{PropertyValue::Type::Null};
+      break;
+    case BOOL:
+      type = ExtendedPropertyType{PropertyValue::Type::Bool};
+      break;
+    case INT:
+      type = ExtendedPropertyType{PropertyValue::Type::Int};
+      break;
+    case DOUBLE:
+      type = ExtendedPropertyType{PropertyValue::Type::Double};
+      break;
+    case STRING:
+      type = ExtendedPropertyType{PropertyValue::Type::String};
+      break;
+    case LIST:
+      type = ExtendedPropertyType{PropertyValue::Type::List};
+      break;
+    case MAP:
+      type = ExtendedPropertyType{PropertyValue::Type::Map};
+      break;
+    case TEMPORAL_DATA: {
+      PropertyValue value;
+      if (!DecodePropertyValue(reader, metadata->type, metadata->payload_size, value)) return std::nullopt;
+      type = ExtendedPropertyType{value.ValueTemporalData().type};
+      return PropertyId::FromUint(*property_id);
+    }
+    case ZONED_TEMPORAL_DATA:
+    case OFFSET_ZONED_TEMPORAL_DATA:
+      type = ExtendedPropertyType{PropertyValue::Type::ZonedTemporalData};  // NOT SURE
+      break;
+    case ENUM: {
+      PropertyValue value;
+      if (!DecodePropertyValue(reader, metadata->type, metadata->payload_size, value)) return std::nullopt;
+      type = ExtendedPropertyType{value.ValueEnum().type_id()};
+      return PropertyId::FromUint(*property_id);
+    }
+    case POINT: {
+      PropertyValue value;
+      if (!DecodePropertyValue(reader, metadata->type, metadata->payload_size, value)) return std::nullopt;
+      type = ExtendedPropertyType{
+          value.type()};  // PropertyStoreType has only Point; while PropertyValueType has point 2d and 3d
+      return PropertyId::FromUint(*property_id);
+    }
+  }
+
+  if (!SkipPropertyValue(reader, metadata->type, metadata->payload_size)) return std::nullopt;
 
   return PropertyId::FromUint(*property_id);
 }
@@ -1363,6 +1521,16 @@ enum class ExpectedPropertyStatus {
   while ((ret = DecodeExpectedPropertySize(reader, property, size)) == ExpectedPropertyStatus::SMALLER) {
   }
   return ret;
+}
+
+[[nodiscard]] ExpectedPropertyStatus FindSpecificExtendedPropertyType(Reader *reader, PropertyId property,
+                                                                      ExtendedPropertyType &value) {
+  while (true) {
+    auto ret = DecodeExpectedPropertyType(reader, property, value);
+    if (ret != ExpectedPropertyStatus::SMALLER) {
+      return ret;
+    }
+  }
 }
 
 // Function used to find if property is set. It relies on the fact that the properties
@@ -1742,6 +1910,15 @@ PropertyValue PropertyStore::GetProperty(PropertyId property) const {
   return WithReader(get_property);
 }
 
+ExtendedPropertyType PropertyStore::GetExtendedPropertyType(PropertyId property) const {
+  auto get_property_type = [&](Reader &reader) -> ExtendedPropertyType {
+    ExtendedPropertyType type{};
+    if (FindSpecificExtendedPropertyType(&reader, property, type) != ExpectedPropertyStatus::EQUAL) return {};
+    return type;
+  };
+  return WithReader(get_property_type);
+}
+
 uint32_t PropertyStore::PropertySize(PropertyId property) const {
   auto get_property_size = [&](Reader &reader) -> uint32_t {
     uint32_t property_size = 0;
@@ -1809,6 +1986,20 @@ std::map<PropertyId, PropertyValue> PropertyStore::Properties() const {
       auto prop = DecodeAnyProperty(&reader, value);
       if (!prop) break;
       props.emplace(*prop, std::move(value));
+    }
+    return props;
+  };
+  return WithReader(get_properties);
+}
+
+std::map<PropertyId, ExtendedPropertyType> PropertyStore::ExtendedPropertyTypes() const {
+  auto get_properties = [&](Reader &reader) {
+    std::map<PropertyId, ExtendedPropertyType> props;
+    while (true) {
+      ExtendedPropertyType type{PropertyValue::Type::Null};
+      auto prop = DecodeAnyExtendedPropertyType(&reader, type);
+      if (!prop) break;
+      props.emplace(*prop, type);
     }
     return props;
   };
@@ -2127,6 +2318,23 @@ std::optional<PropertyValue> PropertyStore::GetPropertyOfTypes(PropertyId proper
   };
 
   return WithReader(get_properties);
+}
+
+auto PropertyStore::PropertiesMatchTypes(TypeConstraintsValidator const &constraint) const
+    -> std::optional<PropertyStoreConstraintViolation> {
+  if (constraint.empty()) return std::nullopt;
+
+  auto property_matches_types = [&](Reader &reader) -> std::optional<PropertyStoreConstraintViolation> {
+    while (true) {
+      auto res = NextPropertyAndType(&reader);
+      if (!res) return std::nullopt;  // No more properties to read
+
+      if (auto violation = constraint.validate(*res); violation) {
+        return violation;
+      }
+    }
+  };
+  return WithReader(property_matches_types);
 }
 
 }  // namespace memgraph::storage

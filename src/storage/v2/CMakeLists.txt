@@ -8,6 +8,8 @@ target_sources(mg-storage-v2
         constraint_verification_info.cpp
         constraints/constraints.cpp
         constraints/existence_constraints.cpp
+        constraints/type_constraints.cpp
+        constraints/type_constraints_validator.cpp
         disk/durable_metadata.cpp
         disk/edge_import_mode_cache.cpp
         disk/edge_type_index.cpp
@@ -47,6 +49,7 @@ target_sources(mg-storage-v2
         vertex_accessor.cpp
         vertex_info_cache.cpp
         vertices_iterable.cpp
+        schema_info.cpp
 
         PUBLIC
         FILE_SET HEADERS
@@ -63,8 +66,12 @@ target_sources(mg-storage-v2
         property_store.hpp
         property_value.hpp
         transaction.hpp
+        constraints/type_constraints_kind.hpp
+        constraints/type_constraints.hpp
+        constraints/type_constraints_validator.hpp
         vertex_info_cache.hpp
         vertex_info_cache_fwd.hpp
+        schema_info.hpp
 )
 
 find_package(gflags REQUIRED)

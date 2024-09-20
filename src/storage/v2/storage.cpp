@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <mutex>
 #include <shared_mutex>
 #include <tuple>
 
@@ -274,7 +275,7 @@ Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector
   if (maybe_nodes_to_delete.HasError()) {
     return maybe_nodes_to_delete.GetError();
   }
-  const std::unordered_set<Vertex *> nodes_to_delete = *maybe_nodes_to_delete.GetValue();
+  const auto &nodes_to_delete = *maybe_nodes_to_delete.GetValue();
 
   // 2. Gather edges and corresponding node on the other end of the edge for the deletable nodes
   EdgeInfoForDeletion edge_deletion_info = PrepareDeletableEdges(nodes_to_delete, edges, detach);
@@ -412,6 +413,9 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::ClearEdgesOn
   auto clear_edges = [this, &deleted_edges, &deleted_edge_ids](
                          auto *vertex_ptr, auto *attached_edges_to_vertex, auto deletion_delta,
                          auto reverse_vertex_order) -> Result<std::optional<ReturnType>> {
+    // This has to be called before any object gets locked
+    // TODO Double check that the shared access is enough
+    auto schema_acc = storage_->SchemaInfoAccessor();
     auto vertex_lock = std::unique_lock{vertex_ptr->lock};
     while (!attached_edges_to_vertex->empty()) {
       // get the information about the last edge in the vertex collection
@@ -433,7 +437,7 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::ClearEdgesOn
       // and CreateAndLinkDelta needs memory
       utils::AtomicMemoryBlock([&attached_edges_to_vertex, &deleted_edge_ids, &reverse_vertex_order, &vertex_ptr,
                                 &deleted_edges, deletion_delta = deletion_delta, edge_type = edge_type,
-                                opposing_vertex = opposing_vertex, edge_ref = edge_ref, this]() {
+                                opposing_vertex = opposing_vertex, edge_ref = edge_ref, &schema_acc, this]() {
         attached_edges_to_vertex->pop_back();
         if (this->storage_->config_.salient.items.properties_on_edges) {
           auto *edge_ptr = edge_ref.ptr;
@@ -443,12 +447,25 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::ClearEdgesOn
         auto const edge_gid = storage_->config_.salient.items.properties_on_edges ? edge_ref.ptr->gid : edge_ref.gid;
         auto const [_, was_inserted] = deleted_edge_ids.insert(edge_gid);
         bool const edge_cleared_from_both_directions = !was_inserted;
+        auto *from_vertex = reverse_vertex_order ? vertex_ptr : opposing_vertex;
+        auto *to_vertex = reverse_vertex_order ? opposing_vertex : vertex_ptr;
         if (edge_cleared_from_both_directions) {
-          auto *from_vertex = reverse_vertex_order ? vertex_ptr : opposing_vertex;
-          auto *to_vertex = reverse_vertex_order ? opposing_vertex : vertex_ptr;
           deleted_edges.emplace_back(edge_ref, edge_type, from_vertex, to_vertex, storage_, &transaction_, true);
         }
         CreateAndLinkDelta(&transaction_, vertex_ptr, deletion_delta, edge_type, opposing_vertex, edge_ref);
+        // This will get called from both ends; execute only if possible to lock
+        if (schema_acc) {
+          auto opposing_lock = std::unique_lock{opposing_vertex->lock, std::defer_lock};
+          if (vertex_ptr == opposing_vertex) {
+            // Both ends are already locked
+            if (reverse_vertex_order) return;
+          } else if (vertex_ptr->gid < opposing_vertex->gid) {
+            opposing_lock.lock();
+          } else {
+            return;
+          }
+          schema_acc->DeleteEdge(from_vertex, to_vertex, edge_type, edge_ref);
+        }
       });
     }
 
@@ -481,6 +498,9 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::DetachRemain
                                             auto *vertex_ptr, auto *edges_attached_to_vertex, auto &set_for_erasure,
                                             auto deletion_delta,
                                             auto reverse_vertex_order) -> Result<std::optional<ReturnType>> {
+    // This has to be called before any object gets locked
+    // TODO Double check that the shared access is enough
+    auto schema_acc = storage_->SchemaInfoAccessor();
     auto vertex_lock = std::unique_lock{vertex_ptr->lock};
 
     if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
@@ -496,7 +516,7 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::DetachRemain
     // Creating deltas and erasing edge only at the end -> we might have incomplete state as
     // delta might cause OOM, so we don't remove edges from edges_attached_to_vertex
     utils::AtomicMemoryBlock([&mid, &edges_attached_to_vertex, &deleted_edges, &partially_detached_edge_ids, this,
-                              vertex_ptr, deletion_delta, reverse_vertex_order]() {
+                              vertex_ptr, deletion_delta, reverse_vertex_order, &schema_acc]() {
       for (auto it = mid; it != edges_attached_to_vertex->end(); it++) {
         auto const &[edge_type, opposing_vertex, edge_ref] = *it;
         std::unique_lock<utils::RWSpinLock> guard;
@@ -513,10 +533,24 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::DetachRemain
         auto const edge_gid = storage_->config_.salient.items.properties_on_edges ? edge_ref.ptr->gid : edge_ref.gid;
         auto const [_, was_inserted] = partially_detached_edge_ids.insert(edge_gid);
         bool const edge_cleared_from_both_directions = !was_inserted;
+        auto *from_vertex = reverse_vertex_order ? opposing_vertex : vertex_ptr;
+        auto *to_vertex = reverse_vertex_order ? vertex_ptr : opposing_vertex;
         if (edge_cleared_from_both_directions) {
-          auto *from_vertex = reverse_vertex_order ? opposing_vertex : vertex_ptr;
-          auto *to_vertex = reverse_vertex_order ? vertex_ptr : opposing_vertex;
           deleted_edges.emplace_back(edge_ref, edge_type, from_vertex, to_vertex, storage_, &transaction_, true);
+        }
+
+        // This will get called from both ends; execute only if possible to lock
+        if (schema_acc) {
+          auto opposing_lock = std::unique_lock{opposing_vertex->lock, std::defer_lock};
+          if (vertex_ptr == opposing_vertex) {
+            // Both ends are already locked
+            if (reverse_vertex_order) continue;
+          } else if (vertex_ptr->gid < opposing_vertex->gid) {
+            opposing_lock.lock();
+          } else {
+            continue;
+          }
+          schema_acc->DeleteEdge(from_vertex, to_vertex, edge_type, edge_ref);
         }
       }
       edges_attached_to_vertex->erase(mid, edges_attached_to_vertex->end());
@@ -549,6 +583,8 @@ Result<std::vector<VertexAccessor>> Storage::Accessor::TryDeleteVertices(const s
   deleted_vertices.reserve(vertices.size());
 
   for (auto *vertex_ptr : vertices) {
+    // This has to be called before any object gets locked
+    auto schema_acc = storage_->SchemaInfoAccessor();
     auto vertex_lock = std::unique_lock{vertex_ptr->lock};
 
     if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
@@ -560,6 +596,8 @@ Result<std::vector<VertexAccessor>> Storage::Accessor::TryDeleteVertices(const s
     }
 
     CreateAndLinkDelta(&transaction_, vertex_ptr, Delta::RecreateObjectTag());
+    if (schema_acc) schema_acc->DeleteVertex(vertex_ptr);
+
     vertex_ptr->deleted = true;
 
     deleted_vertices.emplace_back(vertex_ptr, storage_, &transaction_, true);
@@ -570,6 +608,7 @@ Result<std::vector<VertexAccessor>> Storage::Accessor::TryDeleteVertices(const s
 
 void Storage::Accessor::MarkEdgeAsDeleted(Edge *edge) {
   if (!edge->deleted) {
+    // NOTE Schema handles this via vertex deltas; add schema info collector here if that evert changes
     CreateAndLinkDelta(&transaction_, edge, Delta::RecreateObjectTag());
     edge->deleted = true;
     storage_->edge_count_.fetch_sub(1, std::memory_order_acq_rel);

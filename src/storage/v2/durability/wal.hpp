@@ -28,6 +28,7 @@
 #include "storage/v2/indices/label_property_index_stats.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/schema_info.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/skip_list.hpp"
@@ -77,6 +78,8 @@ struct WalDeltaData {
     EXISTENCE_CONSTRAINT_DROP,
     UNIQUE_CONSTRAINT_CREATE,
     UNIQUE_CONSTRAINT_DROP,
+    TYPE_CONSTRAINT_CREATE,
+    TYPE_CONSTRAINT_DROP,
     ENUM_CREATE,
     ENUM_ALTER_ADD,
     ENUM_ALTER_UPDATE,
@@ -123,6 +126,11 @@ struct WalDeltaData {
     std::set<std::string, std::less<>> properties;
   } operation_label_properties;
 
+  struct {
+    std::string label;
+    std::string property;
+    TypeConstraintKind type;
+  } operation_label_property_type;
   struct {
     std::string edge_type;
   } operation_edge_type;
@@ -212,7 +220,10 @@ constexpr bool IsWalDeltaDataTypeTransactionEndVersion15(const WalDeltaData::Typ
     case WalDeltaData::Type::ENUM_ALTER_UPDATE:
     case WalDeltaData::Type::POINT_INDEX_CREATE:
     case WalDeltaData::Type::POINT_INDEX_DROP:
+    case WalDeltaData::Type::TYPE_CONSTRAINT_CREATE:
+    case WalDeltaData::Type::TYPE_CONSTRAINT_DROP:
       return true;  // TODO: Still true?
+      break;
   }
 }
 
@@ -267,6 +278,8 @@ void EncodeEnumCreate(BaseEncoder &encoder, EnumStore const &enum_store, EnumTyp
 void EncodeLabel(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label);
 void EncodeLabelProperties(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label,
                            std::set<PropertyId> const &properties);
+void EncodeTypeConstraint(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label, PropertyId property,
+                          TypeConstraintKind type);
 void EncodeLabelProperty(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label, PropertyId prop);
 void EncodeLabelPropertyStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label, PropertyId prop,
                               LabelPropertyIndexStats const &stats);
@@ -281,7 +294,8 @@ void EncodeOperationPreamble(BaseEncoder &encoder, StorageMetadataOperation Op, 
 RecoveryInfo LoadWal(std::filesystem::path const &path, RecoveredIndicesAndConstraints *indices_constraints,
                      std::optional<uint64_t> last_loaded_timestamp, utils::SkipList<Vertex> *vertices,
                      utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
-                     SalientConfig::Items items, EnumStore *enum_store);
+                     SalientConfig::Items items, EnumStore *enum_store, SchemaInfo *schema_info,
+                     std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge);
 
 /// WalFile class used to append deltas and operations to the WAL file.
 class WalFile {

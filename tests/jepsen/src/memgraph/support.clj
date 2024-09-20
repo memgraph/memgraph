@@ -1,4 +1,4 @@
-(ns jepsen.memgraph.support
+(ns memgraph.support
   (:require
    [clojure.tools.logging :refer [info]]
    [jepsen [db :as db]

@@ -14,7 +14,7 @@ RUN wget -q https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-${TOOL
     && rm toolchain-${TOOLCHAIN_VERSION}-binaries-fedora-38-amd64.tar.gz
 
 # Install toolchain run deps and memgraph build deps
-ARG GIT_REF=master
+ARG GIT_REF
 SHELL ["/bin/bash", "-c"]
 RUN git clone --branch ${GIT_REF} https://github.com/memgraph/memgraph.git \
     && cd memgraph \
@@ -27,9 +27,15 @@ RUN useradd -m -s /bin/bash mg
 USER mg
 
 # Install rust
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+ARG RUST_VERSION
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
+    && rustup default ${RUST_VERSION}
 
 # Fix node
-RUN curl https://raw.githubusercontent.com/creationix/nvm/master/install.sh | bash
+ARG NODE_VERSION
+RUN curl https://raw.githubusercontent.com/creationix/nvm/master/install.sh | bash \
+    && . ~/.nvm/nvm.sh \
+    && nvm install ${NODE_VERSION} \
+    && nvm use ${NODE_VERSION}
 
 ENTRYPOINT ["sleep", "infinity"]

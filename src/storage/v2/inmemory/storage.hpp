@@ -21,6 +21,7 @@
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/inmemory/replication/recovery.hpp"
 #include "storage/v2/replication/replication_client.hpp"
+#include "storage/v2/schema_info.hpp"
 #include "storage/v2/storage.hpp"
 
 /// REPLICATION ///
@@ -426,6 +427,16 @@ class InMemoryStorage final : public Storage {
     UniqueConstraints::DeletionStatus DropUniqueConstraint(LabelId label,
                                                            const std::set<PropertyId> &properties) override;
 
+    /// Create type constraint,
+    /// Returns error result if already exists, or if constraint is already violated
+    utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateTypeConstraint(
+        LabelId label, PropertyId property, TypeConstraintKind type) override;
+
+    /// Drop type constraint,
+    /// Returns error result if constraint does not exist.
+    utils::BasicResult<StorageExistenceConstraintDroppingError, void> DropTypeConstraint(
+        LabelId label, PropertyId property, TypeConstraintKind type) override;
+
     void DropGraph() override;
 
    protected:
@@ -535,6 +546,8 @@ class InMemoryStorage final : public Storage {
   void PrepareForNewEpoch() override;
 
   void UpdateEdgesMetadataOnModification(Edge *edge, Vertex *from_vertex);
+
+  std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>> FindEdge(Gid gid);
 
   // Main object storage
   utils::SkipList<storage::Vertex> vertices_;

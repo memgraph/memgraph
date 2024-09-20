@@ -27,10 +27,12 @@
 #include <utility>
 
 #include "dbms/database.hpp"
+#include "license/license.hpp"
 #include "replication/state.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/constraints/existence_constraints.hpp"
+#include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/marker.hpp"
 #include "storage/v2/durability/paths.hpp"
@@ -152,6 +154,14 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       // Create unique constraint.
       auto unique_acc = store->UniqueAccess();
       ASSERT_FALSE(unique_acc->CreateUniqueConstraint(label_unindexed, {property_id, property_extra}).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
+    {
+      // Create type constraint.
+      auto unique_acc = store->UniqueAccess();
+      ASSERT_FALSE(
+          unique_acc->CreateTypeConstraint(label_indexed, property_point, memgraph::storage::TypeConstraintKind::POINT)
+              .HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
 
@@ -507,11 +517,14 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_THAT(info.existence, UnorderedElementsAre(std::make_pair(base_label_unindexed, property_id)));
           ASSERT_THAT(info.unique, UnorderedElementsAre(
                                        std::make_pair(base_label_unindexed, std::set{property_id, property_extra})));
+          ASSERT_THAT(info.type, UnorderedElementsAre(std::make_tuple(base_label_indexed, property_point,
+                                                                      memgraph::storage::TypeConstraintKind::POINT)));
           break;
         case DatasetType::ONLY_EXTENDED:
           ASSERT_THAT(info.existence, UnorderedElementsAre(std::make_pair(extended_label_unused, property_count)));
           ASSERT_THAT(info.unique,
                       UnorderedElementsAre(std::make_pair(extended_label_unused, std::set{property_count})));
+          ASSERT_TRUE(info.type.empty());
           break;
         case DatasetType::ONLY_BASE_WITH_EXTENDED_INDICES_AND_CONSTRAINTS:
         case DatasetType::ONLY_EXTENDED_WITH_BASE_INDICES_AND_CONSTRAINTS:
@@ -521,6 +534,8 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_THAT(info.unique,
                       UnorderedElementsAre(std::make_pair(base_label_unindexed, std::set{property_id, property_extra}),
                                            std::make_pair(extended_label_unused, std::set{property_count})));
+          ASSERT_THAT(info.type, UnorderedElementsAre(std::make_tuple(base_label_indexed, property_point,
+                                                                      memgraph::storage::TypeConstraintKind::POINT)));
           break;
       }
     }
@@ -1463,6 +1478,7 @@ TEST_F(DurabilityTest, SnapshotWithoutPropertiesOnEdgesRecoveryWithPropertiesOnE
   ASSERT_EQ(GetBackupWalsList().size(), 0);
 
   // Recover snapshot.
+  memgraph::license::global_license_checker.CheckEnvLicense();
   memgraph::storage::Config config{
       .durability = {.storage_directory = storage_directory, .recover_on_startup = true},
       .salient = {.items = {.properties_on_edges = true}},
@@ -3141,9 +3157,9 @@ TEST_P(DurabilityTest, ConstraintsRecoveryFunctionSetting) {
       config.durability.storage_directory / memgraph::storage::durability::kWalDirectory};
 
   // Recover snapshot.
-  const auto info =
-      recovery.RecoverData(&uuid, repl_storage_state, &vertices, &edges, &edges_metadata, &edge_count,
-                           name_id_mapper.get(), &indices, &constraints, config, &wal_seq_num, &enum_store);
+  const auto info = recovery.RecoverData(&uuid, repl_storage_state, &vertices, &edges, &edges_metadata, &edge_count,
+                                         name_id_mapper.get(), &indices, &constraints, config, &wal_seq_num,
+                                         &enum_store, nullptr /* schema_info */, [](auto in) { return std::nullopt; });
 
   MG_ASSERT(info.has_value(), "Info doesn't have value present");
   const auto par_exec_info = memgraph::storage::durability::GetParallelExecInfo(*info, config);

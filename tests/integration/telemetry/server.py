@@ -177,6 +177,8 @@ def verify_storage(storage, args):
             assert "storage_mode" in item["data"]["database"][0]
             assert "unique_constraints" in item["data"]["database"][0]
             assert "vertices" in item["data"]["database"][0]
+            assert "schema_vertex_count" in item["data"]["database"][0]
+            assert "schema_edge_count" in item["data"]["database"][0]
             assert "event_counters" in item["data"]
             assert "exception" in item["data"]
             assert "query" in item["data"]

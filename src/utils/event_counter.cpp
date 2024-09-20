@@ -97,7 +97,9 @@
   M(UnreleasedDeltaObjects, Memory, "Total number of unreleased delta objects in memory.")                           \
                                                                                                                      \
   M(DeletedNodes, TTL, "Number of nodes deleted via TTL")                                                            \
-  M(DeletedEdges, TTL, "Number of edges deleted via TTL")
+  M(DeletedEdges, TTL, "Number of edges deleted via TTL")                                                            \
+                                                                                                                     \
+  M(ShowSchema, SchemaInfo, "Number of times the user called \"SHOW SCHEMA INFO\" query")
 
 namespace memgraph::metrics {
 // define every Event as an index in the array of counters

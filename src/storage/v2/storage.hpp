@@ -27,6 +27,7 @@
 #include "storage/v2/all_vertices_iterable.hpp"
 #include "storage/v2/commit_log.hpp"
 #include "storage/v2/config.hpp"
+#include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/database_access.hpp"
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/wal.hpp"
@@ -38,6 +39,7 @@
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/replication_client.hpp"
 #include "storage/v2/replication/replication_storage_state.hpp"
+#include "storage/v2/schema_info.hpp"
 #include "storage/v2/storage_error.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/transaction.hpp"
@@ -77,6 +79,7 @@ struct IndicesInfo {
 struct ConstraintsInfo {
   std::vector<std::pair<LabelId, PropertyId>> existence;
   std::vector<std::pair<LabelId, std::set<PropertyId>>> unique;
+  std::vector<std::tuple<LabelId, PropertyId, TypeConstraintKind>> type;
 };
 
 struct StorageInfo {
@@ -98,6 +101,8 @@ struct StorageInfo {
   bool durability_wal_enabled;
   bool property_store_compression_enabled;
   utils::CompressionLevel property_store_compression_level;
+  uint64_t schema_vertex_count;
+  uint64_t schema_edge_count;
 };
 
 struct EventInfo {
@@ -125,7 +130,8 @@ static inline nlohmann::json ToJson(const StorageInfo &info) {
                        {"WAL_enabled", info.durability_wal_enabled}};
   res["property_store_compression_enabled"] = info.property_store_compression_enabled;
   res["property_store_compression_level"] = utils::CompressionLevelToString(info.property_store_compression_level);
-
+  res["schema_vertex_count"] = info.schema_vertex_count;
+  res["schema_edge_count"] = info.schema_edge_count;
   return res;
 }
 
@@ -385,6 +391,12 @@ class Storage {
     virtual UniqueConstraints::DeletionStatus DropUniqueConstraint(LabelId label,
                                                                    const std::set<PropertyId> &properties) = 0;
 
+    virtual utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateTypeConstraint(
+        LabelId label, PropertyId property, TypeConstraintKind type) = 0;
+
+    virtual utils::BasicResult<StorageExistenceConstraintDroppingError, void> DropTypeConstraint(
+        LabelId label, PropertyId property, TypeConstraintKind type) = 0;
+
     virtual void DropGraph() = 0;
 
     auto GetTransaction() -> Transaction * { return std::addressof(transaction_); }
@@ -580,6 +592,23 @@ class Storage {
 
   // Mutable methods only safe if we have UniqueAccess to this storage
   EnumStore enum_store_;
+
+  std::optional<SchemaInfo::AnalyticalAccessor> SchemaInfoAccessor() {
+    if (!config_.salient.items.enable_schema_info) return std::nullopt;
+    if (storage_mode_ != StorageMode::IN_MEMORY_ANALYTICAL) return std::nullopt;
+    return schema_info_.CreateAccessor(config_.salient.items.properties_on_edges);
+  }
+
+  std::optional<SchemaInfo::AnalyticalUniqueAccessor> SchemaInfoUniqueAccessor() {
+    if (!config_.salient.items.enable_schema_info) return std::nullopt;
+    if (storage_mode_ != StorageMode::IN_MEMORY_ANALYTICAL) return std::nullopt;
+    return schema_info_.CreateUniqueAccessor(config_.salient.items.properties_on_edges);
+  }
+
+  SchemaInfo::ReadAccessor SchemaInfoReadAccessor() { return schema_info_.CreateReadAccessor(); }
+  SchemaInfo::WriteAccessor SchemaInfoWriteAccessor() { return schema_info_.CreateWriteAccessor(); }
+
+  SchemaInfo schema_info_;
 };
 
 }  // namespace memgraph::storage

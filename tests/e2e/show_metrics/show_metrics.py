@@ -82,6 +82,7 @@ def test_all_show_metrics_info_values_are_present(memgraph):
         {"name": "ReadQuery", "type": "QueryType", "metric type": "Counter"},
         {"name": "ReadWriteQuery", "type": "QueryType", "metric type": "Counter"},
         {"name": "WriteQuery", "type": "QueryType", "metric type": "Counter"},
+        {"name": "ShowSchema", "type": "SchemaInfo", "metric type": "Counter"},
         {"name": "ActiveBoltSessions", "type": "Session", "metric type": "Counter"},
         {"name": "ActiveSSLSessions", "type": "Session", "metric type": "Counter"},
         {"name": "ActiveSessions", "type": "Session", "metric type": "Counter"},

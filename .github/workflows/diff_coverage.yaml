@@ -1,4 +1,4 @@
-name: "Coverage build and test"
+name: "Diff-coverage"
 
 on:
   workflow_call:

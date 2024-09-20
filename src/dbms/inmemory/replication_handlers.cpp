@@ -14,6 +14,7 @@
 #include "dbms/constants.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "replication/replication_server.hpp"
+#include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/version.hpp"
@@ -286,7 +287,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
     auto recovered_snapshot = storage::durability::LoadSnapshot(
         *maybe_snapshot_path, &storage->vertices_, &storage->edges_, &storage->edges_metadata_,
         &storage->repl_storage_state_.history, storage->name_id_mapper_.get(), &storage->edge_count_, storage->config_,
-        &storage->enum_store_);
+        &storage->enum_store_, storage->config_.salient.items.enable_schema_info ? &storage->schema_info_ : nullptr);
     spdlog::debug("Snapshot loaded successfully");
     // If this step is present it should always be the first step of
     // the recovery so we use the UUID we read from snasphost
@@ -944,6 +945,36 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
         auto ret =
             transaction->DropUniqueConstraint(storage->NameToLabel(delta.operation_label_properties.label), properties);
         if (ret != UniqueConstraints::DeletionStatus::SUCCESS) {
+          throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
+        }
+        break;
+      }
+      case storage::durability::WalDeltaData::Type::TYPE_CONSTRAINT_CREATE: {
+        spdlog::trace("       Create IS TYPED {} constraint on :{} ({})",
+                      storage::TypeConstraintKindToString(delta.operation_label_property_type.type),
+                      delta.operation_label_property_type.label, delta.operation_label_property_type.property);
+
+        auto *transaction = get_transaction_accessor(delta_timestamp, kUniqueAccess);
+        auto ret =
+            transaction->CreateTypeConstraint(storage->NameToLabel(delta.operation_label_property_type.label),
+                                              storage->NameToProperty(delta.operation_label_property_type.property),
+                                              delta.operation_label_property_type.type);
+        if (ret.HasError()) {
+          throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
+        }
+        break;
+      }
+      case storage::durability::WalDeltaData::Type::TYPE_CONSTRAINT_DROP: {
+        spdlog::trace("       Drop IS TYPED {} constraint on :{} ({})",
+                      storage::TypeConstraintKindToString(delta.operation_label_property_type.type),
+                      delta.operation_label_property_type.label, delta.operation_label_property_type.property);
+
+        auto *transaction = get_transaction_accessor(delta_timestamp, kUniqueAccess);
+        auto ret =
+            transaction->DropTypeConstraint(storage->NameToLabel(delta.operation_label_property_type.label),
+                                            storage->NameToProperty(delta.operation_label_property_type.property),
+                                            delta.operation_label_property_type.type);
+        if (ret.HasError()) {
           throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
         }
         break;

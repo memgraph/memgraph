@@ -1,21 +1,51 @@
-(ns jepsen.memgraph.habank
+(ns memgraph.high-availability.bank.test
   "Jepsen's bank test adapted to fit as Memgraph High Availability."
   (:require [neo4j-clj.core :as dbclient]
             [clojure.tools.logging :refer [info]]
+            [clojure.core :as c]
             [clojure.string :as string]
             [jepsen
              [checker :as checker]
              [generator :as gen]
-             [client :as client]]
+             [client :as jclient]]
             [jepsen.checker.timeline :as timeline]
-            [jepsen.memgraph.haclient :as haclient]
-            [jepsen.memgraph.client :as mgclient]
-            [jepsen.memgraph.utils :as utils]
-            [clojure.core :as c]))
+            [memgraph.high-availability.bank.nemesis :as nemesis]
+            [memgraph.utils :as utils]
+            [memgraph.query :as mgquery]))
 
 (def registered-replication-instances? (atom false))
 (def added-coordinator-instances? (atom false))
 (def main-set? (atom false))
+
+(defn read-balances
+  "Read the current state of all accounts"
+  [_ _]
+  {:type :invoke, :f :read-balances, :value nil})
+
+(def account-num
+  "Number of accounts to be created. Random number in [5, 10]" (+ 5 (rand-int 6)))
+
+(def starting-balance
+  "Starting balance of each account" (rand-nth [400 450 500 550 600 650]))
+
+(def max-transfer-amount
+  "Maximum amount of money that can be transferred in one transaction. Random number in [20, 30]"
+  (+ 20 (rand-int 11)))
+
+(defn transfer
+  "Transfer money from one account to another by some amount"
+  [_ _]
+  {:type :invoke
+   :f :transfer
+   :value {:from   (rand-int account-num)
+           :to     (rand-int account-num)
+           :amount (+ 1 (rand-int max-transfer-amount))}})
+
+(def valid-transfer
+  "Filter only valid transfers (where :from and :to are different)"
+  (gen/filter (fn [op] (not= (-> op :value :from)
+                             (-> op :value :to)))
+              transfer))
 
 (defn data-instance?
   "Is node data instances?"
@@ -40,7 +70,7 @@
 (defn accounts-exist?
   "Check if accounts are created."
   [session]
-  (let [accounts (mgclient/get-all-accounts session)
+  (let [accounts (mgquery/get-all-accounts session)
         safe-accounts (or accounts [])
         extracted-accounts (->> safe-accounts (map :n) (reduce conj []))]
     (not-empty extracted-accounts)))
@@ -50,9 +80,9 @@
   if the account you're transfering money from has enough
   money."
   [tx op from to amount]
-  (when (-> (mgclient/get-account tx {:id from}) first :n :balance (>= amount))
-    (mgclient/update-balance tx {:id from :amount (- amount)})
-    (mgclient/update-balance tx {:id to :amount amount}))
+  (when (-> (mgquery/get-account tx {:id from}) first :n :balance (>= amount))
+    (mgquery/update-balance tx {:id from :amount (- amount)})
+    (mgquery/update-balance tx {:id to :amount amount}))
   (info "Transfered money from account" from "to account" to "with amount" amount)
   (assoc op :type :ok))
 
@@ -62,7 +92,7 @@
   (doseq [repl-config (filter #(contains? (val %) :replication-port)
                               nodes-config)]
     (try
-      ((haclient/register-replication-instance
+      ((mgquery/register-replication-instance
         (first repl-config)
         (second repl-config)) session)
       (info "Registered replication instance:" (first repl-config))
@@ -78,7 +108,7 @@
                             (filter #(not= (key %) myself)) ; Don't register itself
                             (filter #(contains? (val %) :coordinator-id)))]
     (try
-      ((haclient/add-coordinator-instance
+      ((mgquery/add-coordinator-instance
         (first coord-config) (second coord-config)) session)
       (info "Added coordinator:" (first coord-config))
       (catch Exception e
@@ -89,22 +119,22 @@
 (defn set-instance-to-main
   "Set instance to main."
   [session first-main]
-  ((haclient/set-instance-to-main first-main) session)
+  ((mgquery/set-instance-to-main first-main) session)
   (info "Set instance" first-main "to main."))
 
 (defn insert-data
   "Delete existing accounts and create new ones."
   [txn op]
   (info "Deleting all accounts...")
-  (mgclient/detach-delete-all txn)
+  (mgquery/detach-delete-all txn)
   (info "Creating accounts...")
-  (dotimes [i utils/account-num]
-    (mgclient/create-account txn {:id i :balance utils/starting-balance})
+  (dotimes [i account-num]
+    (mgquery/create-account txn {:id i :balance starting-balance})
     (info "Created account:" i))
   (assoc op :type :ok))
 
 (defrecord Client [nodes-config first-leader first-main license organization]
-  client/Client
+  jclient/Client
   ; Open Bolt connection to all nodes.
   (open! [this _test node]
     (info "Opening bolt connection to node..." node)
@@ -118,8 +148,8 @@
   (setup! [this _test]
     (try
       (utils/with-session (:bolt-conn this) session
-        ((haclient/set-db-setting "enterprise.license" license) session)
-        ((haclient/set-db-setting "organization.name" organization) session))
+        ((mgquery/set-db-setting "enterprise.license" license) session)
+        ((mgquery/set-db-setting "organization.name" organization) session))
       (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
         (info (utils/node-is-down (:node this))))))
 
@@ -131,12 +161,12 @@
         :show-instances-read (if (coord-instance? node)
                                (try
                                  (utils/with-session bolt-conn session ; Use bolt connection for running show instances.
-                                   (let [instances (->> (mgclient/get-all-instances session) (reduce conj []))]
+                                   (let [instances (->> (mgquery/get-all-instances session) (reduce conj []))]
                                      (assoc op
                                             :type :ok
                                             :value {:instances instances :node node})))
                                  (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
-                                   (utils/process-service-unavilable-exc op node))
+                                   (utils/process-service-unavailable-exc op node))
                                  (catch Exception e
                                    (assoc op :type :fail :value (str e))))
                                (assoc op :type :info :value "Not coord"))
@@ -144,16 +174,16 @@
         :read-balances (if (data-instance? node)
                          (try
                            (utils/with-session bolt-conn session
-                             (let [accounts (->> (mgclient/get-all-accounts session) (map :n) (reduce conj []))
+                             (let [accounts (->> (mgquery/get-all-accounts session) (map :n) (reduce conj []))
                                    total (reduce + (map :balance accounts))]
                                (assoc op
                                       :type :ok
                                       :value {:accounts accounts
                                               :node node
                                               :total total
-                                              :correct (= total (* utils/account-num utils/starting-balance))})))
+                                              :correct (= total (* account-num starting-balance))})))
                            (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
-                             (utils/process-service-unavilable-exc op node))
+                             (utils/process-service-unavailable-exc op node))
                            (catch Exception e
                              (assoc op :type :fail :value (str e))))
                          (assoc op :type :info :value "Not data instance"))
@@ -209,7 +239,7 @@
 
             (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
               (info "Registering instances failed because node" node "is down.")
-              (utils/process-service-unavilable-exc op node))
+              (utils/process-service-unavailable-exc op node))
             (catch Exception e
               (if (string/includes? (str e) "not a leader")
                 (assoc op :type :info :value "Not a leader")
@@ -226,7 +256,7 @@
                 (insert-data txn op) ; Return assoc op :type :ok
                 (assoc op :type :info :value "Accounts already exist.")))
             (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
-              (utils/process-service-unavilable-exc op node))
+              (utils/process-service-unavailable-exc op node))
             (catch Exception e
               (if (utils/sync-replica-down? e)
                   ; If sync replica is down during initialization, that is fine. Our current SYNC replication will still continue to replicate to this
@@ -350,7 +380,7 @@
                                     (map :node)
                                     (into #{}))
 
-            bad-data-reads (utils/analyze-bank-data-reads ok-data-reads utils/account-num utils/starting-balance)
+            bad-data-reads (utils/analyze-bank-data-reads ok-data-reads account-num starting-balance)
 
             empty-data-nodes (utils/analyze-empty-data-nodes ok-data-reads)
 
@@ -431,5 +461,5 @@
      :checker   (checker/compose
                  {:habank     (habank-checker)
                   :timeline (timeline/html)})
-     :generator (ha-gen (gen/mix [setup-cluster initialize-data show-instances-reads utils/read-balances utils/valid-transfer]))
-     :final-generator {:clients (gen/once show-instances-reads) :recovery-time 20}}))
+     :generator (ha-gen (gen/mix [setup-cluster initialize-data show-instances-reads read-balances valid-transfer]))
+     :nemesis-config (nemesis/create nodes-config)}))
