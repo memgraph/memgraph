@@ -76,19 +76,13 @@ ReturnType VertexDeletedConnectedEdges(Vertex *vertex, Edge *edge, const Transac
 namespace memgraph::storage {
 
 bool InMemoryEdgeTypePropertyIndex::Entry::operator<(const Entry &rhs) const {
-  if (value < rhs.value) {
-    return true;
-  }
-  if (rhs.value < value) {
-    return false;
-  }
-  return std::make_tuple(value, from_vertex, to_vertex, edge, timestamp) <
-         std::make_tuple(rhs.value, rhs.from_vertex, rhs.to_vertex, rhs.edge, rhs.timestamp);
+  return std::tie(value, edge->gid, from_vertex->gid, to_vertex->gid, timestamp) <
+         std::tie(rhs.value, rhs.edge->gid, rhs.from_vertex->gid, rhs.to_vertex->gid, rhs.timestamp);
 }
 
 bool InMemoryEdgeTypePropertyIndex::Entry::operator==(const Entry &rhs) const {
-  return std::make_tuple(value, from_vertex, to_vertex, edge, timestamp) ==
-         std::make_tuple(rhs.value, rhs.from_vertex, rhs.to_vertex, rhs.edge, rhs.timestamp);
+  return std::tie(value, edge, from_vertex, to_vertex, timestamp) ==
+         std::tie(rhs.value, rhs.edge, rhs.from_vertex, rhs.to_vertex, rhs.timestamp);
 }
 
 bool InMemoryEdgeTypePropertyIndex::Entry::operator<(const PropertyValue &rhs) const { return value < rhs; }
@@ -259,17 +253,14 @@ uint64_t InMemoryEdgeTypePropertyIndex::ApproximateEdgeCount(
 
 void InMemoryEdgeTypePropertyIndex::UpdateOnEdgeModification(Vertex *old_from, Vertex *old_to, Vertex *new_from,
                                                              Vertex *new_to, EdgeRef edge_ref, EdgeTypeId edge_type,
-                                                             PropertyId property, const Transaction &tx) {
+                                                             PropertyId property, const PropertyValue &value,
+                                                             const Transaction &tx) {
   auto it = index_.find({edge_type, property});
   if (it == index_.end()) {
     return;
   }
-  auto acc = it->second.access();
 
-  auto entry_to_update = std::ranges::find_if(acc, [&](const auto &entry) {
-    return entry.from_vertex == old_from && entry.to_vertex == old_to && entry.edge == edge_ref.ptr;
-  });
-  const auto value = entry_to_update->value;
+  auto acc = it->second.access();
   acc.insert(Entry{value, new_from, new_to, edge_ref.ptr, tx.start_timestamp});
 }
 

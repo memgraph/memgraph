@@ -185,14 +185,8 @@ void InMemoryEdgeTypeIndex::UpdateOnEdgeModification(Vertex *old_from, Vertex *o
   if (it == index_.end()) {
     return;
   }
+
   auto acc = it->second.access();
-
-  auto entry_to_update = std::ranges::find_if(acc, [&](const auto &entry) {
-    return entry.from_vertex == old_from && entry.to_vertex == old_to && entry.edge == edge_ref.ptr;
-  });
-
-  acc.remove(Entry{entry_to_update->from_vertex, entry_to_update->to_vertex, entry_to_update->edge,
-                   entry_to_update->timestamp});
   acc.insert(Entry{new_from, new_to, edge_ref.ptr, tx.start_timestamp});
 }
 
@@ -222,6 +216,10 @@ InMemoryEdgeTypeIndex::Iterable::Iterator &InMemoryEdgeTypeIndex::Iterable::Iter
 
 void InMemoryEdgeTypeIndex::Iterable::Iterator::AdvanceUntilValid() {
   for (; index_iterator_ != self_->index_accessor_.end(); ++index_iterator_) {
+    if (index_iterator_->edge == current_edge_.ptr) {
+      continue;
+    }
+
     if (!CanSeeEntityWithTimestamp(index_iterator_->timestamp, self_->transaction_)) {
       continue;
     }
