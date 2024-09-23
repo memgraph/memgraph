@@ -12,7 +12,3 @@
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 // DEFINE_bool(cartesian_product_enabled, true, "Enable cartesian product expansion.");  Moved to run_time_configurable
-
-// Logging flags
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-// DEFINE_string(query_log_directory, "", "Path to directory where the query logs should be stored.");
