@@ -81,6 +81,7 @@ class MemgraphInstanceRunner:
         retry loop terminates immediately on `Authentication failure`.
         """
         for _ in range(150):
+            curr_time = time.strftime("%H:%M:%S", time.localtime())
             try:
                 return mgclient.connect(
                     host=self.host,
@@ -90,6 +91,7 @@ class MemgraphInstanceRunner:
                     password=(self.password or ""),
                 )
             except Exception as e:
+                print(f"Couldn't connect at: {curr_time}")
                 if (
                     ignore_auth_failure
                     and isinstance(e, mgclient.OperationalError)
@@ -215,18 +217,18 @@ class MemgraphInstanceRunner:
         if not self.is_running():
             return
 
-        pid = self.proc_mg.pid
-        try:
-            os.kill(pid, SIGNAL_SIGTERM)
-        except os.OSError:
-            assert False
-
+        self.proc_mg.terminate()
         time.sleep(1)
 
         if not keep_directories:
             self.safe_delete_data_directory()
 
-        # TODO: add self.is running check
+        for _ in range(150):
+            if not self.is_running():
+                break
+            time.sleep(0.1)
+
+        assert self.is_running() is False, "Stopped instance still running."
 
     def kill(self, keep_directories=False):
         """
@@ -242,7 +244,13 @@ class MemgraphInstanceRunner:
             self.safe_delete_data_directory()
 
         assert code == -9, "The killed Memgraph process exited with non-nine!"
-        # TODO: add self.is running check
+
+        for _ in range(150):
+            if not self.is_running():
+                break
+            time.sleep(0.1)
+
+        assert self.is_running() is False, "Killed instance still running."
 
     def safe_delete_data_directory(self):
         """

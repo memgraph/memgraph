@@ -67,7 +67,9 @@ Server<TRequestHandler, TSessionContext>::Server(io::network::Endpoint endpoint,
                                                  ServerContext *context)
     : listener_{Listener<TRequestHandler, TSessionContext>::Create(
           ioc_, session_context, context,
-          tcp::endpoint{boost::asio::ip::make_address(endpoint.GetResolvedIPAddress()), endpoint.GetPort()})} {}
+          tcp::endpoint{boost::asio::ip::make_address(endpoint.GetResolvedIPAddress()), endpoint.GetPort()})} {
+  spdlog::trace("Server on endpoint {}:{} created.", endpoint.GetAddress(), endpoint.GetPort());
+}
 
 template <class TRequestHandler, typename TSessionContext>
 void Server<TRequestHandler, TSessionContext>::Start() {
