@@ -15,4 +15,4 @@
 
 // Logging flags
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_string(query_log_directory, "mg_query_log", "Path to directory where the query logs should be stored.");
+DEFINE_string(query_log_directory, "", "Path to directory where the query logs should be stored.");
