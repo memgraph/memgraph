@@ -694,8 +694,11 @@ int main(int argc, char **argv) {
 
 // TODO: Make multi-tenant
 #ifdef MG_ENTERPRISE
+  spdlog::trace("Fetching storage for metrics server...");
+  auto *storage = db_acc->storage();
+  spdlog::trace("Storage fetched");
   memgraph::glue::MonitoringServerT metrics_server{
-      {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, db_acc->storage(), &context};
+      {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, storage, &context};
   spdlog::trace("Metrics server created.");
 #endif
 

@@ -226,6 +226,8 @@ class MemgraphInstanceRunner:
         if not keep_directories:
             self.safe_delete_data_directory()
 
+        # TODO: add self.is running check
+
     def kill(self, keep_directories=False):
         """
         Sends SIGKILL to `self.proc_mg` and if `keep_directories=False`, deletes its data_directory.
@@ -240,6 +242,7 @@ class MemgraphInstanceRunner:
             self.safe_delete_data_directory()
 
         assert code == -9, "The killed Memgraph process exited with non-nine!"
+        # TODO: add self.is running check
 
     def safe_delete_data_directory(self):
         """
