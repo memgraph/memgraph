@@ -2923,13 +2923,13 @@ antlrcpp::Any CypherMainVisitor::visitNumberLiteral(MemgraphCypher::NumberLitera
 antlrcpp::Any CypherMainVisitor::visitFunctionInvocation(MemgraphCypher::FunctionInvocationContext *ctx) {
   const auto is_distinct = ctx->DISTINCT() != nullptr;
   auto function_name = std::any_cast<std::string>(ctx->functionName()->accept(this));
+  auto upper_function_name = utils::ToUpperCase(function_name);
   std::vector<Expression *> expressions;
   for (auto *expression : ctx->expression()) {
     expressions.push_back(std::any_cast<Expression *>(expression->accept(this)));
   }
 
   if (expressions.size() == 1U) {
-    auto upper_function_name = utils::ToUpperCase(function_name);
     if (upper_function_name == Aggregation::kCount) {
       return static_cast<Expression *>(
           storage_->Create<Aggregation>(expressions[0], nullptr, Aggregation::Op::COUNT, is_distinct));
@@ -2961,7 +2961,6 @@ antlrcpp::Any CypherMainVisitor::visitFunctionInvocation(MemgraphCypher::Functio
   }
 
   if (expressions.size() == 2U) {
-    auto upper_function_name = utils::ToUpperCase(function_name);
     if (upper_function_name == Aggregation::kCollect) {
       return static_cast<Expression *>(
           storage_->Create<Aggregation>(expressions[1], expressions[0], Aggregation::Op::COLLECT_MAP, is_distinct));
@@ -2975,6 +2974,11 @@ antlrcpp::Any CypherMainVisitor::visitFunctionInvocation(MemgraphCypher::Functio
   // tied to the ast Function operation. We do not want that cached, because we want to be able to reload
   // query module that is not currently being used.
   query_info_.is_cacheable &= !function_expr->IsUserDefined();
+
+  // user defined functions are case sensitive, built-in functions work only with upper case
+  if (!function_expr->IsUserDefined()) {
+    function_expr->function_name_ = upper_function_name;
+  }
 
   return static_cast<Expression *>(function_expr);
 }
