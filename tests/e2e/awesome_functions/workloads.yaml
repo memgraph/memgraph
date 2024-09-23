@@ -1,7 +1,7 @@
 awesome_functions_cluster: &awesome_functions_cluster
   cluster:
     main:
-      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      args: ["--bolt-port", "7687", "--log-level=TRACE", "--query-plan-cache-max-size=0"]
       log_file: "awesome_functions.log"
       setup_queries: []
       validation_queries: []
@@ -15,4 +15,8 @@ workloads:
   - name: "Value type awesome function"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["awesome_functions/value_type.py"]
+    <<: *awesome_functions_cluster
+  - name: "ID awesome function"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["awesome_functions/id.py"]
     <<: *awesome_functions_cluster
