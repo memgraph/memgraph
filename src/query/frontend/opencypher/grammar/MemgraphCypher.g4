@@ -161,13 +161,14 @@ memgraphCypherKeyword : cypherKeyword
                       | STRING
                       | SYNC
                       | TERMINATE
+                      | TEXT
                       | TIMEOUT
                       | TO
                       | TOPICS
                       | TRACE
                       | TRANSACTION
-                      | TRANSACTION_MANAGEMENT
                       | TRANSACTIONS
+                      | TRANSACTION_MANAGEMENT
                       | TRANSFORM
                       | TRIGGER
                       | TRIGGERS
