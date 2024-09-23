@@ -56,4 +56,11 @@ bool GetCartesianProductEnabled();
  */
 const std::chrono::time_zone *GetTimezone();
 
+/**
+ * @brief Get the query log directory value
+ *
+ * @return std::string
+ */
+std::string GetQueryLogDirectory();
+
 }  // namespace memgraph::flags::run_time
