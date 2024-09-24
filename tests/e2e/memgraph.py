@@ -218,10 +218,6 @@ class MemgraphInstanceRunner:
             return
 
         self.proc_mg.terminate()
-        time.sleep(1)
-
-        if not keep_directories:
-            self.safe_delete_data_directory()
 
         for _ in range(150):
             if not self.is_running():
@@ -229,6 +225,9 @@ class MemgraphInstanceRunner:
             time.sleep(0.1)
 
         assert self.is_running() is False, "Stopped instance still running."
+
+        if not keep_directories:
+            self.safe_delete_data_directory()
 
     def kill(self, keep_directories=False):
         """
@@ -240,9 +239,6 @@ class MemgraphInstanceRunner:
         self.proc_mg.kill()
         code = self.proc_mg.wait()
 
-        if not keep_directories:
-            self.safe_delete_data_directory()
-
         assert code == -9, "The killed Memgraph process exited with non-nine!"
 
         for _ in range(150):
@@ -251,6 +247,9 @@ class MemgraphInstanceRunner:
             time.sleep(0.1)
 
         assert self.is_running() is False, "Killed instance still running."
+
+        if not keep_directories:
+            self.safe_delete_data_directory()
 
     def safe_delete_data_directory(self):
         """
