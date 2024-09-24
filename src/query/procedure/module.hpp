@@ -13,6 +13,12 @@
 /// API for loading and registering modules providing custom oC procedures
 #pragma once
 
+#include "query/procedure/cypher_types.hpp"
+#include "query/procedure/mg_procedure_impl.hpp"
+#include "query/procedure/module_fwd.hpp"
+#include "utils/memory.hpp"
+#include "utils/rw_lock.hpp"
+
 #include <dlfcn.h>
 #include <filesystem>
 #include <functional>
@@ -22,12 +28,6 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
-
-#include "query/procedure/cypher_types.hpp"
-#include "query/procedure/mg_procedure_impl.hpp"
-#include "query/procedure/module_fwd.hpp"
-#include "utils/memory.hpp"
-#include "utils/rw_lock.hpp"
 
 class CypherMainVisitorTest;
 

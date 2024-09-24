@@ -11,12 +11,6 @@
 
 #pragma once
 
-#include <optional>
-#include <ranges>
-
-#include <cppitertools/filter.hpp>
-#include <cppitertools/imap.hpp>
-
 #include "memory/query_memory_control.hpp"
 #include "query/edge_accessor.hpp"
 #include "query/exceptions.hpp"
@@ -36,6 +30,12 @@
 #include "utils/pmr/unordered_set.hpp"
 #include "utils/result.hpp"
 #include "utils/variant_helpers.hpp"
+
+#include <optional>
+#include <ranges>
+
+#include <cppitertools/filter.hpp>
+#include <cppitertools/imap.hpp>
 
 namespace memgraph::query {
 

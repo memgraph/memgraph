@@ -13,6 +13,8 @@
 
 #include "utils/exceptions.hpp"
 
+#include "spdlog/spdlog.h"
+
 namespace memgraph::storage {
 
 bool DiskEdgeTypeIndex::DropIndex(EdgeTypeId /*edge_type*/) {

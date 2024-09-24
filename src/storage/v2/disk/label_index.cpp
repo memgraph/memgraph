@@ -13,6 +13,7 @@
 #include <rocksdb/utilities/transaction.h>
 
 #include "storage/v2/disk/label_index.hpp"
+#include "storage/v2/transaction.hpp"
 #include "utils/disk_utils.hpp"
 #include "utils/rocksdb_serialization.hpp"
 

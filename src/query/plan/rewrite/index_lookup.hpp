@@ -30,6 +30,7 @@
 #include "query/plan/preprocess.hpp"
 #include "query/plan/rewrite/general.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/label_property_index_stats.hpp"
 
 DECLARE_int64(query_vertex_count_to_expand_existing);
 
