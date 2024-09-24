@@ -64,15 +64,19 @@ struct DeletedObject {
   TAccessor object;
 };
 
+struct ObjectCommonMethods {
+  static auto PropertyToName(DbAccessor *dba, storage::PropertyId key) -> TypedValue;
+};
+
 template <ObjectAccessor TAccessor>
-struct SetObjectProperty {
+struct SetObjectProperty : ObjectCommonMethods {
   explicit SetObjectProperty(const TAccessor &object, storage::PropertyId key, TypedValue old_value,
                              TypedValue new_value)
       : object{object}, key{key}, old_value{std::move(old_value)}, new_value{std::move(new_value)} {}
 
   std::map<std::string, TypedValue> ToMap(DbAccessor *dba) const {
     return {{ObjectString<TAccessor>(), TypedValue{object}},
-            {"key", TypedValue{dba->PropertyToName(key)}},
+            {"key", PropertyToName(dba, key)},
             {"old", old_value},
             {"new", new_value}};
   }
@@ -86,14 +90,12 @@ struct SetObjectProperty {
 };
 
 template <ObjectAccessor TAccessor>
-struct RemovedObjectProperty {
+struct RemovedObjectProperty : ObjectCommonMethods {
   explicit RemovedObjectProperty(const TAccessor &object, storage::PropertyId key, TypedValue old_value)
       : object{object}, key{key}, old_value{std::move(old_value)} {}
 
   std::map<std::string, TypedValue> ToMap(DbAccessor *dba) const {
-    return {{ObjectString<TAccessor>(), TypedValue{object}},
-            {"key", TypedValue{dba->PropertyToName(key)}},
-            {"old", old_value}};
+    return {{ObjectString<TAccessor>(), TypedValue{object}}, {"key", PropertyToName(dba, key)}, {"old", old_value}};
   }
 
   bool IsValid() const { return object.IsVisible(storage::View::OLD); }

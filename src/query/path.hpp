@@ -14,6 +14,8 @@
 #include <functional>
 #include <utility>
 
+#include "query/edge_accessor.hpp"
+#include "query/vertex_accessor.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
 #include "utils/pmr/vector.hpp"

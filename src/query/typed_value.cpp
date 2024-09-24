@@ -20,15 +20,22 @@
 #include <utility>
 
 #include "query/fmt.hpp"
+#include "query/graph.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
-#include "utils/exceptions.hpp"
 #include "utils/fnv.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
 #include "utils/temporal.hpp"
 
 namespace memgraph::query {
+
+TypedValue::TypedValue(Graph &&graph) noexcept : TypedValue(std::move(graph), graph.GetMemoryResource()) {}
+
+TypedValue::TypedValue(Graph &&graph, utils::MemoryResource *memory) : memory_(memory), type_(Type::Graph) {  //!!
+  auto *graph_ptr = utils::Allocator<Graph>(memory_).new_object<Graph>(std::move(graph));
+  new (&graph_v) std::unique_ptr<Graph>(graph_ptr);
+}
 
 TypedValue::TypedValue(const storage::PropertyValue &value)
     // TODO: MemoryResource in storage::PropertyValue

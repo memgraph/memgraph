@@ -71,12 +71,18 @@ target_sources(mg-query
     query_user.cpp
     time_to_live/time_to_live.cpp
     query_logger.cpp
+    vertex_accessor.cpp
+    context.cpp
+    edge_accessor.cpp
 
     PUBLIC
     FILE_SET HEADERS
     FILES
     plan/rewrite/enum.hpp
     string_helpers.hpp
+    path.hpp
+    edge_accessor.hpp
+    vertex_accessor.hpp
 )
 
 

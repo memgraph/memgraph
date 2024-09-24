@@ -13,6 +13,7 @@
 
 #include <type_traits>
 
+#include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/string_helpers.hpp"
 #include "storage/v2/property_value.hpp"

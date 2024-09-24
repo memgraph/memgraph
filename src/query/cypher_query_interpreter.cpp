@@ -127,7 +127,7 @@ ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &us
 std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameters &parameters,
                                              DbAccessor *db_accessor,
                                              const std::vector<Identifier *> &predefined_identifiers) {
-  auto vertex_counts = plan::MakeVertexCountCache(db_accessor);
+  auto vertex_counts = plan::VertexCountCache(db_accessor);
   auto symbol_table = MakeSymbolTable(query, predefined_identifiers);
   auto planning_context = plan::MakePlanningContext(&ast_storage, &symbol_table, query, &vertex_counts);
   auto [root, cost] = plan::MakeLogicalPlan(&planning_context, parameters, FLAGS_query_cost_planner);

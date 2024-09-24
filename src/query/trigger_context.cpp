@@ -15,6 +15,7 @@
 
 #include "query/context.hpp"
 #include "query/cypher_query_interpreter.hpp"
+#include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/serialization/property_value.hpp"
@@ -222,6 +223,9 @@ bool RemovedVertexLabel::IsValid() const { return object.IsVisible(storage::View
 
 std::map<std::string, TypedValue> RemovedVertexLabel::ToMap(DbAccessor *dba) const {
   return {{"vertex", TypedValue{object}}, {"label", TypedValue{dba->LabelToName(label_id)}}};
+}
+auto ObjectCommonMethods::PropertyToName(DbAccessor *dba, storage::PropertyId key) -> TypedValue {
+  return TypedValue{dba->PropertyToName(key)};
 }
 }  // namespace detail
 

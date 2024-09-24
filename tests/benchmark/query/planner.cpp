@@ -13,6 +13,7 @@
 #include <string>
 #include <variant>
 
+#include "query/db_accessor.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/plan/cost_estimator.hpp"
 #include "query/plan/planner.hpp"
@@ -152,7 +153,7 @@ static void BM_PlanAndEstimateIndexedMatchingWithCachedCounts(benchmark::State &
   std::tie(label, prop) = CreateIndexedVertices(index_count, vertex_count, db.get());
   auto storage_dba = db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
-  auto vertex_counts = memgraph::query::plan::MakeVertexCountCache(&dba);
+  auto vertex_counts = memgraph::query::plan::VertexCountCache(&dba);
   memgraph::query::Parameters parameters;
   while (state.KeepRunning()) {
     state.PauseTiming();
