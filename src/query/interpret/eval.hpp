@@ -17,7 +17,6 @@
 #include <limits>
 #include <map>
 #include <optional>
-#include <regex>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -1215,29 +1214,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     return TypedValue(ctx_->parameters.AtTokenPosition(param_lookup.token_position_), ctx_->memory);
   }
 
-  TypedValue Visit(RegexMatch &regex_match) override {
-    auto target_string_value = regex_match.string_expr_->Accept(*this);
-    auto regex_value = regex_match.regex_->Accept(*this);
-    if (target_string_value.IsNull() || regex_value.IsNull()) {
-      return TypedValue(ctx_->memory);
-    }
-    if (regex_value.type() != TypedValue::Type::String) {
-      throw QueryRuntimeException("Regular expression must evaluate to a string, got {}.", regex_value.type());
-    }
-    if (target_string_value.type() != TypedValue::Type::String) {
-      // Instead of error, we return Null which makes it compatible in case we
-      // use indexed lookup which filters out any non-string properties.
-      // Assuming a property lookup is the target_string_value.
-      return TypedValue(ctx_->memory);
-    }
-    const auto &target_string = target_string_value.ValueString();
-    try {
-      std::regex regex(regex_value.ValueString());
-      return TypedValue(std::regex_match(target_string, regex), ctx_->memory);
-    } catch (const std::regex_error &e) {
-      throw QueryRuntimeException("Regex error in '{}': {}", regex_value.ValueString(), e.what());
-    }
-  }
+  TypedValue Visit(RegexMatch &regex_match) override;
 
   TypedValue Visit(PatternComprehension &pattern_comprehension) override {
     const TypedValue &frame_pattern_comprehension_value = frame_->at(symbol_table_->at(pattern_comprehension));

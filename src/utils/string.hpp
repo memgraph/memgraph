@@ -21,7 +21,6 @@
 #include <iosfwd>
 #include <iterator>
 #include <random>
-#include <regex>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -246,36 +245,8 @@ inline std::vector<std::string_view> SplitView(const std::string_view src, const
  * Runs of consecutive whitespace are regarded as a single delimiter.
  * Additionally, the result will not contain empty strings at the start or end
  * as if the string was trimmed before splitting.
- * @return pointer to `out`.
  */
-template <class TString, class TAllocator>
-std::vector<TString, TAllocator> *Split(std::vector<TString, TAllocator> *out, const std::string_view src) {
-  out->clear();
-  if (src.empty()) return out;
-  // TODO: Investigate how much regex allocate and perhaps replace with custom
-  // solution doing no allocations.
-  static std::regex not_whitespace("[^\\s]+");
-  auto matches_begin = std::cregex_iterator(src.data(), src.data() + src.size(), not_whitespace);
-  auto matches_end = std::cregex_iterator();
-  out->reserve(std::distance(matches_begin, matches_end));
-  for (auto match = matches_begin; match != matches_end; ++match) {
-    std::string_view match_view(&src[match->position()], match->length());
-    out->emplace_back(match_view);
-  }
-  return out;
-}
-
-/**
- * Split a string by whitespace into a vector.
- * Runs of consecutive whitespace are regarded as a single delimiter.
- * Additionally, the result will not contain empty strings at the start or end
- * as if the string was trimmed before splitting.
- */
-inline std::vector<std::string> Split(const std::string_view src) {
-  std::vector<std::string> res;
-  Split(&res, src);
-  return res;
-}
+std::vector<std::string> Split(const std::string_view src);
 
 /**
  * Like `Split` but string is processed from right to left.
