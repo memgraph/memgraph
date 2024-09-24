@@ -273,6 +273,6 @@ startup_config_dict = {
         "",
         "Experimental features to be used, comma-separated. Options [text-search, high-availability]",
     ),
-    "query_log_directory": ("mg_query_log", "mg_query_log", "Path to directory where the query logs should be stored."),
+    "query_log_directory": ("", "", "Path to directory where the query logs should be stored."),
     "schema_info_enabled": ("false", "false", "Set to true to enable run-time schema info tracking."),
 }

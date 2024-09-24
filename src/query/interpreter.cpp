@@ -5074,10 +5074,16 @@ PreparedQuery PrepareSessionTraceQuery(ParsedQuery parsed_query, CurrentDB &curr
   std::function<std::pair<std::vector<std::vector<TypedValue>>, QueryHandlerResult>()> handler;
   handler = [interpreter, enabled = session_trace_query->enabled_] {
     std::vector<std::vector<TypedValue>> results;
+
+    auto query_log_directory = flags::run_time::GetQueryLogDirectory();
+
+    if (query_log_directory.empty()) {
+      throw QueryException("The flag --query-log-directory has to be present in order to enable session trace.");
+    }
+
     if (enabled) {
-      interpreter->query_logger_.emplace(
-          fmt::format("{}/{}.log", FLAGS_query_log_directory, interpreter->session_info_.uuid),
-          interpreter->session_info_.uuid, interpreter->session_info_.username);
+      interpreter->query_logger_.emplace(fmt::format("{}/{}.log", query_log_directory, interpreter->session_info_.uuid),
+                                         interpreter->session_info_.uuid, interpreter->session_info_.username);
       interpreter->LogQueryMessage("Session initialized!");
     } else {
       interpreter->query_logger_.reset();
