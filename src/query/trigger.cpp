@@ -17,6 +17,7 @@
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/interpret/frame.hpp"
+#include "query/plan/operator.hpp"
 #include "query/query_user.hpp"
 #include "query/serialization/property_value.hpp"
 #include "query/typed_value.hpp"

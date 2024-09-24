@@ -20,7 +20,6 @@
 #include <vector>
 
 #include "query/config.hpp"
-#include "query/cypher_query_interpreter.hpp"
 #include "query/replication_query_handler.hpp"
 #include "query/typed_value.hpp"
 #include "replication/state.hpp"
@@ -42,6 +41,8 @@ class DbmsHandler;
 }  // namespace memgraph::dbms
 
 namespace memgraph::query {
+
+struct QueryCacheEntry;
 
 constexpr uint64_t kInterpreterTransactionInitialId = 1ULL << 63U;
 

@@ -17,6 +17,7 @@
 #include <fmt/format.h>
 
 #include "communication/bolt/metrics.hpp"
+#include "query/plan/operator.hpp"
 #include "requests/requests.hpp"
 #include "telemetry/collectors.hpp"
 #include "utils/event_counter.hpp"
