@@ -211,7 +211,7 @@ def cleanup_after_test():
     # Run the test
     yield
     # Stop and delete directories after cleaning the test
-    interactive_mg_runner.stop_all(keep_directories=False)
+    interactive_mg_runner.kill_all(keep_directories=False)
 
 
 @pytest.mark.parametrize("data_recovery", ["false", "true"])

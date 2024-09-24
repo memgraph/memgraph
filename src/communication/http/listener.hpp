@@ -47,6 +47,7 @@ class Listener final : public std::enable_shared_from_this<Listener<TRequestHand
 
   template <typename... Args>
   static std::shared_ptr<Listener> Create(Args &&...args) {
+    spdlog::trace("Listener::Create.");
     return std::shared_ptr<Listener>{new Listener(std::forward<Args>(args)...)};
   }
 
