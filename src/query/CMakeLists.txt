@@ -56,6 +56,7 @@ target_sources(mg-query
     procedure/mg_procedure_helpers.cpp
     procedure/module.cpp
     procedure/py_module.cpp
+    procedure/cypher_types.cpp
     procedure/callable_alias_mapper.cpp
     serialization/property_value.cpp
     stream/streams.cpp
@@ -82,6 +83,7 @@ target_sources(mg-query
     string_helpers.hpp
     path.hpp
     edge_accessor.hpp
+    procedure/cypher_types.hpp
     vertex_accessor.hpp
 )
 
