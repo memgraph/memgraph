@@ -29,7 +29,6 @@
 #include "license/license.hpp"
 #include "mg_procedure.h"
 #include "module.hpp"
-#include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/interpreter.hpp"
 #include "query/interpreter_context.hpp"

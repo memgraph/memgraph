@@ -56,7 +56,6 @@
 #include "query/constants.hpp"
 #include "query/context.hpp"
 #include "query/cypher_query_interpreter.hpp"
-#include "query/db_accessor.hpp"
 #include "query/dump.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"

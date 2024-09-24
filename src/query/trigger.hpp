@@ -23,7 +23,6 @@
 #include "query/auth_checker.hpp"
 #include "query/config.hpp"
 #include "query/cypher_query_interpreter.hpp"
-#include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/trigger_context.hpp"
 #include "storage/v2/property_value.hpp"

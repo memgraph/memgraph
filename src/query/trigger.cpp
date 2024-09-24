@@ -14,7 +14,6 @@
 #include "query/config.hpp"
 #include "query/context.hpp"
 #include "query/cypher_query_interpreter.hpp"
-#include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/query_user.hpp"
@@ -283,8 +282,8 @@ void TriggerStore::RestoreTrigger(utils::SkipList<QueryCacheEntry> *query_cache,
     spdlog::warn(invalid_state_message);
     return;
   }
-  const auto user_parameters =
-      serialization::DeserializePropertyValueMap(json_trigger_data["user_parameters"], db_accessor);
+  const auto user_parameters = serialization::DeserializePropertyValueMap(json_trigger_data["user_parameters"],
+                                                                          db_accessor->GetStorageAccessor());
 
   // TODO: Migration
   const auto owner_json = json_trigger_data["owner"];
@@ -372,7 +371,8 @@ void TriggerStore::AddTrigger(std::string name, const std::string &query,
   // When the format of the persisted trigger is changed, update the kVersion
   nlohmann::json data = nlohmann::json::object();
   data["statement"] = query;
-  data["user_parameters"] = serialization::SerializePropertyValueMap(user_parameters, db_accessor);
+  data["user_parameters"] =
+      serialization::SerializePropertyValueMap(user_parameters, db_accessor->GetStorageAccessor());
   data["event_type"] = event_type;
   data["phase"] = phase;
   data["version"] = kVersion;

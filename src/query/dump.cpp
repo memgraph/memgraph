@@ -23,7 +23,6 @@
 #include <fmt/format.h>
 
 #include "dbms/database.hpp"
-#include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
 #include "query/stream.hpp"
 #include "query/string_helpers.hpp"

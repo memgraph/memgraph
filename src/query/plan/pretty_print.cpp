@@ -13,7 +13,6 @@
 #include <utility>
 #include <variant>
 
-#include "query/db_accessor.hpp"
 #include "query/frontend/ast/pretty_print.hpp"
 #include "query/plan/operator.hpp"
 #include "utils/string.hpp"

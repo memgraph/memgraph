@@ -375,7 +375,7 @@ class Storage {
     virtual utils::BasicResult<storage::StorageIndexDefinitionError, void> DropPointIndex(
         storage::LabelId label, storage::PropertyId property) = 0;
 
-    void CreateTextIndex(const std::string &index_name, LabelId label, query::DbAccessor *db);
+    void CreateTextIndex(const std::string &index_name, LabelId label);
 
     void DropTextIndex(const std::string &index_name);
 

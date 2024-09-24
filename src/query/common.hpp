@@ -17,7 +17,6 @@
 #include <string>
 #include <string_view>
 
-#include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
 #include "query/fmt.hpp"
 #include "query/frontend/ast/ast.hpp"

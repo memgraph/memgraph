@@ -16,6 +16,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/vertex.hpp"
+#include "storage/v2/vertices_iterable.hpp"
 #include "text_search.hpp"
 
 namespace memgraph::query {
@@ -80,8 +81,8 @@ class TextIndex {
       Vertex *vertex,
       const std::optional<std::vector<mgcxx::text_search::Context *>> &maybe_applicable_text_indices = std::nullopt);
 
-  void CreateIndex(const std::filesystem::path &storage_dir, const std::string &index_name, LabelId label,
-                   memgraph::query::DbAccessor *db);
+  void CreateIndex(std::filesystem::path const &storage_dir, std::string const &index_name, LabelId label,
+                   memgraph::storage::VerticesIterable vertices, NameIdMapper *nameIdMapper);
 
   void RecoverIndex(const std::filesystem::path &storage_dir, const std::string &index_name, LabelId label,
                     memgraph::utils::SkipList<Vertex>::Accessor vertices, NameIdMapper *name_id_mapper);

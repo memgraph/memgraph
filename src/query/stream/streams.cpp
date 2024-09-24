@@ -22,7 +22,6 @@
 #include "dbms/dbms_handler.hpp"
 #include "integrations/constants.hpp"
 #include "mg_procedure.h"
-#include "query/db_accessor.hpp"
 #include "query/discard_value_stream.hpp"
 #include "query/exceptions.hpp"
 #include "query/interpreter.hpp"

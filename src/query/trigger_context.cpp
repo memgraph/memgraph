@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,7 +15,6 @@
 
 #include "query/context.hpp"
 #include "query/cypher_query_interpreter.hpp"
-#include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/serialization/property_value.hpp"

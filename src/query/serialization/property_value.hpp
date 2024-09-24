@@ -13,26 +13,28 @@
 
 #include <json/json.hpp>
 
-#include "query/db_accessor.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/storage.hpp"
+
+// TODO: this can move to storage/v2
 
 namespace memgraph::query::serialization {
 
 nlohmann::json SerializePropertyValue(const storage::PropertyValue &property_value,
-                                      memgraph::query::DbAccessor *db_accessor);
+                                      memgraph::storage::Storage::Accessor *storage_acc);
 
 nlohmann::json SerializePropertyValueVector(const std::vector<storage::PropertyValue> &values,
-                                            memgraph::query::DbAccessor *db_accessor);
+                                            memgraph::storage::Storage::Accessor *storage_acc);
 
 nlohmann::json SerializePropertyValueMap(storage::PropertyValue::map_t const &parameters,
-                                         memgraph::query::DbAccessor *db_accessor);
+                                         memgraph::storage::Storage::Accessor *storage_acc);
 
-storage::PropertyValue DeserializePropertyValue(const nlohmann::json &data, DbAccessor *db_accessor);
+storage::PropertyValue DeserializePropertyValue(const nlohmann::json &data, storage::Storage::Accessor *storage_acc);
 
 std::vector<storage::PropertyValue> DeserializePropertyValueList(const nlohmann::json::array_t &data,
-                                                                 DbAccessor *db_accessor);
+                                                                 storage::Storage::Accessor *storage_acc);
 
 storage::PropertyValue::map_t DeserializePropertyValueMap(nlohmann::json::object_t const &data,
-                                                          DbAccessor *db_accessor);
+                                                          storage::Storage::Accessor *storage_acc);
 
 }  // namespace memgraph::query::serialization

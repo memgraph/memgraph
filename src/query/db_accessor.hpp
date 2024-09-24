@@ -27,12 +27,15 @@
 #include "storage/v2/result.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/storage_mode.hpp"
+#include "storage/v2/vertices_iterable.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/bound.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/pmr/unordered_set.hpp"
 #include "utils/result.hpp"
 #include "utils/variant_helpers.hpp"
+
+// TODO: split into smaller headers
 
 namespace memgraph::query {
 
@@ -812,7 +815,7 @@ class DbAccessor final {
   }
 
   void CreateTextIndex(const std::string &index_name, storage::LabelId label) {
-    accessor_->CreateTextIndex(index_name, label, this);
+    accessor_->CreateTextIndex(index_name, label);
   }
 
   void DropTextIndex(const std::string &index_name) { accessor_->DropTextIndex(index_name); }
@@ -877,6 +880,8 @@ class DbAccessor final {
       -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
     return accessor_->EnumAlterUpdate(name, old_value, new_value);
   }
+
+  auto GetStorageAccessor() const -> storage::Storage::Accessor * { return accessor_; }
 };
 
 class SubgraphDbAccessor final {
