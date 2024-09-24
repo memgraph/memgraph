@@ -49,6 +49,23 @@ extern const Event PeakMemoryRes;
 namespace memgraph::storage {
 
 namespace {
+std::optional<SchemaInfo::SharedAccessor> SchemaInfoAccessor(Storage *storage, Transaction *transaction) {
+  if (!storage->config_.salient.items.enable_schema_info) return std::nullopt;
+  const auto prop_on_edges = storage->config_.salient.items.properties_on_edges;
+  if (storage->GetStorageMode() == StorageMode::IN_MEMORY_TRANSACTIONAL) {
+    return SchemaInfo::CreateAccessor(transaction->schema_diff_, prop_on_edges);
+  }
+  return storage->schema_info_.CreateAccessor(StorageMode::IN_MEMORY_ANALYTICAL, prop_on_edges);
+}
+
+std::optional<SchemaInfo::UniqueAccessor> SchemaInfoUniqueAccessor(Storage *storage, Transaction *transaction) {
+  if (!storage->config_.salient.items.enable_schema_info) return std::nullopt;
+  const auto prop_on_edges = storage->config_.salient.items.properties_on_edges;
+  if (storage->GetStorageMode() == StorageMode::IN_MEMORY_TRANSACTIONAL) {
+    return SchemaInfo::CreateUniqueAccessor(transaction->schema_diff_, prop_on_edges);
+  }
+  return storage->schema_info_.CreateUniqueAccessor(StorageMode::IN_MEMORY_ANALYTICAL, prop_on_edges);
+}
 
 constexpr auto ActionToStorageOperation(MetadataDelta::Action action) -> durability::StorageMetadataOperation {
   // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
@@ -265,7 +282,7 @@ VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertex() {
   auto acc = mem_storage->vertices_.access();
 
   auto *delta = CreateDeleteObjectDelta(&transaction_);
-  auto schema_acc = storage_->SchemaInfoAccessor();
+  auto schema_acc = SchemaInfoAccessor(storage_, &transaction_);
   auto [it, inserted] = acc.insert(Vertex{storage::Gid::FromUint(gid), delta});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
@@ -290,7 +307,7 @@ VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertexEx(storage::Gid gi
   auto acc = mem_storage->vertices_.access();
 
   auto *delta = CreateDeleteObjectDelta(&transaction_);
-  auto schema_acc = storage_->SchemaInfoAccessor();
+  auto schema_acc = SchemaInfoAccessor(storage_, &transaction_);
   auto [it, inserted] = acc.insert(Vertex{gid, delta});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
@@ -370,7 +387,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
   auto *to_vertex = to->vertex_;
 
   // This has to be called before any object gets locked
-  auto schema_acc = storage_->SchemaInfoAccessor();
+  auto schema_acc = SchemaInfoAccessor(storage_, &transaction_);
   // Obtain the locks by `gid` order to avoid lock cycles.
   auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
   auto guard_to = std::unique_lock{to_vertex->lock, std::defer_lock};
@@ -486,7 +503,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
   auto *to_vertex = to->vertex_;
 
   // This has to be called before any object gets locked
-  auto schema_acc = storage_->SchemaInfoAccessor();
+  auto schema_acc = SchemaInfoAccessor(storage_, &transaction_);
   // Obtain the locks by `gid` order to avoid lock cycles.
   auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
   auto guard_to = std::unique_lock{to_vertex->lock, std::defer_lock};
@@ -609,7 +626,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetFrom(EdgeAccessor
                  vertices.end());
 
   // This has to be called before any object gets locked
-  auto schema_acc = storage_->SchemaInfoAccessor();
+  auto schema_acc = SchemaInfoAccessor(storage_, &transaction_);
   for (auto *vertex : vertices) {
     if (vertex == old_from_vertex) {
       guard_old_from.lock();
@@ -731,7 +748,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetTo(EdgeAccessor *
                  vertices.end());
 
   // This has to be called before any object gets locked
-  auto schema_acc = storage_->SchemaInfoAccessor();
+  auto schema_acc = SchemaInfoAccessor(storage_, &transaction_);
   for (auto *vertex : vertices) {
     if (vertex == from_vertex) {
       guard_from.lock();
@@ -833,7 +850,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeChangeType(EdgeAcces
   auto *to_vertex = edge->to_vertex_;
 
   // This has to be called before any object gets locked
-  auto schema_acc = storage_->SchemaInfoAccessor();
+  auto schema_acc = SchemaInfoAccessor(storage_, &transaction_);
   // Obtain the locks by `gid` order to avoid lock cycles.
   auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
   auto guard_to = std::unique_lock{to_vertex->lock, std::defer_lock};
@@ -1027,12 +1044,11 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
           if (config_.enable_schema_info) {
             if (transaction_.deltas.size() < 16) {  // TODO Fine tune
               // Small transaction => process in place
-              mem_storage->SchemaInfoWriteAccessor().ProcessTransaction(
-                  transaction_, mem_storage->config_.salient.items.properties_on_edges);
+              mem_storage->SchemaInfoWriteAccessor().ProcessTransaction(transaction_.schema_diff_);
             } else {
               // Large transaction => make a local copy of the schema, process and move back
               auto stats = mem_storage->SchemaInfoReadAccessor().Get();
-              stats.ProcessTransaction(transaction_, mem_storage->config_.salient.items.properties_on_edges);
+              stats.ProcessTransaction(transaction_.schema_diff_);
               mem_storage->SchemaInfoWriteAccessor().Set(std::move(stats));
             }
           }

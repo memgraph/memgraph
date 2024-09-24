@@ -16,6 +16,7 @@
 #include <memory>
 
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/schema_info.hpp"
 #include "utils/memory.hpp"
 #include "utils/skip_list.hpp"
 
@@ -142,6 +143,8 @@ struct Transaction {
   PointIndexContext point_index_ctx_;
   /// Tracks changes relevant to point index (used during Commit/AdvanceCommand)
   PointIndexChangeCollector point_index_change_collector_;
+  /// Tracking schema changes done during the transaction
+  Tracking schema_diff_;
 };
 
 inline bool operator==(const Transaction &first, const Transaction &second) {

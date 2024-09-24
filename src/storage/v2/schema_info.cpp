@@ -232,42 +232,42 @@ inline auto Existence_ActionMethod(bool &exists) {
   // clang-format on
 }
 
-void Tracking::ProcessTransaction(Transaction &transaction, bool properties_on_edges) {
-  // NOTE: commit_timestamp is actually the transaction ID, sa this is called before we finalize the commit
-  const auto commit_timestamp = transaction.commit_timestamp->load(std::memory_order_acquire);
+// void Tracking::ProcessTransaction(Transaction &transaction, bool properties_on_edges) {
+//   // NOTE: commit_timestamp is actually the transaction ID, sa this is called before we finalize the commit
+//   const auto commit_timestamp = transaction.commit_timestamp->load(std::memory_order_acquire);
 
-  // Edges have multiple objects that define their changes, this object keeps track of all the changes during a tx
-  TransactionEdgeHandler tx_edge_handler{*this, commit_timestamp, properties_on_edges};
+//   // Edges have multiple objects that define their changes, this object keeps track of all the changes during a tx
+//   TransactionEdgeHandler tx_edge_handler{*this, commit_timestamp, properties_on_edges};
 
-  // First run through all vertices
-  for (const auto &delta : transaction.deltas) {
-    // Find VERTEX; handle object's delta chain
-    auto prev = delta.prev.Get();
-    DMG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
-    if (prev.type == PreviousPtr::Type::VERTEX) {
-      VertexHandler vertex_handler{*prev.vertex, *this, commit_timestamp};
-      vertex_handler.Process(tx_edge_handler);
-    }
-  }
+//   // First run through all vertices
+//   for (const auto &delta : transaction.deltas) {
+//     // Find VERTEX; handle object's delta chain
+//     auto prev = delta.prev.Get();
+//     DMG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
+//     if (prev.type == PreviousPtr::Type::VERTEX) {
+//       VertexHandler vertex_handler{*prev.vertex, *this, commit_timestamp};
+//       vertex_handler.Process(tx_edge_handler);
+//     }
+//   }
 
-  // Handle any lingering transaction-wide changes
-  tx_edge_handler.PostVertexProcess();
+//   // Handle any lingering transaction-wide changes
+//   tx_edge_handler.PostVertexProcess();
 
-  // Handle edges only after vertices are handled
-  // Here we will handle only edge property changes
-  // Other edge changes are handled by vertex deltas
-  if (properties_on_edges) {
-    for (const auto &delta : transaction.deltas) {
-      // Find EDGE; handle object's delta chain
-      auto prev = delta.prev.Get();
-      DMG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
-      if (prev.type == PreviousPtr::Type::EDGE) {
-        EdgeHandler edge_handler{*prev.edge, *this, commit_timestamp};
-        edge_handler.Process();
-      }
-    }
-  }
-}
+//   // Handle edges only after vertices are handled
+//   // Here we will handle only edge property changes
+//   // Other edge changes are handled by vertex deltas
+//   if (properties_on_edges) {
+//     for (const auto &delta : transaction.deltas) {
+//       // Find EDGE; handle object's delta chain
+//       auto prev = delta.prev.Get();
+//       DMG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
+//       if (prev.type == PreviousPtr::Type::EDGE) {
+//         EdgeHandler edge_handler{*prev.edge, *this, commit_timestamp};
+//         edge_handler.Process();
+//       }
+//     }
+//   }
+// }
 
 void Tracking::CleanUp() {
   // Erase all elements that don't have any vertices associated

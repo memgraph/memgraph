@@ -27,6 +27,26 @@
 #include "utils/memory_tracker.hpp"
 
 namespace memgraph::storage {
+namespace {
+std::optional<SchemaInfo::SharedAccessor> SchemaInfoAccessor(Storage *storage, Transaction *transaction) {
+  if (!storage->config_.salient.items.enable_schema_info) return std::nullopt;
+  const auto prop_on_edges = storage->config_.salient.items.properties_on_edges;
+  if (storage->GetStorageMode() == StorageMode::IN_MEMORY_TRANSACTIONAL) {
+    return SchemaInfo::CreateAccessor(transaction->schema_diff_, prop_on_edges);
+  }
+  return storage->schema_info_.CreateAccessor(StorageMode::IN_MEMORY_ANALYTICAL, prop_on_edges);
+}
+
+std::optional<SchemaInfo::UniqueAccessor> SchemaInfoUniqueAccessor(Storage *storage, Transaction *transaction) {
+  if (!storage->config_.salient.items.enable_schema_info) return std::nullopt;
+  const auto prop_on_edges = storage->config_.salient.items.properties_on_edges;
+  if (storage->GetStorageMode() == StorageMode::IN_MEMORY_TRANSACTIONAL) {
+    return SchemaInfo::CreateUniqueAccessor(transaction->schema_diff_, prop_on_edges);
+  }
+  return storage->schema_info_.CreateUniqueAccessor(StorageMode::IN_MEMORY_ANALYTICAL, prop_on_edges);
+}
+}  // namespace
+
 std::optional<EdgeAccessor> EdgeAccessor::Create(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex,
                                                  Vertex *to_vertex, Storage *storage, Transaction *transaction,
                                                  View view, bool for_deleted) {
@@ -192,7 +212,7 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
   if (!storage_->config_.salient.items.properties_on_edges) return Error::PROPERTIES_DISABLED;
 
   // This needs to happen before locking the object
-  auto schema_acc = storage_->SchemaInfoUniqueAccessor();
+  auto schema_acc = SchemaInfoUniqueAccessor(storage_, transaction_);
   auto guard = std::unique_lock{edge_.ptr->lock};
 
   if (!PrepareForWrite(transaction_, edge_.ptr)) return Error::SERIALIZATION_ERROR;
@@ -235,7 +255,7 @@ Result<bool> EdgeAccessor::InitProperties(const std::map<storage::PropertyId, st
   if (!storage_->config_.salient.items.properties_on_edges) return Error::PROPERTIES_DISABLED;
 
   // This needs to happen before locking the object
-  auto schema_acc = storage_->SchemaInfoUniqueAccessor();
+  auto schema_acc = SchemaInfoUniqueAccessor(storage_, transaction_);
   auto guard = std::unique_lock{edge_.ptr->lock};
 
   if (!PrepareForWrite(transaction_, edge_.ptr)) return Error::SERIALIZATION_ERROR;
@@ -264,7 +284,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAc
   if (!storage_->config_.salient.items.properties_on_edges) return Error::PROPERTIES_DISABLED;
 
   // This needs to happen before locking the object
-  auto schema_acc = storage_->SchemaInfoUniqueAccessor();
+  auto schema_acc = SchemaInfoUniqueAccessor(storage_, transaction_);
   auto guard = std::unique_lock{edge_.ptr->lock};
 
   if (!PrepareForWrite(transaction_, edge_.ptr)) return Error::SERIALIZATION_ERROR;
@@ -295,7 +315,7 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
   if (!storage_->config_.salient.items.properties_on_edges) return Error::PROPERTIES_DISABLED;
 
   // This needs to happen before locking the object
-  auto schema_acc = storage_->SchemaInfoUniqueAccessor();
+  auto schema_acc = SchemaInfoUniqueAccessor(storage_, transaction_);
   auto guard = std::unique_lock{edge_.ptr->lock};
 
   if (!PrepareForWrite(transaction_, edge_.ptr)) return Error::SERIALIZATION_ERROR;

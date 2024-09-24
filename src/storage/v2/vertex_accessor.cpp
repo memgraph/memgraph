@@ -33,6 +33,7 @@
 #include "storage/v2/result.hpp"
 #include "storage/v2/schema_info.hpp"
 #include "storage/v2/storage.hpp"
+#include "storage/v2/storage_mode.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex_info_cache.hpp"
 #include "storage/v2/vertex_info_helpers.hpp"
@@ -50,6 +51,24 @@ void HandleTypeConstraintViolation(Storage const *storage, ConstraintViolation c
   throw query::QueryException("IS TYPED {} violation on {}({})", TypeConstraintKindToString(*violation.constraint_kind),
                               storage->LabelToName(violation.label),
                               storage->PropertyToName(*violation.properties.begin()));
+}
+
+std::optional<SchemaInfo::SharedAccessor> SchemaInfoAccessor(Storage *storage, Transaction *transaction) {
+  if (!storage->config_.salient.items.enable_schema_info) return std::nullopt;
+  const auto prop_on_edges = storage->config_.salient.items.properties_on_edges;
+  if (storage->GetStorageMode() == StorageMode::IN_MEMORY_TRANSACTIONAL) {
+    return SchemaInfo::CreateAccessor(transaction->schema_diff_, prop_on_edges);
+  }
+  return storage->schema_info_.CreateAccessor(StorageMode::IN_MEMORY_ANALYTICAL, prop_on_edges);
+}
+
+std::optional<SchemaInfo::UniqueAccessor> SchemaInfoUniqueAccessor(Storage *storage, Transaction *transaction) {
+  if (!storage->config_.salient.items.enable_schema_info) return std::nullopt;
+  const auto prop_on_edges = storage->config_.salient.items.properties_on_edges;
+  if (storage->GetStorageMode() == StorageMode::IN_MEMORY_TRANSACTIONAL) {
+    return SchemaInfo::CreateUniqueAccessor(transaction->schema_diff_, prop_on_edges);
+  }
+  return storage->schema_info_.CreateUniqueAccessor(StorageMode::IN_MEMORY_ANALYTICAL, prop_on_edges);
 }
 }  // namespace
 
@@ -127,8 +146,8 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
   // 2. lock vertex and check
   // 3. if unique lock is needed unlock both the vertex and accessor
   // 4. take unique access and re-lock vertex
-  std::optional<std::variant<SchemaInfo::AnalyticalAccessor, SchemaInfo::AnalyticalUniqueAccessor>> schema_acc;
-  if (auto schema_shared_acc = storage_->SchemaInfoAccessor(); schema_shared_acc) {
+  std::optional<std::variant<SchemaInfo::SharedAccessor, SchemaInfo::UniqueAccessor>> schema_acc;
+  if (auto schema_shared_acc = SchemaInfoAccessor(storage_, transaction_); schema_shared_acc) {
     schema_acc = std::move(*schema_shared_acc);
   }
   auto guard = std::unique_lock{vertex_->lock};
@@ -141,7 +160,7 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
     if (!vertex_->in_edges.empty() || !vertex_->out_edges.empty()) {
       guard.unlock();
       schema_acc.reset();
-      schema_acc = *storage_->SchemaInfoUniqueAccessor();
+      schema_acc = *SchemaInfoUniqueAccessor(storage_, transaction_);
       guard.lock();
       // Need to re-check for serialization errors
       if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
@@ -190,10 +209,10 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
   // NOTE Has to be called at the end because it needs to be able to release the vertex lock (in case edges need to be
   // updated)
   if (schema_acc) {
-    std::visit(utils::Overloaded(
-                   [&](SchemaInfo::AnalyticalAccessor &acc) { acc.AddLabel(vertex_, label); },
-                   [&](SchemaInfo::AnalyticalUniqueAccessor &acc) { acc.AddLabel(vertex_, label, std::move(guard)); }),
-               *schema_acc);
+    std::visit(
+        utils::Overloaded([&](SchemaInfo::SharedAccessor &acc) { acc.AddLabel(vertex_, label); },
+                          [&](SchemaInfo::UniqueAccessor &acc) { acc.AddLabel(vertex_, label, std::move(guard)); }),
+        *schema_acc);
   }
   return true;
 }
@@ -208,8 +227,8 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
   // 2. lock vertex and check
   // 3. if unique lock is needed unlock both the vertex and accessor
   // 4. take unique access and re-lock vertex
-  std::optional<std::variant<SchemaInfo::AnalyticalAccessor, SchemaInfo::AnalyticalUniqueAccessor>> schema_acc;
-  if (auto schema_shared_acc = storage_->SchemaInfoAccessor(); schema_shared_acc) {
+  std::optional<std::variant<SchemaInfo::SharedAccessor, SchemaInfo::UniqueAccessor>> schema_acc;
+  if (auto schema_shared_acc = SchemaInfoAccessor(storage_, transaction_); schema_shared_acc) {
     schema_acc = std::move(*schema_shared_acc);
   }
   auto guard = std::unique_lock{vertex_->lock};
@@ -222,7 +241,7 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
     if (!vertex_->in_edges.empty() || !vertex_->out_edges.empty()) {
       guard.unlock();
       schema_acc.reset();
-      schema_acc = *storage_->SchemaInfoUniqueAccessor();
+      schema_acc = *SchemaInfoUniqueAccessor(storage_, transaction_);
       guard.lock();
       // Need to re-check for serialization errors
       if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
@@ -247,11 +266,10 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
   // NOTE Has to be called at the end because it needs to be able to release the vertex lock (in case edges need to be
   // updated)
   if (schema_acc) {
-    std::visit(utils::Overloaded([&](SchemaInfo::AnalyticalAccessor &acc) { acc.RemoveLabel(vertex_, label); },
-                                 [&](SchemaInfo::AnalyticalUniqueAccessor &acc) {
-                                   acc.RemoveLabel(vertex_, label, std::move(guard));
-                                 }),
-               *schema_acc);
+    std::visit(
+        utils::Overloaded([&](SchemaInfo::SharedAccessor &acc) { acc.RemoveLabel(vertex_, label); },
+                          [&](SchemaInfo::UniqueAccessor &acc) { acc.RemoveLabel(vertex_, label, std::move(guard)); }),
+        *schema_acc);
   }
   return true;
 }
@@ -357,7 +375,7 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
 
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   // This has to be called before any object gets locked
-  auto schema_acc = storage_->SchemaInfoAccessor();
+  auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
   auto guard = std::unique_lock{vertex_->lock};
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
@@ -418,7 +436,7 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
 
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   // This has to be called before any object gets locked
-  auto schema_acc = storage_->SchemaInfoAccessor();
+  auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
   auto guard = std::unique_lock{vertex_->lock};
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
@@ -468,7 +486,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
 
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   // This has to be called before any object gets locked
-  auto schema_acc = storage_->SchemaInfoAccessor();
+  auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
   auto guard = std::unique_lock{vertex_->lock};
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
@@ -515,7 +533,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
     throw query::WriteVertexOperationInEdgeImportModeException();
   }
   // This has to be called before any object gets locked
-  auto schema_acc = storage_->SchemaInfoAccessor();
+  auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
   auto guard = std::unique_lock{vertex_->lock};
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;

@@ -31,6 +31,25 @@
 #include "utils/small_vector.hpp"
 
 namespace memgraph::storage {
+namespace {
+std::optional<SchemaInfo::SharedAccessor> SchemaInfoAccessor(Storage *storage, Transaction *transaction) {
+  if (!storage->config_.salient.items.enable_schema_info) return std::nullopt;
+  const auto prop_on_edges = storage->config_.salient.items.properties_on_edges;
+  if (storage->GetStorageMode() == StorageMode::IN_MEMORY_TRANSACTIONAL) {
+    return SchemaInfo::CreateAccessor(transaction->schema_diff_, prop_on_edges);
+  }
+  return storage->schema_info_.CreateAccessor(StorageMode::IN_MEMORY_ANALYTICAL, prop_on_edges);
+}
+
+std::optional<SchemaInfo::UniqueAccessor> SchemaInfoUniqueAccessor(Storage *storage, Transaction *transaction) {
+  if (!storage->config_.salient.items.enable_schema_info) return std::nullopt;
+  const auto prop_on_edges = storage->config_.salient.items.properties_on_edges;
+  if (storage->GetStorageMode() == StorageMode::IN_MEMORY_TRANSACTIONAL) {
+    return SchemaInfo::CreateUniqueAccessor(transaction->schema_diff_, prop_on_edges);
+  }
+  return storage->schema_info_.CreateUniqueAccessor(StorageMode::IN_MEMORY_ANALYTICAL, prop_on_edges);
+}
+}  // namespace
 
 class InMemoryStorage;
 
@@ -415,7 +434,7 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::ClearEdgesOn
                          auto reverse_vertex_order) -> Result<std::optional<ReturnType>> {
     // This has to be called before any object gets locked
     // TODO Double check that the shared access is enough
-    auto schema_acc = storage_->SchemaInfoAccessor();
+    auto schema_acc = SchemaInfoAccessor(storage_, &transaction_);
     auto vertex_lock = std::unique_lock{vertex_ptr->lock};
     while (!attached_edges_to_vertex->empty()) {
       // get the information about the last edge in the vertex collection
@@ -500,7 +519,7 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::DetachRemain
                                             auto reverse_vertex_order) -> Result<std::optional<ReturnType>> {
     // This has to be called before any object gets locked
     // TODO Double check that the shared access is enough
-    auto schema_acc = storage_->SchemaInfoAccessor();
+    auto schema_acc = SchemaInfoAccessor(storage_, &transaction_);
     auto vertex_lock = std::unique_lock{vertex_ptr->lock};
 
     if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
@@ -584,7 +603,7 @@ Result<std::vector<VertexAccessor>> Storage::Accessor::TryDeleteVertices(const s
 
   for (auto *vertex_ptr : vertices) {
     // This has to be called before any object gets locked
-    auto schema_acc = storage_->SchemaInfoAccessor();
+    auto schema_acc = SchemaInfoAccessor(storage_, &transaction_);
     auto vertex_lock = std::unique_lock{vertex_ptr->lock};
 
     if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
