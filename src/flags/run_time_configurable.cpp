@@ -62,6 +62,9 @@ DEFINE_bool(cartesian_product_enabled, true, "Enable cartesian product expansion
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
 DEFINE_VALIDATED_string(timezone, "UTC", "Define instance's timezone (IANA format).", { return ValidTimezone(value); });
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(query_log_directory, "", "Path to directory where the query logs should be stored.");
+
 namespace {
 // Bolt server name
 constexpr auto kServerNameSettingKey = "server.name";
@@ -85,6 +88,9 @@ constexpr auto kLogToStderrGFlagsKey = "also_log_to_stderr";
 
 constexpr auto kCartesianProductEnabledSettingKey = "cartesian-product-enabled";
 constexpr auto kCartesianProductEnabledGFlagsKey = "cartesian-product-enabled";
+
+constexpr auto kQueryLogDirectorySettingKey = "query-log-directory";
+constexpr auto kQueryLogDirectoryGFlagsKey = "query-log-directory";
 
 constexpr auto kTimezoneSettingKey = "timezone";
 constexpr auto kTimezoneGFlagsKey = kTimezoneSettingKey;
@@ -234,6 +240,11 @@ void Initialize() {
         timezone_ = ::GetTimezone(val);  // Cache for faster access
       },
       ValidTimezone);
+
+  /*
+   * Register query log directory setting
+   */
+  register_flag(kQueryLogDirectoryGFlagsKey, kQueryLogDirectorySettingKey, kRestore);
 }
 
 std::string GetServerName() {
@@ -250,5 +261,12 @@ bool GetHopsLimitPartialResults() { return hops_limit_partial_results; }
 bool GetCartesianProductEnabled() { return cartesian_product_enabled_; }
 
 const std::chrono::time_zone *GetTimezone() { return timezone_; }
+
+std::string GetQueryLogDirectory() {
+  std::string s;
+  // Thread safe read of gflag
+  gflags::GetCommandLineOption(kQueryLogDirectoryGFlagsKey, &s);
+  return s;
+}
 
 }  // namespace memgraph::flags::run_time

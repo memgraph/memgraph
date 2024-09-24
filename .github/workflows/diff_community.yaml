@@ -1,4 +1,4 @@
-name: "Community build and test"
+name: "Diff-community"
 
 on:
   workflow_call:

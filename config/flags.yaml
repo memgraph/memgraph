@@ -131,6 +131,10 @@ modifications:
     value: "/etc/memgraph/apoc_compatibility_mappings.json"
     override: true
 
+  - name: "query_log_directory"
+    value: "/var/log/memgraph/session_trace"
+    override: true
+
 undocumented:
   - "flag_file"
   - "also_log_to_stderr"

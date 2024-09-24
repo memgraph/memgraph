@@ -38,6 +38,29 @@ def test_indexed_join_with_indices(memgraph):
     assert expected_explain == actual_explain
 
 
+def test_indexed_join_with_indices_and_filter(memgraph):
+    memgraph.execute("CREATE INDEX ON :Node;")
+    memgraph.execute("CREATE INDEX ON :Node(id);")
+
+    expected_explain = [
+        f" * Produce {{n1, n2}}",
+        f" * Filter Generic {{n1, n2}}",
+        f" * IndexedJoin",
+        f" |\\ ",
+        f" | * ScanAllByLabelPropertyValue (n1 :Node {{id}})",
+        f" | * Once",
+        f" * ScanAllByLabel (n2 :Node)",
+        f" * Once",
+    ]
+
+    results = list(
+        memgraph.execute_and_fetch("EXPLAIN MATCH (n1:Node), (n2:Node) where n1.id = n2.id and n1 <> n2 return *;")
+    )
+    actual_explain = [x[QUERY_PLAN] for x in results]
+
+    assert expected_explain == actual_explain
+
+
 def test_indexed_join_with_indices_split(memgraph):
     memgraph.execute("CREATE INDEX ON :Label1(prop1);")
 

@@ -1,4 +1,4 @@
-name: "Jepsen build and test"
+name: "Diff-jepsen"
 
 on:
   workflow_call:
