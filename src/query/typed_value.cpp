@@ -30,9 +30,9 @@
 
 namespace memgraph::query {
 
-TypedValue::TypedValue(Graph &&graph) noexcept : TypedValue(std::move(graph), graph.GetMemoryResource()) {}
+TypedValue::TypedValue(Graph &&graph) : TypedValue(std::move(graph), graph.GetMemoryResource()) {}
 
-TypedValue::TypedValue(Graph &&graph, utils::MemoryResource *memory) : memory_(memory), type_(Type::Graph) {  //!!
+TypedValue::TypedValue(Graph &&graph, utils::MemoryResource *memory) : memory_(memory), type_(Type::Graph) {
   auto *graph_ptr = utils::Allocator<Graph>(memory_).new_object<Graph>(std::move(graph));
   new (&graph_v) std::unique_ptr<Graph>(graph_ptr);
 }

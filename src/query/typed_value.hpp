@@ -447,7 +447,7 @@ class TypedValue {
    * utils::MemoryResource is obtained from graph. After the move, graph will be
    * left empty.
    */
-  explicit TypedValue(Graph &&graph) noexcept;
+  explicit TypedValue(Graph &&graph);
 
   /**
    * Construct with the value of graph and use the given MemoryResource.

@@ -15,8 +15,8 @@
 
 std::string memgraph::logging::MaskSensitiveInformation(std::string const &input) {
   // Regex patterns for sensitive information and node properties
-  static std::regex nodePattern(R"(\(\w+:\w+\s*\{[^}]*\})");
-  static std::regex sensitivePattern(
+  static std::regex const nodePattern(R"(\(\w+:\w+\s*\{[^}]*\})");
+  static std::regex const sensitivePattern(
       R"((password\s*:\s*'[^']*')|([Pp][Aa][Ss]*[Ss]*[Ww]*[Oo]*[Rr]*[Dd]*\s+[Tt][Oo]\s*'[^']*')|([Rr][Ee]?[Pp][Ll]?[Aa]?[Cc]?[Ee]?\s*'[^']*')|([Ii][Dd]?[Ee]?[Nn]?[Tt]?[Ii]?[Ff]?[Ii]?[Ee]?[Dd]*\s+[Bb][Yy]\s*'[^']*')|([Pp][Aa]*[Ss]*[Ss]*[Ww]*[Oo]*[Rr]*[Dd]*\s+[Ff][Oo][Rr]\s+\w+\s+[Tt][Oo]\s*'[^']*'))",
       std::regex_constants::icase);
 
@@ -27,25 +27,26 @@ std::string memgraph::logging::MaskSensitiveInformation(std::string const &input
   // Process the string by replacing sensitive information first and handling nodes separately
   while (current_pos < input.size()) {
     std::smatch node_match;
-    bool found = std::regex_search(input.cbegin() + current_pos, input.cend(), node_match, nodePattern);
+    // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
+    bool const found = std::regex_search(input.cbegin() + current_pos, input.cend(), node_match, nodePattern);
 
     if (found) {
-      size_t node_start = node_match.position() + current_pos;
-      size_t node_end = node_start + node_match.length();
+      size_t const node_start = node_match.position() + current_pos;
+      size_t const node_end = node_start + node_match.length();
 
       // Process the part before the node match
       std::string non_node_part = input.substr(last_pos, node_start - last_pos);
       std::string masked_non_node_part;
       std::sregex_iterator it(non_node_part.begin(), non_node_part.end(), sensitivePattern);
-      std::sregex_iterator end;
+      std::sregex_iterator const end;
 
       size_t prev_end = 0;
       for (; it != end; ++it) {
         masked_non_node_part.append(non_node_part, prev_end, it->position() - prev_end);
         std::string replacement = it->str();
-        size_t startPos = replacement.find("'");
+        size_t const startPos = replacement.find('\'');
         if (startPos != std::string::npos) {
-          size_t endPos = replacement.find("'", startPos + 1);
+          size_t const endPos = replacement.find('\'', startPos + 1);
           if (endPos != std::string::npos) {
             replacement.replace(startPos + 1, endPos - startPos - 1, "****");
           }
@@ -71,15 +72,15 @@ std::string memgraph::logging::MaskSensitiveInformation(std::string const &input
   std::string remaining_part = input.substr(last_pos, input.size() - last_pos);
   std::string masked_remaining_part;
   std::sregex_iterator it(remaining_part.begin(), remaining_part.end(), sensitivePattern);
-  std::sregex_iterator end;
+  std::sregex_iterator const end;
 
   size_t prev_end = 0;
   for (; it != end; ++it) {
     masked_remaining_part.append(remaining_part, prev_end, it->position() - prev_end);
     std::string replacement = it->str();
-    size_t startPos = replacement.find("'");
+    size_t const startPos = replacement.find('\'');
     if (startPos != std::string::npos) {
-      size_t endPos = replacement.find("'", startPos + 1);
+      size_t const endPos = replacement.find('\'', startPos + 1);
       if (endPos != std::string::npos) {
         replacement.replace(startPos + 1, endPos - startPos - 1, "****");
       }

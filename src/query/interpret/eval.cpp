@@ -83,7 +83,7 @@ TypedValue ExpressionEvaluator::Visit(RegexMatch &regex_match) {
   }
   const auto &target_string = target_string_value.ValueString();
   try {
-    std::regex regex(regex_value.ValueString());
+    std::regex const regex(regex_value.ValueString());
     return TypedValue(std::regex_match(target_string, regex), ctx_->memory);
   } catch (const std::regex_error &e) {
     throw QueryRuntimeException("Regex error in '{}': {}", regex_value.ValueString(), e.what());
@@ -101,20 +101,20 @@ TypedValue ExpressionEvaluator::Visit(AllPropertiesLookup &all_properties_lookup
            const auto &[property_id, value] : properties) {
         result.emplace(dba_->PropertyToName(property_id), value);
       }
-      return TypedValue(result, ctx_->memory);
+      return {result, ctx_->memory};
     }
     case TypedValue::Type::Edge: {
       for (const auto properties = *expression_result.ValueEdge().Properties(view_);
            const auto &[property_id, value] : properties) {
         result.emplace(dba_->PropertyToName(property_id), value);
       }
-      return TypedValue(result, ctx_->memory);
+      return {result, ctx_->memory};
     }
     case TypedValue::Type::Map: {
       for (auto &[name, value] : expression_result.ValueMap()) {
         result.emplace(name, value);
       }
-      return TypedValue(result, ctx_->memory);
+      return {result, ctx_->memory};
     }
     case TypedValue::Type::Duration: {
       const auto &dur = expression_result.ValueDuration();
@@ -125,14 +125,14 @@ TypedValue ExpressionEvaluator::Visit(AllPropertiesLookup &all_properties_lookup
       result.emplace("millisecond", TypedValue(dur.SubDaysAsMilliseconds(), ctx_->memory));
       result.emplace("microseconds", TypedValue(dur.SubDaysAsMicroseconds(), ctx_->memory));
       result.emplace("nanoseconds", TypedValue(dur.SubDaysAsNanoseconds(), ctx_->memory));
-      return TypedValue(result, ctx_->memory);
+      return {result, ctx_->memory};
     }
     case TypedValue::Type::Date: {
       const auto &date = expression_result.ValueDate();
       result.emplace("year", TypedValue(date.year, ctx_->memory));
       result.emplace("month", TypedValue(date.month, ctx_->memory));
       result.emplace("day", TypedValue(date.day, ctx_->memory));
-      return TypedValue(result, ctx_->memory);
+      return {result, ctx_->memory};
     }
     case TypedValue::Type::LocalTime: {
       const auto &lt = expression_result.ValueLocalTime();
@@ -141,7 +141,7 @@ TypedValue ExpressionEvaluator::Visit(AllPropertiesLookup &all_properties_lookup
       result.emplace("second", TypedValue(lt.second, ctx_->memory));
       result.emplace("millisecond", TypedValue(lt.millisecond, ctx_->memory));
       result.emplace("microsecond", TypedValue(lt.microsecond, ctx_->memory));
-      return TypedValue(result, ctx_->memory);
+      return {result, ctx_->memory};
     }
     case TypedValue::Type::LocalDateTime: {
       const auto &ldt = expression_result.ValueLocalDateTime();
@@ -155,7 +155,7 @@ TypedValue ExpressionEvaluator::Visit(AllPropertiesLookup &all_properties_lookup
       result.emplace("second", TypedValue(lt.second, ctx_->memory));
       result.emplace("millisecond", TypedValue(lt.millisecond, ctx_->memory));
       result.emplace("microsecond", TypedValue(lt.microsecond, ctx_->memory));
-      return TypedValue(result, ctx_->memory);
+      return {result, ctx_->memory};
     }
     case TypedValue::Type::ZonedDateTime: {
       throw QueryRuntimeException("Can't coerce `{}` to Map.", expression_result.ValueZonedDateTime().ToString());
@@ -165,7 +165,7 @@ TypedValue ExpressionEvaluator::Visit(AllPropertiesLookup &all_properties_lookup
       result.emplace("x", TypedValue(point_2d.x(), ctx_->memory));
       result.emplace("y", TypedValue(point_2d.y(), ctx_->memory));
       result.emplace("srid", TypedValue(storage::CrsToSrid(point_2d.crs()).value_of(), ctx_->memory));
-      return TypedValue(result, ctx_->memory);
+      return {result, ctx_->memory};
     }
     case TypedValue::Type::Point3d: {
       auto const &point_3d = expression_result.ValuePoint3d();
@@ -173,7 +173,7 @@ TypedValue ExpressionEvaluator::Visit(AllPropertiesLookup &all_properties_lookup
       result.emplace("y", TypedValue(point_3d.y(), ctx_->memory));
       result.emplace("z", TypedValue(point_3d.z(), ctx_->memory));
       result.emplace("srid", TypedValue(storage::CrsToSrid(point_3d.crs()).value_of(), ctx_->memory));
-      return TypedValue(result, ctx_->memory);
+      return {result, ctx_->memory};
     }
     case TypedValue::Type::Graph: {
       const auto &graph = expression_result.ValueGraph();
@@ -181,18 +181,18 @@ TypedValue ExpressionEvaluator::Visit(AllPropertiesLookup &all_properties_lookup
       utils::pmr::vector<TypedValue> vertices(ctx_->memory);
       vertices.reserve(graph.vertices().size());
       for (const auto &v : graph.vertices()) {
-        vertices.emplace_back(TypedValue(v, ctx_->memory));
+        vertices.emplace_back(v);
       }
       result.emplace("nodes", TypedValue(std::move(vertices), ctx_->memory));
 
       utils::pmr::vector<TypedValue> edges(ctx_->memory);
       edges.reserve(graph.edges().size());
       for (const auto &e : graph.edges()) {
-        edges.emplace_back(TypedValue(e, ctx_->memory));
+        edges.emplace_back(e);
       }
       result.emplace("edges", TypedValue(std::move(edges), ctx_->memory));
 
-      return TypedValue(result, ctx_->memory);
+      return {result, ctx_->memory};
     }
     default:
       throw QueryRuntimeException(
@@ -379,11 +379,11 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
 
         auto property_id = ctx_->properties[property_lookup.property_.ix];
         if (property_lookup_cache_[symbol_pos].contains(property_id)) {
-          return TypedValue(property_lookup_cache_[symbol_pos][property_id], ctx_->memory);
+          return {property_lookup_cache_[symbol_pos][property_id], ctx_->memory};
         }
         return TypedValue(ctx_->memory);
       } else {
-        return TypedValue(GetProperty(expression_result_ptr->ValueVertex(), property_lookup.property_), ctx_->memory);
+        return {GetProperty(expression_result_ptr->ValueVertex(), property_lookup.property_), ctx_->memory};
       }
     case TypedValue::Type::Edge:
       if (property_lookup.evaluation_mode_ == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES) {
@@ -394,23 +394,23 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
 
         auto property_id = ctx_->properties[property_lookup.property_.ix];
         if (property_lookup_cache_[symbol_pos].contains(property_id)) {
-          return TypedValue(property_lookup_cache_[symbol_pos][property_id], ctx_->memory);
+          return {property_lookup_cache_[symbol_pos][property_id], ctx_->memory};
         }
         return TypedValue(ctx_->memory);
       } else {
-        return TypedValue(GetProperty(expression_result_ptr->ValueEdge(), property_lookup.property_), ctx_->memory);
+        return {GetProperty(expression_result_ptr->ValueEdge(), property_lookup.property_), ctx_->memory};
       }
     case TypedValue::Type::Map: {
       auto &map = expression_result_ptr->ValueMap();
       auto found = map.find(property_lookup.property_.name.c_str());
       if (found == map.end()) return TypedValue(ctx_->memory);
-      return TypedValue(found->second, ctx_->memory);
+      return {found->second, ctx_->memory};
     }
     case TypedValue::Type::Duration: {
       const auto &prop_name = property_lookup.property_.name;
       const auto &dur = expression_result_ptr->ValueDuration();
       if (auto dur_field = maybe_duration(dur, prop_name); dur_field) {
-        return TypedValue(*dur_field, ctx_->memory);
+        return {*dur_field, ctx_->memory};
       }
       throw QueryRuntimeException("Invalid property name {} for Duration", prop_name);
     }
@@ -418,7 +418,7 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
       const auto &prop_name = property_lookup.property_.name;
       const auto &date = expression_result_ptr->ValueDate();
       if (auto date_field = maybe_date(date, prop_name); date_field) {
-        return TypedValue(*date_field, ctx_->memory);
+        return {*date_field, ctx_->memory};
       }
       throw QueryRuntimeException("Invalid property name {} for Date", prop_name);
     }
@@ -437,7 +437,7 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
         return std::move(*date_field);
       }
       if (auto lt_field = maybe_local_time(ldt.local_time(), prop_name); lt_field) {
-        return TypedValue(*lt_field, ctx_->memory);
+        return {*lt_field, ctx_->memory};
       }
       throw QueryRuntimeException("Invalid property name {} for LocalDateTime", prop_name);
     }
@@ -445,7 +445,7 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
       const auto &prop_name = property_lookup.property_.name;
       const auto &zdt = expression_result_ptr->ValueZonedDateTime();
       if (auto zdt_field = maybe_zoned_date_time(zdt, prop_name); zdt_field) {
-        return TypedValue(*zdt_field, ctx_->memory);
+        return {*zdt_field, ctx_->memory};
       }
       throw QueryRuntimeException("Invalid property name {} for ZonedDateTime", prop_name);
     }
@@ -453,7 +453,7 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
       const auto &prop_name = property_lookup.property_.name;
       const auto &point_2d = expression_result_ptr->ValuePoint2d();
       if (auto point_2d_field = maybe_point2d(point_2d, prop_name); point_2d_field) {
-        return TypedValue(*point_2d_field, ctx_->memory);
+        return {*point_2d_field, ctx_->memory};
       }
       throw QueryRuntimeException("Invalid property name {} for Point2d", prop_name);
     }
@@ -461,7 +461,7 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
       const auto &prop_name = property_lookup.property_.name;
       const auto &point_3d = expression_result_ptr->ValuePoint3d();
       if (auto point_3d_field = maybe_point3d(point_3d, prop_name); point_3d_field) {
-        return TypedValue(*point_3d_field, ctx_->memory);
+        return {*point_3d_field, ctx_->memory};
       }
       throw QueryRuntimeException("Invalid property name {} for Point3d", prop_name);
     }
@@ -469,7 +469,7 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
       const auto &prop_name = property_lookup.property_.name;
       const auto &graph = expression_result_ptr->ValueGraph();
       if (auto graph_field = maybe_graph(graph, prop_name); graph_field) {
-        return TypedValue(*graph_field, ctx_->memory);
+        return {*graph_field, ctx_->memory};
       }
       throw QueryRuntimeException("Invalid property name {} for Graph", prop_name);
     }
