@@ -51,6 +51,13 @@ def load_workloads(root_directory):
     return workloads
 
 
+def cleanup(workload, keep_directories=True):
+    # If we use cluster keyword in workloads.yaml, we will stop directories and keep them based on args.save_data_dir
+    # If we manually control instances using interactive_mg_runner in tests, then we specify our cleanup function
+    if "cluster" in workload:
+        interactive_mg_runner.stop_all(keep_directories)
+
+
 def run(args):
     workloads = load_workloads(args.workloads_root_directory)
     for workload in workloads:
@@ -58,11 +65,6 @@ def run(args):
         if args.workload_name is not None and args.workload_name != workload_name:
             continue
         log.info("%s STARTED.", workload_name)
-
-        # Setup.
-        @atexit.register
-        def cleanup(keep_directories=True):
-            interactive_mg_runner.stop_all(keep_directories)
 
         if "pre_set_workload" in workload:
             binary = os.path.join(BUILD_DIR, workload["pre_set_workload"])
@@ -82,6 +84,7 @@ def run(args):
         # Test.
         mg_test_binary = os.path.join(BUILD_DIR, workload["binary"])
         subprocess.run([mg_test_binary] + workload["args"], check=True, stderr=subprocess.STDOUT)
+
         # Validation.
         if "cluster" in workload:
             for name, config in workload["cluster"].items():
@@ -90,8 +93,9 @@ def run(args):
                 # nothing is to validate. If setup queries are dealing with
                 # users, any new connection requires auth details.
                 validation_queries = config.get("validation_queries", [])
-                if len(validation_queries) == 0:
+                if not validation_queries:
                     continue
+
                 # NOTE: If the setup quries create users AND there are some
                 # validation queries, the connection here has to get the right
                 # username/password.
@@ -100,7 +104,8 @@ def run(args):
                     data = mg_instance.query(validation["query"], conn)[0][0]
                     assert data == validation["expected"]
                 conn.close()
-        cleanup(keep_directories=False)
+
+        cleanup(workload, keep_directories=args.save_data_dir)
         log.info("%s PASSED.", workload_name)
 
 

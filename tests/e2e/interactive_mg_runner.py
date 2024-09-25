@@ -31,20 +31,22 @@
 # approaches have to be employed.
 # NOTE: The instance description / context should be compatible with tests/e2e/runner.py
 
-import atexit
 import logging
 import os
 import secrets
-import socket
 import sys
 import time
 from argparse import ArgumentParser
 from inspect import signature
-from typing import Optional
 
 import yaml
 
-from memgraph import MemgraphInstanceRunner, extract_bolt_port, extract_management_port
+from memgraph import (
+    MemgraphInstanceRunner,
+    connectable_port,
+    extract_bolt_port,
+    extract_management_port,
+)
 
 log = logging.getLogger("memgraph.tests.e2e")
 
@@ -105,19 +107,12 @@ def wait_until_port_is_free(port: int) -> bool:
     Return True when port is free, False if port is still not free after 10s.
     """
     for _ in range(100):
-        if is_port_in_use(port):
-            time.sleep(0.1)
-        else:
+        # If we can connect to the port that means previous process is still running and we have to wait for it to finish.
+        if not connectable_port(port):
             return True
+        else:
+            time.sleep(0.1)
     return False
-
-
-def is_port_in_use(port: int) -> bool:
-    """
-    Checks if port is in use by using socket package.
-    """
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        return s.connect_ex(("localhost", port)) == 0
 
 
 def _start(
@@ -130,7 +125,6 @@ def _start(
     data_directory,
     username=None,
     password=None,
-    ignore_auth_failure: bool = False,
     storage_snapshot_on_exit: bool = False,
 ):
     assert (
@@ -166,7 +160,6 @@ def _start(
         args=binary_args,
         setup_queries=setup_queries,
         bolt_port=bolt_port,
-        ignore_auth_failure=ignore_auth_failure,
         storage_snapshot_on_exit=storage_snapshot_on_exit,
     )
     assert mg_instance.is_running(), "An error occurred after starting Memgraph instance: application stopped running."
@@ -212,14 +205,6 @@ def kill(context, name, keep_directories=True):
         MEMGRAPH_INSTANCES.pop(name)
 
 
-@atexit.register
-def cleanup():
-    """
-    On exit stop all instances but don't clear data directories since this is controlled from run.sh running script.
-    """
-    stop_all()
-
-
 def start(context, name, procdir=""):
     mg_instances = {}
 
@@ -242,7 +227,6 @@ def start(context, name, procdir=""):
         username = value["username"] if "username" in value else None
         password = value["password"] if "password" in value else None
 
-        ignore_auth_failure = value["ignore_auth_failure"] if "ignore_auth_failure" in value else False
         storage_snapshot_on_exit = value["storage_snapshot_on_exit"] if "storage_snapshot_on_exit" in value else False
 
         instance = _start(
@@ -255,7 +239,6 @@ def start(context, name, procdir=""):
             data_directory,
             username,
             password,
-            ignore_auth_failure=ignore_auth_failure,
             storage_snapshot_on_exit=storage_snapshot_on_exit,
         )
         log.info(f"Instance with name {name} started")

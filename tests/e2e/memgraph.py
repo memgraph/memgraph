@@ -13,10 +13,11 @@ import copy
 import logging
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import time
-from typing import Optional
+from typing import List, Optional
 
 import mgclient
 
@@ -63,6 +64,14 @@ def replace_paths(path):
     return path.replace("$PROJECT_DIR", PROJECT_DIR).replace("$SCRIPT_DIR", SCRIPT_DIR).replace("$BUILD_DIR", BUILD_DIR)
 
 
+def connectable_port(port: int) -> bool:
+    """
+    Checks if it is possible to connect to port.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        return s.connect_ex(("localhost", port)) == 0
+
+
 class MemgraphInstanceRunner:
     def __init__(self, binary_path=MEMGRAPH_BINARY, use_ssl=False, data_directory=None, username=None, password=None):
         self.host = "127.0.0.1"
@@ -75,13 +84,13 @@ class MemgraphInstanceRunner:
         self.username = username
         self.password = password
 
-    def wait_for_succesful_connection(self, ignore_auth_failure: bool = False, delay=0.1):
+    def wait_for_succesful_connection(self, delay=0.1):
         """
-        Instance is considered started after successfully connecting mgclient. If `ignore_auth_failure` is set to True, the
-        retry loop terminates immediately on `Authentication failure`.
+        Wait for successful mgclient connection and return the connection. Connection will be closed in the caller.
         """
-        for _ in range(150):
-            curr_time = time.strftime("%H:%M:%S", time.localtime())
+        timeout = 15
+        elapsed = 0
+        while elapsed < timeout:
             try:
                 return mgclient.connect(
                     host=self.host,
@@ -91,14 +100,12 @@ class MemgraphInstanceRunner:
                     password=(self.password or ""),
                 )
             except Exception as e:
-                print(f"Couldn't connect at: {curr_time}")
-                if (
-                    ignore_auth_failure
-                    and isinstance(e, mgclient.OperationalError)
-                    and str(e) == "Authentication failure"
-                ):
-                    return
+                if str(e) == "Authentication failure":
+                    print("Authentication failure, instance auth wrong!")
+                    break
+                # Probably port not ready yet, wait a bit
                 time.sleep(delay)
+                elapsed += delay
 
         print(f"Could not wait for host {self.host} on port {self.bolt_port} to startup!")
         sys.exit(1)
@@ -122,14 +129,12 @@ class MemgraphInstanceRunner:
 
         return data
 
-    def execute_setup_queries(self, conn, setup_queries):
+    def execute_setup_queries(self, setup_queries=List):
         """
         Executes setup queries. The element inside `setup_queries` can be a string or a list. Connection is closed at the end and cannot be
         reused.
         """
-        if setup_queries is None:
-            return
-
+        conn = self.wait_for_succesful_connection()
         conn.autocommit = True
         cursor = conn.cursor()
 
@@ -159,7 +164,6 @@ class MemgraphInstanceRunner:
         args=None,
         setup_queries=None,
         bolt_port: Optional[int] = None,
-        ignore_auth_failure: bool = False,
         storage_snapshot_on_exit: bool = False,
     ):
         """
@@ -190,13 +194,19 @@ class MemgraphInstanceRunner:
             self.bolt_port = extract_bolt_port(args_mg)
 
         self.proc_mg = subprocess.Popen(args_mg)
-        log.info(f"Subprocess started with args {args_mg}")
-        conn = self.wait_for_succesful_connection(ignore_auth_failure=ignore_auth_failure)
-        log.info(f"Server started on instance with bolt port {self.host}:{bolt_port}")
-        if not ignore_auth_failure:
-            self.execute_setup_queries(conn, setup_queries)
 
-        assert self.is_running(), "The Memgraph process died during start!"
+        if setup_queries:
+            self.execute_setup_queries(setup_queries)
+
+        timeout = 15
+        delay = 0.1
+        elapsed = 0
+        while (self.is_running() is False or connectable_port(bolt_port) is False) and elapsed < timeout:
+            time.sleep(delay)
+            elapsed += delay
+
+        assert self.is_running() and connectable_port(bolt_port), f"The Memgraph process failed to start in {timeout}s!"
+        log.info(f"Instance started with bolt server on {self.host}:{bolt_port}!")
 
     def is_running(self):
         """

@@ -28,7 +28,6 @@ def get_instances(test_name: str):
             "log_file": f"{get_logs_path(file, test_name)}/test_instance.log",
             "data_directory": f"{get_data_path(file, test_name)}",
             "setup_queries": [],
-            "ignore_auth_failure": True,
         }
     }
 
