@@ -41,7 +41,7 @@ def cleanup_after_test():
     # Run the test
     yield
     # Stop and delete directories after running the test
-    interactive_mg_runner.stop_all(keep_directories=False)
+    interactive_mg_runner.kill_all(keep_directories=False)
 
 
 file = "not_replicate_from_old_main"

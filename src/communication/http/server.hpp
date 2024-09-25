@@ -64,17 +64,10 @@ class Server final {
 };
 template <class TRequestHandler, typename TSessionContext>
 Server<TRequestHandler, TSessionContext>::Server(io::network::Endpoint endpoint, TSessionContext *session_context,
-                                                 ServerContext *context) {
-  spdlog::trace("Started Server constructor for endpoint: {}:{}.", endpoint.GetAddress(), endpoint.GetPort());
-  auto boost_addr = boost::asio::ip::make_address(endpoint.GetResolvedIPAddress());
-  spdlog::trace("Created boost ip address for endpoint: {}:{}.", endpoint.GetAddress(), endpoint.GetPort());
-  auto boost_port = endpoint.GetPort();
-  spdlog::trace("Created boost port for endpoint: {}:{}.", endpoint.GetAddress(), endpoint.GetPort());
-  auto tcp_endpoint = tcp::endpoint{boost_addr, boost_port};
-  spdlog::trace("Created boost tcp endpoint for endpoint: {}:{}.", endpoint.GetAddress(), endpoint.GetPort());
-  listener_ = Listener<TRequestHandler, TSessionContext>::Create(ioc_, session_context, context, tcp_endpoint);
-  spdlog::trace("Listener created for endpoint {}:{}.", endpoint.GetAddress(), endpoint.GetPort());
-}
+                                                 ServerContext *context)
+    : listener_{Listener<TRequestHandler, TSessionContext>::Create(
+          ioc_, session_context, context,
+          tcp::endpoint{boost::asio::ip::make_address(endpoint.GetResolvedIPAddress()), endpoint.GetPort()})} {}
 
 template <class TRequestHandler, typename TSessionContext>
 void Server<TRequestHandler, TSessionContext>::Start() {

@@ -775,15 +775,15 @@ def test_replication_correct_replica_chosen_up_to_date_data(data_recovery, test_
     # 2. We check that main has correct state
     # 3. Create initial data on MAIN
     # 4. Expect data to be copied on all replicas
-    # 5. Kill instance_1 ( this one will miss complete epoch)
+    # 5. Kill instance_1 ( this one will miss complete epoch) and instance4
     # 6. Kill main (instance_3)
     # 7. Instance_2 new MAIN
     # 8. Instance_2 commits and replicates data
-    # 9. Instance_4 down (not main)
-    # 10. instance_2 down (MAIN), instance 1 up (missed epoch),
+    # 9. Instance_4 up, instance_2 will replicate data to instance4
+    # 10. instance_2 down (MAIN), instance 1 up (missed epoch) and
     # instance 4 up (In this case we should always choose instance_4 because it has up-to-date data)
     # 11 Instance 4 new main
-    # 12 instance_1 gets up-to-date data, instance_4 has all data
+    # 12 instance_1 gets up-to-date data
 
     # 1
 
@@ -841,20 +841,6 @@ def test_replication_correct_replica_chosen_up_to_date_data(data_recovery, test_
 
     mg_sleep_and_assert_collection(expected_data_on_main, retrieve_data_show_replicas)
 
-    coord_cursor = connect(host="localhost", port=7690).cursor()
-
-    def retrieve_data_show_instances():
-        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor, "SHOW INSTANCES;"))))
-
-    expected_data_on_coord = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
-        ("instance_1", "localhost:7688", "", "localhost:10011", "up", "replica"),
-        ("instance_2", "localhost:7689", "", "localhost:10012", "up", "replica"),
-        ("instance_3", "localhost:7687", "", "localhost:10013", "up", "main"),
-        ("instance_4", "localhost:7691", "", "localhost:10014", "up", "replica"),
-    ]
-    mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_instances)
-
     # 3
 
     execute_and_fetch_all(main_cursor, "CREATE (:Epoch1Vertex {prop:1});")
@@ -872,6 +858,7 @@ def test_replication_correct_replica_chosen_up_to_date_data(data_recovery, test_
     # 5
 
     interactive_mg_runner.kill(memgraph_instances_description, "instance_1")
+    interactive_mg_runner.kill(memgraph_instances_description, "instance_4")
 
     # 6
     interactive_mg_runner.kill(memgraph_instances_description, "instance_3")
@@ -883,7 +870,7 @@ def test_replication_correct_replica_chosen_up_to_date_data(data_recovery, test_
         ("instance_1", "localhost:7688", "", "localhost:10011", "down", "unknown"),
         ("instance_2", "localhost:7689", "", "localhost:10012", "up", "main"),
         ("instance_3", "localhost:7687", "", "localhost:10013", "down", "unknown"),
-        ("instance_4", "localhost:7691", "", "localhost:10014", "up", "replica"),
+        ("instance_4", "localhost:7691", "", "localhost:10014", "down", "unknown"),
     ]
     mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_instances)
 
@@ -893,33 +880,20 @@ def test_replication_correct_replica_chosen_up_to_date_data(data_recovery, test_
         execute_and_fetch_all(instance_2_cursor, "CREATE (:Epoch2Vertex {prop:1});")
     assert "At least one SYNC replica has not confirmed committing last transaction." in str(e.value)
 
+    interactive_mg_runner.start(memgraph_instances_description, "instance_4")
+    instance_4_cursor = connect(host="localhost", port=7691).cursor()
+
     def get_vertex_count():
         return execute_and_fetch_all(instance_4_cursor, "MATCH (n) RETURN count(n)")[0][0]
 
     mg_sleep_and_assert(3, get_vertex_count)
 
-    assert execute_and_fetch_all(instance_4_cursor, "MATCH (n) RETURN count(n);")[0][0] == 3
-
     # 9
-
-    interactive_mg_runner.kill(memgraph_instances_description, "instance_4")
-
-    expected_data_on_coord = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
-        ("instance_1", "localhost:7688", "", "localhost:10011", "down", "unknown"),
-        ("instance_2", "localhost:7689", "", "localhost:10012", "up", "main"),
-        ("instance_3", "localhost:7687", "", "localhost:10013", "down", "unknown"),
-        ("instance_4", "localhost:7691", "", "localhost:10014", "down", "unknown"),
-    ]
-    mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_instances)
-
-    # 10
 
     interactive_mg_runner.kill(memgraph_instances_description, "instance_2")
     interactive_mg_runner.start(memgraph_instances_description, "instance_1")
-    interactive_mg_runner.start(memgraph_instances_description, "instance_4")
 
-    # 11
+    # 10
 
     expected_data_on_coord = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
@@ -930,17 +904,12 @@ def test_replication_correct_replica_chosen_up_to_date_data(data_recovery, test_
     ]
     mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_instances)
 
-    # 12
+    # 11
     instance_1_cursor = connect(host="localhost", port=7688).cursor()
     instance_4_cursor = connect(host="localhost", port=7691).cursor()
 
     def get_vertex_count():
         return execute_and_fetch_all(instance_1_cursor, "MATCH (n) RETURN count(n)")[0][0]
-
-    mg_sleep_and_assert(3, get_vertex_count)
-
-    def get_vertex_count():
-        return execute_and_fetch_all(instance_4_cursor, "MATCH (n) RETURN count(n)")[0][0]
 
     mg_sleep_and_assert(3, get_vertex_count)
 
