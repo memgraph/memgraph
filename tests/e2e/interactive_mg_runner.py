@@ -146,7 +146,7 @@ def _start(
     data_directory_path = os.path.join(BUILD_DIR, "e2e", "data", data_directory)
 
     mg_instance = MemgraphInstanceRunner(
-        MEMGRAPH_BINARY, use_ssl, {data_directory_path}, username=username, password=password
+        MEMGRAPH_BINARY, use_ssl, data_directory_path, username=username, password=password
     )
     MEMGRAPH_INSTANCES[name] = mg_instance
 

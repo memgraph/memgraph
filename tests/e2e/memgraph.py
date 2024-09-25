@@ -269,5 +269,6 @@ class MemgraphInstanceRunner:
         """
         try:
             shutil.rmtree(self.data_directory)
-        except Exception:
+        except Exception as e:
+            print(e)
             pass

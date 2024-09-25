@@ -304,7 +304,7 @@ def test_drop_replicas(connection, test_name):
     mg_sleep_and_assert_collection(expected_data, retrieve_data)
 
     # 2/
-    interactive_mg_runner.kill(instances, "replica_3", keep_directories=False)
+    interactive_mg_runner.kill(instances, "replica_3", keep_directories=True)
     expected_data = [
         (
             "replica_1",
@@ -365,7 +365,7 @@ def test_drop_replicas(connection, test_name):
     mg_sleep_and_assert_collection(expected_data, retrieve_data)
 
     # 4/
-    interactive_mg_runner.kill(instances, "replica_4", keep_directories=False)
+    interactive_mg_runner.kill(instances, "replica_4", keep_directories=True)
     expected_data = [
         (
             "replica_1",
@@ -412,7 +412,7 @@ def test_drop_replicas(connection, test_name):
     mg_sleep_and_assert_collection(expected_data, retrieve_data)
 
     # 6/
-    interactive_mg_runner.kill(instances, "replica_1", keep_directories=False)
+    interactive_mg_runner.kill(instances, "replica_1", keep_directories=True)
     expected_data = [
         (
             "replica_1",
@@ -445,7 +445,7 @@ def test_drop_replicas(connection, test_name):
     mg_sleep_and_assert_collection(expected_data, retrieve_data)
 
     # 8/
-    interactive_mg_runner.kill(instances, "replica_2", keep_directories=False)
+    interactive_mg_runner.kill(instances, "replica_2", keep_directories=True)
     expected_data = [
         (
             "replica_2",
