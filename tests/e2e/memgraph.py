@@ -199,7 +199,7 @@ class MemgraphInstanceRunner:
         timeout = 15
         delay = 0.1
         elapsed = 0
-        while (self.is_running() is False or connectable_port(bolt_port) is False) and elapsed < timeout:
+        while connectable_port(bolt_port) is False and elapsed < timeout:
             time.sleep(delay)
             elapsed += delay
 
