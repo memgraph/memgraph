@@ -84,6 +84,7 @@ class MemgraphInstanceRunner:
         self.username = username
         self.password = password
 
+    # If the method with socket is ok, remove this TODO: (andi)
     def wait_for_succesful_connection(self, delay=0.1):
         """
         Wait for successful mgclient connection and return the connection. Connection will be closed in the caller.
@@ -134,7 +135,7 @@ class MemgraphInstanceRunner:
         Executes setup queries. The element inside `setup_queries` can be a string or a list. Connection is closed at the end and cannot be
         reused.
         """
-        conn = self.wait_for_succesful_connection()
+        conn = self.get_connection(self.username or "", self.password or "")
         conn.autocommit = True
         cursor = conn.cursor()
 
@@ -195,9 +196,6 @@ class MemgraphInstanceRunner:
 
         self.proc_mg = subprocess.Popen(args_mg)
 
-        if setup_queries:
-            self.execute_setup_queries(setup_queries)
-
         timeout = 15
         delay = 0.1
         elapsed = 0
@@ -206,7 +204,11 @@ class MemgraphInstanceRunner:
             elapsed += delay
 
         assert self.is_running() and connectable_port(bolt_port), f"The Memgraph process failed to start in {timeout}s!"
-        log.info(f"Instance started with bolt server on {self.host}:{bolt_port}!")
+        log.info(f"Instance started with bolt server on {self.host}:{bolt_port}.")
+
+        if setup_queries:
+            self.execute_setup_queries(setup_queries)
+            log.info("Executed setup queries.")
 
     def is_running(self):
         """
