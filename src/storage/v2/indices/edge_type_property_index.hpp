@@ -11,11 +11,19 @@
 
 #pragma once
 
+#include <map>
 #include <vector>
 
-#include "storage/v2/transaction.hpp"
+#include "storage/v2/edge_ref.hpp"
+#include "storage/v2/id_types.hpp"
+#include "storage/v2/property_value.hpp"
+#include "utils/bound.hpp"
 
 namespace memgraph::storage {
+
+struct Transaction;
+struct Vertex;
+struct Edge;
 
 class EdgeTypePropertyIndex {
  public:

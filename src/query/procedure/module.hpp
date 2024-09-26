@@ -13,6 +13,13 @@
 /// API for loading and registering modules providing custom oC procedures
 #pragma once
 
+#include "query/exceptions.hpp"
+#include "query/procedure/cypher_types.hpp"
+#include "query/procedure/module_fwd.hpp"
+#include "utils/concepts.hpp"
+#include "utils/memory.hpp"
+#include "utils/rw_lock.hpp"
+
 #include <dlfcn.h>
 #include <filesystem>
 #include <functional>
@@ -22,12 +29,6 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
-
-#include "query/procedure/cypher_types.hpp"
-#include "query/procedure/mg_procedure_impl.hpp"
-#include "query/procedure/module_fwd.hpp"
-#include "utils/memory.hpp"
-#include "utils/rw_lock.hpp"
 
 class CypherMainVisitorTest;
 
@@ -240,23 +241,9 @@ void ValidateArguments(std::span<TypedValue const> args, const TCall &callable,
 
 /// build mgp_list with copies of the args
 /// also populates the missing optional args
-template <IsCallable TCall>
-void ConstructArguments(std::span<TypedValue const> args, const TCall &callable, mgp_list &args_list,
-                        mgp_graph &graph) {
-  const auto n_args = args.size();
-  const auto c_args_sz = callable.args.size();
-  const auto c_opt_args_sz = callable.opt_args.size();
+void ConstructArguments(std::span<TypedValue const> args, const mgp_func &callable, mgp_list &args_list,
+                        mgp_graph &graph);
 
-  args_list.elems.reserve(c_args_sz + c_opt_args_sz);
-
-  // Copy provided args
-  for (size_t i = 0; i < n_args; ++i) {
-    args_list.elems.emplace_back(args[i], &graph);
-  }
-  // Fill missing optional arguments with their default values.
-  const size_t passed_in_opt_args = n_args - c_args_sz;
-  for (size_t i = passed_in_opt_args; i < c_opt_args_sz; ++i) {
-    args_list.elems.emplace_back(std::get<2>(callable.opt_args[i]), &graph);
-  }
-}
+void ConstructArguments(std::span<TypedValue const> args, const mgp_proc &callable, mgp_list &args_list,
+                        mgp_graph &graph);
 }  // namespace memgraph::query::procedure

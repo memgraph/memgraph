@@ -14,7 +14,6 @@
 #include <memory>
 #include <optional>
 
-#include "query/cypher_query_interpreter.hpp"
 #include "query/stream/streams.hpp"
 #include "query/time_to_live/time_to_live.hpp"
 #include "query/trigger.hpp"

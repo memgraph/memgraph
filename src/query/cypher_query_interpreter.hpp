@@ -11,18 +11,16 @@
 
 #pragma once
 
-#include <utility>
-
 #include "query/config.hpp"
-#include "query/database_access.hpp"
-#include "query/frontend/semantic/required_privileges.hpp"
-#include "query/frontend/semantic/symbol_generator.hpp"
+#include "query/frontend/ast/ast.hpp"
+#include "query/frontend/semantic/symbol_table.hpp"
 #include "query/frontend/stripped.hpp"
-#include "query/plan/planner.hpp"
-#include "utils/flag_validation.hpp"
+#include "query/parameters.hpp"
+#include "storage/v2/property_value.hpp"
 #include "utils/lru_cache.hpp"
 #include "utils/synchronized.hpp"
-#include "utils/timer.hpp"
+
+#include "gflags/gflags.h"
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(query_cost_planner);
@@ -30,6 +28,13 @@ DECLARE_bool(query_cost_planner);
 DECLARE_int32(query_plan_cache_max_size);
 
 namespace memgraph::query {
+
+namespace plan {
+class LogicalOperator;
+}
+
+class SymbolTable;
+class Query;
 
 // TODO: Maybe this should move to query/plan/planner.
 /// Interface for accessing the root operator of a logical plan.
@@ -106,12 +111,11 @@ ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &us
 class SingleNodeLogicalPlan final : public LogicalPlan {
  public:
   SingleNodeLogicalPlan(std::unique_ptr<plan::LogicalOperator> root, double cost, AstStorage storage,
-                        SymbolTable symbol_table)
-      : root_(std::move(root)), cost_(cost), storage_(std::move(storage)), symbol_table_(std::move(symbol_table)) {}
+                        SymbolTable symbol_table);
 
   const plan::LogicalOperator &GetRoot() const override { return *root_; }
   double GetCost() const override { return cost_; }
-  const SymbolTable &GetSymbolTable() const override { return symbol_table_; }
+  const SymbolTable &GetSymbolTable() const override;
   const AstStorage &GetAstStorage() const override { return storage_; }
 
  private:

@@ -12,7 +12,6 @@
 #pragma once
 
 #include "dbms/database.hpp"
-#include "query/db_accessor.hpp"
 #include "query/stream.hpp"
 #include "storage/v2/storage.hpp"
 

@@ -31,14 +31,17 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
-#include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/logging.hpp"
 #include "utils/rw_spin_lock.hpp"
 #include "utils/small_vector.hpp"
 
+#include "json/json.hpp"
+
 // TODO Add namespace schema_info
 namespace memgraph::storage {
+
+struct Transaction;
 
 /**
  * @brief Get the last commited labels (the last ones processed by the SchemaInfo)

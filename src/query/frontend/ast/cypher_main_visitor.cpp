@@ -30,10 +30,10 @@
 
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
-#include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/parsing.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/procedure/callable_alias_mapper.hpp"
+#include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"

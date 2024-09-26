@@ -26,6 +26,7 @@ extern "C" {
 #include "py/py.hpp"
 #include "query/procedure/callable_alias_mapper.hpp"
 #include "query/procedure/mg_procedure_helpers.hpp"
+#include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/py_module.hpp"
 #include "utils/case_insensitve_set.hpp"
 #include "utils/file.hpp"
@@ -1401,6 +1402,42 @@ auto FindTransformation(const ModuleRegistry &module_registry, std::string_view 
 auto FindFunction(const ModuleRegistry &module_registry, std::string_view fully_qualified_function_name)
     -> find_result<mgp_func> {
   return MakePairIfPropFound<mgp_func>(module_registry, fully_qualified_function_name);
+}
+void ConstructArguments(std::span<TypedValue const> args, mgp_func const &callable, mgp_list &args_list,
+                        mgp_graph &graph) {
+  const auto n_args = args.size();
+  const auto c_args_sz = callable.args.size();
+  const auto c_opt_args_sz = callable.opt_args.size();
+
+  args_list.elems.reserve(c_args_sz + c_opt_args_sz);
+
+  // Copy provided args
+  for (size_t i = 0; i < n_args; ++i) {
+    args_list.elems.emplace_back(args[i], &graph);
+  }
+  // Fill missing optional arguments with their default values.
+  const size_t passed_in_opt_args = n_args - c_args_sz;
+  for (size_t i = passed_in_opt_args; i < c_opt_args_sz; ++i) {
+    args_list.elems.emplace_back(std::get<2>(callable.opt_args[i]), &graph);
+  }
+}
+void ConstructArguments(std::span<TypedValue const> args, mgp_proc const &callable, mgp_list &args_list,
+                        mgp_graph &graph) {
+  const auto n_args = args.size();
+  const auto c_args_sz = callable.args.size();
+  const auto c_opt_args_sz = callable.opt_args.size();
+
+  args_list.elems.reserve(c_args_sz + c_opt_args_sz);
+
+  // Copy provided args
+  for (size_t i = 0; i < n_args; ++i) {
+    args_list.elems.emplace_back(args[i], &graph);
+  }
+  // Fill missing optional arguments with their default values.
+  const size_t passed_in_opt_args = n_args - c_args_sz;
+  for (size_t i = passed_in_opt_args; i < c_opt_args_sz; ++i) {
+    args_list.elems.emplace_back(std::get<2>(callable.opt_args[i]), &graph);
+  }
 }
 
 }  // namespace memgraph::query::procedure

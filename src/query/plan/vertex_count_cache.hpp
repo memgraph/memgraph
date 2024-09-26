@@ -14,7 +14,9 @@
 
 #include <optional>
 
+#include "query/db_accessor.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/enum_store.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/bound.hpp"
@@ -24,10 +26,9 @@ namespace memgraph::query::plan {
 
 /// A stand in class for `TDbAccessor` which provides memoized calls to
 /// `VerticesCount`.
-template <class TDbAccessor>
 class VertexCountCache {
  public:
-  explicit VertexCountCache(TDbAccessor *db) : db_(db) {}
+  explicit VertexCountCache(DbAccessor *db) : db_(db) {}
 
   auto NameToLabel(const std::string &name) { return db_->NameToLabel(name); }
   auto NameToProperty(const std::string &name) { return db_->NameToProperty(name); }
@@ -177,7 +178,7 @@ class VertexCountCache {
     }
   };
 
-  TDbAccessor *db_;
+  DbAccessor *db_;
   std::optional<int64_t> vertices_count_;
   std::unordered_map<storage::LabelId, int64_t> label_vertex_count_;
   std::unordered_map<storage::EdgeTypeId, int64_t> edge_type_edge_count_;
@@ -200,10 +201,5 @@ class VertexCountCache {
                      EdgeTypePropertyHash>
       property_bounds_edge_count_;
 };
-
-template <class TDbAccessor>
-auto MakeVertexCountCache(TDbAccessor *db) {
-  return VertexCountCache<TDbAccessor>(db);
-}
 
 }  // namespace memgraph::query::plan

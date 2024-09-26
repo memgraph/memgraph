@@ -481,12 +481,7 @@ class CreateExpand : public memgraph::query::plan::LogicalOperator {
   /// if the given node atom refers to an existing node (either matched or created)
   bool existing_node_;
 
-  std::string ToString() const override {
-    return fmt::format("CreateExpand ({}){}[{}:{}]{}({})", input_symbol_.name(),
-                       edge_info_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-", edge_info_.symbol.name(),
-                       dba_->EdgeTypeToName(edge_info_.edge_type),
-                       edge_info_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-", node_info_.symbol.name());
-  }
+  std::string ToString() const override;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<CreateExpand>();
@@ -1079,14 +1074,7 @@ class Expand : public memgraph::query::plan::LogicalOperator {
   /// State from which the input node should get expanded.
   storage::View view_;
 
-  std::string ToString() const override {
-    return fmt::format(
-        "Expand ({}){}[{}{}]{}({})", input_symbol_.name(),
-        common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-", common_.edge_symbol.name(),
-        utils::IterableToString(common_.edge_types, "|",
-                                [this](const auto &edge_type) { return ":" + dba_->EdgeTypeToName(edge_type); }),
-        common_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-", common_.node_symbol.name());
-  }
+  std::string ToString() const override;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<Expand>();
@@ -1223,14 +1211,7 @@ class ExpandVariable : public memgraph::query::plan::LogicalOperator {
     }
   }
 
-  std::string ToString() const override {
-    return fmt::format(
-        "{} ({}){}[{}{}]{}({})", OperatorName(), input_symbol_.name(),
-        common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-", common_.edge_symbol.name(),
-        utils::IterableToString(common_.edge_types, "|",
-                                [this](const auto &edge_type) { return ":" + dba_->EdgeTypeToName(edge_type); }),
-        common_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-", common_.node_symbol.name());
-  }
+  std::string ToString() const override;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<ExpandVariable>();

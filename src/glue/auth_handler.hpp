@@ -11,8 +11,6 @@
 
 #pragma once
 
-#include <regex>
-
 #include "auth/auth.hpp"
 #include "auth_global.hpp"
 #include "glue/auth.hpp"

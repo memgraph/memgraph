@@ -17,6 +17,7 @@
 
 #include "communication/bolt/v1/mg_types.hpp"
 #include "communication/bolt/v1/value.hpp"
+#include "query/graph.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/point.hpp"

@@ -13,14 +13,12 @@
 // Copyright 2017 Memgraph
 // Created by Florijan Stamenkovic on 24.01.17..
 //
-#include <functional>
-#include <map>
-#include <set>
 #include <vector>
 
 #include "gtest/gtest.h"
 
 #include "disk_test_utils.hpp"
+#include "query/db_accessor.hpp"
 #include "query/graph.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/disk/storage.hpp"

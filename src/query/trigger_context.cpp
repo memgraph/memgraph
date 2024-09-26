@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -223,6 +223,9 @@ bool RemovedVertexLabel::IsValid() const { return object.IsVisible(storage::View
 
 std::map<std::string, TypedValue> RemovedVertexLabel::ToMap(DbAccessor *dba) const {
   return {{"vertex", TypedValue{object}}, {"label", TypedValue{dba->LabelToName(label_id)}}};
+}
+auto ObjectCommonMethods::PropertyToName(DbAccessor *dba, storage::PropertyId key) -> TypedValue {
+  return TypedValue{dba->PropertyToName(key)};
 }
 }  // namespace detail
 
