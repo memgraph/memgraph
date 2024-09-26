@@ -21,9 +21,12 @@
 #include "storage/v2/id_types.hpp"
 #include "utils/logging.hpp"
 #include "utils/rw_spin_lock.hpp"
+#include "utils/skip_list.hpp"
 #include "utils/synchronized.hpp"
 
 namespace memgraph::storage {
+
+struct Transaction;
 
 /// Utility class to store data in a fixed size array. The array is used
 /// instead of `std::vector` to avoid `std::bad_alloc` exception where not

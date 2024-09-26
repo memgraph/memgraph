@@ -145,9 +145,9 @@ class Allocator {
   void construct(U *ptr, TArgs &&...args) {
     if constexpr (std::uses_allocator_v<U, Allocator>) {
       if constexpr (std::is_constructible_v<U, std::allocator_arg_t, MemoryResource *, TArgs...>) {
-        ::new (ptr) U(std::allocator_arg, memory_, std::forward<TArgs>(args)...);
+        std::construct_at(ptr, std::allocator_arg, memory_, std::forward<TArgs>(args)...);
       } else if constexpr (std::is_constructible_v<U, TArgs..., MemoryResource *>) {
-        ::new (ptr) U(std::forward<TArgs>(args)..., memory_);
+        std::construct_at(ptr, std::forward<TArgs>(args)..., memory_);
       } else {
         static_assert(!std::uses_allocator_v<U, Allocator>,
                       "Class declares std::uses_allocator but has no valid "
@@ -155,7 +155,7 @@ class Allocator {
                       "construction' rules in C++ reference.");
       }
     } else {
-      ::new (ptr) U(std::forward<TArgs>(args)...);
+      std::construct_at(ptr, std::forward<TArgs>(args)...);
     }
   }
 

@@ -20,8 +20,6 @@
 #include <utility>
 #include <vector>
 
-#include "query/db_accessor.hpp"
-#include "query/graph.hpp"
 #include "query/path.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/memory.hpp"
@@ -31,6 +29,8 @@
 #include "utils/temporal.hpp"
 
 namespace memgraph::query {
+
+class Graph;  // fwd declare
 
 namespace {
 template <typename T>
@@ -447,17 +447,14 @@ class TypedValue {
    * utils::MemoryResource is obtained from graph. After the move, graph will be
    * left empty.
    */
-  explicit TypedValue(Graph &&graph) noexcept : TypedValue(std::move(graph), graph.GetMemoryResource()) {}
+  explicit TypedValue(Graph &&graph);
 
   /**
    * Construct with the value of graph and use the given MemoryResource.
    * If `*graph.GetMemoryResource() != *memory`, this call will perform an
    * element-wise move and graph is not guaranteed to be empty.
    */
-  TypedValue(Graph &&graph, utils::MemoryResource *memory) : memory_(memory), type_(Type::Graph) {
-    auto *graph_ptr = utils::Allocator<Graph>(memory_).new_object<Graph>(std::move(graph));
-    new (&graph_v) std::unique_ptr<Graph>(graph_ptr);
-  }
+  TypedValue(Graph &&graph, utils::MemoryResource *memory);
 
   explicit TypedValue(std::function<void(TypedValue *)> &&other)
       : function_v(std::move(other)), type_(Type::Function) {}

@@ -24,7 +24,6 @@
 #include <utility>
 #include <variant>
 
-#include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"

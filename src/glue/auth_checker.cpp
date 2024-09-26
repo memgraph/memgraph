@@ -18,6 +18,7 @@
 #include "license/license.hpp"
 #include "query/auth_checker.hpp"
 #include "query/constants.hpp"
+#include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/query_user.hpp"
 #include "storage/v2/id_types.hpp"

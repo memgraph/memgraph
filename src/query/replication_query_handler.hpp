@@ -14,6 +14,7 @@
 #include "replication/replication_client.hpp"
 #include "replication_coordination_glue/mode.hpp"
 #include "replication_coordination_glue/role.hpp"
+#include "storage/v2/replication/enums.hpp"
 #include "utils/result.hpp"
 #include "utils/uuid.hpp"
 

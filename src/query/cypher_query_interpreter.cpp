@@ -10,8 +10,14 @@
 // licenses/APL.txt.
 
 #include "query/cypher_query_interpreter.hpp"
+#include "frontend/semantic/required_privileges.hpp"
+#include "frontend/semantic/symbol_generator.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
+#include "query/plan/planner.hpp"
+#include "query/plan/rule_based_planner.hpp"
+#include "query/plan/vertex_count_cache.hpp"
+#include "utils/flag_validation.hpp"
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(query_cost_planner, true, "Use the cost-estimating query planner.");
@@ -127,7 +133,7 @@ ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &us
 std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameters &parameters,
                                              DbAccessor *db_accessor,
                                              const std::vector<Identifier *> &predefined_identifiers) {
-  auto vertex_counts = plan::MakeVertexCountCache(db_accessor);
+  auto vertex_counts = plan::VertexCountCache(db_accessor);
   auto symbol_table = MakeSymbolTable(query, predefined_identifiers);
   auto planning_context = plan::MakePlanningContext(&ast_storage, &symbol_table, query, &vertex_counts);
   auto [root, cost] = plan::MakeLogicalPlan(&planning_context, parameters, FLAGS_query_cost_planner);
@@ -155,4 +161,11 @@ std::shared_ptr<PlanWrapper> CypherQueryToPlan(uint64_t hash, AstStorage ast_sto
 
   return plan;
 }
+
+SingleNodeLogicalPlan::SingleNodeLogicalPlan(std::unique_ptr<plan::LogicalOperator> root, double cost,
+                                             AstStorage storage, SymbolTable symbol_table)
+    : root_(std::move(root)), cost_(cost), storage_(std::move(storage)), symbol_table_(std::move(symbol_table)) {}
+
+const SymbolTable &SingleNodeLogicalPlan::GetSymbolTable() const { return symbol_table_; }
+
 }  // namespace memgraph::query

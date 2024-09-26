@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,7 +13,8 @@
 
 #include <functional>
 #include <utility>
-#include "query/db_accessor.hpp"
+#include "query/edge_accessor.hpp"
+#include "query/vertex_accessor.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
 #include "utils/pmr/unordered_set.hpp"

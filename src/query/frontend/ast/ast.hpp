@@ -16,6 +16,7 @@
 #include <variant>
 #include <vector>
 
+#include "query/exceptions.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/semantic/symbol.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
@@ -26,6 +27,7 @@
 #include "utils/exceptions.hpp"
 #include "utils/string.hpp"
 #include "utils/typeinfo.hpp"
+#include "utils/variant_helpers.hpp"
 
 namespace memgraph::query {
 

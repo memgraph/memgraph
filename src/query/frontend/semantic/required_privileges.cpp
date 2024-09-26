@@ -11,6 +11,7 @@
 
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
+#include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
 #include "utils/memory.hpp"
 
