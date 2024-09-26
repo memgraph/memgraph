@@ -2250,14 +2250,15 @@ def test_trigger_on_create_before_and_after_commit_with_offline_sync_replica(con
     interactive_mg_runner.start_all(CONFIGURATION, keep_directories=False)
 
     sync_replica1_cursor = connection(7688, "sync_replica1").cursor()
+    sync_replica2_cursor = connection(7689, "sync_replica2").cursor()
     execute_and_fetch_all(sync_replica1_cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10001;")
 
-    cursor = connection(7687, "main").cursor()
+    main_cursor = connection(7687, "main").cursor()
 
     # We want to execute manually and not via the configuration, as we are setting replica manually because
     # of restart. Restart on replica would set role again.
-    execute_and_fetch_all(cursor, "REGISTER REPLICA sync_replica1 SYNC TO '127.0.0.1:10001';")
-    execute_and_fetch_all(cursor, "REGISTER REPLICA sync_replica2 SYNC TO '127.0.0.1:10002';")
+    execute_and_fetch_all(main_cursor, "REGISTER REPLICA sync_replica1 SYNC TO '127.0.0.1:10001';")
+    execute_and_fetch_all(main_cursor, "REGISTER REPLICA sync_replica2 SYNC TO '127.0.0.1:10002';")
 
     # 1/
     QUERY_CREATE_TRIGGER_BEFORE = """
@@ -2270,24 +2271,26 @@ def test_trigger_on_create_before_and_after_commit_with_offline_sync_replica(con
         ON CREATE AFTER COMMIT EXECUTE
         CREATE (p:Number {name:'Node_created_by_trigger_after'});
     """
-    interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_CREATE_TRIGGER_BEFORE)
-    interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_CREATE_TRIGGER_AFTER)
-    res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW TRIGGERS;")
+
+    execute_and_fetch_all(main_cursor, QUERY_CREATE_TRIGGER_BEFORE)
+    execute_and_fetch_all(main_cursor, QUERY_CREATE_TRIGGER_AFTER)
+    res_from_main = execute_and_fetch_all(main_cursor, "SHOW TRIGGERS;")
     assert len(res_from_main) == 2, f"Incorect result: {res_from_main}"
 
     # 2/
     QUERY_CREATE_NODE = "CREATE (p:Number {name:'Not_Magic'})"
-    interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_CREATE_NODE)
+    execute_and_fetch_all(main_cursor, QUERY_CREATE_NODE)
 
     # 3/
     QUERY_TO_CHECK = "MATCH (node) return node;"
-    res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
+    res_from_main = execute_and_fetch_all(main_cursor, QUERY_TO_CHECK)
     assert len(res_from_main) == 3, f"Incorect result: {res_from_main}"
-    assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica1"].query(QUERY_TO_CHECK)
-    assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
+
+    execute_and_fetch_all(sync_replica1_cursor, QUERY_TO_CHECK)
+    execute_and_fetch_all(sync_replica2_cursor, QUERY_TO_CHECK)
 
     # 4/
-    interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("MATCH (n) DETACH DELETE n;")
+    execute_and_fetch_all(main_cursor, "MATCH (n) DETACH DELETE n;")
 
     # 5/
     interactive_mg_runner.kill(CONFIGURATION, "sync_replica1")
@@ -2308,12 +2311,13 @@ def test_trigger_on_create_before_and_after_commit_with_offline_sync_replica(con
 
     # 6/
     with pytest.raises(mgclient.DatabaseError):
-        interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_CREATE_NODE)
+        execute_and_fetch_all(main_cursor, QUERY_CREATE_NODE)
 
     # 7/
-    res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
+    res_from_main = execute_and_fetch_all(main_cursor, QUERY_TO_CHECK)
     assert len(res_from_main) == 3
-    assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
+
+    assert res_from_main == execute_and_fetch_all(sync_replica2_cursor, QUERY_TO_CHECK)
 
     # 8/
     interactive_mg_runner.start(CONFIGURATION, "sync_replica1")
@@ -2323,10 +2327,11 @@ def test_trigger_on_create_before_and_after_commit_with_offline_sync_replica(con
     ]
     actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
     assert all([x in actual_data for x in expected_data])
-    res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
+    res_from_main = execute_and_fetch_all(main_cursor, QUERY_TO_CHECK)
     assert len(res_from_main) == 3
-    assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica1"].query(QUERY_TO_CHECK)
-    assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
+    sync_replica1_cursor = connection(7688, "sync_replica1").cursor()
+    execute_and_fetch_all(sync_replica1_cursor, QUERY_TO_CHECK)
+    execute_and_fetch_all(sync_replica2_cursor, QUERY_TO_CHECK)
 
 
 def test_triggers_on_create_before_commit_with_offline_sync_replica(connection, test_name):

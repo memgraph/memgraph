@@ -9,20 +9,13 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-import atexit
 import os
-import shutil
 import sys
-import tempfile
-import time
-from functools import partial
-from typing import Any, Dict
 
 import interactive_mg_runner
-import mgclient
 import pytest
 from common import execute_and_fetch_all
-from mg_utils import mg_sleep_and_assert, mg_sleep_and_assert_collection
+from mg_utils import mg_sleep_and_assert_collection
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
