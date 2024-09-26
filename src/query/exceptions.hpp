@@ -109,6 +109,13 @@ class IndexInMulticommandTxException : public QueryException {
   SPECIALIZE_GET_EXCEPTION_NAME(IndexInMulticommandTxException)
 };
 
+class SchemaAssertInMulticommandTxException : public QueryException {
+ public:
+  using QueryException::QueryException;
+  SchemaAssertInMulticommandTxException() : QueryException("SCHEMA.ASSERT not allowed in multicommand transactions.") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(SchemaAssertInMulticommandTxException)
+};
+
 class ConstraintInMulticommandTxException : public QueryException {
  public:
   using QueryException::QueryException;

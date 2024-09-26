@@ -5316,9 +5316,15 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
 
   // NOTE: query_string is not BEGIN, COMMIT or ROLLBACK
 
+  bool const is_schema_assert_query{upper_case_query.find(kSchemaAssert) != std::string::npos};
+
   // All queries other than transaction control queries advance the command in
   // an explicit transaction block.
   if (in_explicit_transaction_) {
+    if (is_schema_assert_query) {
+      throw SchemaAssertInMulticommandTxException();
+    }
+
     transaction_queries_->push_back(query_string);
     AdvanceCommand();
   } else {
@@ -5407,7 +5413,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     if (!in_explicit_transaction_ && requires_db_transaction) {
       // TODO: ATM only a single database, will change when we have multiple database transactions
       bool could_commit = utils::Downcast<CypherQuery>(parsed_query.query) != nullptr;
-      bool const unique = unique_db_transaction || upper_case_query.find(kSchemaAssert) != std::string::npos;
+      bool const unique = unique_db_transaction || is_schema_assert_query;
       SetupDatabaseTransaction(could_commit, unique);
     }
 

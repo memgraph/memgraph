@@ -359,16 +359,19 @@ State HandlePullV5(TSession &session, const State state, const Marker marker) {
 
 template <typename TSession>
 State HandleDiscardV1(TSession &session, const State state, const Marker marker) {
+  spdlog::trace("Received DISCARD message");
   return details::HandlePullDiscardV1<false>(session, state, marker);
 }
 
 template <typename TSession>
 State HandleDiscardV4(TSession &session, const State state, const Marker marker) {
+  spdlog::trace("Received DISCARD message");
   return details::HandlePullDiscardV4<false>(session, state, marker);
 }
 
 template <typename TSession>
 State HandleDiscardV5(TSession &session, const State state, const Marker marker) {
+  spdlog::trace("Received DISCARD message");
   // Using V4 on purpose
   return HandleDiscardV4<TSession>(session, state, marker);
 }
@@ -384,6 +387,7 @@ State HandleReset(TSession &session, const Marker marker) {
   // so we cannot simply "kill" a transaction while it is running. So
   // now this command only resets the session to a clean state. It
   // does not IGNORE running and pending commands as it should.
+  spdlog::trace("Received RESET message");
   if (marker != Marker::TinyStruct) {
     spdlog::trace("Expected TinyStruct marker, but received 0x{:02X}!", utils::UnderlyingCast(marker));
     return State::Close;
@@ -403,6 +407,7 @@ State HandleReset(TSession &session, const Marker marker) {
 
 template <typename TSession>
 State HandleBegin(TSession &session, const State state, const Marker marker) {
+  spdlog::trace("Received BEGIN message");
   if (marker != Marker::TinyStruct1) {
     spdlog::trace("Expected TinyStruct1 marker, but received 0x{:02x}!", utils::UnderlyingCast(marker));
     return State::Close;
@@ -436,6 +441,7 @@ State HandleBegin(TSession &session, const State state, const Marker marker) {
 
 template <typename TSession>
 State HandleCommit(TSession &session, const State state, const Marker marker) {
+  spdlog::trace("Received COMMIT message");
   if (marker != Marker::TinyStruct) {
     spdlog::trace("Expected TinyStruct marker, but received 0x{:02x}!", utils::UnderlyingCast(marker));
     return State::Close;
