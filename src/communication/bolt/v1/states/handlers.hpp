@@ -403,6 +403,7 @@ State HandleReset(TSession &session, const Marker marker) {
 
 template <typename TSession>
 State HandleBegin(TSession &session, const State state, const Marker marker) {
+  spdlog::trace("Received BEGIN message");
   if (marker != Marker::TinyStruct1) {
     spdlog::trace("Expected TinyStruct1 marker, but received 0x{:02x}!", utils::UnderlyingCast(marker));
     return State::Close;
