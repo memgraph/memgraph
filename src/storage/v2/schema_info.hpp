@@ -12,6 +12,7 @@
 #pragma once
 
 #include <algorithm>
+#include <atomic>
 #include <boost/container_hash/hash_fwd.hpp>
 #include <cstdint>
 #include <functional>
@@ -59,7 +60,13 @@ utils::small_vector<LabelId> GetCommittedLabels(const Vertex &vertex);
  * @param commit_timestamp
  * @return utils::small_vector<LabelId>
  */
-utils::small_vector<LabelId> GetLabels(const Vertex &vertex, uint64_t commit_timestamp);
+utils::small_vector<LabelId> GetLabels(const Vertex &vertex, uint64_t commit_timestamp,
+                                       uint64_t start_ts = (1ULL << 63U));
+
+std::unordered_map<PropertyId, std::pair<ExtendedPropertyType, ExtendedPropertyType>> GetPropertyDiff(
+    Edge *edge, uint64_t commit_ts);
+
+std::map<PropertyId, ExtendedPropertyType> GetCommittedProperty(const Edge &edge);
 
 struct PropertyTypeHash {
   size_t operator()(const ExtendedPropertyType &type) const {
@@ -247,14 +254,8 @@ struct Tracking {
    */
   // void ProcessTransaction(Transaction &transaction, bool properties_on_edges);
 
-  void ProcessTransaction(const Tracking &diff) {
-    for (const auto &[vertex_key, info] : diff.vertex_state_) {
-      vertex_state_[vertex_key] += info;
-    }
-    for (const auto &[edge_key, info] : diff.edge_state_) {
-      edge_state_[edge_key] += info;
-    }
-  }
+  void ProcessTransaction(const Tracking &diff, std::unordered_set<PostProcessPOC> &post_process, uint64_t commit_ts,
+                          bool property_on_edges);
 
   /**
    * @brief Clear all schema statistics.
@@ -282,92 +283,17 @@ struct Tracking {
 
   void AddVertex(Vertex *vertex) { ++(*this)[vertex->labels].n; }
 
-  void DeleteVertex(Vertex *vertex) {
-    auto &info = (*this)[vertex->labels];
-    --info.n;
-    for (const auto &[key, val] : vertex->properties.ExtendedPropertyTypes()) {
-      auto &prop_info = info.properties[key];
-      --prop_info.n;
-      --prop_info.types[val];
-    }
-    // No edges should be present at this point
-  }
+  void DeleteVertex(Vertex *vertex);
 
   void UpdateLabels(Vertex *vertex, const utils::small_vector<LabelId> &old_labels,
-                    const utils::small_vector<LabelId> &new_labels, bool prop_on_edges) {
-    // Update vertex stats
-    auto &old_tracking = (*this)[old_labels];
-    auto &new_tracking = (*this)[new_labels];
-    --old_tracking.n;
-    ++new_tracking.n;
-    for (const auto &[property, type] : vertex->properties.ExtendedPropertyTypes()) {
-      auto &old_info = old_tracking.properties[property];
-      --old_info.n;
-      --old_info.types[type];
-      auto &new_info = new_tracking.properties[property];
-      ++new_info.n;
-      ++new_info.types[type];
-    }
-    // Update edge stats
-    auto update_edge = [&](EdgeTypeId edge_type, EdgeRef edge_ref, Vertex *from, Vertex *to,
-                           const utils::small_vector<LabelId> *old_from_labels,
-                           const utils::small_vector<LabelId> *old_to_labels) {
-      auto &old_tracking = (*this)[EdgeKeyRef(edge_type, old_from_labels ? *old_from_labels : from->labels,
-                                              old_to_labels ? *old_to_labels : to->labels)];
-      auto &new_tracking = (*this)[EdgeKeyRef(edge_type, from->labels, to->labels)];
-      --old_tracking.n;
-      ++new_tracking.n;
-      if (prop_on_edges) {
-        // No need for edge lock since all edge property operations are unique access
-        for (const auto &[property, type] : edge_ref.ptr->properties.ExtendedPropertyTypes()) {
-          auto &old_info = old_tracking.properties[property];
-          --old_info.n;
-          --old_info.types[type];
-          auto &new_info = new_tracking.properties[property];
-          ++new_info.n;
-          ++new_info.types[type];
-        }
-      }
-    };
+                    const utils::small_vector<LabelId> &new_labels, bool prop_on_edges);
 
-    for (const auto &[edge_type, other_vertex, edge_ref] : vertex->in_edges) {
-      update_edge(edge_type, edge_ref, other_vertex, vertex, {}, &old_labels);
-    }
-    for (const auto &[edge_type, other_vertex, edge_ref] : vertex->out_edges) {
-      update_edge(edge_type, edge_ref, vertex, other_vertex, &old_labels, {});
-    }
-  }
+  void CreateEdge(Vertex *from, Vertex *to, EdgeTypeId edge_type);
 
-  void CreateEdge(Vertex *from, Vertex *to, EdgeTypeId edge_type) {
-    auto &tracking_info = (*this)[EdgeKeyRef{edge_type, from->labels, to->labels}];
-    ++tracking_info.n;
-  }
-
-  void DeleteEdge(EdgeTypeId edge_type, EdgeRef edge, Vertex *from, Vertex *to, bool prop_on_edges) {
-    auto &tracking_info = (*this)[EdgeKeyRef{edge_type, from->labels, to->labels}];
-    --tracking_info.n;
-    if (prop_on_edges) {
-      for (const auto &[key, type] : edge.ptr->properties.ExtendedPropertyTypes()) {
-        auto &prop_info = tracking_info.properties[key];
-        --prop_info.n;
-        --prop_info.types[type];
-      }
-    }
-  }
+  void DeleteEdge(EdgeTypeId edge_type, EdgeRef edge, Vertex *from, Vertex *to, bool prop_on_edges);
 
   void SetProperty(auto &tracking_info, PropertyId property, const ExtendedPropertyType &now,
-                   const ExtendedPropertyType &before) {
-    if (now == before) return;  // Nothing to do
-    auto &info = tracking_info.properties[property];
-    if (before != ExtendedPropertyType{}) {
-      --info.n;
-      --info.types[before];
-    }
-    if (now != ExtendedPropertyType{}) {
-      ++info.n;
-      ++info.types[now];
-    }
-  }
+                   const ExtendedPropertyType &before);
 
   void SetProperty(Vertex *vertex, PropertyId property, const ExtendedPropertyType &now,
                    const ExtendedPropertyType &before) {
@@ -387,7 +313,9 @@ struct Tracking {
   const auto &edge_state() const { return edge_state_; }
 
   TrackingInfo &operator[](const VertexKey &key) { return vertex_state_[key]; }
+
   TrackingInfo &operator[](const EdgeKey &key) { return edge_state_[key]; }
+
   TrackingInfo &operator[](const EdgeKeyRef &key) {
     auto itr = edge_state_.find(key);
     if (itr == edge_state_.end()) {
@@ -397,6 +325,7 @@ struct Tracking {
     }
     return itr->second;
   }
+
   TrackingInfo &operator[](const EdgeKeyWrapper &key) {
     if (key.is_ref) {
       return (*this)[key.ref_.key];
@@ -414,167 +343,14 @@ struct Tracking {
   std::unordered_map<EdgeKey, TrackingInfo, EdgeKey::hash, EdgeKey::equal_to> edge_state_;     //!< edge statistics
 };
 
-/**
- * @brief Class used to track edge modification during the whole transaction.
- *
- * Edges can be changed via numerous deltas, attached to different objects.
- */
-class TransactionEdgeHandler {
- public:
-  explicit TransactionEdgeHandler(Tracking &tracking, uint64_t commit_timestamp, bool properties_on_edges)
-      : tracking_{tracking}, commit_timestamp_{commit_timestamp}, properties_on_edges_{properties_on_edges} {}
-
-  void RemoveEdge(const Delta *delta, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex);
-
-  void UpdateRemovedEdgeKey(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex);
-
-  void AddEdge(const Delta *delta, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex);
-
-  void PostVertexProcess();
-
-  void AppendToPostProcess(EdgeRef ref, EdgeTypeId type, Vertex *from, Vertex *to) {
-    post_process_edges_.emplace(ref, type, from, to);
-  }
-
- private:
-  std::map<PropertyId, ExtendedPropertyType> GetPrePropertyTypes(const EdgeRef &edge_ref, bool lock) const;
-
-  struct EdgeRefHash {
-    size_t operator()(const EdgeRef &ref) const {
-      // Both gid and ptr are the same size and unique; just pretend it's the gid
-      return ref.gid.AsUint();
-    }
-  };
-
-  struct EdgeTupleHash {
-    size_t operator()(const std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *> &et) const {
-      return std::get<0>(et).gid.AsUint();  // Ref should be enough (both gid and ptr are the same size and unique; just
-                                            // pretend it's the gid)
-    }
-  };
-
-  Tracking &tracking_;               //!< Overall tracked statistic
-  uint64_t commit_timestamp_{-1UL};  //!< Commit timestamp of the processing transaction
-  std::unordered_map<EdgeRef, EdgeKeyWrapper, EdgeRefHash> remove_edges_;  //!< Edges to be removed
-  std::unordered_set<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>, EdgeTupleHash>
-      post_process_edges_;           //!< Edges to be post-processed
-  bool properties_on_edges_{false};  //!< Set via storage configuration
-};
-
-/**
- * @brief Single vertex schema updater.
- */
-class VertexHandler {
- public:
-  explicit VertexHandler(Vertex &vertex, Tracking &tracking, uint64_t commit_timestamp)
-      : vertex_{vertex}, tracking_{tracking}, commit_timestamp_{commit_timestamp} {}
-
-  void Process(TransactionEdgeHandler &edge_handler);
-
- private:
-  void AddVertex() {
-    // Post process changes
-    label_update_ = true;
-    vertex_added_ = true;
-  }
-
-  void RemoveVertex() {
-    // Post process changes
-    // vertex already has delete flag
-    label_update_ = true;
-  }
-
-  void UpdateLabel() {
-    // Post process changes
-    label_update_ = true;
-  }
-
-  void UpdateProperty(PropertyId key, const PropertyValue &value);
-
-  // Labels as defined pre transaction
-  const auto &PreLabels() const;
-
-  // Current labels are the labels post transaction, multiple changes from different transactions to the same vertex
-  // would generate a serialization error
-  const auto &PostLabels() const { return vertex_.labels; }
-
-  // Difference to the vertex properties made during this transaction
-  auto GetPropertyDiff() const;
-
-  void PostProcess(TransactionEdgeHandler &edge_handler);
-
-  Vertex &vertex_;                   //!< The vertex being processed
-  Tracking &tracking_;               //!< Global tracking stats
-  uint64_t commit_timestamp_{-1UL};  //!< Commit timestamp of the current transcation
-
-  mutable std::optional<decltype(vertex_.labels)> pre_labels_;                       //!< Labels before the tx
-  mutable std::optional<std::map<PropertyId, PropertyValue::Type>> pre_properties_;  //!< Property types before the tx
-
-  bool label_update_{false};
-  bool vertex_added_{false};
-  bool update_property_{false};
-};
-
-/**
- * @brief Single edge schema updater.
- */
-class EdgeHandler {
- public:
-  explicit EdgeHandler(Edge &edge, Tracking &tracking, uint64_t commit_timestamp)
-      : edge_{edge}, commit_timestamp_{commit_timestamp}, tracking_{tracking} {}
-
-  void Process();
-
- private:
-  bool ExistedPreTx() const;
-
-  // Specialized action method for edges. Edge key can only be derived via a SET_PROPERTY delta.
-  auto PropertyType_ActionMethod(
-      const PropertyStore &properties,
-      std::unordered_map<PropertyId, std::pair<ExtendedPropertyType, ExtendedPropertyType>> &diff);
-
-  auto GetPropertyDiff(const PropertyStore &properties, Delta *delta);
-
-  Edge &edge_;                              //!< The edge being processed
-  uint64_t commit_timestamp_{-1UL};         //!< Commit timestamp of the current transaction
-  Tracking &tracking_;                      //!< Global tracking stats
-  std::optional<EdgeKeyWrapper> edge_key_;  //!< Derived edge key
-  bool needs_to_lock_{
-      true};  //!< Not used. Could be defined false for transactions where both vertices are also modified
-};
-
 struct SchemaInfo {
-  //
-  //
-  // Snapshot recovery
-  //
-  //
-  void RecoverVertex(Vertex *vertex) {
-    // No locking, since this should only be used to recover data
-    auto &info = tracking_[vertex->labels];
-    ++info.n;
-    for (const auto &[property, type] : vertex->properties.ExtendedPropertyTypes()) {
-      auto &prop_info = info.properties[property];
-      ++prop_info.n;
-      ++prop_info.types[type];
-    }
-  }
+  void RecoverVertex(Vertex *vertex);
 
-  void RecoverEdge(EdgeTypeId edge_type, EdgeRef edge, Vertex *from, Vertex *to, bool prop_on_edges) {
-    auto &tracking_info = tracking_[EdgeKeyRef{edge_type, from->labels, to->labels}];
-    ++tracking_info.n;
-    if (prop_on_edges) {
-      for (const auto &[key, val] : edge.ptr->properties.ExtendedPropertyTypes()) {
-        auto &prop_post_info = tracking_info.properties[key];
-        ++prop_post_info.n;
-        ++prop_post_info.types[val];
-      }
-    }
-  }
+  void RecoverEdge(EdgeTypeId edge_type, EdgeRef edge, Vertex *from, Vertex *to, bool prop_on_edges);
 
   //
   //
-  // WAL recovery
+  // Direct access
   //
   //
   void AddVertex(Vertex *vertex) { tracking_.AddVertex(vertex); }
@@ -637,15 +413,102 @@ struct SchemaInfo {
     Tracking Move() { return std::move(schema_info_->tracking_); }
     void Set(Tracking tracking) { schema_info_->tracking_ = std::move(tracking); }
 
-    // void ProcessTransaction(Transaction &transaction, bool properties_on_edges) {
-    //   schema_info_->tracking_.ProcessTransaction(transaction, properties_on_edges);
-    // }
-
-    void ProcessTransaction(Tracking &tracking) { schema_info_->tracking_.ProcessTransaction(tracking); }
+    void ProcessTransaction(Tracking &tracking, std::unordered_set<PostProcessPOC> &post_process, uint64_t commit_ts,
+                            bool property_on_edges) {
+      schema_info_->tracking_.ProcessTransaction(tracking, post_process, commit_ts, property_on_edges);
+    }
 
    private:
     SchemaInfo *schema_info_;
     std::unique_lock<utils::RWSpinLock> lock_;
+  };
+
+  class TransactionalEdgeModifyingAccessor {
+   public:
+    TransactionalEdgeModifyingAccessor(Tracking &tracking, std::unordered_set<PostProcessPOC> *post_process,
+                                       bool prop_on_edges, uint64_t commit_ts)
+        : tracking_{&tracking},
+          properties_on_edges_{prop_on_edges},
+          commit_ts_{commit_ts},
+          post_process_{post_process} {}
+
+    void AddLabel(Vertex *vertex, LabelId label);
+    void RemoveLabel(Vertex *vertex, LabelId label);
+
+    void SetProperty(EdgeRef edge, EdgeTypeId type, Vertex *from, Vertex *to, PropertyId property,
+                     ExtendedPropertyType now, ExtendedPropertyType before);
+
+   private:
+    bool EdgeCreatedDuringThisTx(EdgeRef edge) const {
+      bool created_this_tx = false;
+      auto *delta = edge.ptr->delta;
+      while (delta) {
+        const auto ts = delta->timestamp->load(std::memory_order_acquire);
+        if (ts != commit_ts_) break;
+        if (delta->action == Delta::Action::DELETE_OBJECT ||
+            delta->action == Delta::Action::DELETE_DESERIALIZED_OBJECT) {
+          created_this_tx = true;
+          break;
+        }
+        delta = delta->next.load(std::memory_order_acquire);
+      }
+      return created_this_tx;
+    }
+
+    bool BothModifiedDuringThisTx(Vertex *from, Vertex *to) const {
+      auto modified_during_this_tx = [commit_ts = commit_ts_](Vertex *v) {
+        return v->delta && v->delta->timestamp->load(std::memory_order::acquire) == commit_ts;
+      };
+      return modified_during_this_tx(from) && modified_during_this_tx(to);
+    }
+
+    template <bool InEdges>
+    void UpdateEdges(Vertex *vertex, const utils::small_vector<LabelId> &old_labels) {
+      // Update edge stats
+      // Need to loop though the IN/OUT edges and lock both vertices
+      // Locking is done in order of GID
+      // Optimization: one vertex will already be locked; first loop through all edges that can lock; then unlock the
+      // vertex and loop through the rest
+      for (const auto &edge : (InEdges ? vertex->in_edges : vertex->out_edges)) {
+        const auto [edge_type, other_vertex, edge_ref] = edge;
+
+        bool process_in_place = false;
+        if (properties_on_edges_)
+          process_in_place = EdgeCreatedDuringThisTx(edge_ref);
+        else
+          process_in_place = BothModifiedDuringThisTx(vertex, other_vertex);
+
+        if (process_in_place) {
+          auto old_tracking = (*tracking_)[EdgeKeyRef(edge_type, InEdges ? other_vertex->labels : old_labels,
+                                                      InEdges ? old_labels : other_vertex->labels)];
+          auto new_tracking = (*tracking_)[EdgeKeyRef(edge_type, InEdges ? other_vertex->labels : vertex->labels,
+                                                      InEdges ? vertex->labels : other_vertex->labels)];
+
+          --old_tracking.n;
+          ++new_tracking.n;
+
+          if (properties_on_edges_) {
+            // No need for edge lock since all edge property operations are unique access
+            for (const auto &[property, type] : edge_ref.ptr->properties.ExtendedPropertyTypes()) {
+              auto &old_info = old_tracking.properties[property];
+              --old_info.n;
+              --old_info.types[type];
+              auto &new_info = new_tracking.properties[property];
+              ++new_info.n;
+              ++new_info.types[type];
+            }
+          }
+        } else {  // Post process
+          post_process_->emplace(edge_ref, edge_type, InEdges ? other_vertex : vertex, InEdges ? vertex : other_vertex);
+        }
+      }
+    }
+
+    Tracking *tracking_{};
+    std::unique_lock<std::shared_mutex> ordering_lock_;  //!< Order guaranteeing lock
+    bool properties_on_edges_{};                         //!< As defined by the storage configuration
+    uint64_t commit_ts_{};
+    std::unordered_set<PostProcessPOC> *post_process_{};
   };
 
   //
@@ -660,102 +523,20 @@ struct SchemaInfo {
    *
    * Use unique accessor when edge modification is needed; shared otherwise.
    */
-  class UniqueAccessor {
+  class AnalyticalEdgeModifyingAccessor {
    public:
-    explicit UniqueAccessor(SchemaInfo &si, StorageMode mode, bool prop_on_edges)
+    AnalyticalEdgeModifyingAccessor(SchemaInfo &si, bool prop_on_edges)
         : tracking_{&si.tracking_},
           tracking_mtx_{&si.mtx_},
-          ordering_lock_{si.operation_ordering_mutex_, std::defer_lock},
-          properties_on_edges_{prop_on_edges} {
-      if (mode == StorageMode::IN_MEMORY_ANALYTICAL) ordering_lock_.lock();
-    }
+          ordering_lock_{si.operation_ordering_mutex_},
+          properties_on_edges_{prop_on_edges} {}
 
-    explicit UniqueAccessor(Tracking &tracking, bool prop_on_edges)
-        : tracking_{&tracking}, properties_on_edges_{prop_on_edges} {}
+    void AddLabel(Vertex *vertex, LabelId label, std::unique_lock<utils::RWSpinLock> vertex_guard);
 
-    // Vertex
-    // Calling this after change has been applied
-    // Special case for when the vertex has edges
-    void AddLabel(Vertex *vertex, LabelId label, std::unique_lock<utils::RWSpinLock> vertex_guard) {
-      DMG_ASSERT(vertex->lock.is_locked(), "Trying to read from an unlocked vertex; LINE {}", __LINE__);
-      auto old_labels = vertex->labels;
-      auto itr = std::find(old_labels.begin(), old_labels.end(), label);
-      DMG_ASSERT(itr != old_labels.end(), "Trying to recreate labels pre commit, but label not found!");
-      *itr = old_labels.back();
-      old_labels.pop_back();
-      // Update vertex stats
-      {
-        auto lock = std::invoke([&]() -> std::optional<std::unique_lock<utils::RWSpinLock>> {
-          if (tracking_mtx_) return std::unique_lock{*tracking_mtx_};
-          return {};
-        });
-        SchemaInfo::UpdateLabel(*tracking_, vertex, old_labels, vertex->labels);
-      }
-      // Update edge stats
-      UpdateEdges<true, true>(vertex, old_labels);
-      UpdateEdges<false, true>(vertex, old_labels);
-      // Unlock vertex and loop through the ones we couldn't lock
-      vertex_guard.unlock();
-      UpdateEdges<true, false>(vertex, old_labels);
-      UpdateEdges<false, false>(vertex, old_labels);
-    }
+    void RemoveLabel(Vertex *vertex, LabelId label, std::unique_lock<utils::RWSpinLock> vertex_guard);
 
-    // Calling this after change has been applied
-    // Special case for when the vertex has edges
-    void RemoveLabel(Vertex *vertex, LabelId label, std::unique_lock<utils::RWSpinLock> vertex_guard) {
-      DMG_ASSERT(vertex->lock.is_locked(), "Trying to read from an unlocked vertex; LINE {}", __LINE__);
-      // Move all stats and edges to new label
-      auto old_labels = vertex->labels;
-      old_labels.push_back(label);
-      // Update vertex stats
-      {
-        auto lock = std::invoke([&]() -> std::optional<std::unique_lock<utils::RWSpinLock>> {
-          if (tracking_mtx_) return std::unique_lock{*tracking_mtx_};
-          return {};
-        });
-        SchemaInfo::UpdateLabel(*tracking_, vertex, old_labels, vertex->labels);
-      }
-      // Update edge stats
-      UpdateEdges<true, true>(vertex, old_labels);
-      UpdateEdges<false, true>(vertex, old_labels);
-      // Unlock vertex and loop through the ones we couldn't lock
-      vertex_guard.unlock();
-      UpdateEdges<true, false>(vertex, old_labels);
-      UpdateEdges<false, false>(vertex, old_labels);
-    }
-
-    // TODO Analytical locks for ordering, transactional does not lock so needs to read deltas
-    // Edge SET_PROPERTY delta
     void SetProperty(EdgeTypeId type, Vertex *from, Vertex *to, PropertyId property, ExtendedPropertyType now,
-                     ExtendedPropertyType before) {
-      DMG_ASSERT(properties_on_edges_, "Trying to modify property on edge when explicitly disabled.");
-      if (now == before) return;  // Nothing to do
-      auto from_lock = std::unique_lock{from->lock, std::defer_lock};
-      auto to_lock = std::unique_lock{to->lock, std::defer_lock};
-
-      if (from->gid == to->gid) {
-        from_lock.lock();
-      } else if (from->gid < to->gid) {
-        from_lock.lock();
-        to_lock.lock();
-      } else {
-        to_lock.lock();
-        from_lock.lock();
-      }
-
-      auto lock = std::invoke([&]() -> std::optional<std::unique_lock<utils::RWSpinLock>> {
-        if (tracking_mtx_) return std::unique_lock{*tracking_mtx_};
-        return {};
-      });
-      auto &tracking_info = (*tracking_)[EdgeKeyRef{type, from->labels, to->labels}];
-
-      from_lock.unlock();
-      if (to_lock.owns_lock()) to_lock.unlock();
-
-      tracking_->SetProperty(tracking_info, property, now, before);
-    }
-
-    void MarkEdgeAsDeleted(Edge *edge) {}  // Nothing to do (handled via vertex)
+                     ExtendedPropertyType before);
 
    private:
     template <bool InEdges, bool VertexLocked>
@@ -825,16 +606,18 @@ struct SchemaInfo {
     bool properties_on_edges_{};                         //!< As defined by the storage configuration
   };
 
+  using EdgeModifyingAccessor = std::variant<TransactionalEdgeModifyingAccessor, AnalyticalEdgeModifyingAccessor>;
+
   /**
    * @brief We need to force ordering for analytical. This is because an edge is defined via 3 independent objects
-   * (from/to vertex and edge object). We need to process each edge or vertex label change in order. Otherwise there is
-   * no way to keep track of how the schema is being modified.
+   * (from/to vertex and edge object). We need to process each edge or vertex label change in order. Otherwise there
+   * is no way to keep track of how the schema is being modified.
    *
-   * Use unique accessor when edge modification is needed; shared otherwise.
+   * Use unique accessor when edge modification is needed; shared otherwise. (when not all objects are locked)
    */
-  class SharedAccessor {
+  class VertexModifyingAccessor {
    public:
-    explicit SharedAccessor(SchemaInfo &si, StorageMode mode, bool prop_on_edges)
+    explicit VertexModifyingAccessor(SchemaInfo &si, StorageMode mode, bool prop_on_edges)
         : tracking_{&si.tracking_},
           tracking_mtx_{&si.mtx_},
           ordering_lock_{si.operation_ordering_mutex_, std::defer_lock},
@@ -842,7 +625,7 @@ struct SchemaInfo {
       if (mode == StorageMode::IN_MEMORY_ANALYTICAL) ordering_lock_.lock();
     }
 
-    explicit SharedAccessor(Tracking &tracking, bool prop_on_edges)
+    explicit VertexModifyingAccessor(Tracking &tracking, bool prop_on_edges)
         : tracking_{&tracking}, properties_on_edges_{prop_on_edges} {}
 
     // Vertex
@@ -937,28 +720,30 @@ struct SchemaInfo {
   ReadAccessor CreateReadAccessor() { return ReadAccessor{*this}; }
   WriteAccessor CreateWriteAccessor() { return WriteAccessor{*this}; }
 
-  SharedAccessor CreateAccessor(StorageMode mode, bool prop_on_edges) {
-    return SharedAccessor{*this, mode, prop_on_edges};
+  VertexModifyingAccessor CreateVertexModifyingAccessor(StorageMode mode, bool prop_on_edges) {
+    return VertexModifyingAccessor{*this, mode, prop_on_edges};
   }
-  UniqueAccessor CreateUniqueAccessor(StorageMode mode, bool prop_on_edges) {
-    return UniqueAccessor{*this, mode, prop_on_edges};
+  EdgeModifyingAccessor CreateEdgeModifyingAccessor(bool prop_on_edges) {
+    return AnalyticalEdgeModifyingAccessor{*this, prop_on_edges};
   }
 
-  static SharedAccessor CreateAccessor(Tracking &tracking, bool prop_on_edges) {
-    return SharedAccessor{tracking, prop_on_edges};
+  static VertexModifyingAccessor CreateVertexModifyingAccessor(Tracking &tracking, bool prop_on_edges) {
+    return VertexModifyingAccessor{tracking, prop_on_edges};
   }
-  static UniqueAccessor CreateUniqueAccessor(Tracking &tracking, bool prop_on_edges) {
-    return UniqueAccessor{tracking, prop_on_edges};
+  static EdgeModifyingAccessor CreateEdgeModifyingAccessor(Tracking &tracking,
+                                                           std::unordered_set<PostProcessPOC> *post_process,
+                                                           bool prop_on_edges, uint64_t commit_ts) {
+    return TransactionalEdgeModifyingAccessor{tracking, post_process, prop_on_edges, commit_ts};
   }
 
  private:
   friend ReadAccessor;
   friend WriteAccessor;
-  friend SharedAccessor;
-  friend UniqueAccessor;
+  friend VertexModifyingAccessor;
+  friend EdgeModifyingAccessor;
 
-  static void UpdateLabel(Tracking &tracking, Vertex *vertex, const utils::small_vector<LabelId> old_labels,
-                          const utils::small_vector<LabelId> new_labels) {
+  static void UpdateLabel(Tracking &tracking, Vertex *vertex, const utils::small_vector<LabelId> &old_labels,
+                          const utils::small_vector<LabelId> &new_labels) {
     // Move all stats and edges to new labels
     auto &old_tracking = tracking[old_labels];
     auto &new_tracking = tracking[new_labels];

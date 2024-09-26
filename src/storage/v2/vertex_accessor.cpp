@@ -53,22 +53,23 @@ void HandleTypeConstraintViolation(Storage const *storage, ConstraintViolation c
                               storage->PropertyToName(*violation.properties.begin()));
 }
 
-std::optional<SchemaInfo::SharedAccessor> SchemaInfoAccessor(Storage *storage, Transaction *transaction) {
+std::optional<SchemaInfo::VertexModifyingAccessor> SchemaInfoAccessor(Storage *storage, Transaction *transaction) {
   if (!storage->config_.salient.items.enable_schema_info) return std::nullopt;
   const auto prop_on_edges = storage->config_.salient.items.properties_on_edges;
   if (storage->GetStorageMode() == StorageMode::IN_MEMORY_TRANSACTIONAL) {
-    return SchemaInfo::CreateAccessor(transaction->schema_diff_, prop_on_edges);
+    return SchemaInfo::CreateVertexModifyingAccessor(transaction->schema_diff_, prop_on_edges);
   }
-  return storage->schema_info_.CreateAccessor(StorageMode::IN_MEMORY_ANALYTICAL, prop_on_edges);
+  return storage->schema_info_.CreateVertexModifyingAccessor(StorageMode::IN_MEMORY_ANALYTICAL, prop_on_edges);
 }
 
-std::optional<SchemaInfo::UniqueAccessor> SchemaInfoUniqueAccessor(Storage *storage, Transaction *transaction) {
+std::optional<SchemaInfo::EdgeModifyingAccessor> SchemaInfoUniqueAccessor(Storage *storage, Transaction *transaction) {
   if (!storage->config_.salient.items.enable_schema_info) return std::nullopt;
   const auto prop_on_edges = storage->config_.salient.items.properties_on_edges;
   if (storage->GetStorageMode() == StorageMode::IN_MEMORY_TRANSACTIONAL) {
-    return SchemaInfo::CreateUniqueAccessor(transaction->schema_diff_, prop_on_edges);
+    return SchemaInfo::CreateEdgeModifyingAccessor(transaction->schema_diff_, &transaction->post_process_,
+                                                   prop_on_edges, transaction->transaction_id);
   }
-  return storage->schema_info_.CreateUniqueAccessor(StorageMode::IN_MEMORY_ANALYTICAL, prop_on_edges);
+  return storage->schema_info_.CreateEdgeModifyingAccessor(prop_on_edges);
 }
 }  // namespace
 
@@ -146,7 +147,9 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
   // 2. lock vertex and check
   // 3. if unique lock is needed unlock both the vertex and accessor
   // 4. take unique access and re-lock vertex
-  std::optional<std::variant<SchemaInfo::SharedAccessor, SchemaInfo::UniqueAccessor>> schema_acc;
+  std::optional<std::variant<SchemaInfo::VertexModifyingAccessor, SchemaInfo::AnalyticalEdgeModifyingAccessor,
+                             SchemaInfo::TransactionalEdgeModifyingAccessor>>
+      schema_acc;
   if (auto schema_shared_acc = SchemaInfoAccessor(storage_, transaction_); schema_shared_acc) {
     schema_acc = std::move(*schema_shared_acc);
   }
@@ -160,7 +163,8 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
     if (!vertex_->in_edges.empty() || !vertex_->out_edges.empty()) {
       guard.unlock();
       schema_acc.reset();
-      schema_acc = *SchemaInfoUniqueAccessor(storage_, transaction_);
+      std::visit(utils::Overloaded{[&schema_acc](auto in) { schema_acc = std::move(in); }},
+                 *SchemaInfoUniqueAccessor(storage_, transaction_));
       guard.lock();
       // Need to re-check for serialization errors
       if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
@@ -210,8 +214,10 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
   // updated)
   if (schema_acc) {
     std::visit(
-        utils::Overloaded([&](SchemaInfo::SharedAccessor &acc) { acc.AddLabel(vertex_, label); },
-                          [&](SchemaInfo::UniqueAccessor &acc) { acc.AddLabel(vertex_, label, std::move(guard)); }),
+        utils::Overloaded(
+            [&](SchemaInfo::VertexModifyingAccessor &acc) { acc.AddLabel(vertex_, label); },
+            [&](SchemaInfo::AnalyticalEdgeModifyingAccessor &acc) { acc.AddLabel(vertex_, label, std::move(guard)); },
+            [&](SchemaInfo::TransactionalEdgeModifyingAccessor &acc) { acc.AddLabel(vertex_, label); }),
         *schema_acc);
   }
   return true;
@@ -227,7 +233,9 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
   // 2. lock vertex and check
   // 3. if unique lock is needed unlock both the vertex and accessor
   // 4. take unique access and re-lock vertex
-  std::optional<std::variant<SchemaInfo::SharedAccessor, SchemaInfo::UniqueAccessor>> schema_acc;
+  std::optional<std::variant<SchemaInfo::VertexModifyingAccessor, SchemaInfo::AnalyticalEdgeModifyingAccessor,
+                             SchemaInfo::TransactionalEdgeModifyingAccessor>>
+      schema_acc;
   if (auto schema_shared_acc = SchemaInfoAccessor(storage_, transaction_); schema_shared_acc) {
     schema_acc = std::move(*schema_shared_acc);
   }
@@ -241,7 +249,8 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
     if (!vertex_->in_edges.empty() || !vertex_->out_edges.empty()) {
       guard.unlock();
       schema_acc.reset();
-      schema_acc = *SchemaInfoUniqueAccessor(storage_, transaction_);
+      std::visit(utils::Overloaded{[&schema_acc](auto in) { schema_acc = std::move(in); }},
+                 *SchemaInfoUniqueAccessor(storage_, transaction_));
       guard.lock();
       // Need to re-check for serialization errors
       if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
@@ -266,10 +275,13 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
   // NOTE Has to be called at the end because it needs to be able to release the vertex lock (in case edges need to be
   // updated)
   if (schema_acc) {
-    std::visit(
-        utils::Overloaded([&](SchemaInfo::SharedAccessor &acc) { acc.RemoveLabel(vertex_, label); },
-                          [&](SchemaInfo::UniqueAccessor &acc) { acc.RemoveLabel(vertex_, label, std::move(guard)); }),
-        *schema_acc);
+    std::visit(utils::Overloaded(
+                   [&](SchemaInfo::VertexModifyingAccessor &acc) { acc.RemoveLabel(vertex_, label); },
+                   [&](SchemaInfo::AnalyticalEdgeModifyingAccessor &acc) {
+                     acc.RemoveLabel(vertex_, label, std::move(guard));
+                   },
+                   [&](SchemaInfo::TransactionalEdgeModifyingAccessor &acc) { acc.RemoveLabel(vertex_, label); }),
+               *schema_acc);
   }
   return true;
 }

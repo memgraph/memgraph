@@ -25,25 +25,27 @@
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/atomic_memory_block.hpp"
 #include "utils/memory_tracker.hpp"
+#include "utils/variant_helpers.hpp"
 
 namespace memgraph::storage {
 namespace {
-std::optional<SchemaInfo::SharedAccessor> SchemaInfoAccessor(Storage *storage, Transaction *transaction) {
+std::optional<SchemaInfo::VertexModifyingAccessor> SchemaInfoAccessor(Storage *storage, Transaction *transaction) {
   if (!storage->config_.salient.items.enable_schema_info) return std::nullopt;
   const auto prop_on_edges = storage->config_.salient.items.properties_on_edges;
   if (storage->GetStorageMode() == StorageMode::IN_MEMORY_TRANSACTIONAL) {
-    return SchemaInfo::CreateAccessor(transaction->schema_diff_, prop_on_edges);
+    return SchemaInfo::CreateVertexModifyingAccessor(transaction->schema_diff_, prop_on_edges);
   }
-  return storage->schema_info_.CreateAccessor(StorageMode::IN_MEMORY_ANALYTICAL, prop_on_edges);
+  return storage->schema_info_.CreateVertexModifyingAccessor(StorageMode::IN_MEMORY_ANALYTICAL, prop_on_edges);
 }
 
-std::optional<SchemaInfo::UniqueAccessor> SchemaInfoUniqueAccessor(Storage *storage, Transaction *transaction) {
+std::optional<SchemaInfo::EdgeModifyingAccessor> SchemaInfoUniqueAccessor(Storage *storage, Transaction *transaction) {
   if (!storage->config_.salient.items.enable_schema_info) return std::nullopt;
   const auto prop_on_edges = storage->config_.salient.items.properties_on_edges;
   if (storage->GetStorageMode() == StorageMode::IN_MEMORY_TRANSACTIONAL) {
-    return SchemaInfo::CreateUniqueAccessor(transaction->schema_diff_, prop_on_edges);
+    return SchemaInfo::CreateEdgeModifyingAccessor(transaction->schema_diff_, &transaction->post_process_,
+                                                   prop_on_edges, transaction->transaction_id);
   }
-  return storage->schema_info_.CreateUniqueAccessor(StorageMode::IN_MEMORY_ANALYTICAL, prop_on_edges);
+  return storage->schema_info_.CreateEdgeModifyingAccessor(prop_on_edges);
 }
 }  // namespace
 
@@ -237,9 +239,17 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
     edge.ptr->properties.SetProperty(property, value);
     storage_->indices_.UpdateOnSetProperty(edge_type_, property, value, from_vertex_, to_vertex_, edge_.ptr,
                                            *transaction_);
-    if (schema_acc)
-      schema_acc->SetProperty(edge_type_, from_vertex_, to_vertex_, property, ExtendedPropertyType{value},
-                              ExtendedPropertyType{*current_value});
+    if (schema_acc) {
+      std::visit(utils::Overloaded{[&](SchemaInfo::TransactionalEdgeModifyingAccessor &acc) {
+                                     acc.SetProperty(edge, edge_type_, from_vertex_, to_vertex_, property,
+                                                     ExtendedPropertyType{value}, ExtendedPropertyType{*current_value});
+                                   },
+                                   [&](SchemaInfo::AnalyticalEdgeModifyingAccessor &acc) {
+                                     acc.SetProperty(edge_type_, from_vertex_, to_vertex_, property,
+                                                     ExtendedPropertyType{value}, ExtendedPropertyType{*current_value});
+                                   }},
+                 *schema_acc);
+    }
   });
 
   if (transaction_->IsDiskStorage()) {
@@ -268,9 +278,17 @@ Result<bool> EdgeAccessor::InitProperties(const std::map<storage::PropertyId, st
       CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), from_vertex_, property, PropertyValue());
       storage_->indices_.UpdateOnSetProperty(edge_type_, property, value, from_vertex_, to_vertex_, edge_.ptr,
                                              *transaction_);
-      if (schema_acc)
-        schema_acc->SetProperty(edge_type_, from_vertex_, to_vertex_, property, ExtendedPropertyType{value},
-                                ExtendedPropertyType{});
+      if (schema_acc) {
+        std::visit(utils::Overloaded{[&](SchemaInfo::TransactionalEdgeModifyingAccessor &acc) {
+                                       acc.SetProperty(edge_, edge_type_, from_vertex_, to_vertex_, property,
+                                                       ExtendedPropertyType{value}, ExtendedPropertyType{});
+                                     },
+                                     [&](SchemaInfo::AnalyticalEdgeModifyingAccessor &acc) {
+                                       acc.SetProperty(edge_type_, from_vertex_, to_vertex_, property,
+                                                       ExtendedPropertyType{value}, ExtendedPropertyType{});
+                                     }},
+                   *schema_acc);
+      }
     }
     // TODO If the current implementation is too slow there is an InitProperties option
   });
@@ -301,9 +319,18 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAc
       CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), from_vertex_, property, old_value);
       storage_->indices_.UpdateOnSetProperty(edge_type_, property, new_value, from_vertex_, to_vertex_, edge_.ptr,
                                              *transaction_);
-      if (schema_acc)
-        schema_acc->SetProperty(edge_type_, from_vertex_, to_vertex_, property, ExtendedPropertyType{new_value},
-                                ExtendedPropertyType{old_value});
+      if (schema_acc) {
+        std::visit(
+            utils::Overloaded{[&](SchemaInfo::TransactionalEdgeModifyingAccessor &acc) {
+                                acc.SetProperty(edge_, edge_type_, from_vertex_, to_vertex_, property,
+                                                ExtendedPropertyType{new_value}, ExtendedPropertyType{old_value});
+                              },
+                              [&](SchemaInfo::AnalyticalEdgeModifyingAccessor &acc) {
+                                acc.SetProperty(edge_type_, from_vertex_, to_vertex_, property,
+                                                ExtendedPropertyType{new_value}, ExtendedPropertyType{old_value});
+                              }},
+            *schema_acc);
+      }
     }
     // TODO If the current implementation is too slow there is an UpdateProperties option
   });
@@ -331,9 +358,18 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
                          property.second);
       storage_->indices_.UpdateOnSetProperty(edge_type_, property.first, PropertyValue(), from_vertex_, to_vertex_,
                                              edge_.ptr, *transaction_);
-      if (schema_acc)
-        schema_acc->SetProperty(edge_type_, from_vertex_, to_vertex_, property.first, ExtendedPropertyType{},
-                                ExtendedPropertyType{property.second.type()});
+      if (schema_acc) {
+        std::visit(
+            utils::Overloaded{[&](SchemaInfo::TransactionalEdgeModifyingAccessor &acc) {
+                                acc.SetProperty(edge_, edge_type_, from_vertex_, to_vertex_, property.first,
+                                                ExtendedPropertyType{}, ExtendedPropertyType{property.second.type()});
+                              },
+                              [&](SchemaInfo::AnalyticalEdgeModifyingAccessor &acc) {
+                                acc.SetProperty(edge_type_, from_vertex_, to_vertex_, property.first,
+                                                ExtendedPropertyType{}, ExtendedPropertyType{property.second.type()});
+                              }},
+            *schema_acc);
+      }
     }
     // TODO If the current implementation is too slow there is an ClearProperties option
 

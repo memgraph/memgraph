@@ -32,22 +32,23 @@
 
 namespace memgraph::storage {
 namespace {
-std::optional<SchemaInfo::SharedAccessor> SchemaInfoAccessor(Storage *storage, Transaction *transaction) {
+std::optional<SchemaInfo::VertexModifyingAccessor> SchemaInfoAccessor(Storage *storage, Transaction *transaction) {
   if (!storage->config_.salient.items.enable_schema_info) return std::nullopt;
   const auto prop_on_edges = storage->config_.salient.items.properties_on_edges;
   if (storage->GetStorageMode() == StorageMode::IN_MEMORY_TRANSACTIONAL) {
-    return SchemaInfo::CreateAccessor(transaction->schema_diff_, prop_on_edges);
+    return SchemaInfo::CreateVertexModifyingAccessor(transaction->schema_diff_, prop_on_edges);
   }
-  return storage->schema_info_.CreateAccessor(StorageMode::IN_MEMORY_ANALYTICAL, prop_on_edges);
+  return storage->schema_info_.CreateVertexModifyingAccessor(StorageMode::IN_MEMORY_ANALYTICAL, prop_on_edges);
 }
 
-std::optional<SchemaInfo::UniqueAccessor> SchemaInfoUniqueAccessor(Storage *storage, Transaction *transaction) {
+std::optional<SchemaInfo::EdgeModifyingAccessor> SchemaInfoUniqueAccessor(Storage *storage, Transaction *transaction) {
   if (!storage->config_.salient.items.enable_schema_info) return std::nullopt;
   const auto prop_on_edges = storage->config_.salient.items.properties_on_edges;
   if (storage->GetStorageMode() == StorageMode::IN_MEMORY_TRANSACTIONAL) {
-    return SchemaInfo::CreateUniqueAccessor(transaction->schema_diff_, prop_on_edges);
+    return SchemaInfo::CreateEdgeModifyingAccessor(transaction->schema_diff_, &transaction->post_process_,
+                                                   prop_on_edges, transaction->transaction_id);
   }
-  return storage->schema_info_.CreateUniqueAccessor(StorageMode::IN_MEMORY_ANALYTICAL, prop_on_edges);
+  return storage->schema_info_.CreateEdgeModifyingAccessor(prop_on_edges);
 }
 }  // namespace
 

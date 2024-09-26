@@ -145,6 +145,7 @@ struct Transaction {
   PointIndexChangeCollector point_index_change_collector_;
   /// Tracking schema changes done during the transaction
   Tracking schema_diff_;
+  std::unordered_set<PostProcessPOC> post_process_;
 };
 
 inline bool operator==(const Transaction &first, const Transaction &second) {

@@ -12,6 +12,8 @@
 #pragma once
 
 #include <alloca.h>
+#include <boost/container_hash/hash_fwd.hpp>
+#include <functional>
 #include <iterator>
 #include <limits>
 #include <tuple>
@@ -57,4 +59,30 @@ inline bool operator<(const Vertex &first, const Vertex &second) { return first.
 inline bool operator==(const Vertex &first, const Gid &second) { return first.gid == second; }
 inline bool operator<(const Vertex &first, const Gid &second) { return first.gid < second; }
 
+struct PostProcessPOC {
+  EdgeRef edge_ref;
+  EdgeTypeId edge_type;
+  Vertex *from;
+  Vertex *to;
+};
+
 }  // namespace memgraph::storage
+
+namespace std {
+template <>
+class hash<memgraph::storage::PostProcessPOC> {
+ public:
+  size_t operator()(const memgraph::storage::PostProcessPOC &pp) const {
+    return pp.edge_ref.gid.AsUint();  // Both ptr and gid are the same size and unique
+  }
+};
+
+template <>
+class equal_to<memgraph::storage::PostProcessPOC> {
+ public:
+  bool operator()(const memgraph::storage::PostProcessPOC &lhs, const memgraph::storage::PostProcessPOC &rhs) const {
+    // Edge ref is a pointer or gid, both are unique and should completely define the edge
+    return lhs.edge_ref == rhs.edge_ref;
+  }
+};
+}  // namespace std

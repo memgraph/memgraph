@@ -33,6 +33,7 @@
 #include "storage/v2/inmemory/unique_constraints.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/schema_info.hpp"
+#include "storage/v2/transaction.hpp"
 #include "utils/atomic_memory_block.hpp"
 #include "utils/event_gauge.hpp"
 #include "utils/exceptions.hpp"
@@ -49,22 +50,23 @@ extern const Event PeakMemoryRes;
 namespace memgraph::storage {
 
 namespace {
-std::optional<SchemaInfo::SharedAccessor> SchemaInfoAccessor(Storage *storage, Transaction *transaction) {
+std::optional<SchemaInfo::VertexModifyingAccessor> SchemaInfoAccessor(Storage *storage, Transaction *transaction) {
   if (!storage->config_.salient.items.enable_schema_info) return std::nullopt;
   const auto prop_on_edges = storage->config_.salient.items.properties_on_edges;
   if (storage->GetStorageMode() == StorageMode::IN_MEMORY_TRANSACTIONAL) {
-    return SchemaInfo::CreateAccessor(transaction->schema_diff_, prop_on_edges);
+    return SchemaInfo::CreateVertexModifyingAccessor(transaction->schema_diff_, prop_on_edges);
   }
-  return storage->schema_info_.CreateAccessor(StorageMode::IN_MEMORY_ANALYTICAL, prop_on_edges);
+  return storage->schema_info_.CreateVertexModifyingAccessor(StorageMode::IN_MEMORY_ANALYTICAL, prop_on_edges);
 }
 
-std::optional<SchemaInfo::UniqueAccessor> SchemaInfoUniqueAccessor(Storage *storage, Transaction *transaction) {
+std::optional<SchemaInfo::EdgeModifyingAccessor> SchemaInfoUniqueAccessor(Storage *storage, Transaction *transaction) {
   if (!storage->config_.salient.items.enable_schema_info) return std::nullopt;
   const auto prop_on_edges = storage->config_.salient.items.properties_on_edges;
   if (storage->GetStorageMode() == StorageMode::IN_MEMORY_TRANSACTIONAL) {
-    return SchemaInfo::CreateUniqueAccessor(transaction->schema_diff_, prop_on_edges);
+    return SchemaInfo::CreateEdgeModifyingAccessor(transaction->schema_diff_, &transaction->post_process_,
+                                                   prop_on_edges, transaction->transaction_id);
   }
-  return storage->schema_info_.CreateUniqueAccessor(StorageMode::IN_MEMORY_ANALYTICAL, prop_on_edges);
+  return storage->schema_info_.CreateEdgeModifyingAccessor(prop_on_edges);
 }
 
 constexpr auto ActionToStorageOperation(MetadataDelta::Action action) -> durability::StorageMetadataOperation {
@@ -1042,13 +1044,18 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
               mem_storage->AppendToWal(transaction_, durability_commit_timestamp, std::move(db_acc));
 
           if (config_.enable_schema_info) {
-            if (transaction_.deltas.size() < 16) {  // TODO Fine tune
+            if (transaction_.schema_diff_.NumberOfEdges() + transaction_.schema_diff_.NumberOfVertices() <
+                16U) {  // TODO Fine tune
               // Small transaction => process in place
-              mem_storage->SchemaInfoWriteAccessor().ProcessTransaction(transaction_.schema_diff_);
+              mem_storage->SchemaInfoWriteAccessor().ProcessTransaction(
+                  transaction_.schema_diff_, transaction_.post_process_, transaction_.transaction_id,
+                  mem_storage->config_.salient.items.properties_on_edges);
             } else {
               // Large transaction => make a local copy of the schema, process and move back
               auto stats = mem_storage->SchemaInfoReadAccessor().Get();
-              stats.ProcessTransaction(transaction_.schema_diff_);
+              stats.ProcessTransaction(transaction_.schema_diff_, transaction_.post_process_,
+                                       transaction_.transaction_id,
+                                       mem_storage->config_.salient.items.properties_on_edges);
               mem_storage->SchemaInfoWriteAccessor().Set(std::move(stats));
             }
           }
