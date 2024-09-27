@@ -60,6 +60,8 @@ struct PointIndexStorage {
 
   uint64_t ApproximatePointCount(LabelId labelId, PropertyId propertyId);
 
+  bool PointIndexExists(LabelId labelId, PropertyId propertyId);
+
  private:
   std::shared_ptr<index_container_t> indexes_ = std::make_shared<index_container_t>();
 };

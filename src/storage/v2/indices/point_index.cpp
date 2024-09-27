@@ -233,6 +233,10 @@ uint64_t PointIndexStorage::ApproximatePointCount(LabelId labelId, PropertyId pr
   return it->second->EntryCount();
 }
 
+bool PointIndexStorage::PointIndexExists(LabelId labelId, PropertyId propertyId) {
+  return indexes_->contains(LabelPropKey{labelId, propertyId});
+}
+
 auto PointIndex::CreateNewPointIndex(LabelPropKey labelPropKey,
                                      absl::flat_hash_set<Vertex const *> const &changed_vertices) const -> PointIndex {
   DMG_ASSERT(!changed_vertices.empty(), "Expect at least one change");
