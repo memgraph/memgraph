@@ -125,7 +125,7 @@ def cleanup_after_test():
     # Run the test
     yield
     # Clean after running
-    interactive_mg_runner.stop_all(keep_directories=False)
+    interactive_mg_runner.kill_all(keep_directories=False)
 
 
 def test_disable_cypher_queries(test_name):
@@ -172,31 +172,27 @@ def test_coordinator_cannot_call_show_replicas(test_name):
     assert str(e.value) == "Coordinator can run only coordinator queries!"
 
 
-@pytest.mark.parametrize(
-    "port",
-    [7687, 7688, 7689],
-)
-def test_main_and_replicas_cannot_call_show_repl_cluster(port, test_name):
+def test_main_and_replicas_cannot_call_show_repl_cluster(test_name):
     setup_test(test_name=test_name)
-    cursor = connect(host="localhost", port=port).cursor()
-    with pytest.raises(Exception) as e:
-        execute_and_fetch_all(cursor, "SHOW INSTANCES;")
-    assert str(e.value) == "Only coordinator can run SHOW INSTANCES."
+    ports = [7687, 7688, 7689]
+    for port in ports:
+        cursor = connect(host="localhost", port=port).cursor()
+        with pytest.raises(Exception) as e:
+            execute_and_fetch_all(cursor, "SHOW INSTANCES;")
+        assert str(e.value) == "Only coordinator can run SHOW INSTANCES."
 
 
-@pytest.mark.parametrize(
-    "port",
-    [7687, 7688, 7689],
-)
-def test_main_and_replicas_cannot_register_coord_server(port, test_name):
+def test_main_and_replicas_cannot_register_coord_server(test_name):
     setup_test(test_name=test_name)
-    cursor = connect(host="localhost", port=port).cursor()
-    with pytest.raises(Exception) as e:
-        execute_and_fetch_all(
-            cursor,
-            "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7690', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
-        )
-    assert str(e.value) == "Only coordinator can register coordinator server!"
+    ports = [7687, 7688, 7689]
+    for port in ports:
+        cursor = connect(host="localhost", port=port).cursor()
+        with pytest.raises(Exception) as e:
+            execute_and_fetch_all(
+                cursor,
+                "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7690', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
+            )
+        assert str(e.value) == "Only coordinator can register coordinator server!"
 
 
 if __name__ == "__main__":
