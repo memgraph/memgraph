@@ -98,6 +98,7 @@ def run(args):
                 # NOTE: If the setup quries create users AND there are some
                 # validation queries, the connection here has to get the right
                 # username/password.
+                print(f"Executing validation queries for {name}")
                 conn = mg_instance.get_connection()
                 for validation in validation_queries:
                     data = mg_instance.query(validation["query"], conn)[0][0]
@@ -115,10 +116,10 @@ if __name__ == "__main__":
     if not args.save_data_dir:
         try:
             shutil.rmtree(os.path.join(BUILD_DIR, "e2e", "data"))
-        except:
+        except Exception:
             pass
     if args.clean_logs_dir:
         try:
             shutil.rmtree(os.path.join(BUILD_DIR, "e2e", "logs"))
-        except:
+        except Exception:
             pass
