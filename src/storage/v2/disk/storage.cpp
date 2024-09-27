@@ -2221,6 +2221,11 @@ bool DiskStorage::DiskAccessor::EdgeTypePropertyIndexExists(EdgeTypeId /*edge_ty
   return false;
 }
 
+bool DiskStorage::DiskAccessor::PointIndexExists(LabelId label, PropertyId property) const {
+  spdlog::info("Point index related operations are not yet supported using on-disk storage mode.");
+  return false;
+}
+
 IndicesInfo DiskStorage::DiskAccessor::ListAllIndices() const {
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_label_index = static_cast<DiskLabelIndex *>(on_disk->indices_.label_index_.get());
