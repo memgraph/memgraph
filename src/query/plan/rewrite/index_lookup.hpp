@@ -734,6 +734,13 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     std::optional<storage::LabelPropertyIndexStats> index_stats;
   };
 
+  struct PointLabelPropertyIndex {
+    LabelIx label;
+    // FilterInfo with PropertyFilter.
+    FilterInfo filter;
+    int64_t vertex_count;
+  };
+
   bool DefaultPreVisit() override { throw utils::NotYetImplemented("optimizing index lookup"); }
 
   void SetOnParent(const std::shared_ptr<LogicalOperator> &input) {
@@ -805,7 +812,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     std::unordered_map<std::pair<LabelIx, PropertyIx>, FilterInfo, HashPair> candidate_index_lookup_{};
   };
 
-  CandidateIndices GetCandidateIndices(const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols) {
+  CandidateIndices GetCandidatePointIndices(const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols) {
     auto are_bound = [&bound_symbols](const auto &used_symbols) {
       for (const auto &used_symbol : used_symbols) {
         if (!utils::Contains(bound_symbols, used_symbol)) {
@@ -829,13 +836,49 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         }
 
         const auto &property = filter.point_filter->property_;
-        if (!db_->LabelPropertyIndexExists(GetLabel(label), GetProperty(property))) {
+        if (!db_->PointIndexExists(GetLabel(label), GetProperty(property))) {
           continue;
         }
         candidate_indices.emplace_back(
             IndexHint{.index_type_ = IndexHint::IndexType::POINT, .label_ = label, .property_ = property}, filter);
         candidate_index_lookup.insert({std::make_pair(label, property), filter});
       }
+    }
+
+    return CandidateIndices{.candidate_indices_ = candidate_indices, .candidate_index_lookup_ = candidate_index_lookup};
+  }
+
+  std::optional<PointLabelPropertyIndex> FindBestPointLabelPropertyIndex(
+      const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols) {
+    auto [_, candidate_index_lookup] = GetCandidatePointIndices(symbol, bound_symbols);
+
+    // TODO: ATM point_index_hints_ is not populated????
+
+    // Look for an exact match
+    for (const auto &[index_type, label, maybe_property] : index_hints_.point_index_hints_) {
+      auto property = *maybe_property;
+      auto filter_it = candidate_index_lookup.find(std::make_pair(label, property));
+      if (filter_it != candidate_index_lookup.cend()) {
+        return PointLabelPropertyIndex{
+            .label = label, .filter = filter_it->second, .vertex_count = std::numeric_limits<std::int64_t>::max()};
+      }
+    }
+    return std::nullopt;
+  }
+
+  CandidateIndices GetCandidateIndices(const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols) {
+    auto are_bound = [&bound_symbols](const auto &used_symbols) {
+      for (const auto &used_symbol : used_symbols) {
+        if (!utils::Contains(bound_symbols, used_symbol)) {
+          return false;
+        }
+      }
+      return true;
+    };
+
+    std::vector<std::pair<IndexHint, FilterInfo>> candidate_indices{};
+    std::unordered_map<std::pair<LabelIx, PropertyIx>, FilterInfo, HashPair> candidate_index_lookup{};
+    for (const auto &label : filters_.FilteredLabels(symbol)) {
       for (const auto &filter : filters_.PropertyFilters(symbol)) {
         if (filter.property_filter->is_symbol_in_value_ || !are_bound(filter.used_symbols)) {
           // Skip filter expressions which use the symbol whose property we are
@@ -857,85 +900,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
 
     return CandidateIndices{.candidate_indices_ = candidate_indices, .candidate_index_lookup_ = candidate_index_lookup};
-  }
-
-  std::optional<PointLabelPropertyIndex> FindBestPointLabelPropertyIndex(
-      const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols) {
-    /*
-     * Comparator function between two indices. If new index has >= 10x vertices than the existing, it cannot be
-     * better. If it is <= 10x in number of vertices, check average group size of property values. The index with
-     * smaller average group size is better. If the average group size is the same, choose the one closer to the
-     * uniform distribution
-     * @param found: Current best label-property index.
-     * @param new_stats: Label-property index candidate.
-     * @param vertex_count: New index's number of vertices.
-     * @return -1 if the new index is better, 0 if they are equal and 1 if the existing one is better.
-     */
-    auto compare_indices = [](std::optional<LabelPropertyIndex> &found,
-                              std::optional<storage::LabelPropertyIndexStats> &new_stats, int vertex_count) {
-      if (!new_stats.has_value()) {
-        return 0;
-      }
-
-      if (vertex_count / 10.0 > found->vertex_count) {
-        return 1;
-      }
-      int cmp_avg_group = utils::CompareDecimal(new_stats->avg_group_size, found->index_stats->avg_group_size);
-      if (cmp_avg_group != 0) return cmp_avg_group;
-      return utils::CompareDecimal(new_stats->statistic, found->index_stats->statistic);
-    };
-
-    auto [candidate_indices, candidate_index_lookup] = GetCandidateIndices(symbol, bound_symbols);
-
-    for (const auto &[index_type, label, maybe_property] : index_hints_.label_property_index_hints_) {
-      auto property = *maybe_property;
-      if (candidate_index_lookup.contains(std::make_pair(label, property))) {
-        return LabelPropertyIndex{.label = label,
-                                  .filter = candidate_index_lookup.at(std::make_pair(label, property)),
-                                  .vertex_count = std::numeric_limits<std::int64_t>::max()};
-      }
-    }
-
-    std::optional<LabelPropertyIndex> found;
-    // for (const auto &[label_and_property, filter] : candidate_indices) {
-    //   const auto &[label, property] = label_and_property;
-    for (const auto &[candidate, filter] : candidate_indices) {
-      const auto &[_, label, maybe_property] = candidate;
-      auto property = *maybe_property;
-
-      auto is_better_type = [&found](PropertyFilter::Type type) {
-        // Order the types by the most preferred index lookup type.
-        static const PropertyFilter::Type kFilterTypeOrder[] = {
-            PropertyFilter::Type::EQUAL, PropertyFilter::Type::RANGE, PropertyFilter::Type::REGEX_MATCH};
-        auto *found_sort_ix = std::find(kFilterTypeOrder, kFilterTypeOrder + 3, found->filter.property_filter->type_);
-        auto *type_sort_ix = std::find(kFilterTypeOrder, kFilterTypeOrder + 3, type);
-        return type_sort_ix < found_sort_ix;
-      };
-
-      // Conditions, from more to less important:
-      // the index with 10x less vertices is better.
-      // the index with smaller average group size is better.
-      // the index with equal avg group size and distribution closer to the uniform is better.
-      // the index with less vertices is better.
-      // the index with same number of vertices but more optimized filter is better.
-
-      int64_t vertex_count = db_->VerticesCount(GetLabel(label), GetProperty(property));
-      std::optional<storage::LabelPropertyIndexStats> new_stats =
-          db_->GetIndexStats(GetLabel(label), GetProperty(property));
-
-      if (!found || vertex_count * 10 < found->vertex_count) {
-        found = LabelPropertyIndex{label, filter, vertex_count, new_stats};
-        continue;
-      }
-
-      if (int cmp_res = compare_indices(found, new_stats, vertex_count);
-          cmp_res == -1 ||
-          cmp_res == 0 && (found->vertex_count > vertex_count ||
-                           found->vertex_count == vertex_count && is_better_type(filter.property_filter->type_))) {
-        found = LabelPropertyIndex{label, filter, vertex_count, new_stats};
-      }
-    }
-    return found;
   }
 
   // Finds the label-property combination. The first criteria based on number of vertices indexed -> if one index has
@@ -1064,8 +1028,13 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       // Without labels, we cannot generate any indexed ScanAll.
       return nullptr;
     }
-    auto found_index = FindBestPointLabelPropertyIndex(node_symbol, bound_symbols);
 
+    // Point index prefered over regular label+property index
+    {
+      auto found_index = FindBestPointLabelPropertyIndex(node_symbol, bound_symbols);
+
+      // SOMETHING HERE .... what about max_vertex_count?
+    }
     auto found_index = FindBestLabelPropertyIndex(node_symbol, bound_symbols);
     if (found_index &&
         // Use label+property index if we satisfy max_vertex_count.

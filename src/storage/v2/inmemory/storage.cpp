@@ -2930,6 +2930,10 @@ void InMemoryStorage::Clear() {
   repl_storage_state_.history.clear();
 }
 
+bool InMemoryStorage::InMemoryAccessor::PointIndexExists(LabelId label, PropertyId property) const {
+  return storage_->indices_.point_index_.PointIndexExists(label, property);
+}
+
 IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory->indices_.label_index_.get());
