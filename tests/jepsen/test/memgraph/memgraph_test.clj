@@ -22,7 +22,6 @@
   (testing "Hamming5"
     (is (= (hacreate/hamming-sim (range 1 11) (range 2 16)) 0)))
 
-
   (testing "Jaccard1"
     (is (= (hacreate/jaccard-sim [1 2 3] [1 2 3]) 1)))
 
@@ -35,14 +34,13 @@
   (testing "Jaccard4"
     (is (= (hacreate/jaccard-sim (range 1 11) (range 1 16)) 2/3)))
 
-
   (testing "sequence->intervals1"
     (let [my-seq [1 2 3 4 5 8 9 10]]
       (is (= (hacreate/sequence->intervals my-seq) [[1 5] [8 10]]))))
 
   (testing "sequence->intervals2"
-    (let [my-seq [1 2 3 4 5 8 9 9 10 12]]
-      (is (= (hacreate/sequence->intervals my-seq) [[1 5] [8 9] [9 10] [12 12]]))))
+    (let [my-seq [1 2 3 4 5 8 9 10 12]]
+      (is (= (hacreate/sequence->intervals my-seq) [[1 5] [8 10] [12 12]]))))
 
   (testing "sequence->intervals3"
     (let [my-seq (apply vector (concat (range 1 5001) (range 10001 15001)))]
@@ -56,6 +54,10 @@
     (let [my-seq []]
       (is (= (hacreate/sequence->intervals my-seq) []))))
 
+  (testing "sequence->intervals6"
+    (let [my-seq [1 2 3 4 5 6 7 8 9 10]]
+      (is (= (hacreate/sequence->intervals my-seq) [[1 10]]))))
+
   (testing "duplicates1"
     (let [my-seq [1 1 2 2 3 3]]
 
@@ -64,7 +66,96 @@
   (testing "duplicates2"
     (let [my-seq '(1 2 2 3 3 4 4 4 10 12 100 100 76541 76541)]
 
-      (is (= (hacreate/duplicates my-seq) [2 3 4 100 76541])))))
+      (is (= (hacreate/duplicates my-seq) [2 3 4 100 76541]))))
+
+  (testing "duplicated_intervals1"
+    (let [my-seq '(1 2 2 3 3 4 4 4 10 12 100 100 76541 76541)]
+
+      (is (= (hacreate/sequence->intervals (hacreate/duplicates my-seq)) [[2 4] [100 100] [76541 76541]]))))
+
+  (testing "duplicated_intervals2"
+    (let [my-seq '(1 2 3 4 5 6 7 8 9 10)]
+
+      (is (= (hacreate/sequence->intervals (hacreate/duplicates my-seq)) []))))
+
+  (testing "mono-increasing-seq-empty"
+    (let [my-seq []]
+
+      (is (= (hacreate/seq->monotonically-incr-seq my-seq) []))))
+
+  (testing "mono-increasing-seq1"
+    (let [my-seq [1 2 3]]
+
+      (is (= (hacreate/seq->monotonically-incr-seq my-seq) [1 2 3]))))
+
+  (testing "mono-increasing-seq2"
+    (let [my-seq [1 2 1]]
+
+      (is (= (hacreate/seq->monotonically-incr-seq my-seq) [1 2]))))
+
+  (testing "mono-increasing-seq3"
+    (let [my-seq [1 2 2]]
+
+      (is (= (hacreate/seq->monotonically-incr-seq my-seq) [1 2]))))
+
+  (testing "mono-increasing-seq4"
+    (let [my-seq [1 2 4 4 2 2 7 9 10]]
+
+      (is (= (hacreate/seq->monotonically-incr-seq my-seq) [1 2 4 7 9 10]))))
+
+  (testing "is-mono-increasing-seq?1"
+    (let [my-seq []]
+
+      (is (= (hacreate/is-mono-increasing-seq? my-seq) true))))
+
+  (testing "is-mono-increasing-seq?2"
+    (let [my-seq [1]]
+
+      (is (= (hacreate/is-mono-increasing-seq? my-seq) true))))
+
+  (testing "is-mono-increasing-seq?3"
+    (let [my-seq [1 5 5]]
+
+      (is (= (hacreate/is-mono-increasing-seq? my-seq) false))))
+
+  (testing "is-mono-increasing-seq?4"
+    (let [my-seq [1 5 6 7 9 11]]
+
+      (is (= (hacreate/is-mono-increasing-seq? my-seq) true))))
+
+  (testing "is-mono-increasing-seq?4"
+    (let [my-seq [1 5 5 7 8 9 9 10 10]]
+
+      (is (= (hacreate/is-mono-increasing-seq? my-seq) false))))
+
+  (testing "missing-intervals1"
+    (let [my-seq []]
+
+      (is (= (hacreate/missing-intervals my-seq) []))))
+
+  (testing "missing-intervals2"
+    (let [my-seq [1 2 3 4 5]]
+
+      (is (= (hacreate/missing-intervals my-seq) []))))
+
+  (testing "missing-intervals3"
+    (let [my-seq [1 2 3 5 6]]
+
+      (is (= (hacreate/missing-intervals my-seq) [[4 4]]))))
+
+  (testing "missing-intervals4"
+    (let [my-seq [1 2 3 9 10 11 15 16 17 20 21 22]]
+
+      (is (= (hacreate/missing-intervals my-seq) [[4 8] [12 14] [18 19]]))))
+
+  (testing "missing-intervals5"
+    (let [my-seq (apply vector (concat (range 5001 10001) (range 50001 55001) (range 110001 115001)))]
+
+      (is (= (hacreate/missing-intervals my-seq) [[10001 50000] [55001 110000]]))))
+
+
+
+  )
 
 (deftest get-instance-url
   (testing "Get instance URL."

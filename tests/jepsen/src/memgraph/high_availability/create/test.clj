@@ -57,12 +57,60 @@
          (apply sorted-set)
          (apply vector))))
 
+(defn seq->monotonically-incr-seq
+  "Converts a vector into a monotonically increasing sequence."
+  [coll]
+  (assert (vector? coll), "Input must be a vector.")
+  (if (empty? coll)
+    []
+    (reduce (fn [res elem]
+              (if (or (empty? res) (> elem (peek res)))
+                (conj res elem)
+                res))
+
+            [] coll)))
+
+(defn is-mono-increasing-seq?
+  "Checks if the vector coll is a monotonically increasing sequence. Stops recursion as soon as 1st element not satisfying result is found.
+  Duplicates aren't allowed, here we use a notion of strictly monotonically increasing sequence.
+  "
+  [coll]
+  (loop [prev-elem (first coll)
+         remaining (rest coll)]
+    (cond
+      (empty? remaining) true
+      (<= (first remaining) prev-elem) false
+      :else (recur (first remaining) (rest remaining)))))
+
+(defn missing-intervals
+  "Finds missing numbers from monotonically increasing vector and reports them as intervals."
+  [coll]
+  (assert (vector? coll) "Input must be a vector.")
+  (assert (is-mono-increasing-seq? coll) "The input must be monotonically increasing sequence.")
+  (if (empty? coll)
+    []
+    (let [coll-size (count coll) ; O(1)
+          head-coll (subvec coll 0 (dec coll-size)) ; O(1), no new structure is being created.
+          shifted-coll (rest coll) ; returns a sequence. O(1), leverages laziness.
+          indices (range 0 (dec coll-size)) ; lazy sequence of numbers
+          split-indices-with-nil (map (fn [index orig shifted]
+                                        (when (not= (inc orig) shifted)
+                                          index)) indices head-coll shifted-coll) ; also lazy sequence. O(1) at this point.
+          start-intervals (filter some? split-indices-with-nil) ; O(1) at this point.
+          end-intervals (map inc start-intervals) ; could start materializing
+          coll-intervals (map (fn [start end] [(inc (nth coll start)) (dec (nth coll end))]) start-intervals end-intervals)]
+
+      coll-intervals)))
+
 (defn sequence->intervals
-  "Compresses a sorted sequence represented as a vector into intervals. Each interval is represented by a vector where the 1st element represents
+  "Compresses a vector into intervals. Each interval is represented by a vector where the 1st element represents
   starting idx and the 2nd element represent last index from the interval. Interval is included from both sides. In total runs in O(n).
+  One interval represents a range of monotonically increasing ids. The input collection must not contain duplicates and we assert this by checking
+  that the input collection is strictly monotonically increasing sequence.
   "
   [coll]
   (assert (vector? coll) "Input must be a vector.")
+  (assert (is-mono-increasing-seq? coll) "The input must be monotonically increasing sequence.")
   (if (empty? coll)
     []
     (let [coll-size (count coll) ; O(1)
@@ -316,6 +364,12 @@
                         first
                         (:indices))
 
+            n1-mono-increasing-ids (seq->monotonically-incr-seq n1-ids)
+
+            n1-missing-intervals (missing-intervals n1-mono-increasing-ids)
+
+            n1-max-idx (apply max n1-ids)
+
             n1-duplicates (duplicates n1-ids)
 
             n1-duplicates-intervals (sequence->intervals n1-duplicates)
@@ -329,6 +383,12 @@
                         first
                         (:indices))
 
+            n2-mono-increasing-ids (seq->monotonically-incr-seq n2-ids)
+
+            n2-missing-intervals (missing-intervals n2-mono-increasing-ids)
+
+            n2-max-idx (apply max n2-ids)
+
             n2-duplicates (duplicates n2-ids)
 
             n2-duplicates-intervals (sequence->intervals n2-duplicates)
@@ -341,6 +401,12 @@
                         (filter #(= "n3" (:node %)))
                         first
                         (:indices))
+
+            n3-mono-increasing-ids (seq->monotonically-incr-seq n3-ids)
+
+            n3-missing-intervals (missing-intervals n3-mono-increasing-ids)
+
+            n3-max-idx (apply max n3-ids)
 
             n3-duplicates (duplicates n3-ids)
 
@@ -392,21 +458,33 @@
                                      (empty? n1-duplicates)
                                      (empty? n2-duplicates)
                                      (empty? n3-duplicates)
+                                     (empty? n1-missing-intervals)
+                                     (empty? n2-missing-intervals)
+                                     (empty? n3-missing-intervals)
                                      (= n1-jaccard-consistency 1)
                                      (= n2-jaccard-consistency 1)
-                                     (= n3-jaccard-consistency 1))
+                                     (= n3-jaccard-consistency 1)
+                                     (= n1-max-idx expected-ids-number)
+                                     (= n2-max-idx expected-ids-number)
+                                     (= n3-max-idx expected-ids-number))
                             :empty-partial-coordinators? (empty? partial-coordinators) ; coordinators which have missing coordinators in their reads
                             :empty-more-than-one-main-nodes? (empty? more-than-one-main) ; nodes on which more-than-one-main was detected
                             :correct-coordinators? (= coordinators #{"n4" "n5" "n6"})
                             :empty-n1-duplicates? (empty? n1-duplicates)
                             :n1-hamming-consistency (float n1-hamming-consistency)
                             :n1-jaccard-consistency (float n1-jaccard-consistency)
+                            :n1-max-idx n1-max-idx
+                            :empty-n1-missing-intervals? (empty? n1-missing-intervals)
                             :empty-n2-duplicates? (empty? n2-duplicates)
                             :n2-hamming-consistency (float n2-hamming-consistency)
                             :n2-jaccard-consistency (float n2-jaccard-consistency)
+                            :n2-max-idx n2-max-idx
+                            :empty-n2-missing-intervals? (empty? n2-missing-intervals)
                             :empty-n3-duplicates? (empty? n3-duplicates)
                             :n3-hamming-consistency (float n3-hamming-consistency)
                             :n3-jaccard-consistency (float n3-jaccard-consistency)
+                            :n3-max-idx n3-max-idx
+                            :empty-n3-missing-intervals? (empty? n3-missing-intervals)
                             :total-indices expected-ids-number
                             :empty-failed-setup-cluster? (empty? failed-setup-cluster) ; There shouldn't be any failed setup cluster operations.
                             :empty-failed-show-instances? (empty? failed-show-instances) ; There shouldn't be any failed show instances operations.
@@ -415,8 +493,11 @@
             updates [{:key :coordinators :condition (not (:correct-coordinators? initial-result)) :value coordinators}
                      {:key :partial-instances :condition (not (:empty-partial-instances? initial-result)) :value partial-instances}
                      {:key :n1-duplicates-intervals :condition (false? (:empty-n1-duplicates? initial-result)) :value n1-duplicates-intervals}
+                     {:key :n1-missing-intervals :condition (false? (:empty-n1-missing-intervals? initial-result)) :value n1-missing-intervals}
                      {:key :n2-duplicates-intervals :condition (false? (:empty-n2-duplicates? initial-result)) :value n2-duplicates-intervals}
+                     {:key :n2-missing-intervals :condition (false? (:empty-n2-missing-intervals? initial-result)) :value n2-missing-intervals}
                      {:key :n3-duplicates-intervals :condition (false? (:empty-n3-duplicates? initial-result)) :value n3-duplicates-intervals}
+                     {:key :n3-missing-intervals :condition (false? (:empty-n3-missing-intervals? initial-result)) :value n3-missing-intervals}
                      {:key :failed-setup-cluster :condition (not (:empty-failed-setup-cluster? initial-result)) :value failed-setup-cluster}
                      {:key :failed-show-instances :condition (not (:empty-failed-show-instances? initial-result)) :value failed-show-instances}]]
 
