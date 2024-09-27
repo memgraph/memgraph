@@ -93,11 +93,11 @@ workloads:
     binary: "tests/e2e/replication/memgraph__e2e__replication__constraints"
     args: []
     <<: *template_cluster
-
-  - name: "Index replication"
-    binary: "tests/e2e/replication/memgraph__e2e__replication__indices"
-    args: []
-    <<: *template_cluster_indexing
+      # Skip flaky https://github.com/memgraph/memgraph/issues/2356
+      #   - name: "Index replication"
+      #     binary: "tests/e2e/replication/memgraph__e2e__replication__indices"
+      #     args: []
+      #     <<: *template_cluster_indexing
 
   - name: "Read-write benchmark"
     binary: "tests/e2e/replication/memgraph__e2e__replication__read_write_benchmark"
