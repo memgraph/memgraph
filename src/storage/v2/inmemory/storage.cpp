@@ -10,10 +10,14 @@
 // licenses/APL.txt.
 
 #include "storage/v2/inmemory/storage.hpp"
+
 #include <algorithm>
 #include <filesystem>
 #include <functional>
+#include <mutex>
 #include <optional>
+#include <ranges>
+
 #include "dbms/constants.hpp"
 #include "flags/experimental.hpp"
 #include "flags/general.hpp"
@@ -26,6 +30,7 @@
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
 #include "storage/v2/metadata_delta.hpp"
+#include "storage/v2/schema_info_glue.hpp"
 
 /// REPLICATION ///
 #include "dbms/inmemory/replication_handlers.hpp"
@@ -39,36 +44,14 @@
 #include "utils/exceptions.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/stat.hpp"
-
-#include <mutex>
-#include <ranges>
+#include "utils/variant_helpers.hpp"
 
 namespace memgraph::metrics {
 extern const Event PeakMemoryRes;
 }  // namespace memgraph::metrics
 
 namespace memgraph::storage {
-
 namespace {
-std::optional<SchemaInfo::VertexModifyingAccessor> SchemaInfoAccessor(Storage *storage, Transaction *transaction) {
-  if (!storage->config_.salient.items.enable_schema_info) return std::nullopt;
-  const auto prop_on_edges = storage->config_.salient.items.properties_on_edges;
-  if (storage->GetStorageMode() == StorageMode::IN_MEMORY_TRANSACTIONAL) {
-    return SchemaInfo::CreateVertexModifyingAccessor(transaction->schema_diff_, prop_on_edges);
-  }
-  return storage->schema_info_.CreateVertexModifyingAccessor(StorageMode::IN_MEMORY_ANALYTICAL, prop_on_edges);
-}
-
-std::optional<SchemaInfo::EdgeModifyingAccessor> SchemaInfoUniqueAccessor(Storage *storage, Transaction *transaction) {
-  if (!storage->config_.salient.items.enable_schema_info) return std::nullopt;
-  const auto prop_on_edges = storage->config_.salient.items.properties_on_edges;
-  if (storage->GetStorageMode() == StorageMode::IN_MEMORY_TRANSACTIONAL) {
-    return SchemaInfo::CreateEdgeModifyingAccessor(transaction->schema_diff_, &transaction->post_process_,
-                                                   prop_on_edges, transaction->transaction_id);
-  }
-  return storage->schema_info_.CreateEdgeModifyingAccessor(prop_on_edges);
-}
-
 constexpr auto ActionToStorageOperation(MetadataDelta::Action action) -> durability::StorageMetadataOperation {
   // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define add_case(E)              \
@@ -170,9 +153,14 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
               config_.durability.storage_directory);
   }
   if (config_.durability.recover_on_startup) {
+    std::optional<storage::SchemaInfo::WriteAccessor> schema_wa;
+    if (config_.salient.items.enable_schema_info) {
+      schema_wa = schema_info_.CreateWriteAccessor();
+    }
     auto info = recovery_.RecoverData(&uuid_, repl_storage_state_, &vertices_, &edges_, &edges_metadata_, &edge_count_,
                                       name_id_mapper_.get(), &indices_, &constraints_, config_, &wal_seq_num_,
-                                      &enum_store_, &schema_info_, [this](Gid edge_gid) { return FindEdge(edge_gid); });
+                                      &enum_store_, schema_wa ? &schema_wa->Get() : nullptr,
+                                      [this](Gid edge_gid) { return FindEdge(edge_gid); });
     if (info) {
       vertex_id_ = info->next_vertex_id;
       edge_id_ = info->next_edge_id;
@@ -292,7 +280,12 @@ VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertex() {
   if (delta) {
     delta->prev.Set(&*it);
   }
-  if (schema_acc) schema_acc->CreateVertex(&*it);
+  if (schema_acc) {
+    std::visit(utils::Overloaded{[&]<template <class...> class TContainer>(
+                                     SchemaInfo::VertexModifyingAccessor<TContainer> &acc) { acc.CreateVertex(&*it); },
+                                 [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+               *schema_acc);
+  }
   return {&*it, storage_, &transaction_};
 }
 
@@ -316,7 +309,12 @@ VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertexEx(storage::Gid gi
   if (delta) {
     delta->prev.Set(&*it);
   }
-  if (schema_acc) schema_acc->CreateVertex(&*it);
+  if (schema_acc) {
+    std::visit(utils::Overloaded{[&]<template <class...> class TContainer>(
+                                     SchemaInfo::VertexModifyingAccessor<TContainer> &acc) { acc.CreateVertex(&*it); },
+                                 [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+               *schema_acc);
+  }
   return {&*it, storage_, &transaction_};
 }
 
@@ -451,25 +449,32 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
       MG_ASSERT(inserted, "The edge must be inserted here!");
     }
   }
-  utils::AtomicMemoryBlock(
-      [this, edge, from_vertex = from_vertex, edge_type = edge_type, to_vertex = to_vertex, &schema_acc]() {
-        CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge);
-        from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
+  utils::AtomicMemoryBlock([this, edge, from_vertex = from_vertex, edge_type = edge_type, to_vertex = to_vertex,
+                            &schema_acc]() {
+    CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge);
+    from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
 
-        CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge);
-        to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
+    CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge);
+    to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
 
-        transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
-        transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
+    transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
+    transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
 
-        // Update indices if they exist.
-        storage_->indices_.UpdateOnEdgeCreation(from_vertex, to_vertex, edge, edge_type, transaction_);
+    // Update indices if they exist.
+    storage_->indices_.UpdateOnEdgeCreation(from_vertex, to_vertex, edge, edge_type, transaction_);
 
-        // Increment edge count.
-        storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
+    // Increment edge count.
+    storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
 
-        if (schema_acc) schema_acc->CreateEdge(from_vertex, to_vertex, edge_type);
-      });
+    if (schema_acc) {
+      std::visit(utils::Overloaded{
+                     [&]<template <class...> class TContainer>(SchemaInfo::VertexModifyingAccessor<TContainer> &acc) {
+                       acc.CreateEdge(from_vertex, to_vertex, edge_type);
+                     },
+                     [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+                 *schema_acc);
+    }
+  });
 
   return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, storage_, &transaction_);
 }
@@ -561,22 +566,29 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
       MG_ASSERT(inserted, "The edge must be inserted here!");
     }
   }
-  utils::AtomicMemoryBlock(
-      [this, edge, from_vertex = from_vertex, edge_type = edge_type, to_vertex = to_vertex, &schema_acc]() {
-        CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge);
-        from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
+  utils::AtomicMemoryBlock([this, edge, from_vertex = from_vertex, edge_type = edge_type, to_vertex = to_vertex,
+                            &schema_acc]() {
+    CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge);
+    from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
 
-        CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge);
-        to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
+    CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge);
+    to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
 
-        transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
-        transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
+    transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
+    transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
 
-        // Increment edge count.
-        storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
+    // Increment edge count.
+    storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
 
-        if (schema_acc) schema_acc->CreateEdge(from_vertex, to_vertex, edge_type);
-      });
+    if (schema_acc) {
+      std::visit(utils::Overloaded{
+                     [&]<template <class...> class TContainer>(SchemaInfo::VertexModifyingAccessor<TContainer> &acc) {
+                       acc.CreateEdge(from_vertex, to_vertex, edge_type);
+                     },
+                     [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+                 *schema_acc);
+    }
+  });
 
   return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, storage_, &transaction_);
 }
@@ -680,13 +692,27 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetFrom(EdgeAccessor
   utils::AtomicMemoryBlock([this, edge_ref, old_from_vertex, new_from_vertex, edge_type, to_vertex, &schema_acc]() {
     CreateAndLinkDelta(&transaction_, old_from_vertex, Delta::AddOutEdgeTag(), edge_type, to_vertex, edge_ref);
     CreateAndLinkDelta(&transaction_, to_vertex, Delta::AddInEdgeTag(), edge_type, old_from_vertex, edge_ref);
-    if (schema_acc) schema_acc->DeleteEdge(old_from_vertex, to_vertex, edge_type, edge_ref);
+    if (schema_acc) {
+      std::visit(utils::Overloaded{
+                     [&]<template <class...> class TContainer>(SchemaInfo::VertexModifyingAccessor<TContainer> &acc) {
+                       acc.DeleteEdge(old_from_vertex, to_vertex, edge_type, edge_ref);
+                     },
+                     [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+                 *schema_acc);
+    }
 
     CreateAndLinkDelta(&transaction_, new_from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge_ref);
     new_from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge_ref);
     CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, new_from_vertex, edge_ref);
     to_vertex->in_edges.emplace_back(edge_type, new_from_vertex, edge_ref);
-    if (schema_acc) schema_acc->CreateEdge(new_from_vertex, to_vertex, edge_type);
+    if (schema_acc) {
+      std::visit(utils::Overloaded{
+                     [&]<template <class...> class TContainer>(SchemaInfo::VertexModifyingAccessor<TContainer> &acc) {
+                       acc.CreateEdge(new_from_vertex, to_vertex, edge_type);
+                     },
+                     [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+                 *schema_acc);
+    }
 
     auto *in_memory = static_cast<InMemoryStorage *>(storage_);
     auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
@@ -803,13 +829,27 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetTo(EdgeAccessor *
   utils::AtomicMemoryBlock([this, edge_ref, old_to_vertex, from_vertex, edge_type, new_to_vertex, &schema_acc]() {
     CreateAndLinkDelta(&transaction_, from_vertex, Delta::AddOutEdgeTag(), edge_type, old_to_vertex, edge_ref);
     CreateAndLinkDelta(&transaction_, old_to_vertex, Delta::AddInEdgeTag(), edge_type, from_vertex, edge_ref);
-    if (schema_acc) schema_acc->DeleteEdge(from_vertex, old_to_vertex, edge_type, edge_ref);
+    if (schema_acc) {
+      std::visit(utils::Overloaded{
+                     [&]<template <class...> class TContainer>(SchemaInfo::VertexModifyingAccessor<TContainer> &acc) {
+                       acc.DeleteEdge(from_vertex, old_to_vertex, edge_type, edge_ref);
+                     },
+                     [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+                 *schema_acc);
+    }
 
     CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, new_to_vertex, edge_ref);
     from_vertex->out_edges.emplace_back(edge_type, new_to_vertex, edge_ref);
     CreateAndLinkDelta(&transaction_, new_to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge_ref);
     new_to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge_ref);
-    if (schema_acc) schema_acc->CreateEdge(from_vertex, new_to_vertex, edge_type);
+    if (schema_acc) {
+      std::visit(utils::Overloaded{
+                     [&]<template <class...> class TContainer>(SchemaInfo::VertexModifyingAccessor<TContainer> &acc) {
+                       acc.CreateEdge(from_vertex, new_to_vertex, edge_type);
+                     },
+                     [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+                 *schema_acc);
+    }
 
     auto *in_memory = static_cast<InMemoryStorage *>(storage_);
     auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
@@ -894,13 +934,26 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeChangeType(EdgeAcces
     // "deleting" old edge
     CreateAndLinkDelta(&transaction_, from_vertex, Delta::AddOutEdgeTag(), edge_type, to_vertex, edge_ref);
     CreateAndLinkDelta(&transaction_, to_vertex, Delta::AddInEdgeTag(), edge_type, from_vertex, edge_ref);
-    if (schema_acc) schema_acc->DeleteEdge(from_vertex, to_vertex, edge_type, edge_ref);
+    if (schema_acc) {
+      std::visit(utils::Overloaded{
+                     [&]<template <class...> class TContainer>(SchemaInfo::VertexModifyingAccessor<TContainer> &acc) {
+                       acc.DeleteEdge(from_vertex, to_vertex, edge_type, edge_ref);
+                     },
+                     [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+                 *schema_acc);
+    }
 
     // "adding" new edge
     CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), new_edge_type, to_vertex, edge_ref);
     CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), new_edge_type, from_vertex, edge_ref);
-    if (schema_acc) schema_acc->CreateEdge(from_vertex, to_vertex, new_edge_type);
-
+    if (schema_acc) {
+      std::visit(utils::Overloaded{
+                     [&]<template <class...> class TContainer>(SchemaInfo::VertexModifyingAccessor<TContainer> &acc) {
+                       acc.CreateEdge(from_vertex, to_vertex, new_edge_type);
+                     },
+                     [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+                 *schema_acc);
+    }
     // edge type is not used while invalidating cache so we can only call it once
     transaction_.manyDeltasCache.Invalidate(from_vertex, new_edge_type, EdgeDirection::OUT);
     transaction_.manyDeltasCache.Invalidate(to_vertex, new_edge_type, EdgeDirection::IN);
@@ -1044,20 +1097,9 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
               mem_storage->AppendToWal(transaction_, durability_commit_timestamp, std::move(db_acc));
 
           if (config_.enable_schema_info) {
-            if (transaction_.schema_diff_.NumberOfEdges() + transaction_.schema_diff_.NumberOfVertices() <
-                16U) {  // TODO Fine tune
-              // Small transaction => process in place
-              mem_storage->SchemaInfoWriteAccessor().ProcessTransaction(
-                  transaction_.schema_diff_, transaction_.post_process_, transaction_.transaction_id,
-                  mem_storage->config_.salient.items.properties_on_edges);
-            } else {
-              // Large transaction => make a local copy of the schema, process and move back
-              auto stats = mem_storage->SchemaInfoReadAccessor().Get();
-              stats.ProcessTransaction(transaction_.schema_diff_, transaction_.post_process_,
-                                       transaction_.transaction_id,
-                                       mem_storage->config_.salient.items.properties_on_edges);
-              mem_storage->SchemaInfoWriteAccessor().Set(std::move(stats));
-            }
+            mem_storage->SchemaInfoWriteAccessor().ProcessTransaction(
+                transaction_.schema_diff_, transaction_.post_process_, transaction_.transaction_id,
+                mem_storage->config_.salient.items.properties_on_edges);
           }
 
           // TODO: release lock, and update all deltas to have a local copy of the commit timestamp

@@ -21,34 +21,15 @@
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
+#include "storage/v2/schema_info_glue.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/atomic_memory_block.hpp"
+#include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/variant_helpers.hpp"
 
 namespace memgraph::storage {
-namespace {
-std::optional<SchemaInfo::VertexModifyingAccessor> SchemaInfoAccessor(Storage *storage, Transaction *transaction) {
-  if (!storage->config_.salient.items.enable_schema_info) return std::nullopt;
-  const auto prop_on_edges = storage->config_.salient.items.properties_on_edges;
-  if (storage->GetStorageMode() == StorageMode::IN_MEMORY_TRANSACTIONAL) {
-    return SchemaInfo::CreateVertexModifyingAccessor(transaction->schema_diff_, prop_on_edges);
-  }
-  return storage->schema_info_.CreateVertexModifyingAccessor(StorageMode::IN_MEMORY_ANALYTICAL, prop_on_edges);
-}
-
-std::optional<SchemaInfo::EdgeModifyingAccessor> SchemaInfoUniqueAccessor(Storage *storage, Transaction *transaction) {
-  if (!storage->config_.salient.items.enable_schema_info) return std::nullopt;
-  const auto prop_on_edges = storage->config_.salient.items.properties_on_edges;
-  if (storage->GetStorageMode() == StorageMode::IN_MEMORY_TRANSACTIONAL) {
-    return SchemaInfo::CreateEdgeModifyingAccessor(transaction->schema_diff_, &transaction->post_process_,
-                                                   prop_on_edges, transaction->transaction_id);
-  }
-  return storage->schema_info_.CreateEdgeModifyingAccessor(prop_on_edges);
-}
-}  // namespace
-
 std::optional<EdgeAccessor> EdgeAccessor::Create(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex,
                                                  Vertex *to_vertex, Storage *storage, Transaction *transaction,
                                                  View view, bool for_deleted) {
@@ -247,7 +228,8 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
                                    [&](SchemaInfo::AnalyticalEdgeModifyingAccessor &acc) {
                                      acc.SetProperty(edge_type_, from_vertex_, to_vertex_, property,
                                                      ExtendedPropertyType{value}, ExtendedPropertyType{*current_value});
-                                   }},
+                                   },
+                                   [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
                  *schema_acc);
     }
   });
@@ -286,7 +268,8 @@ Result<bool> EdgeAccessor::InitProperties(const std::map<storage::PropertyId, st
                                      [&](SchemaInfo::AnalyticalEdgeModifyingAccessor &acc) {
                                        acc.SetProperty(edge_type_, from_vertex_, to_vertex_, property,
                                                        ExtendedPropertyType{value}, ExtendedPropertyType{});
-                                     }},
+                                     },
+                                     [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
                    *schema_acc);
       }
     }
@@ -328,7 +311,8 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAc
                               [&](SchemaInfo::AnalyticalEdgeModifyingAccessor &acc) {
                                 acc.SetProperty(edge_type_, from_vertex_, to_vertex_, property,
                                                 ExtendedPropertyType{new_value}, ExtendedPropertyType{old_value});
-                              }},
+                              },
+                              [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
             *schema_acc);
       }
     }
@@ -367,7 +351,8 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
                               [&](SchemaInfo::AnalyticalEdgeModifyingAccessor &acc) {
                                 acc.SetProperty(edge_type_, from_vertex_, to_vertex_, property.first,
                                                 ExtendedPropertyType{}, ExtendedPropertyType{property.second.type()});
-                              }},
+                              },
+                              [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
             *schema_acc);
       }
     }

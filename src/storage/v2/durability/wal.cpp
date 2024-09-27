@@ -821,7 +821,7 @@ void EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp) {
 RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConstraints *indices_constraints,
                      const std::optional<uint64_t> last_loaded_timestamp, utils::SkipList<Vertex> *vertices,
                      utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
-                     SalientConfig::Items items, EnumStore *enum_store, SchemaInfo *schema_info,
+                     SalientConfig::Items items, EnumStore *enum_store, SchemaTracking<> *schema_info,
                      std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge) {
   spdlog::info("Trying to load WAL file {}.", path);
   RecoveryInfo ret;

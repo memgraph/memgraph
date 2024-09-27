@@ -21,6 +21,7 @@
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
+#include "storage/v2/schema_info.hpp"
 
 #include <spdlog/spdlog.h>
 #include <cstdint>
@@ -284,10 +285,15 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
   storage->indices_.label_property_index_ = std::make_unique<storage::InMemoryLabelPropertyIndex>();
   try {
     spdlog::debug("Loading snapshot");
+    std::optional<storage::SchemaInfo::WriteAccessor> schema_wa;
+    if (storage->config_.salient.items.enable_schema_info) {
+      schema_wa = storage->schema_info_.CreateWriteAccessor();
+    }
     auto recovered_snapshot = storage::durability::LoadSnapshot(
         *maybe_snapshot_path, &storage->vertices_, &storage->edges_, &storage->edges_metadata_,
         &storage->repl_storage_state_.history, storage->name_id_mapper_.get(), &storage->edge_count_, storage->config_,
-        &storage->enum_store_, storage->config_.salient.items.enable_schema_info ? &storage->schema_info_ : nullptr);
+        &storage->enum_store_, schema_wa ? &schema_wa->Get() : nullptr);
+    schema_wa.reset();
     spdlog::debug("Snapshot loaded successfully");
     // If this step is present it should always be the first step of
     // the recovery so we use the UUID we read from snasphost
