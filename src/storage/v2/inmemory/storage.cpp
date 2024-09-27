@@ -2809,6 +2809,10 @@ std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>> InMemoryStora
   return maybe_edge_info;
 }
 
+bool InMemoryStorage::InMemoryAccessor::PointIndexExists(LabelId label, PropertyId property) const {
+  return storage_->indices_.point_index_.PointIndexExists(label, property);
+}
+
 IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory->indices_.label_index_.get());

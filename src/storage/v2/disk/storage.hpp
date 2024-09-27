@@ -177,6 +177,8 @@ class DiskStorage final : public Storage {
 
     bool EdgeTypePropertyIndexExists(EdgeTypeId edge_type, PropertyId proeprty) const override;
 
+    bool PointIndexExists(LabelId label, PropertyId property) const override;
+
     IndicesInfo ListAllIndices() const override;
 
     ConstraintsInfo ListAllConstraints() const override;

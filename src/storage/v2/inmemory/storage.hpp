@@ -294,6 +294,8 @@ class InMemoryStorage final : public Storage {
                                                                                                        property);
     }
 
+    bool PointIndexExists(LabelId label, PropertyId property) const override;
+
     IndicesInfo ListAllIndices() const override;
 
     ConstraintsInfo ListAllConstraints() const override;
