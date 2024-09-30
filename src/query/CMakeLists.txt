@@ -80,6 +80,7 @@ target_sources(mg-query
     FILE_SET HEADERS
     FILES
     plan/rewrite/enum.hpp
+    plan/point_distance_condition.hpp
     string_helpers.hpp
     path.hpp
     edge_accessor.hpp

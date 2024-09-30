@@ -241,6 +241,16 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PreVisit(ScanAllByPointDistance &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByPointDistance &op) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
   bool PreVisit(ScanAll &op) override {
     prev_ops_.push_back(&op);
     return true;
@@ -883,8 +893,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       }
     }
     return found;
-
-    return std::nullopt;
   }
 
   CandidateIndices GetCandidateIndices(const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols) {
@@ -1051,29 +1059,30 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
 
     // Point index prefered over regular label+property index
-    {
+    // TODO: figure out how to make NEW work
+    if (view == storage::View::OLD) {
       auto found_index = FindBestPointLabelPropertyIndex(node_symbol, bound_symbols);
 
       if (found_index) {
         FilterInfo const &filter = found_index->filter;
         auto const &point_filter = filter.point_filter.value();
 
-        if (filter.type == FilterInfo::Type::PointDistance) {
-          filters_.EraseFilter(filter);
-          std::vector<Expression *> removed_expressions;  // out parameter
-          filters_.EraseLabelFilter(node_symbol, found_index->label, &removed_expressions);
-          filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
+        filters_.EraseFilter(filter);
+        std::vector<Expression *> removed_expressions;  // out parameter
+        filters_.EraseLabelFilter(node_symbol, found_index->label, &removed_expressions);
+        filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
 
-          // point.distance(x, cmpvalue) <kind> value
-
-          point_filter.cmp_value_;  // uses the CRS from here
-          point_filter.value_;
-          point_filter.kind_;
-
-          //          return std::make_unique<ScanAllByPointDistance>(input, node_symbol, GetLabel(found_index->label),
-          //                                                          GetProperty(prop_filter.property_),
-          //                                                          prop_filter.lower_bound_,
-          //                                                          prop_filter.upper_bound_, view);
+        switch (point_filter.function_) {
+          using enum PointFilter::Function;
+          case DISTANCE: {
+            return std::make_unique<ScanAllByPointDistance>(
+                input, node_symbol, GetLabel(found_index->label), GetProperty(point_filter.property_),
+                point_filter.distance_.cmp_value_,  // uses the CRS from here
+                point_filter.distance_.boundary_value_, point_filter.distance_.boundary_condition_);
+          }
+          case WITHINBBOX: {
+            break;
+          }
         }
       }
     }

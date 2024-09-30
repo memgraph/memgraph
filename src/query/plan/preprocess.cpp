@@ -488,7 +488,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     return commutative_apply(extract_prop_lookup_and_identifers, func->arguments_[0], func->arguments_[1]);
   };
 
-  auto add_point_distance_filter = [&](auto *expr1, auto *expr2, PointFilter::Kind kind) {
+  auto add_point_distance_filter = [&](auto *expr1, auto *expr2, PointDistanceCondition kind) {
     PropertyLookup *prop_lookup = nullptr;
     Identifier *ident = nullptr;
     Identifier *other = nullptr;
@@ -500,9 +500,8 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       bool uses_same_symbol = utils::Contains(collector.symbols_, symbol);
       // if expr2 is also dependant on the same symbol then not possible to subsitute with a point index
       if (!uses_same_symbol) {
-        auto filter = make_filter(FilterInfo::Type::PointDistance);
-        filter.point_filter.emplace(std::move(symbol), prop_lookup->property_, other, expr2, kind,
-                                    PointFilter::Function::DISTANCE);
+        auto filter = make_filter(FilterInfo::Type::Point);
+        filter.point_filter.emplace(std::move(symbol), prop_lookup->property_, other, kind, expr2);
         all_filters_.emplace_back(filter);
         return true;
       }
@@ -655,34 +654,34 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     add_prop_range(range);
   } else if (auto *gt = utils::Downcast<GreaterOperator>(expr)) {
     // look for point.distance(n.prop, other) > expr2
-    if (!add_point_distance_filter(gt->expression1_, gt->expression2_, PointFilter::Kind::OUTSIDE))
+    if (!add_point_distance_filter(gt->expression1_, gt->expression2_, PointDistanceCondition::OUTSIDE))
       // look for expr2 > point.distance(n.prop, other)
-      if (!add_point_distance_filter(gt->expression1_, gt->expression2_, PointFilter::Kind::INSIDE))
+      if (!add_point_distance_filter(gt->expression1_, gt->expression2_, PointDistanceCondition::INSIDE))
         if (!add_prop_greater(gt->expression1_, gt->expression2_, Bound::Type::EXCLUSIVE)) {
           all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
         }
   } else if (auto *ge = utils::Downcast<GreaterEqualOperator>(expr)) {
     // look for point.distance(n.prop, other) >= expr2
-    if (!add_point_distance_filter(ge->expression1_, ge->expression2_, PointFilter::Kind::OUTSIDE_AND_BOUNDARY))
+    if (!add_point_distance_filter(ge->expression1_, ge->expression2_, PointDistanceCondition::OUTSIDE_AND_BOUNDARY))
       // look for expr2 >= point.distance(n.prop, other)
-      if (!add_point_distance_filter(ge->expression1_, ge->expression2_, PointFilter::Kind::INSIDE_AND_BOUNDARY))
+      if (!add_point_distance_filter(ge->expression1_, ge->expression2_, PointDistanceCondition::INSIDE_AND_BOUNDARY))
         if (!add_prop_greater(ge->expression1_, ge->expression2_, Bound::Type::INCLUSIVE)) {
           all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
         }
   } else if (auto *lt = utils::Downcast<LessOperator>(expr)) {
     // look for point.distance(n.prop, other) < expr2
-    if (!add_point_distance_filter(lt->expression1_, lt->expression2_, PointFilter::Kind::INSIDE))
+    if (!add_point_distance_filter(lt->expression1_, lt->expression2_, PointDistanceCondition::INSIDE))
       // look for expr2 < point.distance(n.prop, other)
-      if (!add_point_distance_filter(lt->expression1_, lt->expression2_, PointFilter::Kind::OUTSIDE))
+      if (!add_point_distance_filter(lt->expression1_, lt->expression2_, PointDistanceCondition::OUTSIDE))
         // Like greater, but in reverse.
         if (!add_prop_greater(lt->expression2_, lt->expression1_, Bound::Type::EXCLUSIVE)) {
           all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
         }
   } else if (auto *le = utils::Downcast<LessEqualOperator>(expr)) {
     // look for point.distance(n.prop, other) <= expr2
-    if (!add_point_distance_filter(le->expression1_, le->expression2_, PointFilter::Kind::INSIDE_AND_BOUNDARY))
+    if (!add_point_distance_filter(le->expression1_, le->expression2_, PointDistanceCondition::INSIDE_AND_BOUNDARY))
       // look for expr2 <= point.distance(n.prop, other)
-      if (!add_point_distance_filter(le->expression1_, le->expression2_, PointFilter::Kind::OUTSIDE_AND_BOUNDARY))
+      if (!add_point_distance_filter(le->expression1_, le->expression2_, PointDistanceCondition::OUTSIDE_AND_BOUNDARY))
         // Like greater equal, but in reverse.
         if (!add_prop_greater(le->expression2_, le->expression1_, Bound::Type::INCLUSIVE)) {
           all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));

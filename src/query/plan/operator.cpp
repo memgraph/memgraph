@@ -116,6 +116,7 @@ extern const Event ScanAllByEdgeTypePropertyOperator;
 extern const Event ScanAllByEdgeTypePropertyValueOperator;
 extern const Event ScanAllByEdgeTypePropertyRangeOperator;
 extern const Event ScanAllByEdgeIdOperator;
+extern const Event ScanAllByPointDistanceOperator;
 extern const Event ExpandOperator;
 extern const Event ExpandVariableOperator;
 extern const Event ConstructNamedPathOperator;
@@ -6371,4 +6372,39 @@ UniqueCursorPtr PeriodicSubquery::MakeCursor(utils::MemoryResource *mem) const {
 
   return MakeUniqueCursorPtr<PeriodicSubqueryCursor>(mem, *this, mem);
 }
+
+ScanAllByPointDistance::ScanAllByPointDistance(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
+                                               storage::LabelId label, storage::PropertyId property,
+                                               Identifier *cmp_value, Expression *boundary_value,
+                                               PointDistanceCondition boundary_condition)
+    : ScanAll(input, output_symbol, storage::View::OLD /*TODO what to do when NEW*/),
+      label_(label),
+      property_(property),
+      cmp_value_{cmp_value},
+      boundary_value_{boundary_value},
+      boundary_condition_{boundary_condition} {}
+
+ACCEPT_WITH_INPUT(ScanAllByPointDistance)
+
+UniqueCursorPtr ScanAllByPointDistance::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByPointDistanceOperator);
+  MG_ASSERT(false, "TODO");
+
+  //  auto vertices = [this](Frame &, ExecutionContext &context) {
+  //    auto *db = context.db_accessor;
+  //    return std::make_optional(db->Vertices(view_, label_));
+  //  };
+  //  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
+  //                                                                view_, std::move(vertices), "ScanAllByLabel");
+
+  return nullptr;
+}
+
+std::string ScanAllByPointDistance::ToString() const {
+  auto name = output_symbol_.name();
+  auto string = dba_->LabelToName(label_);
+  auto basicString = dba_->PropertyToName(property_);
+  return fmt::format("ScanAllByPointDistance ({0} :{1} {{{2}}})", name, string, basicString);
+}
+
 }  // namespace memgraph::query::plan
