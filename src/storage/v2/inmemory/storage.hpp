@@ -222,7 +222,7 @@ class InMemoryStorage final : public Storage {
           edge_type, property, lower, upper);
     }
 
-    uint64_t ApproximatePointCount(LabelId label, PropertyId property) const override {
+    std::optional<uint64_t> ApproximateVerticesPointCount(LabelId label, PropertyId property) const override {
       return storage_->indices_.point_index_.ApproximatePointCount(label, property);
     }
 

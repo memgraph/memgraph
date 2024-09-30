@@ -142,6 +142,7 @@ auto update_internal(index_container_t const &src, TrackedChanges const &tracked
 
 bool PointIndexStorage::CreatePointIndex(LabelId label, PropertyId property,
                                          memgraph::utils::SkipList<Vertex>::Accessor vertices) {
+  // indexes_ protected by unique storage access
   auto &indexes = *indexes_;
   auto key = LabelPropKey{label, property};
   if (indexes.contains(key)) return false;
@@ -189,6 +190,7 @@ bool PointIndexStorage::CreatePointIndex(LabelId label, PropertyId property,
 }
 
 bool PointIndexStorage::DropPointIndex(LabelId label, PropertyId property) {
+  // indexes_ protected by unique storage access
   auto &indexes = *indexes_;
   auto it = indexes.find(LabelPropKey{label, property});
   if (it == indexes.end()) return false;
@@ -221,20 +223,23 @@ void PointIndexStorage::InstallNewPointIndex(PointIndexChangeCollector &collecto
 void PointIndexStorage::Clear() { indexes_->clear(); }
 
 std::vector<std::pair<LabelId, PropertyId>> PointIndexStorage::ListIndices() {
-  auto keys = *indexes_ | std::views::keys | std::views::transform([](LabelPropKey key) {
+  auto indexes = indexes_;  // local copy of shared_ptr, for safety
+  auto keys = *indexes | std::views::keys | std::views::transform([](LabelPropKey key) {
     return std::pair{key.label(), key.property()};
   });
   return {keys.begin(), keys.end()};
 }
 
-uint64_t PointIndexStorage::ApproximatePointCount(LabelId labelId, PropertyId propertyId) {
-  auto it = indexes_->find(LabelPropKey{labelId, propertyId});
-  if (it == indexes_->end()) return 0;
+std::optional<uint64_t> PointIndexStorage::ApproximatePointCount(LabelId labelId, PropertyId propertyId) {
+  auto indexes = indexes_;  // local copy of shared_ptr, for safety
+  auto it = indexes->find(LabelPropKey{labelId, propertyId});
+  if (it == indexes->end()) return std::nullopt;
   return it->second->EntryCount();
 }
 
 bool PointIndexStorage::PointIndexExists(LabelId labelId, PropertyId propertyId) {
-  return indexes_->contains(LabelPropKey{labelId, propertyId});
+  auto indexes = indexes_;  // local copy of shared_ptr, for safety
+  return indexes->contains(LabelPropKey{labelId, propertyId});
 }
 
 auto PointIndex::CreateNewPointIndex(LabelPropKey labelPropKey,
