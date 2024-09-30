@@ -1055,10 +1055,26 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       auto found_index = FindBestPointLabelPropertyIndex(node_symbol, bound_symbols);
 
       if (found_index) {
-        auto point_filter = *found_index->filter.point_filter;
+        FilterInfo const &filter = found_index->filter;
+        auto const &point_filter = filter.point_filter.value();
 
-        (void)0;
-        // SOMETHING HERE .... what about max_vertex_count?
+        if (filter.type == FilterInfo::Type::PointDistance) {
+          filters_.EraseFilter(filter);
+          std::vector<Expression *> removed_expressions;  // out parameter
+          filters_.EraseLabelFilter(node_symbol, found_index->label, &removed_expressions);
+          filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
+
+          // point.distance(x, cmpvalue) <kind> value
+
+          point_filter.cmp_value_;  // uses the CRS from here
+          point_filter.value_;
+          point_filter.kind_;
+
+          //          return std::make_unique<ScanAllByPointDistance>(input, node_symbol, GetLabel(found_index->label),
+          //                                                          GetProperty(prop_filter.property_),
+          //                                                          prop_filter.lower_bound_,
+          //                                                          prop_filter.upper_bound_, view);
+        }
       }
     }
     auto found_index = FindBestLabelPropertyIndex(node_symbol, bound_symbols);

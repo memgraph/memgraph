@@ -500,7 +500,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       bool uses_same_symbol = utils::Contains(collector.symbols_, symbol);
       // if expr2 is also dependant on the same symbol then not possible to subsitute with a point index
       if (!uses_same_symbol) {
-        auto filter = make_filter(FilterInfo::Type::Point);
+        auto filter = make_filter(FilterInfo::Type::PointDistance);
         filter.point_filter.emplace(std::move(symbol), prop_lookup->property_, other, expr2, kind,
                                     PointFilter::Function::DISTANCE);
         all_filters_.emplace_back(filter);
