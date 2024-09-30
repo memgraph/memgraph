@@ -117,9 +117,9 @@ class DiskStorage final : public Storage {
       return 10;
     }
 
-    uint64_t ApproximatePointCount(LabelId label, PropertyId property) const override {
+    std::optional<uint64_t> ApproximateVerticesPointCount(LabelId label, PropertyId property) const override {
       // Point index does not exist for on disk
-      return 0;
+      return std::nullopt;
     }
 
     std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId & /*label*/) const override {

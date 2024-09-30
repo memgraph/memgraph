@@ -58,7 +58,7 @@ struct PointIndexStorage {
 
   std::vector<std::pair<LabelId, PropertyId>> ListIndices();
 
-  uint64_t ApproximatePointCount(LabelId labelId, PropertyId propertyId);
+  std::optional<uint64_t> ApproximatePointCount(LabelId labelId, PropertyId propertyId);
 
   bool PointIndexExists(LabelId labelId, PropertyId propertyId);
 
