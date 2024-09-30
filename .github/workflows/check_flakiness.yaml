@@ -11,27 +11,35 @@ on:
       community_core:
         type: boolean
         default: true
+        description: ""
       coverage_core:
         type: boolean
         default: true
+        description: ""
       debug_core:
         type: boolean
         default: true
+        description: ""
       debug_integration:
         type: boolean
         default: true
+        description: ""
       jepsen_core:
         type: boolean
         default: true
+        description: ""
       release_core:
         type: boolean
         default: true
+        description: ""
       release_e2e:
         type: boolean
         default: true
+        description: ""
       release_stress:
         type: boolean
         default: true
+        description: ""
       flakiness_runs:
         type: number
         default: 3

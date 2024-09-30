@@ -10,6 +10,7 @@
              [client :as jclient]]
             [jepsen.checker.timeline :as timeline]
             [memgraph.high-availability.bank.nemesis :as nemesis]
+            [memgraph.high-availability.utils :as hautils]
             [memgraph.utils :as utils]
             [memgraph.query :as mgquery]))
 
@@ -46,16 +47,6 @@
   (gen/filter (fn [op] (not= (-> op :value :from)
                              (-> op :value :to)))
               transfer))
-
-(defn data-instance?
-  "Is node data instances?"
-  [node]
-  (some #(= % node) #{"n1" "n2" "n3"}))
-
-(defn coord-instance?
-  "Is node coordinator instances?"
-  [node]
-  (some #(= % node) #{"n4" "n5" "n6"}))
 
 (defn random-coord
   "Get random leader."
@@ -158,7 +149,7 @@
           node (:node this)]
       (case (:f op)
       ; Show instances should be run only on coordinator.
-        :show-instances-read (if (coord-instance? node)
+        :show-instances-read (if (hautils/coord-instance? node)
                                (try
                                  (utils/with-session bolt-conn session ; Use bolt connection for running show instances.
                                    (let [instances (->> (mgquery/get-all-instances session) (reduce conj []))]
@@ -169,9 +160,9 @@
                                    (utils/process-service-unavailable-exc op node))
                                  (catch Exception e
                                    (assoc op :type :fail :value (str e))))
-                               (assoc op :type :info :value "Not coord"))
+                               (assoc op :type :info :value "Not coordinator"))
       ; Reading balances should be done only on data instances -> use bolt connection.
-        :read-balances (if (data-instance? node)
+        :read-balances (if (hautils/data-instance? node)
                          (try
                            (utils/with-session bolt-conn session
                              (let [accounts (->> (mgquery/get-all-accounts session) (map :n) (reduce conj []))
@@ -192,7 +183,7 @@
         ; If the transferring succeeds, return :ok, otherwise return :fail.
         ; Allow the exception due to down sync replica.
         :transfer
-        (if (data-instance? node)
+        (if (hautils/data-instance? node)
           (let [transfer-info (:value op)]
             (try
               (dbclient/with-transaction bolt-conn txn
@@ -248,7 +239,7 @@
           (assoc op :type :info :value "Not coordinator"))
 
         :initialize-data
-        (if (data-instance? node)
+        (if (hautils/data-instance? node)
 
           (try
             (dbclient/with-transaction bolt-conn txn
