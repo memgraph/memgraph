@@ -1337,6 +1337,9 @@ class Filter : public memgraph::query::plan::LogicalOperator {
     } else if (single_filter.type == Type::Property) {
       return fmt::format("{{{}.{}}}", single_filter.property_filter->symbol_.name(),
                          single_filter.property_filter->property_.name);
+    } else if (single_filter.type == Type::Point) {
+      return fmt::format("{{{}.{}}}", single_filter.point_filter->symbol_.name(),
+                         single_filter.point_filter->property_.name);
     } else {
       LOG_FATAL("Unexpected FilterInfo::Type");
     }

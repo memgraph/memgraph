@@ -56,6 +56,17 @@ class VertexCountCache {
     return label_property_vertex_count_.at(key);
   }
 
+  std::optional<int64_t> VerticesPointCount(storage::LabelId label, storage::PropertyId property) {
+    auto key = std::make_pair(label, property);
+    auto it = label_property_vertex_point_count_.find(key);
+    if (it == label_property_vertex_point_count_.end()) {
+      auto val = db_->VerticesPointCount(label, property);
+      label_property_vertex_point_count_.emplace(key, val);
+      return val;
+    }
+    return it->second;
+  }
+
   int64_t VerticesCount(storage::LabelId label, storage::PropertyId property, const storage::PropertyValue &value) {
     auto label_prop = std::make_pair(label, property);
     auto &value_vertex_count = property_value_vertex_count_[label_prop];
@@ -187,6 +198,7 @@ class VertexCountCache {
   std::unordered_map<storage::LabelId, int64_t> label_vertex_count_;
   std::unordered_map<storage::EdgeTypeId, int64_t> edge_type_edge_count_;
   std::unordered_map<LabelPropertyKey, int64_t, LabelPropertyHash> label_property_vertex_count_;
+  std::unordered_map<LabelPropertyKey, std::optional<int64_t>, LabelPropertyHash> label_property_vertex_point_count_;
   std::unordered_map<EdgeTypePropertyKey, int64_t, EdgeTypePropertyHash> edge_type_property_edge_count_;
   std::unordered_map<
       LabelPropertyKey,

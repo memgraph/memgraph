@@ -850,11 +850,13 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   std::optional<PointLabelPropertyIndex> FindBestPointLabelPropertyIndex(
       const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols) {
-    auto [_, candidate_index_lookup] = GetCandidatePointIndices(symbol, bound_symbols);
+    auto [candidate_indices, candidate_index_lookup] = GetCandidatePointIndices(symbol, bound_symbols);
 
-    // TODO: ATM point_index_hints_ is not populated????
+    // TODO: Can point_index_hints_ be populated?
+    //  indexHints: INDEX indexHint ( ',' indexHint )* ;
+    //  indexHint: ':' labelName ( '(' propertyKeyName ')' )? ;
 
-    // Look for an exact match
+    // First match with the provided hints
     for (const auto &[index_type, label, maybe_property] : index_hints_.point_index_hints_) {
       auto property = *maybe_property;
       auto filter_it = candidate_index_lookup.find(std::make_pair(label, property));
@@ -863,6 +865,25 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
             .label = label, .filter = filter_it->second, .vertex_count = std::numeric_limits<std::int64_t>::max()};
       }
     }
+
+    // Second find a good candidate
+    std::optional<PointLabelPropertyIndex> found;
+    for (const auto &[candidate, filter] : candidate_indices) {
+      const auto &[_, label, maybe_property] = candidate;
+      auto labelId = GetLabel(label);
+      auto propertyId = GetProperty(*maybe_property);
+
+      // TODO: ATM we are looking at index size, are there other situations to select a candidate index over another?
+      auto vertex_count = db_->VerticesPointCount(labelId, propertyId);
+      if (!vertex_count) continue;
+
+      if (!found || vertex_count < found->vertex_count) {
+        found.emplace(label, filter, *vertex_count);
+        continue;
+      }
+    }
+    return found;
+
     return std::nullopt;
   }
 
@@ -1033,7 +1054,12 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     {
       auto found_index = FindBestPointLabelPropertyIndex(node_symbol, bound_symbols);
 
-      // SOMETHING HERE .... what about max_vertex_count?
+      if (found_index) {
+        auto point_filter = *found_index->filter.point_filter;
+
+        (void)0;
+        // SOMETHING HERE .... what about max_vertex_count?
+      }
     }
     auto found_index = FindBestLabelPropertyIndex(node_symbol, bound_symbols);
     if (found_index &&
