@@ -27,6 +27,16 @@
    SET n.balance = n.balance + $amount
    RETURN n")
 
+(dbclient/defquery collect-ids
+  "MATCH (n:Node)
+  RETURN n.id as id;
+  ")
+
+(defn add-nodes
+  [start-idx end-idx]
+  (dbclient/create-query
+   (str "FOREACH (i in range(" start-idx ", " end-idx ") | CREATE (:Node {id: i}));")))
+
 (defn register-replication-instance
   [name node-config]
   (info "name" name "node-config" node-config)

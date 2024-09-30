@@ -1,8 +1,7 @@
 (ns memgraph.utils
   (:require
    [neo4j-clj.core :as dbclient]
-   [clojure.string :as string]
-   [clojure.tools.logging :refer [info]])
+   [clojure.string :as string])
   (:import (java.net URI)))
 
 (defn bolt-url
@@ -26,7 +25,6 @@
         coords-to-kill (rand-int (+ 1 (count coords)))
         chosen-coords (take coords-to-kill (shuffle coords))
         chosen-instances (concat chosen-data-instances chosen-coords)]
-    (info "Chosen instances" chosen-instances)
     chosen-instances))
 
 ; neo4j-clj related utils.
