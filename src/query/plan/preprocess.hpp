@@ -21,6 +21,7 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
+#include "query/plan/point_distance_condition.hpp"
 
 namespace memgraph::query::plan {
 
@@ -347,20 +348,39 @@ class PropertyFilter {
 
 /// Stores the symbols and expression used to filter a point.distance.
 struct PointFilter {
-  enum class Kind : uint8_t { OUTSIDE, INSIDE, INSIDE_AND_BOUNDARY, OUTSIDE_AND_BOUNDARY };
   enum class Function : uint8_t { DISTANCE, WITHINBBOX };
 
-  //  PointDistanceFilter(){}
+  PointFilter(Symbol const &symbol, PropertyIx const &property, Identifier *cmp_value,
+              PointDistanceCondition boundary_condition, Expression *boundary_value)
+      : symbol_(symbol),
+        property_(property),
+        function_(Function::DISTANCE),
+        distance_{
+            .cmp_value_ = cmp_value, .boundary_value_ = boundary_value, .boundary_condition_ = boundary_condition} {}
+
+  PointFilter(Symbol const &symbol, PropertyIx const &property, Identifier *lb, Identifier *ub,
+              WithinBBoxCondition boundary_condition)
+      : symbol_(symbol),
+        property_(property),
+        function_(Function::WITHINBBOX),
+        withinbbox_{.lb_ = lb, .ub_ = ub, .boundary_condition_ = boundary_condition} {}
 
   /// Symbol whose property is looked up.
   Symbol symbol_;
   PropertyIx property_;
-  /// Expression which when evaluated produces the value a property must
-  /// equal or regex match depending on type_.
-  Identifier *cmp_value_ = nullptr;
-  Expression *value_ = nullptr;
-  Kind kind_;
   Function function_;
+  union {
+    struct {
+      Identifier *cmp_value_ = nullptr;
+      Expression *boundary_value_ = nullptr;
+      PointDistanceCondition boundary_condition_;
+    } distance_;
+    struct {
+      Identifier *lb_ = nullptr;
+      Identifier *ub_ = nullptr;
+      WithinBBoxCondition boundary_condition_;
+    } withinbbox_;
+  };
 };
 
 /// Filtering by ID, for example `MATCH (n) WHERE id(n) = 42 ...`
@@ -383,7 +403,7 @@ struct FilterInfo {
   /// applied for labels or a property. Non generic types contain extra
   /// information which can be used to produce indexed scans of graph
   /// elements.
-  enum class Type { Generic, Label, Property, Id, Pattern, PointDistance };
+  enum class Type { Generic, Label, Property, Id, Pattern, Point };
 
   // FilterInfo is tricky because FilterMatching is not yet defined:
   //   * if no declared constructor -> FilterInfo is std::__is_complete_or_unbounded
@@ -575,7 +595,7 @@ inline auto Filters::PropertyFilters(const Symbol &symbol) const -> std::vector<
 inline auto Filters::PointFilters(const Symbol &symbol) const -> std::vector<FilterInfo> {
   std::vector<FilterInfo> filters;
   for (const auto &filter : all_filters_) {
-    if (filter.type == FilterInfo::Type::PointDistance && filter.point_filter->symbol_ == symbol) {
+    if (filter.type == FilterInfo::Type::Point && filter.point_filter->symbol_ == symbol) {
       filters.push_back(filter);
     }
   }
