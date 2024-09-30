@@ -383,7 +383,7 @@ struct FilterInfo {
   /// applied for labels or a property. Non generic types contain extra
   /// information which can be used to produce indexed scans of graph
   /// elements.
-  enum class Type { Generic, Label, Property, Id, Pattern, Point };
+  enum class Type { Generic, Label, Property, Id, Pattern, PointDistance };
 
   // FilterInfo is tricky because FilterMatching is not yet defined:
   //   * if no declared constructor -> FilterInfo is std::__is_complete_or_unbounded
@@ -575,7 +575,7 @@ inline auto Filters::PropertyFilters(const Symbol &symbol) const -> std::vector<
 inline auto Filters::PointFilters(const Symbol &symbol) const -> std::vector<FilterInfo> {
   std::vector<FilterInfo> filters;
   for (const auto &filter : all_filters_) {
-    if (filter.type == FilterInfo::Type::Point && filter.point_filter->symbol_ == symbol) {
+    if (filter.type == FilterInfo::Type::PointDistance && filter.point_filter->symbol_ == symbol) {
       filters.push_back(filter);
     }
   }
