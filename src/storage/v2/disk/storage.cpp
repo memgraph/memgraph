@@ -2164,7 +2164,14 @@ utils::BasicResult<StorageExistenceConstraintDroppingError, void> DiskStorage::D
   throw utils::NotYetImplemented("Type constraints are not yet implemented for on-disk storage");
 }
 
-void DiskStorage::DiskAccessor::DropGraph() {}
+void DiskStorage::DiskAccessor::DropGraph() {
+  throw utils::NotYetImplemented("Drop graph is not yet implemented for on-disk storage");
+}
+
+auto DiskStorage::DiskAccessor::PointVertices(View view, LabelId label, PropertyId property,
+                                              CoordinateReferenceSystem crs) -> PointIterable {
+  throw utils::NotYetImplemented("Point Vertices is not yet implemented for on-disk storage");
+};
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 PointIndexStorage DiskStorage::empty_point_index_ = PointIndexStorage{};
