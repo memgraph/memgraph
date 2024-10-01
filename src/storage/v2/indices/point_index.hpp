@@ -12,6 +12,7 @@
 #pragma once
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/point_index_change_collector.hpp"
+#include "storage/v2/vertex_accessor.hpp"
 #include "utils/skip_list.hpp"
 
 namespace memgraph::storage {
@@ -20,14 +21,28 @@ struct PointIndex;
 
 using index_container_t = std::map<LabelPropKey, std::shared_ptr<PointIndex const>>;
 
+struct PointIterator;
+
 struct PointIterable {
-  struct iterator {
-    using value_type = VertexAccessor;
-  };
+  using iterator = PointIterator;
+
+  PointIterable(PointIndex const &index, storage::CoordinateReferenceSystem crs);
+  ~PointIterable();
+
+  PointIterable();
+  PointIterable(PointIterable &&);
+  PointIterable &operator=(PointIterable &&);
 
   auto begin() const -> iterator;
   auto end() const -> iterator;
+
+  friend bool operator==(PointIterable const &, PointIterable const &) = default;
+
   // TODO +move?
+
+ private:
+  struct impl;
+  std::unique_ptr<impl> pimpl;
 };
 
 struct PointIndexContext {

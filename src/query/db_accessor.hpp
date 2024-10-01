@@ -19,6 +19,7 @@
 #include "storage/v2/constraints/type_constraints.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/point_iterator.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
 #include "storage/v2/storage.hpp"
@@ -155,6 +156,38 @@ class VerticesIterable final {
   }
 };
 
+template <typename storage_iterator>
+struct query_vertex_iterator final {
+  using value_type = VertexAccessor;
+  explicit query_vertex_iterator(storage_iterator it) : it_(std::move(it)) {}
+
+  VertexAccessor operator*() const { return VertexAccessor{*it_}; }
+
+  auto operator++() -> query_vertex_iterator & {
+    ++it_;
+    return *this;
+  }
+
+  friend bool operator==(query_vertex_iterator const &, query_vertex_iterator const &) = default;
+
+ private:
+  storage_iterator it_;
+};
+
+template <typename storage_iterable>
+struct query_iterable final {
+  using iterator = query_vertex_iterator<typename storage_iterable::iterator>;
+
+  explicit query_iterable(storage_iterable iterable) : iterable_(std::move(iterable)) {}
+
+  iterator begin() { return iterator{iterable_.begin()}; }
+
+  iterator end() { return iterator{iterable_.end()}; }
+
+ private:
+  storage_iterable iterable_;
+};
+
 class EdgesIterable final {
   std::variant<storage::EdgesIterable, std::unordered_set<EdgeAccessor, std::hash<EdgeAccessor>, std::equal_to<void>,
                                                           utils::Allocator<EdgeAccessor>> *>
@@ -211,6 +244,8 @@ class EdgesIterable final {
   }
 };
 
+using PointIterable = query_iterable<storage::PointIterable>;
+
 class DbAccessor final {
   storage::Storage::Accessor *accessor_;
 
@@ -263,8 +298,8 @@ class DbAccessor final {
   }
 
   auto PointVertices(storage::View view, storage::LabelId label, storage::PropertyId property,
-                     storage::CoordinateReferenceSystem crs) -> storage::PointIterable {
-    return accessor_->PointVertices(view, label, property, crs);
+                     storage::CoordinateReferenceSystem crs) -> PointIterable {
+    return PointIterable(accessor_->PointVertices(view, label, property, crs));
   }
 
   EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type) {

@@ -6390,11 +6390,14 @@ UniqueCursorPtr ScanAllByPointDistance::MakeCursor(utils::MemoryResource *mem) c
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByPointDistanceOperator);
   MG_ASSERT(false, "TODO");
 
-  auto vertices = [this](Frame &, ExecutionContext &context) {
+  auto vertices = [this](Frame &, ExecutionContext &context) -> std::optional<PointIterable> {
     auto *db = context.db_accessor;
 
     auto evaluator = PrimitiveLiteralExpressionEvaluator{context.evaluation_context};
 
+    // Is it possible to evaluate this while making cursor?
+    //  Yes - if constant, this would mean we can specialise
+    //  No - in general, this could be a property from another object (bound to variable during evaluation)
     auto value = evaluator.Visit(*cmp_value_);
 
     auto crs = std::invoke([&]() -> std::optional<storage::CoordinateReferenceSystem> {
