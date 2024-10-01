@@ -693,6 +693,14 @@ class FakeDbAccessor {
     return 0;
   }
 
+  bool PointIndexExists(memgraph::storage::LabelId label, memgraph::storage::PropertyId property) const {
+    return false;
+  }
+
+  std::optional<uint64_t> VerticesPointCount(storage::LabelId label, storage::PropertyId property) const {
+    return std::nullopt;
+  }
+
   int64_t EdgesCount(memgraph::storage::EdgeTypeId edge_type) const {
     auto found = edge_type_index_.find(edge_type);
     if (found != edge_type_index_.end()) return found->second;
