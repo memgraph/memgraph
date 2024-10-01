@@ -272,7 +272,7 @@ TYPED_TEST(AllocatorTest, PropagatesToStdUsesAllocator) {
   std::vector<TypeParam, memgraph::utils::Allocator<TypeParam>> vec(memgraph::utils::NewDeleteResource());
   vec.emplace_back(42);
   const auto &c = vec.front();
-  EXPECT_EQ(c.boundary_value_, 42);
+  EXPECT_EQ(c.value_, 42);
   EXPECT_EQ(c.memory_, memgraph::utils::NewDeleteResource());
 }
 
@@ -283,8 +283,8 @@ TYPED_TEST(AllocatorTest, PropagatesToStdPairUsesAllocator) {
         vec(memgraph::utils::NewDeleteResource());
     vec.emplace_back(1, 2);
     const auto &pair = vec.front();
-    EXPECT_EQ(pair.first.boundary_value_, 1);
-    EXPECT_EQ(pair.second.boundary_value_, 2);
+    EXPECT_EQ(pair.first.value_, 1);
+    EXPECT_EQ(pair.second.value_, 2);
     EXPECT_EQ(pair.first.memory_, memgraph::utils::NewDeleteResource());
     EXPECT_EQ(pair.second.memory_, memgraph::utils::NewDeleteResource());
   }
@@ -294,8 +294,8 @@ TYPED_TEST(AllocatorTest, PropagatesToStdPairUsesAllocator) {
         vec(memgraph::utils::NewDeleteResource());
     vec.emplace_back(1, 2);
     const auto &pair = vec.front();
-    EXPECT_EQ(pair.first.boundary_value_, 1);
-    EXPECT_EQ(pair.second.boundary_value_, 2);
+    EXPECT_EQ(pair.first.value_, 1);
+    EXPECT_EQ(pair.second.value_, 2);
     EXPECT_EQ(pair.first.memory_, memgraph::utils::NewDeleteResource());
     EXPECT_EQ(pair.second.memory_, memgraph::utils::NewDeleteResource());
   }
