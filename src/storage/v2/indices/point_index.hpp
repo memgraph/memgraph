@@ -20,12 +20,24 @@ struct PointIndex;
 
 using index_container_t = std::map<LabelPropKey, std::shared_ptr<PointIndex const>>;
 
+struct PointIterable {
+  struct iterator {
+    using value_type = VertexAccessor;
+  };
+
+  auto begin() const -> iterator;
+  auto end() const -> iterator;
+  // TODO +move?
+};
+
 struct PointIndexContext {
   auto IndexKeys() const { return *orig_indexes_ | std::views::keys; }
 
   bool UsingLocalIndex() const { return orig_indexes_ != current_indexes_; }
 
   void AdvanceCommand(PointIndexChangeCollector &collector) { update_current(collector); }
+
+  auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs) -> PointIterable;
 
  private:
   // Only PointIndexStorage can make these

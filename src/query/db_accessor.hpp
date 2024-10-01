@@ -262,6 +262,11 @@ class DbAccessor final {
     return VerticesIterable(accessor_->Vertices(label, property, lower, upper, view));
   }
 
+  auto PointVertices(storage::View view, storage::LabelId label, storage::PropertyId property,
+                     storage::CoordinateReferenceSystem crs) -> storage::PointIterable {
+    return accessor_->PointVertices(view, label, property, crs);
+  }
+
   EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type) {
     return EdgesIterable(accessor_->Edges(edge_type, view));
   }

@@ -3005,4 +3005,9 @@ void InMemoryStorage::InMemoryAccessor::DropGraph() {
   memory::PurgeUnusedMemory();
 }
 
+auto InMemoryStorage::InMemoryAccessor::PointVertices(View view, LabelId label, PropertyId property,
+                                                      CoordinateReferenceSystem crs) -> PointIterable {
+  return transaction_.point_index_ctx_.PointVertices(label, property, crs);
+};
+
 }  // namespace memgraph::storage

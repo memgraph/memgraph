@@ -241,6 +241,9 @@ class DiskStorage final : public Storage {
         LabelId label, PropertyId property, TypeConstraintKind type) override;
 
     void DropGraph() override;
+
+    auto PointVertices(View view, LabelId label, PropertyId property, CoordinateReferenceSystem crs)
+        -> PointIterable override;
   };
 
   using Storage::Access;

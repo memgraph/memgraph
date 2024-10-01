@@ -324,6 +324,24 @@ void PointIndexContext::update_current(PointIndexChangeCollector &collector) {
   collector.ArchiveCurrentChanges();
 }
 
+auto PointIndexContext::PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs)
+    -> PointIterable {
+  auto const &indexes = *current_indexes_;
+  auto it = indexes.find(LabelPropKey{label, property});
+  if (it == indexes.cend()) {
+    spdlog::warn("Failure why trying to locate a point index that should exist");
+    return {};
+  }
+
+  auto const &point_index = *it->second;
+
+  point_index.
+
+      //    point_index
+      //    return {it->second
+      return {};
+}
+
 PointIndex::PointIndex(std::span<Entry<IndexPointWGS2d>> points2dWGS,
                        std::span<Entry<IndexPointCartesian2d>> points2dCartesian,
                        std::span<Entry<IndexPointWGS3d>> points3dWGS,
