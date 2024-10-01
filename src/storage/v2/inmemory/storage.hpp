@@ -441,6 +441,9 @@ class InMemoryStorage final : public Storage {
 
     void DropGraph() override;
 
+    auto PointVertices(View view, LabelId label, PropertyId property, CoordinateReferenceSystem crs)
+        -> PointIterable override;
+
    protected:
     // TODO Better naming
     /// @throw std::bad_alloc
