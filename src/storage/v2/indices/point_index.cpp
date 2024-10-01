@@ -11,6 +11,7 @@
 
 #include "storage/v2/indices/point_index.hpp"
 #include "storage/v2/indices/point_index_change_collector.hpp"
+#include "storage/v2/indices/point_iterator.hpp"
 #include "storage/v2/vertex.hpp"
 
 #include <boost/geometry.hpp>
@@ -87,6 +88,11 @@ struct PointIndex {
   auto EntryCount() const -> std::size_t {
     return wgs_2d_index_->size() + wgs_3d_index_->size() + cartesian_2d_index_->size() + cartesian_3d_index_->size();
   }
+
+  auto GetWgs2dIndex() const -> std::shared_ptr<index_t<IndexPointWGS2d>> { return wgs_2d_index_; }
+  auto GetWgs3dIndex() const -> std::shared_ptr<index_t<IndexPointWGS3d>> { return wgs_3d_index_; }
+  auto GetCartesian2dIndex() const -> std::shared_ptr<index_t<IndexPointCartesian2d>> { return cartesian_2d_index_; }
+  auto GetCartesian3dIndex() const -> std::shared_ptr<index_t<IndexPointCartesian3d>> { return cartesian_3d_index_; }
 
  private:
   PointIndex(std::shared_ptr<index_t<IndexPointWGS2d>> points2dWGS,
@@ -334,12 +340,7 @@ auto PointIndexContext::PointVertices(LabelId label, PropertyId property, Coordi
   }
 
   auto const &point_index = *it->second;
-
-  point_index.
-
-      //    point_index
-      //    return {it->second
-      return {};
+  return {point_index, crs};
 }
 
 PointIndex::PointIndex(std::span<Entry<IndexPointWGS2d>> points2dWGS,
@@ -361,5 +362,70 @@ PointIndex::PointIndex(std::shared_ptr<index_t<IndexPointWGS2d>> points2dWGS,
       wgs_3d_index_{std::move(points3dWGS)},
       cartesian_2d_index_{std::move(points2dCartesian)},
       cartesian_3d_index_{std::move(points3dCartesian)} {}
+
+struct PointIterable::impl {
+  explicit impl(std::shared_ptr<index_t<IndexPointWGS2d>> index)
+      : crs_{CoordinateReferenceSystem::WGS84_2d}, wgs84_2d_{std::move(index)} {}
+  explicit impl(std::shared_ptr<index_t<IndexPointWGS3d>> index)
+      : crs_{CoordinateReferenceSystem::WGS84_3d}, wgs84_3d_{std::move(index)} {}
+  explicit impl(std::shared_ptr<index_t<IndexPointCartesian2d>> index)
+      : crs_{CoordinateReferenceSystem::Cartesian_2d}, cartesian_2d_{std::move(index)} {}
+  explicit impl(std::shared_ptr<index_t<IndexPointCartesian3d>> index)
+      : crs_{CoordinateReferenceSystem::Cartesian_3d}, cartesian_3d_{std::move(index)} {}
+
+  ~impl() {
+    switch (crs_) {
+      case CoordinateReferenceSystem::WGS84_2d:
+        std::destroy_at(&wgs84_2d_);
+        break;
+      case CoordinateReferenceSystem::WGS84_3d:
+        std::destroy_at(&wgs84_3d_);
+        break;
+      case CoordinateReferenceSystem::Cartesian_2d:
+        std::destroy_at(&cartesian_2d_);
+        break;
+      case CoordinateReferenceSystem::Cartesian_3d:
+        std::destroy_at(&cartesian_3d_);
+        break;
+    }
+  }
+
+ private:
+  CoordinateReferenceSystem crs_;
+  union {
+    std::shared_ptr<index_t<IndexPointWGS2d>> wgs84_2d_;
+    std::shared_ptr<index_t<IndexPointWGS3d>> wgs84_3d_;
+    std::shared_ptr<index_t<IndexPointCartesian2d>> cartesian_2d_;
+    std::shared_ptr<index_t<IndexPointCartesian3d>> cartesian_3d_;
+  };
+};
+
+PointIterable::PointIterable() : pimpl{nullptr} {};
+PointIterable::~PointIterable() = default;
+PointIterable::PointIterable(PointIterable &&) = default;
+PointIterable &PointIterable::operator=(PointIterable &&) = default;
+PointIterable::PointIterable(PointIndex const &index, storage::CoordinateReferenceSystem crs) {
+  switch (crs) {
+    case CoordinateReferenceSystem::WGS84_2d: {
+      pimpl = std::make_unique<impl>(index.GetWgs2dIndex());
+      return;
+    }
+    case CoordinateReferenceSystem::WGS84_3d: {
+      pimpl = std::make_unique<impl>(index.GetWgs3dIndex());
+      return;
+    }
+    case CoordinateReferenceSystem::Cartesian_2d: {
+      pimpl = std::make_unique<impl>(index.GetCartesian2dIndex());
+      return;
+    }
+    case CoordinateReferenceSystem::Cartesian_3d: {
+      pimpl = std::make_unique<impl>(index.GetCartesian3dIndex());
+      return;
+    }
+  }
+}
+
+auto PointIterable::begin() const -> PointIterator { return PointIterator{}; }
+auto PointIterable::end() const -> PointIterator { return PointIterator{}; }
 
 }  // namespace memgraph::storage

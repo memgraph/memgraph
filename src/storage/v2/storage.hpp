@@ -448,7 +448,7 @@ class Storage {
       return storage_->enum_store_.ToEnum(enum_str);
     }
 
-    auto PointVertices(View view, LabelId label, PropertyId property, CoordinateReferenceSystem crs)
+    virtual auto PointVertices(View view, LabelId label, PropertyId property, CoordinateReferenceSystem crs)
         -> PointIterable = 0;
 
    protected:
