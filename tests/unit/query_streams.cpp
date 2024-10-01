@@ -133,6 +133,7 @@ class StreamsTestFixture : public ::testing::Test {
   std::optional<StreamsTest> proxyStreams_;
 
   void TearDown() override {
+    db_->StopAllBackgroundTasks();
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
       disk_test_utils::RemoveRocksDbDirs(testSuite);
     }
