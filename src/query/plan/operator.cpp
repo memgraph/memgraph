@@ -6390,12 +6390,35 @@ UniqueCursorPtr ScanAllByPointDistance::MakeCursor(utils::MemoryResource *mem) c
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByPointDistanceOperator);
   MG_ASSERT(false, "TODO");
 
-  //  auto vertices = [this](Frame &, ExecutionContext &context) {
-  //    auto *db = context.db_accessor;
-  //    return std::make_optional(db->Vertices(view_, label_));
-  //  };
-  //  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
-  //                                                                view_, std::move(vertices), "ScanAllByLabel");
+  auto vertices = [this](Frame &, ExecutionContext &context) {
+    auto *db = context.db_accessor;
+
+    auto evaluator = PrimitiveLiteralExpressionEvaluator{context.evaluation_context};
+
+    auto value = evaluator.Visit(*cmp_value_);
+
+    auto crs = std::invoke([&]() -> std::optional<storage::CoordinateReferenceSystem> {
+      switch (value.type()) {
+        using enum TypedValue::Type;
+        case TypedValue::Type::Point2d: {
+          return value.ValuePoint2d().crs();
+        }
+        case TypedValue::Type::Point3d: {
+          return value.ValuePoint3d().crs();
+        }
+        default: {
+          return std::nullopt;
+        }
+      }
+    });
+
+    if (!crs) return std::nullopt;
+
+    // TODO: need to work out View::New
+    return std::make_optional(db->PointVertices(storage::View::OLD, label_, property_, *crs));
+  };
+  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
+                                                                view_, std::move(vertices), "ScanAllByPointDistance");
 
   return nullptr;
 }
