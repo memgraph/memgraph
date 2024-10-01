@@ -1070,6 +1070,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         filters_.EraseFilter(filter);
         std::vector<Expression *> removed_expressions;  // out parameter
         filters_.EraseLabelFilter(node_symbol, found_index->label, &removed_expressions);
+        filter_exprs_for_removal_.insert(filter.expression);
         filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
 
         switch (point_filter.function_) {
