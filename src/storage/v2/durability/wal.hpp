@@ -103,6 +103,7 @@ struct WalDeltaData {
     Gid gid;
     std::string property;
     PropertyValue value;
+    Gid from_gid;  //!< Used only for edges (simplifies the edge search)
   } vertex_edge_set_property;
 
   struct {
@@ -248,13 +249,13 @@ uint64_t ReadWalDeltaHeader(BaseDecoder *decoder);
 /// read delta data. The WAL delta header must be read before calling this
 /// function.
 /// @throw RecoveryFailure
-WalDeltaData ReadWalDeltaData(BaseDecoder *decoder);
+WalDeltaData ReadWalDeltaData(BaseDecoder *decoder, uint64_t version = kVersion);
 
 /// Function used to skip the current WAL delta data. The function returns the
 /// skipped delta type. The WAL delta header must be read before calling this
 /// function.
 /// @throw RecoveryFailure
-WalDeltaData::Type SkipWalDeltaData(BaseDecoder *decoder);
+WalDeltaData::Type SkipWalDeltaData(BaseDecoder *decoder, uint64_t version = kVersion);
 
 /// Function used to encode a `Delta` that originated from a `Vertex`.
 void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, SalientConfig::Items items, const Delta &delta,

@@ -41,11 +41,11 @@ using memgraph::storage::durability::WalDeltaData;
 
 namespace memgraph::dbms {
 namespace {
-std::pair<uint64_t, WalDeltaData> ReadDelta(storage::durability::BaseDecoder *decoder) {
+std::pair<uint64_t, WalDeltaData> ReadDelta(storage::durability::BaseDecoder *decoder, const uint64_t version) {
   try {
     auto timestamp = ReadWalDeltaHeader(decoder);
     spdlog::trace("       Timestamp {}", timestamp);
-    auto delta = ReadWalDeltaData(decoder);
+    auto delta = ReadWalDeltaData(decoder, version);
     return {timestamp, delta};
   } catch (const slk::SlkReaderException &) {
     throw utils::BasicException("Missing data!");
@@ -226,10 +226,10 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
     bool transaction_complete = false;
     while (!transaction_complete) {
       SPDLOG_INFO("Skipping delta");
-      const auto [timestamp, delta] = ReadDelta(&decoder);
-      transaction_complete = storage::durability::IsWalDeltaDataTypeTransactionEnd(
-          delta.type,
-          storage::durability::kVersion);  // TODO: Check if we are always using the latest version when replicating
+      // TODO: Check if we are always using the latest version when replicating
+      const auto [timestamp, delta] = ReadDelta(&decoder, storage::durability::kVersion);
+      transaction_complete =
+          storage::durability::IsWalDeltaDataTypeTransactionEnd(delta.type, storage::durability::kVersion);
     }
 
     const storage::replication::AppendDeltasRes res{false, repl_storage_state.last_durable_timestamp_.load()};
@@ -593,7 +593,7 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
   auto max_delta_timestamp = storage->repl_storage_state_.last_durable_timestamp_.load();
   auto current_durable_commit_timestamp = max_delta_timestamp;
   for (bool transaction_complete = false; !transaction_complete; ++current_delta_idx) {
-    const auto [delta_timestamp, delta] = ReadDelta(decoder);
+    const auto [delta_timestamp, delta] = ReadDelta(decoder, version);
     if (delta_timestamp > max_delta_timestamp) {
       max_delta_timestamp = delta_timestamp;
     }
@@ -757,6 +757,7 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
         // type and invalid from/to pointers because we don't know them
         // here, but that isn't an issue because we won't use that part of
         // the API here.
+        // TODO add from to v
         auto ea = EdgeAccessor{edge_ref, EdgeTypeId::FromUint(0UL),     nullptr, nullptr,
                                storage,  &transaction->GetTransaction()};
 
