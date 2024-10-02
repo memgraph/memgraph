@@ -7,7 +7,7 @@ SUPPORTED_OS=(
     debian-10 debian-11 debian-11-arm debian-12 debian-12-arm
     fedora-36 fedora-38 fedora-39
     rocky-9.3
-    ubuntu-18.04 ubuntu-20.04 ubuntu-22.04 ubuntu-22.04-arm
+    ubuntu-18.04 ubuntu-20.04 ubuntu-22.04 ubuntu-22.04-arm ubuntu-24.04 ubuntu-24.04-arm
 )
 
 # Define toolchain download URLs for supported OS and architectures
@@ -27,6 +27,8 @@ declare -A TOOLCHAIN_URLS=(
     [ubuntu-22.04]="https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v5/toolchain-v5-binaries-ubuntu-22.04-amd64.tar.gz"
     [ubuntu-22.04-arm]="https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v5/toolchain-v5-binaries-ubuntu-22.04-arm64.tar.gz"
     [rocky-9.3]="https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v5/toolchain-v5-binaries-rocky-9.3-amd64.tar.gz"
+    [ubuntu-24.04]="https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v5/toolchain-v5-binaries-ubuntu-24.04-amd64.tar.gz"
+    [ubuntu-24.04-arm]="https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v5/toolchain-v5-binaries-ubuntu-24.04-arm64.tar.gz"
 )
 
 # Check for help argument before processing others
