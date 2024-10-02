@@ -16,7 +16,7 @@
 
 (defn random-nonempty-subset
   "Return a random nonempty subset of the input collection. Relies on the fact that first 3 instances from the collection are data instances
-  and last 3 are coordinators. It kills a random subset of data instances and with 50% probability 1 coordinator."
+  and last 3 are coordinators. It kills a random subset of data instances and coordinators."
   [coll]
   (let [data-instances (take 3 coll)
         coords (take-last 3 coll)

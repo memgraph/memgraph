@@ -3,8 +3,10 @@
   (:require [jepsen
              [nemesis :as nemesis]
              [generator :as gen]
+             [net :as net]
              [util :as util]
              [control :as c]]
+            [jepsen.nemesis.combined :as nemesis-combined]
             [clojure.tools.logging :refer [info]]
             [clojure.string :as str]
             [memgraph.high-availability.utils :as hautils]
@@ -91,7 +93,7 @@
         (if (= 1 (count leaders))
           (first leaders)
           (throw (Exception. "Expected exactly one leader.")))
-        leader-name (extract-coord-name (:bolt_server leader)) ]
+        leader-name (extract-coord-name (:bolt_server leader))]
     leader-name))
 
 (defn choose-node-to-kill
@@ -120,33 +122,74 @@
         node-to-kill))))
 
 (defn node-killer
-  "Responds to :start by killing a random node"
+  "Responds to :start by killing a random node."
   [nodes-config]
   (node-start-stopper choose-node-to-kill
                       s/stop-node!
                       s/start-memgraph-node!
                       nodes-config))
 
+(defn network-disruptor
+  "Responds to :start by disrupting network on chosen nodes and to :stop by restoring network configuration."
+  [db]
+  (nemesis-combined/packet-nemesis db))
+
 (defn full-nemesis
   "Can kill, restart all processess and initiate network partitions."
-  [nodes-config]
+  [db nodes-config]
   (nemesis/compose
    {{:kill-node    :start
-     :heal-node :stop} (node-killer nodes-config)}))
+     :heal-node :stop} (node-killer nodes-config)
 
-(defn nemesis-generator
-  "Construct nemesis generator."
-  []
-  (gen/phases
-   (gen/sleep 5)
-   (cycle [{:type :info, :f :kill-node}
-           (gen/sleep 10)
-           {:type :info, :f :heal-node}
-           (gen/sleep 20)])))
+    {:start-partition-halves :start
+     :stop-partition-halves :stop} (nemesis/partition-random-halves)
+
+    {:start-partition-ring :start
+     :stop-partition-ring :stop} (nemesis/partition-majorities-ring)
+
+    {:start-partition-node :start
+     :stop-partition-node :stop} (nemesis/partition-random-node)
+
+    {:start-network-disruption :start-packet
+     :stop-network-disruption :stop-packet} (network-disruptor db)}))
+
+(defn nemesis-events
+  "Create a random sequence of nemesis events. Disruptions last 1-30 seconds, and the system remains undisrupted for some time afterwards."
+  [nodes-config]
+  (let [events [[{:type :info :f :start-partition-halves}
+                 (gen/sleep (+ 10 (rand-int 51))) ; [10, 60]
+                 {:type :info :f :stop-partition-halves}
+                 (gen/sleep 5)]
+
+                [{:type :info :f :start-partition-ring}
+                 (gen/sleep (+ 10 (rand-int 51))) ; [10, 60]
+                 {:type :info :f :stop-partition-ring}
+                 (gen/sleep 5)]
+
+                [{:type :info :f :start-partition-node}
+                 (gen/sleep (+ 10 (rand-int 51))) ; [10, 60]
+                 {:type :info :f :stop-partition-node}
+                 (gen/sleep 5)]
+
+                [{:type :info :f :kill-node}
+                 (gen/sleep (+ 10 (rand-int 51))) ; [10, 60]
+                 {:type :info :f :heal-node}
+                 (gen/sleep 5)]
+
+                [{:type :info :f :start-network-disruption :value [(keys nodes-config) net/all-packet-behaviors]}
+                 (gen/sleep (+ 10 (rand-int 51))) ; [10, 60]
+                 {:type :info :f :stop-network-disruption}
+                 (gen/sleep 5)]]]
+
+    (mapcat identity (repeatedly #(rand-nth events)))))
 
 (defn create
-  "Create a map which contains a nemesis configuration for running HA bank test."
-  [nodes-config]
-  {:nemesis (full-nemesis nodes-config)
-   :generator (nemesis-generator)
-   :final-generator (map utils/op [:heal-node])})
+  "Create a map which contains a nemesis configuration for running HA create test."
+  [db nodes-config]
+  {:nemesis (full-nemesis db nodes-config)
+   :generator (gen/phases
+               (gen/sleep 5) ; Enough time for cluster setup to finish
+               (nemesis-events nodes-config))
+   :final-generator (map utils/op [:stop-partition-ring :stop-partition-halves :stop-partition-node :heal-node :stop-network-disruption])})
+
+; TODO: (andi) Which type did you actually get if not vector?

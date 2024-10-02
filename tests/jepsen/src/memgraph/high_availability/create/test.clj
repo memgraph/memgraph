@@ -539,6 +539,7 @@
   "Basic HA workload."
   [opts]
   (let [nodes-config (:nodes-config opts)
+        db (:db opts)
         first-leader (random-coord (keys nodes-config))
         first-main (random-data-instance (keys nodes-config))
         organization (:organization opts)
@@ -549,4 +550,4 @@
                   :timeline (timeline/html)})
      :generator (client-generator)
      :final-generator {:clients (gen/each-thread (gen/once get-nodes)) :recovery-time 30}
-     :nemesis-config (nemesis/create nodes-config)}))
+     :nemesis-config (nemesis/create db nodes-config)}))
