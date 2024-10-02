@@ -145,7 +145,7 @@ struct Transaction {
   /// Tracks changes relevant to point index (used during Commit/AdvanceCommand)
   PointIndexChangeCollector point_index_change_collector_;
   /// Tracking schema changes done during the transaction
-  SchemaTracking<std::unordered_map> schema_diff_;
+  LocalSchemaTracking schema_diff_;
   std::unordered_set<PostProcessPOC> post_process_;
 };
 

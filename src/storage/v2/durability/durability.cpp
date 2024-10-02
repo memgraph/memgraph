@@ -365,7 +365,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
     std::string *uuid, ReplicationStorageState &repl_storage_state, utils::SkipList<Vertex> *vertices,
     utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata, std::atomic<uint64_t> *edge_count,
     NameIdMapper *name_id_mapper, Indices *indices, Constraints *constraints, Config const &config,
-    uint64_t *wal_seq_num, EnumStore *enum_store, SchemaTracking<> *schema_info,
+    uint64_t *wal_seq_num, EnumStore *enum_store, SharedSchemaTracking *schema_info,
     std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   spdlog::info("Recovering persisted data using snapshot ({}) and WAL directory ({}).", snapshot_directory_,

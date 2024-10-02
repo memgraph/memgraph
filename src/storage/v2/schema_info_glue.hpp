@@ -16,7 +16,7 @@
 #include "storage/v2/transaction.hpp"
 
 namespace memgraph::storage {
-inline std::optional<SchemaInfo::AnyAccessor> SchemaInfoAccessor(Storage *storage, Transaction *transaction) {
+inline std::optional<SchemaInfo::ModifyingAccessor> SchemaInfoAccessor(Storage *storage, Transaction *transaction) {
   if (!storage->config_.salient.items.enable_schema_info) return std::nullopt;
   const auto prop_on_edges = storage->config_.salient.items.properties_on_edges;
   if (storage->GetStorageMode() == StorageMode::IN_MEMORY_TRANSACTIONAL) {
@@ -25,7 +25,8 @@ inline std::optional<SchemaInfo::AnyAccessor> SchemaInfoAccessor(Storage *storag
   return storage->schema_info_.CreateVertexModifyingAccessor(prop_on_edges);
 }
 
-inline std::optional<SchemaInfo::AnyAccessor> SchemaInfoUniqueAccessor(Storage *storage, Transaction *transaction) {
+inline std::optional<SchemaInfo::ModifyingAccessor> SchemaInfoUniqueAccessor(Storage *storage,
+                                                                             Transaction *transaction) {
   if (!storage->config_.salient.items.enable_schema_info) return std::nullopt;
   const auto prop_on_edges = storage->config_.salient.items.properties_on_edges;
   if (storage->GetStorageMode() == StorageMode::IN_MEMORY_TRANSACTIONAL) {

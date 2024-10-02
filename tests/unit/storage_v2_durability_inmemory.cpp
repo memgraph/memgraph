@@ -913,7 +913,7 @@ class DurabilityTest : public ::testing::TestWithParam<TestSetup> {
     }
 
     if (enable_schema_info) {
-      const auto schema_json = store->SchemaInfoReadAccessor().ToJson(*store->name_id_mapper_, store->enum_store_);
+      const auto schema_json = store->schema_info_.ToJson(*store->name_id_mapper_, store->enum_store_);
       switch (type) {
         using enum DatasetType;
         case ONLY_BASE: {

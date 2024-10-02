@@ -13,7 +13,6 @@
 
 #include "storage/v2/schema_info_types.hpp"
 
-#include <algorithm>
 #include <boost/container_hash/hash_fwd.hpp>
 #include <cstdint>
 #include <mutex>
@@ -28,8 +27,8 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
-#include "storage/v2/storage_mode.hpp"
 #include "storage/v2/vertex.hpp"
+#include "utils/conccurent_unordered_map.hpp"
 #include "utils/logging.hpp"
 #include "utils/rw_spin_lock.hpp"
 #include "utils/small_vector.hpp"
@@ -38,10 +37,40 @@
 
 namespace memgraph::storage {
 
-template <template <class...> class TContainer = utils::ConcurrentUnorderedMap>
-struct SchemaTracking {
-  TrackingInfo<TContainer> &edge_lookup(const EdgeKeyRef &key);
+struct SchemaTrackingInterface {
+  SchemaTrackingInterface() = default;
+  virtual ~SchemaTrackingInterface() = default;
+  SchemaTrackingInterface(const SchemaTrackingInterface &) = default;
+  SchemaTrackingInterface &operator=(const SchemaTrackingInterface &) = default;
+  SchemaTrackingInterface(SchemaTrackingInterface &&) = default;
+  SchemaTrackingInterface &operator=(SchemaTrackingInterface &&) = default;
 
+  virtual void Clear() = 0;
+  virtual nlohmann::json ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store) const = 0;
+  virtual void RecoverVertex(Vertex *vertex) = 0;
+  virtual void RecoverEdge(EdgeTypeId edge_type, EdgeRef edge, Vertex *from, Vertex *to, bool prop_on_edges) = 0;
+  virtual void AddVertex(Vertex *vertex) = 0;
+  virtual void DeleteVertex(Vertex *vertex) = 0;
+  virtual void UpdateLabels(Vertex *vertex, const utils::small_vector<LabelId> &old_labels,
+                            const utils::small_vector<LabelId> &new_labels) = 0;
+  virtual void UpdateLabels(Vertex *vertex, const utils::small_vector<LabelId> &old_labels,
+                            const utils::small_vector<LabelId> &new_labels, bool prop_on_edges) = 0;
+  virtual void CreateEdge(Vertex *from, Vertex *to, EdgeTypeId edge_type) = 0;
+  virtual void DeleteEdge(EdgeTypeId edge_type, EdgeRef edge, Vertex *from, Vertex *to, bool prop_on_edges) = 0;
+  virtual void SetProperty(Vertex *vertex, PropertyId property, const ExtendedPropertyType &now,
+                           const ExtendedPropertyType &before) = 0;
+  virtual void SetProperty(EdgeTypeId type, Vertex *from, Vertex *to, PropertyId property,
+                           const ExtendedPropertyType &now, const ExtendedPropertyType &before, bool prop_on_edges) = 0;
+};
+
+template <template <class...> class TContainer = utils::ConcurrentUnorderedMap>
+struct SchemaTracking;
+
+using LocalSchemaTracking = SchemaTracking<std::unordered_map>;
+using SharedSchemaTracking = SchemaTracking<utils::ConcurrentUnorderedMap>;
+
+template <template <class...> class TContainer>
+struct SchemaTracking final : public SchemaTrackingInterface {
   /**
    * @brief Process transaction (deltas) in order to update the schema.
    *
@@ -57,7 +86,7 @@ struct SchemaTracking {
   /**
    * @brief Clear all schema statistics.
    */
-  void Clear() {
+  void Clear() override {
     vertex_state_.clear();
     edge_state_.clear();
   }
@@ -76,114 +105,150 @@ struct SchemaTracking {
    */
   size_t NumberOfEdges() const { return edge_state_.size(); }
 
-  nlohmann::json ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store);
+  nlohmann::json ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store) const override;
 
-  void RecoverVertex(Vertex *vertex);
+  void RecoverVertex(Vertex *vertex) override;
 
-  void RecoverEdge(EdgeTypeId edge_type, EdgeRef edge, Vertex *from, Vertex *to, bool prop_on_edges);
+  void RecoverEdge(EdgeTypeId edge_type, EdgeRef edge, Vertex *from, Vertex *to, bool prop_on_edges) override;
 
-  void AddVertex(Vertex *vertex) { ++vertex_state_[vertex->labels].n; }
+  void AddVertex(Vertex *vertex) override { ++vertex_state_[vertex->labels].n; }
 
-  void DeleteVertex(Vertex *vertex);
-
-  void UpdateLabels(Vertex *vertex, const utils::small_vector<LabelId> &old_labels,
-                    const utils::small_vector<LabelId> &new_labels);
+  void DeleteVertex(Vertex *vertex) override;
 
   void UpdateLabels(Vertex *vertex, const utils::small_vector<LabelId> &old_labels,
-                    const utils::small_vector<LabelId> &new_labels, bool prop_on_edges);
+                    const utils::small_vector<LabelId> &new_labels) override;
 
-  void CreateEdge(Vertex *from, Vertex *to, EdgeTypeId edge_type);
+  void UpdateLabels(Vertex *vertex, const utils::small_vector<LabelId> &old_labels,
+                    const utils::small_vector<LabelId> &new_labels, bool prop_on_edges) override;
 
-  void DeleteEdge(EdgeTypeId edge_type, EdgeRef edge, Vertex *from, Vertex *to, bool prop_on_edges);
+  void CreateEdge(Vertex *from, Vertex *to, EdgeTypeId edge_type) override;
+
+  void DeleteEdge(EdgeTypeId edge_type, EdgeRef edge, Vertex *from, Vertex *to, bool prop_on_edges) override;
 
   void SetProperty(auto &tracking_info, PropertyId property, const ExtendedPropertyType &now,
                    const ExtendedPropertyType &before);
 
   void SetProperty(Vertex *vertex, PropertyId property, const ExtendedPropertyType &now,
-                   const ExtendedPropertyType &before) {
+                   const ExtendedPropertyType &before) override {
     auto &tracking_info = vertex_state_[vertex->labels];
     SetProperty(tracking_info, property, now, before);
   }
 
+  void SetProperty(Vertex *vertex, PropertyId property, const ExtendedPropertyType &now,
+                   const ExtendedPropertyType &before, auto &&guard) {
+    auto &tracking_info = vertex_state_[vertex->labels];
+    if (guard.owns_lock()) guard.unlock();
+    SetProperty(tracking_info, property, now, before);
+  }
+
   void SetProperty(EdgeTypeId type, Vertex *from, Vertex *to, PropertyId property, const ExtendedPropertyType &now,
-                   const ExtendedPropertyType &before, bool prop_on_edges) {
+                   const ExtendedPropertyType &before, bool prop_on_edges) override {
     if (prop_on_edges) {
       auto &tracking_info = edge_lookup(EdgeKeyRef{type, from->labels, to->labels});
       SetProperty(tracking_info, property, now, before);
     }
   }
 
+  void SetProperty(EdgeTypeId type, Vertex *from, Vertex *to, PropertyId property, const ExtendedPropertyType &now,
+                   const ExtendedPropertyType &before, bool prop_on_edges, auto &&guard, auto &&other_guard) {
+    if (prop_on_edges) {
+      auto &tracking_info = edge_lookup(EdgeKeyRef{type, from->labels, to->labels});
+      if (guard.owns_lock()) guard.unlock();
+      if (other_guard.owns_lock()) other_guard.unlock();
+      SetProperty(tracking_info, property, now, before);
+    }
+  }
+
+  void UpdateEdgeStats(EdgeRef edge_ref, EdgeTypeId edge_type, const VertexKey &new_from_labels,
+                       const VertexKey &new_to_labels, const VertexKey &old_from_labels, const VertexKey &old_to_labels,
+                       bool prop_on_edges) {
+    DMG_ASSERT(std::is_same_v<decltype(*this), LocalSchemaTracking>, "Using a local-only function on a shared object");
+    UpdateEdgeStats(edge_lookup({edge_type, new_from_labels, new_to_labels}),
+                    edge_lookup({edge_type, old_from_labels, old_to_labels}), edge_ref, prop_on_edges);
+  }
+
+  void UpdateEdgeStats(EdgeRef edge_ref, EdgeTypeId edge_type, const VertexKey &new_from_labels,
+                       const VertexKey &new_to_labels, const VertexKey &old_from_labels, const VertexKey &old_to_labels,
+                       auto &&from_lock, auto &&to_lock, bool prop_on_edges) {
+    DMG_ASSERT(std::is_same_v<decltype(*this), SharedSchemaTracking>, "Using a shared-only function on a local object");
+    // Lookup needs to happen while holding the locks, but the update itself does not
+    auto &new_tracking = edge_lookup({edge_type, new_from_labels, new_to_labels});
+    auto &old_tracking = edge_lookup({edge_type, old_from_labels, old_to_labels});
+    if (from_lock.owns_lock()) from_lock.unlock();
+    if (to_lock.owns_lock()) to_lock.unlock();
+    UpdateEdgeStats(new_tracking, old_tracking, edge_ref, prop_on_edges);
+  }
+
+  void UpdateEdgeStats(auto &new_tracking, auto &old_tracking, EdgeRef edge_ref, bool prop_on_edges) {
+    --old_tracking.n;
+    ++new_tracking.n;
+
+    if (prop_on_edges) {
+      // No need for edge lock since all edge property operations are unique access
+      for (const auto &[property, type] : edge_ref.ptr->properties.ExtendedPropertyTypes()) {
+        auto &old_info = old_tracking.properties[property];
+        --old_info.n;
+        --old_info.types[type];
+        auto &new_info = new_tracking.properties[property];
+        ++new_info.n;
+        ++new_info.types[type];
+      }
+    }
+  }
+
  private:
-  friend struct SchemaTracking<std::unordered_map>;
-  friend struct SchemaTracking<utils::ConcurrentUnorderedMap>;
+  friend LocalSchemaTracking;
+  friend SharedSchemaTracking;
+
+  TrackingInfo<TContainer> &edge_lookup(const EdgeKeyRef &key);
 
   TContainer<VertexKey, TrackingInfo<TContainer>> vertex_state_;  //!< vertex statistics
   TContainer<EdgeKey, TrackingInfo<TContainer>> edge_state_;      //!< edge statistics
 };
 
 struct SchemaInfo {
-  /**
-   * @brief Generic tracking info read accessor
-   */
-  class ReadAccessor {
-   public:
-    explicit ReadAccessor(SchemaInfo &si, StorageMode mode)
-        : schema_info_{&si},
-          transactional_lock_{schema_info_->operation_ordering_mutex_, std::defer_lock},
-          analytical_lock_{schema_info_->operation_ordering_mutex_, std::defer_lock} {
-      if (mode == StorageMode::IN_MEMORY_ANALYTICAL) {
-        analytical_lock_.lock();
-      } else {
-        transactional_lock_.lock();
-      }
-    }
+  // Snapshot guaranteeing functions
+  nlohmann::json ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store) const {
+    auto lock = std::shared_lock{operation_ordering_mutex_};  // No snapshot guarantees for ANALYTICAL
+    return tracking_.ToJson(name_id_mapper, enum_store);
+  }
 
-    const auto &Get() const { return schema_info_->tracking_; }
-    nlohmann::json ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store) {
-      return schema_info_->tracking_.ToJson(name_id_mapper, enum_store);
-    }
+  void ProcessTransaction(LocalSchemaTracking &tracking, std::unordered_set<PostProcessPOC> &post_process,
+                          uint64_t commit_ts, bool property_on_edges) {
+    auto lock = std::unique_lock{operation_ordering_mutex_};
+    tracking_.ProcessTransaction(tracking, post_process, commit_ts, property_on_edges);
+  }
 
-    size_t NumberOfVertices() const { return schema_info_->tracking_.NumberOfVertices(); }
-    size_t NumberOfEdges() const { return schema_info_->tracking_.NumberOfEdges(); }
+  void Clear() {
+    auto lock = std::unique_lock{operation_ordering_mutex_};
+    tracking_.Clear();
+  }
 
-   private:
-    SchemaInfo *schema_info_;
-    std::shared_lock<std::shared_mutex> transactional_lock_;
-    std::unique_lock<std::shared_mutex> analytical_lock_;
+  struct SchemaSize {
+    size_t n_vertices;
+    size_t n_edges;
   };
 
-  /**
-   * @brief Generic tracking info write accessor
-   */
-  class WriteAccessor {
-   public:
-    explicit WriteAccessor(SchemaInfo &si) : schema_info_{&si}, lock_{schema_info_->operation_ordering_mutex_} {}
+  SchemaSize Size() const {
+    auto lock = std::shared_lock{operation_ordering_mutex_};  // No snapshot guarantees for ANALYTICAL
+    return {tracking_.NumberOfVertices(), tracking_.NumberOfEdges()};
+  }
 
-    auto &Get() { return schema_info_->tracking_; }
-    void Clear() { schema_info_->tracking_.Clear(); }
+  // Raw reference
+  auto &Get() { return tracking_; }
 
-    template <template <class...> class TContainer>
-    void ProcessTransaction(SchemaTracking<TContainer> &tracking, std::unordered_set<PostProcessPOC> &post_process,
-                            uint64_t commit_ts, bool property_on_edges) {
-      schema_info_->tracking_.ProcessTransaction(tracking, post_process, commit_ts, property_on_edges);
-    }
-
-   private:
-    SchemaInfo *schema_info_;
-    std::unique_lock<std::shared_mutex> lock_;
-  };
-
+  // Advanced modification accessors
   class TransactionalEdgeModifyingAccessor {
    public:
-    TransactionalEdgeModifyingAccessor(SchemaTracking<std::unordered_map> &tracking,
-                                       std::unordered_set<PostProcessPOC> *post_process, bool prop_on_edges,
-                                       uint64_t commit_ts)
+    TransactionalEdgeModifyingAccessor(LocalSchemaTracking &tracking, std::unordered_set<PostProcessPOC> *post_process,
+                                       bool prop_on_edges, uint64_t commit_ts)
         : tracking_{&tracking},
           properties_on_edges_{prop_on_edges},
           commit_ts_{commit_ts},
           post_process_{post_process} {}
 
     void AddLabel(Vertex *vertex, LabelId label);
+
     void RemoveLabel(Vertex *vertex, LabelId label);
 
     void SetProperty(EdgeRef edge, EdgeTypeId type, Vertex *from, Vertex *to, PropertyId property,
@@ -196,7 +261,7 @@ struct SchemaInfo {
 
     void UpdateTransactionalEdges(Vertex *vertex, const utils::small_vector<LabelId> &old_labels);
 
-    SchemaTracking<std::unordered_map> *tracking_{};
+    LocalSchemaTracking *tracking_{};
     std::unique_lock<std::shared_mutex> ordering_lock_;  //!< Order guaranteeing lock
     bool properties_on_edges_{};                         //!< As defined by the storage configuration
     uint64_t commit_ts_{};
@@ -226,7 +291,7 @@ struct SchemaInfo {
     void UpdateAnalyticalEdges(Vertex *vertex, const utils::small_vector<LabelId> &old_labels,
                                std::unique_lock<utils::RWSpinLock> &&vertex_lock);
 
-    SchemaTracking<> *tracking_{};
+    SharedSchemaTracking *tracking_{};
     std::unique_lock<std::shared_mutex> ordering_lock_;  //!< Order guaranteeing lock
     bool properties_on_edges_{};                         //!< As defined by the storage configuration
   };
@@ -238,7 +303,6 @@ struct SchemaInfo {
    *
    * Use unique accessor when edge modification is needed; shared otherwise. (when not all objects are locked)
    */
-  template <template <class...> class TContainer>
   class VertexModifyingAccessor {
    public:
     // ANALYTICAL
@@ -246,99 +310,54 @@ struct SchemaInfo {
         : tracking_{&si.tracking_}, ordering_lock_{si.operation_ordering_mutex_}, properties_on_edges_(prop_on_edges) {}
 
     // TRANSACTIONAL
-    explicit VertexModifyingAccessor(SchemaTracking<TContainer> &tracking, bool prop_on_edges)
+    explicit VertexModifyingAccessor(LocalSchemaTracking &tracking, bool prop_on_edges)
         : tracking_{&tracking}, properties_on_edges_{prop_on_edges} {}
 
-    // Vertex
-    void CreateVertex(Vertex *vertex) { tracking_->AddVertex(vertex); }
+    void CreateVertex(Vertex *vertex);
 
-    void DeleteVertex(Vertex *vertex) {
-      DMG_ASSERT(vertex->lock.is_locked(), "Trying to read from an unlocked vertex; LINE {}", __LINE__);
-      tracking_->DeleteVertex(vertex);
-    }
+    void DeleteVertex(Vertex *vertex);
 
-    // Special case for vertex without any edges
-    void AddLabel(Vertex *vertex, LabelId label) {
-      DMG_ASSERT(vertex->lock.is_locked(), "Trying to read from an unlocked vertex; LINE {}", __LINE__);
-      // For vertex with edges, this needs to be a unique access....
-      DMG_ASSERT(vertex->in_edges.empty() && vertex->out_edges.empty(),
-                 "Trying to remove label from vertex with edges; LINE {}", __LINE__);
-      // Move all stats and edges to new label
-      auto old_labels = vertex->labels;
-      auto itr = std::find(old_labels.begin(), old_labels.end(), label);
-      DMG_ASSERT(itr != old_labels.end(), "Trying to recreate labels pre commit, but label not found!");
-      *itr = old_labels.back();
-      old_labels.pop_back();
-      tracking_->UpdateLabels(vertex, old_labels, vertex->labels);
-    }
+    void AddLabel(Vertex *vertex, LabelId label);
 
-    // Special case for vertex without any edges
-    void RemoveLabel(Vertex *vertex, LabelId label) {
-      DMG_ASSERT(vertex->lock.is_locked(), "Trying to read from an unlocked vertex; LINE {}", __LINE__);
-      // For vertex with edges, this needs to be a unique access....
-      DMG_ASSERT(vertex->in_edges.empty() && vertex->out_edges.empty(),
-                 "Trying to remove label from vertex with edges; LINE {}", __LINE__);
-      // Move all stats and edges to new label
-      auto old_labels = vertex->labels;
-      old_labels.push_back(label);
-      tracking_->UpdateLabels(vertex, old_labels, vertex->labels);
-    }
+    void RemoveLabel(Vertex *vertex, LabelId label);
 
-    void CreateEdge(Vertex *from, Vertex *to, EdgeTypeId edge_type) {
-      DMG_ASSERT(from->lock.is_locked(), "Trying to read from an unlocked vertex; LINE {}", __LINE__);
-      DMG_ASSERT(to->lock.is_locked(), "Trying to read from an unlocked vertex; LINE {}", __LINE__);
-      // Empty edge; just update the top level stats
-      tracking_->CreateEdge(from, to, edge_type);
-    }
+    void CreateEdge(Vertex *from, Vertex *to, EdgeTypeId edge_type);
 
-    void DeleteEdge(Vertex *from, Vertex *to, EdgeTypeId edge_type, EdgeRef edge) {
-      // Vertices changed by the tx ( no need to lock )
-      tracking_->DeleteEdge(edge_type, edge, from, to, properties_on_edges_);
-    }
+    void DeleteEdge(Vertex *from, Vertex *to, EdgeTypeId edge_type, EdgeRef edge);
 
-    void SetProperty(Vertex *vertex, PropertyId property, ExtendedPropertyType now, ExtendedPropertyType before) {
-      DMG_ASSERT(vertex->lock.is_locked(), "Trying to read from an unlocked vertex; LINE {}", __LINE__);
-      tracking_->SetProperty(vertex, property, now, before);
-    }
+    void SetProperty(Vertex *vertex, PropertyId property, ExtendedPropertyType now, ExtendedPropertyType before);
 
    private:
-    SchemaTracking<TContainer> *tracking_{};
+    SchemaTrackingInterface *tracking_{};
     std::shared_lock<std::shared_mutex> ordering_lock_;  //!< Order guaranteeing lock
     bool properties_on_edges_{};                         //!< As defined by the storage configuration
   };
 
-  ReadAccessor CreateReadAccessor(StorageMode mode) { return ReadAccessor{*this, mode}; }
-  WriteAccessor CreateWriteAccessor() { return WriteAccessor{*this}; }
+  using ModifyingAccessor =
+      std::variant<VertexModifyingAccessor, TransactionalEdgeModifyingAccessor, AnalyticalEdgeModifyingAccessor>;
 
-  using AnyAccessor =
-      std::variant<VertexModifyingAccessor<utils::ConcurrentUnorderedMap>, VertexModifyingAccessor<std::unordered_map>,
-                   TransactionalEdgeModifyingAccessor, AnalyticalEdgeModifyingAccessor>;
-
-  AnyAccessor CreateVertexModifyingAccessor(bool prop_on_edges) {
-    return VertexModifyingAccessor<utils::ConcurrentUnorderedMap>{*this, prop_on_edges};
+  ModifyingAccessor CreateVertexModifyingAccessor(bool prop_on_edges) {
+    return VertexModifyingAccessor{*this, prop_on_edges};
   }
 
-  AnyAccessor CreateEdgeModifyingAccessor(bool prop_on_edges) {
+  ModifyingAccessor CreateEdgeModifyingAccessor(bool prop_on_edges) {
     return AnalyticalEdgeModifyingAccessor{*this, prop_on_edges};
   }
 
-  static AnyAccessor CreateVertexModifyingAccessor(auto &tracking, bool prop_on_edges) {
-    return VertexModifyingAccessor<std::unordered_map>{tracking, prop_on_edges};
+  static ModifyingAccessor CreateVertexModifyingAccessor(auto &tracking, bool prop_on_edges) {
+    return VertexModifyingAccessor{tracking, prop_on_edges};
   }
-  static AnyAccessor CreateEdgeModifyingAccessor(auto &tracking, std::unordered_set<PostProcessPOC> *post_process,
-                                                 bool prop_on_edges, uint64_t commit_ts) {
+  static ModifyingAccessor CreateEdgeModifyingAccessor(auto &tracking, std::unordered_set<PostProcessPOC> *post_process,
+                                                       bool prop_on_edges, uint64_t commit_ts) {
     return TransactionalEdgeModifyingAccessor{tracking, post_process, prop_on_edges, commit_ts};
   }
 
  private:
-  friend ReadAccessor;
-  friend WriteAccessor;
-  friend VertexModifyingAccessor<std::unordered_map>;
-  friend VertexModifyingAccessor<utils::ConcurrentUnorderedMap>;
+  friend VertexModifyingAccessor;
   friend TransactionalEdgeModifyingAccessor;
   friend AnalyticalEdgeModifyingAccessor;
 
-  SchemaTracking<> tracking_;                           //!< Tracking schema stats
+  SharedSchemaTracking tracking_;                       //!< Tracking schema stats
   mutable std::shared_mutex operation_ordering_mutex_;  //!< Analytical operations ordering | Transactional RW control
 };
 

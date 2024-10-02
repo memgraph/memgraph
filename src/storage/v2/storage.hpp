@@ -593,9 +593,6 @@ class Storage {
   // Mutable methods only safe if we have UniqueAccess to this storage
   EnumStore enum_store_;
 
-  SchemaInfo::ReadAccessor SchemaInfoReadAccessor() { return schema_info_.CreateReadAccessor(storage_mode_); }
-  SchemaInfo::WriteAccessor SchemaInfoWriteAccessor() { return schema_info_.CreateWriteAccessor(); }
-
   SchemaInfo schema_info_;
 };
 

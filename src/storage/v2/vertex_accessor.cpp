@@ -126,7 +126,7 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
   // 2. lock vertex and check
   // 3. if unique lock is needed unlock both the vertex and accessor
   // 4. take unique access and re-lock vertex
-  std::optional<SchemaInfo::AnyAccessor> schema_acc;
+  std::optional<SchemaInfo::ModifyingAccessor> schema_acc;
   if (auto schema_shared_acc = SchemaInfoAccessor(storage_, transaction_); schema_shared_acc) {
     schema_acc = std::move(*schema_shared_acc);
   }
@@ -192,9 +192,7 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
   if (schema_acc) {
     std::visit(
         utils::Overloaded(
-            [&]<template <class...> class TContainer>(SchemaInfo::VertexModifyingAccessor<TContainer> & acc) {
-              acc.AddLabel(vertex_, label);
-            },
+            [&](SchemaInfo::VertexModifyingAccessor &acc) { acc.AddLabel(vertex_, label); },
             [&](SchemaInfo::AnalyticalEdgeModifyingAccessor &acc) { acc.AddLabel(vertex_, label, std::move(guard)); },
             [&](SchemaInfo::TransactionalEdgeModifyingAccessor &acc) { acc.AddLabel(vertex_, label); }),
         *schema_acc);
@@ -212,7 +210,7 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
   // 2. lock vertex and check
   // 3. if unique lock is needed unlock both the vertex and accessor
   // 4. take unique access and re-lock vertex
-  std::optional<SchemaInfo::AnyAccessor> schema_acc;
+  std::optional<SchemaInfo::ModifyingAccessor> schema_acc;
   if (auto schema_shared_acc = SchemaInfoAccessor(storage_, transaction_); schema_shared_acc) {
     schema_acc = std::move(*schema_shared_acc);
   }
@@ -253,9 +251,7 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
   // updated)
   if (schema_acc) {
     std::visit(utils::Overloaded(
-                   [&]<template <class...> class TContainer>(SchemaInfo::VertexModifyingAccessor<TContainer> & acc) {
-                     acc.RemoveLabel(vertex_, label);
-                   },
+                   [&](SchemaInfo::VertexModifyingAccessor &acc) { acc.RemoveLabel(vertex_, label); },
                    [&](SchemaInfo::AnalyticalEdgeModifyingAccessor &acc) {
                      acc.RemoveLabel(vertex_, label, std::move(guard));
                    },
@@ -391,40 +387,39 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
     CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, old_value);
     vertex->properties.SetProperty(property, new_value);
     if (schema_acc) {
-      std::visit(utils::Overloaded{
-                     [&]<template <class...> class TContainer>(SchemaInfo::VertexModifyingAccessor<TContainer> &acc) {
-                       acc.SetProperty(vertex, property, ExtendedPropertyType{new_value},
-                                       ExtendedPropertyType{old_value});
-    }
-    , [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+      std::visit(utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) {
+                                     acc.SetProperty(vertex, property, ExtendedPropertyType{new_value},
+                                                     ExtendedPropertyType{old_value});
+                                   },
+                                   [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
                  *schema_acc);
-}
+    }
 
-if (storage_->constraints_.HasTypeConstraints()) {
-  if (auto maybe_violation = storage_->constraints_.type_constraints_->Validate(*vertex_, property, new_value)) {
-    HandleTypeConstraintViolation(storage_, *maybe_violation);
+    if (storage_->constraints_.HasTypeConstraints()) {
+      if (auto maybe_violation = storage_->constraints_.type_constraints_->Validate(*vertex_, property, new_value)) {
+        HandleTypeConstraintViolation(storage_, *maybe_violation);
+      }
+    }
+
+    return false;
+  };
+
+  auto early_exit = utils::AtomicMemoryBlock(set_property_impl);
+  if (early_exit) {
+    return std::move(old_value);
   }
-}
 
-return false;
-};
+  if (transaction_->constraint_verification_info) {
+    if (!new_value.IsNull()) {
+      transaction_->constraint_verification_info->AddedProperty(vertex_);
+    } else {
+      transaction_->constraint_verification_info->RemovedProperty(vertex_);
+    }
+  }
+  storage_->indices_.UpdateOnSetProperty(property, new_value, vertex_, *transaction_);
+  transaction_->UpdateOnSetProperty(property, old_value, new_value, vertex_);
 
-auto early_exit = utils::AtomicMemoryBlock(set_property_impl);
-if (early_exit) {
   return std::move(old_value);
-}
-
-if (transaction_->constraint_verification_info) {
-  if (!new_value.IsNull()) {
-    transaction_->constraint_verification_info->AddedProperty(vertex_);
-  } else {
-    transaction_->constraint_verification_info->RemovedProperty(vertex_);
-  }
-}
-storage_->indices_.UpdateOnSetProperty(property, new_value, vertex_, *transaction_);
-transaction_->UpdateOnSetProperty(property, old_value, new_value, vertex_);
-
-return std::move(old_value);
 }
 
 Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
@@ -441,46 +436,45 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
 
   if (vertex_->deleted) return Error::DELETED_OBJECT;
   bool result{false};
-  utils::AtomicMemoryBlock([&result, &properties, storage = storage_, transaction = transaction_, vertex = vertex_,
-                            &schema_acc]() {
-    if (!vertex->properties.InitProperties(properties)) {
-      result = false;
-      return;
-    }
-    for (const auto &[property, new_value] : properties) {
-      CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, PropertyValue());
-      storage->indices_.UpdateOnSetProperty(property, new_value, vertex, *transaction);
-      transaction->UpdateOnSetProperty(property, PropertyValue{}, new_value, vertex);
-      if (transaction->constraint_verification_info) {
-        if (!new_value.IsNull()) {
-          transaction->constraint_verification_info->AddedProperty(vertex);
-        } else {
-          transaction->constraint_verification_info->RemovedProperty(vertex);
+  utils::AtomicMemoryBlock(
+      [&result, &properties, storage = storage_, transaction = transaction_, vertex = vertex_, &schema_acc]() {
+        if (!vertex->properties.InitProperties(properties)) {
+          result = false;
+          return;
         }
-      }
-      if (schema_acc) {
-        std::visit(utils::Overloaded{
-                       [&]<template <class...> class TContainer>(SchemaInfo::VertexModifyingAccessor<TContainer> &acc) {
-                         acc.SetProperty(vertex, property, ExtendedPropertyType{new_value}, ExtendedPropertyType{});
-      }
-      , [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }
-    },
-                   *schema_acc);
-      }
-}
-// TODO If not performant enough there is also InitProperty()
-if (storage->constraints_.HasTypeConstraints()) {
-  for (auto const &[property_id, property_value] : properties) {
-    if (auto maybe_violation =
-            storage->constraints_.type_constraints_->Validate(*vertex, property_id, property_value)) {
-      HandleTypeConstraintViolation(storage, *maybe_violation);
-    }
-  }
-}
-result = true;
-});
+        for (const auto &[property, new_value] : properties) {
+          CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, PropertyValue());
+          storage->indices_.UpdateOnSetProperty(property, new_value, vertex, *transaction);
+          transaction->UpdateOnSetProperty(property, PropertyValue{}, new_value, vertex);
+          if (transaction->constraint_verification_info) {
+            if (!new_value.IsNull()) {
+              transaction->constraint_verification_info->AddedProperty(vertex);
+            } else {
+              transaction->constraint_verification_info->RemovedProperty(vertex);
+            }
+          }
+          if (schema_acc) {
+            std::visit(utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) {
+                                           acc.SetProperty(vertex, property, ExtendedPropertyType{new_value},
+                                                           ExtendedPropertyType{});
+                                         },
+                                         [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+                       *schema_acc);
+          }
+        }
+        // TODO If not performant enough there is also InitProperty()
+        if (storage->constraints_.HasTypeConstraints()) {
+          for (auto const &[property_id, property_value] : properties) {
+            if (auto maybe_violation =
+                    storage->constraints_.type_constraints_->Validate(*vertex, property_id, property_value)) {
+              HandleTypeConstraintViolation(storage, *maybe_violation);
+            }
+          }
+        }
+        result = true;
+      });
 
-return result;
+  return result;
 }
 
 Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> VertexAccessor::UpdateProperties(
@@ -521,23 +515,22 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
         }
       }
       if (schema_acc) {
-        std::visit(utils::Overloaded{
-                       [&]<template <class...> class TContainer>(SchemaInfo::VertexModifyingAccessor<TContainer> &acc) {
-                         acc.SetProperty(vertex, id, ExtendedPropertyType{new_value}, ExtendedPropertyType{old_value});
-      }
-      , [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }
-    },
+        std::visit(utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) {
+                                       acc.SetProperty(vertex, id, ExtendedPropertyType{new_value},
+                                                       ExtendedPropertyType{old_value});
+                                     },
+                                     [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
                    *schema_acc);
       }
-}
-if (storage->constraints_.HasTypeConstraints()) {
-  if (auto maybe_violation = storage->constraints_.type_constraints_->Validate(*vertex)) {
-    HandleTypeConstraintViolation(storage, *maybe_violation);
-  }
-}
-});
+    }
+    if (storage->constraints_.HasTypeConstraints()) {
+      if (auto maybe_violation = storage->constraints_.type_constraints_->Validate(*vertex)) {
+        HandleTypeConstraintViolation(storage, *maybe_violation);
+      }
+    }
+  });
 
-return id_old_new_change.has_value() ? std::move(id_old_new_change.value()) : ReturnType{};
+  return id_old_new_change.has_value() ? std::move(id_old_new_change.value()) : ReturnType{};
 }
 
 Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
@@ -554,34 +547,33 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
 
   using ReturnType = decltype(vertex_->properties.Properties());
   std::optional<ReturnType> properties;
-  utils::AtomicMemoryBlock([storage = storage_, transaction = transaction_, vertex = vertex_, &properties,
-                            &schema_acc]() {
-    properties.emplace(vertex->properties.Properties());
-    if (!properties.has_value()) {
-      return;
-    }
-    auto new_value = PropertyValue();
-    for (const auto &[property, old_value] : *properties) {
-      CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, old_value);
-      storage->indices_.UpdateOnSetProperty(property, new_value, vertex, *transaction);
-      transaction->UpdateOnSetProperty(property, old_value, new_value, vertex);
-      if (schema_acc) {
-        std::visit(utils::Overloaded{
-                       [&]<template <class...> class TContainer>(SchemaInfo::VertexModifyingAccessor<TContainer> &acc) {
-                         acc.SetProperty(vertex, property, ExtendedPropertyType{}, ExtendedPropertyType{old_value});
-      }
-      , [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }
-    },
-                   *schema_acc);
-      }
-}
-if (transaction->constraint_verification_info) {
-  transaction->constraint_verification_info->RemovedProperty(vertex);
-}
-vertex->properties.ClearProperties();
-});
+  utils::AtomicMemoryBlock(
+      [storage = storage_, transaction = transaction_, vertex = vertex_, &properties, &schema_acc]() {
+        properties.emplace(vertex->properties.Properties());
+        if (!properties.has_value()) {
+          return;
+        }
+        auto new_value = PropertyValue();
+        for (const auto &[property, old_value] : *properties) {
+          CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, old_value);
+          storage->indices_.UpdateOnSetProperty(property, new_value, vertex, *transaction);
+          transaction->UpdateOnSetProperty(property, old_value, new_value, vertex);
+          if (schema_acc) {
+            std::visit(utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) {
+                                           acc.SetProperty(vertex, property, ExtendedPropertyType{},
+                                                           ExtendedPropertyType{old_value});
+                                         },
+                                         [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+                       *schema_acc);
+          }
+        }
+        if (transaction->constraint_verification_info) {
+          transaction->constraint_verification_info->RemovedProperty(vertex);
+        }
+        vertex->properties.ClearProperties();
+      });
 
-return properties.has_value() ? std::move(properties.value()) : ReturnType{};
+  return properties.has_value() ? std::move(properties.value()) : ReturnType{};
 }
 
 Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view) const {

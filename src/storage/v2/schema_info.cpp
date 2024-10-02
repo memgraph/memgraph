@@ -266,7 +266,7 @@ void SchemaTracking<TContainer>::ProcessTransaction(const SchemaTracking<TOtherC
 }
 
 template <template <class...> class TContainer>
-nlohmann::json SchemaTracking<TContainer>::ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store) {
+nlohmann::json SchemaTracking<TContainer>::ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store) const {
   auto json = nlohmann::json::object();
 
   // Handle NODES
@@ -438,7 +438,7 @@ void SchemaTracking<TContainer>::RecoverVertex(Vertex *vertex) {
 }
 
 template <>
-TrackingInfo<std::unordered_map> &SchemaTracking<std::unordered_map>::edge_lookup(const EdgeKeyRef &key) {
+TrackingInfo<std::unordered_map> &LocalSchemaTracking::edge_lookup(const EdgeKeyRef &key) {
   auto itr = edge_state_.find(key);
   if (itr != edge_state_.end()) return itr->second;
   auto [new_itr, _] =
@@ -447,8 +447,7 @@ TrackingInfo<std::unordered_map> &SchemaTracking<std::unordered_map>::edge_looku
 }
 
 template <>
-TrackingInfo<utils::ConcurrentUnorderedMap> &SchemaTracking<utils::ConcurrentUnorderedMap>::edge_lookup(
-    const EdgeKeyRef &key) {
+TrackingInfo<utils::ConcurrentUnorderedMap> &SharedSchemaTracking::edge_lookup(const EdgeKeyRef &key) {
   return edge_state_[key];
 }
 
@@ -561,27 +560,10 @@ void SchemaInfo::TransactionalEdgeModifyingAccessor::UpdateTransactionalEdges(
     }
 
     if (process_in_place) {
-      auto &old_tracking =
-          tracking_->edge_lookup(EdgeKeyRef(edge_type, (edge_dir == InEdge) ? other_vertex->labels : old_labels,
-                                            (edge_dir == InEdge) ? old_labels : other_vertex->labels));
-      auto &new_tracking =
-          tracking_->edge_lookup(EdgeKeyRef(edge_type, (edge_dir == InEdge) ? other_vertex->labels : vertex->labels,
-                                            (edge_dir == InEdge) ? vertex->labels : other_vertex->labels));
-
-      --old_tracking.n;
-      ++new_tracking.n;
-
-      if (properties_on_edges_) {
-        // No need for edge lock since all edge property operations are unique access
-        for (const auto &[property, type] : edge_ref.ptr->properties.ExtendedPropertyTypes()) {
-          auto &old_info = old_tracking.properties[property];
-          --old_info.n;
-          --old_info.types[type];
-          auto &new_info = new_tracking.properties[property];
-          ++new_info.n;
-          ++new_info.types[type];
-        }
-      }
+      tracking_->UpdateEdgeStats(edge_ref, edge_type, (edge_dir == InEdge) ? other_vertex->labels : vertex->labels,
+                                 (edge_dir == InEdge) ? vertex->labels : other_vertex->labels,
+                                 (edge_dir == InEdge) ? other_vertex->labels : old_labels,
+                                 (edge_dir == InEdge) ? old_labels : other_vertex->labels, properties_on_edges_);
     } else {  // Post process
       post_process_->emplace(edge_ref, edge_type, (edge_dir == InEdge) ? other_vertex : vertex,
                              (edge_dir == InEdge) ? vertex : other_vertex);
@@ -605,7 +587,7 @@ void SchemaInfo::AnalyticalEdgeModifyingAccessor::UpdateAnalyticalEdges(
   // vertex and loop through the rest
   constexpr bool InEdge = true;
   constexpr bool OutEdge = !InEdge;
-  auto process = [&](auto &edge, const auto in_edge, const bool vertex_locked) {
+  auto process = [&](auto &edge, const auto edge_dir, const bool vertex_locked) {
     const auto [edge_type, other_vertex, edge_ref] = edge;
 
     auto guard = std::unique_lock{vertex->lock, std::defer_lock};
@@ -623,31 +605,11 @@ void SchemaInfo::AnalyticalEdgeModifyingAccessor::UpdateAnalyticalEdges(
       other_guard.lock();
       guard.lock();
     }
-
-    auto &old_tracking =
-        tracking_->edge_lookup(EdgeKeyRef(edge_type, (in_edge == InEdge) ? other_vertex->labels : old_labels,
-                                          (in_edge == InEdge) ? old_labels : other_vertex->labels));
-    auto &new_tracking =
-        tracking_->edge_lookup(EdgeKeyRef(edge_type, (in_edge == InEdge) ? other_vertex->labels : vertex->labels,
-                                          (in_edge == InEdge) ? vertex->labels : other_vertex->labels));
-
-    if (guard.owns_lock()) guard.unlock();
-    if (other_guard.owns_lock()) other_guard.unlock();
-
-    --old_tracking.n;
-    ++new_tracking.n;
-
-    if (properties_on_edges_) {
-      // No need for edge lock since all edge property operations are unique access
-      for (const auto &[property, type] : edge_ref.ptr->properties.ExtendedPropertyTypes()) {
-        auto &old_info = old_tracking.properties[property];
-        --old_info.n;
-        --old_info.types[type];
-        auto &new_info = new_tracking.properties[property];
-        ++new_info.n;
-        ++new_info.types[type];
-      }
-    }
+    tracking_->UpdateEdgeStats(edge_ref, edge_type, (edge_dir == InEdge) ? other_vertex->labels : vertex->labels,
+                               (edge_dir == InEdge) ? vertex->labels : other_vertex->labels,
+                               (edge_dir == InEdge) ? other_vertex->labels : old_labels,
+                               (edge_dir == InEdge) ? old_labels : other_vertex->labels, std::move(guard),
+                               std::move(other_guard), properties_on_edges_);
   };
 
   // Loop 1: Handle all edges where the other vertex has a higher Gid
@@ -722,12 +684,61 @@ void SchemaInfo::AnalyticalEdgeModifyingAccessor::SetProperty(EdgeTypeId type, V
     from_lock.lock();
   }
 
-  auto &tracking_info = tracking_->edge_lookup(EdgeKeyRef{type, from->labels, to->labels});
+  tracking_->SetProperty(type, from, to, property, now, before, properties_on_edges_, std::move(from_lock),
+                         std::move(to_lock));
+}
 
-  from_lock.unlock();
-  if (to_lock.owns_lock()) to_lock.unlock();
+// Vertex
+void SchemaInfo::VertexModifyingAccessor::CreateVertex(Vertex *vertex) { tracking_->AddVertex(vertex); }
 
-  tracking_->SetProperty(tracking_info, property, now, before);
+void SchemaInfo::VertexModifyingAccessor::DeleteVertex(Vertex *vertex) {
+  DMG_ASSERT(vertex->lock.is_locked(), "Trying to read from an unlocked vertex; LINE {}", __LINE__);
+  tracking_->DeleteVertex(vertex);
+}
+
+// Special case for vertex without any edges
+void SchemaInfo::VertexModifyingAccessor::AddLabel(Vertex *vertex, LabelId label) {
+  DMG_ASSERT(vertex->lock.is_locked(), "Trying to read from an unlocked vertex; LINE {}", __LINE__);
+  // For vertex with edges, this needs to be a unique access....
+  DMG_ASSERT(vertex->in_edges.empty() && vertex->out_edges.empty(),
+             "Trying to remove label from vertex with edges; LINE {}", __LINE__);
+  // Move all stats and edges to new label
+  auto old_labels = vertex->labels;
+  auto itr = std::find(old_labels.begin(), old_labels.end(), label);
+  DMG_ASSERT(itr != old_labels.end(), "Trying to recreate labels pre commit, but label not found!");
+  *itr = old_labels.back();
+  old_labels.pop_back();
+  tracking_->UpdateLabels(vertex, old_labels, vertex->labels);
+}
+
+// Special case for vertex without any edges
+void SchemaInfo::VertexModifyingAccessor::RemoveLabel(Vertex *vertex, LabelId label) {
+  DMG_ASSERT(vertex->lock.is_locked(), "Trying to read from an unlocked vertex; LINE {}", __LINE__);
+  // For vertex with edges, this needs to be a unique access....
+  DMG_ASSERT(vertex->in_edges.empty() && vertex->out_edges.empty(),
+             "Trying to remove label from vertex with edges; LINE {}", __LINE__);
+  // Move all stats and edges to new label
+  auto old_labels = vertex->labels;
+  old_labels.push_back(label);
+  tracking_->UpdateLabels(vertex, old_labels, vertex->labels);
+}
+
+void SchemaInfo::VertexModifyingAccessor::CreateEdge(Vertex *from, Vertex *to, EdgeTypeId edge_type) {
+  DMG_ASSERT(from->lock.is_locked(), "Trying to read from an unlocked vertex; LINE {}", __LINE__);
+  DMG_ASSERT(to->lock.is_locked(), "Trying to read from an unlocked vertex; LINE {}", __LINE__);
+  // Empty edge; just update the top level stats
+  tracking_->CreateEdge(from, to, edge_type);
+}
+
+void SchemaInfo::VertexModifyingAccessor::DeleteEdge(Vertex *from, Vertex *to, EdgeTypeId edge_type, EdgeRef edge) {
+  // Vertices changed by the tx ( no need to lock )
+  tracking_->DeleteEdge(edge_type, edge, from, to, properties_on_edges_);
+}
+
+void SchemaInfo::VertexModifyingAccessor::SetProperty(Vertex *vertex, PropertyId property, ExtendedPropertyType now,
+                                                      ExtendedPropertyType before) {
+  DMG_ASSERT(vertex->lock.is_locked(), "Trying to read from an unlocked vertex; LINE {}", __LINE__);
+  tracking_->SetProperty(vertex, property, now, before);
 }
 
 }  // namespace memgraph::storage

@@ -436,66 +436,62 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::ClearEdgesOn
 
       // MarkEdgeAsDeleted allocates additional memory
       // and CreateAndLinkDelta needs memory
-      utils::AtomicMemoryBlock(
-          [&attached_edges_to_vertex, &deleted_edge_ids, &reverse_vertex_order, &vertex_ptr, &deleted_edges,
-           deletion_delta = deletion_delta, edge_type = edge_type, opposing_vertex = opposing_vertex,
-           edge_ref = edge_ref, &schema_acc, this]() {
-            attached_edges_to_vertex->pop_back();
-            if (this->storage_->config_.salient.items.properties_on_edges) {
-              auto *edge_ptr = edge_ref.ptr;
-              MarkEdgeAsDeleted(edge_ptr);
-            }
+      utils::AtomicMemoryBlock([&attached_edges_to_vertex, &deleted_edge_ids, &reverse_vertex_order, &vertex_ptr,
+                                &deleted_edges, deletion_delta = deletion_delta, edge_type = edge_type,
+                                opposing_vertex = opposing_vertex, edge_ref = edge_ref, &schema_acc, this]() {
+        attached_edges_to_vertex->pop_back();
+        if (this->storage_->config_.salient.items.properties_on_edges) {
+          auto *edge_ptr = edge_ref.ptr;
+          MarkEdgeAsDeleted(edge_ptr);
+        }
 
-            auto const edge_gid =
-                storage_->config_.salient.items.properties_on_edges ? edge_ref.ptr->gid : edge_ref.gid;
-            auto const [_, was_inserted] = deleted_edge_ids.insert(edge_gid);
-            bool const edge_cleared_from_both_directions = !was_inserted;
-            auto *from_vertex = reverse_vertex_order ? vertex_ptr : opposing_vertex;
-            auto *to_vertex = reverse_vertex_order ? opposing_vertex : vertex_ptr;
-            if (edge_cleared_from_both_directions) {
-              deleted_edges.emplace_back(edge_ref, edge_type, from_vertex, to_vertex, storage_, &transaction_, true);
-            }
-            CreateAndLinkDelta(&transaction_, vertex_ptr, deletion_delta, edge_type, opposing_vertex, edge_ref);
-            // This will get called from both ends; execute only if possible to lock
-            if (schema_acc) {
-              auto opposing_lock = std::unique_lock{opposing_vertex->lock, std::defer_lock};
-              if (vertex_ptr == opposing_vertex) {
-                // Both ends are already locked
-                if (reverse_vertex_order) return;
-              } else if (vertex_ptr->gid < opposing_vertex->gid) {
-                opposing_lock.lock();
-              } else {
-                return;
-              }
-          std::visit(utils::Overloaded{[&]<template <class...> class TContainer>(
-                                           SchemaInfo::VertexModifyingAccessor<TContainer> &acc) {
+        auto const edge_gid = storage_->config_.salient.items.properties_on_edges ? edge_ref.ptr->gid : edge_ref.gid;
+        auto const [_, was_inserted] = deleted_edge_ids.insert(edge_gid);
+        bool const edge_cleared_from_both_directions = !was_inserted;
+        auto *from_vertex = reverse_vertex_order ? vertex_ptr : opposing_vertex;
+        auto *to_vertex = reverse_vertex_order ? opposing_vertex : vertex_ptr;
+        if (edge_cleared_from_both_directions) {
+          deleted_edges.emplace_back(edge_ref, edge_type, from_vertex, to_vertex, storage_, &transaction_, true);
+        }
+        CreateAndLinkDelta(&transaction_, vertex_ptr, deletion_delta, edge_type, opposing_vertex, edge_ref);
+        // This will get called from both ends; execute only if possible to lock
+        if (schema_acc) {
+          auto opposing_lock = std::unique_lock{opposing_vertex->lock, std::defer_lock};
+          if (vertex_ptr == opposing_vertex) {
+            // Both ends are already locked
+            if (reverse_vertex_order) return;
+          } else if (vertex_ptr->gid < opposing_vertex->gid) {
+            opposing_lock.lock();
+          } else {
+            return;
+          }
+          std::visit(utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) {
                                          acc.DeleteEdge(from_vertex, to_vertex, edge_type, edge_ref);
-            }
-            , [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }
-          },
-          *schema_acc);
-    }
+                                       },
+                                       [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+                     *schema_acc);
+        }
       });
-}
+    }
 
-return std::make_optional<ReturnType>();
-};
+    return std::make_optional<ReturnType>();
+  };
 
-// delete the in and out edges from the nodes we want to delete
-// no need to lock here, we are just passing the pointer of the in and out edges collections
-for (auto *vertex_ptr : vertices) {
-  auto maybe_error = clear_edges(vertex_ptr, &vertex_ptr->in_edges, Delta::AddInEdgeTag(), false);
-  if (maybe_error.HasError()) {
-    return maybe_error;
+  // delete the in and out edges from the nodes we want to delete
+  // no need to lock here, we are just passing the pointer of the in and out edges collections
+  for (auto *vertex_ptr : vertices) {
+    auto maybe_error = clear_edges(vertex_ptr, &vertex_ptr->in_edges, Delta::AddInEdgeTag(), false);
+    if (maybe_error.HasError()) {
+      return maybe_error;
+    }
+
+    maybe_error = clear_edges(vertex_ptr, &vertex_ptr->out_edges, Delta::AddOutEdgeTag(), true);
+    if (maybe_error.HasError()) {
+      return maybe_error;
+    }
   }
 
-  maybe_error = clear_edges(vertex_ptr, &vertex_ptr->out_edges, Delta::AddOutEdgeTag(), true);
-  if (maybe_error.HasError()) {
-    return maybe_error;
-  }
-}
-
-return std::make_optional<ReturnType>(deleted_edges);
+  return std::make_optional<ReturnType>(deleted_edges);
 }
 
 Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::DetachRemainingEdges(
@@ -559,38 +555,36 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::DetachRemain
           } else {
             continue;
           }
-          std::visit(utils::Overloaded{[&]<template <class...> class TContainer>(
-                                           SchemaInfo::VertexModifyingAccessor<TContainer> &acc) {
+          std::visit(utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) {
                                          acc.DeleteEdge(from_vertex, to_vertex, edge_type, edge_ref);
-        }
-        , [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }
-      },
+                                       },
+                                       [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
                      *schema_acc);
         }
-  } edges_attached_to_vertex->erase(mid, edges_attached_to_vertex->end());
-});
+      }
+      edges_attached_to_vertex->erase(mid, edges_attached_to_vertex->end());
+    });
 
-return std::make_optional<ReturnType>();
-}
-;
+    return std::make_optional<ReturnType>();
+  };
 
-// remove edges from vertex collections which we aggregated for just detaching
-for (auto *vertex_ptr : info.partial_src_vertices) {
-  auto maybe_error = clear_edges_on_other_direction(vertex_ptr, &vertex_ptr->out_edges, info.partial_src_edge_ids,
-                                                    Delta::AddOutEdgeTag(), false);
-  if (maybe_error.HasError()) {
-    return maybe_error;
+  // remove edges from vertex collections which we aggregated for just detaching
+  for (auto *vertex_ptr : info.partial_src_vertices) {
+    auto maybe_error = clear_edges_on_other_direction(vertex_ptr, &vertex_ptr->out_edges, info.partial_src_edge_ids,
+                                                      Delta::AddOutEdgeTag(), false);
+    if (maybe_error.HasError()) {
+      return maybe_error;
+    }
   }
-}
-for (auto *vertex_ptr : info.partial_dest_vertices) {
-  auto maybe_error = clear_edges_on_other_direction(vertex_ptr, &vertex_ptr->in_edges, info.partial_dest_edge_ids,
-                                                    Delta::AddInEdgeTag(), true);
-  if (maybe_error.HasError()) {
-    return maybe_error;
+  for (auto *vertex_ptr : info.partial_dest_vertices) {
+    auto maybe_error = clear_edges_on_other_direction(vertex_ptr, &vertex_ptr->in_edges, info.partial_dest_edge_ids,
+                                                      Delta::AddInEdgeTag(), true);
+    if (maybe_error.HasError()) {
+      return maybe_error;
+    }
   }
-}
 
-return std::make_optional<ReturnType>(deleted_edges);
+  return std::make_optional<ReturnType>(deleted_edges);
 }
 
 Result<std::vector<VertexAccessor>> Storage::Accessor::TryDeleteVertices(const std::unordered_set<Vertex *> &vertices) {
@@ -612,21 +606,17 @@ Result<std::vector<VertexAccessor>> Storage::Accessor::TryDeleteVertices(const s
 
     CreateAndLinkDelta(&transaction_, vertex_ptr, Delta::RecreateObjectTag());
     if (schema_acc) {
-      std::visit(
-          utils::Overloaded{[&]<template <class...> class TContainer>(
-                                SchemaInfo::VertexModifyingAccessor<TContainer> &acc) { acc.DeleteVertex(vertex_ptr);
+      std::visit(utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) { acc.DeleteVertex(vertex_ptr); },
+                                   [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+                 *schema_acc);
     }
-    , [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }
-  },
-          *schema_acc);
-}
 
-vertex_ptr->deleted = true;
+    vertex_ptr->deleted = true;
 
-deleted_vertices.emplace_back(vertex_ptr, storage_, &transaction_, true);
-}
+    deleted_vertices.emplace_back(vertex_ptr, storage_, &transaction_, true);
+  }
 
-return deleted_vertices;
+  return deleted_vertices;
 }
 
 void Storage::Accessor::MarkEdgeAsDeleted(Edge *edge) {

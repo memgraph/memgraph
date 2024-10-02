@@ -1364,8 +1364,8 @@ TEST_F(ReplicationTest, SchemaReplication) {
   ASSERT_FALSE(reg.HasError()) << (int)reg.GetError();
 
   auto get_schema = [](auto &instance) {
-    return instance.db.storage()->SchemaInfoReadAccessor().ToJson(*instance.db.storage()->name_id_mapper_,
-                                                                  instance.db.storage()->enum_store_);
+    return instance.db.storage()->schema_info_.ToJson(*instance.db.storage()->name_id_mapper_,
+                                                      instance.db.storage()->enum_store_);
   };
 
   auto l1 = main->db.storage()->NameToLabel("L1");
