@@ -802,6 +802,7 @@ void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, const Delta
       // (with the `GetProperty` call). It is the only memory allocation in the
       // entire WAL file writing logic.
       encoder->WritePropertyValue(edge.properties.GetProperty(delta.property.key));
+      DMG_ASSERT(delta.property.out_vertex, "Out vertex undefined!");
       encoder->WriteUint(delta.property.out_vertex->gid.AsUint());
       break;
     }

@@ -757,14 +757,33 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
         // type and invalid from/to pointers because we don't know them
         // here, but that isn't an issue because we won't use that part of
         // the API here.
-        // TODO add from to v
-        auto ea = EdgeAccessor{edge_ref, EdgeTypeId::FromUint(0UL),     nullptr, nullptr,
-                               storage,  &transaction->GetTransaction()};
 
-        auto ret = ea.SetProperty(transaction->NameToProperty(delta.vertex_edge_set_property.property),
-                                  delta.vertex_edge_set_property.value);
-        if (ret.HasError())
-          throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
+        if (version >= storage::durability::kEdgeSetDeltaWithVertexInfo) {
+          auto vacc = storage->vertices_.access();
+          auto from_v = vacc.find(delta.vertex_edge_set_property.from_gid);
+          if (from_v == vacc.end())
+            throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
+          auto found_edge = std::find_if(from_v->out_edges.begin(), from_v->out_edges.end(),
+                                         [&edge_ref](auto &in) { return std::get<2>(in) == edge_ref; });
+          if (found_edge == from_v->out_edges.end())
+            throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
+          const auto &[edge_type, to, edge_ref] = *found_edge;
+          auto ea = EdgeAccessor{edge_ref, edge_type, &*from_v, to, storage, &transaction->GetTransaction()};
+          auto ret = ea.SetProperty(transaction->NameToProperty(delta.vertex_edge_set_property.property),
+                                    delta.vertex_edge_set_property.value);
+          if (ret.HasError())
+            throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
+        } else {
+          auto found_edge = storage->FindEdge(edge->gid);
+          if (!found_edge)
+            throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
+          const auto &[edge_ref, edge_type, from, to] = *found_edge;
+          auto ea = EdgeAccessor{edge_ref, edge_type, from, to, storage, &transaction->GetTransaction()};
+          auto ret = ea.SetProperty(transaction->NameToProperty(delta.vertex_edge_set_property.property),
+                                    delta.vertex_edge_set_property.value);
+          if (ret.HasError())
+            throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
+        }
         break;
       }
 
