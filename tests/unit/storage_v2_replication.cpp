@@ -34,6 +34,7 @@
 #include "storage/v2/replication/recovery.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/view.hpp"
+#include "tests/unit/storage_test_utils.hpp"
 
 using testing::UnorderedElementsAre;
 
@@ -1326,4 +1327,192 @@ TEST_F(ReplicationTest, RecoverySteps) {
     ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoveryWals>(recovery_steps[1]));
     ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoveryCurrentWal>(recovery_steps[2]));
   }
+}
+
+TEST_F(ReplicationTest, SchemaReplication) {
+  memgraph::storage::Config conf{
+      .durability =
+          {
+              .recover_on_startup = true,
+              .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+              .snapshot_retention_count = 1,
+              .restore_replication_state_on_startup = true,
+          },
+      .salient.items =
+          {
+              .properties_on_edges = true,
+              .enable_schema_info = true,
+          },
+  };
+
+  auto repl_conf = conf;
+  UpdatePaths(conf, storage_directory);
+  std::optional<MinMemgraph> main(conf);
+
+  repl_conf.durability.recover_on_startup = false;
+  UpdatePaths(repl_conf, repl_storage_directory);
+  std::optional<MinMemgraph> replica(repl_conf);
+
+  replica->repl_handler.TrySetReplicationRoleReplica(
+      ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])}, std::nullopt);
+
+  const auto &reg = main->repl_handler.TryRegisterReplica(ReplicationClientConfig{
+      .name = "REPLICA",
+      .mode = ReplicationMode::SYNC,
+      .repl_server_endpoint = Endpoint(local_host, ports[0]),
+  });
+  ASSERT_FALSE(reg.HasError()) << (int)reg.GetError();
+
+  auto get_schema = [](auto &instance) {
+    return instance.db.storage()->SchemaInfoReadAccessor().ToJson(*instance.db.storage()->name_id_mapper_,
+                                                                  instance.db.storage()->enum_store_);
+  };
+
+  auto l1 = main->db.storage()->NameToLabel("L1");
+  auto l2 = main->db.storage()->NameToLabel("L2");
+  auto l3 = main->db.storage()->NameToLabel("L3");
+  auto p1 = main->db.storage()->NameToProperty("p1");
+  auto p2 = main->db.storage()->NameToProperty("p2");
+  auto e = main->db.storage()->NameToEdgeType("E");
+
+  // Check current delta replication
+  {
+    auto acc = main->db.Access();
+    acc->CreateVertex();
+    ASSERT_FALSE(acc->Commit({}, main->db_acc).HasError());
+    EXPECT_TRUE(ConfrontJSON(get_schema(*main), get_schema(*replica)));
+  }
+
+  {
+    auto acc = main->db.Access();
+    auto v = acc->CreateVertex();
+    ASSERT_TRUE(v.AddLabel(l1).HasValue());
+    ASSERT_TRUE(v.AddLabel(l2).HasValue());
+    ASSERT_TRUE(v.AddLabel(l3).HasValue());
+    ASSERT_FALSE(acc->Commit({}, main->db_acc).HasError());
+    EXPECT_TRUE(ConfrontJSON(get_schema(*main), get_schema(*replica)));
+  }
+
+  {
+    auto acc = main->db.Access();
+    auto v = acc->CreateVertex();
+    ASSERT_TRUE(v.SetProperty(p1, PropertyValue{123}).HasValue());
+    ASSERT_TRUE(v.SetProperty(p1, PropertyValue{123.45}).HasValue());
+    ASSERT_FALSE(acc->Commit({}, main->db_acc).HasError());
+    EXPECT_TRUE(ConfrontJSON(get_schema(*main), get_schema(*replica)));
+  }
+
+  {
+    auto acc = main->db.Access();
+    auto v = acc->CreateVertex();
+    ASSERT_TRUE(v.SetProperty(p1, PropertyValue{true}).HasValue());
+    ASSERT_TRUE(v.AddLabel(l3).HasValue());
+    ASSERT_FALSE(acc->Commit({}, main->db_acc).HasError());
+    EXPECT_TRUE(ConfrontJSON(get_schema(*main), get_schema(*replica)));
+  }
+
+  {
+    auto acc = main->db.Access();
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    ASSERT_TRUE(acc->CreateEdge(&v1, &v2, e).HasValue());
+    ASSERT_FALSE(acc->Commit({}, main->db_acc).HasError());
+    EXPECT_TRUE(ConfrontJSON(get_schema(*main), get_schema(*replica)));
+  }
+
+  {
+    auto acc = main->db.Access();
+    auto v1 = acc->CreateVertex();
+    ASSERT_TRUE(v1.AddLabel(l1).HasValue());
+    ASSERT_TRUE(v1.AddLabel(l3).HasValue());
+    auto v2 = acc->CreateVertex();
+    ASSERT_TRUE(v2.AddLabel(l2).HasValue());
+    ASSERT_TRUE(acc->CreateEdge(&v1, &v2, e).HasValue());
+    ASSERT_FALSE(acc->Commit({}, main->db_acc).HasError());
+    EXPECT_TRUE(ConfrontJSON(get_schema(*main), get_schema(*replica)));
+  }
+
+  {
+    auto acc = main->db.Access();
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    auto edge = acc->CreateEdge(&v1, &v2, e);
+    ASSERT_TRUE(edge->SetProperty(p2, PropertyValue{""}).HasValue());
+    ASSERT_TRUE(edge->SetProperty(p1, PropertyValue{123}).HasValue());
+    ASSERT_FALSE(acc->Commit({}, main->db_acc).HasError());
+    EXPECT_TRUE(ConfrontJSON(get_schema(*main), get_schema(*replica)));
+  }
+
+  {
+    auto acc = main->db.Access();
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    auto edge = acc->CreateEdge(&v1, &v2, e);
+    ASSERT_TRUE(edge->SetProperty(p2, PropertyValue{""}).HasValue());
+    ASSERT_TRUE(edge->SetProperty(p1, PropertyValue{123}).HasValue());
+    ASSERT_TRUE(v2.AddLabel(l2).HasValue());
+    ASSERT_TRUE(v1.AddLabel(l2).HasValue());
+    ASSERT_FALSE(acc->Commit({}, main->db_acc).HasError());
+    EXPECT_TRUE(ConfrontJSON(get_schema(*main), get_schema(*replica)));
+  }
+
+  {
+    auto acc = main->db.Access();
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    auto edge = acc->CreateEdge(&v1, &v2, e);
+    const auto v1_gid = v1.Gid();
+    const auto v2_gid = v2.Gid();
+    const auto edge_gid = edge->Gid();
+    ASSERT_FALSE(acc->Commit({}, main->db_acc).HasError());
+
+    auto acc2 = main->db.Access();
+    auto prev_v1 = acc2->FindVertex(v1_gid, View::NEW);
+    auto prev_v2 = acc2->FindVertex(v2_gid, View::NEW);
+    auto prev_edge = acc2->FindEdge(edge_gid, View::NEW);
+    ASSERT_TRUE(prev_edge->SetProperty(p2, PropertyValue{""}).HasValue());
+    ASSERT_TRUE(prev_edge->SetProperty(p1, PropertyValue{123}).HasValue());
+    ASSERT_TRUE(prev_v2->AddLabel(l2).HasValue());
+    ASSERT_TRUE(prev_v1->AddLabel(l2).HasValue());
+    ASSERT_FALSE(acc2->Commit({}, main->db_acc).HasError());
+    EXPECT_TRUE(ConfrontJSON(get_schema(*main), get_schema(*replica)));
+  }
+
+  auto start_replica = [&]() {
+    replica.emplace(repl_conf);
+    replica->repl_handler.TrySetReplicationRoleReplica(
+        ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])}, std::nullopt);
+    {
+      int tries = 0;
+      while (main->repl_handler.ShowReplicas().GetValue().entries_[0].data_info_.at("memgraph").state_ !=
+             ReplicaState::READY) {
+        std::this_thread::sleep_for(std::chrono::seconds{1});
+        ASSERT_LE(++tries, 20) << "Waited too long for recovery";
+      }
+    }
+  };
+
+  // Check current wal recovery
+  replica.reset();
+  start_replica();
+  EXPECT_TRUE(ConfrontJSON(get_schema(*main), get_schema(*replica)));
+
+  // Check wal recovery
+  // Exiting will finalize the current wal
+  main.reset();
+  replica.reset();
+  conf.durability.snapshot_on_exit = true;  // Allow next restart to test snapshot recovery
+  main.emplace(conf);
+  start_replica();
+  EXPECT_TRUE(ConfrontJSON(get_schema(*main), get_schema(*replica)));
+
+  // Check snapshot recovery
+  main.reset();
+  replica.reset();
+  std::error_code dummy_ec;
+  std::filesystem::remove_all(conf.durability.storage_directory / memgraph::storage::durability::kWalDirectory,
+                              dummy_ec);
+  main.emplace(conf);  // Important to have a snapshot to recover from
+  start_replica();
+  EXPECT_TRUE(ConfrontJSON(get_schema(*main), get_schema(*replica)));
 }
