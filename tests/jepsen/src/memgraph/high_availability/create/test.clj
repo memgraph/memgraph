@@ -18,7 +18,6 @@
 (def registered-replication-instances? (atom false))
 (def added-coordinator-instances? (atom false))
 (def main-set? (atom false))
-(def batches-inserted (atom 0))
 
 (def batch-size 5000)
 
@@ -127,25 +126,15 @@
 
       coll-intervals)))
 
-(defn batch-start-idx
-  "Calculates start index for the new batch. E.g 1, 1001, 2001..."
-  []
-  (+ 1 (* (deref batches-inserted) batch-size)))
-
-(defn get-expected-number-indices
-  "Calculates the number of vertices that should've been inserted."
-  []
-  (* (deref batches-inserted) batch-size))
-
 (defn get-expected-indices
   "Returns the range of all indices that should've been inserted."
-  []
-  (range 1 (+ 1 (* (deref batches-inserted) batch-size))))
+  [max-id]
+  (range 1 (inc max-id)))
 
 (defn batch-end-idx
   "Calculates end index for the new batch. End index will not be included. E.g 1001, 2001"
   [batch-start-idx]
-  (+ batch-start-idx (- batch-size 1)))
+  (+ batch-start-idx (dec batch-size)))
 
 (defn random-coord
   "Get random leader."
@@ -203,6 +192,18 @@
   [txn]
   (mgquery/collect-ids txn))
 
+(defn mg-max-id
+  "Get max ID currently in the Memgraph."
+  [txn]
+  (mgquery/max-id txn))
+
+(defn first-or
+  "Returns first element from the collection if exists or default value."
+  [coll default]
+  (if-let [first-elem (first coll)]
+    first-elem
+    default))
+
 (defrecord Client [nodes-config first-leader first-main license organization]
   jclient/Client
   ; Open Bolt connection to all nodes.
@@ -238,33 +239,31 @@
                      (assoc op :type :info :value "Not data instance."))
 
         :add-nodes (if (hautils/data-instance? node)
-
-                     (let [start-idx (batch-start-idx)
-                           end-idx (batch-end-idx start-idx)]
-                       (try
-                         (dbclient/with-transaction bolt-conn txn
+                     (try
+                       (dbclient/with-transaction bolt-conn txn
                            ; If query failed because the instance got killed, we should catch TransientException -> this will be logged as
                            ; fail result.
-                           (mg-add-nodes start-idx end-idx txn))
-                         (swap! batches-inserted inc)
-                         (assoc op :type :ok :value (str "Nodes with indices [" start-idx "," end-idx "] created."))
+                         (let [mg-res (->> (mg-max-id txn) (map :id) (reduce conj []))
+                               max-idx (first-or mg-res 0)
+                               start-idx (inc max-idx)
+                               end-idx (batch-end-idx start-idx)]
+                           (mg-add-nodes start-idx end-idx txn)))
+                       (assoc op :type :ok :value "Nodes created.")
 
-                         (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
-                           (utils/process-service-unavailable-exc op node))
+                       (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
+                         (utils/process-service-unavailable-exc op node))
 
-                         (catch Exception e
+                       (catch Exception e
                            ; Even if sync replica is down, nodes will get created on the main.
-                           (cond (utils/sync-replica-down? e)
-                                 (do
-                                   (swap! batches-inserted inc)
-                                   (assoc op :type :ok :value (str "Nodes with indices [" start-idx "," end-idx "] created. SYNC replica is down.")))
+                         (cond (utils/sync-replica-down? e)
+                               (assoc op :type :ok :value "Nodes created. SYNC replica is down.")
 
-                                 (or (utils/query-forbidden-on-replica? e)
-                                     (utils/query-forbidden-on-main? e))
-                                 (assoc op :type :info :value (str e))
+                               (or (utils/query-forbidden-on-replica? e)
+                                   (utils/query-forbidden-on-main? e))
+                               (assoc op :type :info :value (str e))
 
-                                 :else
-                                 (assoc op :type :fail :value (str e))))))
+                               :else
+                               (assoc op :type :fail :value (str e)))))
 
                      (assoc op :type :info :value "Not data instance."))
 
@@ -355,9 +354,6 @@
                               (filter #(= :ok (:type %)))
                               (filter #(= :get-nodes (:f %)))
                               (map :value))
-            expected-ids-number (get-expected-number-indices)
-
-            expected-ids (get-expected-indices)
 
             n1-ids (->> ok-get-nodes
                         (filter #(= "n1" (:node %)))
@@ -373,6 +369,11 @@
             n1-duplicates (duplicates n1-ids)
 
             n1-duplicates-intervals (sequence->intervals n1-duplicates)
+
+            ; We assume already here that n1-max-idx will be = n2-max-idx = n3-max-idx so expected-ids is the same for n1, n2 and n3.
+            ; We should give instances enough time at the end to consolidate their results.
+            ; If this is not the case the result won't be valid (valid? will be false because of the check n1-max-idx=n2-max-idx=n3-max-idx).
+            expected-ids (get-expected-indices n1-max-idx)
 
             n1-hamming-consistency (hamming-sim expected-ids n1-ids)
 
@@ -461,12 +462,9 @@
                                      (empty? n1-missing-intervals)
                                      (empty? n2-missing-intervals)
                                      (empty? n3-missing-intervals)
-                                     (= n1-jaccard-consistency 1)
-                                     (= n2-jaccard-consistency 1)
-                                     (= n3-jaccard-consistency 1)
-                                     (= n1-max-idx expected-ids-number)
-                                     (= n2-max-idx expected-ids-number)
-                                     (= n3-max-idx expected-ids-number))
+                                     (= n1-jaccard-consistency n2-jaccard-consistency n3-jaccard-consistency 1)
+                                     (= n1-hamming-consistency n2-hamming-consistency n3-hamming-consistency 1)
+                                     (= n1-max-idx n2-max-idx n3-max-idx))
                             :empty-partial-coordinators? (empty? partial-coordinators) ; coordinators which have missing coordinators in their reads
                             :empty-more-than-one-main-nodes? (empty? more-than-one-main) ; nodes on which more-than-one-main was detected
                             :correct-coordinators? (= coordinators #{"n4" "n5" "n6"})
@@ -485,7 +483,6 @@
                             :n3-jaccard-consistency (float n3-jaccard-consistency)
                             :n3-max-idx n3-max-idx
                             :empty-n3-missing-intervals? (empty? n3-missing-intervals)
-                            :total-indices expected-ids-number
                             :empty-failed-setup-cluster? (empty? failed-setup-cluster) ; There shouldn't be any failed setup cluster operations.
                             :empty-failed-show-instances? (empty? failed-show-instances) ; There shouldn't be any failed show instances operations.
                             :empty-partial-instances? (empty? partial-instances)}

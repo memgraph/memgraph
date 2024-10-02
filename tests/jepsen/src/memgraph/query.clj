@@ -32,6 +32,11 @@
   RETURN n.id as id;
   ")
 
+(dbclient/defquery max-id
+  "MATCH (n:Node)
+  RETURN max(n.id) as id;
+  ")
+
 (defn add-nodes
   [start-idx end-idx]
   (dbclient/create-query
