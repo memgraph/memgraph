@@ -526,7 +526,7 @@ class ScanAllCursor : public Cursor {
       // Since vertices iterator isn't nothrow_move_assignable, we have to use
       // the roundabout assignment + emplace, instead of simple:
       // vertices _ = get_vertices_(frame, context);
-      vertices_.emplace(std::move(next_vertices.value()));
+      vertices_ = std::move(next_vertices);
       vertices_it_.emplace(vertices_.value().begin());
       vertices_end_it_.emplace(vertices_.value().end());
     }
@@ -6388,26 +6388,25 @@ ACCEPT_WITH_INPUT(ScanAllByPointDistance)
 
 UniqueCursorPtr ScanAllByPointDistance::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByPointDistanceOperator);
-  MG_ASSERT(false, "TODO");
 
-  auto vertices = [this](Frame &, ExecutionContext &context) -> std::optional<PointIterable> {
+  auto vertices = [this](Frame &frame, ExecutionContext &context) -> std::optional<PointIterable> {
     auto *db = context.db_accessor;
 
-    auto evaluator = PrimitiveLiteralExpressionEvaluator{context.evaluation_context};
+    auto evaluator = ReferenceExpressionEvaluator(&frame, &context.symbol_table, &context.evaluation_context);
 
     // Is it possible to evaluate this while making cursor?
     //  Yes - if constant, this would mean we can specialise
     //  No - in general, this could be a property from another object (bound to variable during evaluation)
-    auto value = evaluator.Visit(*cmp_value_);
+    auto *value = evaluator.Visit(*cmp_value_);
 
     auto crs = std::invoke([&]() -> std::optional<storage::CoordinateReferenceSystem> {
-      switch (value.type()) {
+      switch (value->type()) {
         using enum TypedValue::Type;
         case TypedValue::Type::Point2d: {
-          return value.ValuePoint2d().crs();
+          return value->ValuePoint2d().crs();
         }
         case TypedValue::Type::Point3d: {
-          return value.ValuePoint3d().crs();
+          return value->ValuePoint3d().crs();
         }
         default: {
           return std::nullopt;
