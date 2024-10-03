@@ -420,6 +420,83 @@ void SchemaTracking<TContainer>::SetProperty(auto &tracking_info, PropertyId pro
   }
 }
 
+template <template <class...> class TContainer>
+void SchemaTracking<TContainer>::Clear() {
+  vertex_state_.clear();
+  edge_state_.clear();
+}
+
+template <template <class...> class TContainer>
+void SchemaTracking<TContainer>::SetProperty(Vertex *vertex, PropertyId property, const ExtendedPropertyType &now,
+                                             const ExtendedPropertyType &before) {
+  auto &tracking_info = vertex_state_[vertex->labels];
+  SetProperty(tracking_info, property, now, before);
+}
+
+template <template <class...> class TContainer>
+void SchemaTracking<TContainer>::SetProperty(EdgeTypeId type, Vertex *from, Vertex *to, PropertyId property,
+                                             const ExtendedPropertyType &now, const ExtendedPropertyType &before,
+                                             bool prop_on_edges) {
+  if (prop_on_edges) {
+    auto &tracking_info = edge_lookup(EdgeKeyRef{type, from->labels, to->labels});
+    SetProperty(tracking_info, property, now, before);
+  }
+}
+
+template <template <class...> class TContainer>
+void SchemaTracking<TContainer>::SetProperty(EdgeTypeId type, Vertex *from, Vertex *to, PropertyId property,
+                                             const ExtendedPropertyType &now, const ExtendedPropertyType &before,
+                                             bool prop_on_edges, auto &&guard, auto &&other_guard) {
+  if (prop_on_edges) {
+    auto &tracking_info = edge_lookup(EdgeKeyRef{type, from->labels, to->labels});
+    if (guard.owns_lock()) guard.unlock();
+    if (other_guard.owns_lock()) other_guard.unlock();
+    SetProperty(tracking_info, property, now, before);
+  }
+}
+
+template <template <class...> class TContainer>
+void SchemaTracking<TContainer>::UpdateEdgeStats(EdgeRef edge_ref, EdgeTypeId edge_type,
+                                                 const VertexKey &new_from_labels, const VertexKey &new_to_labels,
+                                                 const VertexKey &old_from_labels, const VertexKey &old_to_labels,
+                                                 bool prop_on_edges) {
+  DMG_ASSERT(std::is_same_v<decltype(*this), LocalSchemaTracking>, "Using a local-only function on a shared object");
+  UpdateEdgeStats(edge_lookup({edge_type, new_from_labels, new_to_labels}),
+                  edge_lookup({edge_type, old_from_labels, old_to_labels}), edge_ref, prop_on_edges);
+}
+
+template <template <class...> class TContainer>
+void SchemaTracking<TContainer>::UpdateEdgeStats(EdgeRef edge_ref, EdgeTypeId edge_type,
+                                                 const VertexKey &new_from_labels, const VertexKey &new_to_labels,
+                                                 const VertexKey &old_from_labels, const VertexKey &old_to_labels,
+                                                 auto &&from_lock, auto &&to_lock, bool prop_on_edges) {
+  DMG_ASSERT(std::is_same_v<decltype(*this), SharedSchemaTracking>, "Using a shared-only function on a local object");
+  // Lookup needs to happen while holding the locks, but the update itself does not
+  auto &new_tracking = edge_lookup({edge_type, new_from_labels, new_to_labels});
+  auto &old_tracking = edge_lookup({edge_type, old_from_labels, old_to_labels});
+  if (from_lock.owns_lock()) from_lock.unlock();
+  if (to_lock.owns_lock()) to_lock.unlock();
+  UpdateEdgeStats(new_tracking, old_tracking, edge_ref, prop_on_edges);
+}
+
+template <template <class...> class TContainer>
+void SchemaTracking<TContainer>::UpdateEdgeStats(auto &new_tracking, auto &old_tracking, EdgeRef edge_ref,
+                                                 bool prop_on_edges) {
+  --old_tracking.n;
+  ++new_tracking.n;
+
+  if (prop_on_edges) {
+    // No need for edge lock since all edge property operations are unique access
+    for (const auto &[property, type] : edge_ref.ptr->properties.ExtendedPropertyTypes()) {
+      auto &old_info = old_tracking.properties[property];
+      --old_info.n;
+      --old_info.types[type];
+      auto &new_info = new_tracking.properties[property];
+      ++new_info.n;
+      ++new_info.types[type];
+    }
+  }
+}
 //
 //
 // Snapshot recovery
@@ -508,36 +585,39 @@ void SchemaInfo::TransactionalEdgeModifyingAccessor::SetProperty(EdgeRef edge, E
   }
 }
 
+bool SchemaInfo::TransactionalEdgeModifyingAccessor::EdgeCreatedDuringThisTx(EdgeRef edge_ref, Vertex *vertex) const {
+  if (properties_on_edges_) {
+    return EdgeCreatedDuringThisTx(edge_ref.ptr);
+  }
+  return EdgeCreatedDuringThisTx(edge_ref.gid, vertex);
+}
+
 bool SchemaInfo::TransactionalEdgeModifyingAccessor::EdgeCreatedDuringThisTx(Edge *edge) const {
-  bool created_this_tx = false;
   auto *delta = edge->delta;
   while (delta) {
     const auto ts = delta->timestamp->load(std::memory_order_acquire);
     if (ts != commit_ts_) break;
     if (delta->action == Delta::Action::DELETE_OBJECT || delta->action == Delta::Action::DELETE_DESERIALIZED_OBJECT) {
-      created_this_tx = true;
-      break;
+      return true;
     }
     delta = delta->next.load(std::memory_order_acquire);
   }
-  return created_this_tx;
+  return false;
 }
 
 bool SchemaInfo::TransactionalEdgeModifyingAccessor::EdgeCreatedDuringThisTx(Gid edge, Vertex *vertex) const {
-  bool created_this_tx = false;
   auto *delta = vertex->delta;
   while (delta) {
     const auto ts = delta->timestamp->load(std::memory_order_acquire);
     if (ts != commit_ts_) break;
     if (delta->action == Delta::Action::REMOVE_IN_EDGE || delta->action == Delta::Action::REMOVE_OUT_EDGE) {
       if (delta->vertex_edge.edge.gid == edge) {
-        created_this_tx = true;
-        break;
+        return true;
       }
     }
     delta = delta->next.load(std::memory_order_acquire);
   }
-  return created_this_tx;
+  return false;
 }
 
 void SchemaInfo::TransactionalEdgeModifyingAccessor::UpdateTransactionalEdges(
@@ -551,15 +631,7 @@ void SchemaInfo::TransactionalEdgeModifyingAccessor::UpdateTransactionalEdges(
   // vertex and loop through the rest
   auto process = [&](auto &edge, const auto edge_dir) {
     const auto [edge_type, other_vertex, edge_ref] = edge;
-
-    bool process_in_place = false;
-    if (properties_on_edges_) {
-      process_in_place = EdgeCreatedDuringThisTx(edge_ref.ptr);
-    } else {
-      process_in_place = EdgeCreatedDuringThisTx(edge_ref.gid, vertex);
-    }
-
-    if (process_in_place) {
+    if (EdgeCreatedDuringThisTx(edge_ref, vertex)) {
       tracking_->UpdateEdgeStats(edge_ref, edge_type, (edge_dir == InEdge) ? other_vertex->labels : vertex->labels,
                                  (edge_dir == InEdge) ? vertex->labels : other_vertex->labels,
                                  (edge_dir == InEdge) ? other_vertex->labels : old_labels,

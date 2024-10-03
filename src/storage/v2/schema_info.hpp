@@ -29,7 +29,6 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/conccurent_unordered_map.hpp"
-#include "utils/logging.hpp"
 #include "utils/rw_spin_lock.hpp"
 #include "utils/small_vector.hpp"
 
@@ -71,38 +70,14 @@ using SharedSchemaTracking = SchemaTracking<utils::ConcurrentUnorderedMap>;
 
 template <template <class...> class TContainer>
 struct SchemaTracking final : public SchemaTrackingInterface {
-  /**
-   * @brief Process transaction (deltas) in order to update the schema.
-   *
-   * @param transaction
-   * @param properties_on_edges
-   */
-  // void ProcessTransaction(Transaction &transaction, bool properties_on_edges);
-
   template <template <class...> class TOtherContainer>
   void ProcessTransaction(const SchemaTracking<TOtherContainer> &diff, std::unordered_set<PostProcessPOC> &post_process,
                           uint64_t commit_ts, bool property_on_edges);
 
-  /**
-   * @brief Clear all schema statistics.
-   */
-  void Clear() override {
-    vertex_state_.clear();
-    edge_state_.clear();
-  }
+  void Clear() override;
 
-  /**
-   * @brief Number of uniquely identified vertices defined in the schema.
-   *
-   * @return size_t
-   */
   size_t NumberOfVertices() const { return vertex_state_.size(); }
 
-  /**
-   * @brief Number of uniquely identified edges defined in the schema.
-   *
-   * @return size_t
-   */
   size_t NumberOfEdges() const { return edge_state_.size(); }
 
   nlohmann::json ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store) const override;
@@ -125,82 +100,33 @@ struct SchemaTracking final : public SchemaTrackingInterface {
 
   void DeleteEdge(EdgeTypeId edge_type, EdgeRef edge, Vertex *from, Vertex *to, bool prop_on_edges) override;
 
-  void SetProperty(auto &tracking_info, PropertyId property, const ExtendedPropertyType &now,
-                   const ExtendedPropertyType &before);
-
   void SetProperty(Vertex *vertex, PropertyId property, const ExtendedPropertyType &now,
-                   const ExtendedPropertyType &before) override {
-    auto &tracking_info = vertex_state_[vertex->labels];
-    SetProperty(tracking_info, property, now, before);
-  }
-
-  void SetProperty(Vertex *vertex, PropertyId property, const ExtendedPropertyType &now,
-                   const ExtendedPropertyType &before, auto &&guard) {
-    auto &tracking_info = vertex_state_[vertex->labels];
-    if (guard.owns_lock()) guard.unlock();
-    SetProperty(tracking_info, property, now, before);
-  }
+                   const ExtendedPropertyType &before) override;
 
   void SetProperty(EdgeTypeId type, Vertex *from, Vertex *to, PropertyId property, const ExtendedPropertyType &now,
-                   const ExtendedPropertyType &before, bool prop_on_edges) override {
-    if (prop_on_edges) {
-      auto &tracking_info = edge_lookup(EdgeKeyRef{type, from->labels, to->labels});
-      SetProperty(tracking_info, property, now, before);
-    }
-  }
+                   const ExtendedPropertyType &before, bool prop_on_edges) override;
 
   void SetProperty(EdgeTypeId type, Vertex *from, Vertex *to, PropertyId property, const ExtendedPropertyType &now,
-                   const ExtendedPropertyType &before, bool prop_on_edges, auto &&guard, auto &&other_guard) {
-    if (prop_on_edges) {
-      auto &tracking_info = edge_lookup(EdgeKeyRef{type, from->labels, to->labels});
-      if (guard.owns_lock()) guard.unlock();
-      if (other_guard.owns_lock()) other_guard.unlock();
-      SetProperty(tracking_info, property, now, before);
-    }
-  }
+                   const ExtendedPropertyType &before, bool prop_on_edges, auto &&guard, auto &&other_guard);
 
   void UpdateEdgeStats(EdgeRef edge_ref, EdgeTypeId edge_type, const VertexKey &new_from_labels,
                        const VertexKey &new_to_labels, const VertexKey &old_from_labels, const VertexKey &old_to_labels,
-                       bool prop_on_edges) {
-    DMG_ASSERT(std::is_same_v<decltype(*this), LocalSchemaTracking>, "Using a local-only function on a shared object");
-    UpdateEdgeStats(edge_lookup({edge_type, new_from_labels, new_to_labels}),
-                    edge_lookup({edge_type, old_from_labels, old_to_labels}), edge_ref, prop_on_edges);
-  }
+                       bool prop_on_edges);
 
   void UpdateEdgeStats(EdgeRef edge_ref, EdgeTypeId edge_type, const VertexKey &new_from_labels,
                        const VertexKey &new_to_labels, const VertexKey &old_from_labels, const VertexKey &old_to_labels,
-                       auto &&from_lock, auto &&to_lock, bool prop_on_edges) {
-    DMG_ASSERT(std::is_same_v<decltype(*this), SharedSchemaTracking>, "Using a shared-only function on a local object");
-    // Lookup needs to happen while holding the locks, but the update itself does not
-    auto &new_tracking = edge_lookup({edge_type, new_from_labels, new_to_labels});
-    auto &old_tracking = edge_lookup({edge_type, old_from_labels, old_to_labels});
-    if (from_lock.owns_lock()) from_lock.unlock();
-    if (to_lock.owns_lock()) to_lock.unlock();
-    UpdateEdgeStats(new_tracking, old_tracking, edge_ref, prop_on_edges);
-  }
-
-  void UpdateEdgeStats(auto &new_tracking, auto &old_tracking, EdgeRef edge_ref, bool prop_on_edges) {
-    --old_tracking.n;
-    ++new_tracking.n;
-
-    if (prop_on_edges) {
-      // No need for edge lock since all edge property operations are unique access
-      for (const auto &[property, type] : edge_ref.ptr->properties.ExtendedPropertyTypes()) {
-        auto &old_info = old_tracking.properties[property];
-        --old_info.n;
-        --old_info.types[type];
-        auto &new_info = new_tracking.properties[property];
-        ++new_info.n;
-        ++new_info.types[type];
-      }
-    }
-  }
+                       auto &&from_lock, auto &&to_lock, bool prop_on_edges);
 
  private:
   friend LocalSchemaTracking;
   friend SharedSchemaTracking;
 
   TrackingInfo<TContainer> &edge_lookup(const EdgeKeyRef &key);
+
+  void SetProperty(auto &tracking_info, PropertyId property, const ExtendedPropertyType &now,
+                   const ExtendedPropertyType &before);
+
+  void UpdateEdgeStats(auto &new_tracking, auto &old_tracking, EdgeRef edge_ref, bool prop_on_edges);
 
   TContainer<VertexKey, TrackingInfo<TContainer>> vertex_state_;  //!< vertex statistics
   TContainer<EdgeKey, TrackingInfo<TContainer>> edge_state_;      //!< edge statistics
@@ -255,6 +181,8 @@ struct SchemaInfo {
                      ExtendedPropertyType now, ExtendedPropertyType before);
 
    private:
+    bool EdgeCreatedDuringThisTx(EdgeRef edge, Vertex *vertex) const;
+
     bool EdgeCreatedDuringThisTx(Edge *edge) const;
 
     bool EdgeCreatedDuringThisTx(Gid edge, Vertex *vertex) const;

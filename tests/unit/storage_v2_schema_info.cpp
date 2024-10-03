@@ -24,6 +24,7 @@
 #include "storage/v2/schema_info.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/temporal.hpp"
+#include "storage/v2/view.hpp"
 #include "storage_test_utils.hpp"
 
 #include <json/json.hpp>
@@ -2249,6 +2250,144 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, BigCommit) {
       ASSERT_EQ(json["edges"].size(), 2);
     }
   }
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TYPED_TEST(SchemaInfoTestWEdgeProp, EdgePropertyStressTest) {
+  auto *in_memory = static_cast<memgraph::storage::InMemoryStorage *>(this->storage.get());
+  auto &schema_info = in_memory->schema_info_;
+
+  auto l1 = in_memory->NameToLabel("L1");
+  auto l2 = in_memory->NameToLabel("L2");
+  auto l3 = in_memory->NameToLabel("L3");
+  auto p1 = in_memory->NameToProperty("p1");
+  auto p2 = in_memory->NameToProperty("p2");
+  auto p3 = in_memory->NameToProperty("p3");
+  auto e1 = in_memory->NameToEdgeType("E1");
+  auto e2 = in_memory->NameToEdgeType("E2");
+  auto e3 = in_memory->NameToEdgeType("E3");
+
+  // Empty
+  {
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    ASSERT_TRUE(json["nodes"].empty());
+    ASSERT_TRUE(json["edges"].empty());
+  }
+
+  // setup CREATE ()-[:E]->();
+  // Running 2 write threads 1 read thread
+  // t1 modify from and/or to labels
+  // t2 modify edge property
+  // t3 read schema
+
+  Gid from_gid;
+  Gid to_gid;
+  Gid edge_gid;
+
+  // SETUP
+  {
+    auto acc = in_memory->Access();
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    auto edge = acc->CreateEdge(&v1, &v2, e1);
+    from_gid = v1.Gid();
+    to_gid = v2.Gid();
+    edge_gid = edge->Gid();
+    ASSERT_FALSE(acc->Commit().HasError());
+  }
+
+  std::atomic_bool running = true;
+
+  auto modify_labels = [&]() {
+    uint8_t i = 0;
+    while (running) {
+      ++i;
+      auto acc = in_memory->Access();
+      if (i % 2 == 0) {
+        auto v = acc->FindVertex(from_gid, View::NEW);
+        const auto labels = v->Labels(View::NEW);
+        if (labels.HasError()) return;
+        if (labels->empty()) {
+          v->AddLabel(l1);
+        } else {
+          v->RemoveLabel(l1);
+        }
+      }
+      if (i % 3 == 0) {
+        auto v = acc->FindVertex(to_gid, View::NEW);
+        const auto labels = v->Labels(View::NEW);
+        if (labels.HasError()) return;
+        if (labels->empty()) {
+          v->AddLabel(l2);
+        } else {
+          v->RemoveLabel(l2);
+        }
+      }
+      ASSERT_FALSE(acc->Commit().HasError());
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+  };
+
+  auto modify_edge = [&]() {
+    uint8_t i = 0;
+    while (running) {
+      ++i;
+      if (i % 5 == 0) {
+        auto acc = in_memory->Access();
+        auto edge = acc->FindEdge(edge_gid, View::NEW);
+        const auto props = edge->Properties(View::NEW);
+        if (props.HasError()) return;
+        if (props->empty()) {
+          edge->SetProperty(p1, PropertyValue{""});
+        } else {
+          edge->ClearProperties();
+        }
+        ASSERT_FALSE(acc->Commit().HasError());
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+  };
+
+  auto read_schema = [&]() {
+    while (running) {
+      const auto json = in_memory->schema_info_.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+      // Possible schemas:
+
+      static const auto no_labels_no_prop = nlohmann::json::parse(
+          R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":[],"type":"E1"}],"nodes":[{"count":2,"labels":[],"properties":[]}]})");
+      static const auto from_label_no_prop = nlohmann::json::parse(
+          R"({"edges":[{"count":1,"end_node_labels":[],"properties":[],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L1"],"properties":[]}]})");
+      static const auto to_label_no_prop = nlohmann::json::parse(
+          R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[],"start_node_labels":[],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
+      static const auto both_labels_no_prop = nlohmann::json::parse(
+          R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":["L1"],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
+      static const auto no_labels_w_prop = nlohmann::json::parse(
+          R"({"edges":[{"count":1,"end_node_labels":[],"properties":[{"count" : 1, "filling_factor" : 100.0, "key" : "p1", "types" : [ {"count" : 1, "type" : "String"} ]}],"start_node_labels":[],"type":"E1"}],"nodes":[{"count":2,"labels":[],"properties":[]}]})");
+      static const auto from_label_w_prop = nlohmann::json::parse(
+          R"({"edges":[{"count":1,"end_node_labels":[],"properties":[{"count" : 1, "filling_factor" : 100.0, "key" : "p1", "types" : [ {"count" : 1, "type" : "String"} ]}],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L1"],"properties":[]}]})");
+      static const auto to_label_w_prop = nlohmann::json::parse(
+          R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[{"count" : 1, "filling_factor" : 100.0, "key" : "p1", "types" : [ {"count" : 1, "type" : "String"} ]}],"start_node_labels":[],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
+      static const auto both_labels_w_prop = nlohmann::json::parse(
+          R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[{"count" : 1, "filling_factor" : 100.0, "key" : "p1", "types" : [ {"count" : 1, "type" : "String"} ]}],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":["L1"],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
+
+      static const std::array<nlohmann::json, 8> possible_schemas = {
+          no_labels_no_prop, from_label_no_prop, to_label_no_prop, both_labels_no_prop,
+          no_labels_w_prop,  from_label_w_prop,  to_label_w_prop,  both_labels_w_prop};
+
+      auto itr = std::find_if(possible_schemas.begin(), possible_schemas.end(),
+                              [&json](auto &in) { return ConfrontJSON(json, in); });
+
+      ASSERT_NE(itr, possible_schemas.end()) << json;
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+  };
+
+  auto t1 = std::jthread(modify_labels);
+  auto t2 = std::jthread(modify_edge);
+  auto t3 = std::jthread(read_schema);
+
+  std::this_thread::sleep_for(std::chrono::seconds(10));
+  running = false;
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
