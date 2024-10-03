@@ -131,9 +131,14 @@ repo_clone_try_double () {
 # possible. The actual cache server could be on your local machine, on a
 # dedicated machine inside the build cluster or on the actual build machine.
 # Download from primary_urls might fail because the cache is not installed.
+
+# NOTE: Antlr tag is exceptionally here because it's required on multiple
+# places because of the additional required .jar file.
+antlr4_tag="4.13.2" # 2024-08-03
+
 declare -A primary_urls=(
   ["antlr4-code"]="http://$local_cache_host/git/antlr4.git"
-  ["antlr4-generator"]="http://$local_cache_host/file/antlr-4.10.1-complete.jar"
+  ["antlr4-generator"]="http://$local_cache_host/file/antlr-$antlr4_tag-complete.jar"
   ["cppitertools"]="http://$local_cache_host/git/cppitertools.git"
   ["rapidcheck"]="http://$local_cache_host/git/rapidcheck.git"
   ["gbenchmark"]="http://$local_cache_host/git/benchmark.git"
@@ -166,7 +171,7 @@ declare -A primary_urls=(
 # should fail.
 declare -A secondary_urls=(
   ["antlr4-code"]="https://github.com/antlr/antlr4.git"
-  ["antlr4-generator"]="https://www.antlr.org/download/antlr-4.10.1-complete.jar"
+  ["antlr4-generator"]="https://www.antlr.org/download/antlr-$antlr4_tag-complete.jar"
   ["cppitertools"]="https://github.com/ryanhaining/cppitertools.git"
   ["rapidcheck"]="https://github.com/emil-e/rapidcheck.git"
   ["gbenchmark"]="https://github.com/google/benchmark.git"
@@ -195,12 +200,7 @@ declare -A secondary_urls=(
 
 # antlr
 file_get_try_double "${primary_urls[antlr4-generator]}" "${secondary_urls[antlr4-generator]}"
-
-antlr4_tag="4.10.1" # v4.10.1
 repo_clone_try_double "${primary_urls[antlr4-code]}" "${secondary_urls[antlr4-code]}" "antlr4" "$antlr4_tag" true
-pushd antlr4
-git apply ../antlr4.10.1.patch
-popd
 
 cppitertools_ref="v2.1" # 2021-01-15
 repo_clone_try_double "${primary_urls[cppitertools]}" "${secondary_urls[cppitertools]}" "cppitertools" "$cppitertools_ref"
