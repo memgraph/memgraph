@@ -595,7 +595,7 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
     transaction_complete = storage::durability::IsWalDeltaDataTypeTransactionEnd(delta.type, version);
 
     if (delta_timestamp <= current_durable_commit_timestamp) {
-      spdlog::trace("Skipping delta with timestamp:{}, current durable commit timestamp: {}", delta_timestamp,
+      spdlog::trace("Skipping delta with timestamp: {}, current durable commit timestamp: {}", delta_timestamp,
                     current_durable_commit_timestamp);
       continue;
     }

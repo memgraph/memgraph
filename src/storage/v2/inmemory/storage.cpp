@@ -973,6 +973,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
 
       auto *mem_unique_constraints =
           static_cast<InMemoryUniqueConstraints *>(storage_->constraints_.unique_constraints_.get());
+
       commit_timestamp_.emplace(mem_storage->GetCommitTimestamp());
 
       if (transaction_.constraint_verification_info &&
@@ -1018,6 +1019,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
         // so the Wal files are consistent
         auto const durability_commit_timestamp =
             reparg.desired_commit_timestamp.has_value() ? *reparg.desired_commit_timestamp : *commit_timestamp_;
+
         if (is_main_or_replica_write) {
           could_replicate_all_sync_replicas =
               mem_storage->AppendToWal(transaction_, durability_commit_timestamp, std::move(db_acc));
@@ -2635,9 +2637,9 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
 
   // Handle MVCC deltas
   if (!transaction.deltas.empty()) {
-    append_deltas([&](const Delta &delta, const auto &parent, uint64_t timestamp) {
-      wal_file_->AppendDelta(delta, parent, timestamp);
-      repl_storage_state_.AppendDelta(streams, delta, parent, timestamp);
+    append_deltas([&](const Delta &delta, const auto &parent, uint64_t durability_commit_timestamp) {
+      wal_file_->AppendDelta(delta, parent, durability_commit_timestamp);
+      repl_storage_state_.AppendDelta(streams, delta, parent, durability_commit_timestamp);
     });
   }
 

@@ -71,12 +71,15 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
     });
     // main didn't have that epoch, but why is here branching point
     if (epoch_info_iter == history.crend()) {
-      spdlog::info("Couldn't find epoch {} in MAIN, setting branching point", std::string(replica.epoch_id));
+      spdlog::trace("Couldn't find epoch {} in MAIN, setting branching point", std::string(replica.epoch_id));
       branching_point = 0;
     } else if (epoch_info_iter->second < replica.current_commit_timestamp) {
-      spdlog::info("Found epoch {} on MAIN with last_durable_timestamp {}, REPLICA's last_durable_timestamp {}",
-                   std::string(epoch_info_iter->first), epoch_info_iter->second, replica.current_commit_timestamp);
+      spdlog::trace("Found epoch {} on MAIN with last_durable_timestamp {}, REPLICA's last_durable_timestamp {}",
+                    std::string(epoch_info_iter->first), epoch_info_iter->second, replica.current_commit_timestamp);
       branching_point = epoch_info_iter->second;
+    } else {
+      branching_point = std::nullopt;
+      spdlog::trace("Found continuous history between replica {} and main.", client_.name_);
     }
   }
   if (branching_point) {
@@ -116,7 +119,9 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
 
   current_commit_timestamp = replica.current_commit_timestamp;
   spdlog::trace("Current timestamp on replica {}: {}", client_.name_, current_commit_timestamp);
-  spdlog::trace("Current timestamp on main: {}", replStorageState.last_durable_timestamp_.load());
+  spdlog::trace("Current timestamp on main: {}. Current durable timestamp on main: {}", storage->timestamp_,
+                replStorageState.last_durable_timestamp_.load());
+
   replica_state_.WithLock([&](auto &state) {
     // ldt can be larger on replica due to snapshots
     if (current_commit_timestamp >= replStorageState.last_durable_timestamp_.load()) {
@@ -403,11 +408,12 @@ std::pair<bool, uint64_t> ReplicationStorageClient::ForceResetStorage(memgraph::
 }
 
 ////// ReplicaStream //////
-ReplicaStream::ReplicaStream(Storage *storage, rpc::Client &rpc_client, const uint64_t current_seq_num,
+ReplicaStream::ReplicaStream(Storage *storage, rpc::Client &rpc_client, const uint64_t current_wal_seq_num,
                              utils::UUID main_uuid)
     : storage_{storage},
       stream_(rpc_client.Stream<replication::AppendDeltasRpc>(
-          main_uuid, storage->uuid(), storage->repl_storage_state_.last_durable_timestamp_.load(), current_seq_num)),
+          main_uuid, storage->uuid(), storage->repl_storage_state_.last_durable_timestamp_.load(),
+          current_wal_seq_num)),
       main_uuid_(main_uuid) {
   replication::Encoder encoder{stream_.GetBuilder()};
   encoder.WriteString(storage->repl_storage_state_.epoch_.id());

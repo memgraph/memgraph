@@ -227,7 +227,9 @@ bool ReplicationHandler::DoReplicaToMainPromotion(const utils::UUID &main_uuid) 
 
     // Durability is tracking last durable timestamp from MAIN, whereas timestamp_ is dependent on MVCC
     // We need to take bigger timestamp not to lose durability ordering
-    storage->timestamp_ = std::max(storage->timestamp_, storage->repl_storage_state_.last_durable_timestamp_.load());
+    storage->timestamp_ =
+        std::max(storage->timestamp_, storage->repl_storage_state_.last_durable_timestamp_.load() + 1);
+    spdlog::trace("New timestamp on the MAIN for the database: {} {}", storage->timestamp_, db_acc->name());
   });
 
   // STEP 4) Resume TTL
