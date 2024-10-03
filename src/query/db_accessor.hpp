@@ -160,6 +160,10 @@ template <typename storage_iterator>
 struct query_vertex_iterator final {
   using value_type = VertexAccessor;
   explicit query_vertex_iterator(storage_iterator it) : it_(std::move(it)) {}
+  query_vertex_iterator(query_vertex_iterator const &) = default;
+  query_vertex_iterator(query_vertex_iterator &&) = default;
+  query_vertex_iterator &operator=(query_vertex_iterator const &) = default;
+  query_vertex_iterator &operator=(query_vertex_iterator &&) = default;
 
   VertexAccessor operator*() const { return VertexAccessor{*it_}; }
 
@@ -179,6 +183,10 @@ struct query_iterable final {
   using iterator = query_vertex_iterator<typename storage_iterable::iterator>;
 
   explicit query_iterable(storage_iterable iterable) : iterable_(std::move(iterable)) {}
+  query_iterable(query_iterable const &) = default;
+  query_iterable(query_iterable &&) = default;
+  query_iterable &operator=(query_iterable const &) = default;
+  query_iterable &operator=(query_iterable &&) = default;
 
   iterator begin() { return iterator{iterable_.begin()}; }
 
