@@ -23,10 +23,12 @@ using index_container_t = std::map<LabelPropKey, std::shared_ptr<PointIndex cons
 
 struct PointIterator;
 
+// TODO move?
 struct PointIterable {
   using iterator = PointIterator;
 
-  PointIterable(PointIndex const &index, storage::CoordinateReferenceSystem crs);
+  PointIterable(Storage *storage, Transaction *transaction, PointIndex const &index,
+                storage::CoordinateReferenceSystem crs);
   ~PointIterable();
 
   PointIterable();
@@ -37,8 +39,6 @@ struct PointIterable {
   auto end() const -> iterator;
 
   friend bool operator==(PointIterable const &, PointIterable const &) = default;
-
-  // TODO +move?
 
  private:
   struct impl;
@@ -52,7 +52,8 @@ struct PointIndexContext {
 
   void AdvanceCommand(PointIndexChangeCollector &collector) { update_current(collector); }
 
-  auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs) -> PointIterable;
+  auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs, Storage *storage,
+                     Transaction *transaction) -> PointIterable;
 
  private:
   // Only PointIndexStorage can make these
