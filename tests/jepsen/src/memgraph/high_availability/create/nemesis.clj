@@ -69,10 +69,11 @@
   "Returns the name of the main instance. If there is no main instance or more than one main, throws exception."
   [instances]
   (let [main-instances (filter main-instance? instances)
+        num-mains (count main-instances)
         main-instance
-        (if (= 1 (count main-instances))
-          (first main-instances)
-          (throw (Exception. "Expected exactly one main instance.")))
+        (cond (= num-mains 1) (first main-instances)
+              (= num-mains 0) nil
+              :else (throw (Exception. "Expected at most one main instance.")))
         main-instance-name (:name main-instance)]
     main-instance-name))
 
@@ -89,16 +90,17 @@
   "Returns the name of the current leader. If there is no leader or more than one leader, throws exception."
   [instances]
   (let [leaders (filter leader? instances)
+        num-leaders (count leaders)
         leader
-        (if (= 1 (count leaders))
-          (first leaders)
-          (throw (Exception. "Expected exactly one leader.")))
+        (cond (= num-leaders 1) (first leaders)
+              (= num-leaders 0) nil
+              :else (throw (Exception. "Expected at most one leader.")))
         leader-name (extract-coord-name (:bolt_server leader))]
     leader-name))
 
 (defn choose-node-to-kill
-  "Chooses between the current main and the current leader. We always connect to coordinator 'n4' (free choice).
-  We assume that node should always be up because even if it was killed at previous step, it should have enough time to come back
+  "Chooses between the current main and the current leader. If there are no clear MAIN and LEADER instance in the cluster, we choose random node. We always connect to
+  coordinator 'n4' (free choice). We assume that node should always be up because even if it was killed at previous step, it should have enough time to come back
   and to be able to receive requests for show instances.
   "
   [ns]
