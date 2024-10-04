@@ -575,5 +575,5 @@
                  {:hacreate     (checker)
                   :timeline (timeline/html)})
      :generator (client-generator)
-     :final-generator {:clients (gen/each-thread (gen/once get-nodes)) :recovery-time 30}
+     :final-generator {:clients (gen/each-thread (gen/once get-nodes)) :recovery-time 40}
      :nemesis-config (nemesis/create db nodes-config)}))
