@@ -153,6 +153,69 @@
 
       (is (= (hacreate/missing-intervals my-seq) [[10001 50000] [55001 110000]]))))
 
+  (testing "cum-probs1"
+    (let [my-probs [0.1 0.3 0.6]]
+
+      (is (= (hacreate/cum-probs my-probs) [0.1 0.4 1.0]))))
+
+  (testing "cum-probs2"
+    (let [my-probs [0.5 0.5]]
+
+      (is (= (hacreate/cum-probs my-probs) [0.5 1.0]))))
+
+  (testing "cum-probs3"
+    (let [my-probs [0.25 0.25 0.25 0.25]]
+
+      (is (= (hacreate/cum-probs my-probs) [0.25 0.5 0.75 1.0]))))
+
+  (testing "cum-probs4"
+    (let [my-probs [1.0]]
+
+      (is (= (hacreate/cum-probs my-probs) [1.0]))))
+
+  (testing "cum-probs5"
+    (let [my-probs []]
+
+      (is (= (hacreate/cum-probs my-probs) [0]))))
+
+  (testing "get-competent-idx1"
+    (let [cum-probs [0.1 0.4 1.0]]
+
+      (is (= (hacreate/get-competent-idx cum-probs 0.05) 0))))
+
+  (testing "get-competent-idx2"
+    (let [cum-probs [0.1 0.4 1.0]]
+
+      (is (= (hacreate/get-competent-idx cum-probs 0.1) 1))))
+
+  (testing "get-competent-idx3"
+    (let [cum-probs [0.1 0.4 1.0]]
+
+      (is (= (hacreate/get-competent-idx cum-probs 0.3) 1))))
+
+  (testing "get-competent-idx4"
+    (let [cum-probs [0.1 0.4 1.0]]
+
+      (is (= (hacreate/get-competent-idx cum-probs 0.4) 2))))
+
+  (testing "get-competent-idx5"
+    (let [cum-probs [0.1 0.4 1.0]]
+
+      (is (= (hacreate/get-competent-idx cum-probs 0.8) 2))))
+
+  (testing "get-competent-idx6"
+    (let [cum-probs [0.1 0.4 1.0]]
+
+      (is (= (hacreate/get-competent-idx cum-probs 0.99) 2))))
+
+  (testing "get-competent-idx7"
+    (let [cum-probs [0.5 1.0]]
+
+      (is (= (hacreate/get-competent-idx cum-probs 0.2) 0))))
+
+
+
+
 
 
   )

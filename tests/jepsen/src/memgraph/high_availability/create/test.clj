@@ -21,6 +21,32 @@
 
 (def batch-size 5000)
 
+(defn cum-probs
+  "Calculates cumulative probabilities for the vector of probabilities provided."
+  [probs]
+  (reductions + probs))
+
+(defn get-competent-idx
+  "Get idx which is in charge for the interval from which num comes."
+  [intervals num]
+  (first (keep-indexed (fn [idx end-interval]
+                         (when (> end-interval num)
+                           idx))
+
+                       intervals)))
+
+(defn weighted-random
+  "Chooses random number from the collection based on the probabilities vector provided."
+  [coll probs]
+  (assert (= (reduce + probs) 1.0) "Sum of probabilities should equal to 1.")
+  (assert (= (count coll) (count probs)) "Not every element has its probability match.")
+  ; The code relies that `rand` will never generate exactly 1.0. True by the function specification.
+  (let [cumulative-probs (cum-probs probs)
+        rand-num (rand)
+        competent-idx (get-competent-idx cumulative-probs rand-num)
+        chosen-num (nth coll competent-idx)]
+    chosen-num))
+
 (defn hamming-sim
   "Calculates Hamming distance between two sequences. Used as a consistency measure when the order is important."
   [seq1 seq2]
