@@ -1,8 +1,18 @@
 (ns memgraph.utils
   (:require
    [neo4j-clj.core :as dbclient]
-   [clojure.string :as string])
-  (:import (java.net URI)))
+   [clojure.string :as string]
+   )
+  (:import (java.net URI)
+           (java.time LocalTime)
+           (java.time.format DateTimeFormatter)
+           ))
+
+(defn current-local-time-formatted
+  "Get current time in HH:mm:ss.SSS"
+  []
+  (let [formatter (DateTimeFormatter/ofPattern "HH:mm:ss.SSS")]
+    (.format (LocalTime/now) formatter)))
 
 (defn bolt-url
   "Get Bolt server address for connecting to an instance on a particular port"
@@ -16,7 +26,7 @@
 
 (defn random-nonempty-subset
   "Return a random nonempty subset of the input collection. Relies on the fact that first 3 instances from the collection are data instances
-  and last 3 are coordinators. It kills a random subset of data instances and with 50% probability 1 coordinator."
+  and last 3 are coordinators. It kills a random subset of data instances and coordinators."
   [coll]
   (let [data-instances (take 3 coll)
         coords (take-last 3 coll)

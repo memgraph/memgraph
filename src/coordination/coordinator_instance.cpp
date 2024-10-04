@@ -290,6 +290,7 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
     spdlog::trace("No leader found, returning report as follower");
     return ShowInstancesStatusAsFollower();
   }
+
   CoordinatorInstanceConnector *leader{nullptr};
   {
     auto connectors = coordinator_connectors_.Lock();
@@ -300,6 +301,7 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
       leader = &connector->second;
     }
   }
+
   if (leader == nullptr) {
     spdlog::trace("Connection to leader not found, returning SHOW INSTANCES output as follower.");
     return ShowInstancesStatusAsFollower();
@@ -312,6 +314,7 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
     spdlog::trace("Couldn't get instances from leader {}. Returning result as a follower.", leader_id);
     return ShowInstancesStatusAsFollower();
   }
+
   spdlog::trace("Got instances from leader {}.", leader_id);
   return std::move(maybe_res.value());
 }
