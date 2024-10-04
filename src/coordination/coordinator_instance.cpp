@@ -113,13 +113,13 @@ CoordinatorInstance::~CoordinatorInstance() {
 
 auto CoordinatorInstance::GetBecomeLeaderCallback() -> std::function<void()> {
   return [this]() {
-    spdlog::trace("Executing become leader callback in thread {}", std::this_thread::get_id());
+    spdlog::trace("Executing become leader callback in thread {}.", std::this_thread::get_id());
     if (is_shutting_down_.load(std::memory_order_seq_cst)) {
       return;
     }
     is_leader_ready_.store(false, std::memory_order_seq_cst);
     // Thread pool is needed because becoming leader is blocking action, and if we don't succeed to check state of
-    // cluster we will try again and again in same thread, thus blocking progress of nuRAFT leader election
+    // cluster we will try again and again in same thread, thus blocking progress of NuRaft leader election.
     thread_pool_.AddTask([this]() { this->ReconcileClusterState(); });
     return;
   };
@@ -128,21 +128,23 @@ auto CoordinatorInstance::GetBecomeLeaderCallback() -> std::function<void()> {
 auto CoordinatorInstance::GetBecomeFollowerCallback() -> std::function<void()> {
   return [this]() {
     thread_pool_.AddTask([this]() {
-      spdlog::info("Leader changed, trying to stop all replication instances frequent checks in thread {}!",
+      spdlog::info("Leader changed, trying to stop all replication instances frequent checks in thread {}.",
                    std::this_thread::get_id());
       is_leader_ready_ = false;
-      // We need to stop checks before taking a lock because deadlock can happen if instances waits
+      // We need to stop checks before taking a lock because deadlock can happen if instances wait
       // to take a lock in frequent check, and this thread already has a lock and waits for instance to
       // be done with frequent check
       std::ranges::for_each(repl_instances_, [](auto &repl_instance) {
-        spdlog::trace("Stopping frequent checks for instance {}", repl_instance.InstanceName());
+        spdlog::trace("Stopping frequent checks for instance {} in thread {}.", repl_instance.InstanceName(),
+                      std::this_thread::get_id());
         repl_instance.StopFrequentCheck();
-        spdlog::trace("Stopped frequent checks for instance {}", repl_instance.InstanceName());
+        spdlog::trace("Stopped frequent checks for instance {} in thread {}.", repl_instance.InstanceName(),
+                      std::this_thread::get_id());
       });
-      spdlog::info("Acquiring lock in become follower callback in thread {}!", std::this_thread::get_id());
+      spdlog::info("Acquiring lock in become follower callback in thread {}.", std::this_thread::get_id());
       auto lock = std::unique_lock{coord_instance_lock_};
       repl_instances_.clear();
-      spdlog::info("Stopped all replication instance frequent checks.");
+      spdlog::info("Stopped all replication instance frequent checks in thread {}.", std::this_thread::get_id());
     });
   };
 }
@@ -323,12 +325,12 @@ auto CoordinatorInstance::ReconcileClusterState() -> ReconcileClusterStateStatus
   utils::ExponentialBackoff backoff{std::chrono::milliseconds(1000), std::chrono::seconds(60)};
 
   while (raft_state_->IsLeader()) {
-    spdlog::trace("Ensuring healthy state in cluster still as coordinator is leader and lock is opened.");
+    spdlog::trace("Trying to ensure cluster's healthy state as coordinator is leader.");
     auto const result = ReconcileClusterState_();
     switch (result) {
       case (ReconcileClusterStateStatus::SUCCESS):
         is_leader_ready_.store(true, std::memory_order_seq_cst);
-        spdlog::trace("Reconcile cluster state was success.");
+        spdlog::trace("Reconcile cluster state finished successfully.");
         return result;
       case ReconcileClusterStateStatus::FAIL:
         break;
@@ -340,6 +342,7 @@ auto CoordinatorInstance::ReconcileClusterState() -> ReconcileClusterStateStatus
     backoff.wait();
   }
 
+  MG_ASSERT(false, "Reconciliation should've finished in previous steps.");
   return ReconcileClusterStateStatus::SUCCESS;  // Shouldn't execute
 }
 
@@ -863,7 +866,7 @@ auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorToReplicaConfig
   auto lock = std::lock_guard{coord_instance_lock_};
   spdlog::trace("Acquired lock to register replication instance", std::this_thread::get_id());
   if (!is_leader_ready_) {
-    spdlog::trace(" Is leader ready is in state {}", is_leader_ready_);
+    spdlog::trace("Leader is not ready, existing.");
     return RegisterInstanceCoordinatorStatus::NOT_LEADER;
   }
 
@@ -950,7 +953,7 @@ auto CoordinatorInstance::DemoteInstanceToReplica(std::string_view instance_name
   spdlog::trace("Acquired lock to demote instance to replica");
 
   if (!is_leader_ready_) {
-    spdlog::trace("Is leader ready is in state {}", is_leader_ready_);
+    spdlog::trace("Leader isn't ready.");
     return DemoteInstanceCoordinatorStatus::NOT_LEADER;
   }
 
@@ -1164,12 +1167,12 @@ void CoordinatorInstance::MainSuccessCallback(std::string_view repl_instance_nam
   }};
 
   if (!raft_state_->AppendInstanceNeedsDemote(repl_instance_name)) {
-    spdlog::error("Raft log didn't accept instance needs demote.");
+    spdlog::error("Raft log didn't accept log 'instance needs demote'.");
     return;
   }
 
   if (!raft_state_->AppendCloseLock()) {
-    spdlog::error("Raft log didn't accept instance close lock for demoting instance {} to replica.",
+    spdlog::error("Raft log didn't accept log 'instance close lock' for demoting instance {} to replica.",
                   repl_instance_name);
     return;
   }
@@ -1182,7 +1185,7 @@ void CoordinatorInstance::ReplicaSuccessCallback(std::string_view repl_instance_
                 std::this_thread::get_id());
 
   if (raft_state_->IsLockOpened()) {
-    spdlog::error("Stopping main successful callback as the last action didn't successfully finish");
+    spdlog::error("Stopping replica successful callback as the last action didn't successfully finish");
     return;
   }
 
@@ -1196,6 +1199,7 @@ void CoordinatorInstance::ReplicaSuccessCallback(std::string_view repl_instance_
     spdlog::error("Failed to swap uuid for replica instance {} which is alive", repl_instance.InstanceName());
     return;
   }
+  spdlog::trace("Replica {} still has correct main uuid.", repl_instance.InstanceName());
 
   repl_instance.OnSuccessPing();
 }
@@ -1205,7 +1209,7 @@ void CoordinatorInstance::ReplicaFailCallback(std::string_view repl_instance_nam
                 std::this_thread::get_id());
 
   if (raft_state_->IsLockOpened()) {
-    spdlog::error("Stopping main successful callback as the last action didn't successfully finish.");
+    spdlog::error("Stopping replica fail callback as the last action didn't successfully finish.");
     return;
   }
 
@@ -1314,7 +1318,7 @@ auto CoordinatorInstance::ChooseMostUpToDateInstance(std::span<InstanceNameDbHis
         if (!new_main_res) {
           const auto &[epoch, timestamp] = *instance_default_db_history.crbegin();
           new_main_res = std::make_optional<NewMainRes>({instance_name, epoch, timestamp});
-          spdlog::debug("Currently the most up to date instance is {} with epoch {} and {} latest commit timestamp",
+          spdlog::debug("Currently the most up to date instance is {} with epoch {} and latest commit timestamp {}",
                         instance_name, epoch, timestamp);
           return;
         }

@@ -107,19 +107,24 @@ auto ReplicationInstanceConnector::GetClient() -> ReplicationInstanceClient & { 
 
 auto ReplicationInstanceConnector::EnsureReplicaHasCorrectMainUUID(utils::UUID const &curr_main_uuid) -> bool {
   if (!IsReadyForUUIDPing()) {
+    spdlog::trace("Replica's cached MAIN uuid still valid, not sending GetInstanceUUID");
     return true;
   }
+  spdlog::trace("Replica's cached MAIN uuid expired, sending GetInstanceUUIDRpc.");
   auto res = SendGetInstanceUUID();
   if (res.HasError()) {
+    spdlog::trace("Couldn't verify that replica still knows about the correct main uuid");
     return false;
   }
   UpdateReplicaLastResponseUUID();
 
   // NOLINTNEXTLINE
   if (res.GetValue().has_value() && res.GetValue().value() == curr_main_uuid) {
+    spdlog::trace("Replica's view of the main uuid is still valid. Not sending request for swaping and updating UUID.");
     return true;
   }
 
+  spdlog::trace("Replica's view of the main uuid not valid anymore. Sending request for updating UUID.");
   return SendSwapAndUpdateUUID(curr_main_uuid);
 }
 
