@@ -52,6 +52,9 @@ sed -e 's/CREATE RANGE INDEX FOR (n:/CREATE INDEX ON :/g;' \
     -e '/^CREATE CONSTRAINT/d' $INPUT_SCHEMA >> "$OUTPUT_SCHEMA"
 
 cat "$INPUT_NODES" > "$OUTPUT_NODES"
+# Add backticks around property keys in any {key: value} patterns.
+sed -i -E -e 's/(\{|,|\s)([a-zA-Z_][a-zA-Z0-9_]*)(\s*:\s*)/\1`\2`\3/g' -e 's/`n`/n/g' "$OUTPUT_NODES"
+
 cat "$INPUT_RELATIONSHIPS" > "$OUTPUT_RELATIONSHIPS"
 
 sed -e '/^DROP CONSTRAINT/d' "$INPUT_CLEANUP" >> "$OUTPUT_CLEANUP"
