@@ -74,7 +74,7 @@
         (cond (= num-mains 1) (first main-instances)
               (= num-mains 0) nil
               :else (throw (Exception. "Expected at most one main instance.")))
-        main-instance-name (:name main-instance)]
+        main-instance-name (if (nil? main-instance) nil (:name main-instance))]
     main-instance-name))
 
 (defn leader?
@@ -95,7 +95,7 @@
         (cond (= num-leaders 1) (first leaders)
               (= num-leaders 0) nil
               :else (throw (Exception. "Expected at most one leader.")))
-        leader-name (extract-coord-name (:bolt_server leader))]
+        leader-name (if (nil? leader) nil (extract-coord-name (:bolt_server leader)))]
     leader-name))
 
 (defn choose-node-to-kill

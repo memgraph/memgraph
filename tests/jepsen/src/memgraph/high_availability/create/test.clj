@@ -300,7 +300,7 @@
                                    (let [instances (reduce conj [] (mgquery/get-all-instances session))]
                                      (assoc op
                                             :type :ok
-                                            :value {:instances instances :node node})))
+                                            :value {:instances instances :node node :time (utils/current-local-time-formatted)})))
                                  (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
                                    (utils/process-service-unavailable-exc op node))
                                  (catch Exception e
