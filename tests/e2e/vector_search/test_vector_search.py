@@ -18,6 +18,9 @@ import mgclient
 import pytest
 from common import memgraph, memgraph_with_vector_indexed_data
 
+# TODO(gitbuda): The basic create/drop index are redundant here because that's
+# also tested under gql_behave -> remove it from here.
+
 
 def test_create_index(memgraph):
     memgraph.execute("""CREATE VECTOR INDEX vectorIndexName ON :Label(property) OPTIONS {};""")
