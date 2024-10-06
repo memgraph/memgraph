@@ -2831,6 +2831,8 @@ antlrcpp::Any CypherMainVisitor::visitAtom(MemgraphCypher::AtomContext *ctx) {
 
   // TODO: Implement this. We don't support comprehensions, filtering... at
   // the moment.
+  // TODO(gitbuda): Come up with much better not yet implemented atom expression. To test run, e.g. MATCH (c) WHERE NOT
+  // ((c)-[:EdgeType]->(d)) RETURN c;
   throw utils::NotYetImplemented("atom expression '{}'", ctx->getText());
 }
 
