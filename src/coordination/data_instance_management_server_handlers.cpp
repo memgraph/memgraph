@@ -78,7 +78,6 @@ void DataInstanceManagementServerHandlers::GetDatabaseHistoriesHandler(
 
 void DataInstanceManagementServerHandlers::SwapMainUUIDHandler(replication::ReplicationHandler &replication_handler,
                                                                slk::Reader *req_reader, slk::Builder *res_builder) {
-  // TODO: (andi) Assert false here.
   if (!replication_handler.IsReplica()) {
     spdlog::error("Setting uuid must be performed on replica.");
     slk::Save(replication_coordination_glue::SwapMainUUIDRes{false}, res_builder);
@@ -118,13 +117,13 @@ void DataInstanceManagementServerHandlers::GetInstanceUUIDHandler(replication::R
                                                                   slk::Builder *res_builder) {
   auto const replica_uuid = replication_handler.GetReplicaUUID();
   slk::Save(coordination::GetInstanceUUIDRes{replica_uuid}, res_builder);
-  spdlog::info("Replica's UUID returned successfully: {}", replica_uuid ? std::string(*replica_uuid) : "");
+  spdlog::info("Replica's UUID returned successfully: {}.", replica_uuid ? std::string{*replica_uuid} : "");
 }
 
 void DataInstanceManagementServerHandlers::PromoteReplicaToMainHandler(
     replication::ReplicationHandler &replication_handler, slk::Reader *req_reader, slk::Builder *res_builder) {
   if (!replication_handler.IsReplica()) {
-    spdlog::error("Promote to main must be performed on replica!");
+    spdlog::error("Promote to main must be performed on replica.");
     slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);
     return;
   }
@@ -134,7 +133,7 @@ void DataInstanceManagementServerHandlers::PromoteReplicaToMainHandler(
   // This can fail because of disk. If it does, the cluster state could get inconsistent.
   // We don't handle disk issues.
   if (const bool success = replication_handler.DoReplicaToMainPromotion(req.main_uuid); !success) {
-    spdlog::error("Promoting replica to main failed!");
+    spdlog::error("Promoting replica to main failed.");
     slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);
     return;
   }
@@ -200,7 +199,7 @@ void DataInstanceManagementServerHandlers::UnregisterReplicaHandler(
       spdlog::error("Unregistering replica must be performed on main.");
       slk::Save(coordination::UnregisterReplicaRes{false}, res_builder);
       break;
-    case CAN_NOT_UNREGISTER:
+    case CANNOT_UNREGISTER:
       spdlog::error("Could not unregister replica.");
       slk::Save(coordination::UnregisterReplicaRes{false}, res_builder);
       break;

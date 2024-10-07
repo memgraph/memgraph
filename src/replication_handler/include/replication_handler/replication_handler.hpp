@@ -159,24 +159,26 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
   template <bool SendSwapUUID>
   auto RegisterReplica_(const memgraph::replication::ReplicationClientConfig &config)
       -> memgraph::utils::BasicResult<memgraph::query::RegisterReplicaError> {
-    MG_ASSERT(repl_state_.IsMain(), "Only main instance can register a replica!");
+    using memgraph::query::RegisterReplicaError;
+    using ClientRegisterReplicaError = memgraph::replication::RegisterReplicaError;
+
     auto maybe_client = repl_state_.RegisterReplica(config);
     if (maybe_client.HasError()) {
       switch (maybe_client.GetError()) {
-        case memgraph::replication::RegisterReplicaError::NOT_MAIN:
-          MG_ASSERT(false, "Only main instance can register a replica!");
-          return {};
-        case memgraph::replication::RegisterReplicaError::NAME_EXISTS:
-          return memgraph::query::RegisterReplicaError::NAME_EXISTS;
-        case memgraph::replication::RegisterReplicaError::ENDPOINT_EXISTS:
-          return memgraph::query::RegisterReplicaError::ENDPOINT_EXISTS;
-        case memgraph::replication::RegisterReplicaError::COULD_NOT_BE_PERSISTED:
-          return memgraph::query::RegisterReplicaError::COULD_NOT_BE_PERSISTED;
-        case memgraph::replication::RegisterReplicaError::SUCCESS:
+        case ClientRegisterReplicaError::NOT_MAIN:
+          return RegisterReplicaError::NOT_MAIN;
+        case ClientRegisterReplicaError::NAME_EXISTS:
+          return RegisterReplicaError::NAME_EXISTS;
+        case ClientRegisterReplicaError::ENDPOINT_EXISTS:
+          return RegisterReplicaError::ENDPOINT_EXISTS;
+        case ClientRegisterReplicaError::COULD_NOT_BE_PERSISTED:
+          return RegisterReplicaError::COULD_NOT_BE_PERSISTED;
+        case ClientRegisterReplicaError::SUCCESS:
           break;
       }
     }
-    const auto main_uuid =
+
+    auto const main_uuid =
         std::get<memgraph::replication::RoleMainData>(dbms_handler_.ReplicationState().ReplicationData()).uuid_;
     if constexpr (SendSwapUUID) {
       if (!memgraph::replication_coordination_glue::SendSwapMainUUIDRpc(maybe_client.GetValue()->rpc_client_,
@@ -184,14 +186,17 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
         return memgraph::query::RegisterReplicaError::ERROR_ACCEPTING_MAIN;
       }
     }
+
 #ifdef MG_ENTERPRISE
     // Update system before enabling individual storage <-> replica clients
     SystemRestore(*maybe_client.GetValue(), system_, dbms_handler_, main_uuid, auth_);
 #endif
+
     const auto dbms_error = HandleRegisterReplicaStatus(maybe_client);
     if (dbms_error.has_value()) {
       return *dbms_error;
     }
+
     auto &instance_client_ptr = maybe_client.GetValue();
     // Add database specific clients (NOTE Currently all databases are connected to each replica)
     bool all_clients_good{true};
@@ -199,6 +204,7 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
       auto *storage = db_acc->storage();
       // TODO: ATM only IN_MEMORY_TRANSACTIONAL, fix other modes
       if (storage->storage_mode_ != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) return;
+
       all_clients_good &= storage->repl_storage_state_.replication_clients_.WithLock(
           [is_data_instance_managed_by_coord = flags::CoordinationSetupInstance().IsDataInstanceManagedByCoordinator(),
            storage, &instance_client_ptr, db_acc = std::move(db_acc),
@@ -223,12 +229,42 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
             return success;
           });
     });
-    // NOTE Currently if any databases fails, we revert back
+
     if (!all_clients_good) {
-      spdlog::error("Failed to register all databases on the REPLICA \"{}\"", config.name);
-      UnregisterReplica(config.name);
-      return memgraph::query::RegisterReplicaError::CONNECTION_FAILED;
+      spdlog::error("Failed to register all databases for the replica {}. Started unregistering replica.", config.name);
+      auto const unregister_res{UnregisterReplica(config.name)};
+      switch (unregister_res) {
+        using memgraph::query::UnregisterReplicaResult;
+        case UnregisterReplicaResult::NOT_MAIN:
+          MG_ASSERT(false,
+                    "Failed to unregister replica {} after failed registration process since the instance isn't main "
+                    "anymore. The instance left in unconsistent state, the administrator should manually delete the "
+                    "data and restart process.",
+                    config.name);
+          break;
+        case UnregisterReplicaResult::COULD_NOT_BE_PERSISTED:
+          MG_ASSERT(
+              false,
+              "Failed to unregister replica {} after failed registration process since unregistration couldn't be "
+              "persisted. The instance left in unconsistent state, the administrator should manually delete the data "
+              "and restart process.",
+              config.name);
+          break;
+        case UnregisterReplicaResult::CANNOT_UNREGISTER:
+          MG_ASSERT(
+              false,
+              "Failed to unregister replica {} after failed registration process since unregistration unsuccessful for "
+              "all database clients. The instance left in unconsistent state, the administrator should manually delete "
+              "the data and restart process.",
+              config.name);
+          break;
+        case UnregisterReplicaResult::SUCCESS:
+          spdlog::trace("Replica {} successfully unregistered after failed registration process.", config.name);
+          break;
+      }
+      return RegisterReplicaError::CONNECTION_FAILED;
     }
+
     // No client error, start instance level client
 #ifdef MG_ENTERPRISE
     StartReplicaClient(*instance_client_ptr, system_, dbms_handler_, main_uuid, auth_);
