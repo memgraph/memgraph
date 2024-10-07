@@ -21,7 +21,6 @@
 #include "dbms/constants.hpp"
 #include "flags/experimental.hpp"
 #include "flags/general.hpp"
-#include "flags/run_time_configurable.hpp"
 #include "memory/global_memory_control.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/snapshot.hpp"
@@ -612,16 +611,6 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetFrom(EdgeAccessor
   auto edge_ref = edge->edge_;
   auto edge_type = edge->edge_type_;
 
-  std::unique_lock<utils::RWSpinLock> guard;
-  if (config_.properties_on_edges) {
-    auto *edge_ptr = edge_ref.ptr;
-    guard = std::unique_lock{edge_ptr->lock};
-
-    if (!PrepareForWrite(&transaction_, edge_ptr)) return Error::SERIALIZATION_ERROR;
-
-    if (edge_ptr->deleted) return Error::DELETED_OBJECT;
-  }
-
   auto guard_old_from = std::unique_lock{old_from_vertex->lock, std::defer_lock};
   auto guard_new_from = std::unique_lock{new_from_vertex->lock, std::defer_lock};
   auto guard_to = std::unique_lock{to_vertex->lock, std::defer_lock};
@@ -634,6 +623,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetFrom(EdgeAccessor
 
   // This has to be called before any object gets locked
   auto schema_acc = SchemaInfoAccessor(storage_, &transaction_);
+
   for (auto *vertex : vertices) {
     if (vertex == old_from_vertex) {
       guard_old_from.lock();
@@ -644,6 +634,17 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetFrom(EdgeAccessor
     } else {
       return Error::NONEXISTENT_OBJECT;
     }
+  }
+
+  // Lock ordering has to be: 1. all vertices in order of Gid 2. an edge
+  std::unique_lock<utils::RWSpinLock> guard;
+  if (config_.properties_on_edges) {
+    auto *edge_ptr = edge_ref.ptr;
+    guard = std::unique_lock{edge_ptr->lock};
+
+    if (!PrepareForWrite(&transaction_, edge_ptr)) return Error::SERIALIZATION_ERROR;
+
+    if (edge_ptr->deleted) return Error::DELETED_OBJECT;
   }
 
   if (!PrepareForWrite(&transaction_, old_from_vertex)) return Error::SERIALIZATION_ERROR;
@@ -746,16 +747,6 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetTo(EdgeAccessor *
   auto &edge_ref = edge->edge_;
   auto &edge_type = edge->edge_type_;
 
-  std::unique_lock<utils::RWSpinLock> guard;
-  if (config_.properties_on_edges) {
-    auto *edge_ptr = edge_ref.ptr;
-    guard = std::unique_lock{edge_ptr->lock};
-
-    if (!PrepareForWrite(&transaction_, edge_ptr)) return Error::SERIALIZATION_ERROR;
-
-    if (edge_ptr->deleted) return Error::DELETED_OBJECT;
-  }
-
   auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
   auto guard_old_to = std::unique_lock{old_to_vertex->lock, std::defer_lock};
   auto guard_new_to = std::unique_lock{new_to_vertex->lock, std::defer_lock};
@@ -768,6 +759,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetTo(EdgeAccessor *
 
   // This has to be called before any object gets locked
   auto schema_acc = SchemaInfoAccessor(storage_, &transaction_);
+
   for (auto *vertex : vertices) {
     if (vertex == from_vertex) {
       guard_from.lock();
@@ -778,6 +770,17 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetTo(EdgeAccessor *
     } else {
       return Error::NONEXISTENT_OBJECT;
     }
+  }
+
+  // Lock ordering has to be: 1. all vertices in order of Gid 2. an edge
+  std::unique_lock<utils::RWSpinLock> guard;
+  if (config_.properties_on_edges) {
+    auto *edge_ptr = edge_ref.ptr;
+    guard = std::unique_lock{edge_ptr->lock};
+
+    if (!PrepareForWrite(&transaction_, edge_ptr)) return Error::SERIALIZATION_ERROR;
+
+    if (edge_ptr->deleted) return Error::DELETED_OBJECT;
   }
 
   if (!PrepareForWrite(&transaction_, old_to_vertex)) return Error::SERIALIZATION_ERROR;
@@ -868,20 +871,12 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeChangeType(EdgeAcces
   auto &edge_ref = edge->edge_;
   auto &edge_type = edge->edge_type_;
 
-  std::unique_lock<utils::RWSpinLock> guard;
-  if (config_.properties_on_edges) {
-    auto *edge_ptr = edge_ref.ptr;
-    guard = std::unique_lock{edge_ptr->lock};
-
-    if (!PrepareForWrite(&transaction_, edge_ptr)) return Error::SERIALIZATION_ERROR;
-    if (edge_ptr->deleted) return Error::DELETED_OBJECT;
-  }
-
   auto *from_vertex = edge->from_vertex_;
   auto *to_vertex = edge->to_vertex_;
 
   // This has to be called before any object gets locked
   auto schema_acc = SchemaInfoAccessor(storage_, &transaction_);
+
   // Obtain the locks by `gid` order to avoid lock cycles.
   auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
   auto guard_to = std::unique_lock{to_vertex->lock, std::defer_lock};
@@ -894,6 +889,16 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeChangeType(EdgeAcces
   } else {
     // The vertices are the same vertex, only lock one.
     guard_from.lock();
+  }
+
+  // Lock ordering has to be: 1. all vertices in order of Gid 2. an edge
+  std::unique_lock<utils::RWSpinLock> guard;
+  if (config_.properties_on_edges) {
+    auto *edge_ptr = edge_ref.ptr;
+    guard = std::unique_lock{edge_ptr->lock};
+
+    if (!PrepareForWrite(&transaction_, edge_ptr)) return Error::SERIALIZATION_ERROR;
+    if (edge_ptr->deleted) return Error::DELETED_OBJECT;
   }
 
   if (!PrepareForWrite(&transaction_, from_vertex)) return Error::SERIALIZATION_ERROR;
@@ -959,7 +964,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
 
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
-  // TODO: duplicated transaction finalisation in md_deltas and deltas processing cases
+  // TODO: duplicated transaction finalization in md_deltas and deltas processing cases
   if (transaction_.deltas.empty() && transaction_.md_deltas.empty()) {
     // We don't have to update the commit timestamp here because no one reads
     // it.

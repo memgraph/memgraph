@@ -2349,7 +2349,9 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgePropertyStressTest) {
   };
 
   auto read_schema = [&]() {
-    while (running) {
+    auto stop = memgraph::utils::OnScopeExit{[&]() { running = false; }};
+    uint16_t i = 0;
+    while (i++ < 5000) {
       const auto json = in_memory->schema_info_.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
       // Possible schemas:
 
@@ -2385,9 +2387,6 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgePropertyStressTest) {
   auto t1 = std::jthread(modify_labels);
   auto t2 = std::jthread(modify_edge);
   auto t3 = std::jthread(read_schema);
-
-  std::this_thread::sleep_for(std::chrono::seconds(10));
-  running = false;
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)

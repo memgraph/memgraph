@@ -271,6 +271,9 @@ Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector
     }
   }
 
+  // Getting the schema accessor here, so we are protected from any label changes during deletion
+  auto schema_acc = SchemaInfoAccessor(storage_, &transaction_);
+
   // 1. Gather nodes which are not deleted yet in the system
   auto maybe_nodes_to_delete = PrepareDeletableNodes(nodes);
   if (maybe_nodes_to_delete.HasError()) {
@@ -285,7 +288,7 @@ Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector
   std::unordered_set<Gid> deleted_edge_ids;
   std::vector<EdgeAccessor> deleted_edges;
   if (detach) {
-    auto maybe_cleared_edges = ClearEdgesOnVertices(nodes_to_delete, deleted_edge_ids);
+    auto maybe_cleared_edges = ClearEdgesOnVertices(nodes_to_delete, deleted_edge_ids, schema_acc);
     if (maybe_cleared_edges.HasError()) {
       return maybe_cleared_edges.GetError();
     }
@@ -294,14 +297,14 @@ Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector
   }
 
   // Detach nodes on the other end, which don't need deletion, by passing once through their vectors
-  auto maybe_remaining_edges = DetachRemainingEdges(std::move(edge_deletion_info), deleted_edge_ids);
+  auto maybe_remaining_edges = DetachRemainingEdges(std::move(edge_deletion_info), deleted_edge_ids, schema_acc);
   if (maybe_remaining_edges.HasError()) {
     return maybe_remaining_edges.GetError();
   }
   const std::vector<EdgeAccessor> remaining_edges = *maybe_remaining_edges.GetValue();
   deleted_edges.insert(deleted_edges.end(), remaining_edges.begin(), remaining_edges.end());
 
-  auto const maybe_deleted_vertices = TryDeleteVertices(nodes_to_delete);
+  auto const maybe_deleted_vertices = TryDeleteVertices(nodes_to_delete, schema_acc);
   if (maybe_deleted_vertices.HasError()) {
     return maybe_deleted_vertices.GetError();
   }
@@ -405,18 +408,17 @@ EdgeInfoForDeletion Storage::Accessor::PrepareDeletableEdges(const std::unordere
 }
 
 Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::ClearEdgesOnVertices(
-    const std::unordered_set<Vertex *> &vertices, std::unordered_set<Gid> &deleted_edge_ids) {
+    const std::unordered_set<Vertex *> &vertices, std::unordered_set<Gid> &deleted_edge_ids,
+    std::optional<SchemaInfo::ModifyingAccessor> &schema_acc) {
   // We want to gather all edges that we delete in this step so that we can proceed with
   // further deletion
   using ReturnType = std::vector<EdgeAccessor>;
   std::vector<EdgeAccessor> deleted_edges{};
 
-  auto clear_edges = [this, &deleted_edges, &deleted_edge_ids](
+  auto clear_edges = [this, &deleted_edges, &deleted_edge_ids, &schema_acc](
                          auto *vertex_ptr, auto *attached_edges_to_vertex, auto deletion_delta,
                          auto reverse_vertex_order) -> Result<std::optional<ReturnType>> {
     // This has to be called before any object gets locked
-    // TODO Double check that the shared access is enough
-    auto schema_acc = SchemaInfoAccessor(storage_, &transaction_);
     auto vertex_lock = std::unique_lock{vertex_ptr->lock};
     while (!attached_edges_to_vertex->empty()) {
       // get the information about the last edge in the vertex collection
@@ -454,17 +456,10 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::ClearEdgesOn
           deleted_edges.emplace_back(edge_ref, edge_type, from_vertex, to_vertex, storage_, &transaction_, true);
         }
         CreateAndLinkDelta(&transaction_, vertex_ptr, deletion_delta, edge_type, opposing_vertex, edge_ref);
-        // This will get called from both ends; execute only if possible to lock
-        if (schema_acc) {
-          auto opposing_lock = std::unique_lock{opposing_vertex->lock, std::defer_lock};
-          if (vertex_ptr == opposing_vertex) {
-            // Both ends are already locked
-            if (reverse_vertex_order) return;
-          } else if (vertex_ptr->gid < opposing_vertex->gid) {
-            opposing_lock.lock();
-          } else {
-            return;
-          }
+        if (schema_acc && edge_cleared_from_both_directions) {
+          // All 3 objects have been modified, no need to lock while in TRANSACTIONAL
+          // ANALYTICAL is protected with the accessor. Multi-threaded deletion in UB; Labels and edge properties are
+          // unique acc.
           std::visit(utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) {
                                          acc.DeleteEdge(from_vertex, to_vertex, edge_type, edge_ref);
                                        },
@@ -495,17 +490,15 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::ClearEdgesOn
 }
 
 Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::DetachRemainingEdges(
-    EdgeInfoForDeletion info, std::unordered_set<Gid> &partially_detached_edge_ids) {
+    EdgeInfoForDeletion info, std::unordered_set<Gid> &partially_detached_edge_ids,
+    std::optional<SchemaInfo::ModifyingAccessor> &schema_acc) {
   using ReturnType = std::vector<EdgeAccessor>;
   std::vector<EdgeAccessor> deleted_edges{};
 
-  auto clear_edges_on_other_direction = [this, &deleted_edges, &partially_detached_edge_ids](
+  auto clear_edges_on_other_direction = [this, &deleted_edges, &partially_detached_edge_ids, &schema_acc](
                                             auto *vertex_ptr, auto *edges_attached_to_vertex, auto &set_for_erasure,
                                             auto deletion_delta,
                                             auto reverse_vertex_order) -> Result<std::optional<ReturnType>> {
-    // This has to be called before any object gets locked
-    // TODO Double check that the shared access is enough
-    auto schema_acc = SchemaInfoAccessor(storage_, &transaction_);
     auto vertex_lock = std::unique_lock{vertex_ptr->lock};
 
     if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
@@ -545,16 +538,9 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::DetachRemain
         }
 
         // This will get called from both ends; execute only if possible to lock
-        if (schema_acc) {
-          auto opposing_lock = std::unique_lock{opposing_vertex->lock, std::defer_lock};
-          if (vertex_ptr == opposing_vertex) {
-            // Both ends are already locked
-            if (reverse_vertex_order) continue;
-          } else if (vertex_ptr->gid < opposing_vertex->gid) {
-            opposing_lock.lock();
-          } else {
-            continue;
-          }
+        if (schema_acc && edge_cleared_from_both_directions) {
+          // All 3 objects have been modified, no need to lock while in TRANSACTIONAL
+          // Analytical is protected with the accessor. Multi-threaded deletion in UB.
           std::visit(utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) {
                                          acc.DeleteEdge(from_vertex, to_vertex, edge_type, edge_ref);
                                        },
@@ -587,13 +573,12 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::DetachRemain
   return std::make_optional<ReturnType>(deleted_edges);
 }
 
-Result<std::vector<VertexAccessor>> Storage::Accessor::TryDeleteVertices(const std::unordered_set<Vertex *> &vertices) {
+Result<std::vector<VertexAccessor>> Storage::Accessor::TryDeleteVertices(
+    const std::unordered_set<Vertex *> &vertices, std::optional<SchemaInfo::ModifyingAccessor> &schema_acc) {
   std::vector<VertexAccessor> deleted_vertices;
   deleted_vertices.reserve(vertices.size());
 
   for (auto *vertex_ptr : vertices) {
-    // This has to be called before any object gets locked
-    auto schema_acc = SchemaInfoAccessor(storage_, &transaction_);
     auto vertex_lock = std::unique_lock{vertex_ptr->lock};
 
     if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;

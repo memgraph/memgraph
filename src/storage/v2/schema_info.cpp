@@ -735,7 +735,6 @@ void SchemaInfo::AnalyticalEdgeModifyingAccessor::RemoveLabel(Vertex *vertex, La
   UpdateAnalyticalEdges(vertex, old_labels, std::move(vertex_guard));
 }
 
-// TODO Analytical locks for ordering, transactional does not lock so needs to read deltas
 // Edge SET_PROPERTY delta
 void SchemaInfo::AnalyticalEdgeModifyingAccessor::SetProperty(EdgeTypeId type, Vertex *from, Vertex *to,
                                                               PropertyId property, ExtendedPropertyType now,

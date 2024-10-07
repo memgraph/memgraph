@@ -458,11 +458,14 @@ class Storage {
         const std::vector<VertexAccessor *> &vertices);
     EdgeInfoForDeletion PrepareDeletableEdges(const std::unordered_set<Vertex *> &vertices,
                                               const std::vector<EdgeAccessor *> &edges, bool detach) noexcept;
-    Result<std::optional<std::vector<EdgeAccessor>>> ClearEdgesOnVertices(const std::unordered_set<Vertex *> &vertices,
-                                                                          std::unordered_set<Gid> &deleted_edge_ids);
+    Result<std::optional<std::vector<EdgeAccessor>>> ClearEdgesOnVertices(
+        const std::unordered_set<Vertex *> &vertices, std::unordered_set<Gid> &deleted_edge_ids,
+        std::optional<SchemaInfo::ModifyingAccessor> &schema_acc);
     Result<std::optional<std::vector<EdgeAccessor>>> DetachRemainingEdges(
-        EdgeInfoForDeletion info, std::unordered_set<Gid> &partially_detached_edge_ids);
-    Result<std::vector<VertexAccessor>> TryDeleteVertices(const std::unordered_set<Vertex *> &vertices);
+        EdgeInfoForDeletion info, std::unordered_set<Gid> &partially_detached_edge_ids,
+        std::optional<SchemaInfo::ModifyingAccessor> &schema_acc);
+    Result<std::vector<VertexAccessor>> TryDeleteVertices(const std::unordered_set<Vertex *> &vertices,
+                                                          std::optional<SchemaInfo::ModifyingAccessor> &schema_acc);
     void MarkEdgeAsDeleted(Edge *edge);
 
    private:
