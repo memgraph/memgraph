@@ -148,7 +148,7 @@ struct CommitReplArgs {
 
   bool is_main = true;
 
-  bool IsMain() { return is_main; }
+  bool IsMain() const { return is_main; }
 };
 
 class Storage {
