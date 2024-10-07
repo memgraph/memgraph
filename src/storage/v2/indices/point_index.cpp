@@ -328,22 +328,8 @@ struct PointIterable::impl {
 
   friend struct PointIterable;
 
-  ~impl() {
-    switch (crs_) {
-      case CoordinateReferenceSystem::WGS84_2d:
-        std::destroy_at(&wgs84_2d_);
-        break;
-      case CoordinateReferenceSystem::WGS84_3d:
-        std::destroy_at(&wgs84_3d_);
-        break;
-      case CoordinateReferenceSystem::Cartesian_2d:
-        std::destroy_at(&cartesian_2d_);
-        break;
-      case CoordinateReferenceSystem::Cartesian_3d:
-        std::destroy_at(&cartesian_3d_);
-        break;
-    }
-  }
+  // don't need destroy_at for shared ptrs
+  ~impl() {}
 
  private:
   Storage *storage_;

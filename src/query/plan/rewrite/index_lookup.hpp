@@ -92,6 +92,19 @@ struct IndexHints {
     return false;
   }
 
+  // TODO: use this
+  template <class TDbAccessor>
+  bool HasPointIndex(TDbAccessor *db, storage::LabelId label, storage::PropertyId property) const {
+    for (const auto &[index_type, label_hint, property_hint] : point_index_hints_) {
+      auto label_id = db->NameToLabel(label_hint.name);
+      auto property_id = db->NameToProperty(property_hint->name);
+      if (label_id == label && property_id == property) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   std::vector<IndexHint> label_index_hints_{};
   std::vector<IndexHint> label_property_index_hints_{};
   std::vector<IndexHint> point_index_hints_{};  // TODO: check this is used somewhere
@@ -871,6 +884,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       auto property = *maybe_property;
       auto filter_it = candidate_index_lookup.find(std::make_pair(label, property));
       if (filter_it != candidate_index_lookup.cend()) {
+        // TODO: isn't .vertex_count as max value wrong?
         return PointLabelPropertyIndex{
             .label = label, .filter = filter_it->second, .vertex_count = std::numeric_limits<std::int64_t>::max()};
       }
@@ -1082,6 +1096,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                 point_filter.distance_.boundary_value_, point_filter.distance_.boundary_condition_);
           }
           case WITHINBBOX: {
+            throw utils::NotYetImplemented("Withinbbox not yet implemented");
             break;
           }
         }

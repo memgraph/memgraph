@@ -53,18 +53,19 @@ struct PointIterator {
   }
 
   PointIterator(PointIterator &&o) : storage_{o.storage_}, transaction_{o.transaction_}, crs_{o.crs_} {
+    // boost iterators shouldn't be moved
     switch (crs_) {
       case CoordinateReferenceSystem::WGS84_2d:
-        wgs84_2d_ = std::move(o.wgs84_2d_);
+        wgs84_2d_ = o.wgs84_2d_;
         break;
       case CoordinateReferenceSystem::WGS84_3d:
-        wgs84_3d_ = std::move(o.wgs84_3d_);
+        wgs84_3d_ = o.wgs84_3d_;
         break;
       case CoordinateReferenceSystem::Cartesian_2d:
-        cartesian_2d_ = std::move(o.cartesian_2d_);
+        cartesian_2d_ = o.cartesian_2d_;
         break;
       case CoordinateReferenceSystem::Cartesian_3d:
-        cartesian_3d_ = std::move(o.cartesian_3d_);
+        cartesian_3d_ = o.cartesian_3d_;
         break;
     }
   }
@@ -83,7 +84,6 @@ struct PointIterator {
   }
   auto operator=(PointIterator const &o) -> PointIterator & {
     if (o.crs_ != crs_) {
-      std::destroy_at(this);
       std::construct_at(this, o);
     } else {
       storage_ = o.storage_;
@@ -106,24 +106,24 @@ struct PointIterator {
     return *this;
   }
   auto operator=(PointIterator &&o) -> PointIterator & {
+    // boost iterators shouldn't be moved
     if (o.crs_ != crs_) {
-      std::destroy_at(this);
-      std::construct_at(this, std::move(o));
+      std::construct_at(this, o);
     } else {
       storage_ = o.storage_;
       transaction_ = o.transaction_;
       switch (crs_) {
         case CoordinateReferenceSystem::WGS84_2d:
-          wgs84_2d_ = std::move(o.wgs84_2d_);
+          wgs84_2d_ = o.wgs84_2d_;
           break;
         case CoordinateReferenceSystem::WGS84_3d:
-          wgs84_3d_ = std::move(o.wgs84_3d_);
+          wgs84_3d_ = o.wgs84_3d_;
           break;
         case CoordinateReferenceSystem::Cartesian_2d:
-          cartesian_2d_ = std::move(o.cartesian_2d_);
+          cartesian_2d_ = o.cartesian_2d_;
           break;
         case CoordinateReferenceSystem::Cartesian_3d:
-          cartesian_3d_ = std::move(o.cartesian_3d_);
+          cartesian_3d_ = o.cartesian_3d_;
           break;
       }
     }
@@ -150,44 +150,25 @@ struct PointIterator {
   auto operator*() const -> value_type {
     switch (crs_) {
       case CoordinateReferenceSystem::WGS84_2d: {
-        auto vertex = const_cast<Vertex *>(wgs84_2d_->vertex());
+        auto *vertex = const_cast<Vertex *>(wgs84_2d_->vertex());
         return VertexAccessor{vertex, storage_, transaction_};
       }
       case CoordinateReferenceSystem::WGS84_3d: {
-        auto vertex = const_cast<Vertex *>(wgs84_3d_->vertex());
+        auto *vertex = const_cast<Vertex *>(wgs84_3d_->vertex());
         return VertexAccessor{vertex, storage_, transaction_};
       }
       case CoordinateReferenceSystem::Cartesian_2d: {
-        auto vertex = const_cast<Vertex *>(cartesian_2d_->vertex());
+        auto *vertex = const_cast<Vertex *>(cartesian_2d_->vertex());
         return VertexAccessor{vertex, storage_, transaction_};
       }
       case CoordinateReferenceSystem::Cartesian_3d: {
-        auto vertex = const_cast<Vertex *>(cartesian_3d_->vertex());
+        auto *vertex = const_cast<Vertex *>(cartesian_3d_->vertex());
         return VertexAccessor{vertex, storage_, transaction_};
       }
     }
   }
 
-  ~PointIterator() {
-    switch (crs_) {
-      case CoordinateReferenceSystem::WGS84_2d: {
-        std::destroy_at(&wgs84_2d_);
-        break;
-      }
-      case CoordinateReferenceSystem::WGS84_3d: {
-        std::destroy_at(&wgs84_3d_);
-        break;
-      }
-      case CoordinateReferenceSystem::Cartesian_2d: {
-        std::destroy_at(&cartesian_2d_);
-        break;
-      }
-      case CoordinateReferenceSystem::Cartesian_3d: {
-        std::destroy_at(&cartesian_3d_);
-        break;
-      }
-    }
-  }
+  ~PointIterator() {}
 
  private:
   Storage *storage_ = nullptr;
