@@ -20,7 +20,8 @@ inline std::optional<SchemaInfo::ModifyingAccessor> SchemaInfoAccessor(Storage *
   if (!storage->config_.salient.items.enable_schema_info) return std::nullopt;
   const auto prop_on_edges = storage->config_.salient.items.properties_on_edges;
   if (storage->GetStorageMode() == StorageMode::IN_MEMORY_TRANSACTIONAL) {
-    return SchemaInfo::CreateVertexModifyingAccessor(transaction->schema_diff_, prop_on_edges);
+    return SchemaInfo::CreateVertexModifyingAccessor(transaction->schema_diff_, transaction->post_process_,
+                                                     transaction->transaction_id, prop_on_edges);
   }
   return storage->schema_info_.CreateVertexModifyingAccessor(prop_on_edges);
 }

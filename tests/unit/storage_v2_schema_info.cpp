@@ -1715,6 +1715,81 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, SingleEdge) {
     EXPECT_EQ(json_edges_properties[0], p1);
   }
 
+  // set property delete edge
+  {
+    {
+      auto acc = in_memory->Access();
+      auto v1 = acc->CreateVertex();
+      v1_gid = v1.Gid();
+      auto v2 = acc->CreateVertex();
+      v2_gid = v2.Gid();
+      auto edge = acc->CreateEdge(&v1, &v2, e);
+      auto edge2 = acc->CreateEdge(&v1, &v2, e);
+      ASSERT_FALSE(edge.HasError());
+      ASSERT_FALSE(edge2.HasError());
+      edge_gid = edge->Gid();
+      ASSERT_FALSE(edge->SetProperty(p2, PropertyValue{"a"}).HasError());
+      ASSERT_FALSE(edge->SetProperty(p, PropertyValue{true}).HasError());
+      ASSERT_FALSE(edge2->SetProperty(p2, PropertyValue{"a"}).HasError());
+      ASSERT_FALSE(edge2->SetProperty(p, PropertyValue{true}).HasError());
+      ASSERT_FALSE(acc->Commit().HasError());
+
+      const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+      ASSERT_EQ(json["nodes"].size(), 3);
+      ASSERT_EQ(json["edges"].size(), 2);
+    }
+
+    auto acc = in_memory->Access();
+    auto v1 = acc->FindVertex(v1_gid, memgraph::storage::View::NEW);
+    auto v2 = acc->FindVertex(v2_gid, memgraph::storage::View::NEW);
+    ASSERT_TRUE(v1);
+    ASSERT_TRUE(v2);
+    auto edge_acc = acc->FindEdge(edge_gid, memgraph::storage::View::NEW, e, &*v1, &*v2);
+    ASSERT_TRUE(edge_acc);
+    ASSERT_FALSE(edge_acc->SetProperty(p, PropertyValue{123}).HasError());
+    ASSERT_FALSE(acc->DeleteEdge(&*edge_acc).HasError());
+    ASSERT_FALSE(acc->Commit().HasError());
+
+    const auto json = schema_info.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
+    ASSERT_EQ(json["nodes"].size(), 3);
+    ASSERT_EQ(json["edges"].size(), 2);
+    for (const auto &edge : json["edges"]) {
+      if (edge["start_node_labels"] == nlohmann::json::array({"L1", "L3"})) {
+        ASSERT_EQ(edge["type"], "E");
+        ASSERT_EQ(edge["start_node_labels"], nlohmann::json::array({"L1", "L3"}));
+        ASSERT_EQ(edge["end_node_labels"], nlohmann::json::array({"L2", "L3"}));
+        ASSERT_EQ(edge["count"], 1);
+        const auto &json_edges_properties = edge["properties"];
+        const auto p1 =
+            nlohmann::json::object({{"filling_factor", 100.0},
+                                    {"key", "p1"},
+                                    {"count", 1},
+                                    {"types", nlohmann::json::array({{{"type", "Integer"}, {"count", 1}}})}});
+        ASSERT_EQ(json_edges_properties.size(), 1);
+        EXPECT_EQ(json_edges_properties[0], p1);
+      } else {
+        ASSERT_EQ(edge["type"], "E");
+        ASSERT_EQ(edge["start_node_labels"], nlohmann::json::array());
+        ASSERT_EQ(edge["end_node_labels"], nlohmann::json::array());
+        ASSERT_EQ(edge["count"], 1);
+        const auto &json_edges_properties = edge["properties"];
+        ASSERT_EQ(json_edges_properties.size(), 2);
+        const auto p1 =
+            nlohmann::json::object({{"filling_factor", 100.0},
+                                    {"key", "p1"},
+                                    {"count", 1},
+                                    {"types", nlohmann::json::array({{{"type", "Boolean"}, {"count", 1}}})}});
+        const auto p2 =
+            nlohmann::json::object({{"filling_factor", 100.0},
+                                    {"key", "p2"},
+                                    {"count", 1},
+                                    {"types", nlohmann::json::array({{{"type", "String"}, {"count", 1}}})}});
+        EXPECT_TRUE(json_edges_properties[0] == p1 || json_edges_properties[1] == p1);
+        EXPECT_TRUE(json_edges_properties[0] == p2 || json_edges_properties[1] == p2);
+      }
+    }
+  }
+
   // delete vertices
   {
     auto acc = in_memory->Access();
@@ -2259,13 +2334,8 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgePropertyStressTest) {
 
   auto l1 = in_memory->NameToLabel("L1");
   auto l2 = in_memory->NameToLabel("L2");
-  auto l3 = in_memory->NameToLabel("L3");
   auto p1 = in_memory->NameToProperty("p1");
-  auto p2 = in_memory->NameToProperty("p2");
-  auto p3 = in_memory->NameToProperty("p3");
   auto e1 = in_memory->NameToEdgeType("E1");
-  auto e2 = in_memory->NameToEdgeType("E2");
-  auto e3 = in_memory->NameToEdgeType("E3");
 
   // Empty
   {
@@ -2308,9 +2378,9 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgePropertyStressTest) {
         const auto labels = v->Labels(View::NEW);
         if (labels.HasError()) return;
         if (labels->empty()) {
-          v->AddLabel(l1);
+          ASSERT_FALSE(v->AddLabel(l1).HasError());
         } else {
-          v->RemoveLabel(l1);
+          ASSERT_FALSE(v->RemoveLabel(l1).HasError());
         }
       }
       if (i % 3 == 0) {
@@ -2318,9 +2388,9 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgePropertyStressTest) {
         const auto labels = v->Labels(View::NEW);
         if (labels.HasError()) return;
         if (labels->empty()) {
-          v->AddLabel(l2);
+          ASSERT_FALSE(v->AddLabel(l2).HasError());
         } else {
-          v->RemoveLabel(l2);
+          ASSERT_FALSE(v->RemoveLabel(l2).HasError());
         }
       }
       ASSERT_FALSE(acc->Commit().HasError());
@@ -2337,12 +2407,34 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgePropertyStressTest) {
         auto edge = acc->FindEdge(edge_gid, View::NEW);
         const auto props = edge->Properties(View::NEW);
         if (props.HasError()) return;
+        bool can_commit = true;
         if (props->empty()) {
-          edge->SetProperty(p1, PropertyValue{""});
+          can_commit = edge->SetProperty(p1, PropertyValue{""}).HasValue();
         } else {
-          edge->ClearProperties();
+          can_commit = edge->ClearProperties().HasValue();
         }
-        ASSERT_FALSE(acc->Commit().HasError());
+        if (can_commit) ASSERT_FALSE(acc->Commit().HasError());
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+  };
+
+  auto modify_edge2 = [&]() {
+    uint8_t i = 0;
+    while (running) {
+      ++i;
+      if (i % 7 == 0) {
+        auto acc = in_memory->Access();
+        auto edge = acc->FindEdge(edge_gid, View::NEW);
+        const auto props = edge->Properties(View::NEW);
+        if (props.HasError()) return;
+        bool can_commit = true;
+        if (i % 2) {
+          can_commit = edge->SetProperty(p1, PropertyValue{123}).HasValue();
+        } else {
+          can_commit = edge->SetProperty(p1, PropertyValue{true}).HasValue();
+        }
+        if (can_commit) ASSERT_FALSE(acc->Commit().HasError());
       }
       std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
@@ -2351,7 +2443,7 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgePropertyStressTest) {
   auto read_schema = [&]() {
     auto stop = memgraph::utils::OnScopeExit{[&]() { running = false; }};
     uint16_t i = 0;
-    while (i++ < 5000) {
+    while (i++ < 15000) {
       const auto json = in_memory->schema_info_.ToJson(*in_memory->name_id_mapper_, in_memory->enum_store_);
       // Possible schemas:
 
@@ -2365,16 +2457,34 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgePropertyStressTest) {
           R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":["L1"],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
       static const auto no_labels_w_prop = nlohmann::json::parse(
           R"({"edges":[{"count":1,"end_node_labels":[],"properties":[{"count" : 1, "filling_factor" : 100.0, "key" : "p1", "types" : [ {"count" : 1, "type" : "String"} ]}],"start_node_labels":[],"type":"E1"}],"nodes":[{"count":2,"labels":[],"properties":[]}]})");
+      static const auto no_labels_w_prop2 = nlohmann::json::parse(
+          R"({"edges":[{"count":1,"end_node_labels":[],"properties":[{"count" : 1, "filling_factor" : 100.0, "key" : "p1", "types" : [ {"count" : 1, "type" : "Integer"} ]}],"start_node_labels":[],"type":"E1"}],"nodes":[{"count":2,"labels":[],"properties":[]}]})");
+      static const auto no_labels_w_prop3 = nlohmann::json::parse(
+          R"({"edges":[{"count":1,"end_node_labels":[],"properties":[{"count" : 1, "filling_factor" : 100.0, "key" : "p1", "types" : [ {"count" : 1, "type" : "Boolean"} ]}],"start_node_labels":[],"type":"E1"}],"nodes":[{"count":2,"labels":[],"properties":[]}]})");
       static const auto from_label_w_prop = nlohmann::json::parse(
           R"({"edges":[{"count":1,"end_node_labels":[],"properties":[{"count" : 1, "filling_factor" : 100.0, "key" : "p1", "types" : [ {"count" : 1, "type" : "String"} ]}],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L1"],"properties":[]}]})");
+      static const auto from_label_w_prop2 = nlohmann::json::parse(
+          R"({"edges":[{"count":1,"end_node_labels":[],"properties":[{"count" : 1, "filling_factor" : 100.0, "key" : "p1", "types" : [ {"count" : 1, "type" : "Integer"} ]}],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L1"],"properties":[]}]})");
+      static const auto from_label_w_prop3 = nlohmann::json::parse(
+          R"({"edges":[{"count":1,"end_node_labels":[],"properties":[{"count" : 1, "filling_factor" : 100.0, "key" : "p1", "types" : [ {"count" : 1, "type" : "Boolean"} ]}],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L1"],"properties":[]}]})");
       static const auto to_label_w_prop = nlohmann::json::parse(
           R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[{"count" : 1, "filling_factor" : 100.0, "key" : "p1", "types" : [ {"count" : 1, "type" : "String"} ]}],"start_node_labels":[],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
+      static const auto to_label_w_prop2 = nlohmann::json::parse(
+          R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[{"count" : 1, "filling_factor" : 100.0, "key" : "p1", "types" : [ {"count" : 1, "type" : "Integer"} ]}],"start_node_labels":[],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
+      static const auto to_label_w_prop3 = nlohmann::json::parse(
+          R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[{"count" : 1, "filling_factor" : 100.0, "key" : "p1", "types" : [ {"count" : 1, "type" : "Boolean"} ]}],"start_node_labels":[],"type":"E1"}],"nodes":[{"count":1,"labels":[],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
       static const auto both_labels_w_prop = nlohmann::json::parse(
           R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[{"count" : 1, "filling_factor" : 100.0, "key" : "p1", "types" : [ {"count" : 1, "type" : "String"} ]}],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":["L1"],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
+      static const auto both_labels_w_prop2 = nlohmann::json::parse(
+          R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[{"count" : 1, "filling_factor" : 100.0, "key" : "p1", "types" : [ {"count" : 1, "type" : "Integer"} ]}],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":["L1"],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
+      static const auto both_labels_w_prop3 = nlohmann::json::parse(
+          R"({"edges":[{"count":1,"end_node_labels":["L2"],"properties":[{"count" : 1, "filling_factor" : 100.0, "key" : "p1", "types" : [ {"count" : 1, "type" : "Boolean"} ]}],"start_node_labels":["L1"],"type":"E1"}],"nodes":[{"count":1,"labels":["L1"],"properties":[]},{"count":1,"labels":["L2"],"properties":[]}]})");
 
-      static const std::array<nlohmann::json, 8> possible_schemas = {
+      static const std::array<nlohmann::json, 16> possible_schemas = {
           no_labels_no_prop, from_label_no_prop, to_label_no_prop, both_labels_no_prop,
-          no_labels_w_prop,  from_label_w_prop,  to_label_w_prop,  both_labels_w_prop};
+          no_labels_w_prop,  from_label_w_prop,  to_label_w_prop,  both_labels_w_prop,
+          no_labels_w_prop2, from_label_w_prop2, to_label_w_prop2, both_labels_w_prop2,
+          no_labels_w_prop3, from_label_w_prop3, to_label_w_prop3, both_labels_w_prop3};
 
       auto itr = std::find_if(possible_schemas.begin(), possible_schemas.end(),
                               [&json](auto &in) { return ConfrontJSON(json, in); });
@@ -2386,7 +2496,8 @@ TYPED_TEST(SchemaInfoTestWEdgeProp, EdgePropertyStressTest) {
 
   auto t1 = std::jthread(modify_labels);
   auto t2 = std::jthread(modify_edge);
-  auto t3 = std::jthread(read_schema);
+  auto t3 = std::jthread(modify_edge2);
+  auto t4 = std::jthread(read_schema);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)

@@ -23,6 +23,7 @@
 #include "storage/v2/result.hpp"
 #include "storage/v2/schema_info_glue.hpp"
 #include "storage/v2/storage.hpp"
+#include "storage/v2/storage_mode.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/atomic_memory_block.hpp"
 #include "utils/logging.hpp"
@@ -195,7 +196,17 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
   if (!storage_->config_.salient.items.properties_on_edges) return Error::PROPERTIES_DISABLED;
 
   // This needs to happen before locking the object
-  auto schema_acc = SchemaInfoUniqueAccessor(storage_, transaction_);
+  auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
+
+  // Need to follow lock ordering: 1. vertices in order of GID 2. edge
+  std::shared_lock<utils::RWSpinLock> from_lock, to_lock;
+  if (schema_acc && storage_->GetStorageMode() == StorageMode::IN_MEMORY_ANALYTICAL) {
+    // Transactional modifies in place only if edge created during this tx, so no need to lock
+    auto locks = SchemaInfo::ReadLockFromTo(from_vertex_, to_vertex_);
+    from_lock = std::move(locks.first);
+    to_lock = std::move(locks.second);
+  }
+
   auto guard = std::unique_lock{edge_.ptr->lock};
 
   if (!PrepareForWrite(transaction_, edge_.ptr)) return Error::SERIALIZATION_ERROR;
@@ -222,12 +233,8 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
     storage_->indices_.UpdateOnSetProperty(edge_type_, property, value, from_vertex_, to_vertex_, edge_.ptr,
                                            *transaction_);
     if (schema_acc) {
-      std::visit(utils::Overloaded{[&](SchemaInfo::TransactionalEdgeModifyingAccessor &acc) {
+      std::visit(utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) {
                                      acc.SetProperty(edge, edge_type_, from_vertex_, to_vertex_, property,
-                                                     ExtendedPropertyType{value}, ExtendedPropertyType{*current_value});
-                                   },
-                                   [&](SchemaInfo::AnalyticalEdgeModifyingAccessor &acc) {
-                                     acc.SetProperty(edge_type_, from_vertex_, to_vertex_, property,
                                                      ExtendedPropertyType{value}, ExtendedPropertyType{*current_value});
                                    },
                                    [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
@@ -248,7 +255,17 @@ Result<bool> EdgeAccessor::InitProperties(const std::map<storage::PropertyId, st
   if (!storage_->config_.salient.items.properties_on_edges) return Error::PROPERTIES_DISABLED;
 
   // This needs to happen before locking the object
-  auto schema_acc = SchemaInfoUniqueAccessor(storage_, transaction_);
+  auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
+
+  // Need to follow lock ordering: 1. vertices in order of GID 2. edge
+  std::shared_lock<utils::RWSpinLock> from_lock, to_lock;
+  if (schema_acc && storage_->GetStorageMode() == StorageMode::IN_MEMORY_ANALYTICAL) {
+    // Transactional modifies in place only if edge created during this tx, so no need to lock
+    auto locks = SchemaInfo::ReadLockFromTo(from_vertex_, to_vertex_);
+    from_lock = std::move(locks.first);
+    to_lock = std::move(locks.second);
+  }
+
   auto guard = std::unique_lock{edge_.ptr->lock};
 
   if (!PrepareForWrite(transaction_, edge_.ptr)) return Error::SERIALIZATION_ERROR;
@@ -263,12 +280,8 @@ Result<bool> EdgeAccessor::InitProperties(const std::map<storage::PropertyId, st
       storage_->indices_.UpdateOnSetProperty(edge_type_, property, value, from_vertex_, to_vertex_, edge_.ptr,
                                              *transaction_);
       if (schema_acc) {
-        std::visit(utils::Overloaded{[&](SchemaInfo::TransactionalEdgeModifyingAccessor &acc) {
+        std::visit(utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) {
                                        acc.SetProperty(edge_, edge_type_, from_vertex_, to_vertex_, property,
-                                                       ExtendedPropertyType{value}, ExtendedPropertyType{});
-                                     },
-                                     [&](SchemaInfo::AnalyticalEdgeModifyingAccessor &acc) {
-                                       acc.SetProperty(edge_type_, from_vertex_, to_vertex_, property,
                                                        ExtendedPropertyType{value}, ExtendedPropertyType{});
                                      },
                                      [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
@@ -287,7 +300,17 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAc
   if (!storage_->config_.salient.items.properties_on_edges) return Error::PROPERTIES_DISABLED;
 
   // This needs to happen before locking the object
-  auto schema_acc = SchemaInfoUniqueAccessor(storage_, transaction_);
+  auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
+
+  // Need to follow lock ordering: 1. vertices in order of GID 2. edge
+  std::shared_lock<utils::RWSpinLock> from_lock, to_lock;
+  if (schema_acc && storage_->GetStorageMode() == StorageMode::IN_MEMORY_ANALYTICAL) {
+    // Transactional modifies in place only if edge created during this tx, so no need to lock
+    auto locks = SchemaInfo::ReadLockFromTo(from_vertex_, to_vertex_);
+    from_lock = std::move(locks.first);
+    to_lock = std::move(locks.second);
+  }
+
   auto guard = std::unique_lock{edge_.ptr->lock};
 
   if (!PrepareForWrite(transaction_, edge_.ptr)) return Error::SERIALIZATION_ERROR;
@@ -306,17 +329,13 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAc
       storage_->indices_.UpdateOnSetProperty(edge_type_, property, new_value, from_vertex_, to_vertex_, edge_.ptr,
                                              *transaction_);
       if (schema_acc) {
-        std::visit(
-            utils::Overloaded{[&](SchemaInfo::TransactionalEdgeModifyingAccessor &acc) {
-                                acc.SetProperty(edge_, edge_type_, from_vertex_, to_vertex_, property,
-                                                ExtendedPropertyType{new_value}, ExtendedPropertyType{old_value});
-                              },
-                              [&](SchemaInfo::AnalyticalEdgeModifyingAccessor &acc) {
-                                acc.SetProperty(edge_type_, from_vertex_, to_vertex_, property,
-                                                ExtendedPropertyType{new_value}, ExtendedPropertyType{old_value});
-                              },
-                              [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
-            *schema_acc);
+        std::visit(utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) {
+                                       acc.SetProperty(edge_, edge_type_, from_vertex_, to_vertex_, property,
+                                                       ExtendedPropertyType{new_value},
+                                                       ExtendedPropertyType{old_value});
+                                     },
+                                     [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+                   *schema_acc);
       }
     }
     // TODO If the current implementation is too slow there is an UpdateProperties option
@@ -329,7 +348,17 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
   if (!storage_->config_.salient.items.properties_on_edges) return Error::PROPERTIES_DISABLED;
 
   // This needs to happen before locking the object
-  auto schema_acc = SchemaInfoUniqueAccessor(storage_, transaction_);
+  auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
+
+  // Need to follow lock ordering: 1. vertices in order of GID 2. edge
+  std::shared_lock<utils::RWSpinLock> from_lock, to_lock;
+  if (schema_acc && storage_->GetStorageMode() == StorageMode::IN_MEMORY_ANALYTICAL) {
+    // Transactional modifies in place only if edge created during this tx, so no need to lock
+    auto locks = SchemaInfo::ReadLockFromTo(from_vertex_, to_vertex_);
+    from_lock = std::move(locks.first);
+    to_lock = std::move(locks.second);
+  }
+
   auto guard = std::unique_lock{edge_.ptr->lock};
 
   if (!PrepareForWrite(transaction_, edge_.ptr)) return Error::SERIALIZATION_ERROR;
@@ -347,17 +376,13 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
       storage_->indices_.UpdateOnSetProperty(edge_type_, property.first, PropertyValue(), from_vertex_, to_vertex_,
                                              edge_.ptr, *transaction_);
       if (schema_acc) {
-        std::visit(
-            utils::Overloaded{[&](SchemaInfo::TransactionalEdgeModifyingAccessor &acc) {
-                                acc.SetProperty(edge_, edge_type_, from_vertex_, to_vertex_, property.first,
-                                                ExtendedPropertyType{}, ExtendedPropertyType{property.second.type()});
-                              },
-                              [&](SchemaInfo::AnalyticalEdgeModifyingAccessor &acc) {
-                                acc.SetProperty(edge_type_, from_vertex_, to_vertex_, property.first,
-                                                ExtendedPropertyType{}, ExtendedPropertyType{property.second.type()});
-                              },
-                              [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
-            *schema_acc);
+        std::visit(utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) {
+                                       acc.SetProperty(edge_, edge_type_, from_vertex_, to_vertex_, property.first,
+                                                       ExtendedPropertyType{},
+                                                       ExtendedPropertyType{property.second.type()});
+                                     },
+                                     [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+                   *schema_acc);
       }
     }
     // TODO If the current implementation is too slow there is an ClearProperties option

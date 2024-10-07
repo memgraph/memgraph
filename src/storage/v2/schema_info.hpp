@@ -135,7 +135,7 @@ struct SchemaTracking final : public SchemaTrackingInterface {
 struct SchemaInfo {
   // Snapshot guaranteeing functions
   nlohmann::json ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store) const {
-    auto lock = std::shared_lock{operation_ordering_mutex_};  // No snapshot guarantees for ANALYTICAL
+    auto lock = std::unique_lock{operation_ordering_mutex_};  // No snapshot guarantees for ANALYTICAL
     return tracking_.ToJson(name_id_mapper, enum_store);
   }
 
@@ -177,21 +177,11 @@ struct SchemaInfo {
 
     void RemoveLabel(Vertex *vertex, LabelId label);
 
-    void SetProperty(EdgeRef edge, EdgeTypeId type, Vertex *from, Vertex *to, PropertyId property,
-                     ExtendedPropertyType now, ExtendedPropertyType before);
-
    private:
-    bool EdgeCreatedDuringThisTx(EdgeRef edge, Vertex *vertex) const;
-
-    bool EdgeCreatedDuringThisTx(Edge *edge) const;
-
-    bool EdgeCreatedDuringThisTx(Gid edge, Vertex *vertex) const;
-
     void UpdateTransactionalEdges(Vertex *vertex, const utils::small_vector<LabelId> &old_labels);
 
     LocalSchemaTracking *tracking_{};
-    std::unique_lock<std::shared_mutex> ordering_lock_;  //!< Order guaranteeing lock
-    bool properties_on_edges_{};                         //!< As defined by the storage configuration
+    bool properties_on_edges_{};  //!< As defined by the storage configuration
     uint64_t commit_ts_{};
     std::unordered_set<PostProcessPOC> *post_process_{};
   };
@@ -211,9 +201,6 @@ struct SchemaInfo {
     void AddLabel(Vertex *vertex, LabelId label, std::unique_lock<utils::RWSpinLock> vertex_guard);
 
     void RemoveLabel(Vertex *vertex, LabelId label, std::unique_lock<utils::RWSpinLock> vertex_guard);
-
-    void SetProperty(EdgeTypeId type, Vertex *from, Vertex *to, PropertyId property, ExtendedPropertyType now,
-                     ExtendedPropertyType before);
 
    private:
     void UpdateAnalyticalEdges(Vertex *vertex, const utils::small_vector<LabelId> &old_labels,
@@ -238,8 +225,12 @@ struct SchemaInfo {
         : tracking_{&si.tracking_}, ordering_lock_{si.operation_ordering_mutex_}, properties_on_edges_(prop_on_edges) {}
 
     // TRANSACTIONAL
-    explicit VertexModifyingAccessor(LocalSchemaTracking &tracking, bool prop_on_edges)
-        : tracking_{&tracking}, properties_on_edges_{prop_on_edges} {}
+    explicit VertexModifyingAccessor(LocalSchemaTracking &tracking, std::unordered_set<PostProcessPOC> *post_process,
+                                     uint64_t commit_ts, bool prop_on_edges)
+        : tracking_{&tracking},
+          properties_on_edges_{prop_on_edges},
+          post_process_{post_process},
+          commit_ts_{commit_ts} {}
 
     void CreateVertex(Vertex *vertex);
 
@@ -251,14 +242,20 @@ struct SchemaInfo {
 
     void CreateEdge(Vertex *from, Vertex *to, EdgeTypeId edge_type);
 
+    // Multi-threaded deletion in ANALYTICAL is UB, so we can leave it with shared access
     void DeleteEdge(Vertex *from, Vertex *to, EdgeTypeId edge_type, EdgeRef edge);
 
     void SetProperty(Vertex *vertex, PropertyId property, ExtendedPropertyType now, ExtendedPropertyType before);
+
+    void SetProperty(EdgeRef edge, EdgeTypeId type, Vertex *from, Vertex *to, PropertyId property,
+                     ExtendedPropertyType now, ExtendedPropertyType before);
 
    private:
     SchemaTrackingInterface *tracking_{};
     std::shared_lock<std::shared_mutex> ordering_lock_;  //!< Order guaranteeing lock
     bool properties_on_edges_{};                         //!< As defined by the storage configuration
+    std::unordered_set<PostProcessPOC> *post_process_{};
+    uint64_t commit_ts_{};
   };
 
   using ModifyingAccessor =
@@ -272,12 +269,30 @@ struct SchemaInfo {
     return AnalyticalEdgeModifyingAccessor{*this, prop_on_edges};
   }
 
-  static ModifyingAccessor CreateVertexModifyingAccessor(auto &tracking, bool prop_on_edges) {
-    return VertexModifyingAccessor{tracking, prop_on_edges};
+  static ModifyingAccessor CreateVertexModifyingAccessor(auto &tracking, auto &post_process, uint64_t commit_ts,
+                                                         bool prop_on_edges) {
+    return VertexModifyingAccessor{tracking, &post_process, commit_ts, prop_on_edges};
   }
   static ModifyingAccessor CreateEdgeModifyingAccessor(auto &tracking, std::unordered_set<PostProcessPOC> *post_process,
                                                        bool prop_on_edges, uint64_t commit_ts) {
     return TransactionalEdgeModifyingAccessor{tracking, post_process, prop_on_edges, commit_ts};
+  }
+
+  static auto ReadLockFromTo(Vertex *from, Vertex *to) {
+    auto from_lock = std::shared_lock{from->lock, std::defer_lock};
+    auto to_lock = std::shared_lock{to->lock, std::defer_lock};
+
+    if (from == to) {
+      from_lock.lock();
+    } else if (from->gid < to->gid) {
+      from_lock.lock();
+      to_lock.lock();
+    } else {
+      to_lock.lock();
+      from_lock.lock();
+    }
+
+    return std::pair{std::move(from_lock), std::move(to_lock)};
   }
 
  private:

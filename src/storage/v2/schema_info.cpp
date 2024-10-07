@@ -175,6 +175,69 @@ std::unordered_map<PropertyId, std::pair<ExtendedPropertyType, ExtendedPropertyT
   return diff;
 }
 
+bool EdgeCreatedDuringThisTx(Edge *edge, uint64_t commit_ts) {
+  auto *delta = edge->delta;
+  while (delta) {
+    const auto ts = delta->timestamp->load(std::memory_order_acquire);
+    if (ts != commit_ts) break;
+    if (delta->action == Delta::Action::DELETE_OBJECT || delta->action == Delta::Action::DELETE_DESERIALIZED_OBJECT) {
+      return true;
+    }
+    delta = delta->next.load(std::memory_order_acquire);
+  }
+  return false;
+}
+
+bool EdgeCreatedDuringThisTx(Gid edge, Vertex *vertex, uint64_t commit_ts) {
+  auto *delta = vertex->delta;
+  while (delta) {
+    const auto ts = delta->timestamp->load(std::memory_order_acquire);
+    if (ts != commit_ts) break;
+    if (delta->action == Delta::Action::REMOVE_IN_EDGE || delta->action == Delta::Action::REMOVE_OUT_EDGE) {
+      if (delta->vertex_edge.edge.gid == edge) {
+        return true;
+      }
+    }
+    delta = delta->next.load(std::memory_order_acquire);
+  }
+  return false;
+}
+
+bool EdgeCreatedDuringThisTx(EdgeRef edge_ref, Vertex *vertex, uint64_t commit_ts, bool prop_on_edges) {
+  if (prop_on_edges) {
+    return EdgeCreatedDuringThisTx(edge_ref.ptr, commit_ts);
+  }
+  return EdgeCreatedDuringThisTx(edge_ref.gid, vertex, commit_ts);
+}
+
+bool EdgeDeletedDuringThisTx(Edge *edge, uint64_t commit_ts) {
+  auto *delta = edge->delta;
+  while (delta) {
+    const auto ts = delta->timestamp->load(std::memory_order_acquire);
+    if (ts != commit_ts) break;
+    if (delta->action == Delta::Action::RECREATE_OBJECT) {
+      return true;
+    }
+    delta = delta->next.load(std::memory_order_acquire);
+  }
+  return false;
+}
+
+bool EdgeDeletedDuringThisTx(Gid edge, Vertex *vertex, uint64_t commit_ts) {
+  auto *delta = vertex->delta;
+  while (delta) {
+    const auto ts = delta->timestamp->load(std::memory_order_acquire);
+    if (ts != commit_ts) break;
+    if (delta->action == Delta::Action::ADD_IN_EDGE || delta->action == Delta::Action::ADD_OUT_EDGE) {
+      if (delta->vertex_edge.edge.gid == edge) {
+        return true;
+      }
+    }
+    delta = delta->next.load(std::memory_order_acquire);
+  }
+  return false;
+}
+
 }  // namespace
 
 template <template <class...> class TContainer>
@@ -209,18 +272,27 @@ void SchemaTracking<TContainer>::ProcessTransaction(const SchemaTracking<TOtherC
     auto &tracking_post_info =
         edge_lookup(EdgeKeyRef{edge_type, GetLabels(*from, commit_ts), GetLabels(*to, commit_ts)});
 
+    bool edge_deleted = true;
+    if (property_on_edges) {
+      auto lock = std::shared_lock{edge_ref.ptr->lock};
+      edge_deleted = EdgeDeletedDuringThisTx(edge_ref.ptr, commit_ts);
+    } else {
+      edge_deleted = EdgeDeletedDuringThisTx(edge_ref.gid, from, commit_ts);
+    }
+
     from_lock.unlock();
     if (to_lock.owns_lock()) to_lock.unlock();
 
     // Step 1: Move committed stats in case edge identification changed
-    if (&tracking_pre_info != &tracking_post_info) {
+    if (&tracking_pre_info != &tracking_post_info || edge_deleted) {
       --tracking_pre_info.n;
-      ++tracking_post_info.n;
+      if (!edge_deleted) ++tracking_post_info.n;
       if (property_on_edges) {
         for (const auto &[key, type] : GetCommittedProperty(*edge_ref.ptr)) {
           auto &pre_info = tracking_pre_info.properties[key];
           --pre_info.n;
           --pre_info.types[type];
+          // Deletion will be handled via diff below
           auto &post_info = tracking_post_info.properties[key];
           ++post_info.n;
           ++post_info.types[type];
@@ -571,67 +643,21 @@ void SchemaInfo::TransactionalEdgeModifyingAccessor::RemoveLabel(Vertex *vertex,
   UpdateTransactionalEdges(vertex, old_labels);
 }
 
-void SchemaInfo::TransactionalEdgeModifyingAccessor::SetProperty(EdgeRef edge, EdgeTypeId type, Vertex *from,
-                                                                 Vertex *to, PropertyId property,
-                                                                 ExtendedPropertyType now,
-                                                                 ExtendedPropertyType before) {
-  DMG_ASSERT(properties_on_edges_, "Trying to modify property on edge when explicitly disabled.");
-  if (now == before) return;  // Nothing to do
-
-  if (EdgeCreatedDuringThisTx(edge.ptr)) {  // We can process in-place if created during this transaction
-    tracking_->SetProperty(type, from, to, property, now, before, properties_on_edges_);
-  } else {  // Not created during this tx; needs to be post-processed
-    post_process_->emplace(edge, type, from, to);
-  }
-}
-
-bool SchemaInfo::TransactionalEdgeModifyingAccessor::EdgeCreatedDuringThisTx(EdgeRef edge_ref, Vertex *vertex) const {
-  if (properties_on_edges_) {
-    return EdgeCreatedDuringThisTx(edge_ref.ptr);
-  }
-  return EdgeCreatedDuringThisTx(edge_ref.gid, vertex);
-}
-
-bool SchemaInfo::TransactionalEdgeModifyingAccessor::EdgeCreatedDuringThisTx(Edge *edge) const {
-  auto *delta = edge->delta;
-  while (delta) {
-    const auto ts = delta->timestamp->load(std::memory_order_acquire);
-    if (ts != commit_ts_) break;
-    if (delta->action == Delta::Action::DELETE_OBJECT || delta->action == Delta::Action::DELETE_DESERIALIZED_OBJECT) {
-      return true;
-    }
-    delta = delta->next.load(std::memory_order_acquire);
-  }
-  return false;
-}
-
-bool SchemaInfo::TransactionalEdgeModifyingAccessor::EdgeCreatedDuringThisTx(Gid edge, Vertex *vertex) const {
-  auto *delta = vertex->delta;
-  while (delta) {
-    const auto ts = delta->timestamp->load(std::memory_order_acquire);
-    if (ts != commit_ts_) break;
-    if (delta->action == Delta::Action::REMOVE_IN_EDGE || delta->action == Delta::Action::REMOVE_OUT_EDGE) {
-      if (delta->vertex_edge.edge.gid == edge) {
-        return true;
-      }
-    }
-    delta = delta->next.load(std::memory_order_acquire);
-  }
-  return false;
-}
-
 void SchemaInfo::TransactionalEdgeModifyingAccessor::UpdateTransactionalEdges(
     Vertex *vertex, const utils::small_vector<LabelId> &old_labels) {
   static constexpr bool InEdge = true;
   static constexpr bool OutEdge = !InEdge;
-  // Update edge stats
-  // Need to loop though the IN/OUT edges and lock both vertices
-  // Locking is done in order of GID
-  // Optimization: one vertex will already be locked; first loop through all edges that can lock; then unlock the
-  // vertex and loop through the rest
   auto process = [&](auto &edge, const auto edge_dir) {
     const auto [edge_type, other_vertex, edge_ref] = edge;
-    if (EdgeCreatedDuringThisTx(edge_ref, vertex)) {
+    bool edge_created_during_this_tx = false;
+    if (properties_on_edges_) {
+      // edge not locked, need to lock it and check state
+      auto lock = std::shared_lock{edge_ref.ptr->lock};
+      edge_created_during_this_tx = EdgeCreatedDuringThisTx(edge_ref.ptr, commit_ts_);
+    } else {
+      edge_created_during_this_tx = EdgeCreatedDuringThisTx(edge_ref.gid, vertex, commit_ts_);
+    }
+    if (edge_created_during_this_tx) {
       tracking_->UpdateEdgeStats(edge_ref, edge_type, (edge_dir == InEdge) ? other_vertex->labels : vertex->labels,
                                  (edge_dir == InEdge) ? vertex->labels : other_vertex->labels,
                                  (edge_dir == InEdge) ? other_vertex->labels : old_labels,
@@ -735,30 +761,6 @@ void SchemaInfo::AnalyticalEdgeModifyingAccessor::RemoveLabel(Vertex *vertex, La
   UpdateAnalyticalEdges(vertex, old_labels, std::move(vertex_guard));
 }
 
-// Edge SET_PROPERTY delta
-void SchemaInfo::AnalyticalEdgeModifyingAccessor::SetProperty(EdgeTypeId type, Vertex *from, Vertex *to,
-                                                              PropertyId property, ExtendedPropertyType now,
-                                                              ExtendedPropertyType before) {
-  DMG_ASSERT(properties_on_edges_, "Trying to modify property on edge when explicitly disabled.");
-  if (now == before) return;  // Nothing to do
-
-  auto from_lock = std::unique_lock{from->lock, std::defer_lock};
-  auto to_lock = std::unique_lock{to->lock, std::defer_lock};
-
-  if (from->gid == to->gid) {
-    from_lock.lock();
-  } else if (from->gid < to->gid) {
-    from_lock.lock();
-    to_lock.lock();
-  } else {
-    to_lock.lock();
-    from_lock.lock();
-  }
-
-  tracking_->SetProperty(type, from, to, property, now, before, properties_on_edges_, std::move(from_lock),
-                         std::move(to_lock));
-}
-
 // Vertex
 void SchemaInfo::VertexModifyingAccessor::CreateVertex(Vertex *vertex) { tracking_->AddVertex(vertex); }
 
@@ -801,15 +803,33 @@ void SchemaInfo::VertexModifyingAccessor::CreateEdge(Vertex *from, Vertex *to, E
   tracking_->CreateEdge(from, to, edge_type);
 }
 
-void SchemaInfo::VertexModifyingAccessor::DeleteEdge(Vertex *from, Vertex *to, EdgeTypeId edge_type, EdgeRef edge) {
+void SchemaInfo::VertexModifyingAccessor::DeleteEdge(Vertex *from, Vertex *to, EdgeTypeId edge_type, EdgeRef edge_ref) {
   // Vertices changed by the tx ( no need to lock )
-  tracking_->DeleteEdge(edge_type, edge, from, to, properties_on_edges_);
+  if (!post_process_ || EdgeCreatedDuringThisTx(edge_ref, from, commit_ts_, properties_on_edges_)) {
+    tracking_->DeleteEdge(edge_type, edge_ref, from, to, properties_on_edges_);
+  } else {  // Post process
+    post_process_->emplace(edge_ref, edge_type, from, to);
+  }
 }
 
 void SchemaInfo::VertexModifyingAccessor::SetProperty(Vertex *vertex, PropertyId property, ExtendedPropertyType now,
                                                       ExtendedPropertyType before) {
   DMG_ASSERT(vertex->lock.is_locked(), "Trying to read from an unlocked vertex; LINE {}", __LINE__);
+  if (now == before) return;  // Nothing to do
   tracking_->SetProperty(vertex, property, now, before);
+}
+
+void SchemaInfo::VertexModifyingAccessor::SetProperty(EdgeRef edge, EdgeTypeId type, Vertex *from, Vertex *to,
+                                                      PropertyId property, ExtendedPropertyType now,
+                                                      ExtendedPropertyType before) {
+  DMG_ASSERT(properties_on_edges_, "Trying to modify property on edge when explicitly disabled.");
+  if (now == before) return;  // Nothing to do
+  if (!post_process_ ||
+      EdgeCreatedDuringThisTx(edge.ptr, commit_ts_)) {  // We can process in-place if created during this transaction
+    tracking_->SetProperty(type, from, to, property, now, before, properties_on_edges_);
+  } else {  // Not created during this tx; needs to be post-processed
+    post_process_->emplace(edge, type, from, to);
+  }
 }
 
 }  // namespace memgraph::storage
