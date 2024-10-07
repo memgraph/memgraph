@@ -114,10 +114,10 @@ CoordinatorInstance::~CoordinatorInstance() {
 auto CoordinatorInstance::GetBecomeLeaderCallback() -> std::function<void()> {
   return [this]() {
     spdlog::trace("Executing become leader callback in thread {}.", std::this_thread::get_id());
-    if (is_shutting_down_.load(std::memory_order_acquire)) {
+    if (is_shutting_down_.load(std::memory_order_seq_cst)) {
       return;
     }
-    is_leader_ready_.store(false, std::memory_order_release);
+    is_leader_ready_.store(false, std::memory_order_seq_cst);
     // Thread pool is needed because becoming leader is blocking action, and if we don't succeed to check state of
     // cluster we will try again and again in same thread, thus blocking progress of NuRaft leader election.
     thread_pool_.AddTask([this]() { this->ReconcileClusterState(); });
@@ -329,10 +329,11 @@ auto CoordinatorInstance::ReconcileClusterState() -> ReconcileClusterStateStatus
     auto const result = ReconcileClusterState_();
     switch (result) {
       case (ReconcileClusterStateStatus::SUCCESS):
-        is_leader_ready_.store(true, std::memory_order_release);
+        is_leader_ready_.store(true, std::memory_order_seq_cst);
         spdlog::trace("Reconcile cluster state finished successfully.");
         return result;
       case ReconcileClusterStateStatus::FAIL:
+        spdlog::trace("ReconcileClusterState_ failed!");
         break;
       case ReconcileClusterStateStatus::SHUTTING_DOWN:
         spdlog::trace("Stopping reconciliation as coordinator is shutting down.");
@@ -363,7 +364,7 @@ auto CoordinatorInstance::ReconcileClusterState_() -> ReconcileClusterStateStatu
 
   spdlog::trace("Doing ReconcileClusterState.");
 
-  if (is_shutting_down_.load(std::memory_order_acquire)) {
+  if (is_shutting_down_.load(std::memory_order_seq_cst)) {
     return ReconcileClusterStateStatus::SHUTTING_DOWN;
   }
 
@@ -377,20 +378,20 @@ auto CoordinatorInstance::ReconcileClusterState_() -> ReconcileClusterStateStatu
   // taking lock to avoid deadlock between us stopping thread and thread wanting to take lock but can't because
   // we have it
   std::ranges::for_each(repl_instances_, [](auto &repl_instance) {
-    spdlog::trace("Stopping frequent check for instance {}", repl_instance.InstanceName());
+    spdlog::trace("Stopping frequent check for instance {}.", repl_instance.InstanceName());
     repl_instance.StopFrequentCheck();
-    spdlog::trace("Stopped frequent check for instance {}", repl_instance.InstanceName());
+    spdlog::trace("Stopped frequent check for instance {}.", repl_instance.InstanceName());
   });
-  spdlog::trace("Stopped all frequent checks and acquiring lock in the thread {}", std::this_thread::get_id());
+  spdlog::trace("Stopped all frequent checks and acquiring lock in the thread {}.", std::this_thread::get_id());
   auto lock = std::unique_lock{coord_instance_lock_};
-  spdlog::trace("Acquired lock in the reconciliation cluster state reset thread {}", std::this_thread::get_id());
+  spdlog::trace("Acquired lock in the reconciliation cluster state reset thread {}.", std::this_thread::get_id());
   repl_instances_.clear();
 
   utils::OnScopeExit const do_reconcile_cluster_state{[this]() {
     spdlog::trace("Reconcile cluster state function exit, lock opened {}, coordinator leader {}",
                   raft_state_->IsLockOpened(), raft_state_->IsLeader());
     if (raft_state_->IsLeader() && !raft_state_->IsLockOpened()) {
-      is_leader_ready_.store(true, std::memory_order_release);
+      is_leader_ready_.store(true, std::memory_order_seq_cst);
       spdlog::trace("Lock is not opened anymore and coordinator is leader, not reconciling cluster state again.");
     }
   }};
@@ -434,7 +435,6 @@ auto CoordinatorInstance::ReconcileClusterState_() -> ReconcileClusterStateStatu
 
   std::ranges::for_each(raft_state_replication_instances, [this](auto &&replica) {
     auto client = std::make_unique<ReplicationInstanceClient>(this, replica.config, client_succ_cb_, client_fail_cb_);
-
     repl_instances_.emplace_back(std::move(client));
   });
 
