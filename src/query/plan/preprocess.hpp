@@ -16,6 +16,7 @@
 #include <set>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "query/frontend/ast/ast.hpp"
@@ -350,18 +351,18 @@ class PropertyFilter {
 struct PointFilter {
   enum class Function : uint8_t { DISTANCE, WITHINBBOX };
 
-  PointFilter(Symbol const &symbol, PropertyIx const &property, Identifier *cmp_value,
-              PointDistanceCondition boundary_condition, Expression *boundary_value)
-      : symbol_(symbol),
-        property_(property),
+  PointFilter(Symbol symbol, PropertyIx property, Identifier *cmp_value, PointDistanceCondition boundary_condition,
+              Expression *boundary_value)
+      : symbol_(std::move(symbol)),
+        property_(std::move(property)),
         function_(Function::DISTANCE),
         distance_{
             .cmp_value_ = cmp_value, .boundary_value_ = boundary_value, .boundary_condition_ = boundary_condition} {}
 
-  PointFilter(Symbol const &symbol, PropertyIx const &property, Identifier *lb, Identifier *ub,
+  PointFilter(Symbol symbol, PropertyIx property, Identifier *lb, Identifier *ub,
               WithinBBoxCondition boundary_condition)
-      : symbol_(symbol),
-        property_(property),
+      : symbol_(std::move(symbol)),
+        property_(std::move(property)),
         function_(Function::WITHINBBOX),
         withinbbox_{.lb_ = lb, .ub_ = ub, .boundary_condition_ = boundary_condition} {}
 
