@@ -71,8 +71,9 @@ using SharedSchemaTracking = SchemaTracking<utils::ConcurrentUnorderedMap>;
 template <template <class...> class TContainer>
 struct SchemaTracking final : public SchemaTrackingInterface {
   template <template <class...> class TOtherContainer>
-  void ProcessTransaction(const SchemaTracking<TOtherContainer> &diff, std::unordered_set<PostProcessPOC> &post_process,
-                          uint64_t commit_ts, bool property_on_edges);
+  void ProcessTransaction(const SchemaTracking<TOtherContainer> &diff,
+                          std::unordered_set<SchemaInfoPostProcess> &post_process, uint64_t commit_ts,
+                          bool property_on_edges);
 
   void Clear() override;
 
@@ -139,7 +140,7 @@ struct SchemaInfo {
     return tracking_.ToJson(name_id_mapper, enum_store);
   }
 
-  void ProcessTransaction(LocalSchemaTracking &tracking, std::unordered_set<PostProcessPOC> &post_process,
+  void ProcessTransaction(LocalSchemaTracking &tracking, std::unordered_set<SchemaInfoPostProcess> &post_process,
                           uint64_t commit_ts, bool property_on_edges) {
     auto lock = std::unique_lock{operation_ordering_mutex_};
     tracking_.ProcessTransaction(tracking, post_process, commit_ts, property_on_edges);
@@ -166,8 +167,9 @@ struct SchemaInfo {
   // Advanced modification accessors
   class TransactionalEdgeModifyingAccessor {
    public:
-    TransactionalEdgeModifyingAccessor(LocalSchemaTracking &tracking, std::unordered_set<PostProcessPOC> *post_process,
-                                       bool prop_on_edges, uint64_t commit_ts)
+    TransactionalEdgeModifyingAccessor(LocalSchemaTracking &tracking,
+                                       std::unordered_set<SchemaInfoPostProcess> *post_process, bool prop_on_edges,
+                                       uint64_t commit_ts)
         : tracking_{&tracking},
           properties_on_edges_{prop_on_edges},
           commit_ts_{commit_ts},
@@ -183,7 +185,7 @@ struct SchemaInfo {
     LocalSchemaTracking *tracking_{};
     bool properties_on_edges_{};  //!< As defined by the storage configuration
     uint64_t commit_ts_{};
-    std::unordered_set<PostProcessPOC> *post_process_{};
+    std::unordered_set<SchemaInfoPostProcess> *post_process_{};
   };
 
   /**
@@ -225,8 +227,9 @@ struct SchemaInfo {
         : tracking_{&si.tracking_}, ordering_lock_{si.operation_ordering_mutex_}, properties_on_edges_(prop_on_edges) {}
 
     // TRANSACTIONAL
-    explicit VertexModifyingAccessor(LocalSchemaTracking &tracking, std::unordered_set<PostProcessPOC> *post_process,
-                                     uint64_t commit_ts, bool prop_on_edges)
+    explicit VertexModifyingAccessor(LocalSchemaTracking &tracking,
+                                     std::unordered_set<SchemaInfoPostProcess> *post_process, uint64_t commit_ts,
+                                     bool prop_on_edges)
         : tracking_{&tracking},
           properties_on_edges_{prop_on_edges},
           post_process_{post_process},
@@ -254,7 +257,7 @@ struct SchemaInfo {
     SchemaTrackingInterface *tracking_{};
     std::shared_lock<std::shared_mutex> ordering_lock_;  //!< Order guaranteeing lock
     bool properties_on_edges_{};                         //!< As defined by the storage configuration
-    std::unordered_set<PostProcessPOC> *post_process_{};
+    std::unordered_set<SchemaInfoPostProcess> *post_process_{};
     uint64_t commit_ts_{};
   };
 
@@ -273,7 +276,8 @@ struct SchemaInfo {
                                                          bool prop_on_edges) {
     return VertexModifyingAccessor{tracking, &post_process, commit_ts, prop_on_edges};
   }
-  static ModifyingAccessor CreateEdgeModifyingAccessor(auto &tracking, std::unordered_set<PostProcessPOC> *post_process,
+  static ModifyingAccessor CreateEdgeModifyingAccessor(auto &tracking,
+                                                       std::unordered_set<SchemaInfoPostProcess> *post_process,
                                                        bool prop_on_edges, uint64_t commit_ts) {
     return TransactionalEdgeModifyingAccessor{tracking, post_process, prop_on_edges, commit_ts};
   }

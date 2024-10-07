@@ -28,16 +28,18 @@
 #include "utils/small_vector.hpp"
 #include "utils/variant_helpers.hpp"
 
-// TODO Move to unnamed namespace
-namespace std {
+namespace memgraph::storage {
+namespace {
+
 template <typename Key, typename Tp, typename Predicate>
 inline auto erase_if(memgraph::utils::ConcurrentUnorderedMap<Key, Tp> &cont, Predicate &&pred) {
   return cont.erase_if(std::forward<Predicate>(pred));
 }
-}  // namespace std
 
-namespace memgraph::storage {
-namespace {
+template <typename Key, typename Tp, typename Predicate>
+inline auto erase_if(std::unordered_map<Key, Tp> &cont, Predicate &&pred) {
+  return std::erase_if(cont, std::forward<Predicate>(pred));
+}
 
 /// This function iterates through the undo buffers from an object (starting
 /// from the supplied delta) and determines what deltas should be applied to get
@@ -243,7 +245,7 @@ bool EdgeDeletedDuringThisTx(Gid edge, Vertex *vertex, uint64_t commit_ts) {
 template <template <class...> class TContainer>
 template <template <class...> class TOtherContainer>
 void SchemaTracking<TContainer>::ProcessTransaction(const SchemaTracking<TOtherContainer> &diff,
-                                                    std::unordered_set<PostProcessPOC> &post_process,
+                                                    std::unordered_set<SchemaInfoPostProcess> &post_process,
                                                     uint64_t commit_ts, bool property_on_edges) {
   // Update schema based on the diff
   for (const auto &[vertex_key, info] : diff.vertex_state_) {
@@ -325,11 +327,11 @@ void SchemaTracking<TContainer>::ProcessTransaction(const SchemaTracking<TOtherC
 
   // Clean up unused stats
   auto stats_cleanup = [](auto &info) {
-    std::erase_if(info, [](auto &elem) { return elem.second.n <= 0; });
+    erase_if(info, [](auto &elem) { return elem.second.n <= 0; });
     for (auto &[_, val] : info) {
-      std::erase_if(val.properties, [](auto &elem) { return elem.second.n <= 0; });
+      erase_if(val.properties, [](auto &elem) { return elem.second.n <= 0; });
       for (auto &[_, val] : val.properties) {
-        std::erase_if(val.types, [](auto &elem) { return elem.second <= 0; });
+        erase_if(val.types, [](auto &elem) { return elem.second <= 0; });
       }
     }
   };
@@ -377,12 +379,11 @@ nlohmann::json SchemaTracking<TContainer>::ToJson(NameIdMapper &name_id_mapper, 
 
   // Cleanup result (we must leave unused stats in analytical)
   auto stats_cleanup = [&json](const std::string &main_key) {
-    std::erase_if(json[main_key].get_ref<nlohmann::json::array_t &>(), [](auto &elem) { return elem["count"] <= 0; });
+    erase_if(json[main_key].get_ref<nlohmann::json::array_t &>(), [](auto &elem) { return elem["count"] <= 0; });
     for (auto &val : json[main_key].get_ref<nlohmann::json::array_t &>()) {
-      std::erase_if(val["properties"].get_ref<nlohmann::json::array_t &>(),
-                    [](auto &elem) { return elem["count"] <= 0; });
+      erase_if(val["properties"].get_ref<nlohmann::json::array_t &>(), [](auto &elem) { return elem["count"] <= 0; });
       for (auto &val : val["properties"].get_ref<nlohmann::json::array_t &>()) {
-        std::erase_if(val["types"].get_ref<nlohmann::json::array_t &>(), [](auto &elem) { return elem["count"] <= 0; });
+        erase_if(val["types"].get_ref<nlohmann::json::array_t &>(), [](auto &elem) { return elem["count"] <= 0; });
       }
     }
   };
@@ -837,5 +838,5 @@ void SchemaInfo::VertexModifyingAccessor::SetProperty(EdgeRef edge, EdgeTypeId t
 template struct memgraph::storage::SchemaTracking<std::unordered_map>;
 template struct memgraph::storage::SchemaTracking<memgraph::utils::ConcurrentUnorderedMap>;
 template void memgraph::storage::SchemaTracking<memgraph::utils::ConcurrentUnorderedMap>::ProcessTransaction(
-    const memgraph::storage::SchemaTracking<std::unordered_map> &diff, std::unordered_set<PostProcessPOC> &post_process,
-    uint64_t commit_ts, bool property_on_edges);
+    const memgraph::storage::SchemaTracking<std::unordered_map> &diff,
+    std::unordered_set<SchemaInfoPostProcess> &post_process, uint64_t commit_ts, bool property_on_edges);

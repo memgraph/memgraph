@@ -22,6 +22,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/vertex.hpp"
 #include "utils/conccurent_unordered_map.hpp"
 #include "utils/small_vector.hpp"
 
@@ -193,6 +194,13 @@ struct TrackingInfo {
   }
 };
 
+struct SchemaInfoPostProcess {
+  EdgeRef edge_ref;
+  EdgeTypeId edge_type;
+  Vertex *from;
+  Vertex *to;
+};
+
 }  // namespace memgraph::storage
 
 namespace std {
@@ -250,4 +258,21 @@ struct equal_to<memgraph::storage::EdgeKey> {
   }
 };
 
+template <>
+class hash<memgraph::storage::SchemaInfoPostProcess> {
+ public:
+  size_t operator()(const memgraph::storage::SchemaInfoPostProcess &pp) const {
+    return pp.edge_ref.gid.AsUint();  // Both ptr and gid are the same size and unique
+  }
+};
+
+template <>
+class equal_to<memgraph::storage::SchemaInfoPostProcess> {
+ public:
+  bool operator()(const memgraph::storage::SchemaInfoPostProcess &lhs,
+                  const memgraph::storage::SchemaInfoPostProcess &rhs) const {
+    // Edge ref is a pointer or gid, both are unique and should completely define the edge
+    return lhs.edge_ref == rhs.edge_ref;
+  }
+};
 }  // namespace std
