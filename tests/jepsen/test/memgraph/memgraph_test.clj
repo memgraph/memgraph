@@ -211,14 +211,7 @@
   (testing "get-competent-idx7"
     (let [cum-probs [0.5 1.0]]
 
-      (is (= (hacreate/get-competent-idx cum-probs 0.2) 0))))
-
-
-
-
-
-
-  )
+      (is (= (hacreate/get-competent-idx cum-probs 0.2) 0)))))
 
 (deftest get-instance-url
   (testing "Get instance URL."
