@@ -47,9 +47,8 @@ void SystemRestore(replication::ReplicationClient &client, system::System &syste
     return;
 
   // Try to recover...
-  client.state_.WithLock(
-      [](auto &state) { return state != memgraph::replication::ReplicationClient::State::RECOVERY; });
-  {
+  if (client.state_.WithLock(
+          [](auto &state) { return state != memgraph::replication::ReplicationClient::State::RECOVERY; })) {
     bool is_enterprise = license::global_license_checker.IsEnterpriseValidFast();
     // We still need to system replicate
     struct DbInfo {
@@ -197,7 +196,7 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
 
     auto &instance_client_ptr = maybe_client.GetValue();
     bool all_clients_good{true};
-    // Add database specific clients (NOTE Currently all databases are connected to each replica)
+    // Add database specific clients (NOTE: Currently all databases are connected to each replica)
     dbms_handler_.ForEach([&](dbms::DatabaseAccess db_acc) {
       auto *storage = db_acc->storage();
       // TODO: ATM only IN_MEMORY_TRANSACTIONAL, fix other modes
