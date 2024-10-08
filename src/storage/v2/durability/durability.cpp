@@ -474,12 +474,15 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
       return std::nullopt;
     }
 
+    // sort by path
     std::sort(wal_files.begin(), wal_files.end());
 
     // UUID used for durability is the UUID of the last WAL file.
     // Same for the epoch id.
     *uuid = std::move(wal_files.back().uuid);
     repl_storage_state.epoch_.SetEpoch(std::move(wal_files.back().epoch_id));
+    spdlog::trace("UUID of the last WAL file: {}. Epoch id from the last WAL file: {}.", *uuid,
+                  repl_storage_state.epoch_.id());
   }
 
   auto maybe_wal_files = GetWalFiles(wal_directory_, *uuid);
