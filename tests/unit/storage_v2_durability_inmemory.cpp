@@ -3146,7 +3146,7 @@ TEST_P(DurabilityTest, ConstraintsRecoveryFunctionSetting) {
   std::unique_ptr<memgraph::storage::NameIdMapper> name_id_mapper = std::make_unique<memgraph::storage::NameIdMapper>();
   std::atomic<uint64_t> edge_count{0};
   uint64_t wal_seq_num{0};
-  std::string uuid{memgraph::utils::GenerateUUID()};
+  memgraph::utils::UUID uuid;
   memgraph::storage::Indices indices{config, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
   memgraph::storage::Constraints constraints{config, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
   memgraph::storage::ReplicationStorageState repl_storage_state;
