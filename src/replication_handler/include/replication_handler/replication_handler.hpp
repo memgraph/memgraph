@@ -236,11 +236,11 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
       switch (unregister_res) {
         using memgraph::query::UnregisterReplicaResult;
         case UnregisterReplicaResult::NOT_MAIN:
-          MG_ASSERT(false,
-                    "Failed to unregister replica {} after failed registration process since the instance isn't main "
-                    "anymore. The instance left in unconsistent state, the administrator should manually delete the "
-                    "data and restart process.",
-                    config.name);
+          spdlog::trace(
+              "Failed to unregister replica {} after failed registration process since the instance isn't main "
+              "anymore. The instance left in unconsistent state, the administrator should manually delete the "
+              "data and restart process.",
+              config.name);
           break;
         case UnregisterReplicaResult::COULD_NOT_BE_PERSISTED:
           MG_ASSERT(
@@ -251,8 +251,7 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
               config.name);
           break;
         case UnregisterReplicaResult::CANNOT_UNREGISTER:
-          MG_ASSERT(
-              false,
+          spdlog::trace(
               "Failed to unregister replica {} after failed registration process since unregistration unsuccessful for "
               "all database clients. The instance left in unconsistent state, the administrator should manually delete "
               "the data and restart process.",

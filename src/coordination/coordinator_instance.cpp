@@ -114,10 +114,10 @@ CoordinatorInstance::~CoordinatorInstance() {
 auto CoordinatorInstance::GetBecomeLeaderCallback() -> std::function<void()> {
   return [this]() {
     spdlog::trace("Executing become leader callback in thread {}.", std::this_thread::get_id());
-    if (is_shutting_down_.load(std::memory_order_seq_cst)) {
+    if (is_shutting_down_.load(std::memory_order_acquire)) {
       return;
     }
-    is_leader_ready_.store(false, std::memory_order_seq_cst);
+    is_leader_ready_.store(false, std::memory_order_release);
     // Thread pool is needed because becoming leader is blocking action, and if we don't succeed to check state of
     // cluster we will try again and again in same thread, thus blocking progress of NuRaft leader election.
     thread_pool_.AddTask([this]() { this->ReconcileClusterState(); });
@@ -127,13 +127,9 @@ auto CoordinatorInstance::GetBecomeLeaderCallback() -> std::function<void()> {
 
 auto CoordinatorInstance::GetBecomeFollowerCallback() -> std::function<void()> {
   return [this]() {
-    spdlog::info("Executing become follower callback in thread {}.", std::this_thread::get_id());
-    is_leader_ready_.store(false, std::memory_order_seq_cst);
-
-    // It's not critical that we execute this task immediately. The worst thing that can happen is that pings will still
-    // be sent to instances in MainSuccessCallback, MainFailCallback, ReplicaSuccessCallback and ReplicaFailCallback but
-    // since is_leader_ready_ will be set to false we won't react to the result of such pings.
     thread_pool_.AddTask([this]() {
+      spdlog::info("Executing become follower callback in thread {}.", std::this_thread::get_id());
+      is_leader_ready_.store(false, std::memory_order_release);
       // We need to stop checks before taking a lock because deadlock can happen if instances wait
       // to take a lock in frequent check, and this thread already has a lock and waits for instance to
       // be done with frequent check
@@ -334,7 +330,7 @@ auto CoordinatorInstance::ReconcileClusterState() -> ReconcileClusterStateStatus
     auto const result = ReconcileClusterState_();
     switch (result) {
       case (ReconcileClusterStateStatus::SUCCESS):
-        is_leader_ready_.store(true, std::memory_order_seq_cst);
+        is_leader_ready_.store(true, std::memory_order_release);
         spdlog::trace("Reconcile cluster state finished successfully.");
         return result;
       case ReconcileClusterStateStatus::FAIL:
@@ -370,7 +366,7 @@ auto CoordinatorInstance::ReconcileClusterState_() -> ReconcileClusterStateStatu
 
   spdlog::trace("Doing ReconcileClusterState_.");
 
-  if (is_shutting_down_.load(std::memory_order_seq_cst)) {
+  if (is_shutting_down_.load(std::memory_order_acquire)) {
     return ReconcileClusterStateStatus::SHUTTING_DOWN;
   }
 
@@ -399,7 +395,7 @@ auto CoordinatorInstance::ReconcileClusterState_() -> ReconcileClusterStateStatu
     spdlog::trace("Reconcile cluster state function exit, lock opened {}, coordinator is leader {}.",
                   raft_state_->IsLockOpened(), raft_state_->IsLeader());
     if (raft_state_->IsLeader() && !raft_state_->IsLockOpened()) {
-      is_leader_ready_.store(true, std::memory_order_seq_cst);
+      is_leader_ready_.store(true, std::memory_order_release);
       spdlog::trace("Lock is not opened anymore and coordinator is leader, not reconciling cluster state again.");
     }
   }};
@@ -1156,7 +1152,7 @@ void CoordinatorInstance::MainFailCallback(std::string_view repl_instance_name) 
     return;
   }
 
-  if (!is_leader_ready_) {
+  if (!is_leader_ready_.load(std::memory_order_acquire)) {
     spdlog::trace("Returning from MainFailCallback since the leader is not ready.");
     return;
   }
@@ -1181,7 +1177,7 @@ void CoordinatorInstance::MainSuccessCallback(std::string_view repl_instance_nam
     return;
   }
 
-  if (!is_leader_ready_) {
+  if (!is_leader_ready_.load(std::memory_order_acquire)) {
     spdlog::trace("Returning from MainSuccessCallback since the leader is not ready.");
     return;
   }
