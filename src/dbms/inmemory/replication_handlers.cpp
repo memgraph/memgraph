@@ -303,9 +303,9 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
     storage->wal_seq_num_ = 0;
 
     spdlog::trace("Recovering indices and constraints from snapshot.");
-    memgraph::storage::durability::RecoverIndicesAndStats(recovered_snapshot.indices_constraints.indices,
-                                                          &storage->indices_, &storage->vertices_,
-                                                          storage->name_id_mapper_.get());
+    memgraph::storage::durability::RecoverIndicesAndStats(
+        recovered_snapshot.indices_constraints.indices, &storage->indices_, &storage->vertices_,
+        storage->name_id_mapper_.get(), storage->config_.salient.items.properties_on_edges);
     memgraph::storage::durability::RecoverConstraints(recovered_snapshot.indices_constraints.constraints,
                                                       &storage->constraints_, &storage->vertices_,
                                                       storage->name_id_mapper_.get());
