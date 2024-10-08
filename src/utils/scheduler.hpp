@@ -46,7 +46,7 @@ class Scheduler {
     DMG_ASSERT(pause > std::chrono::seconds(0), "Pause is invalid.");
 
     is_working_ = true;
-    thread_ = std::thread([this, pause, f, service_name, start_time]() mutable {
+    thread_ = std::jthread([this, pause, f, service_name, start_time]() mutable {
       auto find_first_execution = [&]() {
         if (start_time) {              // Custom start time; execute as soon as possible
           return *start_time - pause;  // -= simplifies the logic later on
@@ -79,14 +79,15 @@ class Scheduler {
         auto now = std::chrono::system_clock::now();
         next_execution += pause;
         if (next_execution > now) {
-          condition_variable_.wait_until(lk, next_execution, [&] { return !is_working_.load(); });
+          condition_variable_.wait_until(lk, next_execution,
+                                         [&] { return !is_working_.load(std::memory_order_acquire); });
         } else {
           next_execution = find_next_execution(now);  // Compensate for time drift when using a start time
         }
 
-        pause_cv_.wait(lk, [&] { return !is_paused_.load(); });
+        pause_cv_.wait(lk, [&] { return !is_paused_.load(std::memory_order_acquire); });
 
-        if (!is_working_) break;
+        if (!is_working_.load(std::memory_order_acquire)) break;
         f();
       }
     });
@@ -149,7 +150,7 @@ class Scheduler {
   /**
    * Thread which runs function.
    */
-  std::thread thread_;
+  std::jthread thread_;
 };
 
 }  // namespace memgraph::utils

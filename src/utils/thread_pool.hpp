@@ -25,7 +25,7 @@ namespace memgraph::utils {
 
 template <typename Func>
 struct CopyMovableFunctionWrapper {
-  CopyMovableFunctionWrapper(Func &&func) : func_{std::make_shared<Func>(std::move(func))} {}
+  explicit CopyMovableFunctionWrapper(Func &&func) : func_{std::make_shared<Func>(std::move(func))} {}
 
   void operator()() { (*func_)(); }
 
