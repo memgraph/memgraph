@@ -3204,7 +3204,7 @@ auto EnsureRetentionCountSnapshotsExist(const std::filesystem::path &snapshot_di
 
 void CreateSnapshot(Storage *storage, Transaction *transaction, const std::filesystem::path &snapshot_directory,
                     const std::filesystem::path &wal_directory, utils::SkipList<Vertex> *vertices,
-                    utils::SkipList<Edge> *edges, const std::string &uuid,
+                    utils::SkipList<Edge> *edges, utils::UUID const &uuid,
                     const memgraph::replication::ReplicationEpoch &epoch,
                     const std::deque<std::pair<std::string, uint64_t>> &epoch_history,
                     utils::FileRetainer *file_retainer) {
@@ -3625,10 +3625,11 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
   }
 
   // Write metadata.
+  auto const uuid_str = std::string{uuid};
   {
     offset_metadata = snapshot.GetPosition();
     snapshot.WriteMarker(Marker::SECTION_METADATA);
-    snapshot.WriteString(uuid);
+    snapshot.WriteString(uuid_str);
     snapshot.WriteString(epoch.id());
     snapshot.WriteUint(transaction->start_timestamp);
     snapshot.WriteUint(edges_count);
@@ -3666,11 +3667,11 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
   spdlog::info("Snapshot creation successful!");
 
   OldSnapshotFiles old_snapshot_files =
-      EnsureRetentionCountSnapshotsExist(snapshot_directory, path, uuid, file_retainer, storage);
+      EnsureRetentionCountSnapshotsExist(snapshot_directory, path, uuid_str, file_retainer, storage);
 
   if (old_snapshot_files.size() == storage->config_.durability.snapshot_retention_count - 1 &&
       utils::DirExists(wal_directory)) {
-    EnsureNecessaryWalFilesExist(wal_directory, uuid, std::move(old_snapshot_files), transaction, file_retainer);
+    EnsureNecessaryWalFilesExist(wal_directory, uuid_str, std::move(old_snapshot_files), transaction, file_retainer);
   }
 
   // We are not updating ldt here; we are only updating it when recovering from snapshot (because there is no other

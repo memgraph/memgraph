@@ -374,7 +374,7 @@ std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfoIndices(const R
 }
 
 std::optional<RecoveryInfo> Recovery::RecoverData(
-    std::string *uuid, ReplicationStorageState &repl_storage_state, utils::SkipList<Vertex> *vertices,
+    utils::UUID *uuid, ReplicationStorageState &repl_storage_state, utils::SkipList<Vertex> *vertices,
     utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata, std::atomic<uint64_t> *edge_count,
     NameIdMapper *name_id_mapper, Indices *indices, Constraints *constraints, Config const &config,
     uint64_t *wal_seq_num, EnumStore *enum_store, SchemaInfo *schema_info,
@@ -400,11 +400,15 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
     spdlog::info("Try recovering from snapshot directory {}.", wal_directory_);
 
     // UUID used for durability is the UUID of the last snapshot file.
-    *uuid = snapshot_files.back().uuid;
+    uuid->set(snapshot_files.back().uuid);
+    auto const last_snapshot_uuid_str = std::string{*uuid};
+
+    spdlog::trace("UUID of the last snapshot file: {}");
     std::optional<RecoveredSnapshot> recovered_snapshot;
+
     for (auto it = snapshot_files.rbegin(); it != snapshot_files.rend(); ++it) {
       const auto &[path, file_uuid, _] = *it;
-      if (file_uuid != *uuid) {
+      if (file_uuid != last_snapshot_uuid_str) {
         spdlog::warn("The snapshot file {} isn't related to the latest snapshot file!", path);
         continue;
       }
@@ -479,13 +483,13 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
 
     // UUID used for durability is the UUID of the last WAL file.
     // Same for the epoch id.
-    *uuid = std::move(wal_files.back().uuid);
+    uuid->set(wal_files.back().uuid);
     repl_storage_state.epoch_.SetEpoch(std::move(wal_files.back().epoch_id));
-    spdlog::trace("UUID of the last WAL file: {}. Epoch id from the last WAL file: {}.", *uuid,
+    spdlog::trace("UUID of the last WAL file: {}. Epoch id from the last WAL file: {}.", std::string{*uuid},
                   repl_storage_state.epoch_.id());
   }
 
-  auto maybe_wal_files = GetWalFiles(wal_directory_, *uuid);
+  auto maybe_wal_files = GetWalFiles(wal_directory_, std::string{*uuid});
   if (!maybe_wal_files) {
     spdlog::warn(
         utils::MessageWithLink("Couldn't get WAL file info from the WAL directory.", "https://memgr.ph/durability"));
