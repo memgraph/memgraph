@@ -242,6 +242,20 @@ bool EdgeDeletedDuringThisTx(Gid edge, Vertex *vertex, uint64_t commit_ts) {
 
 }  // namespace
 
+template <>
+TrackingInfo<std::unordered_map> &LocalSchemaTracking::edge_lookup(const EdgeKeyRef &key) {
+  auto itr = edge_state_.find(key);
+  if (itr != edge_state_.end()) return itr->second;
+  auto [new_itr, _] =
+      edge_state_.emplace(std::piecewise_construct, std::make_tuple(key.type, key.from, key.to), std::make_tuple());
+  return new_itr->second;
+}
+
+template <>
+TrackingInfo<utils::ConcurrentUnorderedMap> &SharedSchemaTracking::edge_lookup(const EdgeKeyRef &key) {
+  return edge_state_[key];
+}
+
 template <template <class...> class TContainer>
 template <template <class...> class TOtherContainer>
 void SchemaTracking<TContainer>::ProcessTransaction(const SchemaTracking<TOtherContainer> &diff,
@@ -528,22 +542,20 @@ void SchemaTracking<TContainer>::SetProperty(EdgeTypeId type, Vertex *from, Vert
   }
 }
 
-template <template <class...> class TContainer>
-void SchemaTracking<TContainer>::UpdateEdgeStats(EdgeRef edge_ref, EdgeTypeId edge_type,
-                                                 const VertexKey &new_from_labels, const VertexKey &new_to_labels,
-                                                 const VertexKey &old_from_labels, const VertexKey &old_to_labels,
-                                                 bool prop_on_edges) {
-  DMG_ASSERT(std::is_same_v<decltype(*this), LocalSchemaTracking>, "Using a local-only function on a shared object");
+template <>
+void LocalSchemaTracking::UpdateEdgeStats(EdgeRef edge_ref, EdgeTypeId edge_type, const VertexKey &new_from_labels,
+                                          const VertexKey &new_to_labels, const VertexKey &old_from_labels,
+                                          const VertexKey &old_to_labels, bool prop_on_edges) {
   UpdateEdgeStats(edge_lookup({edge_type, new_from_labels, new_to_labels}),
                   edge_lookup({edge_type, old_from_labels, old_to_labels}), edge_ref, prop_on_edges);
 }
 
-template <template <class...> class TContainer>
-void SchemaTracking<TContainer>::UpdateEdgeStats(EdgeRef edge_ref, EdgeTypeId edge_type,
-                                                 const VertexKey &new_from_labels, const VertexKey &new_to_labels,
-                                                 const VertexKey &old_from_labels, const VertexKey &old_to_labels,
-                                                 auto &&from_lock, auto &&to_lock, bool prop_on_edges) {
-  DMG_ASSERT(std::is_same_v<decltype(*this), SharedSchemaTracking>, "Using a shared-only function on a local object");
+template <>
+void SharedSchemaTracking::UpdateEdgeStats(EdgeRef edge_ref, EdgeTypeId edge_type, const VertexKey &new_from_labels,
+                                           const VertexKey &new_to_labels, const VertexKey &old_from_labels,
+                                           const VertexKey &old_to_labels,
+                                           std::unique_lock<utils::RWSpinLock> &&from_lock,
+                                           std::unique_lock<utils::RWSpinLock> &&to_lock, bool prop_on_edges) {
   // Lookup needs to happen while holding the locks, but the update itself does not
   auto &new_tracking = edge_lookup({edge_type, new_from_labels, new_to_labels});
   auto &old_tracking = edge_lookup({edge_type, old_from_labels, old_to_labels});
@@ -585,20 +597,6 @@ void SchemaTracking<TContainer>::RecoverVertex(Vertex *vertex) {
     ++prop_info.n;
     ++prop_info.types[type];
   }
-}
-
-template <>
-TrackingInfo<std::unordered_map> &LocalSchemaTracking::edge_lookup(const EdgeKeyRef &key) {
-  auto itr = edge_state_.find(key);
-  if (itr != edge_state_.end()) return itr->second;
-  auto [new_itr, _] =
-      edge_state_.emplace(std::piecewise_construct, std::make_tuple(key.type, key.from, key.to), std::make_tuple());
-  return new_itr->second;
-}
-
-template <>
-TrackingInfo<utils::ConcurrentUnorderedMap> &SharedSchemaTracking::edge_lookup(const EdgeKeyRef &key) {
-  return edge_state_[key];
 }
 
 template <template <class...> class TContainer>

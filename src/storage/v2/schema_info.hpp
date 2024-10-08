@@ -116,7 +116,8 @@ struct SchemaTracking final : public SchemaTrackingInterface {
 
   void UpdateEdgeStats(EdgeRef edge_ref, EdgeTypeId edge_type, const VertexKey &new_from_labels,
                        const VertexKey &new_to_labels, const VertexKey &old_from_labels, const VertexKey &old_to_labels,
-                       auto &&from_lock, auto &&to_lock, bool prop_on_edges);
+                       std::unique_lock<utils::RWSpinLock> &&from_lock, std::unique_lock<utils::RWSpinLock> &&to_lock,
+                       bool prop_on_edges);
 
  private:
   friend LocalSchemaTracking;
