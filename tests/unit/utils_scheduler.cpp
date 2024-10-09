@@ -95,3 +95,76 @@ TEST(Scheduler, StartTimeRestart) {
   }
   ASSERT_EQ(x, 2);
 }
+
+TEST(Scheduler, IsRunningFalse) {
+  memgraph::utils::Scheduler scheduler;
+  EXPECT_FALSE(scheduler.IsRunning());
+}
+
+TEST(Scheduler, StopIdleScheduler) {
+  memgraph::utils::Scheduler scheduler;
+  ASSERT_NO_THROW(scheduler.Stop());
+}
+
+TEST(Scheduler, PauseIdleScheduler) {
+  memgraph::utils::Scheduler scheduler;
+  ASSERT_NO_THROW(scheduler.Pause());
+  ASSERT_NO_THROW(scheduler.Resume());
+}
+
+TEST(Scheduler, RunStop) {
+  std::atomic<int> x{0};
+  std::function<void()> func{[&x]() { ++x; }};
+  memgraph::utils::Scheduler scheduler;
+  scheduler.Run("Test", std::chrono::milliseconds(100), func);
+  EXPECT_TRUE(scheduler.IsRunning());
+  scheduler.Stop();
+  EXPECT_FALSE(scheduler.IsRunning());
+}
+
+TEST(Scheduler, StopStoppedScheduler) {
+  std::atomic<int> x{0};
+  std::function<void()> func{[&x]() { ++x; }};
+  memgraph::utils::Scheduler scheduler;
+  scheduler.Run("Test", std::chrono::milliseconds(100), func);
+  ASSERT_NO_THROW({
+    scheduler.Stop();
+    scheduler.Stop();
+  });
+}
+
+TEST(Scheduler, PauseStoppedScheduler) {
+  std::atomic<int> x{0};
+  std::function<void()> func{[&x]() { ++x; }};
+  memgraph::utils::Scheduler scheduler;
+  scheduler.Run("Test", std::chrono::milliseconds(100), func);
+  EXPECT_TRUE(scheduler.IsRunning());
+  scheduler.Stop();
+  EXPECT_FALSE(scheduler.IsRunning());
+  scheduler.Pause();
+  EXPECT_FALSE(scheduler.IsRunning());
+}
+
+TEST(Scheduler, StopPausedScheduler) {
+  std::atomic<int> x{0};
+  std::function<void()> func{[&x]() { ++x; }};
+  memgraph::utils::Scheduler scheduler;
+  scheduler.Run("Test", std::chrono::milliseconds(100), func);
+  EXPECT_TRUE(scheduler.IsRunning());
+  scheduler.Pause();
+  EXPECT_TRUE(scheduler.IsRunning());  // note pausing the scheduler doesn't cause
+                                       // return false for IsRunning
+  scheduler.Stop();
+  EXPECT_FALSE(scheduler.IsRunning());
+}
+
+TEST(Scheduler, ConcurrentStops) {
+  std::atomic<int> x{0};
+  std::function<void()> func{[&x]() { ++x; }};
+  memgraph::utils::Scheduler scheduler;
+  scheduler.Run("Test", std::chrono::milliseconds(100), func);
+
+  std::jthread stopper1([&scheduler]() { scheduler.Stop(); });
+
+  std::jthread stopper2([&scheduler]() { scheduler.Stop(); });
+}
