@@ -42,11 +42,10 @@ class Scheduler {
   template <typename TRep, typename TPeriod>
   void Run(const std::string &service_name, const std::chrono::duration<TRep, TPeriod> &pause,
            const std::function<void()> &f, std::optional<std::chrono::system_clock::time_point> start_time = {}) {
-    DMG_ASSERT(is_working_ == false, "Thread already running.");
-    DMG_ASSERT(pause > std::chrono::seconds(0), "Pause is invalid.");
+    DMG_ASSERT(!IsRunning(), "Thread already running.");
+    DMG_ASSERT(pause > std::chrono::seconds(0), "Pause is invalid. Expected > 0, got {}.", pause.count());
 
-    is_working_ = true;
-    thread_ = std::thread([this, pause, f, service_name, start_time]() mutable {
+    thread_ = std::jthread([this, pause, f, service_name, start_time](std::stop_token token) mutable {
       auto find_first_execution = [&]() {
         if (start_time) {              // Custom start time; execute as soon as possible
           return *start_time - pause;  // -= simplifies the logic later on
@@ -76,55 +75,54 @@ class Scheduler {
         // waiting that function f will not log before it.
         // Check for pause also.
         auto lk = std::unique_lock{mutex_};
-        auto now = std::chrono::system_clock::now();
         next_execution += pause;
+        auto now = std::chrono::system_clock::now();
         if (next_execution > now) {
-          condition_variable_.wait_until(lk, next_execution, [&] { return !is_working_.load(); });
+          condition_variable_.wait_until(lk, next_execution, [&] { return token.stop_requested(); });
         } else {
           next_execution = find_next_execution(now);  // Compensate for time drift when using a start time
         }
 
-        pause_cv_.wait(lk, [&] { return !is_paused_.load(); });
+        pause_cv_.wait(lk, [&] { return !is_paused_.load(std::memory_order_acquire) || token.stop_requested(); });
 
-        if (!is_working_) break;
+        if (token.stop_requested()) break;
+
         f();
       }
     });
   }
 
+  // Sets atomic is_paused_ to false and notifies thread
   void Resume() {
-    is_paused_.store(false);
+    is_paused_.store(false, std::memory_order_release);
     pause_cv_.notify_one();
   }
 
-  void Pause() { is_paused_.store(true); }
+  // Sets atomic is_paused_ to true.
+  void Pause() { is_paused_.store(true, std::memory_order_release); }
 
-  /**
-   * @brief Stops the thread execution. This is a blocking call and may take as
-   * much time as one call to the function given previously to Run takes.
-   * @throw std::system_error
-   */
+  // Concurrent threads may request stopping the scheduler. In that case only one of them will
+  // actually stop the scheduler, the other one won't. We need to know which one is the successful
+  // one so that we don't try to join thread concurrently since this could cause undefined behavior.
   void Stop() {
-    is_paused_.store(false);
-    is_working_.store(false);
-    pause_cv_.notify_one();
-    condition_variable_.notify_one();
-    if (thread_.joinable()) thread_.join();
+    if (thread_.request_stop()) {
+      is_paused_.store(false, std::memory_order_release);
+      pause_cv_.notify_one();
+      condition_variable_.notify_one();
+      if (thread_.joinable()) thread_.join();
+    }
   }
 
-  /**
-   * Returns whether the scheduler is running.
-   */
-  bool IsRunning() { return is_working_; }
+  // Checking stop_possible() is necessary because otherwise calling IsRunning
+  // on a non-started Scheduler would return true.
+  bool IsRunning() {
+    std::stop_token token = thread_.get_stop_token();
+    return token.stop_possible() && !token.stop_requested();
+  }
 
   ~Scheduler() { Stop(); }
 
  private:
-  /**
-   * Variable is true when thread is running.
-   */
-  std::atomic<bool> is_working_{false};
-
   /**
    * Variable is true when thread is paused.
    */
@@ -149,7 +147,7 @@ class Scheduler {
   /**
    * Thread which runs function.
    */
-  std::thread thread_;
+  std::jthread thread_;
 };
 
 }  // namespace memgraph::utils
