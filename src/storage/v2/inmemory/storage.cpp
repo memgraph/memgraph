@@ -121,7 +121,6 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       recovery_{config.durability.storage_directory / durability::kSnapshotDirectory,
                 config.durability.storage_directory / durability::kWalDirectory},
       lock_file_path_(config.durability.storage_directory / durability::kLockFile),
-      uuid_(utils::GenerateUUID()),
       global_locker_(file_retainer_.AddLocker()) {
   MG_ASSERT(config.salient.storage_mode != StorageMode::ON_DISK_TRANSACTIONAL,
             "Invalid storage mode sent to InMemoryStorage constructor!");
@@ -151,7 +150,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
               config_.durability.storage_directory);
   }
   if (config_.durability.recover_on_startup) {
-    auto info = recovery_.RecoverData(&uuid_, repl_storage_state_, &vertices_, &edges_, &edges_metadata_, &edge_count_,
+    auto info = recovery_.RecoverData(uuid(), repl_storage_state_, &vertices_, &edges_, &edges_metadata_, &edge_count_,
                                       name_id_mapper_.get(), &indices_, &constraints_, config_, &wal_seq_num_,
                                       &enum_store_, &schema_info_, [this](Gid edge_gid) { return FindEdge(edge_gid); });
     if (info) {
@@ -160,7 +159,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       timestamp_ = std::max(timestamp_, info->next_timestamp);
       if (info->last_durable_timestamp) {
         repl_storage_state_.last_durable_timestamp_ = *info->last_durable_timestamp;
-        spdlog::trace("Recovering last durable timestamp {}", *info->last_durable_timestamp);
+        spdlog::trace("Recovering last durable timestamp {}.", *info->last_durable_timestamp);
       }
     }
   } else if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
@@ -2330,12 +2329,15 @@ StorageInfo InMemoryStorage::GetInfo() {
 }
 
 bool InMemoryStorage::InitializeWalFile(memgraph::replication::ReplicationEpoch &epoch) {
-  if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL)
+  if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL) {
     return false;
+  }
+
   if (!wal_file_) {
-    wal_file_.emplace(recovery_.wal_directory_, uuid_, epoch.id(), config_.salient.items, name_id_mapper_.get(),
+    wal_file_.emplace(recovery_.wal_directory_, uuid(), epoch.id(), config_.salient.items, name_id_mapper_.get(),
                       wal_seq_num_++, &file_retainer_);
   }
+
   return true;
 }
 
@@ -2674,7 +2676,7 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
   Transaction *transaction = accessor->GetTransaction();
   auto const &epoch = repl_storage_state_.epoch_;
   durability::CreateSnapshot(this, transaction, recovery_.snapshot_directory_, recovery_.wal_directory_, &vertices_,
-                             &edges_, uuid_, epoch, repl_storage_state_.history, &file_retainer_);
+                             &edges_, uuid(), epoch, repl_storage_state_.history, &file_retainer_);
 
   memgraph::metrics::Measure(memgraph::metrics::SnapshotCreationLatency_us,
                              std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed()).count());
@@ -2740,7 +2742,7 @@ void InMemoryStorage::CreateSnapshotHandler(
           spdlog::warn(utils::MessageWithLink("Snapshots are disabled for replicas.", "https://memgr.ph/replication"));
           break;
         case CreateSnapshotError::ReachedMaxNumTries:
-          spdlog::warn("Failed to create snapshot. Reached max number of tries. Please contact support");
+          spdlog::warn("Failed to create snapshot. Reached max number of tries. Please contact support.");
           break;
       }
     }
