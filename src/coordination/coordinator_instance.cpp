@@ -694,8 +694,8 @@ auto CoordinatorInstance::GetFailCallbackTypeName(ReplicationInstanceConnector c
 }
 
 auto CoordinatorInstance::TryVerifyOrCorrectClusterState() -> ReconcileClusterStateStatus {
-  // Follows nomenclature from replication handler where Try<> means doing action from
-  // user query
+  // Follows nomenclature from replication handler where Try<> means doing action from the
+  // user query.
   return ReconcileClusterState_();
 }
 
@@ -722,7 +722,7 @@ auto CoordinatorInstance::TryFailover() -> void {
   }
 
   auto &new_main = FindReplicationInstance(*maybe_most_up_to_date_instance);
-  spdlog::trace("Found new main {} to do failover", new_main.InstanceName());
+  spdlog::trace("Found new main {} to do failover.", new_main.InstanceName());
   if (!raft_state_->AppendOpenLock()) {
     spdlog::error("Aborting failover as instance is not anymore leader.");
     return;
@@ -789,9 +789,9 @@ auto CoordinatorInstance::TryFailover() -> void {
 
   if (!new_main.EnableWritingOnMain()) {
     spdlog::error("Failover successful but couldn't enable writing on instance.");
+  } else {
+    spdlog::info("Failover successful! Instance {} promoted to main.", new_main.InstanceName());
   }
-
-  spdlog::info("Failover successful! Instance {} promoted to main.", new_main.InstanceName());
 }
 
 auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view instance_name)
