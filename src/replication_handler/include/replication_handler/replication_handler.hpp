@@ -41,62 +41,64 @@ void StartReplicaClient(replication::ReplicationClient &client, dbms::DbmsHandle
 template <bool REQUIRE_LOCK = false>
 void SystemRestore(replication::ReplicationClient &client, system::System &system, dbms::DbmsHandler &dbms_handler,
                    const utils::UUID &main_uuid, auth::SynchedAuth &auth) {
-  bool const recovery_needed = client.state_.WithLock([](auto &state) {
-    bool const is_behind = state == memgraph::replication::ReplicationClient::State::BEHIND;
-    if (is_behind) {
-      state = memgraph::replication::ReplicationClient::State::RECOVERY;
-    }
-    return is_behind;
-  });
-
-  if (recovery_needed) {
-    bool is_enterprise = license::global_license_checker.IsEnterpriseValidFast();
-    // We still need to system replicate
-    struct DbInfo {
-      std::vector<storage::SalientConfig> configs;
-      uint64_t last_committed_timestamp;
-    };
-    DbInfo db_info = std::invoke([&] {
-      auto guard = std::invoke([&]() -> std::optional<memgraph::system::TransactionGuard> {
-        if constexpr (REQUIRE_LOCK) {
-          return system.GenTransactionGuard();
+  // If the state was BEHIND, change it to RECOVERY, do the recovery process and change it to READY.
+  // If the state was something else than BEHIND, return immediately.
+  if (!client.state_.WithLock([](auto &state) {
+        bool const is_behind = state == memgraph::replication::ReplicationClient::State::BEHIND;
+        if (is_behind) {
+          state = memgraph::replication::ReplicationClient::State::RECOVERY;
         }
-        return std::nullopt;
-      });
+        return is_behind;
+      })) {
+    return;
+  }
 
-      if (is_enterprise) {
-        auto configs = std::vector<storage::SalientConfig>{};
-        dbms_handler.ForEach([&configs](dbms::DatabaseAccess acc) { configs.emplace_back(acc->config().salient); });
-        // TODO: This is `SystemRestore` maybe DbInfo is incorrect as it will need Auth also
-        return DbInfo{configs, system.LastCommittedSystemTimestamp()};
+  bool is_enterprise = license::global_license_checker.IsEnterpriseValidFast();
+  // We still need to system replicate
+  struct DbInfo {
+    std::vector<storage::SalientConfig> configs;
+    uint64_t last_committed_timestamp;
+  };
+  DbInfo db_info = std::invoke([&] {
+    auto guard = std::invoke([&]() -> std::optional<memgraph::system::TransactionGuard> {
+      if constexpr (REQUIRE_LOCK) {
+        return system.GenTransactionGuard();
       }
-
-      // No license -> send only default config
-      return DbInfo{{dbms_handler.Get()->config().salient}, system.LastCommittedSystemTimestamp()};
+      return std::nullopt;
     });
-    try {
-      auto stream = std::invoke([&]() {
-        // Handle only default database is no license
-        if (!is_enterprise) {
-          return client.rpc_client_.Stream<replication::SystemRecoveryRpc>(
-              main_uuid, db_info.last_committed_timestamp, std::move(db_info.configs), auth::Auth::Config{},
-              std::vector<auth::User>{}, std::vector<auth::Role>{});
-        }
-        return auth.WithLock([&](auto &locked_auth) {
-          return client.rpc_client_.Stream<replication::SystemRecoveryRpc>(
-              main_uuid, db_info.last_committed_timestamp, std::move(db_info.configs), locked_auth.GetConfig(),
-              locked_auth.AllUsers(), locked_auth.AllRoles());
-        });
-      });
-      const auto response = stream.AwaitResponse();
-      if (response.result == replication::SystemRecoveryRes::Result::FAILURE) {
-        client.state_.WithLock([](auto &state) { state = memgraph::replication::ReplicationClient::State::BEHIND; });
-        return;
+
+    if (is_enterprise) {
+      auto configs = std::vector<storage::SalientConfig>{};
+      dbms_handler.ForEach([&configs](dbms::DatabaseAccess acc) { configs.emplace_back(acc->config().salient); });
+      // TODO: This is `SystemRestore` maybe DbInfo is incorrect as it will need Auth also
+      return DbInfo{configs, system.LastCommittedSystemTimestamp()};
+    }
+
+    // No license -> send only default config
+    return DbInfo{{dbms_handler.Get()->config().salient}, system.LastCommittedSystemTimestamp()};
+  });
+  try {
+    auto stream = std::invoke([&]() {
+      // Handle only default database is no license
+      if (!is_enterprise) {
+        return client.rpc_client_.Stream<replication::SystemRecoveryRpc>(
+            main_uuid, db_info.last_committed_timestamp, std::move(db_info.configs), auth::Auth::Config{},
+            std::vector<auth::User>{}, std::vector<auth::Role>{});
       }
-    } catch (memgraph::rpc::GenericRpcFailedException const &e) {
+      return auth.WithLock([&](auto &locked_auth) {
+        return client.rpc_client_.Stream<replication::SystemRecoveryRpc>(
+            main_uuid, db_info.last_committed_timestamp, std::move(db_info.configs), locked_auth.GetConfig(),
+            locked_auth.AllUsers(), locked_auth.AllRoles());
+      });
+    });
+    const auto response = stream.AwaitResponse();
+    if (response.result == replication::SystemRecoveryRes::Result::FAILURE) {
       client.state_.WithLock([](auto &state) { state = memgraph::replication::ReplicationClient::State::BEHIND; });
       return;
     }
+  } catch (memgraph::rpc::GenericRpcFailedException const &e) {
+    client.state_.WithLock([](auto &state) { state = memgraph::replication::ReplicationClient::State::BEHIND; });
+    return;
   }
 
   // Successfully recovered
