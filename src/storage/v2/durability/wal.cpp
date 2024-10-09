@@ -1242,9 +1242,9 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
   return ret;
 }
 
-WalFile::WalFile(const std::filesystem::path &wal_directory, const std::string_view uuid,
-                 const std::string_view epoch_id, SalientConfig::Items items, NameIdMapper *name_id_mapper,
-                 uint64_t seq_num, utils::FileRetainer *file_retainer)
+WalFile::WalFile(const std::filesystem::path &wal_directory, utils::UUID const &uuid, const std::string_view epoch_id,
+                 SalientConfig::Items items, NameIdMapper *name_id_mapper, uint64_t seq_num,
+                 utils::FileRetainer *file_retainer)
     : items_(items),
       name_id_mapper_(name_id_mapper),
       path_(wal_directory / MakeWalName()),
@@ -1271,7 +1271,7 @@ WalFile::WalFile(const std::filesystem::path &wal_directory, const std::string_v
   // Write metadata.
   offset_metadata = wal_.GetPosition();
   wal_.WriteMarker(Marker::SECTION_METADATA);
-  wal_.WriteString(uuid);
+  wal_.WriteString(std::string{uuid});
   wal_.WriteString(epoch_id);
   wal_.WriteUint(seq_num);
 

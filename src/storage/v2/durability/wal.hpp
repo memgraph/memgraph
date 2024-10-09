@@ -300,7 +300,7 @@ RecoveryInfo LoadWal(std::filesystem::path const &path, RecoveredIndicesAndConst
 /// WalFile class used to append deltas and operations to the WAL file.
 class WalFile {
  public:
-  WalFile(const std::filesystem::path &wal_directory, const std::string_view uuid, const std::string_view epoch_id,
+  WalFile(const std::filesystem::path &wal_directory, utils::UUID const &uuid, const std::string_view epoch_id,
           SalientConfig::Items items, NameIdMapper *name_id_mapper, uint64_t seq_num,
           utils::FileRetainer *file_retainer);
   WalFile(std::filesystem::path current_wal_path, SalientConfig::Items items, NameIdMapper *name_id_mapper,

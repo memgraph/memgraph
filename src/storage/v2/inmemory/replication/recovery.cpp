@@ -154,7 +154,8 @@ std::vector<RecoveryStep> GetRecoverySteps(uint64_t replica_commit, utils::FileR
       release_wal_dir(  // Each individually used file will be locked, so at the end, the dir can be released
           [&locker_acc, &wal_dir = storage->recovery_.wal_directory_]() { (void)locker_acc.RemovePath(wal_dir); });
   // Get WAL files, ordered by timestamp, from oldest to newest
-  auto wal_files = durability::GetWalFiles(storage->recovery_.wal_directory_, storage->uuid_, current_wal_seq_num);
+  auto wal_files =
+      durability::GetWalFiles(storage->recovery_.wal_directory_, std::string{storage->uuid()}, current_wal_seq_num);
   MG_ASSERT(wal_files, "Wal files could not be loaded");
   if (transaction_guard.owns_lock())
     transaction_guard.unlock();  // In case we didn't have a current wal file, we can unlock only now since there is no
@@ -167,7 +168,8 @@ std::vector<RecoveryStep> GetRecoverySteps(uint64_t replica_commit, utils::FileR
           [&locker_acc, &snapshot_dir = storage->recovery_.snapshot_directory_]() {
             (void)locker_acc.RemovePath(snapshot_dir);
           });
-  auto snapshot_files = durability::GetSnapshotFiles(storage->recovery_.snapshot_directory_, storage->uuid_);
+  auto snapshot_files =
+      durability::GetSnapshotFiles(storage->recovery_.snapshot_directory_, std::string{storage->uuid()});
   std::optional<durability::SnapshotDurabilityInfo> latest_snapshot{};
   if (!snapshot_files.empty()) {
     latest_snapshot.emplace(std::move(snapshot_files.back()));
