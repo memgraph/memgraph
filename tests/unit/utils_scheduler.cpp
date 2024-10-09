@@ -157,3 +157,14 @@ TEST(Scheduler, StopPausedScheduler) {
   scheduler.Stop();
   EXPECT_FALSE(scheduler.IsRunning());
 }
+
+TEST(Scheduler, ConcurrentStops) {
+  std::atomic<int> x{0};
+  std::function<void()> func{[&x]() { ++x; }};
+  memgraph::utils::Scheduler scheduler;
+  scheduler.Run("Test", std::chrono::milliseconds(100), func);
+
+  std::jthread stopper1([&scheduler]() { scheduler.Stop(); });
+
+  std::jthread stopper2([&scheduler]() { scheduler.Stop(); });
+}

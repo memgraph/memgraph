@@ -82,15 +82,9 @@ class Scheduler {
         } else {
           next_execution = find_next_execution(now);  // Compensate for time drift when using a start time
         }
-        // This check must come also before checking if scheduler is paused.
-        // Otherwise deadlock could happen, e.g
-        // t1 calls Stop on scheduler thread t3
-        // t2 calls Pause on scheduler thread t3 right after wait_until finished
-        // scheduler then waits until is_paused is false but this possibly won't ever happen
-        if (token.stop_requested()) break;
-        pause_cv_.wait(lk, [&] { return !is_paused_.load(std::memory_order_acquire); });
 
-        // This check is to allow the stopping thread to stop paused scheduler before executing function one more time.
+        pause_cv_.wait(lk, [&] { return !is_paused_.load(std::memory_order_acquire) || token.stop_requested(); });
+
         if (token.stop_requested()) break;
 
         f();
@@ -106,11 +100,12 @@ class Scheduler {
   void Pause() { is_paused_.store(true, std::memory_order_release); }
 
   void Stop() {
-    is_paused_.store(false, std::memory_order_release);
-    thread_.request_stop();
-    pause_cv_.notify_one();
-    condition_variable_.notify_one();
-    if (thread_.joinable()) thread_.join();
+    if (thread_.request_stop()) {
+      is_paused_.store(false, std::memory_order_release);
+      pause_cv_.notify_one();
+      condition_variable_.notify_one();
+      if (thread_.joinable()) thread_.join();
+    }
   }
 
   bool IsRunning() { return thread_.joinable(); }
