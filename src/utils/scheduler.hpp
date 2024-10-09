@@ -42,7 +42,7 @@ class Scheduler {
   template <typename TRep, typename TPeriod>
   void Run(const std::string &service_name, const std::chrono::duration<TRep, TPeriod> &pause,
            const std::function<void()> &f, std::optional<std::chrono::system_clock::time_point> start_time = {}) {
-    DMG_ASSERT(!thread_.joinable(), "Thread already running.");
+    DMG_ASSERT(!IsRunning(), "Thread already running.");
     DMG_ASSERT(pause > std::chrono::seconds(0), "Pause is invalid. Expected > 0, got {}.", pause.count());
 
     thread_ = std::jthread([this, pause, f, service_name, start_time](std::stop_token token) mutable {
@@ -66,7 +66,7 @@ class Scheduler {
 
       utils::ThreadSetName(service_name);
 
-      while (!token.stop_requested()) {
+      while (true) {
         // First wait then execute the function. We do that in that order
         // because most of the schedulers are started at the beginning of the
         // program and there is probably no work to do in scheduled function at
@@ -92,13 +92,18 @@ class Scheduler {
     });
   }
 
+  // Sets atomic is_paused_ to false and notifies thread
   void Resume() {
     is_paused_.store(false, std::memory_order_release);
     pause_cv_.notify_one();
   }
 
+  // Sets atomic is_paused_ to true.
   void Pause() { is_paused_.store(true, std::memory_order_release); }
 
+  // Concurrent threads may request stopping the scheduler. In that case only one of them will
+  // actually stop the scheduler, the other one won't. We need to know which one is the successful
+  // one so that we don't try to join thread concurrently since this could cause undefined behavior.
   void Stop() {
     if (thread_.request_stop()) {
       is_paused_.store(false, std::memory_order_release);
@@ -108,7 +113,12 @@ class Scheduler {
     }
   }
 
-  bool IsRunning() { return thread_.joinable(); }
+  // Checking stop_possible() is necessary because otherwise calling IsRunning
+  // on a non-started Scheduler would return true.
+  bool IsRunning() {
+    std::stop_token token = thread_.get_stop_token();
+    return token.stop_possible() && !token.stop_requested();
+  }
 
   ~Scheduler() { Stop(); }
 
