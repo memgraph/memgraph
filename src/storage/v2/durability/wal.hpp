@@ -103,6 +103,7 @@ struct WalDeltaData {
     Gid gid;
     std::string property;
     PropertyValue value;
+    Gid from_gid;  //!< Used only for edges (simplifies the edge search)
   } vertex_edge_set_property;
 
   struct {
@@ -248,13 +249,13 @@ uint64_t ReadWalDeltaHeader(BaseDecoder *decoder);
 /// read delta data. The WAL delta header must be read before calling this
 /// function.
 /// @throw RecoveryFailure
-WalDeltaData ReadWalDeltaData(BaseDecoder *decoder);
+WalDeltaData ReadWalDeltaData(BaseDecoder *decoder, uint64_t version = kVersion);
 
 /// Function used to skip the current WAL delta data. The function returns the
 /// skipped delta type. The WAL delta header must be read before calling this
 /// function.
 /// @throw RecoveryFailure
-WalDeltaData::Type SkipWalDeltaData(BaseDecoder *decoder);
+WalDeltaData::Type SkipWalDeltaData(BaseDecoder *decoder, uint64_t version = kVersion);
 
 /// Function used to encode a `Delta` that originated from a `Vertex`.
 void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, SalientConfig::Items items, const Delta &delta,
@@ -294,7 +295,7 @@ void EncodeOperationPreamble(BaseEncoder &encoder, StorageMetadataOperation Op, 
 RecoveryInfo LoadWal(std::filesystem::path const &path, RecoveredIndicesAndConstraints *indices_constraints,
                      std::optional<uint64_t> last_loaded_timestamp, utils::SkipList<Vertex> *vertices,
                      utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
-                     SalientConfig::Items items, EnumStore *enum_store, SchemaInfo *schema_info,
+                     SalientConfig::Items items, EnumStore *enum_store, SharedSchemaTracking *schema_info,
                      std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge);
 
 /// WalFile class used to append deltas and operations to the WAL file.

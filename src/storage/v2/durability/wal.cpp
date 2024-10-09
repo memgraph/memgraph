@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "storage/v2/durability/wal.hpp"
+#include <algorithm>
 
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/delta.hpp"
@@ -223,7 +224,7 @@ constexpr WalDeltaData::Type MarkerToWalDeltaDataType(Marker marker) {
 // be used.
 // @throw RecoveryFailure
 template <bool read_data>
-WalDeltaData ReadSkipWalDeltaData(BaseDecoder *decoder) {
+WalDeltaData ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version) {
   WalDeltaData delta;
 
   auto action = decoder->ReadMarker();
@@ -266,6 +267,12 @@ WalDeltaData ReadSkipWalDeltaData(BaseDecoder *decoder) {
         delta.vertex_edge_set_property.value = std::move(*value);
       } else {
         if (!decoder->SkipString() || !decoder->SkipPropertyValue()) throw RecoveryFailure("Invalid WAL data!");
+      }
+      // Store from vertex only in case of edge set prop
+      if (delta.type == WalDeltaData::Type::EDGE_SET_PROPERTY && version >= kEdgeSetDeltaWithVertexInfo) {
+        auto from_gid = decoder->ReadUint();
+        if (!from_gid) throw RecoveryFailure("Invalid WAL data!");
+        delta.vertex_edge_set_property.from_gid = Gid::FromUint(*from_gid);
       }
       break;
     }
@@ -560,7 +567,7 @@ WalInfo ReadWalInfo(const std::filesystem::path &path) {
   auto validate_delta = [&wal, version = *version]() -> std::optional<std::pair<uint64_t, bool>> {
     try {
       auto timestamp = ReadWalDeltaHeader(&wal);
-      auto type = SkipWalDeltaData(&wal);
+      auto type = SkipWalDeltaData(&wal, version);
       return {{timestamp, IsWalDeltaDataTypeTransactionEnd(type, version)}};
     } catch (const RecoveryFailure &) {
       return std::nullopt;
@@ -615,6 +622,8 @@ bool operator==(const WalDeltaData &a, const WalDeltaData &b) {
 
     case WalDeltaData::Type::VERTEX_SET_PROPERTY:
     case WalDeltaData::Type::EDGE_SET_PROPERTY:
+      // Since kEdgeSetDeltaWithVertexInfo version delta holds from vertex gid; this is an extra information (no need to
+      // check it)
       return a.vertex_edge_set_property.gid == b.vertex_edge_set_property.gid &&
              a.vertex_edge_set_property.property == b.vertex_edge_set_property.property &&
              a.vertex_edge_set_property.value == b.vertex_edge_set_property.value;
@@ -707,12 +716,14 @@ uint64_t ReadWalDeltaHeader(BaseDecoder *decoder) {
 
 // Function used to read the current WAL delta data. The WAL delta header must
 // be read before calling this function.
-WalDeltaData ReadWalDeltaData(BaseDecoder *decoder) { return ReadSkipWalDeltaData<true>(decoder); }
+WalDeltaData ReadWalDeltaData(BaseDecoder *decoder, const uint64_t version) {
+  return ReadSkipWalDeltaData<true>(decoder, version);
+}
 
 // Function used to skip the current WAL delta data. The WAL delta header must
 // be read before calling this function.
-WalDeltaData::Type SkipWalDeltaData(BaseDecoder *decoder) {
-  auto delta = ReadSkipWalDeltaData<false>(decoder);
+WalDeltaData::Type SkipWalDeltaData(BaseDecoder *decoder, const uint64_t version) {
+  auto delta = ReadSkipWalDeltaData<false>(decoder, version);
   return delta.type;
 }
 
@@ -791,6 +802,8 @@ void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, const Delta
       // (with the `GetProperty` call). It is the only memory allocation in the
       // entire WAL file writing logic.
       encoder->WritePropertyValue(edge.properties.GetProperty(delta.property.key));
+      DMG_ASSERT(delta.property.out_vertex, "Out vertex undefined!");
+      encoder->WriteUint(delta.property.out_vertex->gid.AsUint());
       break;
     }
     case Delta::Action::DELETE_DESERIALIZED_OBJECT:
@@ -821,7 +834,7 @@ void EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp) {
 RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConstraints *indices_constraints,
                      const std::optional<uint64_t> last_loaded_timestamp, utils::SkipList<Vertex> *vertices,
                      utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
-                     SalientConfig::Items items, EnumStore *enum_store, SchemaInfo *schema_info,
+                     SalientConfig::Items items, EnumStore *enum_store, SharedSchemaTracking *schema_info,
                      std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge) {
   spdlog::info("Trying to load WAL file {}.", path);
   RecoveryInfo ret;
@@ -853,7 +866,7 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
 
     if (!last_loaded_timestamp || timestamp > *last_loaded_timestamp) {
       // This delta should be loaded.
-      auto delta = ReadWalDeltaData(&wal);
+      auto delta = ReadWalDeltaData(&wal, *version);
       switch (delta.type) {
         case WalDeltaData::Type::VERTEX_CREATE: {
           auto [vertex, inserted] = vertex_acc.insert(Vertex{delta.vertex_create_delete.gid, nullptr});
@@ -998,14 +1011,30 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
           auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(delta.vertex_edge_set_property.property));
           auto &property_value = delta.vertex_edge_set_property.value;
 
-          // TODO Add edge set property delta to WAL
           if (schema_info) {
-            const auto old_type = edge->properties.GetExtendedPropertyType(property_id);
-            const auto maybe_edge = find_edge(edge->gid);
-            if (!maybe_edge) throw RecoveryFailure("Recovery failed, edge not found.");
-            const auto &[edge_ref, edge_type, from, to] = *maybe_edge;
-            schema_info->SetProperty(edge_type, from, to, property_id, ExtendedPropertyType{property_value}, old_type,
-                                     items.properties_on_edges);
+            if (version >= kEdgeSetDeltaWithVertexInfo) {
+              auto from_vertex = vertex_acc.find(delta.vertex_edge_set_property.from_gid);
+              if (from_vertex == vertex_acc.end()) throw RecoveryFailure("The from vertex doesn't exist!");
+              const auto found_edge = std::find_if(from_vertex->out_edges.begin(), from_vertex->out_edges.end(),
+                                                   [&edge](const auto &edge_info) {
+                                                     const auto &[edge_type, to_vertex, edge_ref] = edge_info;
+                                                     return edge_ref.ptr == &*edge;
+                                                   });
+              if (found_edge == from_vertex->out_edges.end()) throw RecoveryFailure("Recovery failed, edge not found.");
+
+              const auto old_type = edge->properties.GetExtendedPropertyType(property_id);
+              const auto &[edge_type, to_vertex, edge_ref] = *found_edge;
+              schema_info->SetProperty(edge_type, &*from_vertex, to_vertex, property_id,
+                                       ExtendedPropertyType{property_value}, old_type, items.properties_on_edges);
+            } else {
+              // Fallback on user defined find edge function
+              const auto old_type = edge->properties.GetExtendedPropertyType(property_id);
+              const auto maybe_edge = find_edge(edge->gid);
+              if (!maybe_edge) throw RecoveryFailure("Recovery failed, edge not found.");
+              const auto &[edge_ref, edge_type, from, to] = *maybe_edge;
+              schema_info->SetProperty(edge_type, from, to, property_id, ExtendedPropertyType{property_value}, old_type,
+                                       items.properties_on_edges);
+            }
           }
 
           edge->properties.SetProperty(property_id, property_value);
@@ -1232,7 +1261,7 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
       ++deltas_applied;
     } else {
       // This delta should be skipped.
-      SkipWalDeltaData(&wal);
+      SkipWalDeltaData(&wal, *version);
     }
   }
 

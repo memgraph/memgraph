@@ -317,8 +317,9 @@ void LoadPartialEdges(const std::filesystem::path &path, utils::SkipList<Edge> &
 // Returns the gid of the last recovered vertex
 template <typename TLabelFromIdFunc, typename TPropertyFromIdFunc>
 uint64_t LoadPartialVertices(const std::filesystem::path &path, utils::SkipList<Vertex> &vertices,
-                             SchemaInfo *schema_info, const uint64_t from_offset, const uint64_t vertices_count,
-                             TLabelFromIdFunc get_label_from_id, TPropertyFromIdFunc get_property_from_id) {
+                             SharedSchemaTracking *schema_info, const uint64_t from_offset,
+                             const uint64_t vertices_count, TLabelFromIdFunc get_label_from_id,
+                             TPropertyFromIdFunc get_property_from_id) {
   Decoder snapshot;
   snapshot.Initialize(path, kSnapshotMagic);
   if (!snapshot.SetPosition(from_offset))
@@ -438,7 +439,7 @@ template <typename TEdgeTypeFromIdFunc>
 LoadPartialConnectivityResult LoadPartialConnectivity(const std::filesystem::path &path,
                                                       utils::SkipList<Vertex> &vertices, utils::SkipList<Edge> &edges,
                                                       utils::SkipList<EdgeMetadata> &edges_metadata,
-                                                      SchemaInfo *schema_info, const uint64_t from_offset,
+                                                      SharedSchemaTracking *schema_info, const uint64_t from_offset,
                                                       const uint64_t vertices_count, const SalientConfig::Items items,
                                                       const bool snapshot_has_edges,
                                                       TEdgeTypeFromIdFunc get_edge_type_from_id) {
@@ -650,7 +651,7 @@ RecoveredSnapshot LoadSnapshotVersion14(const std::filesystem::path &path, utils
                                         utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
-                                        SchemaInfo *schema_info, SalientConfig::Items items) {
+                                        SharedSchemaTracking *schema_info, SalientConfig::Items items) {
   RecoveryInfo ret;
   RecoveredIndicesAndConstraints indices_constraints;
 
@@ -1131,7 +1132,7 @@ RecoveredSnapshot LoadSnapshotVersion15(const std::filesystem::path &path, utils
                                         utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
-                                        SchemaInfo *schema_info, const Config &config) {
+                                        SharedSchemaTracking *schema_info, const Config &config) {
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
 
@@ -1423,7 +1424,7 @@ RecoveredSnapshot LoadSnapshotVersion16(const std::filesystem::path &path, utils
                                         utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
-                                        SchemaInfo *schema_info, const Config &config) {
+                                        SharedSchemaTracking *schema_info, const Config &config) {
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
 
@@ -1769,7 +1770,7 @@ RecoveredSnapshot LoadSnapshotVersion17(const std::filesystem::path &path, utils
                                         utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata,
                                         std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                         NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
-                                        SchemaInfo *schema_info, const Config &config) {
+                                        SharedSchemaTracking *schema_info, const Config &config) {
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
 
@@ -2156,7 +2157,7 @@ RecoveredSnapshot LoadSnapshotVersion18or19(const std::filesystem::path &path, u
                                             utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata,
                                             std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                             NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
-                                            SchemaInfo *schema_info, const Config &config,
+                                            SharedSchemaTracking *schema_info, const Config &config,
                                             memgraph::storage::EnumStore *enum_store) {
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
@@ -2600,7 +2601,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                                utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata,
                                std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count, const Config &config,
-                               memgraph::storage::EnumStore *enum_store, SchemaInfo *schema_info) {
+                               memgraph::storage::EnumStore *enum_store, SharedSchemaTracking *schema_info) {
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
 

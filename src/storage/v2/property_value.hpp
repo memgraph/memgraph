@@ -883,3 +883,17 @@ inline auto PropertyValueImpl<Alloc>::operator=(PropertyValueImpl &&other) noexc
 }
 
 }  // namespace memgraph::storage
+namespace std {
+
+template <>
+struct hash<memgraph::storage::ExtendedPropertyType> {
+  size_t operator()(const memgraph::storage::ExtendedPropertyType &type) const {
+    size_t seed = 0;
+    boost::hash_combine(seed, type.type);
+    boost::hash_combine(seed, type.temporal_type);
+    boost::hash_combine(seed, type.enum_type.value_of());
+    return seed;
+  }
+};
+
+}  // namespace std

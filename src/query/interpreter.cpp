@@ -5127,7 +5127,7 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
     auto *storage = db->storage();
     if (storage->config_.salient.items.enable_schema_info) {
       // SCHEMA INFO
-      auto json = storage->SchemaInfoReadAccessor().ToJson(*storage->name_id_mapper_, storage->enum_store_);
+      auto json = storage->schema_info_.ToJson(*storage->name_id_mapper_, storage->enum_store_);
 
       // INDICES
       auto node_indexes = nlohmann::json::array();
