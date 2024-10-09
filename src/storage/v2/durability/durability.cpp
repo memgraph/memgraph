@@ -167,7 +167,7 @@ void RecoverConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadat
 }
 
 void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadata &indices_metadata, Indices *indices,
-                            utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
+                            utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper, bool properties_on_edges,
                             const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info,
                             const std::optional<std::filesystem::path> &storage_dir) {
   spdlog::info("Recreating indices from metadata.");
@@ -220,6 +220,8 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
 
   // Recover edge-type indices.
   spdlog::info("Recreating {} edge-type indices from metadata.", indices_metadata.edge.size());
+  MG_ASSERT(indices_metadata.edge.empty() || properties_on_edges,
+            "Trying to recover edge type indices while properties on edges are disabled.");
   auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(indices->edge_type_index_.get());
   for (const auto &item : indices_metadata.edge) {
     if (!mem_edge_type_index->CreateIndex(item, vertices->access())) {
@@ -231,6 +233,8 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
 
   // Recover edge-type + property indices.
   spdlog::info("Recreating {} edge-type indices from metadata.", indices_metadata.edge_property.size());
+  MG_ASSERT(indices_metadata.edge_property.empty() || properties_on_edges,
+            "Trying to recover edge type+property indices while properties on edges are disabled.");
   auto *mem_edge_type_property_index =
       static_cast<InMemoryEdgeTypePropertyIndex *>(indices->edge_type_property_index_.get());
   for (const auto &item : indices_metadata.edge_property) {
@@ -345,13 +349,14 @@ void RecoverTypeConstraints(const RecoveredIndicesAndConstraints::ConstraintsMet
 void RecoverIndicesStatsAndConstraints(utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
                                        Indices *indices, Constraints *constraints, Config const &config,
                                        RecoveryInfo const &recovery_info,
-                                       RecoveredIndicesAndConstraints const &indices_constraints) {
+                                       RecoveredIndicesAndConstraints const &indices_constraints,
+                                       bool properties_on_edges) {
   auto storage_dir = std::optional<std::filesystem::path>{};
   if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     storage_dir = config.durability.storage_directory;
   }
 
-  RecoverIndicesAndStats(indices_constraints.indices, indices, vertices, name_id_mapper,
+  RecoverIndicesAndStats(indices_constraints.indices, indices, vertices, name_id_mapper, properties_on_edges,
                          GetParallelExecInfoIndices(recovery_info, config), storage_dir);
   RecoverConstraints(indices_constraints.constraints, constraints, vertices, name_id_mapper,
                      GetParallelExecInfo(recovery_info, config));
@@ -437,7 +442,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
     if (!utils::DirExists(wal_directory_)) {
       // Apply data dependant meta structures now after all graph data has been loaded
       RecoverIndicesStatsAndConstraints(vertices, name_id_mapper, indices, constraints, config, recovery_info,
-                                        indices_constraints);
+                                        indices_constraints, config.salient.items.properties_on_edges);
       return recovered_snapshot->recovery_info;
     }
   } else {
@@ -589,7 +594,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
 
   // Apply meta structures now after all graph data has been loaded
   RecoverIndicesStatsAndConstraints(vertices, name_id_mapper, indices, constraints, config, recovery_info,
-                                    indices_constraints);
+                                    indices_constraints, config.salient.items.properties_on_edges);
 
   memgraph::metrics::Measure(memgraph::metrics::SnapshotRecoveryLatency_us,
                              std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed()).count());

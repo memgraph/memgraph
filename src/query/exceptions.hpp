@@ -109,6 +109,14 @@ class IndexInMulticommandTxException : public QueryException {
   SPECIALIZE_GET_EXCEPTION_NAME(IndexInMulticommandTxException)
 };
 
+class EdgeIndexDisabledPropertiesOnEdgesException : public QueryException {
+ public:
+  using QueryException::QueryException;
+  EdgeIndexDisabledPropertiesOnEdgesException()
+      : QueryException("Edge indices are allowed only if properties are allowed on edges.") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(EdgeIndexDisabledPropertiesOnEdgesException)
+};
+
 class SchemaAssertInMulticommandTxException : public QueryException {
  public:
   using QueryException::QueryException;
