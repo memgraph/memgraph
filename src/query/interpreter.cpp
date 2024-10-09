@@ -2930,6 +2930,10 @@ PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
     throw IndexInMulticommandTxException();
   }
 
+  if (!current_db.db_acc_->get()->config().salient.items.properties_on_edges) {
+    throw EdgeIndexDisabledPropertiesOnEdgesException();
+  }
+
   auto *index_query = utils::Downcast<EdgeIndexQuery>(parsed_query.query);
   std::function<void(Notification &)> handler;
 
