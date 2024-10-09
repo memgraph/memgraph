@@ -173,7 +173,7 @@ auto ReplicationInstanceClient::SendGetInstanceUUIDRpc() const
     auto res = stream.AwaitResponse();
     return res.uuid;
   } catch (const rpc::RpcFailedException &) {
-    spdlog::error("Failed to receive RPC response when sending GetInstance UUID RPC");
+    spdlog::error("Failed to receive RPC response when sending GetInstanceUUIDRPC");
     return GetInstanceUUIDError::RPC_EXCEPTION;
   }
 }

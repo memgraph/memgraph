@@ -106,20 +106,34 @@ auto ReplicationInstanceConnector::GetFailCallback() const -> HealthCheckInstanc
 auto ReplicationInstanceConnector::GetClient() -> ReplicationInstanceClient & { return *client_; }
 
 auto ReplicationInstanceConnector::EnsureReplicaHasCorrectMainUUID(utils::UUID const &curr_main_uuid) -> bool {
+  auto const instance_name{InstanceName()};
+  auto const main_uuid_str{std::string{curr_main_uuid}};
   if (!IsReadyForUUIDPing()) {
+    spdlog::trace(
+        "Instance {}'s cached MAIN uuid didn't expire yet, not sending GetInstanceUUIDRpc. Curr main uuid {}.",
+        instance_name, main_uuid_str);
     return true;
   }
-  auto res = SendGetInstanceUUID();
+  spdlog::trace("Instance {}'s cached MAIN uuid expired, sending GetInstanceUUIDRpc.", instance_name);
+
+  auto const res = SendGetInstanceUUID();
   if (res.HasError()) {
+    spdlog::trace("Couldn't verify that instance {} still has correct cached view of main uuid {}.", instance_name,
+                  main_uuid_str);
     return false;
   }
   UpdateReplicaLastResponseUUID();
 
   // NOLINTNEXTLINE
-  if (res.GetValue().has_value() && res.GetValue().value() == curr_main_uuid) {
+  if (res.GetValue().has_value() && *res.GetValue() == curr_main_uuid) {
+    spdlog::trace(
+        "Instance {}'s view of the main uuid {} is still valid. Not sending request for swaping and updating UUID.",
+        instance_name, main_uuid_str);
     return true;
   }
 
+  spdlog::trace("Instance {}'s view of the main uuid {} not valid anymore. Sending request for updating UUID to {}.",
+                instance_name, std::string{*res.GetValue()}, main_uuid_str);
   return SendSwapAndUpdateUUID(curr_main_uuid);
 }
 

@@ -356,7 +356,7 @@ class ReplQueryHandler {
       const auto error = handler_->TryRegisterReplica(replication_config).HasError();
 
       if (error) {
-        throw QueryRuntimeException(fmt::format("Couldn't register replica '{}'!", name));
+        throw QueryRuntimeException("Couldn't register replica {}.", name);
       }
 
     } else {
@@ -373,8 +373,8 @@ class ReplQueryHandler {
         throw QueryRuntimeException("Replica can't unregister a replica!");
       case COULD_NOT_BE_PERSISTED:
         [[fallthrough]];
-      case CAN_NOT_UNREGISTER:
-        throw QueryRuntimeException(fmt::format("Couldn't unregister the replica '{}'", replica_name));
+      case CANNOT_UNREGISTER:
+        throw QueryRuntimeException("Couldn't unregister the replica {}.", replica_name);
       case SUCCESS:
         break;
     }

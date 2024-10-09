@@ -229,7 +229,7 @@ bool ReplicationHandler::DoReplicaToMainPromotion(const utils::UUID &main_uuid) 
     // We need to take bigger timestamp not to lose durability ordering
     storage->timestamp_ =
         std::max(storage->timestamp_, storage->repl_storage_state_.last_durable_timestamp_.load() + 1);
-    spdlog::trace("New timestamp on the MAIN for the database: {} {}", storage->timestamp_, db_acc->name());
+    spdlog::trace("New timestamp on the MAIN is {} for the database {}.", storage->timestamp_, db_acc->name());
   });
 
   // STEP 4) Resume TTL
@@ -270,7 +270,7 @@ auto ReplicationHandler::UnregisterReplica(std::string_view name) -> query::Unre
     auto const n_unregistered =
         std::erase_if(mainData.registered_replicas_, [name](auto const &client) { return client.name_ == name; });
     return n_unregistered != 0 ? query::UnregisterReplicaResult::SUCCESS
-                               : query::UnregisterReplicaResult::CAN_NOT_UNREGISTER;
+                               : query::UnregisterReplicaResult::CANNOT_UNREGISTER;
   };
 
   return std::visit(utils::Overloaded{main_handler, replica_handler}, repl_state_.ReplicationData());
@@ -298,7 +298,13 @@ auto ReplicationHandler::GetDatabasesHistories() -> replication_coordination_glu
 }
 
 auto ReplicationHandler::GetReplicaUUID() -> std::optional<utils::UUID> {
-  MG_ASSERT(repl_state_.IsReplica(), "Instance is not replica");
+  if (!repl_state_.IsReplica()) {
+    spdlog::trace(
+        "Got unexpected request for fetching current main uuid as replica but the instance is not replica at the "
+        "moment. Returning empty uuid.");
+    return {};
+  }
+
   return std::get<RoleReplicaData>(repl_state_.ReplicationData()).uuid_;
 }
 

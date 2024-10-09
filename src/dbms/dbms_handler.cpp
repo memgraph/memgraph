@@ -35,6 +35,8 @@ constexpr std::string_view kDBPrefix = "database:";  // Key prefix for database 
 std::string RegisterReplicaErrorToString(query::RegisterReplicaError error) {
   switch (error) {
     using enum query::RegisterReplicaError;
+    case NOT_MAIN:
+      return "NOT_MAIN";
     case NAME_EXISTS:
       return "NAME_EXISTS";
     case ENDPOINT_EXISTS:
