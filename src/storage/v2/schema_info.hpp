@@ -27,6 +27,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/storage_mode.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/conccurent_unordered_map.hpp"
 #include "utils/rw_spin_lock.hpp"
@@ -112,12 +113,8 @@ struct SchemaTracking final : public SchemaTrackingInterface {
 
   void UpdateEdgeStats(EdgeRef edge_ref, EdgeTypeId edge_type, const VertexKey &new_from_labels,
                        const VertexKey &new_to_labels, const VertexKey &old_from_labels, const VertexKey &old_to_labels,
-                       bool prop_on_edges);
-
-  void UpdateEdgeStats(EdgeRef edge_ref, EdgeTypeId edge_type, const VertexKey &new_from_labels,
-                       const VertexKey &new_to_labels, const VertexKey &old_from_labels, const VertexKey &old_to_labels,
-                       std::unique_lock<utils::RWSpinLock> &&from_lock, std::unique_lock<utils::RWSpinLock> &&to_lock,
-                       bool prop_on_edges);
+                       bool prop_on_edges, std::optional<std::unique_lock<utils::RWSpinLock>> from_lock = {},
+                       std::optional<std::unique_lock<utils::RWSpinLock>> to_lock = {});
 
  private:
   friend LocalSchemaTracking;
@@ -207,7 +204,7 @@ struct SchemaInfo {
 
    private:
     void UpdateAnalyticalEdges(Vertex *vertex, const utils::small_vector<LabelId> &old_labels,
-                               std::unique_lock<utils::RWSpinLock> &&vertex_lock);
+                               std::unique_lock<utils::RWSpinLock> vertex_lock);
 
     SharedSchemaTracking *tracking_{};
     std::unique_lock<std::shared_mutex> ordering_lock_;  //!< Order guaranteeing lock
@@ -283,7 +280,10 @@ struct SchemaInfo {
     return TransactionalEdgeModifyingAccessor{tracking, post_process, prop_on_edges, commit_ts};
   }
 
-  static auto ReadLockFromTo(Vertex *from, Vertex *to) {
+  static std::optional<std::pair<std::shared_lock<utils::RWSpinLock>, std::shared_lock<utils::RWSpinLock>>>
+  ReadLockFromTo(auto &schema_acc, StorageMode mode, Vertex *from, Vertex *to) {
+    if (!schema_acc || mode != StorageMode::IN_MEMORY_ANALYTICAL) return {};
+
     auto from_lock = std::shared_lock{from->lock, std::defer_lock};
     auto to_lock = std::shared_lock{to->lock, std::defer_lock};
 

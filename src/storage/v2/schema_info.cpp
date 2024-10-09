@@ -542,25 +542,18 @@ void SchemaTracking<TContainer>::SetProperty(EdgeTypeId type, Vertex *from, Vert
   }
 }
 
-template <>
-void LocalSchemaTracking::UpdateEdgeStats(EdgeRef edge_ref, EdgeTypeId edge_type, const VertexKey &new_from_labels,
-                                          const VertexKey &new_to_labels, const VertexKey &old_from_labels,
-                                          const VertexKey &old_to_labels, bool prop_on_edges) {
-  UpdateEdgeStats(edge_lookup({edge_type, new_from_labels, new_to_labels}),
-                  edge_lookup({edge_type, old_from_labels, old_to_labels}), edge_ref, prop_on_edges);
-}
-
-template <>
-void SharedSchemaTracking::UpdateEdgeStats(EdgeRef edge_ref, EdgeTypeId edge_type, const VertexKey &new_from_labels,
-                                           const VertexKey &new_to_labels, const VertexKey &old_from_labels,
-                                           const VertexKey &old_to_labels,
-                                           std::unique_lock<utils::RWSpinLock> &&from_lock,
-                                           std::unique_lock<utils::RWSpinLock> &&to_lock, bool prop_on_edges) {
+template <template <class...> class TContainer>
+void SchemaTracking<TContainer>::UpdateEdgeStats(EdgeRef edge_ref, EdgeTypeId edge_type,
+                                                 const VertexKey &new_from_labels, const VertexKey &new_to_labels,
+                                                 const VertexKey &old_from_labels, const VertexKey &old_to_labels,
+                                                 bool prop_on_edges,
+                                                 std::optional<std::unique_lock<utils::RWSpinLock>> from_lock,
+                                                 std::optional<std::unique_lock<utils::RWSpinLock>> to_lock) {
   // Lookup needs to happen while holding the locks, but the update itself does not
   auto &new_tracking = edge_lookup({edge_type, new_from_labels, new_to_labels});
   auto &old_tracking = edge_lookup({edge_type, old_from_labels, old_to_labels});
-  if (from_lock.owns_lock()) from_lock.unlock();
-  if (to_lock.owns_lock()) to_lock.unlock();
+  if (from_lock && from_lock->owns_lock()) from_lock->unlock();
+  if (to_lock && to_lock->owns_lock()) to_lock->unlock();
   UpdateEdgeStats(new_tracking, old_tracking, edge_ref, prop_on_edges);
 }
 
@@ -676,7 +669,7 @@ void SchemaInfo::TransactionalEdgeModifyingAccessor::UpdateTransactionalEdges(
 }
 
 void SchemaInfo::AnalyticalEdgeModifyingAccessor::UpdateAnalyticalEdges(
-    Vertex *vertex, const utils::small_vector<LabelId> &old_labels, std::unique_lock<utils::RWSpinLock> &&vertex_lock) {
+    Vertex *vertex, const utils::small_vector<LabelId> &old_labels, std::unique_lock<utils::RWSpinLock> vertex_lock) {
   // Update edge stats
   // Need to loop though the IN/OUT edges and lock both vertices
   // Locking is done in order of GID
@@ -705,28 +698,26 @@ void SchemaInfo::AnalyticalEdgeModifyingAccessor::UpdateAnalyticalEdges(
     tracking_->UpdateEdgeStats(edge_ref, edge_type, (edge_dir == InEdge) ? other_vertex->labels : vertex->labels,
                                (edge_dir == InEdge) ? vertex->labels : other_vertex->labels,
                                (edge_dir == InEdge) ? other_vertex->labels : old_labels,
-                               (edge_dir == InEdge) ? old_labels : other_vertex->labels, std::move(guard),
-                               std::move(other_guard), properties_on_edges_);
+                               (edge_dir == InEdge) ? old_labels : other_vertex->labels, properties_on_edges_,
+                               std::move(guard), std::move(other_guard));
   };
 
   // Loop 1: Handle all edges where the other vertex has a higher Gid
   bool vertex_locked = true;
-  for (const auto &edge : vertex->in_edges) {
-    process(edge, InEdge, vertex_locked);
-  }
-  for (const auto &edge : vertex->out_edges) {
-    process(edge, OutEdge, vertex_locked);
-  }
+  auto process_all_possible = [&]() {
+    for (const auto &edge : vertex->in_edges) {
+      process(edge, InEdge, vertex_locked);
+    }
+    for (const auto &edge : vertex->out_edges) {
+      process(edge, OutEdge, vertex_locked);
+    }
+  };
+  process_all_possible();
 
   // Loop 2: Handle all edges where the other vertex has a lower Gid (unlock vertex first)
   vertex_lock.unlock();
   vertex_locked = false;
-  for (const auto &edge : vertex->in_edges) {
-    process(edge, InEdge, vertex_locked);
-  }
-  for (const auto &edge : vertex->out_edges) {
-    process(edge, OutEdge, vertex_locked);
-  }
+  process_all_possible();
 }
 
 // Vertex

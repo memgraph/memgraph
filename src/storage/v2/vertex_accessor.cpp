@@ -387,12 +387,13 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
     CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, old_value);
     vertex->properties.SetProperty(property, new_value);
     if (schema_acc) {
-      std::visit(utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) {
-                                     acc.SetProperty(vertex, property, ExtendedPropertyType{new_value},
-                                                     ExtendedPropertyType{old_value});
-                                   },
-                                   [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
-                 *schema_acc);
+      std::visit(
+          utils::Overloaded{[vertex, property, new_type = ExtendedPropertyType{new_value},
+                             old_type = ExtendedPropertyType{old_value}](SchemaInfo::VertexModifyingAccessor &acc) {
+                              acc.SetProperty(vertex, property, new_type, old_type);
+                            },
+                            [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+          *schema_acc);
     }
 
     if (storage_->constraints_.HasTypeConstraints()) {
@@ -454,9 +455,9 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
             }
           }
           if (schema_acc) {
-            std::visit(utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) {
-                                           acc.SetProperty(vertex, property, ExtendedPropertyType{new_value},
-                                                           ExtendedPropertyType{});
+            std::visit(utils::Overloaded{[vertex, property, new_type = ExtendedPropertyType{new_value}](
+                                             SchemaInfo::VertexModifyingAccessor &acc) {
+                                           acc.SetProperty(vertex, property, new_type, ExtendedPropertyType{});
                                          },
                                          [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
                        *schema_acc);
