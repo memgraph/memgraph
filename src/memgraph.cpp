@@ -704,11 +704,14 @@ int main(int argc, char **argv) {
 #ifdef MG_ENTERPRISE
                       &coordinator_state, &metrics_server,
 #endif
-                      &websocket_server, &server, &interpreter_context_] {
+                      &websocket_server, &server, &interpreter_context_, &dbms_handler] {
     // Server needs to be shutdown first and then the database. This prevents
     // a race condition when a transaction is accepted during server shutdown.
     spdlog::trace("Shutting down handler!");
+    // Shutdown communication server
     server.Shutdown();
+    // Stop all triggers, streams and ttl
+    dbms_handler.ForEach([](memgraph::dbms::DatabaseAccess acc) { acc->StopAllBackgroundTasks(); });
     // After the server is notified to stop accepting and processing
     // connections we tell the execution engine to stop processing all pending
     // queries.
