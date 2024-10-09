@@ -28,6 +28,7 @@ struct ReplicationClientConfig;
 namespace memgraph::query {
 
 enum class RegisterReplicaError : uint8_t {
+  NOT_MAIN,
   NAME_EXISTS,
   ENDPOINT_EXISTS,
   CONNECTION_FAILED,
@@ -38,7 +39,7 @@ enum class RegisterReplicaError : uint8_t {
 enum class UnregisterReplicaResult : uint8_t {
   NOT_MAIN,
   COULD_NOT_BE_PERSISTED,
-  CAN_NOT_UNREGISTER,
+  CANNOT_UNREGISTER,
   SUCCESS,
 };
 

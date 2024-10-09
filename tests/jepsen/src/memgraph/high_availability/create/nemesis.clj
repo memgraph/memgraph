@@ -98,30 +98,38 @@
         leader-name (if (nil? leader) nil (extract-coord-name (:bolt_server leader)))]
     leader-name))
 
-(defn choose-node-to-kill
+(defn choose-node-to-kill-on-coord
   "Chooses between the current main and the current leader. If there are no clear MAIN and LEADER instance in the cluster, we choose random node. We always connect to
-  coordinator 'n4' (free choice). We assume that node should always be up because even if it was killed at previous step, it should have enough time to come back
-  and to be able to receive requests for show instances.
-  "
+  coordinator 'n4' (free choice). If n4 is down, we choose random instance to kill"
+  [ns coord]
+  (let [conn (utils/open-bolt coord)]
+    (try
+      (utils/with-session conn session
+        (let [instances (->> (mgquery/get-all-instances session) (reduce conj []))
+              main (get-current-main instances)
+              leader (get-current-leader instances)
+              node-to-kill (cond
+                             (and (nil? main) (nil? leader)) (rand-nth ns)
+                             (nil? main) leader
+                             (nil? leader) main
+                             :else (rand-nth [main leader]))
+              node-desc (cond
+                          (hautils/data-instance? node-to-kill) "current main"
+                          (hautils/coord-instance? node-to-kill) "current leader"
+                          :else "random node")]
+
+          (info "Killing" node-desc ":" node-to-kill)
+
+          node-to-kill))
+      (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
+        nil))))
+
+(defn choose-node-to-kill
   [ns]
-  (let [conn (utils/open-bolt "n4")]
-    (utils/with-session conn session
-      (let [instances (->> (mgquery/get-all-instances session) (reduce conj []))
-            main (get-current-main instances)
-            leader (get-current-leader instances)
-            node-to-kill (cond
-                           (and (nil? main) (nil? leader)) (rand-nth ns)
-                           (nil? main) leader
-                           (nil? leader) main
-                           :else (rand-nth [main leader]))
-            node-desc (cond
-                        (hautils/data-instance? node-to-kill) "current main"
-                        (hautils/coord-instance? node-to-kill) "current leader"
-                        :else "random node")]
+  (let [coordinators ["n4" "n5" "n6"]
+        chooser (partial choose-node-to-kill-on-coord ns)]
 
-        (info "Killing" node-desc ":" node-to-kill)
-
-        node-to-kill))))
+    (some chooser coordinators)))
 
 (defn node-killer
   "Responds to :start by killing a random node."
@@ -156,7 +164,7 @@
      :stop-network-disruption :stop-packet} (network-disruptor db)}))
 
 (defn nemesis-events
-  "Create a random sequence of nemesis events. Disruptions last 1-30 seconds, and the system remains undisrupted for some time afterwards."
+  "Create a random sequence of nemesis events. Disruptions last [10-60] seconds, and the system remains undisrupted for some time afterwards."
   [nodes-config]
   (let [events [[{:type :info :f :start-partition-halves}
                  (gen/sleep (+ 10 (rand-int 51))) ; [10, 60]
@@ -193,5 +201,3 @@
                (gen/sleep 5) ; Enough time for cluster setup to finish
                (nemesis-events nodes-config))
    :final-generator (map utils/op [:stop-partition-ring :stop-partition-halves :stop-partition-node :heal-node :stop-network-disruption])})
-
-; TODO: (andi) Which type did you actually get if not vector?
