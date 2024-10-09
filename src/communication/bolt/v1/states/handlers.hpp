@@ -226,12 +226,6 @@ State HandleRunV1(TSession &session, const State state, const Marker marker) {
 
   DMG_ASSERT(!session.encoder_buffer_.HasData(), "There should be no data to write in this state");
 
-#if MG_ENTERPRISE
-  spdlog::debug("[Run - {}] '{}'", session.GetCurrentDB(), query.ValueString());
-#else
-  spdlog::debug("[Run] '{}'", query.ValueString());
-#endif
-
   // Increment number of queries in the metrics
   IncrementQueryMetrics(session);
 
@@ -295,17 +289,6 @@ State HandleRunV4(TSession &session, const State state, const Marker marker) {
     session.Configure(extra.ValueMap());
   } catch (const std::exception &e) {
     return HandleFailure(session, e);
-  }
-  if (spdlog::should_log(spdlog::level::debug)) {
-#if MG_ENTERPRISE
-    if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-      spdlog::debug("[Run - {}] '{}'", session.GetCurrentDB(), logging::MaskSensitiveInformation(query.ValueString()));
-    } else {
-      spdlog::debug("[Run - {}] '{}'", session.GetCurrentDB(), query.ValueString());
-    }
-#else
-    spdlog::debug("[Run] '{}'", query.ValueString());
-#endif
   }
 
   // Increment number of queries in the metrics
