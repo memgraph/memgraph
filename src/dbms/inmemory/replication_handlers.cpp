@@ -291,7 +291,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
     spdlog::debug("Snapshot loaded successfully");
     // If this step is present it should always be the first step of
     // the recovery so we use the UUID we read from snasphost
-    storage->config_.salient.uuid.set(recovered_snapshot.snapshot_info.uuid);
+    storage->uuid().set(recovered_snapshot.snapshot_info.uuid);
     storage->repl_storage_state_.epoch_.SetEpoch(std::move(recovered_snapshot.snapshot_info.epoch_id));
     const auto &recovery_info = recovered_snapshot.recovery_info;
     storage->vertex_id_ = recovery_info.next_vertex_id;
@@ -319,7 +319,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
 
   spdlog::trace("Deleting old snapshot files due to snapshot recovery.");
 
-  auto uuid_str = std::string{storage->config_.salient.uuid};
+  auto uuid_str = std::string{storage->uuid()};
   // Delete other durability files
   auto snapshot_files = storage::durability::GetSnapshotFiles(storage->recovery_.snapshot_directory_, uuid_str);
   for (const auto &[path, uuid, _] : snapshot_files) {
@@ -397,7 +397,7 @@ void InMemoryReplicationHandlers::ForceResetStorageHandler(dbms::DbmsHandler *db
 
   spdlog::trace("Deleting old snapshot files.");
 
-  auto const uuid_str = std::string{storage->config_.salient.uuid};
+  auto const uuid_str = std::string{storage->uuid()};
   // Delete other durability files
   auto snapshot_files = storage::durability::GetSnapshotFiles(storage->recovery_.snapshot_directory_, uuid_str);
   for (const auto &[path, uuid, _] : snapshot_files) {
@@ -495,7 +495,7 @@ void InMemoryReplicationHandlers::LoadWal(storage::InMemoryStorage *storage, sto
 
     // We have to check if this is our 1st wal, not what main is sending
     if (storage->wal_seq_num_ == 0) {
-      storage->config_.salient.uuid.set(wal_info.uuid);
+      storage->uuid().set(wal_info.uuid);
     }
 
     auto &replica_epoch = storage->repl_storage_state_.epoch_;

@@ -150,10 +150,9 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
               config_.durability.storage_directory);
   }
   if (config_.durability.recover_on_startup) {
-    auto info =
-        recovery_.RecoverData(&config_.salient.uuid, repl_storage_state_, &vertices_, &edges_, &edges_metadata_,
-                              &edge_count_, name_id_mapper_.get(), &indices_, &constraints_, config_, &wal_seq_num_,
-                              &enum_store_, &schema_info_, [this](Gid edge_gid) { return FindEdge(edge_gid); });
+    auto info = recovery_.RecoverData(uuid(), repl_storage_state_, &vertices_, &edges_, &edges_metadata_, &edge_count_,
+                                      name_id_mapper_.get(), &indices_, &constraints_, config_, &wal_seq_num_,
+                                      &enum_store_, &schema_info_, [this](Gid edge_gid) { return FindEdge(edge_gid); });
     if (info) {
       vertex_id_ = info->next_vertex_id;
       edge_id_ = info->next_edge_id;
@@ -2335,8 +2334,8 @@ bool InMemoryStorage::InitializeWalFile(memgraph::replication::ReplicationEpoch 
   }
 
   if (!wal_file_) {
-    wal_file_.emplace(recovery_.wal_directory_, config_.salient.uuid, epoch.id(), config_.salient.items,
-                      name_id_mapper_.get(), wal_seq_num_++, &file_retainer_);
+    wal_file_.emplace(recovery_.wal_directory_, uuid(), epoch.id(), config_.salient.items, name_id_mapper_.get(),
+                      wal_seq_num_++, &file_retainer_);
   }
 
   return true;
@@ -2677,7 +2676,7 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
   Transaction *transaction = accessor->GetTransaction();
   auto const &epoch = repl_storage_state_.epoch_;
   durability::CreateSnapshot(this, transaction, recovery_.snapshot_directory_, recovery_.wal_directory_, &vertices_,
-                             &edges_, config_.salient.uuid, epoch, repl_storage_state_.history, &file_retainer_);
+                             &edges_, uuid(), epoch, repl_storage_state_.history, &file_retainer_);
 
   memgraph::metrics::Measure(memgraph::metrics::SnapshotCreationLatency_us,
                              std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed()).count());

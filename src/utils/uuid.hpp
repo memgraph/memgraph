@@ -48,12 +48,12 @@ struct UUID {
     return std::string{decoded.data(), 37 /*UUID_STR_LEN*/ - 1};
   }
 
-  void set(std::string const &uuid_str) {
+  void set(std::string_view uuid_str) {
     if (uuid_str.length() != 36) {
       throw std::invalid_argument(
           fmt::format("Invalid UUID argument length. Length is {} and expected to be 36.", uuid_str.length()));
     }
-    if (uuid_parse(uuid_str.c_str(), uuid.data()) != 0) {
+    if (uuid_parse(uuid_str.data(), uuid.data()) != 0) {
       throw std::invalid_argument("Invalid UUID formatwhen setting new uuid string.");
     }
   }

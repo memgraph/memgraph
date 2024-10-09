@@ -41,14 +41,15 @@ void StartReplicaClient(replication::ReplicationClient &client, dbms::DbmsHandle
 template <bool REQUIRE_LOCK = false>
 void SystemRestore(replication::ReplicationClient &client, system::System &system, dbms::DbmsHandler &dbms_handler,
                    const utils::UUID &main_uuid, auth::SynchedAuth &auth) {
-  // Check if system is up to date
-  if (client.state_.WithLock(
-          [](auto &state) { return state != memgraph::replication::ReplicationClient::State::BEHIND; }))
-    return;
+  bool const recovery_needed = client.state_.WithLock([](auto &state) {
+    bool const is_behind = state == memgraph::replication::ReplicationClient::State::BEHIND;
+    if (is_behind) {
+      state = memgraph::replication::ReplicationClient::State::RECOVERY;
+    }
+    return is_behind;
+  });
 
-  // Try to recover...
-  if (client.state_.WithLock(
-          [](auto &state) { return state != memgraph::replication::ReplicationClient::State::RECOVERY; })) {
+  if (recovery_needed) {
     bool is_enterprise = license::global_license_checker.IsEnterpriseValidFast();
     // We still need to system replicate
     struct DbInfo {

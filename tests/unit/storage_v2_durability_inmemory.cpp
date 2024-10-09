@@ -3157,7 +3157,7 @@ TEST_P(DurabilityTest, ConstraintsRecoveryFunctionSetting) {
       config.durability.storage_directory / memgraph::storage::durability::kWalDirectory};
 
   // Recover snapshot.
-  const auto info = recovery.RecoverData(&uuid, repl_storage_state, &vertices, &edges, &edges_metadata, &edge_count,
+  const auto info = recovery.RecoverData(uuid, repl_storage_state, &vertices, &edges, &edges_metadata, &edge_count,
                                          name_id_mapper.get(), &indices, &constraints, config, &wal_seq_num,
                                          &enum_store, nullptr /* schema_info */, [](auto in) { return std::nullopt; });
 
