@@ -10,12 +10,17 @@
 // licenses/APL.txt.
 
 #pragma once
+#include <cstdint>
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/point_index_change_collector.hpp"
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/skip_list.hpp"
 
 namespace memgraph::storage {
+
+enum class PointDistanceCondition : uint8_t { OUTSIDE, INSIDE, INSIDE_AND_BOUNDARY, OUTSIDE_AND_BOUNDARY };
+enum class WithinBBoxCondition : uint8_t { OUTSIDE, INSIDE };
 
 struct PointIndex;
 
@@ -29,6 +34,9 @@ struct PointIterable {
 
   PointIterable(Storage *storage, Transaction *transaction, PointIndex const &index,
                 storage::CoordinateReferenceSystem crs);
+  PointIterable(Storage *storage, Transaction *transaction, PointIndex const &index,
+                storage::CoordinateReferenceSystem crs, PropertyValue point_value, PropertyValue boundary_value,
+                PointDistanceCondition condition);
   ~PointIterable();
 
   PointIterable();
@@ -54,6 +62,9 @@ struct PointIndexContext {
 
   auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs, Storage *storage,
                      Transaction *transaction) -> PointIterable;
+  auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs, Storage *storage,
+                     Transaction *transaction, PropertyValue point_value, PropertyValue boundary_value,
+                     PointDistanceCondition condition) -> PointIterable;
 
  private:
   // Only PointIndexStorage can make these
