@@ -96,6 +96,7 @@ target_link_libraries(mg-storage-v2
     lib::rangev3
     mgcxx_text_search
     tantivy_text_search
+    usearch
     strong_type::strong_type
     rangev3
 )

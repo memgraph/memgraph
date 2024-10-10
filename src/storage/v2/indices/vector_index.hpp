@@ -11,13 +11,20 @@
 
 #pragma once
 
+#include <memory>
 #include <string>
 
 namespace memgraph::storage {
 
 class VectorIndex {
  public:
+  VectorIndex();
   void CreateIndex(std::string const &index_name);
+  ~VectorIndex();
+
+ private:
+  struct Impl;
+  std::unique_ptr<Impl> pimpl;
 };
 
 }  // namespace memgraph::storage
