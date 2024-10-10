@@ -1,0 +1,71 @@
+// Copyright 2024 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
+// TODO(gitbuda): Try to use logging under xyz_search modules.
+#include <iostream>
+#include <string_view>
+
+#include <fmt/format.h>
+
+#include <mgp.hpp>
+
+namespace VectorSearch {
+constexpr std::string_view kProcedureSearch = "search";
+constexpr std::string_view kParameterIndexName = "index_name";
+constexpr std::string_view kParameterResultSetSize = "result_set_size";
+constexpr std::string_view kParameterQueryVector = "query_vector";
+constexpr std::string_view kReturnNode = "node";
+constexpr std::string_view kReturnScore = "score";
+
+void Search(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
+}  // namespace VectorSearch
+
+void VectorSearch::Search(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
+  mgp::MemoryDispatcherGuard guard{memory};
+  const auto record_factory = mgp::RecordFactory(result);
+  auto arguments = mgp::List(args);
+
+  try {
+    const auto index_name = arguments[0].ValueString();
+    const auto result_set_size = arguments[1].ValueInt();
+    const auto query_vector = arguments[2].ValueList();
+
+    // // TODO(davivek): Call the implementation NOTE: C API should be ~20-30% faster.
+    // auto record = record_factory.NewRecord();
+    // record.Insert(VectorSearch::kReturnNode.data(), node.ValueNode());
+  } catch (const std::exception &e) {
+    record_factory.SetErrorMessage(e.what());
+  }
+}
+
+extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
+  try {
+    mgp::MemoryDispatcherGuard guard{memory};
+    AddProcedure(VectorSearch::Search, VectorSearch::kProcedureSearch, mgp::ProcedureType::Read,
+                 {
+                     mgp::Parameter(VectorSearch::kParameterIndexName, mgp::Type::String),
+                     mgp::Parameter(VectorSearch::kParameterResultSetSize, mgp::Type::Int),
+                     mgp::Parameter(VectorSearch::kParameterQueryVector, mgp::Type::String),
+                 },
+                 {
+                     mgp::Return(VectorSearch::kReturnNode, mgp::Type::Node),
+                     mgp::Return(VectorSearch::kReturnScore, mgp::Type::Double),
+                 },
+                 module, memory);
+  } catch (const std::exception &e) {
+    std::cerr << "Error while initializing query module: " << e.what() << std::endl;
+    return 1;
+  }
+
+  return 0;
+}
+
+extern "C" int mgp_shutdown_module() { return 0; }
