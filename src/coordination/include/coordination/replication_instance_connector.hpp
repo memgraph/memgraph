@@ -56,6 +56,7 @@ class ReplicationInstanceConnector {
   auto PromoteToMain(utils::UUID const &uuid, ReplicationClientsInfo repl_clients_info,
                      HealthCheckInstanceCallback main_succ_cb, HealthCheckInstanceCallback main_fail_cb) -> bool;
 
+  // If the instance is already in replica state, the request will succeed.
   auto SendDemoteToReplicaRpc() -> bool;
 
   auto SendFrequentHeartbeat() const -> bool;

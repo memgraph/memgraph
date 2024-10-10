@@ -90,7 +90,6 @@ class RaftState {
   auto IsCurrentMain(std::string_view instance_name) const -> bool;
 
   auto GetCurrentMainUUID() const -> utils::UUID;
-  auto GetInstanceUUID(std::string_view) const -> utils::UUID;
 
   auto GetLeaderCoordinatorData() const -> std::optional<CoordinatorToCoordinatorConfig>;
 

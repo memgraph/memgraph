@@ -411,10 +411,6 @@ auto CoordinatorStateMachine::IsCurrentMain(std::string_view instance_name) cons
   return cluster_state_.IsCurrentMain(instance_name);
 }
 
-auto CoordinatorStateMachine::GetInstanceUUID(std::string_view instance_name) const -> utils::UUID {
-  return cluster_state_.GetInstanceUUID(instance_name);
-}
-
 auto CoordinatorStateMachine::IsLockOpened() const -> bool { return cluster_state_.GetIsLockOpened(); }
 
 auto CoordinatorStateMachine::TryGetCurrentMainName() const -> std::optional<std::string> {

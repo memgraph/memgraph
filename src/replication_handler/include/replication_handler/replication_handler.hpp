@@ -285,7 +285,9 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
       if (replica_data.config == config) {
         return true;
       }
-      repl_state_.SetReplicationRoleReplica(config, main_uuid);
+      if (!repl_state_.SetReplicationRoleReplica(config, main_uuid)) {
+        return false;
+      }
 #ifdef MG_ENTERPRISE
       return StartRpcServer(dbms_handler_, replica_data, auth_, system_);
 #else

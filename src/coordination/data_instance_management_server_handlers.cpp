@@ -103,13 +103,13 @@ void DataInstanceManagementServerHandlers::DemoteMainToReplicaHandler(
       .repl_server = io::network::Endpoint("0.0.0.0", req.replication_client_info.replication_server.GetPort())};
 
   if (!replication_handler.SetReplicationRoleReplica(clients_config, std::nullopt)) {
-    spdlog::error("Demoting main to replica failed!");
+    spdlog::error("Demoting main to replica failed.");
     slk::Save(coordination::DemoteMainToReplicaRes{false}, res_builder);
     return;
   }
 
   slk::Save(coordination::DemoteMainToReplicaRes{true}, res_builder);
-  spdlog::info("MAIN successfully demoted to REPLICA.");
+  spdlog::info("Instance is now in replica state.");
 }
 
 void DataInstanceManagementServerHandlers::GetInstanceUUIDHandler(replication::ReplicationHandler &replication_handler,
@@ -130,8 +130,8 @@ void DataInstanceManagementServerHandlers::PromoteReplicaToMainHandler(
   coordination::PromoteReplicaToMainReq req;
   slk::Load(&req, req_reader);
 
-  // This can fail because of disk. If it does, the cluster state could get inconsistent.
-  // We don't handle disk issues.
+  // Request to replication_handler could fail because we couldn't persist promotion to disk. In that case we rely
+  // on atomicity of RocksDB that nothing got partially written.
   if (const bool success = replication_handler.DoReplicaToMainPromotion(req.main_uuid); !success) {
     spdlog::error("Promoting replica to main failed.");
     slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);
