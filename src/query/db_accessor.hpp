@@ -15,10 +15,12 @@
 #include "query/edge_accessor.hpp"
 #include "query/exceptions.hpp"
 #include "query/hops_limit.hpp"
+#include "query/typed_value.hpp"
 #include "query/vertex_accessor.hpp"
 #include "storage/v2/constraints/type_constraints.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/point_index.hpp"
 #include "storage/v2/indices/point_iterator.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
@@ -41,6 +43,10 @@
 namespace memgraph::query {
 
 class Graph;
+
+namespace plan {
+enum class PointDistanceCondition : uint8_t;
+}  // namespace plan
 
 class SubgraphVertexAccessor final {
  public:
@@ -187,6 +193,7 @@ struct query_iterable final {
   query_iterable(query_iterable &&) = default;
   query_iterable &operator=(query_iterable const &) = default;
   query_iterable &operator=(query_iterable &&) = default;
+  ~query_iterable() = default;
 
   iterator begin() { return iterator{iterable_.begin()}; }
 
@@ -306,8 +313,11 @@ class DbAccessor final {
   }
 
   auto PointVertices(storage::View view, storage::LabelId label, storage::PropertyId property,
-                     storage::CoordinateReferenceSystem crs) -> PointIterable {
-    return PointIterable(accessor_->PointVertices(view, label, property, crs));
+                     storage::CoordinateReferenceSystem crs, TypedValue *point_value, TypedValue boundary_value,
+                     plan::PointDistanceCondition condition) -> PointIterable {
+    return PointIterable(accessor_->PointVertices(
+        view, label, property, crs, static_cast<storage::PropertyValue>(*point_value),
+        static_cast<storage::PropertyValue>(boundary_value), static_cast<storage::PointDistanceCondition>(condition)));
   }
 
   EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type) {

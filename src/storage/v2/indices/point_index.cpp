@@ -10,10 +10,15 @@
 // licenses/APL.txt.
 
 #include "storage/v2/indices/point_index.hpp"
+
+#include <utility>
 #include "storage/v2/indices/point_index_change_collector.hpp"
 #include "storage/v2/indices/point_index_expensive_header.hpp"
 #include "storage/v2/indices/point_iterator.hpp"
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
+#include "utils/exceptions.hpp"
+#include "utils/logging.hpp"
 
 namespace memgraph::storage {
 
@@ -284,6 +289,20 @@ auto PointIndexContext::PointVertices(LabelId label, PropertyId property, Coordi
   return {storage, transaction, point_index, crs};
 }
 
+auto PointIndexContext::PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
+                                      Storage *storage, Transaction *transaction, PropertyValue point_value,
+                                      PropertyValue boundary_value, PointDistanceCondition condition) -> PointIterable {
+  auto const &indexes = *current_indexes_;
+  auto it = indexes.find(LabelPropKey{label, property});
+  if (it == indexes.cend()) {
+    spdlog::warn("Failure why trying to locate a point index that should exist");
+    return {};
+  }
+
+  auto const &point_index = *it->second;
+  return {storage, transaction, point_index, crs, point_value, boundary_value, condition};
+}
+
 PointIndex::PointIndex(std::span<Entry<IndexPointWGS2d>> points2dWGS,
                        std::span<Entry<IndexPointCartesian2d>> points2dCartesian,
                        std::span<Entry<IndexPointWGS3d>> points3dWGS,
@@ -326,6 +345,51 @@ struct PointIterable::impl {
         crs_{CoordinateReferenceSystem::Cartesian_3d},
         cartesian_3d_{std::move(index)} {}
 
+  // TODO: can this be made smaller?
+  explicit impl(Storage *storage, Transaction *transaction, std::shared_ptr<index_t<IndexPointWGS2d>> index,
+                PropertyValue point_value, PropertyValue boundary_value, PointDistanceCondition condition)
+      : storage_{storage},
+        transaction_{transaction},
+        crs_{CoordinateReferenceSystem::WGS84_2d},
+        point_value_{std::move(point_value)},
+        boundary_value_{std::move(boundary_value)},
+        using_distance_(true),
+        wgs84_2d_{std::move(index)},
+        distance_condition_{condition} {}
+
+  explicit impl(Storage *storage, Transaction *transaction, std::shared_ptr<index_t<IndexPointWGS3d>> index,
+                PropertyValue point_value, PropertyValue boundary_value, PointDistanceCondition condition)
+      : storage_{storage},
+        transaction_{transaction},
+        crs_{CoordinateReferenceSystem::WGS84_3d},
+        point_value_{std::move(point_value)},
+        boundary_value_{std::move(boundary_value)},
+        using_distance_(true),
+        wgs84_3d_{std::move(index)},
+        distance_condition_{condition} {}
+
+  explicit impl(Storage *storage, Transaction *transaction, std::shared_ptr<index_t<IndexPointCartesian2d>> index,
+                PropertyValue point_value, PropertyValue boundary_value, PointDistanceCondition condition)
+      : storage_{storage},
+        transaction_{transaction},
+        crs_{CoordinateReferenceSystem::Cartesian_2d},
+        point_value_{std::move(point_value)},
+        boundary_value_{std::move(boundary_value)},
+        using_distance_(true),
+        cartesian_2d_{std::move(index)},
+        distance_condition_{condition} {}
+
+  explicit impl(Storage *storage, Transaction *transaction, std::shared_ptr<index_t<IndexPointCartesian3d>> index,
+                PropertyValue point_value, PropertyValue boundary_value, PointDistanceCondition condition)
+      : storage_{storage},
+        transaction_{transaction},
+        crs_{CoordinateReferenceSystem::Cartesian_3d},
+        point_value_{std::move(point_value)},
+        boundary_value_{std::move(boundary_value)},
+        using_distance_(true),
+        cartesian_3d_{std::move(index)},
+        distance_condition_{condition} {}
+
   friend struct PointIterable;
 
   // don't need destroy_at for shared ptrs
@@ -335,11 +399,19 @@ struct PointIterable::impl {
   Storage *storage_;
   Transaction *transaction_;
   CoordinateReferenceSystem crs_;
+  PropertyValue point_value_;
+  PropertyValue boundary_value_;
+  bool using_distance_;
   union {
     std::shared_ptr<index_t<IndexPointWGS2d>> wgs84_2d_;
     std::shared_ptr<index_t<IndexPointWGS3d>> wgs84_3d_;
     std::shared_ptr<index_t<IndexPointCartesian2d>> cartesian_2d_;
     std::shared_ptr<index_t<IndexPointCartesian3d>> cartesian_3d_;
+  };
+
+  union {
+    PointDistanceCondition distance_condition_;
+    WithinBBoxCondition withinbbox_condition_;
   };
 };
 
@@ -369,28 +441,198 @@ PointIterable::PointIterable(Storage *storage, Transaction *transaction, PointIn
   }
 }
 
+PointIterable::PointIterable(Storage *storage, Transaction *transaction, PointIndex const &index,
+                             storage::CoordinateReferenceSystem crs, PropertyValue point_value,
+                             PropertyValue boundary_value, PointDistanceCondition condition) {
+  switch (crs) {
+    case CoordinateReferenceSystem::WGS84_2d: {
+      pimpl =
+          std::make_unique<impl>(storage, transaction, index.GetWgs2dIndex(), point_value, boundary_value, condition);
+      return;
+    }
+    case CoordinateReferenceSystem::WGS84_3d: {
+      pimpl =
+          std::make_unique<impl>(storage, transaction, index.GetWgs3dIndex(), point_value, boundary_value, condition);
+      return;
+    }
+    case CoordinateReferenceSystem::Cartesian_2d: {
+      pimpl = std::make_unique<impl>(storage, transaction, index.GetCartesian2dIndex(), point_value, boundary_value,
+                                     condition);
+      return;
+    }
+    case CoordinateReferenceSystem::Cartesian_3d: {
+      pimpl = std::make_unique<impl>(storage, transaction, index.GetCartesian3dIndex(), point_value, boundary_value,
+                                     condition);
+      return;
+    }
+  }
+}
+
+// TODO: can't template querying because pimpl is forward declared
+namespace {
+
+auto get_index_iterator_distance_wgs2d(std::shared_ptr<index_t<IndexPointWGS2d>> index,
+                                       PropertyValue const &point_value, PropertyValue const &boundary_value,
+                                       PointDistanceCondition condition) {
+  double boundary =
+      boundary_value.IsInt() ? static_cast<double>(boundary_value.ValueInt()) : boundary_value.ValueDouble();
+
+  using point_type = bg::model::point<double, 2, bg::cs::spherical_equatorial<bg::degree>>;
+  auto tmp_point = point_value.ValuePoint2d();
+  auto point = point_type(tmp_point.x(), tmp_point.y());
+
+  switch (condition) {
+    case PointDistanceCondition::OUTSIDE: {
+      return index->qbegin(
+          bgi::satisfies([&](const auto &value) { return bg::distance(value.point(), point) > boundary; }));
+    }
+    case PointDistanceCondition::INSIDE: {
+      return index->qbegin(
+          bgi::satisfies([&](const auto &value) { return bg::distance(value.point(), point) < boundary; }));
+    }
+    case PointDistanceCondition::INSIDE_AND_BOUNDARY: {
+      return index->qbegin(
+          bgi::satisfies([&](const auto &value) { return bg::distance(value.point(), point) <= boundary; }));
+    }
+    case PointDistanceCondition::OUTSIDE_AND_BOUNDARY: {
+      return index->qbegin(
+          bgi::satisfies([&](const auto &value) { return bg::distance(value.point(), point) >= boundary; }));
+    }
+  }
+}
+
+auto get_index_iterator_distance_wgs3d(std::shared_ptr<index_t<IndexPointWGS3d>> index,
+                                       PropertyValue const &point_value, PropertyValue const &boundary_value,
+                                       PointDistanceCondition condition) {
+  double boundary =
+      boundary_value.IsInt() ? static_cast<double>(boundary_value.ValueInt()) : boundary_value.ValueDouble();
+
+  using point_type = bg::model::point<double, 3, bg::cs::spherical_equatorial<bg::degree>>;
+  auto tmp_point = point_value.ValuePoint3d();
+  auto point = point_type(tmp_point.x(), tmp_point.y(), tmp_point.z());
+
+  switch (condition) {
+    case PointDistanceCondition::OUTSIDE: {
+      return index->qbegin(
+          bgi::satisfies([&](const auto &value) { return bg::distance(value.point(), point) > boundary; }));
+    }
+    case PointDistanceCondition::INSIDE: {
+      return index->qbegin(
+          bgi::satisfies([&](const auto &value) { return bg::distance(value.point(), point) < boundary; }));
+    }
+    case PointDistanceCondition::INSIDE_AND_BOUNDARY: {
+      return index->qbegin(
+          bgi::satisfies([&](const auto &value) { return bg::distance(value.point(), point) <= boundary; }));
+    }
+    case PointDistanceCondition::OUTSIDE_AND_BOUNDARY: {
+      return index->qbegin(
+          bgi::satisfies([&](const auto &value) { return bg::distance(value.point(), point) >= boundary; }));
+    }
+  }
+}
+
+auto get_index_iterator_distance_cartesian_2d(std::shared_ptr<index_t<IndexPointCartesian2d>> index,
+                                              PropertyValue const &point_value, PropertyValue const &boundary_value,
+                                              PointDistanceCondition condition) {
+  double boundary =
+      boundary_value.IsInt() ? static_cast<double>(boundary_value.ValueInt()) : boundary_value.ValueDouble();
+
+  using point_type = bg::model::point<double, 2, bg::cs::cartesian>;
+  auto tmp_point = point_value.ValuePoint2d();
+  auto point = point_type(tmp_point.x(), tmp_point.y());
+
+  switch (condition) {
+    case PointDistanceCondition::OUTSIDE: {
+      return index->qbegin(
+          bgi::satisfies([&](const auto &value) { return bg::distance(value.point(), point) > boundary; }));
+    }
+    case PointDistanceCondition::INSIDE: {
+      return index->qbegin(
+          bgi::satisfies([&](const auto &value) { return bg::distance(value.point(), point) < boundary; }));
+    }
+    case PointDistanceCondition::INSIDE_AND_BOUNDARY: {
+      return index->qbegin(
+          bgi::satisfies([&](const auto &value) { return bg::distance(value.point(), point) <= boundary; }));
+    }
+    case PointDistanceCondition::OUTSIDE_AND_BOUNDARY: {
+      return index->qbegin(
+          bgi::satisfies([&](const auto &value) { return bg::distance(value.point(), point) >= boundary; }));
+    }
+  }
+}
+
+auto get_index_iterator_distance_cartesian_3d(std::shared_ptr<index_t<IndexPointCartesian3d>> index,
+                                              PropertyValue const &point_value, PropertyValue const &boundary_value,
+                                              PointDistanceCondition condition) {
+  double boundary =
+      boundary_value.IsInt() ? static_cast<double>(boundary_value.ValueInt()) : boundary_value.ValueDouble();
+
+  using point_type = bg::model::point<double, 3, bg::cs::cartesian>;
+  auto tmp_point = point_value.ValuePoint3d();
+  auto point = point_type(tmp_point.x(), tmp_point.y(), tmp_point.z());
+
+  switch (condition) {
+    case PointDistanceCondition::OUTSIDE: {
+      return index->qbegin(
+          bgi::satisfies([&](const auto &value) { return bg::distance(value.point(), point) > boundary; }));
+    }
+    case PointDistanceCondition::INSIDE: {
+      return index->qbegin(
+          bgi::satisfies([&](const auto &value) { return bg::distance(value.point(), point) < boundary; }));
+    }
+    case PointDistanceCondition::INSIDE_AND_BOUNDARY: {
+      return index->qbegin(
+          bgi::satisfies([&](const auto &value) { return bg::distance(value.point(), point) <= boundary; }));
+    }
+    case PointDistanceCondition::OUTSIDE_AND_BOUNDARY: {
+      return index->qbegin(
+          bgi::satisfies([&](const auto &value) { return bg::distance(value.point(), point) >= boundary; }));
+    }
+  }
+}
+
+}  // namespace
+
 auto PointIterable::begin() const -> PointIterator {
-  switch (pimpl->crs_) {
-    case CoordinateReferenceSystem::WGS84_2d:
-      return PointIterator{pimpl->storage_, pimpl->transaction_, pimpl->crs_, pimpl->wgs84_2d_->begin()};
-    case CoordinateReferenceSystem::WGS84_3d:
-      return PointIterator{pimpl->storage_, pimpl->transaction_, pimpl->crs_, pimpl->wgs84_3d_->begin()};
-    case CoordinateReferenceSystem::Cartesian_2d:
-      return PointIterator{pimpl->storage_, pimpl->transaction_, pimpl->crs_, pimpl->cartesian_2d_->begin()};
-    case CoordinateReferenceSystem::Cartesian_3d:
-      return PointIterator{pimpl->storage_, pimpl->transaction_, pimpl->crs_, pimpl->cartesian_3d_->begin()};
+  if (pimpl->using_distance_) {
+    switch (pimpl->crs_) {
+      case CoordinateReferenceSystem::WGS84_2d:
+        return PointIterator{pimpl->storage_, pimpl->transaction_, pimpl->crs_,
+                             get_index_iterator_distance_wgs2d(pimpl->wgs84_2d_, pimpl->point_value_,
+                                                               pimpl->boundary_value_, pimpl->distance_condition_)};
+      case CoordinateReferenceSystem::WGS84_3d:
+        return PointIterator{pimpl->storage_, pimpl->transaction_, pimpl->crs_,
+                             get_index_iterator_distance_wgs3d(pimpl->wgs84_3d_, pimpl->point_value_,
+                                                               pimpl->boundary_value_, pimpl->distance_condition_)};
+      case CoordinateReferenceSystem::Cartesian_2d:
+        return PointIterator{
+            pimpl->storage_, pimpl->transaction_, pimpl->crs_,
+            get_index_iterator_distance_cartesian_2d(pimpl->cartesian_2d_, pimpl->point_value_, pimpl->boundary_value_,
+                                                     pimpl->distance_condition_)};
+      case CoordinateReferenceSystem::Cartesian_3d:
+        return PointIterator{
+            pimpl->storage_, pimpl->transaction_, pimpl->crs_,
+            get_index_iterator_distance_cartesian_3d(pimpl->cartesian_3d_, pimpl->point_value_, pimpl->boundary_value_,
+                                                     pimpl->distance_condition_)};
+    }
+  } else {
+    throw utils::NotYetImplemented("Crash");
   }
 }
 auto PointIterable::end() const -> PointIterator {
-  switch (pimpl->crs_) {
-    case CoordinateReferenceSystem::WGS84_2d:
-      return PointIterator{pimpl->storage_, pimpl->transaction_, pimpl->crs_, pimpl->wgs84_2d_->end()};
-    case CoordinateReferenceSystem::WGS84_3d:
-      return PointIterator{pimpl->storage_, pimpl->transaction_, pimpl->crs_, pimpl->wgs84_3d_->end()};
-    case CoordinateReferenceSystem::Cartesian_2d:
-      return PointIterator{pimpl->storage_, pimpl->transaction_, pimpl->crs_, pimpl->cartesian_2d_->end()};
-    case CoordinateReferenceSystem::Cartesian_3d:
-      return PointIterator{pimpl->storage_, pimpl->transaction_, pimpl->crs_, pimpl->cartesian_3d_->end()};
+  if (pimpl->using_distance_) {
+    switch (pimpl->crs_) {
+      case CoordinateReferenceSystem::WGS84_2d:
+        return PointIterator{pimpl->storage_, pimpl->transaction_, pimpl->crs_, pimpl->wgs84_2d_->qend()};
+      case CoordinateReferenceSystem::WGS84_3d:
+        return PointIterator{pimpl->storage_, pimpl->transaction_, pimpl->crs_, pimpl->wgs84_3d_->qend()};
+      case CoordinateReferenceSystem::Cartesian_2d:
+        return PointIterator{pimpl->storage_, pimpl->transaction_, pimpl->crs_, pimpl->cartesian_2d_->qend()};
+      case CoordinateReferenceSystem::Cartesian_3d:
+        return PointIterator{pimpl->storage_, pimpl->transaction_, pimpl->crs_, pimpl->cartesian_3d_->qend()};
+    }
+  } else {
+    throw utils::NotYetImplemented("Crash");
   }
 }
 
