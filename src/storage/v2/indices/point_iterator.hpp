@@ -58,16 +58,16 @@ struct PointIterator {
     // boost iterators shouldn't be moved
     switch (crs_) {
       case CoordinateReferenceSystem::WGS84_2d:
-        wgs84_2d_ = o.wgs84_2d_;
+        wgs84_2d_ = std::move(o.wgs84_2d_);
         break;
       case CoordinateReferenceSystem::WGS84_3d:
-        wgs84_3d_ = o.wgs84_3d_;
+        wgs84_3d_ = std::move(o.wgs84_3d_);
         break;
       case CoordinateReferenceSystem::Cartesian_2d:
-        cartesian_2d_ = o.cartesian_2d_;
+        cartesian_2d_ = std::move(o.cartesian_2d_);
         break;
       case CoordinateReferenceSystem::Cartesian_3d:
-        cartesian_3d_ = o.cartesian_3d_;
+        cartesian_3d_ = std::move(o.cartesian_3d_);
         break;
     }
   }
@@ -120,16 +120,16 @@ struct PointIterator {
       transaction_ = o.transaction_;
       switch (crs_) {
         case CoordinateReferenceSystem::WGS84_2d:
-          wgs84_2d_ = o.wgs84_2d_;
+          wgs84_2d_ = std::move(o.wgs84_2d_);
           break;
         case CoordinateReferenceSystem::WGS84_3d:
-          wgs84_3d_ = o.wgs84_3d_;
+          wgs84_3d_ = std::move(o.wgs84_3d_);
           break;
         case CoordinateReferenceSystem::Cartesian_2d:
-          cartesian_2d_ = o.cartesian_2d_;
+          cartesian_2d_ = std::move(o.cartesian_2d_);
           break;
         case CoordinateReferenceSystem::Cartesian_3d:
-          cartesian_3d_ = o.cartesian_3d_;
+          cartesian_3d_ = std::move(o.cartesian_3d_);
           break;
       }
     }
