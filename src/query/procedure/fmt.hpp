@@ -70,6 +70,8 @@ inline std::string ToString(const mgp_error &error) {
       return "SERIALIZATION ERROR";
     case mgp_error::MGP_ERROR_AUTHORIZATION_ERROR:
       return "AUTHORIZATION ERROR";
+    case mgp_error::MGP_ERROR_NOT_YET_IMPLEMENTED:
+      return "NOT YET IMPLEMENTED ERROR";
   }
   LOG_FATAL("ToString of a wrong mgp_error -> check missing switch case");
 }

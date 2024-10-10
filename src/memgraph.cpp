@@ -56,6 +56,7 @@
 #include "requests/requests.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/durability/durability.hpp"
+#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "system/system.hpp"
 #include "telemetry/telemetry.hpp"
@@ -172,6 +173,18 @@ int main(int argc, char **argv) {
   if (FLAGS_h) {
     gflags::ShowUsageWithFlags(argv[0]);
     exit(1);
+  }
+
+  if (!FLAGS_experimental_vector_index.empty()) {
+    const auto label_property_vec = memgraph::utils::Split(FLAGS_experimental_vector_index, "__");
+    if (label_property_vec.size() != 2) {
+      LOG_FATAL("{} is not in the right format to use vector index. Use Label__property format instead.",
+                FLAGS_experimental_vector_index);
+    }
+    auto [label, property] = std::tie(label_property_vec[0], label_property_vec[1]);
+    spdlog::info("Having vector index on :{}({}).", label, property);
+    memgraph::storage::VectorIndex vector_index;
+    vector_index.CreateIndex("testVectorIndex");
   }
 
   auto flags_experimental = memgraph::flags::ReadExperimental(FLAGS_experimental_enabled);

@@ -3522,6 +3522,10 @@ mgp_error mgp_graph_aggregate_over_text_index(mgp_graph *graph, const char *inde
   });
 }
 
+mgp_error mgp_graph_has_vector_index(mgp_graph *graph, const char *index_name, int *result) {
+  return mgp_error::MGP_ERROR_NOT_YET_IMPLEMENTED;
+}
+
 #ifdef MG_ENTERPRISE
 namespace {
 void NextPermitted(mgp_vertices_iterator &it) {

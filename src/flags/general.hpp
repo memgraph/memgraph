@@ -124,3 +124,6 @@ auto ParseQueryModulesDirectory() -> std::vector<std::filesystem::path>;
 DECLARE_string(license_key);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(organization_name);
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_string(experimental_vector_index);
