@@ -694,24 +694,40 @@ auto CoordinatorInstance::TryFailover() -> void {
   // guarantee that if the PromoteToMain failed because of a reason different than that the instance is down that when
   // we run again TryFailover we will be able to choose again the same instance.
   // TODO: (andi) I think this is serious one. Talk with Andreja.
+  // TODO: (andi) Since PromoteToMain returns false, could we come into situation where we promote last main and hence
+  // fail because of it? That could also be serious.
   if (!new_main.PromoteToMain(new_main_uuid, std::move(repl_clients_info), &CoordinatorInstance::MainSuccessCallback,
                               &CoordinatorInstance::MainFailCallback)) {
     spdlog::warn("Failed to promote instance {} to become new main in the failover process.", new_main_name);
     return;
   }
 
+  // TODO: (andi) Demote callbacks.
+
   // This could fail because of several reasons:
   // 1. Instance (I) crashed. In that case new leader will get elected and the leader will see that there is no instance
   // with new_main_uuid, hence it will go choose a new one.
   // 2. Two followers died and we don't have a majority anymore. One of followers (or both) could come up at any moment
-  // and we are in trouble than because of executing two mains. That's why on exit we have to call
-  // ReconcileClusterState.
+  // and we are in trouble than because two instances have MainSuccessCallback and MainFailCallback. That's why on exit
+  // we have to call ReconcileClusterState.
+  // TODO: (andi) I think it's not necessary to set is_leader_ready_ to false because lock is opened hence callbacks not
+  // executed At one point we will start executing ReconcileClusterState. The 1st thing which will do there is stop all
+  // frequent checks so we shouldn't be in problem.
   if (!raft_state_->AppendSetInstanceAsMainLog(new_main_name, new_main_uuid)) {
+    spdlog::error(
+        "Failed to AppendSetInstanceAsMainLog in the failover process. Adding task to ReconcileClusterState.");
+    thread_pool_.AddTask([this]() { this->ReconcileClusterState(); });
     return;
   }
 
+  // This could fail because of several reasons:
+  // 1. Instance (I) crashed. In that case new leader will get elected and the leader will see that there is an instance
+  // with new_main_uuid, hence it will use that one.
+  // 2. Two followers died and we don't have a majority anymore. One of followers (or both) could come up at any moment
+  // and we are in trouble than because instances cannot successfully execute their callbacks.
   if (!raft_state_->AppendCloseLock()) {
-    spdlog::error("Aborting failover as we failed to close lock on action.");
+    spdlog::error("Failed to AppendCloseLock in the failover process. Adding task to ReconcileClusterState.");
+    thread_pool_.AddTask([this]() { this->ReconcileClusterState(); });
     return;
   }
 
