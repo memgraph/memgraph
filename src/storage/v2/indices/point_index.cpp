@@ -483,20 +483,20 @@ auto get_index_iterator_distance_wgs2d(std::shared_ptr<index_t<IndexPointWGS2d>>
 
   switch (condition) {
     case PointDistanceCondition::OUTSIDE: {
-      return index->qbegin(
-          bgi::satisfies([&](const auto &value) { return bg::distance(value.point(), point) > boundary; }));
+      return index->qbegin(bgi::satisfies(
+          [point, boundary](const auto &value) { return bg::distance(value.point(), point) > boundary; }));
     }
     case PointDistanceCondition::INSIDE: {
-      return index->qbegin(
-          bgi::satisfies([&](const auto &value) { return bg::distance(value.point(), point) < boundary; }));
+      return index->qbegin(bgi::satisfies(
+          [point, boundary](const auto &value) { return bg::distance(value.point(), point) < boundary; }));
     }
     case PointDistanceCondition::INSIDE_AND_BOUNDARY: {
-      return index->qbegin(
-          bgi::satisfies([&](const auto &value) { return bg::distance(value.point(), point) <= boundary; }));
+      return index->qbegin(bgi::satisfies(
+          [point, boundary](const auto &value) { return bg::distance(value.point(), point) <= boundary; }));
     }
     case PointDistanceCondition::OUTSIDE_AND_BOUNDARY: {
-      return index->qbegin(
-          bgi::satisfies([&](const auto &value) { return bg::distance(value.point(), point) >= boundary; }));
+      return index->qbegin(bgi::satisfies(
+          [point, boundary](const auto &value) { return bg::distance(value.point(), point) >= boundary; }));
     }
   }
 }
@@ -513,20 +513,20 @@ auto get_index_iterator_distance_wgs3d(std::shared_ptr<index_t<IndexPointWGS3d>>
 
   switch (condition) {
     case PointDistanceCondition::OUTSIDE: {
-      return index->qbegin(
-          bgi::satisfies([&](const auto &value) { return bg::distance(value.point(), point) > boundary; }));
+      return index->qbegin(bgi::satisfies(
+          [point, boundary](const auto &value) { return bg::distance(value.point(), point) > boundary; }));
     }
     case PointDistanceCondition::INSIDE: {
-      return index->qbegin(
-          bgi::satisfies([&](const auto &value) { return bg::distance(value.point(), point) < boundary; }));
+      return index->qbegin(bgi::satisfies(
+          [point, boundary](const auto &value) { return bg::distance(value.point(), point) < boundary; }));
     }
     case PointDistanceCondition::INSIDE_AND_BOUNDARY: {
-      return index->qbegin(
-          bgi::satisfies([&](const auto &value) { return bg::distance(value.point(), point) <= boundary; }));
+      return index->qbegin(bgi::satisfies(
+          [point, boundary](const auto &value) { return bg::distance(value.point(), point) <= boundary; }));
     }
     case PointDistanceCondition::OUTSIDE_AND_BOUNDARY: {
-      return index->qbegin(
-          bgi::satisfies([&](const auto &value) { return bg::distance(value.point(), point) >= boundary; }));
+      return index->qbegin(bgi::satisfies(
+          [point, boundary](const auto &value) { return bg::distance(value.point(), point) >= boundary; }));
     }
   }
 }
@@ -543,20 +543,20 @@ auto get_index_iterator_distance_cartesian_2d(std::shared_ptr<index_t<IndexPoint
 
   switch (condition) {
     case PointDistanceCondition::OUTSIDE: {
-      return index->qbegin(
-          bgi::satisfies([&](const auto &value) { return bg::distance(value.point(), point) > boundary; }));
+      return index->qbegin(bgi::satisfies(
+          [point, boundary](const auto &value) { return bg::distance(value.point(), point) > boundary; }));
     }
     case PointDistanceCondition::INSIDE: {
-      return index->qbegin(
-          bgi::satisfies([&](const auto &value) { return bg::distance(value.point(), point) < boundary; }));
+      return index->qbegin(bgi::satisfies(
+          [point, boundary](const auto &value) { return bg::distance(value.point(), point) < boundary; }));
     }
     case PointDistanceCondition::INSIDE_AND_BOUNDARY: {
-      return index->qbegin(
-          bgi::satisfies([&](const auto &value) { return bg::distance(value.point(), point) <= boundary; }));
+      return index->qbegin(bgi::satisfies(
+          [point, boundary](const auto &value) { return bg::distance(value.point(), point) <= boundary; }));
     }
     case PointDistanceCondition::OUTSIDE_AND_BOUNDARY: {
-      return index->qbegin(
-          bgi::satisfies([&](const auto &value) { return bg::distance(value.point(), point) >= boundary; }));
+      return index->qbegin(bgi::satisfies(
+          [point, boundary](const auto &value) { return bg::distance(value.point(), point) >= boundary; }));
     }
   }
 }
@@ -573,20 +573,20 @@ auto get_index_iterator_distance_cartesian_3d(std::shared_ptr<index_t<IndexPoint
 
   switch (condition) {
     case PointDistanceCondition::OUTSIDE: {
-      return index->qbegin(
-          bgi::satisfies([&](const auto &value) { return bg::distance(value.point(), point) > boundary; }));
+      return index->qbegin(bgi::satisfies(
+          [point, boundary](const auto &value) { return bg::distance(value.point(), point) > boundary; }));
     }
     case PointDistanceCondition::INSIDE: {
-      return index->qbegin(
-          bgi::satisfies([&](const auto &value) { return bg::distance(value.point(), point) < boundary; }));
+      return index->qbegin(bgi::satisfies(
+          [point, boundary](const auto &value) { return bg::distance(value.point(), point) < boundary; }));
     }
     case PointDistanceCondition::INSIDE_AND_BOUNDARY: {
-      return index->qbegin(
-          bgi::satisfies([&](const auto &value) { return bg::distance(value.point(), point) <= boundary; }));
+      return index->qbegin(bgi::satisfies(
+          [point, boundary](const auto &value) { return bg::distance(value.point(), point) <= boundary; }));
     }
     case PointDistanceCondition::OUTSIDE_AND_BOUNDARY: {
-      return index->qbegin(
-          bgi::satisfies([&](const auto &value) { return bg::distance(value.point(), point) >= boundary; }));
+      return index->qbegin(bgi::satisfies(
+          [point, boundary](const auto &value) { return bg::distance(value.point(), point) >= boundary; }));
     }
   }
 }
