@@ -18,6 +18,7 @@
 #include "storage/v2/disk/rocksdb_storage.hpp"
 #include "storage/v2/edge_import_mode.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/point_index.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
@@ -243,6 +244,10 @@ class DiskStorage final : public Storage {
     void DropGraph() override;
 
     auto PointVertices(View view, LabelId label, PropertyId property, CoordinateReferenceSystem crs)
+        -> PointIterable override;
+
+    auto PointVertices(View view, LabelId label, PropertyId property, CoordinateReferenceSystem crs,
+                       PropertyValue point_value, PropertyValue boundary_value, PointDistanceCondition condition)
         -> PointIterable override;
   };
 

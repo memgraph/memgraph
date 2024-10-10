@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <utility>
+
 #include "storage/v2/vertex_accessor.hpp"
 
 #include "storage/v2/indices/point_index_expensive_header.hpp"
@@ -20,20 +22,20 @@ struct PointIterator {
   using value_type = VertexAccessor;
 
   PointIterator(Storage *storage, Transaction *transaction, CoordinateReferenceSystem crs,
-                index_t<IndexPointWGS2d>::const_iterator iter)
-      : storage_{storage}, transaction_{transaction}, crs_{crs}, wgs84_2d_{iter} {}
+                index_t<IndexPointWGS2d>::const_query_iterator iter)
+      : storage_{storage}, transaction_{transaction}, crs_{crs}, wgs84_2d_{std::move(iter)} {}
 
   PointIterator(Storage *storage, Transaction *transaction, CoordinateReferenceSystem crs,
-                index_t<IndexPointWGS3d>::const_iterator iter)
-      : storage_{storage}, transaction_{transaction}, crs_{crs}, wgs84_3d_{iter} {}
+                index_t<IndexPointWGS3d>::const_query_iterator iter)
+      : storage_{storage}, transaction_{transaction}, crs_{crs}, wgs84_3d_{std::move(iter)} {}
 
   PointIterator(Storage *storage, Transaction *transaction, CoordinateReferenceSystem crs,
-                index_t<IndexPointCartesian2d>::const_iterator iter)
-      : storage_{storage}, transaction_{transaction}, crs_{crs}, cartesian_2d_{iter} {}
+                index_t<IndexPointCartesian2d>::const_query_iterator iter)
+      : storage_{storage}, transaction_{transaction}, crs_{crs}, cartesian_2d_{std::move(iter)} {}
 
   PointIterator(Storage *storage, Transaction *transaction, CoordinateReferenceSystem crs,
-                index_t<IndexPointCartesian3d>::const_iterator iter)
-      : storage_{storage}, transaction_{transaction}, crs_{crs}, cartesian_3d_{iter} {}
+                index_t<IndexPointCartesian3d>::const_query_iterator iter)
+      : storage_{storage}, transaction_{transaction}, crs_{crs}, cartesian_3d_{std::move(iter)} {}
 
   PointIterator(PointIterator const &o) : storage_{o.storage_}, transaction_{o.transaction_}, crs_{o.crs_} {
     switch (crs_) {
@@ -52,7 +54,7 @@ struct PointIterator {
     }
   }
 
-  PointIterator(PointIterator &&o) : storage_{o.storage_}, transaction_{o.transaction_}, crs_{o.crs_} {
+  PointIterator(PointIterator &&o) noexcept : storage_{o.storage_}, transaction_{o.transaction_}, crs_{o.crs_} {
     // boost iterators shouldn't be moved
     switch (crs_) {
       case CoordinateReferenceSystem::WGS84_2d:
@@ -83,7 +85,10 @@ struct PointIterator {
     }
   }
   auto operator=(PointIterator const &o) -> PointIterator & {
+    if (this == &o) return *this;
+
     if (o.crs_ != crs_) {
+      std::destroy_at(this);
       std::construct_at(this, o);
     } else {
       storage_ = o.storage_;
@@ -105,10 +110,11 @@ struct PointIterator {
     }
     return *this;
   }
-  auto operator=(PointIterator &&o) -> PointIterator & {
+  auto operator=(PointIterator &&o) noexcept -> PointIterator & {
     // boost iterators shouldn't be moved
     if (o.crs_ != crs_) {
-      std::construct_at(this, o);
+      std::destroy_at(this);
+      std::construct_at(this, std::move(o));
     } else {
       storage_ = o.storage_;
       transaction_ = o.transaction_;
@@ -168,17 +174,36 @@ struct PointIterator {
     }
   }
 
-  ~PointIterator() {}
+  ~PointIterator() {
+    switch (crs_) {
+      case CoordinateReferenceSystem::WGS84_2d: {
+        std::destroy_at(&wgs84_2d_);
+        break;
+      }
+      case CoordinateReferenceSystem::WGS84_3d: {
+        std::destroy_at(&wgs84_3d_);
+        break;
+      }
+      case CoordinateReferenceSystem::Cartesian_2d: {
+        std::destroy_at(&cartesian_2d_);
+        break;
+      }
+      case CoordinateReferenceSystem::Cartesian_3d: {
+        std::destroy_at(&cartesian_3d_);
+        break;
+      }
+    }
+  }
 
  private:
   Storage *storage_ = nullptr;
   Transaction *transaction_ = nullptr;
   CoordinateReferenceSystem crs_;
   union {
-    index_t<IndexPointWGS2d>::const_iterator wgs84_2d_;
-    index_t<IndexPointWGS3d>::const_iterator wgs84_3d_;
-    index_t<IndexPointCartesian2d>::const_iterator cartesian_2d_;
-    index_t<IndexPointCartesian3d>::const_iterator cartesian_3d_;
+    index_t<IndexPointWGS2d>::const_query_iterator wgs84_2d_;
+    index_t<IndexPointWGS3d>::const_query_iterator wgs84_3d_;
+    index_t<IndexPointCartesian2d>::const_query_iterator cartesian_2d_;
+    index_t<IndexPointCartesian3d>::const_query_iterator cartesian_3d_;
   };
 };
 }  // namespace memgraph::storage

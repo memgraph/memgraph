@@ -26,6 +26,7 @@
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/edge_direction.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/point_index.hpp"
 #include "storage/v2/indices/edge_type_property_index.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
@@ -3008,6 +3009,14 @@ void InMemoryStorage::InMemoryAccessor::DropGraph() {
 auto InMemoryStorage::InMemoryAccessor::PointVertices(View view, LabelId label, PropertyId property,
                                                       CoordinateReferenceSystem crs) -> PointIterable {
   return transaction_.point_index_ctx_.PointVertices(label, property, crs, storage_, &transaction_);
+};
+
+auto InMemoryStorage::InMemoryAccessor::PointVertices(View view, LabelId label, PropertyId property,
+                                                      CoordinateReferenceSystem crs, PropertyValue point_value,
+                                                      PropertyValue boundary_value, PointDistanceCondition condition)
+    -> PointIterable {
+  return transaction_.point_index_ctx_.PointVertices(label, property, crs, storage_, &transaction_, point_value,
+                                                     boundary_value, condition);
 };
 
 }  // namespace memgraph::storage
