@@ -93,17 +93,16 @@ auto ReplicationInstanceClient::SendPromoteReplicaToMainRpc(const utils::UUID &u
                                                             ReplicationClientsInfo replication_clients_info) const
     -> bool {
   try {
-    spdlog::trace("Sending PromoteReplicaToMainRpc");
     auto stream{rpc_client_.Stream<PromoteReplicaToMainRpc>(uuid, std::move(replication_clients_info))};
-    spdlog::trace("Awaiting response after sending PromoteReplicaToMainRpc");
+    spdlog::trace("Sent PromoteReplicaToMainRpc request.");
     if (!stream.AwaitResponse().success) {
-      spdlog::error("Failed to receive successful PromoteReplicaToMainRpc response!");
+      spdlog::error("Received unsuccessful PromoteReplicaToMainRpc response.");
       return false;
     }
-    spdlog::trace("Received successful response to PromoteReplicaToMainRPC");
+    spdlog::trace("Received successful response to PromoteReplicaToMainRPC.");
     return true;
   } catch (rpc::RpcFailedException const &) {
-    spdlog::error("RPC error occurred while sending PromoteReplicaToMainRpc!");
+    spdlog::error("RPC error occurred while sending PromoteReplicaToMainRpc.");
   }
   return false;
 }
@@ -112,11 +111,11 @@ auto ReplicationInstanceClient::DemoteToReplica() const -> bool {
   auto const &instance_name = config_.instance_name;
   try {
     auto stream{rpc_client_.Stream<DemoteMainToReplicaRpc>(config_.replication_client_info)};
+    spdlog::info("Sent RPC request to set instance {} to replica.", instance_name);
     if (!stream.AwaitResponse().success) {
-      spdlog::error("Failed to receive successful RPC response for setting instance {} to replica!", instance_name);
+      spdlog::error("Received unsuccessful RPC response for setting instance {} to replica.", instance_name);
       return false;
     }
-    spdlog::info("Sent request RPC from coordinator to instance to set it as replica!");
     return true;
   } catch (rpc::RpcFailedException const &) {
     spdlog::error("Failed to receive RPC response when demoting instance {} to replica!", instance_name);

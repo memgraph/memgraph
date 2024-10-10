@@ -204,6 +204,7 @@ bool ReplicationHandler::TrySetReplicationRoleReplica(const memgraph::replicatio
   return SetReplicationRoleReplica_<false>(config, main_uuid);
 }
 
+// TODO: (andi) Talk with Andreja about this
 bool ReplicationHandler::DoReplicaToMainPromotion(const utils::UUID &main_uuid) {
   // STEP 1) bring down all REPLICA servers
   dbms_handler_.ForEach([](dbms::DatabaseAccess db_acc) {
@@ -226,7 +227,7 @@ bool ReplicationHandler::DoReplicaToMainPromotion(const utils::UUID &main_uuid) 
     storage->repl_storage_state_.epoch_ = epoch;
 
     // Durability is tracking last durable timestamp from MAIN, whereas timestamp_ is dependent on MVCC
-    // We need to take bigger timestamp not to lose durability ordering
+    // We need to take bigger timestamp not to lose durability ordering.
     storage->timestamp_ =
         std::max(storage->timestamp_, storage->repl_storage_state_.last_durable_timestamp_.load() + 1);
     spdlog::trace("New timestamp on the MAIN is {} for the database {}.", storage->timestamp_, db_acc->name());

@@ -69,7 +69,6 @@ auto ReplicationInstanceConnector::PromoteToMain(utils::UUID const &new_uuid, Re
   return true;
 }
 
-// TODO: (andi) Duplication. We have to refactor this
 auto ReplicationInstanceConnector::SendDemoteToReplicaRpc() -> bool { return client_->DemoteToReplica(); }
 
 auto ReplicationInstanceConnector::SendFrequentHeartbeat() const -> bool { return client_->SendFrequentHeartbeat(); }
