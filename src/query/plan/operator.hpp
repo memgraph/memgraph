@@ -22,6 +22,7 @@
 #include "query/common.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol.hpp"
+#include "query/plan/point_distance_condition.hpp"
 #include "query/plan/preprocess.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/id_types.hpp"
@@ -100,6 +101,7 @@ class ScanAllByEdgeTypeProperty;
 class ScanAllByEdgeTypePropertyValue;
 class ScanAllByEdgeTypePropertyRange;
 class ScanAllByEdgeId;
+class ScanAllByPointDistance;
 class Expand;
 class ExpandVariable;
 class ConstructNamedPath;
@@ -138,10 +140,10 @@ class PeriodicSubquery;
 using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
     Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel, ScanAllByLabelPropertyRange, ScanAllByLabelPropertyValue,
     ScanAllByLabelProperty, ScanAllById, ScanAllByEdge, ScanAllByEdgeType, ScanAllByEdgeTypeProperty,
-    ScanAllByEdgeTypePropertyValue, ScanAllByEdgeTypePropertyRange, ScanAllByEdgeId, Expand, ExpandVariable,
-    ConstructNamedPath, Filter, Produce, Delete, SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels,
-    EdgeUniquenessFilter, Accumulate, Aggregate, Skip, Limit, OrderBy, Merge, Optional, Unwind, Distinct, Union,
-    Cartesian, CallProcedure, LoadCsv, Foreach, EmptyResult, EvaluatePatternFilter, Apply, IndexedJoin, HashJoin,
+    ScanAllByEdgeTypePropertyValue, ScanAllByEdgeTypePropertyRange, ScanAllByEdgeId, ScanAllByPointDistance, Expand,
+    ExpandVariable, ConstructNamedPath, Filter, Produce, Delete, SetProperty, SetProperties, SetLabels, RemoveProperty,
+    RemoveLabels, EdgeUniquenessFilter, Accumulate, Aggregate, Skip, Limit, OrderBy, Merge, Optional, Unwind, Distinct,
+    Union, Cartesian, CallProcedure, LoadCsv, Foreach, EmptyResult, EvaluatePatternFilter, Apply, IndexedJoin, HashJoin,
     RollUpApply, PeriodicCommit, PeriodicSubquery>;
 
 using LogicalOperatorLeafVisitor = utils::LeafVisitor<Once>;
@@ -968,6 +970,41 @@ class ScanAllByEdgeId : public memgraph::query::plan::ScanAllByEdge {
   }
 };
 
+class ScanAllByPointDistance : public memgraph::query::plan::ScanAll {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  ScanAllByPointDistance() = default;
+  ScanAllByPointDistance(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::LabelId label,
+                         storage::PropertyId property, Identifier *cmp_value, Expression *boundary_value,
+                         PointDistanceCondition boundary_condition);
+
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+  std::string ToString() const override;
+
+  storage::LabelId label_;
+  storage::PropertyId property_;
+  Identifier *cmp_value_ = nullptr;
+  Expression *boundary_value_ = nullptr;
+  PointDistanceCondition boundary_condition_;
+
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
+    auto object = std::make_unique<ScanAllByPointDistance>();
+    object->input_ = input_ ? input_->Clone(storage) : nullptr;
+    object->output_symbol_ = output_symbol_;
+    object->view_ = view_;  // TODO: what to do about view, always OLD
+    object->label_ = label_;
+    object->property_ = property_;
+    object->cmp_value_ = cmp_value_ ? cmp_value_->Clone(storage) : nullptr;
+    object->boundary_value_ = boundary_value_ ? boundary_value_->Clone(storage) : nullptr;
+    object->boundary_condition_ = boundary_condition_;
+
+    return object;
+  }
+};
+
 struct ExpandCommon {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const { return kType; }
@@ -1337,6 +1374,9 @@ class Filter : public memgraph::query::plan::LogicalOperator {
     } else if (single_filter.type == Type::Property) {
       return fmt::format("{{{}.{}}}", single_filter.property_filter->symbol_.name(),
                          single_filter.property_filter->property_.name);
+    } else if (single_filter.type == Type::Point) {
+      return fmt::format("{{{}.{}}}", single_filter.point_filter->symbol_.name(),
+                         single_filter.point_filter->property_.name);
     } else {
       LOG_FATAL("Unexpected FilterInfo::Type");
     }

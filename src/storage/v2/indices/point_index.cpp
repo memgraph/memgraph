@@ -11,69 +11,11 @@
 
 #include "storage/v2/indices/point_index.hpp"
 #include "storage/v2/indices/point_index_change_collector.hpp"
+#include "storage/v2/indices/point_index_expensive_header.hpp"
+#include "storage/v2/indices/point_iterator.hpp"
 #include "storage/v2/vertex.hpp"
 
-#include <boost/geometry.hpp>
-#include <boost/geometry/geometries/point.hpp>
-#include <boost/geometry/index/rtree.hpp>
-
-namespace bg = boost::geometry;
-namespace bgi = boost::geometry::index;
-
 namespace memgraph::storage {
-
-struct IndexPointWGS2d {
-  explicit IndexPointWGS2d(Point2d point) : rep{point.x(), point.y()} { DMG_ASSERT(IsWGS(point.crs())); }
-  using point_type = bg::model::point<double, 2, bg::cs::spherical_equatorial<bg::degree>>;
-  point_type rep;
-};
-struct IndexPointWGS3d {
-  explicit IndexPointWGS3d(Point3d point) : rep{point.x(), point.y(), point.z()} { DMG_ASSERT(IsWGS(point.crs())); }
-  using point_type = bg::model::point<double, 3, bg::cs::spherical_equatorial<bg::degree>>;
-  point_type rep;
-};
-struct IndexPointCartesian2d {
-  explicit IndexPointCartesian2d(Point2d point) : rep{point.x(), point.y()} { DMG_ASSERT(IsCartesian(point.crs())); }
-  using point_type = bg::model::point<double, 2, bg::cs::cartesian>;
-  point_type rep;
-};
-struct IndexPointCartesian3d {
-  explicit IndexPointCartesian3d(Point3d point) : rep{point.x(), point.y(), point.z()} {
-    DMG_ASSERT(IsCartesian(point.crs()));
-  }
-  using point_type = bg::model::point<double, 3, bg::cs::cartesian>;
-  point_type rep;
-};
-
-template <typename Point>
-struct Entry {
-  using point_type = typename Point::point_type;
-  Entry(Point p, Vertex const *vertex) : p_(p), vertex_(vertex) {}
-
-  friend bool operator==(Entry const &lhs, Entry const &rhs) {
-    if (lhs.vertex_ != rhs.vertex_) return false;
-    if (!boost::geometry::equals(lhs.p_, rhs.p_)) return false;
-    return true;
-  };
-
-  auto point() const -> point_type const & { return p_.rep; }
-  auto vertex() const -> storage::Vertex const * { return vertex_; }
-
- private:
-  Point p_;
-  storage::Vertex const *vertex_;
-};
-};  // namespace memgraph::storage
-
-template <typename IndexPoint>
-struct bg::index::indexable<memgraph::storage::Entry<IndexPoint>> {
-  using result_type = typename IndexPoint::point_type;
-  auto operator()(memgraph::storage::Entry<IndexPoint> const &val) const -> result_type const & { return val.point(); }
-};
-
-namespace memgraph::storage {
-template <typename IndexPoint>
-using index_t = bgi::rtree<Entry<IndexPoint>, bgi::quadratic<64>>;  // TODO: tune this
 
 struct PointIndex {
   PointIndex() = default;
@@ -87,6 +29,11 @@ struct PointIndex {
   auto EntryCount() const -> std::size_t {
     return wgs_2d_index_->size() + wgs_3d_index_->size() + cartesian_2d_index_->size() + cartesian_3d_index_->size();
   }
+
+  auto GetWgs2dIndex() const -> std::shared_ptr<index_t<IndexPointWGS2d>> { return wgs_2d_index_; }
+  auto GetWgs3dIndex() const -> std::shared_ptr<index_t<IndexPointWGS3d>> { return wgs_3d_index_; }
+  auto GetCartesian2dIndex() const -> std::shared_ptr<index_t<IndexPointCartesian2d>> { return cartesian_2d_index_; }
+  auto GetCartesian3dIndex() const -> std::shared_ptr<index_t<IndexPointCartesian3d>> { return cartesian_3d_index_; }
 
  private:
   PointIndex(std::shared_ptr<index_t<IndexPointWGS2d>> points2dWGS,
@@ -142,6 +89,7 @@ auto update_internal(index_container_t const &src, TrackedChanges const &tracked
 
 bool PointIndexStorage::CreatePointIndex(LabelId label, PropertyId property,
                                          memgraph::utils::SkipList<Vertex>::Accessor vertices) {
+  // indexes_ protected by unique storage access
   auto &indexes = *indexes_;
   auto key = LabelPropKey{label, property};
   if (indexes.contains(key)) return false;
@@ -189,6 +137,7 @@ bool PointIndexStorage::CreatePointIndex(LabelId label, PropertyId property,
 }
 
 bool PointIndexStorage::DropPointIndex(LabelId label, PropertyId property) {
+  // indexes_ protected by unique storage access
   auto &indexes = *indexes_;
   auto it = indexes.find(LabelPropKey{label, property});
   if (it == indexes.end()) return false;
@@ -221,16 +170,23 @@ void PointIndexStorage::InstallNewPointIndex(PointIndexChangeCollector &collecto
 void PointIndexStorage::Clear() { indexes_->clear(); }
 
 std::vector<std::pair<LabelId, PropertyId>> PointIndexStorage::ListIndices() {
-  auto keys = *indexes_ | std::views::keys | std::views::transform([](LabelPropKey key) {
+  auto indexes = indexes_;  // local copy of shared_ptr, for safety
+  auto keys = *indexes | std::views::keys | std::views::transform([](LabelPropKey key) {
     return std::pair{key.label(), key.property()};
   });
   return {keys.begin(), keys.end()};
 }
 
-uint64_t PointIndexStorage::ApproximatePointCount(LabelId labelId, PropertyId propertyId) {
-  auto it = indexes_->find(LabelPropKey{labelId, propertyId});
-  if (it == indexes_->end()) return 0;
+std::optional<uint64_t> PointIndexStorage::ApproximatePointCount(LabelId labelId, PropertyId propertyId) {
+  auto indexes = indexes_;  // local copy of shared_ptr, for safety
+  auto it = indexes->find(LabelPropKey{labelId, propertyId});
+  if (it == indexes->end()) return std::nullopt;
   return it->second->EntryCount();
+}
+
+bool PointIndexStorage::PointIndexExists(LabelId labelId, PropertyId propertyId) {
+  auto indexes = indexes_;  // local copy of shared_ptr, for safety
+  return indexes->contains(LabelPropKey{labelId, propertyId});
 }
 
 auto PointIndex::CreateNewPointIndex(LabelPropKey labelPropKey,
@@ -315,6 +271,19 @@ void PointIndexContext::update_current(PointIndexChangeCollector &collector) {
   collector.ArchiveCurrentChanges();
 }
 
+auto PointIndexContext::PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
+                                      Storage *storage, Transaction *transaction) -> PointIterable {
+  auto const &indexes = *current_indexes_;
+  auto it = indexes.find(LabelPropKey{label, property});
+  if (it == indexes.cend()) {
+    spdlog::warn("Failure why trying to locate a point index that should exist");
+    return {};
+  }
+
+  auto const &point_index = *it->second;
+  return {storage, transaction, point_index, crs};
+}
+
 PointIndex::PointIndex(std::span<Entry<IndexPointWGS2d>> points2dWGS,
                        std::span<Entry<IndexPointCartesian2d>> points2dCartesian,
                        std::span<Entry<IndexPointWGS3d>> points3dWGS,
@@ -334,5 +303,95 @@ PointIndex::PointIndex(std::shared_ptr<index_t<IndexPointWGS2d>> points2dWGS,
       wgs_3d_index_{std::move(points3dWGS)},
       cartesian_2d_index_{std::move(points2dCartesian)},
       cartesian_3d_index_{std::move(points3dCartesian)} {}
+
+struct PointIterable::impl {
+  explicit impl(Storage *storage, Transaction *transaction, std::shared_ptr<index_t<IndexPointWGS2d>> index)
+      : storage_{storage},
+        transaction_{transaction},
+        crs_{CoordinateReferenceSystem::WGS84_2d},
+        wgs84_2d_{std::move(index)} {}
+  explicit impl(Storage *storage, Transaction *transaction, std::shared_ptr<index_t<IndexPointWGS3d>> index)
+      : storage_{storage},
+        transaction_{transaction},
+        crs_{CoordinateReferenceSystem::WGS84_3d},
+        wgs84_3d_{std::move(index)} {}
+  explicit impl(Storage *storage, Transaction *transaction, std::shared_ptr<index_t<IndexPointCartesian2d>> index)
+      : storage_{storage},
+        transaction_{transaction},
+        crs_{CoordinateReferenceSystem::Cartesian_2d},
+        cartesian_2d_{std::move(index)} {}
+  explicit impl(Storage *storage, Transaction *transaction, std::shared_ptr<index_t<IndexPointCartesian3d>> index)
+      : storage_{storage},
+        transaction_{transaction},
+        crs_{CoordinateReferenceSystem::Cartesian_3d},
+        cartesian_3d_{std::move(index)} {}
+
+  friend struct PointIterable;
+
+  // don't need destroy_at for shared ptrs
+  ~impl() {}
+
+ private:
+  Storage *storage_;
+  Transaction *transaction_;
+  CoordinateReferenceSystem crs_;
+  union {
+    std::shared_ptr<index_t<IndexPointWGS2d>> wgs84_2d_;
+    std::shared_ptr<index_t<IndexPointWGS3d>> wgs84_3d_;
+    std::shared_ptr<index_t<IndexPointCartesian2d>> cartesian_2d_;
+    std::shared_ptr<index_t<IndexPointCartesian3d>> cartesian_3d_;
+  };
+};
+
+PointIterable::PointIterable() : pimpl{nullptr} {};
+PointIterable::~PointIterable() = default;
+PointIterable::PointIterable(PointIterable &&) = default;
+PointIterable &PointIterable::operator=(PointIterable &&) = default;
+PointIterable::PointIterable(Storage *storage, Transaction *transaction, PointIndex const &index,
+                             storage::CoordinateReferenceSystem crs) {
+  switch (crs) {
+    case CoordinateReferenceSystem::WGS84_2d: {
+      pimpl = std::make_unique<impl>(storage, transaction, index.GetWgs2dIndex());
+      return;
+    }
+    case CoordinateReferenceSystem::WGS84_3d: {
+      pimpl = std::make_unique<impl>(storage, transaction, index.GetWgs3dIndex());
+      return;
+    }
+    case CoordinateReferenceSystem::Cartesian_2d: {
+      pimpl = std::make_unique<impl>(storage, transaction, index.GetCartesian2dIndex());
+      return;
+    }
+    case CoordinateReferenceSystem::Cartesian_3d: {
+      pimpl = std::make_unique<impl>(storage, transaction, index.GetCartesian3dIndex());
+      return;
+    }
+  }
+}
+
+auto PointIterable::begin() const -> PointIterator {
+  switch (pimpl->crs_) {
+    case CoordinateReferenceSystem::WGS84_2d:
+      return PointIterator{pimpl->storage_, pimpl->transaction_, pimpl->crs_, pimpl->wgs84_2d_->begin()};
+    case CoordinateReferenceSystem::WGS84_3d:
+      return PointIterator{pimpl->storage_, pimpl->transaction_, pimpl->crs_, pimpl->wgs84_3d_->begin()};
+    case CoordinateReferenceSystem::Cartesian_2d:
+      return PointIterator{pimpl->storage_, pimpl->transaction_, pimpl->crs_, pimpl->cartesian_2d_->begin()};
+    case CoordinateReferenceSystem::Cartesian_3d:
+      return PointIterator{pimpl->storage_, pimpl->transaction_, pimpl->crs_, pimpl->cartesian_3d_->begin()};
+  }
+}
+auto PointIterable::end() const -> PointIterator {
+  switch (pimpl->crs_) {
+    case CoordinateReferenceSystem::WGS84_2d:
+      return PointIterator{pimpl->storage_, pimpl->transaction_, pimpl->crs_, pimpl->wgs84_2d_->end()};
+    case CoordinateReferenceSystem::WGS84_3d:
+      return PointIterator{pimpl->storage_, pimpl->transaction_, pimpl->crs_, pimpl->wgs84_3d_->end()};
+    case CoordinateReferenceSystem::Cartesian_2d:
+      return PointIterator{pimpl->storage_, pimpl->transaction_, pimpl->crs_, pimpl->cartesian_2d_->end()};
+    case CoordinateReferenceSystem::Cartesian_3d:
+      return PointIterator{pimpl->storage_, pimpl->transaction_, pimpl->crs_, pimpl->cartesian_3d_->end()};
+  }
+}
 
 }  // namespace memgraph::storage

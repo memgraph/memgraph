@@ -12,6 +12,7 @@
 #pragma once
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/point_index_change_collector.hpp"
+#include "storage/v2/vertex_accessor.hpp"
 #include "utils/skip_list.hpp"
 
 namespace memgraph::storage {
@@ -20,12 +21,39 @@ struct PointIndex;
 
 using index_container_t = std::map<LabelPropKey, std::shared_ptr<PointIndex const>>;
 
+struct PointIterator;
+
+// TODO move?
+struct PointIterable {
+  using iterator = PointIterator;
+
+  PointIterable(Storage *storage, Transaction *transaction, PointIndex const &index,
+                storage::CoordinateReferenceSystem crs);
+  ~PointIterable();
+
+  PointIterable();
+  PointIterable(PointIterable &&);
+  PointIterable &operator=(PointIterable &&);
+
+  auto begin() const -> iterator;
+  auto end() const -> iterator;
+
+  friend bool operator==(PointIterable const &, PointIterable const &) = default;
+
+ private:
+  struct impl;
+  std::unique_ptr<impl> pimpl;
+};
+
 struct PointIndexContext {
   auto IndexKeys() const { return *orig_indexes_ | std::views::keys; }
 
   bool UsingLocalIndex() const { return orig_indexes_ != current_indexes_; }
 
   void AdvanceCommand(PointIndexChangeCollector &collector) { update_current(collector); }
+
+  auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs, Storage *storage,
+                     Transaction *transaction) -> PointIterable;
 
  private:
   // Only PointIndexStorage can make these
@@ -58,7 +86,9 @@ struct PointIndexStorage {
 
   std::vector<std::pair<LabelId, PropertyId>> ListIndices();
 
-  uint64_t ApproximatePointCount(LabelId labelId, PropertyId propertyId);
+  std::optional<uint64_t> ApproximatePointCount(LabelId labelId, PropertyId propertyId);
+
+  bool PointIndexExists(LabelId labelId, PropertyId propertyId);
 
  private:
   std::shared_ptr<index_container_t> indexes_ = std::make_shared<index_container_t>();

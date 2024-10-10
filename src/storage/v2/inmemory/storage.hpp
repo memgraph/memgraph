@@ -222,7 +222,7 @@ class InMemoryStorage final : public Storage {
           edge_type, property, lower, upper);
     }
 
-    uint64_t ApproximatePointCount(LabelId label, PropertyId property) const override {
+    std::optional<uint64_t> ApproximateVerticesPointCount(LabelId label, PropertyId property) const override {
       return storage_->indices_.point_index_.ApproximatePointCount(label, property);
     }
 
@@ -293,6 +293,8 @@ class InMemoryStorage final : public Storage {
       return static_cast<InMemoryStorage *>(storage_)->indices_.edge_type_property_index_->IndexExists(edge_type,
                                                                                                        property);
     }
+
+    bool PointIndexExists(LabelId label, PropertyId property) const override;
 
     IndicesInfo ListAllIndices() const override;
 
@@ -438,6 +440,9 @@ class InMemoryStorage final : public Storage {
         LabelId label, PropertyId property, TypeConstraintKind type) override;
 
     void DropGraph() override;
+
+    auto PointVertices(View view, LabelId label, PropertyId property, CoordinateReferenceSystem crs)
+        -> PointIterable override;
 
    protected:
     // TODO Better naming

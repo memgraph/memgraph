@@ -117,6 +117,13 @@ bool PlanPrinter::PreVisit(query::plan::ScanAllByEdgeTypePropertyRange &op) {
   return true;
 }
 
+bool PlanPrinter::PreVisit(query::plan::ScanAllByPointDistance &op) {
+  op.dba_ = dba_;
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
+  op.dba_ = nullptr;
+  return true;
+}
+
 bool PlanPrinter::PreVisit(query::plan::Expand &op) {
   op.dba_ = dba_;
   WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });

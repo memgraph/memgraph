@@ -117,9 +117,9 @@ class DiskStorage final : public Storage {
       return 10;
     }
 
-    uint64_t ApproximatePointCount(LabelId label, PropertyId property) const override {
+    std::optional<uint64_t> ApproximateVerticesPointCount(LabelId label, PropertyId property) const override {
       // Point index does not exist for on disk
-      return 0;
+      return std::nullopt;
     }
 
     std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId & /*label*/) const override {
@@ -176,6 +176,8 @@ class DiskStorage final : public Storage {
     bool EdgeTypeIndexExists(EdgeTypeId edge_type) const override;
 
     bool EdgeTypePropertyIndexExists(EdgeTypeId edge_type, PropertyId proeprty) const override;
+
+    bool PointIndexExists(LabelId label, PropertyId property) const override;
 
     IndicesInfo ListAllIndices() const override;
 
@@ -239,6 +241,9 @@ class DiskStorage final : public Storage {
         LabelId label, PropertyId property, TypeConstraintKind type) override;
 
     void DropGraph() override;
+
+    auto PointVertices(View view, LabelId label, PropertyId property, CoordinateReferenceSystem crs)
+        -> PointIterable override;
   };
 
   using Storage::Access;

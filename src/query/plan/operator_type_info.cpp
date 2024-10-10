@@ -184,4 +184,7 @@ constexpr utils::TypeInfo query::plan::PeriodicCommit::kType{utils::TypeId::PERI
                                                              &query::plan::LogicalOperator::kType};
 constexpr utils::TypeInfo query::plan::PeriodicSubquery::kType{utils::TypeId::PERIODIC_SUBQUERY, "PeriodicSubquery",
                                                                &query::plan::LogicalOperator::kType};
+
+constexpr utils::TypeInfo query::plan::ScanAllByPointDistance::kType{
+    utils::TypeId::SCAN_ALL_BY_POINT_DISTANCE, "ScanAllByPointDistance", &query::plan::ScanAllByPointDistance::kType};
 }  // namespace memgraph
