@@ -103,13 +103,13 @@ void DataInstanceManagementServerHandlers::DemoteMainToReplicaHandler(
       .repl_server = io::network::Endpoint("0.0.0.0", req.replication_client_info.replication_server.GetPort())};
 
   if (!replication_handler.SetReplicationRoleReplica(clients_config, std::nullopt)) {
-    spdlog::error("Demoting main to replica failed!");
+    spdlog::error("Demoting main to replica failed.");
     slk::Save(coordination::DemoteMainToReplicaRes{false}, res_builder);
     return;
   }
 
   slk::Save(coordination::DemoteMainToReplicaRes{true}, res_builder);
-  spdlog::info("MAIN successfully demoted to REPLICA.");
+  spdlog::info("Instance is now in replica state.");
 }
 
 void DataInstanceManagementServerHandlers::GetInstanceUUIDHandler(replication::ReplicationHandler &replication_handler,
@@ -122,6 +122,8 @@ void DataInstanceManagementServerHandlers::GetInstanceUUIDHandler(replication::R
 
 void DataInstanceManagementServerHandlers::PromoteReplicaToMainHandler(
     replication::ReplicationHandler &replication_handler, slk::Reader *req_reader, slk::Builder *res_builder) {
+  // If MAIN receives a request for promotion we reply with false because that means we are handling some non-expected
+  // request.
   if (!replication_handler.IsReplica()) {
     spdlog::error("Promote to main must be performed on replica.");
     slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);
@@ -130,8 +132,8 @@ void DataInstanceManagementServerHandlers::PromoteReplicaToMainHandler(
   coordination::PromoteReplicaToMainReq req;
   slk::Load(&req, req_reader);
 
-  // This can fail because of disk. If it does, the cluster state could get inconsistent.
-  // We don't handle disk issues.
+  // Request to replication_handler could fail because we couldn't persist promotion to disk. In that case we rely
+  // on atomicity of RocksDB that nothing got partially written.
   if (const bool success = replication_handler.DoReplicaToMainPromotion(req.main_uuid); !success) {
     spdlog::error("Promoting replica to main failed.");
     slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);
@@ -139,6 +141,10 @@ void DataInstanceManagementServerHandlers::PromoteReplicaToMainHandler(
   }
 
   // registering replicas
+  // Potential issue.
+  // TODO: (andi) Talk with Andreja about this. I think return here doesn't make sense.
+  // We should either continue or reply with false.
+  // If we just return what gets replied, true or false?
   for (auto const &config : req.replication_clients_info) {
     if (!DoRegisterReplica<coordination::PromoteReplicaToMainRes>(replication_handler, config, res_builder)) {
       return;
