@@ -35,7 +35,9 @@
 #include "storage/v2/edges_iterable.hpp"
 #include "storage/v2/enum_store.hpp"
 #include "storage/v2/indices/indices.hpp"
+#include "storage/v2/indices/point_index.hpp"
 #include "storage/v2/mvcc.hpp"
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/replication_client.hpp"
 #include "storage/v2/replication/replication_storage_state.hpp"
@@ -450,6 +452,10 @@ class Storage {
 
     virtual auto PointVertices(View view, LabelId label, PropertyId property, CoordinateReferenceSystem crs)
         -> PointIterable = 0;
+
+    virtual auto PointVertices(View view, LabelId label, PropertyId property, CoordinateReferenceSystem crs,
+                               PropertyValue point_value, PropertyValue boundary_value,
+                               PointDistanceCondition condition) -> PointIterable = 0;
 
    protected:
     Storage *storage_;

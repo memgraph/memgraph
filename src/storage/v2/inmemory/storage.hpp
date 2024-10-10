@@ -444,6 +444,10 @@ class InMemoryStorage final : public Storage {
     auto PointVertices(View view, LabelId label, PropertyId property, CoordinateReferenceSystem crs)
         -> PointIterable override;
 
+    auto PointVertices(View view, LabelId label, PropertyId property, CoordinateReferenceSystem crs,
+                       PropertyValue point_value, PropertyValue boundary_value, PointDistanceCondition condition)
+        -> PointIterable override;
+
    protected:
     // TODO Better naming
     /// @throw std::bad_alloc
