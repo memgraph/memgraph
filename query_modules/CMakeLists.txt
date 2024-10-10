@@ -80,6 +80,23 @@ set_target_properties(text_search PROPERTIES
 # Also install the source of the example, so user can read it.
 install(FILES text_search_module.cpp DESTINATION lib/memgraph/query_modules/src)
 
+add_library(vector_search SHARED vector_search_module.cpp)
+target_include_directories(vector_search PRIVATE ${CMAKE_SOURCE_DIR}/include)
+target_compile_options(vector_search PRIVATE -Wall)
+target_link_libraries(vector_search PRIVATE -static-libgcc -static-libstdc++ fmt::fmt)
+# Strip C++ example in release build.
+if (lower_build_type STREQUAL "release")
+  add_custom_command(TARGET vector_search POST_BUILD
+                     COMMAND strip -s $<TARGET_FILE:vector_search>
+                     COMMENT "Stripping symbols and sections from the C++ vector_search module")
+endif()
+set_target_properties(vector_search PROPERTIES
+    PREFIX ""
+    OUTPUT_NAME "vector_search"
+)
+# Also install the source of the example, so user can read it.
+install(FILES vector_search_module.cpp DESTINATION lib/memgraph/query_modules/src)
+
 # Install C++ query modules
 install(TARGETS example_c example_cpp schema text_search
     DESTINATION lib/memgraph/query_modules

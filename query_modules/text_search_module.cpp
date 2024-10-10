@@ -9,12 +9,13 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+// TODO(gitbuda): Try to use logging under xyz_search modules.
+#include <iostream>
 #include <string>
 #include <string_view>
 
 #include <fmt/format.h>
 
-#include <iostream>
 #include <mgp.hpp>
 
 namespace TextSearch {
