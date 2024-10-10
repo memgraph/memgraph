@@ -393,7 +393,22 @@ struct PointIterable::impl {
   friend struct PointIterable;
 
   // don't need destroy_at for shared ptrs
-  ~impl() {}
+  ~impl() {
+    switch (crs_) {
+      case CoordinateReferenceSystem::WGS84_2d:
+        std::destroy_at(&wgs84_2d_);
+        break;
+      case CoordinateReferenceSystem::WGS84_3d:
+        std::destroy_at(&wgs84_3d_);
+        break;
+      case CoordinateReferenceSystem::Cartesian_2d:
+        std::destroy_at(&cartesian_2d_);
+        break;
+      case CoordinateReferenceSystem::Cartesian_3d:
+        std::destroy_at(&cartesian_3d_);
+        break;
+    }
+  }
 
  private:
   Storage *storage_;
@@ -417,7 +432,7 @@ struct PointIterable::impl {
 
 PointIterable::PointIterable() : pimpl{nullptr} {};
 PointIterable::~PointIterable() = default;
-PointIterable::PointIterable(PointIterable &&) = default;
+PointIterable::PointIterable(PointIterable &&) noexcept = default;
 PointIterable &PointIterable::operator=(PointIterable &&) = default;
 PointIterable::PointIterable(Storage *storage, Transaction *transaction, PointIndex const &index,
                              storage::CoordinateReferenceSystem crs) {
@@ -470,6 +485,20 @@ PointIterable::PointIterable(Storage *storage, Transaction *transaction, PointIn
 
 // TODO: can't template querying because pimpl is forward declared
 namespace {
+
+template <typename point_type>
+std::pair<point_type, point_type> create_bounding_box_2d(const point_type &point, double boundary) {
+  point_type min_corner(point.x() - boundary, point.y() - boundary);
+  point_type max_corner(point.x() + boundary, point.y() + boundary);
+  return {min_corner, max_corner};
+}
+
+template <typename point_type>
+std::pair<point_type, point_type> create_bounding_box_3d(const point_type &point, double boundary) {
+  point_type min_corner(point.x() - boundary, point.y() - boundary, point.z() - boundary);
+  point_type max_corner(point.x() + boundary, point.y() + boundary, point.z() + boundary);
+  return {min_corner, max_corner};
+}
 
 auto get_index_iterator_distance_wgs2d(std::shared_ptr<index_t<IndexPointWGS2d>> index,
                                        PropertyValue const &point_value, PropertyValue const &boundary_value,

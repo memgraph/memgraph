@@ -40,7 +40,7 @@ struct PointIterable {
   ~PointIterable();
 
   PointIterable();
-  PointIterable(PointIterable &&);
+  PointIterable(PointIterable &&) noexcept;
   PointIterable &operator=(PointIterable &&);
 
   auto begin() const -> iterator;
