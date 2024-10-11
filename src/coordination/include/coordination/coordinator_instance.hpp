@@ -73,6 +73,9 @@ class CoordinatorInstance {
 
   auto GetRoutingTable() const -> RoutingTable;
 
+  static auto GetMostUpToDateInstanceFromHistories(std::list<ReplicationInstanceConnector> &instances)
+      -> std::optional<std::string>;
+
   static auto ChooseMostUpToDateInstance(std::span<InstanceNameDbHistories> histories) -> NewMainRes;
 
   auto HasMainState(std::string_view instance_name) const -> bool;

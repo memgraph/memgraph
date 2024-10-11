@@ -56,41 +56,6 @@ namespace memgraph::coordination {
 namespace {
 constexpr int kDisconnectedCluster = 1;
 
-auto GetMostUpToDateInstanceFromHistories(std::list<ReplicationInstanceConnector> &instances)
-    -> std::optional<std::string> {
-  if (instances.empty()) {
-    return std::nullopt;
-  }
-
-  auto const get_ts = [](auto &&instance) {
-    spdlog::trace("Sending get instance timestamps to {}", instance.InstanceName());
-    return instance.GetClient().SendGetInstanceTimestampsRpc();
-  };
-
-  auto maybe_instance_db_histories = instances | ranges::views::transform(get_ts);
-
-  auto const ts_has_value = [](auto &&instance_history) -> bool {
-    auto const &[_, history] = instance_history;
-    return history.HasValue();
-  };
-
-  auto transform_to_pairs = ranges::views::transform([](auto &&instance_history) {
-    auto const &[instance, history] = instance_history;
-    return std::make_pair(instance.InstanceName(), history.GetValue());
-  });
-
-  auto instance_db_histories = ranges::views::zip(instances, maybe_instance_db_histories) |
-                               ranges::views::filter(ts_has_value) | transform_to_pairs | ranges::to<std::vector>();
-
-  auto [most_up_to_date_instance, latest_epoch, latest_commit_timestamp] =
-      CoordinatorInstance::ChooseMostUpToDateInstance(instance_db_histories);
-
-  spdlog::trace("The most up to date instance is {} with epoch {} and {} latest commit timestamp.",
-                most_up_to_date_instance, latest_epoch, latest_commit_timestamp);  // NOLINT
-
-  return most_up_to_date_instance;
-}
-
 }  // namespace
 
 using nuraft::ptr;
@@ -665,18 +630,23 @@ auto CoordinatorInstance::TryFailover() -> void {
     return;
   }
 
-  // TODO: (andi) Check this fact.
   // We don't need to stop frequent check as we have lock, and we will swap callback function during locked phase
   // In frequent check only when we take lock we then check which function (MAIN/REPLICA) success or fail callback
   // we need to call
 
   auto const new_main_uuid = utils::UUID{};
 
-  // TODO: (andi) Don't use OnScopeExit, that's too pessimistic here.
+  // TODO: (andi) What if leader becomes follower while in ReconcileClusterState?
+  // Probably we don't have a majority anymore since writing to raft log failed.
+  // Callbacks will still be active but since the lock is opened they won't be executed. Once we start executing
+  // ReconcileClusterState then all frequent checks will be stopped.
   // If we opened the lock but failed to update uuid of new main then still nothing bad happened.
   // We have to close the lock and try again. Not a single replica instance will listen to new UUID because
   // no instance got request for swapping UUID yet.
   if (!raft_state_->AppendUpdateUUIDForNewMainLog(new_main_uuid)) {
+    spdlog::error(
+        "Failed to AppendUpdateUUIDForNewMainLog in the failover process. Adding task to ReconcileClusterState.");
+    thread_pool_.AddTask([this]() { this->ReconcileClusterState(); });
     return;
   }
 
@@ -688,9 +658,9 @@ auto CoordinatorInstance::TryFailover() -> void {
                            ranges::to<ReplicationClientsInfo>();
 
   // If we fail to promote main here, Raft state is still ok. We just have active UUID that no instance is listening to.
-  // New main could fail to get promoted because it could die since the Failover method started. In that case
+  // New main could fail to get promoted because it could die since the failover method started. In that case
   // MainFailCallback will get executed again and we will try to find next new main. Callbacks MainSuccessCallback and
-  // MainFailCallback will get assigned to new main only if we received successful RPC response We should have a
+  // MainFailCallback will get assigned to new main only if we received successful RPC response. We should have a
   // guarantee that if the PromoteToMain failed because of a reason different than that the instance is down that when
   // we run again TryFailover we will be able to choose again the same instance.
   // TODO: (andi) I think this is serious one. Talk with Andreja.
@@ -699,10 +669,11 @@ auto CoordinatorInstance::TryFailover() -> void {
   if (!new_main.PromoteToMain(new_main_uuid, std::move(repl_clients_info), &CoordinatorInstance::MainSuccessCallback,
                               &CoordinatorInstance::MainFailCallback)) {
     spdlog::warn("Failed to promote instance {} to become new main in the failover process.", new_main_name);
+    if (!raft_state_->AppendCloseLock()) {
+      thread_pool_.AddTask([this]() { this->ReconcileClusterState(); });
+    }
     return;
   }
-
-  // TODO: (andi) Demote callbacks.
 
   // This could fail because of several reasons:
   // 1. Instance (I) crashed. In that case new leader will get elected and the leader will see that there is no instance
@@ -710,15 +681,27 @@ auto CoordinatorInstance::TryFailover() -> void {
   // 2. Two followers died and we don't have a majority anymore. One of followers (or both) could come up at any moment
   // and we are in trouble than because two instances have MainSuccessCallback and MainFailCallback. That's why on exit
   // we have to call ReconcileClusterState.
-  // TODO: (andi) I think it's not necessary to set is_leader_ready_ to false because lock is opened hence callbacks not
-  // executed At one point we will start executing ReconcileClusterState. The 1st thing which will do there is stop all
-  // frequent checks so we shouldn't be in problem.
   if (!raft_state_->AppendSetInstanceAsMainLog(new_main_name, new_main_uuid)) {
     spdlog::error(
         "Failed to AppendSetInstanceAsMainLog in the failover process. Adding task to ReconcileClusterState.");
     thread_pool_.AddTask([this]() { this->ReconcileClusterState(); });
     return;
   }
+
+  // If writing already enabled all good, the action is idempotent. If the action fails, we will have 2 instances with
+  // MainSuccessCallback and MainFailCallback. This is unrecoverable state, the lock will remain opened and we add task
+  // for reconciliation.
+  if (!new_main.EnableWritingOnMain()) {
+    spdlog::error("Couldn't enable writing on new main instance {}.", new_main_name);
+    thread_pool_.AddTask([this]() { this->ReconcileClusterState(); });
+    return;
+  }
+  spdlog::trace("Enabled writing on new main instance {}.", new_main_name);
+
+  std::ranges::for_each(new_replicas, [](auto &&instance) {
+    instance.SetCallbacks(&CoordinatorInstance::DemoteSuccessCallback, &CoordinatorInstance::DemoteFailCallback);
+  });
+  spdlog::trace("Set DemoteSuccessCallback and DemoteFailCallback to all future replicas.");
 
   // This could fail because of several reasons:
   // 1. Instance (I) crashed. In that case new leader will get elected and the leader will see that there is an instance
@@ -729,13 +712,6 @@ auto CoordinatorInstance::TryFailover() -> void {
     spdlog::error("Failed to AppendCloseLock in the failover process. Adding task to ReconcileClusterState.");
     thread_pool_.AddTask([this]() { this->ReconcileClusterState(); });
     return;
-  }
-
-  // TODO: (andi) What happens in this case? How to come out of this situation?
-  if (!new_main.EnableWritingOnMain()) {
-    spdlog::error("Failover successful but couldn't enable writing on instance.");
-  } else {
-    spdlog::info("Failover successful! Instance {} promoted to main.", new_main_name);
   }
 }
 
@@ -1309,7 +1285,8 @@ void CoordinatorInstance::DemoteFailCallback(std::string_view repl_instance_name
   repl_instance.OnFailPing();
 }
 
-auto ChooseMostUpToDateInstance(std::span<InstanceNameDbHistories> instance_database_histories) -> NewMainRes {
+auto CoordinatorInstance::ChooseMostUpToDateInstance(std::span<InstanceNameDbHistories> instance_database_histories)
+    -> NewMainRes {
   std::optional<NewMainRes> new_main_res;
   std::for_each(
       instance_database_histories.begin(), instance_database_histories.end(),
@@ -1390,6 +1367,41 @@ auto CoordinatorInstance::IsLeader() const -> bool { return raft_state_->IsLeade
 
 auto CoordinatorInstance::GetRaftState() -> RaftState & { return *raft_state_; }
 auto CoordinatorInstance::GetRaftState() const -> RaftState const & { return *raft_state_; }
+
+auto CoordinatorInstance::GetMostUpToDateInstanceFromHistories(std::list<ReplicationInstanceConnector> &instances)
+    -> std::optional<std::string> {
+  if (instances.empty()) {
+    return std::nullopt;
+  }
+
+  auto const get_ts = [](auto &&instance) {
+    spdlog::trace("Sending get instance timestamps to {}", instance.InstanceName());
+    return instance.GetClient().SendGetInstanceTimestampsRpc();
+  };
+
+  auto maybe_instance_db_histories = instances | ranges::views::transform(get_ts);
+
+  auto const ts_has_value = [](auto &&instance_history) -> bool {
+    auto const &[_, history] = instance_history;
+    return history.HasValue();
+  };
+
+  auto transform_to_pairs = ranges::views::transform([](auto &&instance_history) {
+    auto const &[instance, history] = instance_history;
+    return std::make_pair(instance.InstanceName(), history.GetValue());
+  });
+
+  auto instance_db_histories = ranges::views::zip(instances, maybe_instance_db_histories) |
+                               ranges::views::filter(ts_has_value) | transform_to_pairs | ranges::to<std::vector>();
+
+  auto [most_up_to_date_instance, latest_epoch, latest_commit_timestamp] =
+      CoordinatorInstance::ChooseMostUpToDateInstance(instance_db_histories);
+
+  spdlog::trace("The most up to date instance is {} with epoch {} and {} latest commit timestamp.",
+                most_up_to_date_instance, latest_epoch, latest_commit_timestamp);  // NOLINT
+
+  return most_up_to_date_instance;
+}
 
 }  // namespace memgraph::coordination
 #endif
