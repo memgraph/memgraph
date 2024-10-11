@@ -402,7 +402,6 @@ auto CoordinatorInstance::ReconcileClusterState_() -> ReconcileClusterStateStatu
   }};
 
   auto const raft_state_replication_instances = raft_state_->GetReplicationInstances();
-  spdlog::trace("Fetched replication instances in ReconcileClusterState_");
 
   // User can execute action on coordinator while it is connected to the cluster
   // or it is not connected yet.
@@ -435,130 +434,98 @@ auto CoordinatorInstance::ReconcileClusterState_() -> ReconcileClusterStateStatu
   // We don't need to open lock here as we have mechanism to know whether action was success (state which we return).
   // If action failed we try again, otherwise we are done and we set leader is ready.
 
-  // To each instance we send RPC
-  // If RPC fails we consider instance dead
-  // Otherwise we consider instance alive
-  // If at any point later RPC fails for alive instance, we consider this failure.
-
-  std::ranges::for_each(raft_state_replication_instances, [this](auto &&replica) {
-    auto client = std::make_unique<ReplicationInstanceClient>(this, replica.config, client_succ_cb_, client_fail_cb_);
+  std::ranges::for_each(raft_state_replication_instances, [this](auto &&instance) {
+    auto client = std::make_unique<ReplicationInstanceClient>(this, instance.config, client_succ_cb_, client_fail_cb_);
     repl_instances_.emplace_back(std::move(client));
   });
-  spdlog::trace("ReplicationInstanceClient created for all replication instances.");
 
   auto current_mains = repl_instances_ | ranges::views::filter([raft_state_ptr = raft_state_.get()](auto &&instance) {
                          return raft_state_ptr->IsCurrentMain(instance.InstanceName());
                        });
 
-  auto const num_mains = std::ranges::distance(current_mains);
+  auto const [maybe_new_main_name,
+              last_main_alive] = std::invoke([this, &current_mains]() -> std::pair<std::optional<std::string>, bool> {
+    auto const num_mains = std::ranges::distance(current_mains);
 
-  MG_ASSERT(
-      num_mains <= 1,
-      "Found more than one current main. System cannot operate under this assumption, please contact the support.");
+    if (num_mains == 0) {
+      spdlog::trace(
+          "No main can be determined from the current state in logs. Trying to find most up to date instance from "
+          "histories.");
+      return {CoordinatorInstance::GetMostUpToDateInstanceFromHistories(repl_instances_), false};
+    }
 
-  // If we have alive MAIN instance we expect that the cluster was in the correct state already. We can start frequent
-  // checks and set all appropriate callbacks.
-  if (num_mains == 1) {
-    auto main_instance = std::ranges::begin(current_mains);
-    spdlog::trace("Last main instance {} is alive.", main_instance->InstanceName());
+    if (num_mains == 1) {
+      // If we have alive MAIN instance we expect that the cluster was in the correct state already. We can start
+      // frequent checks and set all appropriate callbacks.
+      auto main_instance = std::ranges::begin(current_mains);
+      auto main_instance_name = main_instance->InstanceName();
+      spdlog::trace("Last main instance {} is alive.", main_instance_name);
+      return {main_instance_name, true};
+    }
 
-    auto replicas = repl_instances_ | ranges::views::filter([raft_state_ptr = raft_state_.get()](auto &&instance) {
-                      return raft_state_ptr->IsCurrentMain(instance.InstanceName());
-                    });
+    MG_ASSERT(
+        false,
+        "Found more than one current main. System cannot operate under this assumption, please contact the support.");
+  });
 
-    std::ranges::for_each(replicas, [](auto &&instance) {
-      instance.SetCallbacks(&CoordinatorInstance::DemoteSuccessCallback, &CoordinatorInstance::DemoteFailCallback);
-    });
-    spdlog::trace("Set DemoteSuccessCallback and DemoteFailCallback to all future replicas.");
-
-    main_instance->SetCallbacks(&CoordinatorInstance::MainSuccessCallback, &CoordinatorInstance::MainFailCallback);
-    spdlog::trace("Set MainSuccessCallback and MainFailCallback for the current main {}.",
-                  main_instance->InstanceName());
-
-    std::ranges::for_each(repl_instances_, [](auto &&instance) {
-      MG_ASSERT(instance.GetSuccessCallback() != nullptr && instance.GetFailCallback() != nullptr,
-                "Callbacks are not properly set. One of instances wasn't assigned success or fail callback.");
-      instance.StartFrequentCheck();
-    });
-    spdlog::trace("Exiting ReconcileClusterState_. Cluster is in healthy state.");
-    return ReconcileClusterStateStatus::SUCCESS;
-  }
-
-  // Currently MAIN is considered dead
-  // We want to demote all alive instances to replica immediately so MAIN instances can stop sending requests to
-  // replicas
-
-  // Actions to do
-  // 1. Send to each alive instance which is REPLICA that we SWAP UUID of new MAIN
-  // 2. Set new UUID for new MAIN
-  // 3. Promote new MAIN
-
-  // Cluster currently consists of:
-  // 1. Dead or network partitioned MAIN
-  // 2. Alive replica instances
-  // 3. Alive non-replica instances (old mains)
-  // 4. Dead MAINs
-  // 5. Dead REPLICAs
-
-  // Note: If we first send SET UUID of NEW MAIN and coordinator fails at that point, even if main gets back up when new
-  // coordinator becomes LEADER, we will lose current MAIN
-
-  spdlog::trace("No main can be determined from the current state in logs.");
-
-  auto maybe_most_up_to_date_instance = GetMostUpToDateInstanceFromHistories(repl_instances_);
-  if (!maybe_most_up_to_date_instance.has_value()) {
-    spdlog::error("Exiting ReconcileClusterState. Couldn't choose instance for failover, check logs for more details.");
+  // If we couldn't find new main, just try to repeat the process. Cluster still in manageable state.
+  if (!maybe_new_main_name.has_value()) {
+    spdlog::error(
+        "Exiting ReconcileClusterState. Couldn't choose instance to be new main when reconciling cluster state, check "
+        "logs for more details.");
     return ReconcileClusterStateStatus::FAIL;
   }
 
-  auto &new_main = FindReplicationInstance(*maybe_most_up_to_date_instance);
+  auto const &new_main_name = *maybe_new_main_name;
+  auto &new_main = FindReplicationInstance(new_main_name);
   spdlog::trace("Found the new main with instance name {}", new_main.InstanceName());
+  new_main.SetCallbacks(&CoordinatorInstance::MainSuccessCallback, &CoordinatorInstance::MainFailCallback);
 
-  auto const is_not_new_main = [&new_main](auto &&repl_instance) {
-    return repl_instance.InstanceName() != new_main.InstanceName();
-  };
+  auto const is_not_new_main = [&new_main_name](auto &&instance) { return instance.InstanceName() != new_main_name; };
 
   auto new_replicas = repl_instances_ | ranges::views::filter(is_not_new_main);
-
-  auto const new_uuid = utils::UUID{};
-  spdlog::trace("New UUID was generated {}.", std::string{new_uuid});
-
-  // We want to change cluster ID of current MAIN so no old instance will return to MAIN state
-  if (!raft_state_->AppendUpdateUUIDForNewMainLog(new_uuid)) {
-    spdlog::error("Update log for new MAIN failed, assuming coordinator is now follower");
-    return ReconcileClusterStateStatus::FAIL;
-  }
-  spdlog::trace("Successfully added a log for seting new cluster's UUID.");
-
-  auto repl_clients_info = new_replicas |
-                           ranges::views::transform(&ReplicationInstanceConnector::GetReplicationClientInfo) |
-                           ranges::to<ReplicationClientsInfo>();
-
-  if (!new_main.PromoteToMain(new_uuid, std::move(repl_clients_info), &CoordinatorInstance::MainSuccessCallback,
-                              &CoordinatorInstance::MainFailCallback)) {
-    spdlog::warn(
-        "Exiting ReconcileClusterState. Reconcile cluster state failed since promoting replica to main failed.");
-    return ReconcileClusterStateStatus::FAIL;
-  }
-  spdlog::trace("Promoted instance {} to main.", new_main.InstanceName());
-
-  // This will set cluster in healthy state again
-  if (!raft_state_->AppendSetInstanceAsMainLog(*maybe_most_up_to_date_instance, new_uuid)) {
-    spdlog::error("Exiting ReconcileClusterState. Update log for new MAIN failed");
-    return ReconcileClusterStateStatus::FAIL;
-  }
-  spdlog::trace("Added log for setting new main instance.");
 
   std::ranges::for_each(new_replicas, [](auto &&instance) {
     instance.SetCallbacks(&CoordinatorInstance::DemoteSuccessCallback, &CoordinatorInstance::DemoteFailCallback);
   });
-  spdlog::trace("Set DemoteSuccessCallback and DemoteFailCallback to all future replicas.");
 
-  std::ranges::for_each(repl_instances_, [](auto &instance) {
+  std::ranges::for_each(repl_instances_, [](auto &&instance) {
     MG_ASSERT(instance.GetSuccessCallback() != nullptr && instance.GetFailCallback() != nullptr,
               "Callbacks are not properly set. One of instances wasn't assigned success or fail callback.");
-    instance.StartFrequentCheck();
   });
+
+  if (!last_main_alive) {
+    auto const new_uuid = utils::UUID{};
+    spdlog::trace("New UUID was generated {}.", std::string{new_uuid});
+
+    // We want to change cluster ID of current MAIN so no old instance will return to MAIN state
+    // If we write to Raft log new UUID and then crash, the new leader will see this new uuid, figure out
+    // that there is no instance with this UUID and choose the instance to be new main based on history.
+    if (!raft_state_->AppendUpdateUUIDForNewMainLog(new_uuid)) {
+      spdlog::error("Update log for new MAIN failed, assuming coordinator is now follower");
+      return ReconcileClusterStateStatus::FAIL;
+    }
+
+    auto repl_clients_info = new_replicas |
+                             ranges::views::transform(&ReplicationInstanceConnector::GetReplicationClientInfo) |
+                             ranges::to<ReplicationClientsInfo>();
+
+    // If something failed, we will try to repeat the process one more time.
+    if (!new_main.PromoteToMain(new_uuid, std::move(repl_clients_info), &CoordinatorInstance::MainSuccessCallback,
+                                &CoordinatorInstance::MainFailCallback)) {
+      spdlog::warn(
+          "Exiting ReconcileClusterState. Reconcile cluster state failed since promoting replica to main failed.");
+      return ReconcileClusterStateStatus::FAIL;
+    }
+
+    // This will set cluster in healthy state again
+    if (!raft_state_->AppendSetInstanceAsMainLog(new_main_name, new_uuid)) {
+      spdlog::error("Exiting ReconcileClusterState. Update log for new MAIN failed");
+      return ReconcileClusterStateStatus::FAIL;
+    }
+  }
+
+  std::ranges::for_each(repl_instances_, [](auto &&instance) { instance.StartFrequentCheck(); });
 
   spdlog::trace("Exiting ReconcileClusterState. Cluster is in healthy state.");
   return ReconcileClusterStateStatus::SUCCESS;

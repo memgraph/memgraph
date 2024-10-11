@@ -122,8 +122,6 @@ void DataInstanceManagementServerHandlers::GetInstanceUUIDHandler(replication::R
 
 void DataInstanceManagementServerHandlers::PromoteReplicaToMainHandler(
     replication::ReplicationHandler &replication_handler, slk::Reader *req_reader, slk::Builder *res_builder) {
-  // If MAIN receives a request for promotion we reply with false because that means we are handling some non-expected
-  // request.
   if (!replication_handler.IsReplica()) {
     spdlog::error("Promote to main must be performed on replica.");
     slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);

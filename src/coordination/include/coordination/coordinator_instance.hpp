@@ -122,7 +122,8 @@ class CoordinatorInstance {
   //   a) Instance which we want to demote died. In that case we want to close the lock and we will repeat the action
   //   when DemoteSuccessCallback gets executed again.
   //   b) We cannot write to Raft log because we lost majority. We will probably not be leader anymore and hence same
-  //   situation as number 2. c) We are still the leader but writing to Raft log failed because of some reason. Try to
+  //   situation as number 2.
+  //   c) We are still the leader but writing to Raft log failed because of some reason. Try to
   //   AppendCloseLock. If we succeed good, next execution of DemoteSuccessCallback can try again. If not, something is
   //   wrong and we are in some unknown state.
   void DemoteSuccessCallback(std::string_view repl_instance_name);
