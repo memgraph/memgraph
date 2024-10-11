@@ -204,7 +204,6 @@ bool ReplicationHandler::TrySetReplicationRoleReplica(const memgraph::replicatio
   return SetReplicationRoleReplica_<false>(config, main_uuid);
 }
 
-// TODO: (andi) Talk with Andreja about this
 bool ReplicationHandler::DoReplicaToMainPromotion(const utils::UUID &main_uuid) {
   // STEP 1) bring down all REPLICA servers
   dbms_handler_.ForEach([](dbms::DatabaseAccess db_acc) {

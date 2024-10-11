@@ -612,13 +612,6 @@ auto CoordinatorInstance::TryFailover() -> void {
     return;
   }
 
-  utils::OnScopeExit const do_reset{[this]() {
-    if (raft_state_->IsLockOpened() && raft_state_->IsLeader()) {
-      spdlog::trace("Adding task to try reconcile cluster state as lock is still opened after failover.");
-      thread_pool_.AddTask([this]() { this->ReconcileClusterState(); });
-    }
-  }};
-
   auto &new_main = FindReplicationInstance(*maybe_most_up_to_date_instance);
   auto const &new_main_name = new_main.InstanceName();
   spdlog::trace("Found an instance {} to be a new main.", new_main_name);
@@ -636,17 +629,18 @@ auto CoordinatorInstance::TryFailover() -> void {
 
   auto const new_main_uuid = utils::UUID{};
 
-  // TODO: (andi) What if leader becomes follower while in ReconcileClusterState?
-  // Probably we don't have a majority anymore since writing to raft log failed.
+  // Probably we don't have a majority anymore since writing to Raft log failed.
   // Callbacks will still be active but since the lock is opened they won't be executed. Once we start executing
   // ReconcileClusterState then all frequent checks will be stopped.
   // If we opened the lock but failed to update uuid of new main then still nothing bad happened.
-  // We have to close the lock and try again. Not a single replica instance will listen to new UUID because
-  // no instance got request for swapping UUID yet.
+  // If this failed because I lost majority, I won't be leader anymore and hence no need to do anything.
+  // If this failed because of some other reason -> reconciliation.
   if (!raft_state_->AppendUpdateUUIDForNewMainLog(new_main_uuid)) {
     spdlog::error(
         "Failed to AppendUpdateUUIDForNewMainLog in the failover process. Adding task to ReconcileClusterState.");
-    thread_pool_.AddTask([this]() { this->ReconcileClusterState(); });
+    if (raft_state_->IsLeader()) {
+      thread_pool_.AddTask([this]() { this->ReconcileClusterState(); });
+    }
     return;
   }
 
@@ -684,16 +678,21 @@ auto CoordinatorInstance::TryFailover() -> void {
   if (!raft_state_->AppendSetInstanceAsMainLog(new_main_name, new_main_uuid)) {
     spdlog::error(
         "Failed to AppendSetInstanceAsMainLog in the failover process. Adding task to ReconcileClusterState.");
-    thread_pool_.AddTask([this]() { this->ReconcileClusterState(); });
+    if (raft_state_->IsLeader()) {
+      thread_pool_.AddTask([this]() { this->ReconcileClusterState(); });
+    }
     return;
   }
 
   // If writing already enabled all good, the action is idempotent. If the action fails, we will have 2 instances with
   // MainSuccessCallback and MainFailCallback. This is unrecoverable state, the lock will remain opened and we add task
-  // for reconciliation.
+  // for reconciliation if I am still the leader. If not, lock is opened so callbacks won't get executed.
+  // Closing the lock here without reconciliation would be a mistake.
   if (!new_main.EnableWritingOnMain()) {
     spdlog::error("Couldn't enable writing on new main instance {}.", new_main_name);
-    thread_pool_.AddTask([this]() { this->ReconcileClusterState(); });
+    if (raft_state_->IsLeader()) {
+      thread_pool_.AddTask([this]() { this->ReconcileClusterState(); });
+    }
     return;
   }
   spdlog::trace("Enabled writing on new main instance {}.", new_main_name);
@@ -710,7 +709,9 @@ auto CoordinatorInstance::TryFailover() -> void {
   // and we are in trouble than because instances cannot successfully execute their callbacks.
   if (!raft_state_->AppendCloseLock()) {
     spdlog::error("Failed to AppendCloseLock in the failover process. Adding task to ReconcileClusterState.");
-    thread_pool_.AddTask([this]() { this->ReconcileClusterState(); });
+    if (raft_state_->IsLeader()) {
+      thread_pool_.AddTask([this]() { this->ReconcileClusterState(); });
+    }
     return;
   }
 }

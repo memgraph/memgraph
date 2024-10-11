@@ -141,10 +141,6 @@ void DataInstanceManagementServerHandlers::PromoteReplicaToMainHandler(
   }
 
   // registering replicas
-  // Potential issue.
-  // TODO: (andi) Talk with Andreja about this. I think return here doesn't make sense.
-  // We should either continue or reply with false.
-  // If we just return what gets replied, true or false?
   for (auto const &config : req.replication_clients_info) {
     if (!DoRegisterReplica<coordination::PromoteReplicaToMainRes>(replication_handler, config, res_builder)) {
       return;
