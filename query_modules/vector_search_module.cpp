@@ -22,7 +22,7 @@ constexpr std::string_view kProcedureSearch = "search";
 constexpr std::string_view kParameterIndexName = "index_name";
 constexpr std::string_view kParameterResultSetSize = "result_set_size";
 constexpr std::string_view kParameterQueryVector = "query_vector";
-constexpr std::string_view kReturnNode = "node";
+constexpr std::string_view kReturnNodeId = "node_id";
 constexpr std::string_view kReturnScore = "score";
 
 void Search(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
@@ -39,8 +39,13 @@ void VectorSearch::Search(mgp_list *args, mgp_graph *memgraph_graph, mgp_result 
     const auto query_vector = arguments[2].ValueList();
 
     // // TODO(davivek): Call the implementation NOTE: C API should be ~20-30% faster.
-    // auto record = record_factory.NewRecord();
-    // record.Insert(VectorSearch::kReturnNode.data(), node.ValueNode());
+    // NOTE: The bellow code is just a placeholder -> remove with the correct code.
+    for (const auto &node : mgp::Graph(memgraph_graph).Nodes()) {
+      auto record = record_factory.NewRecord();
+      record.Insert(VectorSearch::kReturnNodeId.data(), node.Id().AsInt());
+      record.Insert(VectorSearch::kReturnScore.data(), node.GetProperty("score"));
+    }
+
   } catch (const std::exception &e) {
     record_factory.SetErrorMessage(e.what());
   }
@@ -53,15 +58,15 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
                  {
                      mgp::Parameter(VectorSearch::kParameterIndexName, mgp::Type::String),
                      mgp::Parameter(VectorSearch::kParameterResultSetSize, mgp::Type::Int),
-                     mgp::Parameter(VectorSearch::kParameterQueryVector, mgp::Type::String),
+                     mgp::Parameter(VectorSearch::kParameterQueryVector, {mgp::Type::List, mgp::Type::Any}),
                  },
                  {
-                     mgp::Return(VectorSearch::kReturnNode, mgp::Type::Node),
+                     mgp::Return(VectorSearch::kReturnNodeId, mgp::Type::Int),
                      mgp::Return(VectorSearch::kReturnScore, mgp::Type::Double),
                  },
                  module, memory);
   } catch (const std::exception &e) {
-    std::cerr << "Error while initializing query module: " << e.what() << std::endl;
+    std::cerr << "Error while initializing query module: " << e.what() << "\n";
     return 1;
   }
 
