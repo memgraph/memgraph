@@ -26,7 +26,7 @@ auto CreateServerContext(const memgraph::coordination::ManagementServerConfig &c
                       : communication::ServerContext{};
 }
 
-// NOTE: The coordinator server doesn't more than 1 processing thread - each replica can
+// NOTE: The coordinator server doesn't need more than 1 processing thread - each replica can
 // have only a single coordinator server. Also, the single-threaded guarantee
 // simplifies the rest of the implementation.
 constexpr auto kDataInstanceManagementServerThreads = 1;

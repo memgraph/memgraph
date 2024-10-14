@@ -29,6 +29,8 @@ class DataInstanceManagementServerHandlers {
                        replication::ReplicationHandler &replication_handler);
 
  private:
+  // The method should return true only if at the end of the execution, we are main that listens new uuid
+  // and has all replicas registered that are received in RPC request.
   static void PromoteReplicaToMainHandler(replication::ReplicationHandler &replication_handler, slk::Reader *req_reader,
                                           slk::Builder *res_builder);
   static void RegisterReplicaOnMainHandler(replication::ReplicationHandler &replication_handler,
