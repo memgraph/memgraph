@@ -52,8 +52,6 @@ class VectorIndex {
  private:
   struct Impl;
   std::unique_ptr<Impl> pimpl;
-  // std::map<std::pair<LabelId, PropertyId>, std::unique_ptr<Impl>> indexes_;
-  // absl::flat_hash_map<std::string, std::pair<LabelId, PropertyId>> index_to_label_prop_;
 };
 
 }  // namespace memgraph::storage
