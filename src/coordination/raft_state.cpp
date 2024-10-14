@@ -538,10 +538,6 @@ auto RaftState::IsCurrentMain(std::string_view instance_name) const -> bool {
 
 auto RaftState::IsLockOpened() const -> bool { return state_machine_->IsLockOpened(); }
 
-auto RaftState::GetInstanceUUID(std::string_view instance_name) const -> utils::UUID {
-  return state_machine_->GetInstanceUUID(instance_name);
-}
-
 auto RaftState::TryGetCurrentMainName() const -> std::optional<std::string> {
   return state_machine_->TryGetCurrentMainName();
 }

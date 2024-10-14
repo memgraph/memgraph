@@ -17,16 +17,19 @@
 #include "rpc/messages.hpp"
 
 namespace memgraph::replication_coordination_glue {
+
+// If replica already has correct uuid, this action will be idempotent and it will return status code true.
+// If the request receives instance with the main state, it will return false.
 inline bool SendSwapMainUUIDRpc(memgraph::rpc::Client &rpc_client_, const memgraph::utils::UUID &uuid) {
   try {
     auto stream{rpc_client_.Stream<SwapMainUUIDRpc>(uuid)};
     if (!stream.AwaitResponse().success) {
-      spdlog::error("Failed to receive successful RPC swapping of uuid response!");
+      spdlog::error("Received unsuccessful RPC response for swapping uuid on instance.");
       return false;
     }
     return true;
   } catch (const memgraph::rpc::RpcFailedException &) {
-    spdlog::error("RPC error occurred while sending swapping uuid RPC!");
+    spdlog::error("RPC error occurred while sending RPC for swapping uuid.");
   }
   return false;
 }

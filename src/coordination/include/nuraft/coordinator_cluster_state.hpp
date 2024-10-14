@@ -80,6 +80,7 @@ class CoordinatorClusterState {
 
   auto HasReplicaState(std::string_view instance_name) const -> bool;
 
+  // Designed in a way that there should always be just one CurrentMain
   auto IsCurrentMain(std::string_view instance_name) const -> bool;
 
   auto DoAction(TRaftLog const &log_entry, RaftLogAction log_action) -> void;
