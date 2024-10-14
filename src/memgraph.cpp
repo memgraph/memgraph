@@ -188,7 +188,7 @@ int main(int argc, char **argv) {
   };
   std::vector<VectorIndexSpec> vector_index_specs;
   if (!FLAGS_experimental_vector_indexes.empty()) {
-    const auto specs = memgraph::utils::Split(FLAGS_experimental_vector_indexes, ",");
+    const auto specs = memgraph::utils::Split(FLAGS_experimental_vector_indexes, ";");
     if (!specs.empty()) {
       vector_index_specs.reserve(specs.size());
       for (const auto &spec : specs) {
@@ -196,7 +196,7 @@ int main(int argc, char **argv) {
         if (an_index_split.size() != 3 && an_index_split.size() != 4) {
           LOG_FATAL(
               "--experimental-vector-indexes is not in the right format to use vector indexes. Use "
-              "Label__property__\{JSON\},... format instead.");
+              "Label__property__\{JSON\};... format instead.");
         }
         if (an_index_split.size() == 3) {
           vector_index_specs.emplace_back(VectorIndexSpec{.index_name = an_index_split[0],
