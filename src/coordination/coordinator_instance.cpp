@@ -1173,27 +1173,23 @@ void CoordinatorInstance::DemoteSuccessCallback(std::string_view repl_instance_n
     return;
   }
 
-  // Check in the .hpp file why we do this at the end of the execution.
-  utils::OnScopeExit const reconcile_cluster_state{[this]() {
-    if (raft_state_->IsLockOpened() && raft_state_->IsLeader()) {
-      spdlog::trace(
-          "Adding task to try reconcile cluster state again as lock is opened still after demoting instance.");
-      thread_pool_.AddTask([this]() { this->ReconcileClusterState(); });
-    }
-  }};
-
   // If this fails, nothing bad for the whole cluster happened. We just have to try to close the lock
   // and if succeed, on the next ping we try again.
   if (!repl_instance.SendDemoteToReplicaRpc()) {
-    spdlog::error("Instance {} failed to become replica.", repl_instance_name);
+    spdlog::error("Instance {} failed to become replica, trying to close the lock.", repl_instance_name);
+    if (!raft_state_->AppendCloseLock()) {
+      thread_pool_.AddTask([this]() { this->ReconcileClusterState(); });
+    }
     return;
   }
-  spdlog::info("Instance {} became replica.", repl_instance_name);
 
   // If this fails we probably lost majority and Raft log is unwriteable. If we are still the leader
-  // we will execute ReconcileClusterState.
+  // and closing the lock passes, we will execute ReconcileClusterState.
   if (!raft_state_->AppendSetInstanceAsReplicaLog(repl_instance_name)) {
     spdlog::error("Failed to append log for setting instance {} to replica.", repl_instance_name);
+    if (!raft_state_->AppendCloseLock()) {
+      thread_pool_.AddTask([this]() { this->ReconcileClusterState(); });
+    }
     return;
   }
 
@@ -1203,6 +1199,9 @@ void CoordinatorInstance::DemoteSuccessCallback(std::string_view repl_instance_n
   // and if succeed, on the next ping we try again.
   if (!repl_instance.SendSwapAndUpdateUUID(main_uuid)) {
     spdlog::error("Failed to swap uuid on replica instance {}.", repl_instance_name);
+    if (!raft_state_->AppendCloseLock()) {
+      thread_pool_.AddTask([this]() { this->ReconcileClusterState(); });
+    }
     return;
   }
 
@@ -1211,6 +1210,9 @@ void CoordinatorInstance::DemoteSuccessCallback(std::string_view repl_instance_n
   if (!raft_state_->AppendUpdateUUIDForInstanceLog(repl_instance_name, main_uuid)) {
     spdlog::error("Failed to update log for setting uuid on instance {} to {}.", repl_instance_name,
                   std::string{main_uuid});
+    if (!raft_state_->AppendCloseLock()) {
+      thread_pool_.AddTask([this]() { this->ReconcileClusterState(); });
+    }
     return;
   }
 
@@ -1218,6 +1220,7 @@ void CoordinatorInstance::DemoteSuccessCallback(std::string_view repl_instance_n
   // we will execute ReconcileClusterState.
   if (!raft_state_->AppendCloseLock()) {
     spdlog::error("Failed to close lock for demoting instance {}.", repl_instance_name);
+    thread_pool_.AddTask([this]() { this->ReconcileClusterState(); });
     return;
   }
 

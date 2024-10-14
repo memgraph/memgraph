@@ -126,6 +126,9 @@ class CoordinatorInstance {
   //   c) We are still the leader but writing to Raft log failed because of some reason. Try to
   //   AppendCloseLock. If we succeed good, next execution of DemoteSuccessCallback can try again. If not, something is
   //   wrong and we are in some unknown state.
+  //   If any step fails while demoting instance, we try to close the lock first because such failures aren't ones
+  //   that should trigger reconciliation of the whole cluster. Only if closing the lock failed, then we should go
+  //   start reconciliation.
   void DemoteSuccessCallback(std::string_view repl_instance_name);
 
   void DemoteFailCallback(std::string_view repl_instance_name);
