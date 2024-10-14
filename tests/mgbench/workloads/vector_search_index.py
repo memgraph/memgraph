@@ -24,9 +24,7 @@ class VectorSearchIndex(Workload):
 
     def dataset_generator(self):
         queries = []
-        for _ in range(
-            0,
-        ):
+        for _ in range(0, VectorSearchIndex.SCALE):
             queries.append(("CREATE (:Node {vector: [0.0, 1.1]});", {}))
         return queries
 

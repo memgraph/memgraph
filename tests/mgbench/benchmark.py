@@ -648,7 +648,6 @@ def setup_indices_and_import_dataset(client, vendor_runner, generated_queries, w
     log.info("Executing database index setup")
     start_time = time.time()
     import_results = None
-    print(generated_queries)
     if generated_queries:
         client.execute(queries=workload.indexes_generator(), num_workers=1)
         log.info("Finished setting up indexes.")
@@ -703,11 +702,11 @@ def save_memory_usage_of_imported_data(vendor_runner, workload, results, memory_
 def run_target_workload(benchmark_context, workload, bench_queries, vendor_runner, client, results, storage_mode):
     memory_usage_of_emtpy_db = save_memory_usage_of_empty_db(vendor_runner, workload, results)
     generated_queries = workload.dataset_generator()
-    print("before", bench_queries)
+    if not generated_queries:
+        log.warning("Generated import dataset is empty, probably dataset_generator under workload function is wrong.")
     import_results, rss_usage = setup_indices_and_import_dataset(
         client, vendor_runner, generated_queries, workload, storage_mode
     )
-    print("after", bench_queries)
     save_import_results(workload, results, import_results, rss_usage)
     memory_usage_with_imported_data = save_memory_usage_of_imported_data(
         vendor_runner, workload, results, memory_usage_of_emtpy_db
@@ -800,7 +799,6 @@ def run_in_memory_analytical_benchmark(benchmark_context, workload, bench_querie
 
 
 def run_in_memory_transactional_benchmark(benchmark_context, workload, bench_queries, in_memory_txn_results):
-    # print(benchmark_context, workload, bench_queries)
     log.info(f"Running benchmarks for {IN_MEMORY_TRANSACTIONAL} storage mode.")
     in_memory_txn_vendor_runner, in_memory_txn_client = client_runner_factory(benchmark_context)
     run_target_workload(
