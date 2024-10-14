@@ -126,4 +126,4 @@ DECLARE_string(license_key);
 DECLARE_string(organization_name);
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_string(experimental_vector_index);
+DECLARE_string(experimental_vector_indexes);
