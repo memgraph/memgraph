@@ -175,51 +175,6 @@ int main(int argc, char **argv) {
     exit(1);
   }
 
-  // TODO(davivek): The below code should be discarded and replaces with proper queries. IMPORTANT: Once we have the
-  // fully tested index implementation.
-  struct VectorIndexSpec {
-    // NOTE: The index name is required because CALL is used to query the index -> somehow we have to specify what's the
-    // used index. Technically we could use only label+prop to address the right index but in practice we can have
-    // multiple indexes on the same label+prop with different configs.
-    std::string index_name;
-    std::string label_name;
-    std::string prop_name;
-    nlohmann::json config;
-  };
-  std::vector<VectorIndexSpec> vector_index_specs;
-  if (!FLAGS_experimental_vector_indexes.empty()) {
-    const auto specs = memgraph::utils::Split(FLAGS_experimental_vector_indexes, ";");
-    if (!specs.empty()) {
-      vector_index_specs.reserve(specs.size());
-      for (const auto &spec : specs) {
-        const auto an_index_split = memgraph::utils::Split(spec, "__");
-        if (an_index_split.size() != 3 && an_index_split.size() != 4) {
-          LOG_FATAL(
-              "--experimental-vector-indexes is not in the right format to use vector indexes. Use "
-              "Label__property__\{JSON\};... format instead.");
-        }
-        if (an_index_split.size() == 3) {
-          vector_index_specs.emplace_back(VectorIndexSpec{.index_name = an_index_split[0],
-                                                          .label_name = an_index_split[1],
-                                                          .prop_name = an_index_split[2],
-                                                          .config = {}});
-        }
-        if (an_index_split.size() == 4) {
-          vector_index_specs.emplace_back(VectorIndexSpec{.index_name = an_index_split[0],
-                                                          .label_name = an_index_split[1],
-                                                          .prop_name = an_index_split[2],
-                                                          .config = nlohmann::json::parse(an_index_split[3])});
-        }
-      }
-      for (const auto &spec : vector_index_specs) {
-        spdlog::info("Having vector index named {} on :{}({}) with config: {}", spec.index_name, spec.label_name,
-                     spec.prop_name, spec.config.dump());
-      }
-      memgraph::storage::VectorIndex vector_index;
-      vector_index.CreateIndex("testVectorIndex");
-    }
-  }
-
   auto flags_experimental = memgraph::flags::ReadExperimental(FLAGS_experimental_enabled);
   memgraph::flags::SetExperimental(flags_experimental);
   auto *maybe_experimental = std::getenv(kMgExperimentalEnabled);
@@ -643,6 +598,44 @@ int main(int argc, char **argv) {
                                                                   FLAGS_data_directory);
   memgraph::query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();
   memgraph::query::procedure::gCallableAliasMapper.LoadMapping(FLAGS_query_callable_mappings_path);
+
+  std::vector<memgraph::storage::VectorIndexSpec> vector_index_specs;
+  if (!FLAGS_experimental_vector_indexes.empty()) {
+    auto *storage = db_acc->storage();
+    const auto specs = memgraph::utils::Split(FLAGS_experimental_vector_indexes, ",");
+    if (!specs.empty()) {
+      vector_index_specs.reserve(specs.size());
+      for (const auto &spec : specs) {
+        const auto an_index_split = memgraph::utils::Split(spec, "__");
+        if (an_index_split.size() != 3 && an_index_split.size() != 4) {
+          LOG_FATAL(
+              "--experimental-vector-indexes is not in the right format to use vector indexes. Use "
+              "Label__property__\{JSON\},... format instead.");
+        }
+        const auto label_name = an_index_split[1];
+        const auto property_name = an_index_split[2];
+        const auto label_id = storage->NameToLabel(label_name);
+        const auto property_id = storage->NameToProperty(property_name);
+        if (an_index_split.size() == 3) {
+          vector_index_specs.emplace_back(memgraph::storage::VectorIndexSpec{
+              .index_name = an_index_split[0], .label = label_id, .property = property_id, .config = {}});
+        }
+        if (an_index_split.size() == 4) {
+          vector_index_specs.emplace_back(
+              memgraph::storage::VectorIndexSpec{.index_name = an_index_split[0],
+                                                 .label = label_id,
+                                                 .property = property_id,
+                                                 .config = nlohmann::json::parse(an_index_split[3])});
+        }
+      }
+      for (const auto &spec : vector_index_specs) {
+        spdlog::info("Having vector index named {} on :{}({}) with config: {}", spec.index_name,
+                     storage->LabelToName(spec.label), storage->PropertyToName(spec.property), spec.config.dump());
+      }
+      memgraph::storage::VectorIndex vector_index;
+      vector_index.CreateIndex("testVectorIndex", vector_index_specs);
+    }
+  }
 
   // TODO Make multi-tenant
   if (!FLAGS_init_file.empty()) {
