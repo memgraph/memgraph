@@ -64,7 +64,7 @@ void VectorIndex::CreateIndex(const std::string &index_name, std::vector<VectorI
     const auto prop = spec.property;
 
     pimpl->index_to_label_prop_[index_name] = std::make_pair(label, prop);
-    pimpl->indexes_[std::make_pair(label, prop)] = std::move(mg_vector_index_t::make(metric));
+    pimpl->indexes_[std::make_pair(label, prop)] = mg_vector_index_t::make(metric);
   }
 }
 
