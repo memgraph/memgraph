@@ -136,8 +136,7 @@ void DualThread(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, m
 
 extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
   try {
-    mgp::memory = memory;
-
+    mgp::MemoryDispatcherGuard guard(memory);
     AddProcedure(DualThread, std::string("dual_thread").c_str(), mgp::ProcedureType::Read, {},
                  {mgp::Return(std::string("test_passed").c_str(), mgp::Type::Bool)}, module, memory);
 
