@@ -62,20 +62,24 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
   // we need then just to check commit timestamp
   if (replica.epoch_id != replStorageState.epoch_.id() && replica.current_commit_timestamp != kTimestampInitialId) {
     spdlog::trace(
-        "REPLICA: epoch UUID: {} and last_durable_timestamp: {}; MAIN: epoch UUID {} and last_durable_timestamp {}",
-        std::string(replica.epoch_id), replica.current_commit_timestamp, std::string(replStorageState.epoch_.id()),
-        replStorageState.last_durable_timestamp_);
+        "Replica {}: Epoch id: {}, last_durable_timestamp: {}; Main: Epoch id: {}, last_durable_timestamp: {}",
+        client_.name_, std::string(replica.epoch_id), replica.current_commit_timestamp,
+        std::string(replStorageState.epoch_.id()), replStorageState.last_durable_timestamp_);
+
     auto const &history = replStorageState.history;
     const auto epoch_info_iter = std::find_if(history.crbegin(), history.crend(), [&](const auto &main_epoch_info) {
       return main_epoch_info.first == replica.epoch_id;
     });
-    // main didn't have that epoch, but why is here branching point
+
     if (epoch_info_iter == history.crend()) {
-      spdlog::trace("Couldn't find epoch {} in MAIN, setting branching point", std::string(replica.epoch_id));
+      spdlog::trace("Couldn't find epoch {} in main, setting branching point to 0.", std::string(replica.epoch_id));
       branching_point = 0;
     } else if (epoch_info_iter->second < replica.current_commit_timestamp) {
-      spdlog::trace("Found epoch {} on MAIN with last_durable_timestamp {}, REPLICA's last_durable_timestamp {}",
-                    std::string(epoch_info_iter->first), epoch_info_iter->second, replica.current_commit_timestamp);
+      spdlog::trace(
+          "Found epoch {} on main with last_durable_timestamp {}, replica {} has last_durable_timestamp {}. Setting "
+          "branching point to {}.",
+          std::string(epoch_info_iter->first), epoch_info_iter->second, client_.name_, replica.current_commit_timestamp,
+          epoch_info_iter->second);
       branching_point = epoch_info_iter->second;
     } else {
       branching_point = std::nullopt;
@@ -118,17 +122,17 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
   }
 
   current_commit_timestamp = replica.current_commit_timestamp;
-  spdlog::trace("Current timestamp on replica {}: {}", client_.name_, current_commit_timestamp);
+  spdlog::trace("Current timestamp on replica {}: {}.", client_.name_, current_commit_timestamp);
   spdlog::trace("Current timestamp on main: {}. Current durable timestamp on main: {}", storage->timestamp_,
                 replStorageState.last_durable_timestamp_.load());
 
   replica_state_.WithLock([&](auto &state) {
     // ldt can be larger on replica due to snapshots
-    if (current_commit_timestamp >= replStorageState.last_durable_timestamp_.load()) {
-      spdlog::debug("Replica '{}' up to date", client_.name_);
+    if (current_commit_timestamp >= replStorageState.last_durable_timestamp_.load(std::memory_order_acquire)) {
+      spdlog::debug("Replica '{}' up to date.", client_.name_);
       state = replication::ReplicaState::READY;
     } else {
-      spdlog::debug("Replica '{}' is behind", client_.name_);
+      spdlog::debug("Replica '{}' is behind.", client_.name_);
       state = replication::ReplicaState::RECOVERY;
       client_.thread_pool_.AddTask([storage, current_commit_timestamp, gk = std::move(db_acc), this] {
         this->RecoverReplica(current_commit_timestamp, storage);

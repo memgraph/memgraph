@@ -72,7 +72,7 @@ auto ReplicationInstanceConnector::PromoteToMain(utils::UUID const &new_uuid, Re
 // TODO: (andi) Duplication. We have to refactor this
 auto ReplicationInstanceConnector::SendDemoteToReplicaRpc() -> bool { return client_->DemoteToReplica(); }
 
-auto ReplicationInstanceConnector::SendFrequentHeartbeat() const -> bool { return client_->SendFrequentHeartbeat(); }
+auto ReplicationInstanceConnector::SendStateCheckRpc() const -> bool { return client_->SendStateCheckRpc(); }
 
 auto ReplicationInstanceConnector::DemoteToReplica(HealthCheckInstanceCallback replica_succ_cb,
                                                    HealthCheckInstanceCallback replica_fail_cb) -> bool {
@@ -91,10 +91,10 @@ auto ReplicationInstanceConnector::RegisterReplica(utils::UUID const &uuid,
   return client_->RegisterReplica(uuid, std::move(replication_client_info));
 }
 
-auto ReplicationInstanceConnector::StartFrequentCheck() -> void { client_->StartFrequentCheck(); }
-auto ReplicationInstanceConnector::StopFrequentCheck() -> void { client_->StopFrequentCheck(); }
-auto ReplicationInstanceConnector::PauseFrequentCheck() -> void { client_->PauseFrequentCheck(); }
-auto ReplicationInstanceConnector::ResumeFrequentCheck() -> void { client_->ResumeFrequentCheck(); }
+auto ReplicationInstanceConnector::StartStateCheck() -> void { client_->StartStateCheck(); }
+auto ReplicationInstanceConnector::StopStateCheck() -> void { client_->StopStateCheck(); }
+auto ReplicationInstanceConnector::PauseStateCheck() -> void { client_->PauseStateCheck(); }
+auto ReplicationInstanceConnector::ResumeStateCheck() -> void { client_->ResumeStateCheck(); }
 
 auto ReplicationInstanceConnector::GetReplicationClientInfo() const -> coordination::ReplicationClientInfo {
   return client_->GetReplicationClientInfo();

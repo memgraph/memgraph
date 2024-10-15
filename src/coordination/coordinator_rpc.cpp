@@ -200,6 +200,12 @@ constexpr utils::TypeInfo coordination::ShowInstancesReq::kType{utils::TypeId::C
 constexpr utils::TypeInfo coordination::ShowInstancesRes::kType{utils::TypeId::COORD_SHOW_INSTANCES_RES,
                                                                 "ShowInstancesRes", nullptr};
 
+constexpr utils::TypeInfo coordination::StateCheckReq::kType{utils::TypeId::COORD_STATE_CHECK_REQ, "StateCheckReq",
+                                                             nullptr};
+
+constexpr utils::TypeInfo coordination::StateCheckRes::kType{utils::TypeId::COORD_STATE_CHECK_RES, "StateCheckRes",
+                                                             nullptr};
+
 namespace slk {
 
 // PromoteReplicaToMainRpc

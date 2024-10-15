@@ -144,6 +144,10 @@ class CoordinatorInstance {
 
   auto FindReplicationInstance(std::string_view replication_instance_name) -> ReplicationInstanceConnector &;
 
+  void InstanceSuccessCallback(std::string_view instance_name);
+
+  void InstanceFailCallback(std::string_view instance_name);
+
   void MainFailCallback(std::string_view);
 
   void MainSuccessCallback(std::string_view);

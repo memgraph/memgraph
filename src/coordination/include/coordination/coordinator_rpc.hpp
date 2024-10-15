@@ -244,6 +244,31 @@ struct ShowInstancesRes {
 
 using ShowInstancesRpc = rpc::RequestResponse<ShowInstancesReq, ShowInstancesRes>;
 
+struct StateCheckReq {
+  static const utils::TypeInfo kType;  // TODO: make constexpr?
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(StateCheckReq *self, memgraph::slk::Reader *reader);
+  static void Save(const StateCheckReq &self, memgraph::slk::Builder *builder);
+  StateCheckReq() = default;
+};
+
+struct StateCheckRes {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(StateCheckRes *self, memgraph::slk::Reader *reader);
+  static void Save(const StateCheckRes &self, memgraph::slk::Builder *builder);
+  StateCheckRes(replication_coordination_glue::ReplicationRole role, utils::UUID req_uuid, bool writing_enabled)
+      : repl_role(role), uuid(req_uuid), is_writing_enabled(writing_enabled) {}
+
+  replication_coordination_glue::ReplicationRole repl_role;  // MAIN or REPLICA
+  utils::UUID uuid;                                          // MAIN's UUID or the UUID which REPLICA listens
+  bool is_writing_enabled;
+};
+
+using StateCheckRpc = rpc::RequestResponse<StateCheckReq, StateCheckRes>;
+
 }  // namespace memgraph::coordination
 
 // SLK serialization declarations
@@ -292,6 +317,11 @@ void Save(memgraph::coordination::ShowInstancesRes const &self, memgraph::slk::B
 void Load(memgraph::coordination::ShowInstancesRes *self, memgraph::slk::Reader *reader);
 void Save(memgraph::coordination::ShowInstancesReq const &self, memgraph::slk::Builder *builder);
 void Load(memgraph::coordination::ShowInstancesReq *self, memgraph::slk::Reader *reader);
+
+void Save(memgraph::coordination::StateCheckRes const &self, memgraph::slk::Builder *builder);
+void Load(memgraph::coordination::StateCheckRes *self, memgraph::slk::Reader *reader);
+void Save(memgraph::coordination::StateCheckReq const &self, memgraph::slk::Builder *builder);
+void Load(memgraph::coordination::StateCheckReq *self, memgraph::slk::Reader *reader);
 
 }  // namespace memgraph::slk
 

@@ -203,6 +203,7 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
   auto &repl_storage_state = storage->repl_storage_state_;
   if (*maybe_epoch_id != storage->repl_storage_state_.epoch_.id()) {
+    spdlog::trace("Set epoch id to {} in AppendDeltasHandler.", *maybe_epoch_id);
     auto prev_epoch = storage->repl_storage_state_.epoch_.SetEpoch(*maybe_epoch_id);
     repl_storage_state.AddEpochToHistoryForce(prev_epoch);
   }
@@ -436,7 +437,7 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
   }
 
   const auto wal_file_number = req.file_number;
-  spdlog::debug("Received WAL files: {}", wal_file_number);
+  spdlog::debug("Received {} WAL files.", wal_file_number);
 
   storage::replication::Decoder decoder(req_reader);
 
@@ -502,6 +503,7 @@ void InMemoryReplicationHandlers::LoadWal(storage::InMemoryStorage *storage, sto
     if (wal_info.epoch_id != replica_epoch.id()) {
       // questionable behaviour, we trust that any change in epoch implies change in who is MAIN
       // when we use high availability, this assumption need to be checked.
+      spdlog::trace("Set epoch id to {} while loading wal file {}.", wal_info.epoch_id, *maybe_wal_path);
       auto prev_epoch = replica_epoch.SetEpoch(wal_info.epoch_id);
       storage->repl_storage_state_.AddEpochToHistoryForce(prev_epoch);
     }

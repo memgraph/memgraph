@@ -62,7 +62,7 @@ auto ReplicationInstanceClient::InstanceGetUUIDFrequencySec() const -> std::chro
   return config_.instance_get_uuid_frequency_sec;
 }
 
-void ReplicationInstanceClient::StartFrequentCheck() {
+void ReplicationInstanceClient::StartStateCheck() {
   if (instance_checker_.IsRunning()) {
     return;
   }
@@ -72,19 +72,19 @@ void ReplicationInstanceClient::StartFrequentCheck() {
 
   instance_checker_.Run(config_.instance_name, config_.instance_health_check_frequency_sec,
                         [this, instance_name = config_.instance_name] {
-                          spdlog::trace("Sending frequent heartbeat to machine {} on {}", instance_name,
+                          spdlog::trace("Sending state check message to instance {} on {}.", instance_name,
                                         config_.ManagementSocketAddress());
-                          if (SendFrequentHeartbeat()) {
+                          if (SendStateCheckRpc()) {
                             succ_cb_(coord_instance_, instance_name);
-                            return;
+                          } else {
+                            fail_cb_(coord_instance_, instance_name);
                           }
-                          fail_cb_(coord_instance_, instance_name);
                         });
 }
 
-void ReplicationInstanceClient::StopFrequentCheck() { instance_checker_.Stop(); }
-void ReplicationInstanceClient::PauseFrequentCheck() { instance_checker_.Pause(); }
-void ReplicationInstanceClient::ResumeFrequentCheck() { instance_checker_.Resume(); }
+void ReplicationInstanceClient::StopStateCheck() { instance_checker_.Stop(); }
+void ReplicationInstanceClient::PauseStateCheck() { instance_checker_.Pause(); }
+void ReplicationInstanceClient::ResumeStateCheck() { instance_checker_.Resume(); }
 auto ReplicationInstanceClient::GetReplicationClientInfo() const -> coordination::ReplicationClientInfo {
   return config_.replication_client_info;
 }
@@ -142,9 +142,9 @@ auto ReplicationInstanceClient::RegisterReplica(utils::UUID const &uuid,
   return false;
 }
 
-auto ReplicationInstanceClient::SendFrequentHeartbeat() const -> bool {
+auto ReplicationInstanceClient::SendStateCheckRpc() const -> bool {
   try {
-    auto stream{rpc_client_.Stream<memgraph::replication_coordination_glue::FrequentHeartbeatRpc>()};
+    auto stream{rpc_client_.Stream<StateCheckRpc>()};
     stream.AwaitResponse();
     return true;
   } catch (rpc::RpcFailedException const &) {

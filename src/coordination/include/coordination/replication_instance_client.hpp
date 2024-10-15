@@ -42,10 +42,10 @@ class ReplicationInstanceClient {
   ReplicationInstanceClient(ReplicationInstanceClient &&) noexcept = delete;
   ReplicationInstanceClient &operator=(ReplicationInstanceClient &&) noexcept = delete;
 
-  virtual void StartFrequentCheck();
-  virtual void StopFrequentCheck();
-  virtual void PauseFrequentCheck();
-  virtual void ResumeFrequentCheck();
+  virtual void StartStateCheck();
+  virtual void StopStateCheck();
+  virtual void PauseStateCheck();
+  virtual void ResumeStateCheck();
 
   virtual auto InstanceName() const -> std::string;
   virtual auto BoltSocketAddress() const -> std::string;
@@ -66,7 +66,7 @@ class ReplicationInstanceClient {
 
   auto RegisterReplica(utils::UUID const &uuid, ReplicationClientInfo replication_client_info) const -> bool;
 
-  auto SendFrequentHeartbeat() const -> bool;
+  auto SendStateCheckRpc() const -> bool;
 
   auto SendGetInstanceTimestampsRpc() const
       -> utils::BasicResult<GetInstanceUUIDError, replication_coordination_glue::DatabaseHistories>;
