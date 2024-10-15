@@ -73,6 +73,9 @@ class CoordinatorInstance {
 
   auto GetRoutingTable() const -> RoutingTable;
 
+  static auto GetMostUpToDateInstanceFromHistories(std::list<ReplicationInstanceConnector> &instances)
+      -> std::optional<std::string>;
+
   static auto ChooseMostUpToDateInstance(std::span<InstanceNameDbHistories> histories) -> NewMainRes;
 
   auto HasMainState(std::string_view instance_name) const -> bool;
@@ -101,47 +104,6 @@ class CoordinatorInstance {
   static auto GetFailCallbackTypeName(ReplicationInstanceConnector const &instance) -> std::string_view;
 
  private:
-  template <ranges::forward_range R>
-  auto GetMostUpToDateInstanceFromHistories(R &&alive_instances) -> std::optional<std::string> {
-    if (ranges::empty(alive_instances)) {
-      return std::nullopt;
-    }
-    auto const get_ts = [](ReplicationInstanceConnector &replica) {
-      spdlog::trace("Sending get instance timestamps to {}", replica.InstanceName());
-      return replica.GetClient().SendGetInstanceTimestampsRpc();
-    };
-
-    auto maybe_instance_db_histories = alive_instances | ranges::views::transform(get_ts) | ranges::to<std::vector>();
-
-    auto const ts_has_error = [](auto const &res) -> bool { return res.HasError(); };
-
-    if (std::ranges::any_of(maybe_instance_db_histories, ts_has_error)) {
-      spdlog::error("At least one instance which was alive didn't provide per database history.");
-      return std::nullopt;
-    }
-
-    auto const ts_has_value = [](auto const &zipped) -> bool {
-      auto &[replica, res] = zipped;
-      return res.HasValue();
-    };
-
-    auto transform_to_pairs = ranges::views::transform([](auto const &zipped) {
-      auto &[replica, res] = zipped;
-      return std::make_pair(replica.InstanceName(), res.GetValue());
-    });
-
-    auto instance_db_histories = ranges::views::zip(alive_instances, maybe_instance_db_histories) |
-                                 ranges::views::filter(ts_has_value) | transform_to_pairs | ranges::to<std::vector>();
-
-    auto [most_up_to_date_instance, latest_epoch, latest_commit_timestamp] =
-        ChooseMostUpToDateInstance(instance_db_histories);
-
-    spdlog::trace("The most up to date instance is {} with epoch {} and {} latest commit timestamp",
-                  most_up_to_date_instance, latest_epoch, latest_commit_timestamp);  // NOLINT
-
-    return most_up_to_date_instance;
-  }
-
   auto FindReplicationInstance(std::string_view replication_instance_name) -> ReplicationInstanceConnector &;
 
   void MainFailCallback(std::string_view);
@@ -152,6 +114,18 @@ class CoordinatorInstance {
 
   void ReplicaFailCallback(std::string_view);
 
+  // Possible situations at the end of execution:
+  // 1. We are the leader but the lock is not opened -> All went well, no more actions needed.
+  // 2. If we aren't leader anymore -> BecomeFollowerCallback will get triggered, all callbacks will stop, new leader
+  // will bring raft state into consistent state.
+  // 3. If we are leader and the lock is still opened, we could be in several situations:
+  //   a) Instance which we want to demote died. In that case we want to close the lock and we will repeat the action
+  //   when DemoteSuccessCallback gets executed again.
+  //   b) We cannot write to Raft log because we lost majority. We will probably not be leader anymore and hence same
+  //   situation as number 2.
+  //   c) We are still the leader but writing to Raft log failed because of some reason. Try to
+  //   AppendCloseLock. If we succeed good, next execution of DemoteSuccessCallback can try again. If not, something is
+  //   wrong and we are in some unknown state.
   void DemoteSuccessCallback(std::string_view repl_instance_name);
 
   void DemoteFailCallback(std::string_view repl_instance_name);
