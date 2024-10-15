@@ -126,3 +126,17 @@ def mg_sleep_and_assert_collection(
         result = function_to_retrieve_data()
 
     return result
+
+
+def mg_sleep_and_assert_until_promotion(function_to_execute, max_duration=20, time_between_attempts=0.2):
+    result = function_to_execute()
+    start_time = time.time()
+    while result != "main":
+        duration = time.time() - start_time
+        if duration > max_duration:
+            assert (
+                False
+            ), " mg_sleep_and_assert_until_promotion has tried for too long and did not get the expected result!"
+
+        time.sleep(time_between_attempts)
+        result = function_to_execute()

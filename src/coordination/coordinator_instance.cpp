@@ -484,11 +484,20 @@ auto CoordinatorInstance::TryFailover() -> bool {
 
   auto const new_main_uuid = utils::UUID{};
 
+  auto const failed_to_update_role = [raft_state_ptr = raft_state_.get()](auto &&instance) {
+    return !raft_state_ptr->AppendSetInstanceAsReplicaLog(instance.InstanceName());
+  };
+
   auto const failed_to_update_uuid = [raft_state_ptr = raft_state_.get(), &new_main_uuid](auto &&instance) {
     return !raft_state_ptr->AppendUpdateUUIDForInstanceLog(instance.InstanceName(), new_main_uuid);
   };
 
   auto const not_main = [&new_main_name](auto &&instance) { return instance.InstanceName() != new_main_name; };
+
+  if (std::ranges::any_of(repl_instances_ | ranges::views::filter(not_main), failed_to_update_role)) {
+    spdlog::error("Aborting failover. Failed to update role for one of replicas.");
+    return false;
+  }
 
   if (std::ranges::any_of(repl_instances_ | ranges::views::filter(not_main), failed_to_update_uuid)) {
     spdlog::error("Aborting failover. Failed to update uuid for one of replicas.");
@@ -558,7 +567,7 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view instance
   }};
 
   new_main->PauseStateCheck();
-  utils::OnScopeExit scope_exit{[&new_main] { new_main->ResumeStateCheck(); }};
+  utils::OnScopeExit const scope_exit{[&new_main] { new_main->ResumeStateCheck(); }};
 
   auto const is_not_new_main = [&instance_name](auto &&instance) { return instance.InstanceName() != instance_name; };
 
