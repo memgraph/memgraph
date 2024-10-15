@@ -14,6 +14,7 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_communication_config.hpp"
+#include "coordination/instance_state.hpp"
 #include "coordination/rpc_errors.hpp"
 #include "replication_coordination_glue/common.hpp"
 #include "replication_coordination_glue/role.hpp"
@@ -25,7 +26,8 @@
 namespace memgraph::coordination {
 
 class CoordinatorInstance;
-using HealthCheckClientCallback = std::function<void(CoordinatorInstance *, std::string_view)>;
+using HealthCheckClientCallback =
+    std::function<void(CoordinatorInstance *, std::string_view, std::optional<InstanceState>)>;
 using ReplicationClientsInfo = std::vector<ReplicationClientInfo>;
 
 class ReplicationInstanceClient {
@@ -52,7 +54,7 @@ class ReplicationInstanceClient {
   virtual auto ManagementSocketAddress() const -> std::string;
   virtual auto ReplicationSocketAddress() const -> std::string;
 
-  virtual auto DemoteToReplica() const -> bool;
+  virtual auto SendDemoteToReplicaRpc() const -> bool;
 
   virtual auto SendPromoteReplicaToMainRpc(utils::UUID const &uuid,
                                            ReplicationClientsInfo replication_clients_info) const -> bool;
@@ -66,7 +68,7 @@ class ReplicationInstanceClient {
 
   auto RegisterReplica(utils::UUID const &uuid, ReplicationClientInfo replication_client_info) const -> bool;
 
-  auto SendStateCheckRpc() const -> bool;
+  auto SendStateCheckRpc() const -> std::optional<InstanceState>;
 
   auto SendGetInstanceTimestampsRpc() const
       -> utils::BasicResult<GetInstanceUUIDError, replication_coordination_glue::DatabaseHistories>;

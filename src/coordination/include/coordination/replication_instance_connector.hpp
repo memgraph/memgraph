@@ -25,7 +25,7 @@
 
 namespace memgraph::coordination {
 
-using HealthCheckInstanceCallback = void (CoordinatorInstance::*)(std::string_view);
+using HealthCheckInstanceCallback = void (CoordinatorInstance::*)(std::string_view, std::optional<InstanceState>);
 
 // Class used for managing the connection from coordinator to the data instance.
 class ReplicationInstanceConnector {
@@ -42,7 +42,6 @@ class ReplicationInstanceConnector {
 
   auto OnFailPing() -> bool;
   auto OnSuccessPing() -> void;
-  auto IsReadyForUUIDPing() -> bool;
 
   auto IsAlive() const -> bool;
 
@@ -53,15 +52,10 @@ class ReplicationInstanceConnector {
   auto ManagementSocketAddress() const -> std::string;
   auto ReplicationSocketAddress() const -> std::string;
 
-  auto PromoteToMain(utils::UUID const &uuid, ReplicationClientsInfo repl_clients_info,
-                     HealthCheckInstanceCallback main_succ_cb, HealthCheckInstanceCallback main_fail_cb) -> bool;
-
   auto SendDemoteToReplicaRpc() -> bool;
+  auto SendPromoteToMainRpc(utils::UUID const &uuid, ReplicationClientsInfo repl_clients_info) -> bool;
 
-  auto SendStateCheckRpc() const -> bool;
-
-  auto DemoteToReplica(HealthCheckInstanceCallback replica_succ_cb, HealthCheckInstanceCallback replica_fail_cb)
-      -> bool;
+  auto SendStateCheckRpc() const -> std::optional<InstanceState>;
 
   auto RegisterReplica(utils::UUID const &uuid, ReplicationClientInfo replication_client_info) -> bool;
 
@@ -72,12 +66,9 @@ class ReplicationInstanceConnector {
 
   auto GetReplicationClientInfo() const -> ReplicationClientInfo;
 
-  auto EnsureReplicaHasCorrectMainUUID(utils::UUID const &curr_main_uuid) -> bool;
-
   auto SendSwapAndUpdateUUID(utils::UUID const &new_main_uuid) -> bool;
   auto SendUnregisterReplicaRpc(std::string_view instance_name) -> bool;
 
-  auto SendGetInstanceUUID() -> utils::BasicResult<coordination::GetInstanceUUIDError, std::optional<utils::UUID>>;
   auto GetClient() -> ReplicationInstanceClient &;
 
   auto EnableWritingOnMain() -> bool;
@@ -85,17 +76,13 @@ class ReplicationInstanceConnector {
   auto GetSuccessCallback() const -> HealthCheckInstanceCallback;
   auto GetFailCallback() const -> HealthCheckInstanceCallback;
 
-  void SetCallbacks(HealthCheckInstanceCallback succ_cb, HealthCheckInstanceCallback fail_cb);
-
   // Time passed from the last successful response in milliseconds.
   auto LastSuccRespMs() const -> std::chrono::milliseconds;
 
  protected:
-  auto UpdateReplicaLastResponseUUID() -> void;
   std::unique_ptr<ReplicationInstanceClient> client_;
   std::chrono::system_clock::time_point last_response_time_{};
   bool is_alive_{false};
-  std::chrono::system_clock::time_point last_check_of_uuid_{};
 
   HealthCheckInstanceCallback succ_cb_;
   HealthCheckInstanceCallback fail_cb_;

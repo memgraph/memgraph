@@ -38,11 +38,6 @@ auto ReplicationInstanceConnector::OnFailPing() -> bool {
   return is_alive_;
 }
 
-auto ReplicationInstanceConnector::IsReadyForUUIDPing() -> bool {
-  return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now() - last_check_of_uuid_) >
-         client_->InstanceGetUUIDFrequencySec();
-}
-
 auto ReplicationInstanceConnector::InstanceName() const -> std::string { return client_->InstanceName(); }
 
 auto ReplicationInstanceConnector::BoltSocketAddress() const -> std::string { return client_->BoltSocketAddress(); }
@@ -55,35 +50,15 @@ auto ReplicationInstanceConnector::ReplicationSocketAddress() const -> std::stri
 }
 auto ReplicationInstanceConnector::IsAlive() const -> bool { return is_alive_; }
 
-// TODO: (andi) Ideally instance already knows its callbacks
-auto ReplicationInstanceConnector::PromoteToMain(utils::UUID const &new_uuid, ReplicationClientsInfo repl_clients_info,
-                                                 HealthCheckInstanceCallback main_succ_cb,
-                                                 HealthCheckInstanceCallback main_fail_cb) -> bool {
-  if (!client_->SendPromoteReplicaToMainRpc(new_uuid, std::move(repl_clients_info))) {
-    return false;
-  }
-
-  succ_cb_ = main_succ_cb;
-  fail_cb_ = main_fail_cb;
-
-  return true;
+auto ReplicationInstanceConnector::SendPromoteToMainRpc(utils::UUID const &new_uuid,
+                                                        ReplicationClientsInfo repl_clients_info) -> bool {
+  return client_->SendPromoteReplicaToMainRpc(new_uuid, std::move(repl_clients_info));
 }
 
-// TODO: (andi) Duplication. We have to refactor this
-auto ReplicationInstanceConnector::SendDemoteToReplicaRpc() -> bool { return client_->DemoteToReplica(); }
+auto ReplicationInstanceConnector::SendDemoteToReplicaRpc() -> bool { return client_->SendDemoteToReplicaRpc(); }
 
-auto ReplicationInstanceConnector::SendStateCheckRpc() const -> bool { return client_->SendStateCheckRpc(); }
-
-auto ReplicationInstanceConnector::DemoteToReplica(HealthCheckInstanceCallback replica_succ_cb,
-                                                   HealthCheckInstanceCallback replica_fail_cb) -> bool {
-  if (!client_->DemoteToReplica()) {
-    return false;
-  }
-
-  succ_cb_ = replica_succ_cb;
-  fail_cb_ = replica_fail_cb;
-
-  return true;
+auto ReplicationInstanceConnector::SendStateCheckRpc() const -> std::optional<InstanceState> {
+  return client_->SendStateCheckRpc();
 }
 
 auto ReplicationInstanceConnector::RegisterReplica(utils::UUID const &uuid,
@@ -105,38 +80,6 @@ auto ReplicationInstanceConnector::GetFailCallback() const -> HealthCheckInstanc
 
 auto ReplicationInstanceConnector::GetClient() -> ReplicationInstanceClient & { return *client_; }
 
-auto ReplicationInstanceConnector::EnsureReplicaHasCorrectMainUUID(utils::UUID const &curr_main_uuid) -> bool {
-  auto const instance_name{InstanceName()};
-  auto const main_uuid_str{std::string{curr_main_uuid}};
-  if (!IsReadyForUUIDPing()) {
-    spdlog::trace(
-        "Instance {}'s cached MAIN uuid didn't expire yet, not sending GetInstanceUUIDRpc. Curr main uuid {}.",
-        instance_name, main_uuid_str);
-    return true;
-  }
-  spdlog::trace("Instance {}'s cached MAIN uuid expired, sending GetInstanceUUIDRpc.", instance_name);
-
-  auto const res = SendGetInstanceUUID();
-  if (res.HasError()) {
-    spdlog::trace("Couldn't verify that instance {} still has correct cached view of main uuid {}.", instance_name,
-                  main_uuid_str);
-    return false;
-  }
-  UpdateReplicaLastResponseUUID();
-
-  // NOLINTNEXTLINE
-  if (res.GetValue().has_value() && *res.GetValue() == curr_main_uuid) {
-    spdlog::trace(
-        "Instance {}'s view of the main uuid {} is still valid. Not sending request for swaping and updating UUID.",
-        instance_name, main_uuid_str);
-    return true;
-  }
-
-  spdlog::trace("Instance {}'s view of the main uuid {} not valid anymore. Sending request for updating UUID to {}.",
-                instance_name, std::string{*res.GetValue()}, main_uuid_str);
-  return SendSwapAndUpdateUUID(curr_main_uuid);
-}
-
 auto ReplicationInstanceConnector::SendSwapAndUpdateUUID(utils::UUID const &new_main_uuid) -> bool {
   return replication_coordination_glue::SendSwapMainUUIDRpc(client_->RpcClient(), new_main_uuid);
 }
@@ -145,23 +88,7 @@ auto ReplicationInstanceConnector::SendUnregisterReplicaRpc(std::string_view ins
   return client_->SendUnregisterReplicaRpc(instance_name);
 }
 
-// TODO: (andi) Or remove access to client or remove all methods that just wrap call to client
 auto ReplicationInstanceConnector::EnableWritingOnMain() -> bool { return client_->SendEnableWritingOnMainRpc(); }
-
-auto ReplicationInstanceConnector::SendGetInstanceUUID()
-    -> utils::BasicResult<coordination::GetInstanceUUIDError, std::optional<utils::UUID>> {
-  return client_->SendGetInstanceUUIDRpc();
-}
-
-void ReplicationInstanceConnector::UpdateReplicaLastResponseUUID() {
-  last_check_of_uuid_ = std::chrono::system_clock::now();
-}
-
-void ReplicationInstanceConnector::SetCallbacks(HealthCheckInstanceCallback succ_cb,
-                                                HealthCheckInstanceCallback fail_cb) {
-  succ_cb_ = succ_cb;
-  fail_cb_ = fail_cb;
-}
 
 auto ReplicationInstanceConnector::LastSuccRespMs() const -> std::chrono::milliseconds {
   using std::chrono::duration_cast;

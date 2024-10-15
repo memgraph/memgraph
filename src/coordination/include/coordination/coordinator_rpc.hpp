@@ -15,6 +15,7 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_communication_config.hpp"
+#include "coordination/instance_state.hpp"
 #include "coordination/instance_status.hpp"
 #include "replication_coordination_glue/common.hpp"
 #include "rpc/messages.hpp"
@@ -208,8 +209,8 @@ struct GetDatabaseHistoriesRes {
   static void Load(GetDatabaseHistoriesRes *self, memgraph::slk::Reader *reader);
   static void Save(const GetDatabaseHistoriesRes &self, memgraph::slk::Builder *builder);
 
-  explicit GetDatabaseHistoriesRes(const replication_coordination_glue::DatabaseHistories &database_histories)
-      : database_histories(database_histories) {}
+  explicit GetDatabaseHistoriesRes(replication_coordination_glue::DatabaseHistories db_histories)
+      : database_histories(std::move(db_histories)) {}
   GetDatabaseHistoriesRes() = default;
 
   replication_coordination_glue::DatabaseHistories database_histories;
@@ -259,12 +260,11 @@ struct StateCheckRes {
 
   static void Load(StateCheckRes *self, memgraph::slk::Reader *reader);
   static void Save(const StateCheckRes &self, memgraph::slk::Builder *builder);
-  StateCheckRes(replication_coordination_glue::ReplicationRole role, utils::UUID req_uuid, bool writing_enabled)
-      : repl_role(role), uuid(req_uuid), is_writing_enabled(writing_enabled) {}
 
-  replication_coordination_glue::ReplicationRole repl_role;  // MAIN or REPLICA
-  utils::UUID uuid;                                          // MAIN's UUID or the UUID which REPLICA listens
-  bool is_writing_enabled;
+  StateCheckRes(bool replica, std::optional<utils::UUID> req_uuid) : state({.is_replica = replica, .uuid = req_uuid}) {}
+  StateCheckRes() = default;
+
+  InstanceState state;
 };
 
 using StateCheckRpc = rpc::RequestResponse<StateCheckReq, StateCheckRes>;

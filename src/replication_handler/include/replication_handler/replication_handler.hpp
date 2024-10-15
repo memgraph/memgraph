@@ -152,6 +152,7 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
   auto GetReplState() -> memgraph::replication::ReplicationState &;
 
   auto GetReplicaUUID() -> std::optional<utils::UUID>;
+  auto GetMainUUID() -> utils::UUID;
 
   auto GetDatabasesHistories() -> replication_coordination_glue::DatabaseHistories;
 

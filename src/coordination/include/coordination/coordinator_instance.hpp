@@ -67,11 +67,15 @@ class CoordinatorInstance {
 
   auto ShowInstancesStatusAsFollower() const -> std::vector<InstanceStatus>;
 
+  // Finds most up to date instance that could become new main. Only alive instances are taken into account.
   auto TryFailover() -> void;
 
   auto AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) -> AddCoordinatorInstanceStatus;
 
   auto GetRoutingTable() const -> RoutingTable;
+
+  static auto GetMostUpToDateInstanceFromHistories(std::list<ReplicationInstanceConnector> &instances)
+      -> std::optional<std::string>;
 
   static auto ChooseMostUpToDateInstance(std::span<InstanceNameDbHistories> histories) -> NewMainRes;
 
@@ -96,73 +100,28 @@ class CoordinatorInstance {
   auto GetRaftState() -> RaftState &;
   auto GetRaftState() const -> RaftState const &;
 
-  static auto GetSuccessCallbackTypeName(ReplicationInstanceConnector const &instance) -> std::string_view;
-
-  static auto GetFailCallbackTypeName(ReplicationInstanceConnector const &instance) -> std::string_view;
-
  private:
-  template <ranges::forward_range R>
-  auto GetMostUpToDateInstanceFromHistories(R &&alive_instances) -> std::optional<std::string> {
-    if (ranges::empty(alive_instances)) {
-      return std::nullopt;
-    }
-    auto const get_ts = [](ReplicationInstanceConnector &replica) {
-      spdlog::trace("Sending get instance timestamps to {}", replica.InstanceName());
-      return replica.GetClient().SendGetInstanceTimestampsRpc();
-    };
-
-    auto maybe_instance_db_histories = alive_instances | ranges::views::transform(get_ts) | ranges::to<std::vector>();
-
-    auto const ts_has_error = [](auto const &res) -> bool { return res.HasError(); };
-
-    if (std::ranges::any_of(maybe_instance_db_histories, ts_has_error)) {
-      spdlog::error("At least one instance which was alive didn't provide per database history.");
-      return std::nullopt;
-    }
-
-    auto const ts_has_value = [](auto const &zipped) -> bool {
-      auto &[replica, res] = zipped;
-      return res.HasValue();
-    };
-
-    auto transform_to_pairs = ranges::views::transform([](auto const &zipped) {
-      auto &[replica, res] = zipped;
-      return std::make_pair(replica.InstanceName(), res.GetValue());
-    });
-
-    auto instance_db_histories = ranges::views::zip(alive_instances, maybe_instance_db_histories) |
-                                 ranges::views::filter(ts_has_value) | transform_to_pairs | ranges::to<std::vector>();
-
-    auto [most_up_to_date_instance, latest_epoch, latest_commit_timestamp] =
-        ChooseMostUpToDateInstance(instance_db_histories);
-
-    spdlog::trace("The most up to date instance is {} with epoch {} and {} latest commit timestamp",
-                  most_up_to_date_instance, latest_epoch, latest_commit_timestamp);  // NOLINT
-
-    return most_up_to_date_instance;
-  }
-
   auto FindReplicationInstance(std::string_view replication_instance_name) -> ReplicationInstanceConnector &;
 
-  void InstanceSuccessCallback(std::string_view instance_name);
+  void InstanceSuccessCallback(std::string_view instance_name, std::optional<InstanceState> instance_state);
 
-  void InstanceFailCallback(std::string_view instance_name);
-
-  void MainFailCallback(std::string_view);
-
-  void MainSuccessCallback(std::string_view);
-
-  void ReplicaSuccessCallback(std::string_view);
-
-  void ReplicaFailCallback(std::string_view);
-
-  void DemoteSuccessCallback(std::string_view repl_instance_name);
-
-  void DemoteFailCallback(std::string_view repl_instance_name);
+  void InstanceFailCallback(std::string_view instance_name, std::optional<InstanceState> instance_state);
 
   auto ReconcileClusterState_() -> ReconcileClusterStateStatus;
 
+  // When a coordinator is becoming a leader, we could be in several situations:
+  // 1. Whole cluster was ok, lock was closed, we will find current main. Only last leader probably died.
+  //    In that case we don't need to do anything except start state checks.
+  // 2. We could be in situation where the lock is opened. That means one of steps in the failover failed to
+  //    execute or something failed while we were registering instance, setting instance to main or unregistering
+  //    instance. In that case we should reconcile cluster state, which means:
+  //    1. close the lock.
+  //    2. find main = TryFailover.
+  //    3. close the lock.
+  // 3. TODO: (Can some other state occur?) What happens when something in registration or setting instance to main
+  // fails?
   auto GetBecomeLeaderCallback() -> std::function<void()>;
+
   auto GetBecomeFollowerCallback() -> std::function<void()>;
 
   auto GetCoordinatorsInstanceStatus() const -> std::vector<InstanceStatus>;

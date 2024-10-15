@@ -54,11 +54,11 @@ class ReplicationInstanceClientMock : public ReplicationInstanceClient {
   MOCK_METHOD(std::string, ReplicationSocketAddress, (), (override, const));
   MOCK_METHOD(bool, SendPromoteReplicaToMainRpc, (UUID const &uuid, ReplicationClientsInfo replication_clients_info),
               (override, const));
-  MOCK_METHOD(bool, DemoteToReplica, (), (override, const));
-  MOCK_METHOD(void, StartFrequentCheck, (), (override));
-  MOCK_METHOD(void, StopFrequentCheck, (), (override));
-  MOCK_METHOD(void, PauseFrequentCheck, (), (override));
-  MOCK_METHOD(void, ResumeFrequentCheck, (), (override));
+  MOCK_METHOD(bool, SendDemoteToReplicaRpc, (), (override, const));
+  MOCK_METHOD(void, StartStateCheck, (), (override));
+  MOCK_METHOD(void, StopStateCheck, (), (override));
+  MOCK_METHOD(void, PauseStateCheck, (), (override));
+  MOCK_METHOD(void, ResumeStateCheck, (), (override));
   MOCK_METHOD(bool, SendUnregisterReplicaRpc, (std::string_view instance_name), (override, const));
   MOCK_METHOD(bool, SendEnableWritingOnMainRpc, (), (override, const));
   MOCK_METHOD(SendGetInstanceUUIDRpcRes, SendGetInstanceUUIDRpc, (), (override, const));
@@ -77,14 +77,6 @@ TEST_F(ReplicationInstanceConnectorTest, OnFailPing) {
 
   auto connector = ReplicationInstanceConnector(std::move(client), nullptr, nullptr);
   connector.OnFailPing();
-}
-
-TEST_F(ReplicationInstanceConnectorTest, IsReadyForUUIDPing) {
-  auto client = std::make_unique<ReplicationInstanceClientMock>();
-  EXPECT_CALL(*client, InstanceGetUUIDFrequencySec()).Times(1);
-
-  auto connector = ReplicationInstanceConnector(std::move(client), nullptr, nullptr);
-  connector.IsReadyForUUIDPing();
 }
 
 TEST_F(ReplicationInstanceConnectorTest, InstanceName) {
@@ -111,25 +103,9 @@ TEST_F(ReplicationInstanceConnectorTest, ReplicationSocketAddress) {
   connector.ReplicationSocketAddress();
 }
 
-TEST_F(ReplicationInstanceConnectorTest, PromoteToMain) {
-  auto client = std::make_unique<ReplicationInstanceClientMock>();
-  EXPECT_CALL(*client, SendPromoteReplicaToMainRpc(_, _)).Times(1);
-
-  auto connector = ReplicationInstanceConnector(std::move(client), nullptr, nullptr);
-  connector.PromoteToMain({}, {}, nullptr, nullptr);
-}
-
-TEST_F(ReplicationInstanceConnectorTest, DemoteToReplica) {
-  auto client = std::make_unique<ReplicationInstanceClientMock>();
-  EXPECT_CALL(*client, DemoteToReplica()).Times(1);
-
-  auto connector = ReplicationInstanceConnector(std::move(client), nullptr, nullptr);
-  connector.DemoteToReplica(nullptr, nullptr);
-}
-
 TEST_F(ReplicationInstanceConnectorTest, SendDemoteToReplicaRpc) {
   auto client = std::make_unique<ReplicationInstanceClientMock>();
-  EXPECT_CALL(*client, DemoteToReplica()).Times(1);
+  EXPECT_CALL(*client, SendDemoteToReplicaRpc()).Times(1);
 
   auto connector = ReplicationInstanceConnector(std::move(client), nullptr, nullptr);
   connector.SendDemoteToReplicaRpc();
@@ -137,33 +113,16 @@ TEST_F(ReplicationInstanceConnectorTest, SendDemoteToReplicaRpc) {
 
 TEST_F(ReplicationInstanceConnectorTest, ManipulatingChecks) {
   auto client = std::make_unique<ReplicationInstanceClientMock>();
-  EXPECT_CALL(*client, StartFrequentCheck()).Times(1);
-  EXPECT_CALL(*client, StopFrequentCheck()).Times(1);
-  EXPECT_CALL(*client, PauseFrequentCheck()).Times(1);
-  EXPECT_CALL(*client, ResumeFrequentCheck()).Times(1);
+  EXPECT_CALL(*client, StartStateCheck()).Times(1);
+  EXPECT_CALL(*client, StopStateCheck()).Times(1);
+  EXPECT_CALL(*client, PauseStateCheck()).Times(1);
+  EXPECT_CALL(*client, ResumeStateCheck()).Times(1);
 
   auto connector = ReplicationInstanceConnector(std::move(client), nullptr, nullptr);
-  connector.StartFrequentCheck();
-  connector.StopFrequentCheck();
-  connector.PauseFrequentCheck();
-  connector.ResumeFrequentCheck();
-}
-
-TEST_F(ReplicationInstanceConnectorTest, EnsureReplicaHasCorrectMainUUID) {
-  auto client = std::make_unique<ReplicationInstanceClientMock>();
-  EXPECT_CALL(*client, InstanceGetUUIDFrequencySec()).Times(1);
-  EXPECT_CALL(*client, SendGetInstanceUUIDRpc()).Times(1);
-
-  auto connector = ReplicationInstanceConnector(std::move(client), nullptr, nullptr);
-  connector.EnsureReplicaHasCorrectMainUUID({});
-}
-
-TEST_F(ReplicationInstanceConnectorTest, SendUnregisterReplicaRpc) {
-  auto client = std::make_unique<ReplicationInstanceClientMock>();
-  EXPECT_CALL(*client, SendUnregisterReplicaRpc(_)).Times(1);
-
-  auto connector = ReplicationInstanceConnector(std::move(client), nullptr, nullptr);
-  connector.SendUnregisterReplicaRpc("");
+  connector.StartStateCheck();
+  connector.StopStateCheck();
+  connector.PauseStateCheck();
+  connector.ResumeStateCheck();
 }
 
 TEST_F(ReplicationInstanceConnectorTest, SendEnableWritingOnMainRpc) {

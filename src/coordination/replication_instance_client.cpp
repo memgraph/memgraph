@@ -74,10 +74,11 @@ void ReplicationInstanceClient::StartStateCheck() {
                         [this, instance_name = config_.instance_name] {
                           spdlog::trace("Sending state check message to instance {} on {}.", instance_name,
                                         config_.ManagementSocketAddress());
-                          if (SendStateCheckRpc()) {
-                            succ_cb_(coord_instance_, instance_name);
+                          auto const res = SendStateCheckRpc();
+                          if (res) {
+                            succ_cb_(coord_instance_, instance_name, res);
                           } else {
-                            fail_cb_(coord_instance_, instance_name);
+                            fail_cb_(coord_instance_, instance_name, res);
                           }
                         });
 }
@@ -108,7 +109,7 @@ auto ReplicationInstanceClient::SendPromoteReplicaToMainRpc(const utils::UUID &u
   return false;
 }
 
-auto ReplicationInstanceClient::DemoteToReplica() const -> bool {
+auto ReplicationInstanceClient::SendDemoteToReplicaRpc() const -> bool {
   auto const &instance_name = config_.instance_name;
   try {
     auto stream{rpc_client_.Stream<DemoteMainToReplicaRpc>(config_.replication_client_info)};
@@ -134,7 +135,7 @@ auto ReplicationInstanceClient::RegisterReplica(utils::UUID const &uuid,
                     instance_name);
       return false;
     }
-    spdlog::info("Sent request RPC from coordinator to register replica instance on main!");
+    spdlog::trace("Sent request RPC from coordinator to register replica instance on main.");
     return true;
   } catch (rpc::RpcFailedException const &) {
     spdlog::error("Failed to receive RPC response when registering instance {} to replica!", instance_name);
@@ -142,13 +143,13 @@ auto ReplicationInstanceClient::RegisterReplica(utils::UUID const &uuid,
   return false;
 }
 
-auto ReplicationInstanceClient::SendStateCheckRpc() const -> bool {
+auto ReplicationInstanceClient::SendStateCheckRpc() const -> std::optional<InstanceState> {
   try {
     auto stream{rpc_client_.Stream<StateCheckRpc>()};
-    stream.AwaitResponse();
-    return true;
+    auto res = stream.AwaitResponse();
+    return res.state;
   } catch (rpc::RpcFailedException const &) {
-    return false;
+    return {};
   }
 }
 
