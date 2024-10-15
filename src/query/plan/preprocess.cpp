@@ -497,7 +497,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       auto symbol = symbol_table.at(*ident);
       auto collector = UsedSymbolsCollector{symbol_table};
       expr2->Accept(collector);
-      bool uses_same_symbol = utils::Contains(collector.symbols_, symbol);
+      bool const uses_same_symbol = utils::Contains(collector.symbols_, symbol);
       // if expr2 is also dependant on the same symbol then not possible to subsitute with a point index
       if (!uses_same_symbol) {
         auto filter = make_filter(FilterInfo::Type::Point);
