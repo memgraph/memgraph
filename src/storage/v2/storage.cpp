@@ -137,6 +137,13 @@ std::optional<uint64_t> Storage::Accessor::GetTransactionId() const {
   return {};
 }
 
+std::optional<uint64_t> Storage::Accessor::GetTransactionStartTimestamp() const {
+  if (is_transaction_active_) {
+    return transaction_.start_timestamp;
+  }
+  return {};
+}
+
 std::vector<LabelId> Storage::Accessor::ListAllPossiblyPresentVertexLabels() const {
   std::vector<LabelId> vertex_labels;
   storage_->stored_node_labels_.for_each([&vertex_labels](const auto &label) { vertex_labels.push_back(label); });
@@ -630,6 +637,10 @@ void Storage::Accessor::DropTextIndex(const std::string &index_name) {
       storage_->indices_.text_index_.DropIndex(storage_->config_.durability.storage_directory, index_name);
   transaction_.md_deltas.emplace_back(MetadataDelta::text_index_drop, index_name, deleted_index_label);
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTextIndices);
+}
+
+void Storage::Accessor::CreateVectorIndex(const std::string &index_name, const std::vector<VectorIndexSpec> &spec) {
+  storage_->indices_.vector_index_.CreateIndex(index_name, spec);
 }
 
 }  // namespace memgraph::storage

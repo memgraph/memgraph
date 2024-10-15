@@ -12,6 +12,7 @@
 #pragma once
 
 #include <chrono>
+#include <cstdint>
 #include <functional>
 #include <optional>
 #include <semaphore>
@@ -35,6 +36,7 @@
 #include "storage/v2/edges_iterable.hpp"
 #include "storage/v2/enum_store.hpp"
 #include "storage/v2/indices/indices.hpp"
+#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/replication_client.hpp"
@@ -307,6 +309,10 @@ class Storage {
       return storage_->indices_.text_index_.Aggregate(index_name, search_query, aggregation_query);
     }
 
+    void VectorIndexAddVertex(const VertexAccessor &vertex, uint64_t timestamp) {
+      storage_->indices_.vector_index_.AddNode(vertex.vertex_, timestamp);
+    }
+
     virtual IndicesInfo ListAllIndices() const = 0;
 
     virtual ConstraintsInfo ListAllConstraints() const = 0;
@@ -324,6 +330,8 @@ class Storage {
     virtual void FinalizeTransaction() = 0;
 
     std::optional<uint64_t> GetTransactionId() const;
+
+    std::optional<uint64_t> GetTransactionStartTimestamp() const;
 
     void AdvanceCommand();
 
@@ -380,6 +388,8 @@ class Storage {
     void CreateTextIndex(const std::string &index_name, LabelId label);
 
     void DropTextIndex(const std::string &index_name);
+
+    void CreateVectorIndex(const std::string &index_name, const std::vector<VectorIndexSpec> &specs);
 
     virtual utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
         LabelId label, PropertyId property) = 0;

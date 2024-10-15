@@ -11,9 +11,9 @@
 
 #pragma once
 
+#include <cstdint>
 #include <json/json.hpp>
 #include <string>
-#include "absl/container/flat_hash_map.h"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"
@@ -48,6 +48,7 @@ class VectorIndex {
   ~VectorIndex();
 
   void CreateIndex(std::string const &index_name, std::vector<VectorIndexSpec> const &specs);
+  void AddNode(Vertex *vertex, uint64_t timestamp);
 
  private:
   struct Impl;

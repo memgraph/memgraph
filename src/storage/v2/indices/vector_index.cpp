@@ -12,6 +12,8 @@
 #include "storage/v2/indices/vector_index.hpp"
 #include <cstdint>
 
+#include "absl/container/flat_hash_map.h"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/vertex.hpp"
 #include "usearch/index.hpp"
 #include "usearch/index_dense.hpp"
@@ -44,8 +46,8 @@ struct VectorIndex::Impl {
   Impl() = default;
   ~Impl() = default;
 
-  std::map<std::pair<LabelId, PropertyId>, mg_vector_index_t> indexes_;
-  absl::flat_hash_map<std::string, std::pair<LabelId, PropertyId>> index_to_label_prop_;
+  std::map<LabelPropKey, mg_vector_index_t> indexes_;
+  absl::flat_hash_map<std::string, LabelPropKey> index_to_label_prop_;
 };
 
 VectorIndex::VectorIndex() : pimpl(std::make_unique<Impl>()) {}
@@ -55,7 +57,7 @@ void VectorIndex::CreateIndex(const std::string &index_name, std::vector<VectorI
   // TODO(davivek): Take a look under https://github.com/memgraph/cmake/blob/main/vs_usearch.cpp to see how to inject
   // custom key.
   // TODO(davivek): Parametrize everything (e.g. vector_size should be dynamic).
-
+  int i = 0;  // just for testing
   for (const auto &spec : specs) {
     uint64_t vector_size = spec.config["size"];
     unum::usearch::metric_punned_t metric(vector_size, unum::usearch::metric_kind_t::l2sq_k,
@@ -63,8 +65,32 @@ void VectorIndex::CreateIndex(const std::string &index_name, std::vector<VectorI
     const auto label = spec.label;
     const auto prop = spec.property;
 
-    pimpl->index_to_label_prop_[index_name] = std::make_pair(label, prop);
-    pimpl->indexes_[std::make_pair(label, prop)] = mg_vector_index_t::make(metric);
+    const auto label_prop = LabelPropKey{label, prop};
+    pimpl->index_to_label_prop_.emplace(index_name + std::to_string(i), label_prop);
+    pimpl->indexes_.emplace(label_prop, mg_vector_index_t::make(metric));
+    pimpl->indexes_[label_prop].reserve(100);
+    i++;
+  }
+
+  std::cout << "Created vector index" << std::endl;
+}
+
+void VectorIndex::AddNode(Vertex *vertex, uint64_t timestamp) {
+  for (const auto label_id : vertex->labels) {
+    for (const auto &[property_id, property_value] : vertex->properties.Properties()) {
+      const auto label_prop = LabelPropKey{label_id, property_id};
+      if (pimpl->indexes_.find(label_prop) != pimpl->indexes_.end()) {
+        const auto key = VectorIndexKey{vertex, timestamp};
+        const auto &list = property_value.ValueList();
+        spdlog::trace("Adding node to vector index)");
+        std::vector<float> vec;
+        vec.reserve(list.size());
+        for (const auto &value : list) {
+          vec.push_back(static_cast<float>(value.ValueDouble()));
+        }
+        pimpl->indexes_[label_prop].add(key, vec.data());
+      }
+    }
   }
 }
 

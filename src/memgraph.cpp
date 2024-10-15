@@ -612,8 +612,8 @@ int main(int argc, char **argv) {
               "--experimental-vector-indexes is not in the right format to use vector indexes. Use "
               "Label__property__\{JSON\},... format instead.");
         }
-        const auto label_name = an_index_split[1];
-        const auto property_name = an_index_split[2];
+        const auto &label_name = an_index_split[1];
+        const auto &property_name = an_index_split[2];
         const auto label_id = storage->NameToLabel(label_name);
         const auto property_id = storage->NameToProperty(property_name);
         if (an_index_split.size() == 3) {
@@ -632,8 +632,8 @@ int main(int argc, char **argv) {
         spdlog::info("Having vector index named {} on :{}({}) with config: {}", spec.index_name,
                      storage->LabelToName(spec.label), storage->PropertyToName(spec.property), spec.config.dump());
       }
-      memgraph::storage::VectorIndex vector_index;
-      vector_index.CreateIndex("testVectorIndex", vector_index_specs);
+      auto storage = db_acc->Access();
+      storage->CreateVectorIndex("TestIndex", vector_index_specs);
     }
   }
 

@@ -31,6 +31,7 @@
 #include "utils/result.hpp"
 #include "utils/variant_helpers.hpp"
 
+#include <cstdint>
 #include <optional>
 #include <ranges>
 
@@ -240,6 +241,8 @@ class DbAccessor final {
   }
 
   std::optional<uint64_t> GetTransactionId() { return accessor_->GetTransactionId(); }
+
+  std::optional<uint64_t> GetTransactionStartTimestamp() { return accessor_->GetTransactionStartTimestamp(); }
 
   VerticesIterable Vertices(storage::View view) { return VerticesIterable(accessor_->Vertices(view)); }
 
@@ -468,6 +471,10 @@ class DbAccessor final {
     return accessor_->TextIndexAggregate(index_name, search_query, aggregation_query);
   }
 
+  void VectorIndexAddVertex(const VertexAccessor &vertex, uint64_t timestamp) {
+    accessor_->VectorIndexAddVertex(vertex.impl_, timestamp);
+  }
+
   std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const {
     return accessor_->GetIndexStats(label);
   }
@@ -593,6 +600,11 @@ class DbAccessor final {
   }
 
   void DropTextIndex(const std::string &index_name) { accessor_->DropTextIndex(index_name); }
+
+  // not used at the moment since we are creating vector index directly via storage accessor
+  void CreateVectorIndex(const std::string &index_name, const std::vector<storage::VectorIndexSpec> &specs) {
+    accessor_->CreateVectorIndex(index_name, specs);
+  }
 
   utils::BasicResult<storage::StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
       storage::LabelId label, storage::PropertyId property) {

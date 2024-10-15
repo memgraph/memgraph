@@ -27,6 +27,7 @@
 
 #include <cppitertools/chain.hpp>
 #include <cppitertools/imap.hpp>
+#include "flags/general.hpp"
 #include "memory/query_memory_control.hpp"
 #include "query/common.hpp"
 #include "query/procedure/module_fwd.hpp"
@@ -287,6 +288,14 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
 
   if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     context.db_accessor->TextIndexAddVertex(new_node);
+  }
+
+  if (!FLAGS_experimental_vector_indexes.empty()) {
+    const auto tx_start_timestamp = context.db_accessor->GetTransactionStartTimestamp();
+    if (tx_start_timestamp) {
+      context.db_accessor->VectorIndexAddVertex(new_node, *tx_start_timestamp);
+    }
+    // TODO: if not in transaction, we should add the vertex to the vector index also
   }
 
   (*frame)[node_info.symbol] = new_node;
