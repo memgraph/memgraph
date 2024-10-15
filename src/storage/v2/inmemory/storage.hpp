@@ -567,7 +567,7 @@ class InMemoryStorage final : public Storage {
   durability::Recovery recovery_;
 
   std::filesystem::path lock_file_path_;
-  utils::OutputFile lock_file_handle_;
+  std::unique_ptr<utils::OutputFile> lock_file_handle_ = std::make_unique<utils::OutputFile>();
 
   utils::Scheduler snapshot_runner_;
   utils::SpinLock snapshot_lock_;
@@ -575,7 +575,7 @@ class InMemoryStorage final : public Storage {
   // Sequence number used to keep track of the chain of WALs.
   uint64_t wal_seq_num_{0};
 
-  std::optional<durability::WalFile> wal_file_;
+  std::unique_ptr<durability::WalFile> wal_file_;
   uint64_t wal_unsynced_transactions_{0};
 
   utils::FileRetainer file_retainer_;
