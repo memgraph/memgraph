@@ -68,7 +68,8 @@ class CoordinatorInstance {
   auto ShowInstancesStatusAsFollower() const -> std::vector<InstanceStatus>;
 
   // Finds most up to date instance that could become new main. Only alive instances are taken into account.
-  auto TryFailover() -> void;
+  // Returns true if main instance was selected and all writing to raft log succeeded.
+  [[nodiscard]] auto TryFailover() -> bool;
 
   auto AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) -> AddCoordinatorInstanceStatus;
 
@@ -103,9 +104,9 @@ class CoordinatorInstance {
  private:
   auto FindReplicationInstance(std::string_view replication_instance_name) -> ReplicationInstanceConnector &;
 
-  void InstanceSuccessCallback(std::string_view instance_name, std::optional<InstanceState> instance_state);
+  void InstanceSuccessCallback(ReplicationInstanceConnector &instance, std::optional<InstanceState> instance_state);
 
-  void InstanceFailCallback(std::string_view instance_name, std::optional<InstanceState> instance_state);
+  void InstanceFailCallback(ReplicationInstanceConnector &instance, std::optional<InstanceState> instance_state);
 
   auto ReconcileClusterState_() -> ReconcileClusterStateStatus;
 

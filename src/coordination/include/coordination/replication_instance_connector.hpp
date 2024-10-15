@@ -25,7 +25,9 @@
 
 namespace memgraph::coordination {
 
-using HealthCheckInstanceCallback = void (CoordinatorInstance::*)(std::string_view, std::optional<InstanceState>);
+class ReplicationInstanceConnector;
+using HealthCheckInstanceCallback = void (CoordinatorInstance::*)(ReplicationInstanceConnector &,
+                                                                  std::optional<InstanceState>);
 
 // Class used for managing the connection from coordinator to the data instance.
 class ReplicationInstanceConnector {

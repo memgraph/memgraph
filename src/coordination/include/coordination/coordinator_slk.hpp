@@ -82,11 +82,13 @@ inline void Load(InstanceStatus *obj, Reader *reader) {
 inline void Save(const coordination::InstanceState &obj, Builder *builder) {
   Save(obj.is_replica, builder);
   Save(obj.uuid, builder);
+  Save(obj.is_writing_enabled, builder);
 }
 
 inline void Load(coordination::InstanceState *obj, Reader *reader) {
   Load(&obj->is_replica, reader);
   Load(&obj->uuid, reader);
+  Load(&obj->is_writing_enabled, reader);
 }
 
 }  // namespace memgraph::slk

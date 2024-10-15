@@ -64,20 +64,35 @@ CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &co
           io::network::Endpoint{kDefaultManagementServerIp, static_cast<uint16_t>(config.management_port)}}} {
   client_succ_cb_ = [](CoordinatorInstance *self, std::string_view instance_name,
                        std::optional<InstanceState> instance_state) -> void {
-    spdlog::trace("Acquiring lock in thread {} for instance {}'s success callback.", std::this_thread::get_id(),
-                  instance_name);
+    if (self->raft_state_->IsLockOpened()) {
+      spdlog::trace("Lock is still opened, not executing instance success callback.");
+      return;
+    }
+
+    if (!self->is_leader_ready_) {
+      spdlog::trace("Leader is not ready, not executing instance fail callback.");
+      return;
+    }
+
     auto lock = std::unique_lock{self->coord_instance_lock_};
     auto &instance = self->FindReplicationInstance(instance_name);
-    std::invoke(instance.GetSuccessCallback(), self, instance_name, instance_state);
+    std::invoke(instance.GetSuccessCallback(), self, instance, instance_state);
   };
 
   client_fail_cb_ = [](CoordinatorInstance *self, std::string_view instance_name,
                        std::optional<InstanceState> instance_state) -> void {
-    spdlog::trace("Acquiring lock in thread {} for instance {}'s fail callback.", std::this_thread::get_id(),
-                  instance_name);
+    if (self->raft_state_->IsLockOpened()) {
+      spdlog::trace("Lock is still opened, not executing instance fail callback.");
+      return;
+    }
+
+    if (!self->is_leader_ready_) {
+      spdlog::trace("Leader is not ready, not executing instance fail callback.");
+      return;
+    }
     auto lock = std::unique_lock{self->coord_instance_lock_};
     auto &instance = self->FindReplicationInstance(instance_name);
-    std::invoke(instance.GetFailCallback(), self, instance_name, instance_state);
+    std::invoke(instance.GetFailCallback(), self, instance, instance_state);
   };
 
   CoordinatorInstanceManagementServerHandlers::Register(coordinator_management_server_, *this);
@@ -319,6 +334,8 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
 auto CoordinatorInstance::ReconcileClusterState() -> ReconcileClusterStateStatus {
   utils::ExponentialBackoff backoff{std::chrono::milliseconds(1000), std::chrono::seconds(60)};
 
+  is_leader_ready_.store(false, std::memory_order_release);
+
   auto attempt_cnt{1};
   while (raft_state_->IsLeader()) {
     spdlog::trace("Trying to ensure cluster's healthy state. The coordinator is considered a leader. Attempt: {}.",
@@ -329,20 +346,23 @@ auto CoordinatorInstance::ReconcileClusterState() -> ReconcileClusterStateStatus
         is_leader_ready_.store(true, std::memory_order_release);
         spdlog::trace("Reconcile cluster state finished successfully.");
         return result;
+      // if status is fail, don't set is_leader_ready_ to true.
       case ReconcileClusterStateStatus::FAIL:
         spdlog::trace("ReconcileClusterState_ failed!");
         break;
+      // if the instance is shutting down don't set is_leader_ready_ to true.
       case ReconcileClusterStateStatus::SHUTTING_DOWN:
         spdlog::trace("Stopping reconciliation as coordinator is shutting down.");
         return result;
+      case ReconcileClusterStateStatus::NOT_LEADER_ANYMORE: {
+        MG_ASSERT(false, "Invalid status handling. Crashing the database.");
+      }
     }
     backoff.wait();
   }
 
   // It's possible that the instance got request to become follower since the start of executing this method.
-  // In that case we want to return Success meaning we don't care what happened, we are now follower so we should
-  // forget about ReconciliationRequest.
-  return ReconcileClusterStateStatus::SUCCESS;
+  return ReconcileClusterStateStatus::NOT_LEADER_ANYMORE;
 }
 
 auto CoordinatorInstance::ReconcileClusterState_() -> ReconcileClusterStateStatus {
@@ -351,12 +371,6 @@ auto CoordinatorInstance::ReconcileClusterState_() -> ReconcileClusterStateStatu
   if (is_shutting_down_.load(std::memory_order_acquire)) {
     return ReconcileClusterStateStatus::SHUTTING_DOWN;
   }
-
-  // Do we need to open lock?
-  //  We don't need to open lock as long as we have check whether leader is ready on any action.
-  //  Also, function which uses this function can call in loop this function either until we succeed or we are leader.
-  //  If we have only three states (SUCCESS, FAIL, SHUTTING_DOWN) we can figure out whether we should continue executing
-  //  or no.
 
   // Ordering is important here, we must stop frequent check before
   // taking lock to avoid deadlock between us stopping thread and thread wanting to take lock but can't because
@@ -370,17 +384,6 @@ auto CoordinatorInstance::ReconcileClusterState_() -> ReconcileClusterStateStatu
   auto lock = std::unique_lock{coord_instance_lock_};
   spdlog::trace("Acquired lock in the reconciliation cluster state reset thread {}.", std::this_thread::get_id());
   repl_instances_.clear();
-
-  // TODO: (andi) The check if I am still the leader is good, but I want to decouple this and move is_leader_ready_
-  // either outside this function or completely in this function. Currently it's a bit of both.
-  utils::OnScopeExit const do_reconcile_cluster_state{[this]() {
-    spdlog::trace("Reconcile cluster state function exit, lock opened {}, coordinator is leader {}.",
-                  raft_state_->IsLockOpened(), raft_state_->IsLeader());
-    if (raft_state_->IsLeader() && !raft_state_->IsLockOpened()) {
-      is_leader_ready_.store(true, std::memory_order_release);
-      spdlog::trace("Lock is not opened anymore and coordinator is leader, not reconciling cluster state again.");
-    }
-  }};
 
   auto const raft_state_replication_instances = raft_state_->GetReplicationInstances();
 
@@ -400,20 +403,17 @@ auto CoordinatorInstance::ReconcileClusterState_() -> ReconcileClusterStateStatu
     }
   }
 
-  if (!raft_state_->AppendCloseLock()) {
+  if (raft_state_->IsLockOpened() && !raft_state_->AppendCloseLock()) {
     spdlog::trace("Exiting ReconcileClusterState. Failed to append close lock.");
     return ReconcileClusterStateStatus::FAIL;
   }
-  spdlog::trace("CloseLock log successfully appended in ReconcileClusterState_");
+  spdlog::trace("Lock is closed.");
 
   // There is nothing to do if we don't have any instances
   if (raft_state_replication_instances.empty()) {
     spdlog::trace("Exiting ReconcileClusterState. Didn't get any replication instances.");
     return ReconcileClusterStateStatus::SUCCESS;
   }
-
-  // We don't need to open lock here as we have mechanism to know whether action was success (state which we return).
-  // If action failed we try again, otherwise we are done and we set leader is ready.
 
   std::ranges::for_each(raft_state_replication_instances, [this](auto &&instance) {
     auto client = std::make_unique<ReplicationInstanceClient>(this, instance.config, client_succ_cb_, client_fail_cb_);
@@ -424,75 +424,25 @@ auto CoordinatorInstance::ReconcileClusterState_() -> ReconcileClusterStateStatu
                          return raft_state_ptr->IsCurrentMain(instance.InstanceName());
                        });
 
-  auto const [maybe_new_main_name,
-              last_main_alive] = std::invoke([this, &current_mains]() -> std::pair<std::optional<std::string>, bool> {
-    auto const num_mains = std::ranges::distance(current_mains);
+  auto const num_mains = std::ranges::distance(current_mains);
 
-    if (num_mains == 0) {
-      spdlog::trace(
-          "No main can be determined from the current state in logs. Trying to find most up to date instance from "
-          "histories.");
-      return {CoordinatorInstance::GetMostUpToDateInstanceFromHistories(repl_instances_), false};
+  if (num_mains == 1) {
+    // If we have alive MAIN instance we expect that the cluster was in the correct state already. We can start
+    // frequent checks and set all appropriate callbacks.
+    auto main_instance = std::ranges::begin(current_mains);
+    spdlog::trace("Last main instance {} is alive.", main_instance->InstanceName());
+  } else if (num_mains == 0) {
+    spdlog::trace(
+        "No main can be determined from the current state in logs. Trying to find most up to date instance by doing "
+        "failover");
+    if (!TryFailover()) {
+      spdlog::trace("Failover failed while reconciling cluster state.");
+      return ReconcileClusterStateStatus::FAIL;
     }
-
-    if (num_mains == 1) {
-      // If we have alive MAIN instance we expect that the cluster was in the correct state already. We can start
-      // frequent checks and set all appropriate callbacks.
-      auto main_instance = std::ranges::begin(current_mains);
-      auto main_instance_name = main_instance->InstanceName();
-      spdlog::trace("Last main instance {} is alive.", main_instance_name);
-      return {main_instance_name, true};
-    }
-
+  } else {
     MG_ASSERT(
         false,
         "Found more than one current main. System cannot operate under this assumption, please contact the support.");
-  });
-
-  // If we couldn't find new main, just try to repeat the process. Cluster still in manageable state.
-  if (!maybe_new_main_name.has_value()) {
-    spdlog::error(
-        "Exiting ReconcileClusterState. Couldn't choose instance to be new main when reconciling cluster state, check "
-        "logs for more details.");
-    return ReconcileClusterStateStatus::FAIL;
-  }
-
-  auto const &new_main_name = *maybe_new_main_name;
-  auto &new_main = FindReplicationInstance(new_main_name);
-  spdlog::trace("Found the new main with instance name {}.", new_main_name);
-
-  auto const is_not_new_main = [&new_main_name](auto &&instance) { return instance.InstanceName() != new_main_name; };
-
-  auto new_replicas = repl_instances_ | ranges::views::filter(is_not_new_main);
-
-  if (!last_main_alive) {
-    auto const new_uuid = utils::UUID{};
-    spdlog::trace("New UUID was generated {}.", std::string{new_uuid});
-
-    // We want to change cluster ID of current MAIN so no old instance will return to MAIN state
-    // If we write to Raft log new UUID and then crash, the new leader will see this new uuid, figure out
-    // that there is no instance with this UUID and choose the instance to be new main based on history.
-    if (!raft_state_->AppendUpdateUUIDForNewMainLog(new_uuid)) {
-      spdlog::error("Update log for new MAIN failed, assuming coordinator is now follower");
-      return ReconcileClusterStateStatus::FAIL;
-    }
-
-    auto repl_clients_info = new_replicas |
-                             ranges::views::transform(&ReplicationInstanceConnector::GetReplicationClientInfo) |
-                             ranges::to<ReplicationClientsInfo>();
-
-    // If something failed, we will try to repeat the process one more time.
-    if (!new_main.SendPromoteToMainRpc(new_uuid, std::move(repl_clients_info))) {
-      spdlog::warn(
-          "Exiting ReconcileClusterState. Reconcile cluster state failed since promoting replica to main failed.");
-      return ReconcileClusterStateStatus::FAIL;
-    }
-
-    // This will set cluster in healthy state again
-    if (!raft_state_->AppendSetInstanceAsMainLog(new_main_name, new_uuid)) {
-      spdlog::error("Exiting ReconcileClusterState. Update log for new MAIN failed");
-      return ReconcileClusterStateStatus::FAIL;
-    }
   }
 
   std::ranges::for_each(repl_instances_, [](auto &&instance) { instance.StartStateCheck(); });
@@ -504,41 +454,33 @@ auto CoordinatorInstance::ReconcileClusterState_() -> ReconcileClusterStateStatu
 auto CoordinatorInstance::TryVerifyOrCorrectClusterState() -> ReconcileClusterStateStatus {
   // Follows nomenclature from replication handler where Try<> means doing action from the
   // user query.
-  return ReconcileClusterState_();
+  return ReconcileClusterState();
 }
 
 void CoordinatorInstance::ShuttingDown() { is_shutting_down_.store(true, std::memory_order_release); }
 
-auto CoordinatorInstance::TryFailover() -> void {
+auto CoordinatorInstance::TryFailover() -> bool {
   // TODO: (andi) Remove has replica state.
   // TODO: (andi) Ideally, we have one log which would atomically update cluster state in raft log.
-  // We don't need to stop state check as we are holding coord_instance_lock_.
+  // We don't need to stop state check as long as we are holding coord_instance_lock_.
   // If I have only one append then opening and closing the lock won't be needed.
+
+  if (!raft_state_->AppendOpenLock()) {
+    spdlog::error("Failed to open the lock while doing failover.");
+    return true;  // we return true because if we couldn't open the lock that means that the state in raft log is still
+                  // ok. The expected caller's action is to just repeat the process.
+  }
 
   spdlog::trace("Trying failover in thread {}.", std::this_thread::get_id());
 
   auto const maybe_most_up_to_date_instance = GetMostUpToDateInstanceFromHistories(repl_instances_);
   if (!maybe_most_up_to_date_instance.has_value()) {
     spdlog::error("Couldn't choose instance for failover, check logs for more details.");
-    return;
+    return false;
   }
 
   auto const &new_main_name = *maybe_most_up_to_date_instance;
   spdlog::trace("Found new main instance {} while doing failover.", new_main_name);
-
-  if (!raft_state_->AppendOpenLock()) {
-    spdlog::error("Failed to open the lock while doing failover.");
-    return;
-  }
-
-  utils::OnScopeExit const do_reset{[this]() {
-    if (raft_state_->IsLockOpened() && raft_state_->IsLeader()) {
-      spdlog::trace("Adding task to try reconcile cluster state as lock is still opened after failover.");
-      thread_pool_.AddTask([this]() { this->ReconcileClusterState(); });
-      return;
-    }
-    spdlog::trace("Failover done, lock is not opened anymore or coordinator is not leader.");
-  }};
 
   auto const new_main_uuid = utils::UUID{};
 
@@ -550,23 +492,26 @@ auto CoordinatorInstance::TryFailover() -> void {
 
   if (std::ranges::any_of(repl_instances_ | ranges::views::filter(not_main), failed_to_update_uuid)) {
     spdlog::error("Aborting failover. Failed to update uuid for one of replicas.");
-    return;
+    return false;
   }
 
   if (!raft_state_->AppendUpdateUUIDForNewMainLog(new_main_uuid)) {
     spdlog::error("Aborting failover. Failed to update uuid of main instance.");
-    return;
+    return false;
   }
 
+  // it's important that this is executed after setting uuid for each replica instance. Otherwise check if IsCurrentMain
+  // isn't enough in ReconcileClusterState_.
   if (!raft_state_->AppendSetInstanceAsMainLog(new_main_name, new_main_uuid)) {
     spdlog::error("Aborting failover. Failed to add log to set instance {} as new main.", new_main_name);
-    return;
+    return false;
   }
 
   if (!raft_state_->AppendCloseLock()) {
     spdlog::error("Aborting failover as we failed to close lock on action.");
-    return;
+    return false;
   }
+  return true;
 }
 
 auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view instance_name)
@@ -910,21 +855,10 @@ auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorToCoordinatorConfig 
   return AddCoordinatorInstanceStatus::SUCCESS;
 }
 
-void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name,
+void CoordinatorInstance::InstanceSuccessCallback(ReplicationInstanceConnector &instance,
                                                   std::optional<InstanceState> instance_state) {
+  auto const instance_name = instance.InstanceName();
   spdlog::trace("Instance {} performing success callback in thread {}.", instance_name, std::this_thread::get_id());
-
-  if (raft_state_->IsLockOpened()) {
-    spdlog::trace("Returning from InstanceSuccessCallback since the lock is still opened.");
-    return;
-  }
-
-  if (!is_leader_ready_) {
-    spdlog::trace("Returning from InstanceSuccessCallback since the leader is not ready.");
-    return;
-  }
-
-  auto &instance = FindReplicationInstance(instance_name);
 
   auto const curr_main_uuid = raft_state_->GetCurrentMainUUID();
 
@@ -940,9 +874,16 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
       if (!instance.SendPromoteToMainRpc(curr_main_uuid, std::move(repl_clients_info))) {
         spdlog::error("Failed to promote instance to main with new uuid {}. Trying to do failover again.",
                       std::string{curr_main_uuid});
-        TryFailover();
+        // running reconcile cluster state in thread pool is not a problem because we have a guarantee that if
+        // TryFailover failed the lock remains opened, hence callbacks won't get executed until lock is closed.
+        // It's possible that the lock didn't even get opened. In that case we will repeat the action.
+        if (!TryFailover()) {
+          thread_pool_.AddTask([this]() { this->ReconcileClusterState(); });
+        }
         return;
       }
+    } else {
+      // I could have writing disabled because of restart.
     }
   } else {
     // The instance should be replica.
@@ -967,26 +908,19 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
   instance.OnSuccessPing();
 }
 
-void CoordinatorInstance::InstanceFailCallback(std::string_view instance_name,
+void CoordinatorInstance::InstanceFailCallback(ReplicationInstanceConnector &instance,
                                                std::optional<InstanceState> /*instance_state*/) {
+  auto const instance_name = instance.InstanceName();
   spdlog::trace("Instance {} performing fail callback in thread {}.", instance_name, std::this_thread::get_id());
-
-  if (raft_state_->IsLockOpened()) {
-    spdlog::trace("Returning from InstanceFailCallback since the lock is still opened.");
-    return;
-  }
-
-  if (!is_leader_ready_) {
-    spdlog::trace("Returning from InstanceFailCallback since the leader is not ready.");
-    return;
-  }
-
-  auto &instance = FindReplicationInstance(instance_name);
   instance.OnFailPing();
 
   if (raft_state_->IsCurrentMain(instance_name) && !instance.IsAlive()) {
-    spdlog::info("Cluster without main instance, trying failover.");
-    TryFailover();
+    spdlog::trace("Cluster without main instance, trying failover.");
+    if (!TryFailover()) {
+      // running reconcile cluster state in thread pool is not a problem because we have a guarantee that if TryFailover
+      // failed the lock remains opened, hence callbacks won't get executed until lock is closed.
+      thread_pool_.AddTask([this]() { this->ReconcileClusterState(); });
+    }
   }
 
   spdlog::trace("Instance {} finished fail callback.", instance_name);

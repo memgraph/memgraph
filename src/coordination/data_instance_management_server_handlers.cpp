@@ -88,9 +88,16 @@ void DataInstanceManagementServerHandlers::StateCheckHandler(replication::Replic
     return replication_handler.GetMainUUID();
   });
 
-  slk::Save(coordination::StateCheckRes{is_replica, uuid}, res_builder);
-  spdlog::info("State check returned: is_replica = {}, uuid = {}", is_replica,
-               uuid.has_value() ? std::string{*uuid} : "");
+  auto const writing_enabled = std::invoke([&replication_handler, is_replica]() -> bool {
+    if (is_replica) {
+      return false;
+    }
+    return replication_handler.GetReplState().IsMainWriteable();
+  });
+
+  slk::Save(coordination::StateCheckRes{is_replica, uuid, writing_enabled}, res_builder);
+  spdlog::info("State check returned: is_replica = {}, uuid = {}, writing_enabled = {}", is_replica,
+               uuid.has_value() ? std::string{*uuid} : "", writing_enabled);
 }
 
 void DataInstanceManagementServerHandlers::GetDatabaseHistoriesHandler(

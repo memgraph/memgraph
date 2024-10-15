@@ -261,7 +261,8 @@ struct StateCheckRes {
   static void Load(StateCheckRes *self, memgraph::slk::Reader *reader);
   static void Save(const StateCheckRes &self, memgraph::slk::Builder *builder);
 
-  StateCheckRes(bool replica, std::optional<utils::UUID> req_uuid) : state({.is_replica = replica, .uuid = req_uuid}) {}
+  StateCheckRes(bool replica, std::optional<utils::UUID> req_uuid, bool writing_enabled)
+      : state({.is_replica = replica, .uuid = req_uuid, .is_writing_enabled = writing_enabled}) {}
   StateCheckRes() = default;
 
   InstanceState state;

@@ -22,6 +22,7 @@ namespace memgraph::coordination {
 struct InstanceState {
   bool is_replica;                  // MAIN or REPLICA
   std::optional<utils::UUID> uuid;  // MAIN's UUID or the UUID which REPLICA listens
+  bool is_writing_enabled;          // on replica it's never enabled. On main depends.
 };
 
 }  // namespace memgraph::coordination
