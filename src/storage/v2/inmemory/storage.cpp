@@ -2809,6 +2809,63 @@ std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>> InMemoryStora
   return maybe_edge_info;
 }
 
+void InMemoryStorage::Clear() {
+  // NOTE: Make sure this function is called while exclusively holding on to the main lock
+  // When creating a snapshot, we first lock the snapshot, then create and accessor
+  // GC could be running without the main lock
+  // Engine lock is needed because of PrepareForNewEpoch
+  auto gc_lock = std::unique_lock{gc_lock_};
+  auto engine_lock = std::unique_lock{engine_lock_};
+
+  // Clear main memory
+  vertices_.clear();
+  vertices_.run_gc();
+  vertex_id_ = 0;
+
+  edges_.clear();
+  edges_.run_gc();
+  edge_id_ = 0;
+  edge_count_ = 0;
+
+  timestamp_ = kTimestampInitialId;
+  transaction_id_ = kTransactionInitialId;
+
+  // Reset WALs
+  wal_seq_num_ = 0;
+  wal_file_.reset();
+  wal_unsynced_transactions_ = 0;
+
+  // Reset the commit log
+  commit_log_.reset();
+  commit_log_.emplace();
+
+  // Drop any pending GC work (committed_transactions_ is holding on to old deltas)
+  deleted_vertices_->clear();
+  deleted_edges_->clear();
+  garbage_undo_buffers_->clear();
+  committed_transactions_->clear();
+
+  // Clear indices, constraints and metadata
+  indices_.DropGraphClearIndices();
+  constraints_.DropGraphClearConstraints();
+  edges_metadata_.clear();
+  edges_metadata_.run_gc();
+  stored_node_labels_.clear();
+  stored_edge_types_.clear();
+  labels_to_auto_index_->clear();
+  edge_types_to_auto_index_->clear();
+
+  // Reset helper classes
+  name_id_mapper_ = std::make_unique<NameIdMapper>();
+  enum_store_.clear();
+  schema_info_.clear();
+
+  // Replication epoch and timestamp reset
+  repl_storage_state_.epoch_.SetEpoch(std::string(utils::UUID{}));
+  repl_storage_state_.last_durable_timestamp_ = 0;
+  repl_storage_state_.history.clear();
+}
+
 IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory->indices_.label_index_.get());
