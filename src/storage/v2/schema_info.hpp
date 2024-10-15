@@ -825,6 +825,12 @@ struct SchemaInfo {
     return AnalyticalUniqueAccessor{*this, prop_on_edges};
   }
 
+  // TODO Remove when v2 is merged
+  void clear() {
+    auto l = std::unique_lock{mtx_};
+    tracking_.Clear();
+  }
+
  private:
   friend ReadAccessor;
   friend WriteAccessor;

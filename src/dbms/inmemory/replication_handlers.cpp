@@ -274,14 +274,10 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
 
   auto storage_guard = std::unique_lock{storage->main_lock_};
   spdlog::trace("Clearing database since recovering from snapshot.");
-  // Clear the database
-  storage->vertices_.clear();
-  storage->edges_.clear();
 
-  storage->constraints_.existence_constraints_ = std::make_unique<storage::ExistenceConstraints>();
-  storage->constraints_.unique_constraints_ = std::make_unique<storage::InMemoryUniqueConstraints>();
-  storage->indices_.label_index_ = std::make_unique<storage::InMemoryLabelIndex>();
-  storage->indices_.label_property_index_ = std::make_unique<storage::InMemoryLabelPropertyIndex>();
+  // Clear the database
+  storage->Clear();
+
   try {
     spdlog::debug("Loading snapshot");
     auto recovered_snapshot = storage::durability::LoadSnapshot(
@@ -298,9 +294,6 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
     storage->edge_id_ = recovery_info.next_edge_id;
     storage->timestamp_ = std::max(storage->timestamp_, recovery_info.next_timestamp);
     storage->repl_storage_state_.last_durable_timestamp_ = recovery_info.next_timestamp - 1;
-
-    // Reset WAL chain
-    storage->wal_seq_num_ = 0;
 
     spdlog::trace("Recovering indices and constraints from snapshot.");
     memgraph::storage::durability::RecoverIndicesAndStats(
@@ -367,29 +360,7 @@ void InMemoryReplicationHandlers::ForceResetStorageHandler(dbms::DbmsHandler *db
   auto storage_guard = std::unique_lock{storage->main_lock_};
 
   // Clear the database
-  storage->vertices_.clear();
-  storage->edges_.clear();
-  storage->commit_log_.reset();
-  storage->commit_log_.emplace();
-
-  storage->constraints_.existence_constraints_ = std::make_unique<storage::ExistenceConstraints>();
-  storage->constraints_.unique_constraints_ = std::make_unique<storage::InMemoryUniqueConstraints>();
-  storage->indices_.label_index_ = std::make_unique<storage::InMemoryLabelIndex>();
-  storage->indices_.label_property_index_ = std::make_unique<storage::InMemoryLabelPropertyIndex>();
-
-  // Fine since we will force push when reading from WAL just random epoch with 0 timestamp, as it should be if it
-  // acted as MAIN before
-  storage->repl_storage_state_.epoch_.SetEpoch(std::string(utils::UUID{}));
-  storage->repl_storage_state_.last_durable_timestamp_ = 0;
-
-  storage->repl_storage_state_.history.clear();
-  storage->vertex_id_ = 0;
-  storage->edge_id_ = 0;
-  storage->timestamp_ = storage::kTimestampInitialId;
-
-  storage->CollectGarbage<true>(std::move(storage_guard), false);
-  storage->vertices_.run_gc();
-  storage->edges_.run_gc();
+  storage->Clear();
 
   const storage::replication::ForceResetStorageRes res{true,
                                                        storage->repl_storage_state_.last_durable_timestamp_.load()};
