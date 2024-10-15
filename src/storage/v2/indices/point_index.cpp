@@ -11,6 +11,7 @@
 
 #include "storage/v2/indices/point_index.hpp"
 
+#include <boost/geometry/index/predicates.hpp>
 #include <utility>
 #include "storage/v2/indices/point_index_change_collector.hpp"
 #include "storage/v2/indices/point_index_expensive_header.hpp"
@@ -487,16 +488,16 @@ PointIterable::PointIterable(Storage *storage, Transaction *transaction, PointIn
 namespace {
 
 template <typename point_type>
-std::pair<point_type, point_type> create_bounding_box_2d(const point_type &point, double boundary) {
-  point_type min_corner(point.x() - boundary, point.y() - boundary);
-  point_type max_corner(point.x() + boundary, point.y() + boundary);
+auto create_bounding_box_2d(const point_type &point, double boundary) -> bg::model::box<point_type> {
+  point_type min_corner(bg::get<0>(point) - boundary, bg::get<1>(point) - boundary);
+  point_type max_corner(bg::get<0>(point) + boundary, bg::get<1>(point) + boundary);
   return {min_corner, max_corner};
 }
 
 template <typename point_type>
-std::pair<point_type, point_type> create_bounding_box_3d(const point_type &point, double boundary) {
-  point_type min_corner(point.x() - boundary, point.y() - boundary, point.z() - boundary);
-  point_type max_corner(point.x() + boundary, point.y() + boundary, point.z() + boundary);
+auto create_bounding_box_3d(const point_type &point, double boundary) -> bg::model::box<point_type> {
+  point_type min_corner(bg::get<0>(point) - boundary, bg::get<1>(point) - boundary, bg::get<2>(point) - boundary);
+  point_type max_corner(bg::get<0>(point) + boundary, bg::get<1>(point) + boundary, bg::get<2>(point) + boundary);
   return {min_corner, max_corner};
 }
 
@@ -512,20 +513,28 @@ auto get_index_iterator_distance_wgs2d(std::shared_ptr<index_t<IndexPointWGS2d>>
 
   switch (condition) {
     case PointDistanceCondition::OUTSIDE: {
-      return index->qbegin(bgi::satisfies(
-          [point, boundary](const auto &value) { return bg::distance(value.point(), point) > boundary; }));
+      return index->qbegin(bgi::disjoint(create_bounding_box_2d<point_type>(point, boundary)) &&
+                           bgi::satisfies([point, boundary](const auto &value) {
+                             return bg::distance(value.point(), point) > boundary;
+                           }));
     }
     case PointDistanceCondition::INSIDE: {
-      return index->qbegin(bgi::satisfies(
-          [point, boundary](const auto &value) { return bg::distance(value.point(), point) < boundary; }));
+      return index->qbegin(bgi::contains(create_bounding_box_2d<point_type>(point, boundary)) &&
+                           bgi::satisfies([point, boundary](const auto &value) {
+                             return bg::distance(value.point(), point) < boundary;
+                           }));
     }
     case PointDistanceCondition::INSIDE_AND_BOUNDARY: {
-      return index->qbegin(bgi::satisfies(
-          [point, boundary](const auto &value) { return bg::distance(value.point(), point) <= boundary; }));
+      return index->qbegin(bgi::intersects(create_bounding_box_2d<point_type>(point, boundary)) &&
+                           bgi::satisfies([point, boundary](const auto &value) {
+                             return bg::distance(value.point(), point) <= boundary;
+                           }));
     }
     case PointDistanceCondition::OUTSIDE_AND_BOUNDARY: {
-      return index->qbegin(bgi::satisfies(
-          [point, boundary](const auto &value) { return bg::distance(value.point(), point) >= boundary; }));
+      return index->qbegin(!bgi::contains(create_bounding_box_2d<point_type>(point, boundary)) &&
+                           bgi::satisfies([point, boundary](const auto &value) {
+                             return bg::distance(value.point(), point) >= boundary;
+                           }));
     }
   }
 }
@@ -542,20 +551,28 @@ auto get_index_iterator_distance_wgs3d(std::shared_ptr<index_t<IndexPointWGS3d>>
 
   switch (condition) {
     case PointDistanceCondition::OUTSIDE: {
-      return index->qbegin(bgi::satisfies(
-          [point, boundary](const auto &value) { return bg::distance(value.point(), point) > boundary; }));
+      return index->qbegin(bgi::disjoint(create_bounding_box_3d<point_type>(point, boundary)) &&
+                           bgi::satisfies([point, boundary](const auto &value) {
+                             return bg::distance(value.point(), point) > boundary;
+                           }));
     }
     case PointDistanceCondition::INSIDE: {
-      return index->qbegin(bgi::satisfies(
-          [point, boundary](const auto &value) { return bg::distance(value.point(), point) < boundary; }));
+      return index->qbegin(bgi::contains(create_bounding_box_3d<point_type>(point, boundary)) &&
+                           bgi::satisfies([point, boundary](const auto &value) {
+                             return bg::distance(value.point(), point) < boundary;
+                           }));
     }
     case PointDistanceCondition::INSIDE_AND_BOUNDARY: {
-      return index->qbegin(bgi::satisfies(
-          [point, boundary](const auto &value) { return bg::distance(value.point(), point) <= boundary; }));
+      return index->qbegin(bgi::intersects(create_bounding_box_3d<point_type>(point, boundary)) &&
+                           bgi::satisfies([point, boundary](const auto &value) {
+                             return bg::distance(value.point(), point) <= boundary;
+                           }));
     }
     case PointDistanceCondition::OUTSIDE_AND_BOUNDARY: {
-      return index->qbegin(bgi::satisfies(
-          [point, boundary](const auto &value) { return bg::distance(value.point(), point) >= boundary; }));
+      return index->qbegin(!bgi::contains(create_bounding_box_3d<point_type>(point, boundary)) &&
+                           bgi::satisfies([point, boundary](const auto &value) {
+                             return bg::distance(value.point(), point) >= boundary;
+                           }));
     }
   }
 }
@@ -572,20 +589,28 @@ auto get_index_iterator_distance_cartesian_2d(std::shared_ptr<index_t<IndexPoint
 
   switch (condition) {
     case PointDistanceCondition::OUTSIDE: {
-      return index->qbegin(bgi::satisfies(
-          [point, boundary](const auto &value) { return bg::distance(value.point(), point) > boundary; }));
+      return index->qbegin(bgi::disjoint(create_bounding_box_2d<point_type>(point, boundary)) &&
+                           bgi::satisfies([point, boundary](const auto &value) {
+                             return bg::distance(value.point(), point) > boundary;
+                           }));
     }
     case PointDistanceCondition::INSIDE: {
-      return index->qbegin(bgi::satisfies(
-          [point, boundary](const auto &value) { return bg::distance(value.point(), point) < boundary; }));
+      return index->qbegin(bgi::contains(create_bounding_box_2d<point_type>(point, boundary)) &&
+                           bgi::satisfies([point, boundary](const auto &value) {
+                             return bg::distance(value.point(), point) < boundary;
+                           }));
     }
     case PointDistanceCondition::INSIDE_AND_BOUNDARY: {
-      return index->qbegin(bgi::satisfies(
-          [point, boundary](const auto &value) { return bg::distance(value.point(), point) <= boundary; }));
+      return index->qbegin(bgi::intersects(create_bounding_box_2d<point_type>(point, boundary)) &&
+                           bgi::satisfies([point, boundary](const auto &value) {
+                             return bg::distance(value.point(), point) <= boundary;
+                           }));
     }
     case PointDistanceCondition::OUTSIDE_AND_BOUNDARY: {
-      return index->qbegin(bgi::satisfies(
-          [point, boundary](const auto &value) { return bg::distance(value.point(), point) >= boundary; }));
+      return index->qbegin(!bgi::contains(create_bounding_box_2d<point_type>(point, boundary)) &&
+                           bgi::satisfies([point, boundary](const auto &value) {
+                             return bg::distance(value.point(), point) >= boundary;
+                           }));
     }
   }
 }
@@ -602,20 +627,28 @@ auto get_index_iterator_distance_cartesian_3d(std::shared_ptr<index_t<IndexPoint
 
   switch (condition) {
     case PointDistanceCondition::OUTSIDE: {
-      return index->qbegin(bgi::satisfies(
-          [point, boundary](const auto &value) { return bg::distance(value.point(), point) > boundary; }));
+      return index->qbegin(bgi::disjoint(create_bounding_box_3d<point_type>(point, boundary)) &&
+                           bgi::satisfies([point, boundary](const auto &value) {
+                             return bg::distance(value.point(), point) > boundary;
+                           }));
     }
     case PointDistanceCondition::INSIDE: {
-      return index->qbegin(bgi::satisfies(
-          [point, boundary](const auto &value) { return bg::distance(value.point(), point) < boundary; }));
+      return index->qbegin(bgi::contains(create_bounding_box_3d<point_type>(point, boundary)) &&
+                           bgi::satisfies([point, boundary](const auto &value) {
+                             return bg::distance(value.point(), point) < boundary;
+                           }));
     }
     case PointDistanceCondition::INSIDE_AND_BOUNDARY: {
-      return index->qbegin(bgi::satisfies(
-          [point, boundary](const auto &value) { return bg::distance(value.point(), point) <= boundary; }));
+      return index->qbegin(bgi::intersects(create_bounding_box_3d<point_type>(point, boundary)) &&
+                           bgi::satisfies([point, boundary](const auto &value) {
+                             return bg::distance(value.point(), point) <= boundary;
+                           }));
     }
     case PointDistanceCondition::OUTSIDE_AND_BOUNDARY: {
-      return index->qbegin(bgi::satisfies(
-          [point, boundary](const auto &value) { return bg::distance(value.point(), point) >= boundary; }));
+      return index->qbegin(!bgi::contains(create_bounding_box_3d<point_type>(point, boundary)) &&
+                           bgi::satisfies([point, boundary](const auto &value) {
+                             return bg::distance(value.point(), point) >= boundary;
+                           }));
     }
   }
 }
