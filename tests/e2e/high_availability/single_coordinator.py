@@ -23,7 +23,7 @@ from common import (
 from mg_utils import (
     mg_sleep_and_assert,
     mg_sleep_and_assert_collection,
-    mg_sleep_and_assert_until_promotion,
+    mg_sleep_and_assert_until_role_change,
 )
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -320,8 +320,8 @@ def test_replication_works_on_failover_replica_1_epoch_2_commits_away(data_recov
     mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_instances)
 
     # 9
-    mg_sleep_and_assert_until_promotion(
-        lambda: execute_and_fetch_all(instance_2_cursor, "SHOW REPLICATION ROLE;")[0][0]
+    mg_sleep_and_assert_until_role_change(
+        lambda: execute_and_fetch_all(instance_2_cursor, "SHOW REPLICATION ROLE;")[0][0], "main"
     )
 
     with pytest.raises(Exception) as e:
@@ -499,8 +499,8 @@ def test_replication_works_on_failover_replica_2_epochs_more_commits_away(data_r
 
     # 7
 
-    mg_sleep_and_assert_until_promotion(
-        lambda: execute_and_fetch_all(instance_1_cursor, "SHOW REPLICATION ROLE;")[0][0]
+    mg_sleep_and_assert_until_role_change(
+        lambda: execute_and_fetch_all(instance_1_cursor, "SHOW REPLICATION ROLE;")[0][0], "main"
     )
 
     with pytest.raises(Exception) as e:
@@ -531,8 +531,8 @@ def test_replication_works_on_failover_replica_2_epochs_more_commits_away(data_r
 
     # 11
 
-    mg_sleep_and_assert_until_promotion(
-        lambda: execute_and_fetch_all(instance_4_cursor, "SHOW REPLICATION ROLE;")[0][0]
+    mg_sleep_and_assert_until_role_change(
+        lambda: execute_and_fetch_all(instance_4_cursor, "SHOW REPLICATION ROLE;")[0][0], "main"
     )
 
     with pytest.raises(Exception) as e:
@@ -699,8 +699,8 @@ def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_reco
 
     # 8
 
-    mg_sleep_and_assert_until_promotion(
-        lambda: execute_and_fetch_all(instance_2_cursor, "SHOW REPLICATION ROLE;")[0][0]
+    mg_sleep_and_assert_until_role_change(
+        lambda: execute_and_fetch_all(instance_2_cursor, "SHOW REPLICATION ROLE;")[0][0], "main"
     )
 
     with pytest.raises(Exception) as e:
@@ -766,8 +766,8 @@ def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_reco
 
     # 13
 
-    mg_sleep_and_assert_until_promotion(
-        lambda: execute_and_fetch_all(instance_1_cursor, "SHOW REPLICATION ROLE;")[0][0]
+    mg_sleep_and_assert_until_role_change(
+        lambda: execute_and_fetch_all(instance_1_cursor, "SHOW REPLICATION ROLE;")[0][0], "main"
     )
 
     with pytest.raises(Exception) as e:
@@ -901,8 +901,8 @@ def test_replication_correct_replica_chosen_up_to_date_data(data_recovery, test_
 
     # 8
 
-    mg_sleep_and_assert_until_promotion(
-        lambda: execute_and_fetch_all(instance_2_cursor, "SHOW REPLICATION ROLE;")[0][0]
+    mg_sleep_and_assert_until_role_change(
+        lambda: execute_and_fetch_all(instance_2_cursor, "SHOW REPLICATION ROLE;")[0][0], "main"
     )
 
     with pytest.raises(Exception) as e:
@@ -1020,7 +1020,9 @@ def test_replication_works_on_failover_simple(test_name):
         ),
     ]
 
-    mg_sleep_and_assert_until_promotion(lambda: execute_and_fetch_all(new_main_cursor, "SHOW REPLICATION ROLE;")[0][0])
+    mg_sleep_and_assert_until_role_change(
+        lambda: execute_and_fetch_all(new_main_cursor, "SHOW REPLICATION ROLE;")[0][0], "main"
+    )
     mg_sleep_and_assert_collection(expected_data_on_new_main, retrieve_data_show_replicas)
 
     # 5
@@ -1335,7 +1337,9 @@ def test_simple_automatic_failover(test_name):
         ),
     ]
 
-    mg_sleep_and_assert_until_promotion(lambda: execute_and_fetch_all(new_main_cursor, "SHOW REPLICATION ROLE;")[0][0])
+    mg_sleep_and_assert_until_role_change(
+        lambda: execute_and_fetch_all(new_main_cursor, "SHOW REPLICATION ROLE;")[0][0], "main"
+    )
     mg_sleep_and_assert_collection(expected_data_on_new_main, retrieve_data_show_replicas)
 
     interactive_mg_runner.start(memgraph_instances_description, "instance_3")

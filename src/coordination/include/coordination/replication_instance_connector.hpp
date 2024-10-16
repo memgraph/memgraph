@@ -33,8 +33,8 @@ using HealthCheckInstanceCallback = void (CoordinatorInstance::*)(ReplicationIns
 class ReplicationInstanceConnector {
  public:
   explicit ReplicationInstanceConnector(std::unique_ptr<ReplicationInstanceClient> client,
-                                        HealthCheckInstanceCallback succ_instance_cb = nullptr,
-                                        HealthCheckInstanceCallback fail_instance_cb = nullptr);
+                                        HealthCheckInstanceCallback succ_instance_cb,
+                                        HealthCheckInstanceCallback fail_instance_cb);
 
   ReplicationInstanceConnector(ReplicationInstanceConnector const &other) = delete;
   ReplicationInstanceConnector &operator=(ReplicationInstanceConnector const &other) = delete;

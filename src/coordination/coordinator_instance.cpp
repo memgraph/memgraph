@@ -417,7 +417,8 @@ auto CoordinatorInstance::ReconcileClusterState_() -> ReconcileClusterStateStatu
 
   std::ranges::for_each(raft_state_replication_instances, [this](auto &&instance) {
     auto client = std::make_unique<ReplicationInstanceClient>(this, instance.config, client_succ_cb_, client_fail_cb_);
-    repl_instances_.emplace_back(std::move(client));
+    repl_instances_.emplace_back(std::move(client), &CoordinatorInstance::InstanceSuccessCallback,
+                                 &CoordinatorInstance::InstanceFailCallback);
   });
 
   auto current_mains = repl_instances_ | ranges::views::filter([raft_state_ptr = raft_state_.get()](auto &&instance) {
@@ -430,7 +431,7 @@ auto CoordinatorInstance::ReconcileClusterState_() -> ReconcileClusterStateStatu
     // If we have alive MAIN instance we expect that the cluster was in the correct state already. We can start
     // frequent checks and set all appropriate callbacks.
     auto main_instance = std::ranges::begin(current_mains);
-    spdlog::trace("Last main instance {} is alive.", main_instance->InstanceName());
+    spdlog::trace("Found main instance {}.", main_instance->InstanceName());
   } else if (num_mains == 0) {
     spdlog::trace(
         "No main can be determined from the current state in logs. Trying to find most up to date instance by doing "
@@ -869,6 +870,8 @@ void CoordinatorInstance::InstanceSuccessCallback(ReplicationInstanceConnector &
   auto const instance_name = instance.InstanceName();
   spdlog::trace("Instance {} performing success callback in thread {}.", instance_name, std::this_thread::get_id());
 
+  instance.OnSuccessPing();
+
   auto const curr_main_uuid = raft_state_->GetCurrentMainUUID();
 
   // if I am main and based on Raft log I am the current main I cannot have different UUID and writing is enabled.
@@ -892,7 +895,7 @@ void CoordinatorInstance::InstanceSuccessCallback(ReplicationInstanceConnector &
         return;
       }
     } else {
-      // I could have writing disabled because of restart.
+      // TODO: (andi) I could have writing disabled because of restart.
     }
   } else {
     // The instance should be replica.
@@ -913,8 +916,6 @@ void CoordinatorInstance::InstanceSuccessCallback(ReplicationInstanceConnector &
       }
     }
   }
-
-  instance.OnSuccessPing();
 }
 
 void CoordinatorInstance::InstanceFailCallback(ReplicationInstanceConnector &instance,
