@@ -514,9 +514,20 @@ auto test_type() -> bg::model::polygon<point_type>;
 
 template <typename Index>
 auto get_index_iterator_distance(Index &index, PropertyValue const &point_value, PropertyValue const &boundary_value,
-                                 PointDistanceCondition condition) {
+                                 PointDistanceCondition condition) -> Index::const_query_iterator {
   double boundary =
       boundary_value.IsInt() ? static_cast<double>(boundary_value.ValueInt()) : boundary_value.ValueDouble();
+
+  using enum PointDistanceCondition;
+  if (boundary < 0.0) {
+    // point.distance() will always be positive, a negative boundary needs special handling
+    if ((condition == INSIDE || condition == INSIDE_AND_BOUNDARY)) {
+      //  < or <= will be always false
+      return index.qend();
+    }
+    // > or >= will be always true
+    return index.qbegin(bgi::satisfies([](auto const &) { return true; }));
+  }
 
   auto point = std::invoke([&]() {
     using point_type = Index::value_type::point_type;
@@ -531,16 +542,18 @@ auto get_index_iterator_distance(Index &index, PropertyValue const &point_value,
 
   auto get_inner_box_boundary = [](double radius) {
     using point_type = Index::value_type::point_type;
-    auto dimension = boost::geometry::traits::dimension<point_type>::value;
-    // is just dividing by sqrt(dim) better?
-    return radius * std::sqrt(dimension) / dimension;
+    auto constexpr dimension = boost::geometry::traits::dimension<point_type>::value;
+    auto offset = radius / std::sqrt(dimension);
+    // Need to ensure this inner box will not intersect with actual boundary,
+    // because `bgi::covered_by` includes edges we are using `!bgi::covered_by` for our OUTSIDE
+    // conditions.
+    return std::max(0.0, std::nexttoward(offset, 0.0));
   };
 
   switch (condition) {
     case PointDistanceCondition::OUTSIDE: {
-      auto smaller_boundary = std::max(0.0, std::nexttoward(boundary, -std::numeric_limits<double>::infinity()));
       // BOOST 1.81.0 covered_by geometry must be box
-      return index.qbegin(!bgi::covered_by(create_bounding_box(point, get_inner_box_boundary(smaller_boundary))) &&
+      return index.qbegin(!bgi::covered_by(create_bounding_box(point, get_inner_box_boundary(boundary))) &&
                           bgi::satisfies([point, boundary](const auto &value) {
                             return bg::distance(value.point(), point) > boundary;
                           }));
@@ -558,13 +571,7 @@ auto get_index_iterator_distance(Index &index, PropertyValue const &point_value,
                           }));
     }
     case PointDistanceCondition::OUTSIDE_AND_BOUNDARY: {
-      // TODO: need smaller BOX which fits inside circle `create_inner_box_3d` IMPORTANT need slighly small box compared
-      // to boundary
-      //  use std::max(0, std::nexttoward(boundary, -std::numeric_limits<double>::infinity()))
-      // not sure if this is fine due to numerical error, also -std::numeric error has warning due to long-double ->
-      // double
-      auto smaller_boundary = std::max(0.0, std::nexttoward(boundary, -std::numeric_limits<double>::infinity()));
-      return index.qbegin(!bgi::covered_by(create_bounding_box(point, get_inner_box_boundary(smaller_boundary))) &&
+      return index.qbegin(!bgi::covered_by(create_bounding_box(point, get_inner_box_boundary(boundary))) &&
                           bgi::satisfies([point, boundary](const auto &value) {
                             return bg::distance(value.point(), point) >= boundary;
                           }));
