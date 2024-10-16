@@ -82,3 +82,35 @@ TYPED_TEST(VectorSearchTest, AddNodeTest) {
 
   EXPECT_EQ(index.Size("test_index"), 1);
 }
+
+TYPED_TEST(VectorSearchTest, SearchTest) {
+  auto storage_dba = this->db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
+  const auto label = dba.NameToLabel("test_label");
+  const auto property = dba.NameToProperty("test_property");
+  memgraph::storage::VectorIndexSpec spec{
+      .index_name = "test_index",
+      .label = label,
+      .property = property,
+      .config = nlohmann::json::parse(R"({"size": 5})"),
+  };
+
+  memgraph::storage::VectorIndex index;
+  index.CreateIndex(spec);
+
+  EXPECT_EQ(index.ListAllIndices().size(), 1);
+
+  auto vertex_accessor = storage_dba->CreateVertex();
+  vertex_accessor.AddLabel(label);
+  std::vector<memgraph::storage::PropertyValue> vec = {
+      memgraph::storage::PropertyValue(1.0), memgraph::storage::PropertyValue(2.0),
+      memgraph::storage::PropertyValue(3.0), memgraph::storage::PropertyValue(4.0),
+      memgraph::storage::PropertyValue(5.0)};
+  vertex_accessor.SetProperty(property, memgraph::storage::PropertyValue(vec));
+  index.AddNode(vertex_accessor.vertex_, 0);
+
+  EXPECT_EQ(index.Size("test_index"), 1);
+  std::vector<float> query = {1.0, 2.0, 3.0, 4.0, 5.0};
+  const auto &result = index.Search("test_index", 0, 1, query);
+  EXPECT_EQ(result.size(), 1);
+}
