@@ -15,17 +15,20 @@ from workloads.base import Workload
 class VectorSearchIndex(Workload):
     NAME = "vector_search_index"
     SCALE = 10
+    VECTOR_SIZE = 1500
 
     def indexes_generator(self):
         return [
             # TODO(gitbuda): This is just an example.
+            ("CREATE INDEX ON :Node(id);", {}),
             ("CREATE INDEX ON :Node(vector);", {}),
         ]
 
     def dataset_generator(self):
         queries = []
-        for _ in range(0, VectorSearchIndex.SCALE):
-            queries.append(("CREATE (:Node {vector: [0.0, 1.1]});", {}))
+        for i in range(0, VectorSearchIndex.SCALE):
+            vector = [float(i) for i in range(0, VectorSearchIndex.VECTOR_SIZE)]
+            queries.append(("CREATE (:Node {id:%i, vector: %s});" % (i, str(vector)), {}))
         return queries
 
     def benchmark__test__match_all_nodes(self):
