@@ -333,16 +333,19 @@ struct PointIterable::impl {
         transaction_{transaction},
         crs_{CoordinateReferenceSystem::WGS84_2d},
         wgs84_2d_{std::move(index)} {}
+
   explicit impl(Storage *storage, Transaction *transaction, std::shared_ptr<index_t<IndexPointWGS3d>> index)
       : storage_{storage},
         transaction_{transaction},
         crs_{CoordinateReferenceSystem::WGS84_3d},
         wgs84_3d_{std::move(index)} {}
+
   explicit impl(Storage *storage, Transaction *transaction, std::shared_ptr<index_t<IndexPointCartesian2d>> index)
       : storage_{storage},
         transaction_{transaction},
         crs_{CoordinateReferenceSystem::Cartesian_2d},
         cartesian_2d_{std::move(index)} {}
+
   explicit impl(Storage *storage, Transaction *transaction, std::shared_ptr<index_t<IndexPointCartesian3d>> index)
       : storage_{storage},
         transaction_{transaction},
@@ -395,6 +398,11 @@ struct PointIterable::impl {
         distance_condition_{condition} {}
 
   friend struct PointIterable;
+
+  impl(impl const &) = delete;
+  impl(impl &&) = delete;
+  impl &operator=(impl const &) = delete;
+  impl &operator=(impl &&) = delete;
 
   // don't need destroy_at for shared ptrs
   ~impl() {
