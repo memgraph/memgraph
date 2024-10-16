@@ -101,6 +101,11 @@ struct Transaction {
     manyDeltasCache.Invalidate(vertex, property);
   }
 
+  void UpdateOnVertexDelete(Vertex *vertex) {
+    point_index_change_collector_.UpdateOnVertexDelete(vertex);
+    manyDeltasCache.Invalidate(vertex);
+  }
+
   uint64_t transaction_id{};
   uint64_t start_timestamp{};
   std::optional<uint64_t> original_start_timestamp{};

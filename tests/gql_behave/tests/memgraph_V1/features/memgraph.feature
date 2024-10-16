@@ -957,6 +957,17 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
         Then the result should be:
             | index type | label | property | count |
             | 'point'    | 'L1'  | 'prop1'  | 1     |
+        And having executed
+            """
+            MATCH (n:L1 {prop1: POINT({x:1, y:1})}) DELETE n;
+            """
+        When executing query:
+            """
+            SHOW INDEX INFO
+            """
+        Then the result should be:
+            | index type | label | property | count |
+            | 'point'    | 'L1'  | 'prop1'  | 0     |
 
     Scenario: Drop point index:
         Given an empty graph
