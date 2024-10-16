@@ -15,12 +15,13 @@
 #include <json/json.hpp>
 #include <string>
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_string(experimental_vector_indexes);
 namespace memgraph::storage {
 
-// TODO(davivek): The below code should be discarded and replaces with proper queries. IMPORTANT: Once we have the
+// TODO(DavIvek): The below code should be discarded and replaces with proper queries. IMPORTANT: Once we have the
 // fully tested index implementation.
 struct VectorIndexSpec {
   // NOTE: The index name is required because CALL is used to query the index -> somehow we have to specify what's the
@@ -34,12 +35,14 @@ struct VectorIndexSpec {
 
 struct VectorIndexKey {
   Vertex *vertex;
-  uint64_t timestamp;
+  uint64_t start_timestamp;
 
   bool operator<(const VectorIndexKey &rhs) {
-    return std::make_tuple(vertex, timestamp) < std::make_tuple(rhs.vertex, rhs.timestamp);
+    return std::make_tuple(vertex, start_timestamp) < std::make_tuple(rhs.vertex, rhs.start_timestamp);
   }
-  bool operator==(const VectorIndexKey &rhs) const { return vertex == rhs.vertex && timestamp == rhs.timestamp; }
+  bool operator==(const VectorIndexKey &rhs) const {
+    return vertex == rhs.vertex && start_timestamp == rhs.start_timestamp;
+  }
 };
 
 class VectorIndex {
@@ -47,8 +50,12 @@ class VectorIndex {
   VectorIndex();
   ~VectorIndex();
 
-  void CreateIndex(std::string const &index_name, std::vector<VectorIndexSpec> const &specs);
-  void AddNode(Vertex *vertex, uint64_t timestamp);
+  void CreateIndex(const VectorIndexSpec &spec);
+  void AddNode(Vertex *vertex, uint64_t start_timestamp);
+  std::vector<std::string> ListAllIndices();
+  std::size_t Size(const std::string &index_name);
+  std::vector<Vertex *> Search(const std::string &index_name, uint64_t start_timestamp, uint64_t result_set_size,
+                               const std::vector<float> &query_vector);
 
  private:
   struct Impl;

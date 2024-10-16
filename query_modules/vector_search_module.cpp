@@ -38,7 +38,7 @@ void VectorSearch::Search(mgp_list *args, mgp_graph *memgraph_graph, mgp_result 
     const auto result_set_size = arguments[1].ValueInt();
     const auto query_vector = arguments[2].ValueList();
 
-    // // TODO(davivek): Call the implementation NOTE: C API should be ~20-30% faster.
+    // // TODO(DavIvek): Call the implementation NOTE: C API should be ~20-30% faster.
     // NOTE: The bellow code is just a placeholder -> remove with the correct code.
     for (const auto &node : mgp::Graph(memgraph_graph).Nodes()) {
       auto record = record_factory.NewRecord();

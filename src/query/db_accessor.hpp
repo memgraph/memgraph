@@ -602,9 +602,7 @@ class DbAccessor final {
   void DropTextIndex(const std::string &index_name) { accessor_->DropTextIndex(index_name); }
 
   // not used at the moment since we are creating vector index directly via storage accessor
-  void CreateVectorIndex(const std::string &index_name, const std::vector<storage::VectorIndexSpec> &specs) {
-    accessor_->CreateVectorIndex(index_name, specs);
-  }
+  void CreateVectorIndex(const storage::VectorIndexSpec &spec) { accessor_->CreateVectorIndex(spec); }
 
   utils::BasicResult<storage::StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
       storage::LabelId label, storage::PropertyId property) {

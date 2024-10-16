@@ -206,8 +206,3 @@ DEFINE_string(query_callable_mappings_path, "",
 DEFINE_HIDDEN_string(license_key, "", "License key for Memgraph Enterprise.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_HIDDEN_string(organization_name, "", "Organization name.");
-
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_HIDDEN_string(experimental_vector_indexes, "",
-                     "Enables vector search indexes on nodes with Label and property specified in the "
-                     "IndexName__Label1__property1__{JSON_config};IndexName__Label2__property2 format.");

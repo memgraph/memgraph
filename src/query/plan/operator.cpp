@@ -29,6 +29,7 @@
 #include <cppitertools/imap.hpp>
 #include "flags/general.hpp"
 #include "memory/query_memory_control.hpp"
+#include "mg_exceptions.hpp"
 #include "query/common.hpp"
 #include "query/procedure/module_fwd.hpp"
 #include "spdlog/spdlog.h"
@@ -295,7 +296,8 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
     if (tx_start_timestamp) {
       context.db_accessor->VectorIndexAddVertex(new_node, *tx_start_timestamp);
     }
-    // TODO: if not in transaction, we should add the vertex to the vector index also
+    // If tx_start_timestamp is not set, we are in a IN_MEMORY_ANALYTICAL mode
+    throw mg_exception::NotYetImplementedException();
   }
 
   (*frame)[node_info.symbol] = new_node;

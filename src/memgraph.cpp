@@ -601,9 +601,9 @@ int main(int argc, char **argv) {
 
   std::vector<memgraph::storage::VectorIndexSpec> vector_index_specs;
   if (!FLAGS_experimental_vector_indexes.empty()) {
-    auto *storage = db_acc->storage();
     const auto specs = memgraph::utils::Split(FLAGS_experimental_vector_indexes, ",");
     if (!specs.empty()) {
+      auto storage = db_acc->Access();
       vector_index_specs.reserve(specs.size());
       for (const auto &spec : specs) {
         const auto an_index_split = memgraph::utils::Split(spec, "__");
@@ -631,9 +631,8 @@ int main(int argc, char **argv) {
       for (const auto &spec : vector_index_specs) {
         spdlog::info("Having vector index named {} on :{}({}) with config: {}", spec.index_name,
                      storage->LabelToName(spec.label), storage->PropertyToName(spec.property), spec.config.dump());
+        storage->CreateVectorIndex(spec);
       }
-      auto storage = db_acc->Access();
-      storage->CreateVectorIndex("TestIndex", vector_index_specs);
     }
   }
 

@@ -389,7 +389,7 @@ class Storage {
 
     void DropTextIndex(const std::string &index_name);
 
-    void CreateVectorIndex(const std::string &index_name, const std::vector<VectorIndexSpec> &specs);
+    void CreateVectorIndex(const VectorIndexSpec &spec);
 
     virtual utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
         LabelId label, PropertyId property) = 0;
