@@ -59,9 +59,6 @@ class ReplicationInstanceClient {
   virtual auto SendPromoteReplicaToMainRpc(utils::UUID const &uuid,
                                            ReplicationClientsInfo replication_clients_info) const -> bool;
 
-  virtual auto SendGetInstanceUUIDRpc() const
-      -> memgraph::utils::BasicResult<GetInstanceUUIDError, std::optional<utils::UUID>>;
-
   virtual auto SendUnregisterReplicaRpc(std::string_view instance_name) const -> bool;
 
   virtual auto SendEnableWritingOnMainRpc() const -> bool;

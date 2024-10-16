@@ -799,7 +799,7 @@ def test_distributed_automatic_failover_with_leadership_change(test_name):
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "down", "follower"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
     ]
 
     wait_for_status_change(show_instances_coord1, {"instance_1", "instance_2"}, "main")
@@ -1541,6 +1541,10 @@ def test_multiple_failovers_in_row_no_leadership_change(test_name):
     # 11
 
     instance_3_cursor = connect(port=7689, host="localhost").cursor()
+
+    mg_sleep_and_assert_until_role_change(
+        lambda: execute_and_fetch_all(instance_3_cursor, "SHOW REPLICATION ROLE;")[0][0], "main"
+    )
 
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(instance_3_cursor, "CREATE ();")
@@ -2722,6 +2726,10 @@ def test_coordinator_user_action_demote_instance_to_replica(test_name):
     mg_sleep_and_assert(data, show_instances_coord3)
     mg_sleep_and_assert(data, show_instances_coord1)
     mg_sleep_and_assert(data, show_instances_coord2)
+
+    mg_sleep_and_assert_until_role_change(
+        lambda: execute_and_fetch_all(instance_3_cursor, "SHOW REPLICATION ROLE;")[0][0], "replica"
+    )
 
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(instance_3_cursor, "SHOW REPLICAS;")

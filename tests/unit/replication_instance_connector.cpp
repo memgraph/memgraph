@@ -34,19 +34,11 @@ using memgraph::coordination::ReplicationInstanceClient;
 using memgraph::coordination::ReplicationInstanceConnector;
 using memgraph::utils::UUID;
 
-using SendGetInstanceUUIDRpcRes =
-    memgraph::utils::BasicResult<memgraph::coordination::GetInstanceUUIDError, std::optional<memgraph::utils::UUID>>;
-
 using testing::_;
 
 class ReplicationInstanceClientMock : public ReplicationInstanceClient {
  public:
-  ReplicationInstanceClientMock() : ReplicationInstanceClient(nullptr, {}, nullptr, nullptr) {
-    ON_CALL(*this, SendGetInstanceUUIDRpc)
-        .WillByDefault(testing::Return(SendGetInstanceUUIDRpcRes{
-            memgraph::coordination::GetInstanceUUIDError::NO_RESPONSE}));  // return error so that we don't even send
-                                                                           // swap rpc
-  }
+  ReplicationInstanceClientMock() : ReplicationInstanceClient(nullptr, {}, nullptr, nullptr) {}
   MOCK_METHOD(std::chrono::seconds, InstanceDownTimeoutSec, (), (override, const));
   MOCK_METHOD(std::chrono::seconds, InstanceGetUUIDFrequencySec, (), (override, const));
   MOCK_METHOD(std::string, InstanceName, (), (override, const));
@@ -61,7 +53,6 @@ class ReplicationInstanceClientMock : public ReplicationInstanceClient {
   MOCK_METHOD(void, ResumeStateCheck, (), (override));
   MOCK_METHOD(bool, SendUnregisterReplicaRpc, (std::string_view instance_name), (override, const));
   MOCK_METHOD(bool, SendEnableWritingOnMainRpc, (), (override, const));
-  MOCK_METHOD(SendGetInstanceUUIDRpcRes, SendGetInstanceUUIDRpc, (), (override, const));
 };
 
 class ReplicationInstanceConnectorTest : public ::testing::Test {

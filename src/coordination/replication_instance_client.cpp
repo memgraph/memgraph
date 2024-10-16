@@ -167,18 +167,6 @@ auto ReplicationInstanceClient::SendUnregisterReplicaRpc(std::string_view instan
   return false;
 }
 
-auto ReplicationInstanceClient::SendGetInstanceUUIDRpc() const
-    -> utils::BasicResult<GetInstanceUUIDError, std::optional<utils::UUID>> {
-  try {
-    auto stream{rpc_client_.Stream<GetInstanceUUIDRpc>()};
-    auto res = stream.AwaitResponse();
-    return res.uuid;
-  } catch (const rpc::RpcFailedException &) {
-    spdlog::error("Failed to receive RPC response when sending GetInstanceUUIDRPC");
-    return GetInstanceUUIDError::RPC_EXCEPTION;
-  }
-}
-
 auto ReplicationInstanceClient::SendEnableWritingOnMainRpc() const -> bool {
   try {
     auto stream{rpc_client_.Stream<EnableWritingOnMainRpc>()};
@@ -200,7 +188,7 @@ auto ReplicationInstanceClient::SendGetInstanceTimestampsRpc() const
     return stream.AwaitResponse().database_histories;
 
   } catch (const rpc::RpcFailedException &) {
-    spdlog::error("Failed to receive RPC response when sending GetInstance UUID RPC");
+    spdlog::error("Failed to receive RPC response when sending GetInstanceTimestampRPC");
     return GetInstanceUUIDError::RPC_EXCEPTION;
   }
 }

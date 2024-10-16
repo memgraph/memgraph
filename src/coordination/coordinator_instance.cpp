@@ -895,7 +895,13 @@ void CoordinatorInstance::InstanceSuccessCallback(ReplicationInstanceConnector &
         return;
       }
     } else {
-      // TODO: (andi) I could have writing disabled because of restart.
+      // I should be main and I am main. I could've died and came back up before triggering failover. In that case
+      // writing is disabled.
+      if (!instance_state->is_writing_enabled) {
+        if (!instance.EnableWritingOnMain()) {
+          spdlog::error("Failed to enable writing on main instance {}.", instance_name);
+        }
+      }
     }
   } else {
     // The instance should be replica.
@@ -1024,25 +1030,27 @@ auto CoordinatorInstance::GetMostUpToDateInstanceFromHistories(std::list<Replica
 
   auto maybe_instance_db_histories = instances | ranges::views::transform(get_ts);
 
-  auto const ts_has_value = [](auto &&instance_history) -> bool {
-    auto const &[_, history] = instance_history;
-    return history.HasValue();
-  };
+  auto const ts_has_value = [](auto &&instance_history) -> bool { return instance_history.HasValue(); };
 
-  auto transform_to_pairs = ranges::views::transform([](auto &&instance_history) {
+  auto instance_histories = maybe_instance_db_histories | ranges::views::filter(ts_has_value);
+
+  if (std::ranges::distance(instance_histories) == 0) {
+    return std::nullopt;
+  }
+
+  auto transform_to_pairs = [](auto &&instance_history) {
     auto const &[instance, history] = instance_history;
     return std::make_pair(instance.InstanceName(), history.GetValue());
-  });
+  };
 
-  auto instance_db_histories = ranges::views::zip(instances, maybe_instance_db_histories) |
-                               ranges::views::filter(ts_has_value) | transform_to_pairs | ranges::to<std::vector>();
+  auto instance_db_histories = ranges::views::zip(instances, instance_histories) |
+                               ranges::views::transform(transform_to_pairs) | ranges::to<std::vector>();
 
-  auto [most_up_to_date_instance, latest_epoch, latest_commit_timestamp] =
+  auto const [most_up_to_date_instance, latest_epoch, latest_commit_timestamp] =
       CoordinatorInstance::ChooseMostUpToDateInstance(instance_db_histories);
 
   spdlog::trace("The most up to date instance is {} with epoch {} and {} latest commit timestamp.",
                 most_up_to_date_instance, latest_epoch, latest_commit_timestamp);  // NOLINT
-
   return most_up_to_date_instance;
 }
 
