@@ -93,8 +93,8 @@ def find_instance_and_assert_instances(
 
     instance = all_instances[0]
 
-    for l in all_instances:
-        assert l == instance, "Leaders are not the same"
+    for inst in all_instances:
+        assert inst == instance, "Leaders are not the same"
 
     assert instance is not None and instance != "" and len(all_instances) > 0, f"{instance_role} not found"
     return instance

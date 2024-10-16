@@ -22,7 +22,7 @@ from common import (
     ignore_elapsed_time_from_results,
     update_tuple_value,
 )
-from mg_utils import mg_sleep_and_assert
+from mg_utils import mg_sleep_and_assert, mg_sleep_and_assert_until_promotion
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
@@ -423,6 +423,7 @@ def test_coordinators_communication_with_restarts(test_name):
 
     interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_1")
     interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_2")
+
     coordinator1_cursor = connect(host="localhost", port=7690).cursor()
     coordinator2_cursor = connect(host="localhost", port=7691).cursor()
 
@@ -656,6 +657,9 @@ def test_unregister_main(test_name):
     mg_sleep_and_assert(data, check_coordinator2)
     mg_sleep_and_assert(data, check_coordinator3)
 
+    instance1_cursor = connect(host="localhost", port=7687).cursor()
+    mg_sleep_and_assert_until_promotion(lambda: execute_and_fetch_all(instance1_cursor, "SHOW REPLICATION ROLE;")[0][0])
+
     execute_and_fetch_all(coordinator3_cursor, "UNREGISTER INSTANCE instance_3")
 
     data = [
@@ -779,6 +783,9 @@ def test_register_one_coord_with_env_vars(test_name):
     mg_sleep_and_assert(data, check_coordinator1)
     mg_sleep_and_assert(data, check_coordinator2)
     mg_sleep_and_assert(data, check_coordinator3)
+
+    instance1_cursor = connect(host="localhost", port=7687).cursor()
+    mg_sleep_and_assert_until_promotion(lambda: execute_and_fetch_all(instance1_cursor, "SHOW REPLICATION ROLE;")[0][0])
 
     execute_and_fetch_all(coordinator3_cursor, "UNREGISTER INSTANCE instance_3")
 
@@ -1130,6 +1137,9 @@ def test_register_one_coord_with_env_vars_no_instances_alive_on_start(test_name)
     mg_sleep_and_assert(data, check_coordinator1)
     mg_sleep_and_assert(data, check_coordinator2)
     mg_sleep_and_assert(data, check_coordinator3)
+
+    instance1_cursor = connect(host="localhost", port=7687).cursor()
+    mg_sleep_and_assert_until_promotion(lambda: execute_and_fetch_all(instance1_cursor, "SHOW REPLICATION ROLE;")[0][0])
 
     execute_and_fetch_all(coordinator3_cursor, "UNREGISTER INSTANCE instance_3")
 
