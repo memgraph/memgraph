@@ -56,7 +56,7 @@ def test_vector_search(memgraph_with_vector_indexed_data):
         YIELD node, score
         RETURN node, score;
     """
-    result = list(memgraph_with_vector_indexed_data.execute_and_fetch(REGEX_QUERY))
+    result = list(memgraph_with_vector_indexed_data.execute_and_fetch(QUERY))
     assert len(result) == 10
 
 
