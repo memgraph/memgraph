@@ -974,3 +974,40 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             """
         Then the result should be:
             | index type             | label | property | count |
+
+    Scenario: Point index with distance cartesian2d:
+        Given an empty graph
+        And with new point index :L1(prop)
+        And having executed
+            """
+            UNWIND [
+                POINT({x: 0, y: 0}),
+                POINT({x: 0, y: 1}),
+                POINT({x: 1, y: 0}),
+                POINT({x: 1, y: 1}),
+                POINT({x: 0.70710678118, y: 0.70710678118}),
+                POINT({x: 0.25, y: 0.25})
+            ] AS point
+            CREATE (:L1 {prop: point});
+            """
+        When executing query:
+            """
+            WITH point({x:0,y:0}) AS a MATCH (m:L1) WHERE point.distance(m.prop, a) < 1 RETURN m ORDER BY m.prop ASC;
+            """
+        Then the result should be:
+            | m                                                   |
+            | (:L1{prop:POINT(0.00.0)})                           |
+            | (:L1{prop:POINT(0.250.25)})                         |
+            | (:L1{prop:POINT(0.707106781180.70710678118)})       |
+
+        When executing query:
+            """
+            WITH point({x:0,y:0}) AS a MATCH (m:L1) WHERE point.distance(m.prop, a) <= 1 RETURN m ORDER BY m.prop ASC;
+            """
+        Then the result should be:
+            | m                                                   |
+            | (:L1{prop:POINT(0.00.0)})                           |
+            | (:L1{prop:POINT(0.250.25)})                         |
+            | (:L1{prop:POINT(0.707106781180.70710678118)})       |
+            | (:L1{prop:POINT(0.001)})       |
+            | (:L1{prop:POINT(0.707106781180.70710678118)})       |
