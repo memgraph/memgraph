@@ -48,11 +48,21 @@ namespace memgraph::storage {
 
 using mg_vector_index_t = unum::usearch::index_dense_gt<VectorIndexKey, unum::usearch::uint40_t>;
 
+// The `Impl` structure implements the underlying functionality of the `VectorIndex` class.
+// It uses the PIMPL (Pointer to Implementation) idiom to separate the interface of `VectorIndex`
+// from its implementation, making it easier to maintain, extend, and hide implementation details.
 struct VectorIndex::Impl {
   Impl() = default;
   ~Impl() = default;
 
+  // The `index_` member is a map that associates a `LabelPropKey` (a combination of label and property)
+  // with the actual vector index (`mg_vector_index_t`). This allows us to store multiple vector indexes
+  // based on different labels and properties.
   std::map<LabelPropKey, mg_vector_index_t> index_;
+
+  // The `index_name_to_label_prop_` is a hash map that maps an index name (as a string) to the corresponding
+  // `LabelPropKey`. This allows the system to quickly resolve an index name to the specific label and property
+  // associated with that index, enabling easy lookup and management of indexes by name.
   absl::flat_hash_map<std::string, LabelPropKey> index_name_to_label_prop_;
 };
 
@@ -87,6 +97,8 @@ void VectorIndex::AddNode(Vertex *vertex, uint64_t timestamp) {
 
       // TODO(DavIvek): This is a temporary solution. Maybe we will need to modify PropertyValues so we don't need to
       // call ValueDouble for each element.
+      // TODO (DavIvek): Does usearch have some specific type based on the quantization,
+      // from the config we could maybe deduce the right type (having that at runtime could be a problem)?
       std::vector<float> vec(list.size());
       std::ranges::transform(list, vec.begin(),
                              [](const auto &value) { return static_cast<float>(value.ValueDouble()); });

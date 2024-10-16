@@ -23,6 +23,10 @@ namespace memgraph::storage {
 
 // TODO(DavIvek): The below code should be discarded and replaces with proper queries. IMPORTANT: Once we have the
 // fully tested index implementation.
+
+// The `VectorIndexSpec` structure represents a specification for creating a vector index in the system.
+// It includes the index name, the label and property on which the index is created,
+// and the configuration options for the index in the form of a JSON object.
 struct VectorIndexSpec {
   // NOTE: The index name is required because CALL is used to query the index -> somehow we have to specify what's the
   // used index. Technically we could use only label+prop to address the right index but in practice we can have
@@ -33,6 +37,8 @@ struct VectorIndexSpec {
   nlohmann::json config;
 };
 
+// The `VectorIndexKey` structure is used as a key to manage nodes in the index, uniquely identifying
+// an entry by a pointer to a vertex and a timestamp. Via start_timestamp we implement the MVCC logic.
 struct VectorIndexKey {
   Vertex *vertex;
   uint64_t start_timestamp;
@@ -45,10 +51,20 @@ struct VectorIndexKey {
   }
 };
 
+// The `VectorIndex` class is a high-level interface for managing vector indexes.
+// It supports creating new indexes, adding nodes to an index, listing all indexes,
+// and searching for nodes using a query vector.
+// The class is thread-safe.
+// pimpl is used to hide the implementation details. Inside the class, we have a unique pointer to the implementation.
+// Look into the implementation details in the vector_index.cpp file.
 class VectorIndex {
  public:
   VectorIndex();
   ~VectorIndex();
+  VectorIndex(const VectorIndex &) = delete;
+  VectorIndex &operator=(const VectorIndex &) = delete;
+  VectorIndex(VectorIndex &&) noexcept;
+  VectorIndex &operator=(VectorIndex &&) noexcept;
 
   void CreateIndex(const VectorIndexSpec &spec);
   void AddNode(Vertex *vertex, uint64_t start_timestamp);
