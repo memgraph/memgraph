@@ -15,7 +15,6 @@ namespace memgraph::storage {
 
 namespace {
 
-constexpr double MEAN_EARTH_RADIUS = 6'371'009;
 constexpr auto PI_RADIANS = std::numbers::pi_v<double> / 180.0;
 
 /// Input in radians
