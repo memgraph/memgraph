@@ -203,6 +203,15 @@ class InteractiveDbAccessor {
     return ReadVertexCount("label '" + label + "' and property '" + property + "' in range " + range_string.str());
   }
 
+  bool PointIndexExists(memgraph::storage::LabelId label, memgraph::storage::PropertyId property) const {
+    return false;
+  }
+
+  std::optional<uint64_t> VerticesPointCount(memgraph::storage::LabelId label,
+                                             memgraph::storage::PropertyId property) const {
+    return std::nullopt;
+  }
+
   int64_t EdgesCount(memgraph::storage::EdgeTypeId edge_type_id) {
     auto edge_type = dba_->EdgeTypeToName(edge_type_id);
     if (edge_type_edge_count_.find(edge_type) == edge_type_edge_count_.end()) {

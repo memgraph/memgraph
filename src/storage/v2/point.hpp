@@ -37,7 +37,7 @@ enum class CoordinateReferenceSystem : uint8_t {
 constexpr auto kSrid_WGS85_2D = 4326;  // GEOGRAPHIC_2D_CRS
 constexpr auto kSrid_WGS85_3D = 4979;  // GEOGRAPHIC_3D_CRS
 constexpr auto kSrid_Cartesian_2D = 7203;
-constexpr auto kSrid_Cartesian_3D = 9757;
+constexpr auto kSrid_Cartesian_3D = 9157;
 
 inline auto CrsToSrid(CoordinateReferenceSystem val) -> Srid {
   switch (val) {
