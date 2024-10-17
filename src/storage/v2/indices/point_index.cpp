@@ -19,6 +19,7 @@
 #include "storage/v2/indices/point_index_change_collector.hpp"
 #include "storage/v2/indices/point_index_expensive_header.hpp"
 #include "storage/v2/indices/point_iterator.hpp"
+#include "storage/v2/point_functions.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/exceptions.hpp"
@@ -498,20 +499,23 @@ PointIterable::PointIterable(Storage *storage, Transaction *transaction, PointIn
 namespace {
 
 template <typename point_type>
-// TODO: restrict to cartesian
-auto create_bounding_box(const point_type &point, double boundary) -> bg::model::box<point_type> {
-  constexpr auto d = boost::geometry::traits::dimension<point_type>::value;
-
+requires std::is_same<typename bg::traits::coordinate_system<point_type>::type, bg::cs::cartesian>::value auto
+create_bounding_box(const point_type &point, double boundary) -> bg::model::box<point_type> {
+  constexpr auto n_dimensions = bg::traits::dimension<point_type>::value;
   return [&]<auto... I>(std::index_sequence<I...>) {
-    auto min_corner = point_type{(bg::get<I>(point) - boundary)...};
-    auto max_corner = point_type{(bg::get<I>(point) + boundary)...};
-    return bg::model::box<point_type>{min_corner, max_corner};
+    auto const min_corner = point_type{(bg::get<I>(point) - boundary)...};
+    auto const max_corner = point_type{(bg::get<I>(point) + boundary)...};
+    return bg::model::box{min_corner, max_corner};
   }
-  (std::make_index_sequence<d>{});
+  (std::make_index_sequence<n_dimensions>{});
 }
 
 template <typename point_type>
 auto test_type() -> bg::model::polygon<point_type>;
+
+double degreesToRadians(double degrees) { return degrees * M_PI / 180.0; }
+
+double toDegrees(double radians) { return radians * 180.0 / M_PI; }
 
 template <typename Index>
 auto get_index_iterator_distance(Index &index, PropertyValue const &point_value, PropertyValue const &boundary_value,
@@ -531,9 +535,9 @@ auto get_index_iterator_distance(Index &index, PropertyValue const &point_value,
   }
 
   using point_type = Index::value_type::point_type;
-  using CoordinateSystem = typename boost::geometry::traits::coordinate_system<point_type>::type;
-  auto constexpr dimensions = boost::geometry::traits::dimension<point_type>::value;
-  auto constexpr is_cartesian = std::is_same<CoordinateSystem, boost::geometry::cs::cartesian>::value;
+  using CoordinateSystem = typename bg::traits::coordinate_system<point_type>::type;
+  auto constexpr dimensions = bg::traits::dimension<point_type>::value;
+  auto constexpr is_cartesian = std::is_same<CoordinateSystem, bg::cs::cartesian>::value;
 
   auto center_point = std::invoke([&]() {
     if constexpr (dimensions == 3) {
@@ -542,6 +546,14 @@ auto get_index_iterator_distance(Index &index, PropertyValue const &point_value,
     } else {
       auto tmp_point = point_value.ValuePoint2d();
       return point_type(tmp_point.x(), tmp_point.y());
+    }
+  });
+
+  auto center_point2 = std::invoke([&]() {
+    if constexpr (dimensions == 3) {
+      return point_value.ValuePoint3d();
+    } else {
+      return point_value.ValuePoint2d();
     }
   });
 
@@ -556,18 +568,59 @@ auto get_index_iterator_distance(Index &index, PropertyValue const &point_value,
 
     if constexpr (is_cartesian) {
       return create_bounding_box(center_point, get_inner_box_boundary(boundary));
+    } else if constexpr (dimensions == 3) {
+      // TODO
+      auto min_corner = point_type{0, 0, 0};
+      auto max_corner = point_type{0, 0, 0};
+      return bg::model::box<point_type>{min_corner, max_corner};
     } else {
-      //????
-      return create_bounding_box(center_point, get_inner_box_boundary(boundary));
+      // TODO
+      auto min_corner = point_type{0, 0};
+      auto max_corner = point_type{0, 0};
+      return bg::model::box<point_type>{min_corner, max_corner};
     }
   };
 
   auto outer_inclusion_box = [&] {
     if constexpr (is_cartesian) {
       return create_bounding_box(center_point, boundary);
+    } else if constexpr (dimensions == 2) {
+      double radDist = MEAN_EARTH_RADIUS / boundary;
+
+      auto radLat = degreesToRadians(bg::get<1>(center_point));
+      auto radLon = degreesToRadians(bg::get<0>(center_point));
+
+      constexpr auto MIN_LAT = -M_PI;
+      constexpr auto MAX_LAT = M_PI;
+
+      constexpr auto MIN_LON = -2 * M_PI;
+      constexpr auto MAX_LON = 2 * M_PI;
+
+      double minLat = radLat - radDist;
+      double maxLat = radLat + radDist;
+
+      double minLon, maxLon;
+      if (minLat > MIN_LAT && maxLat < MAX_LAT) {
+        double deltaLon = std::asin(std::sin(radDist) / std::cos(radLat));
+        minLon = radLon - deltaLon;
+        if (minLon < MIN_LON) minLon += 2.0 * M_PI;
+        maxLon = radLon + deltaLon;
+        if (maxLon > MAX_LON) maxLon -= 2.0 * M_PI;
+      } else {
+        minLat = std::max(minLat, MIN_LAT);
+        maxLat = std::min(maxLat, MAX_LAT);
+        minLon = MIN_LON;
+        maxLon = MAX_LON;
+      }
+
+      auto min_corner = point_type{minLat, minLon};
+      auto max_corner = point_type{maxLat, maxLon};
+      return bg::model::box<point_type>{min_corner, max_corner};
     } else {
-      //????
-      return create_bounding_box(center_point, boundary);
+      // TODO
+      auto min_corner = point_type{0, 0, 0};
+      auto max_corner = point_type{0, 0, 0};
+      return bg::model::box<point_type>{min_corner, max_corner};
     }
   };
 
@@ -588,7 +641,21 @@ auto get_index_iterator_distance(Index &index, PropertyValue const &point_value,
     case PointDistanceCondition::INSIDE_AND_BOUNDARY: {
       return index.qbegin(bgi::covered_by(outer_inclusion_box()) &&
                           bgi::satisfies([center_point, boundary](const auto &value) {
-                            return bg::distance(value.point(), center_point) <= boundary;
+                            //            auto value2 = std::invoke([&] {
+                            //              auto const & p =value.point();
+                            //              if constexpr (dimensions == 3) {
+                            //                return Point3d{crs}
+                            //
+                            //              } else {
+                            //              }
+                            //            });
+                            //
+                            //            return Haversine(center_point2)
+
+                            auto point = center_point;
+                            auto distance1 = bg::distance(value.point(), point);
+                            auto d = boundary;
+                            return distance1 <= d;
                           }));
     }
     case PointDistanceCondition::OUTSIDE_AND_BOUNDARY: {
