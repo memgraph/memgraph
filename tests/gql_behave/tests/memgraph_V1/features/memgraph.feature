@@ -239,20 +239,20 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             """
         Then the result should be:
             | result1 | result2 | result3 | result4 | result5 | result6 | result7 |
-            | null    | null    | 7203    | 9757    | 4326    | 4979    | 4979    |
+            | null    | null    | 7203    | 9157    | 4326    | 4979    | 4979    |
 
     Scenario: Point creation srid:
         When executing query:
             """
             RETURN
                 point({x:1, y:2, srid:7203}).srid AS result1,
-                point({x:1, y:2, height:3, srid:9757}).srid AS result2,
+                point({x:1, y:2, height:3, srid:9157}).srid AS result2,
                 point({x:1, y:2, srid:4326}).srid AS result3,
                 point({x:1, y:2, z:3, srid:4979}).srid AS result4;
             """
         Then the result should be:
             | result1 | result2 | result3 | result4 |
-            | 7203    | 9757    | 4326    | 4979    |
+            | 7203    | 9157    | 4326    | 4979    |
 
     Scenario: Point creation crs:
         When executing query:
@@ -265,7 +265,7 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             """
         Then the result should be:
             | result1 | result2 | result3 | result4 |
-            | 7203    | 9757    | 4326    | 4979    |
+            | 7203    | 9157    | 4326    | 4979    |
 
     Scenario: Point creation failure 1:
         When executing query:
@@ -427,7 +427,7 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             """
         Then the result should be:
             | x_result | y_result | z_result | crs_result  | srid_result |
-            | 1.0      | 2.0      | 3.0      | 'cartesian' | 9757        |
+            | 1.0      | 2.0      | 3.0      | 'cartesian' | 9157        |
 
     Scenario: Point3d-cartesian lookup longitude:
         When executing query:
@@ -996,29 +996,102 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
                 POINT({x: 0, y: 1}),
                 POINT({x: 1, y: 0}),
                 POINT({x: 1, y: 1}),
-                POINT({x: 0.70710678118, y: 0.70710678118}),
-                POINT({x: 0.25, y: 0.25})
+                POINT({x: 0.25, y: 0.25}),
+                POINT({x: 2, y: 2})
             ] AS point
             CREATE (:L1 {prop: point});
             """
         When executing query:
             """
-            WITH point({x:0,y:0}) AS a MATCH (m:L1) WHERE point.distance(m.prop, a) < 1 RETURN m ORDER BY m.prop ASC;
+            WITH point({x:0,y:0}) AS a MATCH (m:L1) WHERE point.distance(m.prop, a) < 1 RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
             """
         Then the result should be:
-            | m                                                   |
-            | (:L1{prop:POINT(0.00.0)})                           |
-            | (:L1{prop:POINT(0.250.25)})                         |
-            | (:L1{prop:POINT(0.707106781180.70710678118)})       |
+            | m                                                                       |
+            | (:L1{prop:POINT({x:0.0, y:0.0, srid: 7203})})                           |
+            | (:L1{prop:POINT({x: 0.25, y:0.25, srid: 7203})})                        |
 
         When executing query:
             """
-            WITH point({x:0,y:0}) AS a MATCH (m:L1) WHERE point.distance(m.prop, a) <= 1 RETURN m ORDER BY m.prop ASC;
+            WITH point({x:0,y:0}) AS a MATCH (m:L1) WHERE point.distance(m.prop, a) <= 1 RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
             """
         Then the result should be:
-            | m                                                   |
-            | (:L1{prop:POINT(0.00.0)})                           |
-            | (:L1{prop:POINT(0.250.25)})                         |
-            | (:L1{prop:POINT(0.707106781180.70710678118)})       |
-            | (:L1{prop:POINT(0.001)})       |
-            | (:L1{prop:POINT(0.707106781180.70710678118)})       |
+            | m                                                 |
+            | (:L1{prop:POINT({x:0.0, y:0.0, srid: 7203})})     |
+            | (:L1{prop:POINT({x:0.0, y:1.0, srid:7203})})      |
+            | (:L1{prop:POINT({x: 0.25, y:0.25, srid:7203})})   |
+            | (:L1{prop:POINT({x: 1.0, y:0.0, srid:7203})})     |
+
+        When executing query:
+            """
+            WITH point({x:0,y:0}) AS a MATCH (m:L1) WHERE point.distance(m.prop, a) >= 1 RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
+            """
+        Then the result should be:
+            | m                                               |
+            | (:L1{prop:POINT({x: 0.0, y:1.0, srid:7203})})   |
+            | (:L1{prop:POINT({x: 1.0, y:0.0, srid:7203})})   |
+            | (:L1{prop:POINT({x: 1.0, y:1.0, srid:7203})})   |
+            | (:L1{prop:POINT({x: 2.0, y:2.0, srid:7203})})   |
+
+        When executing query:
+            """
+            WITH point({x:0,y:0}) AS a MATCH (m:L1) WHERE point.distance(m.prop, a) > 1 RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
+            """
+        Then the result should be:
+            | m                                               |
+            | (:L1{prop:POINT({x: 1.0, y:1.0, srid:7203})})   |
+            | (:L1{prop:POINT({x: 2.0, y:2.0, srid:7203})})   |
+
+    Scenario: Point index with distance cartesian3d:
+        Given an empty graph
+        And with new point index :L1(prop)
+        And having executed
+            """
+            UNWIND [
+                POINT({x: 0, y: 0, z:0}),
+                POINT({x: 0, y: 1, z:0}),
+                POINT({x: 0, y: 0, z:1}),
+                POINT({x: 1, y: 1, z:1}),
+                POINT({x: 0.25, y: 0.25, z:0.25}),
+                POINT({x: 2, y: 2, z:2})
+            ] AS point
+            CREATE (:L1 {prop: point});
+            """
+        When executing query:
+            """
+            WITH point({x:0,y:0,z:0}) AS a MATCH (m:L1) WHERE point.distance(m.prop, a) < 1 RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC, m.prop.z ASC;
+            """
+        Then the result should be:
+            | m                                                                       |
+            | (:L1{prop:POINT({x:0.0, y:0.0, z:0.0, srid: 9157})})                    |
+            | (:L1{prop:POINT({x: 0.25, y:0.25, z:0.25, srid: 9157})})                |
+
+        When executing query:
+            """
+            WITH point({x:0,y:0,z:0}) AS a MATCH (m:L1) WHERE point.distance(m.prop, a) <= 1 RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC, m.prop.z ASC;
+            """
+        Then the result should be:
+            | m                                                       |
+            | (:L1{prop:POINT({x:0.0, y:0.0, z:0.0, srid: 9157})})    |
+            | (:L1{prop:POINT({x:0.0, y:0.0, z:1.0, srid:9157})})     |
+            | (:L1{prop:POINT({x:0.0, y:1.0, z:0.0, srid:9157})})     |
+            | (:L1{prop:POINT({x: 0.25, y:0.25, z:0.25, srid:9157})}) |
+
+        When executing query:
+            """
+            WITH point({x:0,y:0,z:0}) AS a MATCH (m:L1) WHERE point.distance(m.prop, a) >= 1 RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC, m.prop.z ASC;
+            """
+        Then the result should be:
+            | m                                                       |
+            | (:L1{prop:POINT({x:0.0, y:0.0, z:1.0, srid:9157})})     |
+            | (:L1{prop:POINT({x:0.0, y:1.0, z:0.0, srid:9157})})     |
+            | (:L1{prop:POINT({x:1.0, y:1.0, z:1.0, srid: 9157})})    |
+            | (:L1{prop:POINT({x:2.0, y:2.0, z:2.0, srid:9157})})     |
+
+        When executing query:
+            """
+            WITH point({x:0,y:0,z:0}) AS a MATCH (m:L1) WHERE point.distance(m.prop, a) > 1 RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC, m.prop.z ASC;
+            """
+        Then the result should be:
+            | m                                                        |
+            | (:L1{prop:POINT({x:1.0, y:1.0, z:1.0, srid: 9157})})     |
+            | (:L1{prop:POINT({x:2.0, y:2.0, z:2.0, srid:9157})})      |
