@@ -259,10 +259,6 @@ auto RaftState::GetCoordinatorToCoordinatorConfigs() const -> std::vector<Coordi
   return state_manager_->GetCoordinatorToCoordinatorConfigs();
 }
 
-auto RaftState::RaftSocketAddress() const -> std::string {
-  return raft_server_->get_srv_config(static_cast<int>(coordinator_id_))->get_endpoint();
-}
-
 auto RaftState::AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) -> void {
   spdlog::trace("Adding coordinator instance {} start in RaftState for coordinator_{}", config.coordinator_id,
                 coordinator_id_);
@@ -522,10 +518,6 @@ auto RaftState::HasMainState(std::string_view instance_name) const -> bool {
   return state_machine_->HasMainState(instance_name);
 }
 
-auto RaftState::HasReplicaState(std::string_view instance_name) const -> bool {
-  return state_machine_->HasReplicaState(instance_name);
-}
-
 auto RaftState::GetReplicationInstances() const -> std::vector<ReplicationInstanceState> {
   return state_machine_->GetReplicationInstances();
 }
@@ -537,10 +529,6 @@ auto RaftState::IsCurrentMain(std::string_view instance_name) const -> bool {
 }
 
 auto RaftState::IsLockOpened() const -> bool { return state_machine_->IsLockOpened(); }
-
-auto RaftState::GetInstanceUUID(std::string_view instance_name) const -> utils::UUID {
-  return state_machine_->GetInstanceUUID(instance_name);
-}
 
 auto RaftState::TryGetCurrentMainName() const -> std::optional<std::string> {
   return state_machine_->TryGetCurrentMainName();

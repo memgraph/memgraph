@@ -14,6 +14,7 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_communication_config.hpp"
+#include "coordination/instance_state.hpp"
 #include "coordination/instance_status.hpp"
 #include "replication_coordination_glue/common.hpp"
 #include "slk/serialization.hpp"
@@ -76,6 +77,18 @@ inline void Load(InstanceStatus *obj, Reader *reader) {
   Load(&obj->health, reader);
   Load(&obj->last_succ_resp_ms, reader);
   Load(&obj->cluster_role, reader);
+}
+
+inline void Save(const coordination::InstanceState &obj, Builder *builder) {
+  Save(obj.is_replica, builder);
+  Save(obj.uuid, builder);
+  Save(obj.is_writing_enabled, builder);
+}
+
+inline void Load(coordination::InstanceState *obj, Reader *reader) {
+  Load(&obj->is_replica, reader);
+  Load(&obj->uuid, reader);
+  Load(&obj->is_writing_enabled, reader);
 }
 
 }  // namespace memgraph::slk

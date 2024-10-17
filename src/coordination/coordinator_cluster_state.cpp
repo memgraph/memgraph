@@ -78,12 +78,6 @@ auto CoordinatorClusterState::HasMainState(std::string_view instance_name) const
   return it != repl_instances_.end() && it->second.status == ReplicationRole::MAIN;
 }
 
-auto CoordinatorClusterState::HasReplicaState(std::string_view instance_name) const -> bool {
-  auto lock = std::shared_lock{log_lock_};
-  auto const it = repl_instances_.find(instance_name);
-  return it != repl_instances_.end() && it->second.status == ReplicationRole::REPLICA;
-}
-
 auto CoordinatorClusterState::IsCurrentMain(std::string_view instance_name) const -> bool {
   auto lock = std::shared_lock{log_lock_};
   auto const it = repl_instances_.find(instance_name);
@@ -203,14 +197,7 @@ auto CoordinatorClusterState::TryGetCurrentMainName() const -> std::optional<std
 
 auto CoordinatorClusterState::GetCurrentMainUUID() const -> utils::UUID { return current_main_uuid_; }
 
-auto CoordinatorClusterState::GetInstanceUUID(std::string_view instance_name) const -> utils::UUID {
-  auto lock = std::shared_lock{log_lock_};
-  auto const it = repl_instances_.find(instance_name);
-  MG_ASSERT(it != repl_instances_.end(), "Instance with that name doesn't exist.");
-  return it->second.instance_uuid;
-}
-
-auto CoordinatorClusterState::GetIsLockOpened() const -> bool {
+auto CoordinatorClusterState::IsLockOpened() const -> bool {
   auto lock = std::shared_lock{log_lock_};
   return is_lock_opened_;
 }
@@ -233,7 +220,7 @@ void CoordinatorClusterState::SetCurrentMainUUID(utils::UUID current_main_uuid) 
 
 void to_json(nlohmann::json &j, CoordinatorClusterState const &state) {
   j = nlohmann::json{{"repl_instances", state.GetReplicationInstances()},
-                     {"is_lock_opened", state.GetIsLockOpened()},
+                     {"is_lock_opened", state.IsLockOpened()},
                      {"current_main_uuid", state.GetCurrentMainUUID()}};
 }
 

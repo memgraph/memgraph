@@ -74,12 +74,12 @@ def find_instance_and_assert_instances(
 
             instances = show_instances()
             for instance in instances:
-                if instance[-1] == instance_role:
+                if instance[-1] == instance_role and instance[-2] == "up":
                     all_instances.append(instance[0])  # coordinator name
 
         return all_instances
 
-    all_instances = []
+    all_instances = find_instances()
     expected_num_instances = num_coordinators - len(coord_ids_to_skip_validation)
     while True:
         if len(all_instances) == expected_num_instances or time.time() - start_time > wait_period:
@@ -93,8 +93,8 @@ def find_instance_and_assert_instances(
 
     instance = all_instances[0]
 
-    for l in all_instances:
-        assert l == instance, "Leaders are not the same"
+    for inst in all_instances:
+        assert inst == instance, "Leaders are not the same"
 
     assert instance is not None and instance != "" and len(all_instances) > 0, f"{instance_role} not found"
     return instance

@@ -14,6 +14,7 @@
 #include "coordination/replication_instance_client.hpp"
 
 #include "coordination/coordinator_communication_config.hpp"
+#include "coordination/coordinator_instance.hpp"
 #include "coordination/coordinator_rpc.hpp"
 #include "replication_coordination_glue/common.hpp"
 #include "replication_coordination_glue/messages.hpp"
@@ -32,16 +33,12 @@ auto CreateClientContext(memgraph::coordination::CoordinatorToReplicaConfig cons
 }
 }  // namespace
 
-ReplicationInstanceClient::ReplicationInstanceClient(CoordinatorInstance *coord_instance,
-                                                     CoordinatorToReplicaConfig config,
-                                                     HealthCheckClientCallback succ_cb,
-                                                     HealthCheckClientCallback fail_cb)
+ReplicationInstanceClient::ReplicationInstanceClient(CoordinatorToReplicaConfig config,
+                                                     CoordinatorInstance *coord_instance)
     : rpc_context_{CreateClientContext(config)},
       rpc_client_{config.mgt_server, &rpc_context_},
       config_{std::move(config)},
-      coord_instance_{coord_instance},
-      succ_cb_{std::move(succ_cb)},
-      fail_cb_{std::move(fail_cb)} {}
+      coord_instance_(coord_instance) {}
 
 auto ReplicationInstanceClient::InstanceName() const -> std::string { return config_.instance_name; }
 
@@ -62,7 +59,7 @@ auto ReplicationInstanceClient::InstanceGetUUIDFrequencySec() const -> std::chro
   return config_.instance_get_uuid_frequency_sec;
 }
 
-void ReplicationInstanceClient::StartFrequentCheck() {
+void ReplicationInstanceClient::StartStateCheck() {
   if (instance_checker_.IsRunning()) {
     return;
   }
@@ -72,19 +69,20 @@ void ReplicationInstanceClient::StartFrequentCheck() {
 
   instance_checker_.Run(config_.instance_name, config_.instance_health_check_frequency_sec,
                         [this, instance_name = config_.instance_name] {
-                          spdlog::trace("Sending frequent heartbeat to machine {} on {}", instance_name,
+                          spdlog::trace("Sending state check message to instance {} on {}.", instance_name,
                                         config_.ManagementSocketAddress());
-                          if (SendFrequentHeartbeat()) {
-                            succ_cb_(coord_instance_, instance_name);
-                            return;
+                          auto const res = SendStateCheckRpc();
+                          if (res) {
+                            coord_instance_->InstanceSuccessCallback(instance_name, res);
+                          } else {
+                            coord_instance_->InstanceFailCallback(instance_name, res);
                           }
-                          fail_cb_(coord_instance_, instance_name);
                         });
 }
 
-void ReplicationInstanceClient::StopFrequentCheck() { instance_checker_.Stop(); }
-void ReplicationInstanceClient::PauseFrequentCheck() { instance_checker_.Pause(); }
-void ReplicationInstanceClient::ResumeFrequentCheck() { instance_checker_.Resume(); }
+void ReplicationInstanceClient::StopStateCheck() { instance_checker_.Stop(); }
+void ReplicationInstanceClient::PauseStateCheck() { instance_checker_.Pause(); }
+void ReplicationInstanceClient::ResumeStateCheck() { instance_checker_.Resume(); }
 auto ReplicationInstanceClient::GetReplicationClientInfo() const -> coordination::ReplicationClientInfo {
   return config_.replication_client_info;
 }
@@ -108,7 +106,7 @@ auto ReplicationInstanceClient::SendPromoteReplicaToMainRpc(const utils::UUID &u
   return false;
 }
 
-auto ReplicationInstanceClient::DemoteToReplica() const -> bool {
+auto ReplicationInstanceClient::SendDemoteToReplicaRpc() const -> bool {
   auto const &instance_name = config_.instance_name;
   try {
     auto stream{rpc_client_.Stream<DemoteMainToReplicaRpc>(config_.replication_client_info)};
@@ -124,8 +122,8 @@ auto ReplicationInstanceClient::DemoteToReplica() const -> bool {
   return false;
 }
 
-auto ReplicationInstanceClient::RegisterReplica(utils::UUID const &uuid,
-                                                ReplicationClientInfo replication_client_info) const -> bool {
+auto ReplicationInstanceClient::SendRegisterReplicaRpc(utils::UUID const &uuid,
+                                                       ReplicationClientInfo replication_client_info) const -> bool {
   auto const instance_name = replication_client_info.instance_name;
   try {
     auto stream{rpc_client_.Stream<RegisterReplicaOnMainRpc>(uuid, std::move(replication_client_info))};
@@ -134,7 +132,7 @@ auto ReplicationInstanceClient::RegisterReplica(utils::UUID const &uuid,
                     instance_name);
       return false;
     }
-    spdlog::info("Sent request RPC from coordinator to register replica instance on main!");
+    spdlog::trace("Sent request RPC from coordinator to register replica instance on main.");
     return true;
   } catch (rpc::RpcFailedException const &) {
     spdlog::error("Failed to receive RPC response when registering instance {} to replica!", instance_name);
@@ -142,13 +140,13 @@ auto ReplicationInstanceClient::RegisterReplica(utils::UUID const &uuid,
   return false;
 }
 
-auto ReplicationInstanceClient::SendFrequentHeartbeat() const -> bool {
+auto ReplicationInstanceClient::SendStateCheckRpc() const -> std::optional<InstanceState> {
   try {
-    auto stream{rpc_client_.Stream<memgraph::replication_coordination_glue::FrequentHeartbeatRpc>()};
-    stream.AwaitResponse();
-    return true;
+    auto stream{rpc_client_.Stream<StateCheckRpc>()};
+    auto res = stream.AwaitResponse();
+    return res.state;
   } catch (rpc::RpcFailedException const &) {
-    return false;
+    return {};
   }
 }
 
@@ -166,18 +164,6 @@ auto ReplicationInstanceClient::SendUnregisterReplicaRpc(std::string_view instan
   return false;
 }
 
-auto ReplicationInstanceClient::SendGetInstanceUUIDRpc() const
-    -> utils::BasicResult<GetInstanceUUIDError, std::optional<utils::UUID>> {
-  try {
-    auto stream{rpc_client_.Stream<GetInstanceUUIDRpc>()};
-    auto res = stream.AwaitResponse();
-    return res.uuid;
-  } catch (const rpc::RpcFailedException &) {
-    spdlog::error("Failed to receive RPC response when sending GetInstanceUUIDRPC");
-    return GetInstanceUUIDError::RPC_EXCEPTION;
-  }
-}
-
 auto ReplicationInstanceClient::SendEnableWritingOnMainRpc() const -> bool {
   try {
     auto stream{rpc_client_.Stream<EnableWritingOnMainRpc>()};
@@ -193,14 +179,14 @@ auto ReplicationInstanceClient::SendEnableWritingOnMainRpc() const -> bool {
 }
 
 auto ReplicationInstanceClient::SendGetInstanceTimestampsRpc() const
-    -> utils::BasicResult<GetInstanceUUIDError, replication_coordination_glue::DatabaseHistories> {
+    -> utils::BasicResult<GetInstanceTimestampsError, replication_coordination_glue::DatabaseHistories> {
   try {
     auto stream{rpc_client_.Stream<coordination::GetDatabaseHistoriesRpc>()};
     return stream.AwaitResponse().database_histories;
 
   } catch (const rpc::RpcFailedException &) {
-    spdlog::error("Failed to receive RPC response when sending GetInstance UUID RPC");
-    return GetInstanceUUIDError::RPC_EXCEPTION;
+    spdlog::error("Failed to receive RPC response when sending GetInstanceTimestampRPC");
+    return GetInstanceTimestampsError::RPC_EXCEPTION;
   }
 }
 

@@ -61,7 +61,7 @@ struct RoleMainData {
 struct RoleReplicaData {
   ReplicationServerConfig config;
   std::unique_ptr<ReplicationServer> server;
-  // uuid of main replica is listening to
+  // uuid of main instance that replica is listening to
   std::optional<utils::UUID> uuid_;
 };
 

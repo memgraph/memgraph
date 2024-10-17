@@ -78,7 +78,7 @@ enum class DemoteInstanceCoordinatorStatus : uint8_t {
   NOT_COORDINATOR
 };
 
-enum class ReconcileClusterStateStatus : uint8_t { SUCCESS, FAIL, SHUTTING_DOWN };
+enum class ReconcileClusterStateStatus : uint8_t { SUCCESS, FAIL, SHUTTING_DOWN, NOT_LEADER_ANYMORE };
 
 }  // namespace memgraph::coordination
 #endif

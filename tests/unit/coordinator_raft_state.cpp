@@ -69,7 +69,6 @@ TEST_F(RaftStateTest, RaftStateEmptyMetadata) {
   raft_state->InitRaftServer();
 
   ASSERT_EQ(raft_state->InstanceName(), fmt::format("coordinator_{}", coordinator_id));
-  ASSERT_EQ(raft_state->RaftSocketAddress(), fmt::format("localhost:{}", coordinator_port));
   ASSERT_TRUE(raft_state->IsLeader());
   ASSERT_TRUE(raft_state->GetReplicationInstances().empty());
 

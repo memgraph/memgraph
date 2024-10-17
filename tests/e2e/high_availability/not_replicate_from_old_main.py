@@ -21,7 +21,7 @@ from common import (
     get_logs_path,
     ignore_elapsed_time_from_results,
 )
-from mg_utils import mg_sleep_and_assert
+from mg_utils import mg_sleep_and_assert, mg_sleep_and_assert_until_role_change
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
@@ -307,6 +307,10 @@ def test_not_replicate_old_main_register_new_cluster(test_name):
 
     # 6
     main_2_cursor = connect(host="localhost", port=7687).cursor()
+
+    mg_sleep_and_assert_until_role_change(
+        lambda: execute_and_fetch_all(main_2_cursor, "SHOW REPLICATION ROLE;")[0][0], "main"
+    )
 
     execute_and_fetch_all(main_2_cursor, "CREATE ();")
 

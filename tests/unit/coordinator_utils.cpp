@@ -82,7 +82,7 @@ TEST_F(CoordinationUtils, MemgraphDbHistorySimple) {
   memgraph::coordination::CoordinatorInstance instance{init_config1};
 
   auto [instance_name, latest_epoch, latest_commit_timestamp] =
-      instance.ChooseMostUpToDateInstance(instance_database_histories);
+      *instance.ChooseMostUpToDateInstance(instance_database_histories);
   ASSERT_TRUE(instance_name == "instance_1" || instance_name == "instance_2" || instance_name == "instance_3");
   ASSERT_TRUE(latest_epoch == db_histories.back().first);
   ASSERT_TRUE(latest_commit_timestamp == db_histories.back().second);
@@ -136,7 +136,7 @@ TEST_F(CoordinationUtils, MemgraphDbHistoryLastEpochDifferent) {
       "localhost"};
   memgraph::coordination::CoordinatorInstance instance{init_config1};
   auto [instance_name, latest_epoch, latest_commit_timestamp] =
-      instance.ChooseMostUpToDateInstance(instance_database_histories);
+      *instance.ChooseMostUpToDateInstance(instance_database_histories);
 
   ASSERT_TRUE(instance_name == "instance_3");
   ASSERT_TRUE(latest_epoch == db_histories.back().first);
@@ -194,7 +194,7 @@ TEST_F(CoordinationUtils, MemgraphDbHistoryOneInstanceAheadFewEpochs) {
       "localhost"};
   memgraph::coordination::CoordinatorInstance instance{init_config1};
   auto [instance_name, latest_epoch, latest_commit_timestamp] =
-      instance.ChooseMostUpToDateInstance(instance_database_histories);
+      *instance.ChooseMostUpToDateInstance(instance_database_histories);
 
   ASSERT_TRUE(instance_name == "instance_3");
   ASSERT_TRUE(latest_epoch == db_histories_longest.back().first);
@@ -256,7 +256,7 @@ TEST_F(CoordinationUtils, MemgraphDbHistoryInstancesHistoryDiverged) {
       "localhost"};
   memgraph::coordination::CoordinatorInstance instance{init_config1};
   auto [instance_name, latest_epoch, latest_commit_timestamp] =
-      instance.ChooseMostUpToDateInstance(instance_database_histories);
+      *instance.ChooseMostUpToDateInstance(instance_database_histories);
 
   ASSERT_TRUE(instance_name == "instance_3");
   ASSERT_TRUE(latest_epoch == std::string(newest_different_epoch));

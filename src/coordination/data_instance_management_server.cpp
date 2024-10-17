@@ -12,6 +12,7 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/data_instance_management_server.hpp"
+#include "coordination/coordinator_rpc.hpp"
 #include "replication_coordination_glue/handler.hpp"
 
 #include <spdlog/spdlog.h>
@@ -35,16 +36,10 @@ constexpr auto kDataInstanceManagementServerThreads = 1;
 
 DataInstanceManagementServer::DataInstanceManagementServer(const ManagementServerConfig &config)
     : rpc_server_context_{CreateServerContext(config)},
-      rpc_server_{config.endpoint, &rpc_server_context_, kDataInstanceManagementServerThreads} {
-  rpc_server_.Register<replication_coordination_glue::FrequentHeartbeatRpc>([](auto *req_reader, auto *res_builder) {
-    spdlog::debug("Received FrequentHeartbeatRpc on data instance management server");
-    replication_coordination_glue::FrequentHeartbeatHandler(req_reader, res_builder);
-  });
-}
+      rpc_server_{config.endpoint, &rpc_server_context_, kDataInstanceManagementServerThreads} {}
 
 DataInstanceManagementServer::~DataInstanceManagementServer() {
   if (rpc_server_.IsRunning()) {
-    auto const &endpoint = rpc_server_.endpoint();
     rpc_server_.Shutdown();
   }
   rpc_server_.AwaitShutdown();

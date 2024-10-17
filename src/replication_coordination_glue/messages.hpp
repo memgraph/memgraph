@@ -11,12 +11,14 @@
 
 #pragma once
 
+#include "role.hpp"
 #include "rpc/messages.hpp"
 #include "slk/serialization.hpp"
 #include "utils/uuid.hpp"
 
 namespace memgraph::replication_coordination_glue {
 
+// TODO: (andi) Move it under replication since coordination stack won't use it anymore.
 struct FrequentHeartbeatReq {
   static const utils::TypeInfo kType;  // TODO: make constexpr?
   static const utils::TypeInfo &GetTypeInfo() { return kType; }
@@ -33,6 +35,10 @@ struct FrequentHeartbeatRes {
   static void Load(FrequentHeartbeatRes *self, memgraph::slk::Reader *reader);
   static void Save(const FrequentHeartbeatRes &self, memgraph::slk::Builder *builder);
   FrequentHeartbeatRes() = default;
+
+  ReplicationRole repl_role;  // MAIN or REPLICA
+  utils::UUID uuid;           // MAIN's UUID or the UUID which REPLICA listens
+  bool is_writing_enabled;
 };
 
 using FrequentHeartbeatRpc = rpc::RequestResponse<FrequentHeartbeatReq, FrequentHeartbeatRes>;

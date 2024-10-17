@@ -494,6 +494,8 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException("Couldn't finish force reset as cluster is shutting down!");
       case FAIL:
         throw QueryRuntimeException("Force reset failed, check logs for more details!");
+      case NOT_LEADER_ANYMORE:
+        throw QueryRuntimeException("Force reset failed since the instance is not leader anymore!");
       case SUCCESS:
         break;
     }

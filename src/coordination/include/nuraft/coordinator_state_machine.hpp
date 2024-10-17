@@ -104,11 +104,9 @@ class CoordinatorStateMachine : public state_machine {
   // Getters
   auto MainExists() const -> bool;
   auto HasMainState(std::string_view instance_name) const -> bool;
-  auto HasReplicaState(std::string_view instance_name) const -> bool;
   auto IsCurrentMain(std::string_view instance_name) const -> bool;
 
   auto GetCurrentMainUUID() const -> utils::UUID;
-  auto GetInstanceUUID(std::string_view instance_name) const -> utils::UUID;
   auto IsLockOpened() const -> bool;
 
   auto TryGetCurrentMainName() const -> std::optional<std::string>;
