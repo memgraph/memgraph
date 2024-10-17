@@ -58,7 +58,7 @@ def transaction_run(driver):
 
 
 if __name__ == "__main__":
-    driver = neo4j.GraphDatabase.driver("bolt://localhost:7687", auth=("user", "pass"), encrypted=False)
+    driver = neo4j.GraphDatabase.driver("bolt://localhost:7687", auth=None, encrypted=False)
     session_run(driver)
     transaction_run(driver)
     driver.close()
