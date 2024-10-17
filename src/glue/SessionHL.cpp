@@ -22,7 +22,6 @@
 #include "glue/communication.hpp"
 #include "glue/query_user.hpp"
 #include "glue/run_id.hpp"
-#include "interpreter.hpp"
 #include "license/license.hpp"
 #include "query/discard_value_stream.hpp"
 #include "query/interpreter_context.hpp"
