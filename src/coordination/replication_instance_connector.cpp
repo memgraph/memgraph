@@ -22,10 +22,9 @@
 
 namespace memgraph::coordination {
 
-ReplicationInstanceConnector::ReplicationInstanceConnector(std::unique_ptr<ReplicationInstanceClient> client,
-                                                           HealthCheckInstanceCallback succ_instance_cb,
-                                                           HealthCheckInstanceCallback fail_instance_cb)
-    : client_(std::move(client)), succ_cb_(succ_instance_cb), fail_cb_(fail_instance_cb) {}
+ReplicationInstanceConnector::ReplicationInstanceConnector(CoordinatorToReplicaConfig const &config,
+                                                           CoordinatorInstance *coord_instance)
+    : client_(ReplicationInstanceClient(config, coord_instance)) {}
 
 void ReplicationInstanceConnector::OnSuccessPing() {
   last_response_time_ = std::chrono::system_clock::now();
@@ -34,61 +33,11 @@ void ReplicationInstanceConnector::OnSuccessPing() {
 
 auto ReplicationInstanceConnector::OnFailPing() -> bool {
   auto elapsed_time = std::chrono::system_clock::now() - last_response_time_;
-  is_alive_ = elapsed_time < client_->InstanceDownTimeoutSec();
+  is_alive_ = elapsed_time < client_.InstanceDownTimeoutSec();
   return is_alive_;
 }
 
-auto ReplicationInstanceConnector::InstanceName() const -> std::string { return client_->InstanceName(); }
-
-auto ReplicationInstanceConnector::BoltSocketAddress() const -> std::string { return client_->BoltSocketAddress(); }
-
-auto ReplicationInstanceConnector::ManagementSocketAddress() const -> std::string {
-  return client_->ManagementSocketAddress();
-}
-auto ReplicationInstanceConnector::ReplicationSocketAddress() const -> std::string {
-  return client_->ReplicationSocketAddress();
-}
 auto ReplicationInstanceConnector::IsAlive() const -> bool { return is_alive_; }
-
-auto ReplicationInstanceConnector::SendPromoteToMainRpc(utils::UUID const &new_uuid,
-                                                        ReplicationClientsInfo repl_clients_info) -> bool {
-  return client_->SendPromoteReplicaToMainRpc(new_uuid, std::move(repl_clients_info));
-}
-
-auto ReplicationInstanceConnector::SendDemoteToReplicaRpc() -> bool { return client_->SendDemoteToReplicaRpc(); }
-
-auto ReplicationInstanceConnector::SendStateCheckRpc() const -> std::optional<InstanceState> {
-  return client_->SendStateCheckRpc();
-}
-
-auto ReplicationInstanceConnector::RegisterReplica(utils::UUID const &uuid,
-                                                   ReplicationClientInfo replication_client_info) -> bool {
-  return client_->RegisterReplica(uuid, std::move(replication_client_info));
-}
-
-auto ReplicationInstanceConnector::StartStateCheck() -> void { client_->StartStateCheck(); }
-auto ReplicationInstanceConnector::StopStateCheck() -> void { client_->StopStateCheck(); }
-auto ReplicationInstanceConnector::PauseStateCheck() -> void { client_->PauseStateCheck(); }
-auto ReplicationInstanceConnector::ResumeStateCheck() -> void { client_->ResumeStateCheck(); }
-
-auto ReplicationInstanceConnector::GetReplicationClientInfo() const -> coordination::ReplicationClientInfo {
-  return client_->GetReplicationClientInfo();
-}
-
-auto ReplicationInstanceConnector::GetSuccessCallback() const -> HealthCheckInstanceCallback { return succ_cb_; }
-auto ReplicationInstanceConnector::GetFailCallback() const -> HealthCheckInstanceCallback { return fail_cb_; }
-
-auto ReplicationInstanceConnector::GetClient() -> ReplicationInstanceClient & { return *client_; }
-
-auto ReplicationInstanceConnector::SendSwapAndUpdateUUID(utils::UUID const &new_main_uuid) -> bool {
-  return replication_coordination_glue::SendSwapMainUUIDRpc(client_->RpcClient(), new_main_uuid);
-}
-
-auto ReplicationInstanceConnector::SendUnregisterReplicaRpc(std::string_view instance_name) -> bool {
-  return client_->SendUnregisterReplicaRpc(instance_name);
-}
-
-auto ReplicationInstanceConnector::EnableWritingOnMain() -> bool { return client_->SendEnableWritingOnMainRpc(); }
 
 auto ReplicationInstanceConnector::LastSuccRespMs() const -> std::chrono::milliseconds {
   using std::chrono::duration_cast;
@@ -97,6 +46,54 @@ auto ReplicationInstanceConnector::LastSuccRespMs() const -> std::chrono::millis
 
   return duration_cast<milliseconds>(system_clock::now() - last_response_time_);
 }
+
+auto ReplicationInstanceConnector::InstanceName() const -> std::string { return client_.InstanceName(); }
+
+auto ReplicationInstanceConnector::BoltSocketAddress() const -> std::string { return client_.BoltSocketAddress(); }
+
+auto ReplicationInstanceConnector::ManagementSocketAddress() const -> std::string {
+  return client_.ManagementSocketAddress();
+}
+auto ReplicationInstanceConnector::ReplicationSocketAddress() const -> std::string {
+  return client_.ReplicationSocketAddress();
+}
+
+auto ReplicationInstanceConnector::SendPromoteToMainRpc(utils::UUID const &new_uuid,
+                                                        ReplicationClientsInfo repl_clients_info) -> bool {
+  return client_.SendPromoteReplicaToMainRpc(new_uuid, std::move(repl_clients_info));
+}
+
+auto ReplicationInstanceConnector::SendDemoteToReplicaRpc() -> bool { return client_.SendDemoteToReplicaRpc(); }
+
+auto ReplicationInstanceConnector::SendStateCheckRpc() const -> std::optional<InstanceState> {
+  return client_.SendStateCheckRpc();
+}
+
+auto ReplicationInstanceConnector::SendRegisterReplicaRpc(utils::UUID const &uuid,
+                                                          ReplicationClientInfo replication_client_info) -> bool {
+  return client_.SendRegisterReplicaRpc(uuid, std::move(replication_client_info));
+}
+
+auto ReplicationInstanceConnector::SendSwapAndUpdateUUID(utils::UUID const &new_main_uuid) -> bool {
+  return replication_coordination_glue::SendSwapMainUUIDRpc(client_.RpcClient(), new_main_uuid);
+}
+
+auto ReplicationInstanceConnector::SendUnregisterReplicaRpc(std::string_view instance_name) -> bool {
+  return client_.SendUnregisterReplicaRpc(instance_name);
+}
+
+auto ReplicationInstanceConnector::SendEnableWritingOnMainRpc() -> bool { return client_.SendEnableWritingOnMainRpc(); }
+
+auto ReplicationInstanceConnector::StartStateCheck() -> void { client_.StartStateCheck(); }
+auto ReplicationInstanceConnector::StopStateCheck() -> void { client_.StopStateCheck(); }
+auto ReplicationInstanceConnector::PauseStateCheck() -> void { client_.PauseStateCheck(); }
+auto ReplicationInstanceConnector::ResumeStateCheck() -> void { client_.ResumeStateCheck(); }
+
+auto ReplicationInstanceConnector::GetReplicationClientInfo() const -> coordination::ReplicationClientInfo {
+  return client_.GetReplicationClientInfo();
+}
+
+auto ReplicationInstanceConnector::GetClient() -> ReplicationInstanceClient & { return client_; }
 
 }  // namespace memgraph::coordination
 #endif

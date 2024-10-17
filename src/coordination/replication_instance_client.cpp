@@ -14,6 +14,7 @@
 #include "coordination/replication_instance_client.hpp"
 
 #include "coordination/coordinator_communication_config.hpp"
+#include "coordination/coordinator_instance.hpp"
 #include "coordination/coordinator_rpc.hpp"
 #include "replication_coordination_glue/common.hpp"
 #include "replication_coordination_glue/messages.hpp"
@@ -32,16 +33,12 @@ auto CreateClientContext(memgraph::coordination::CoordinatorToReplicaConfig cons
 }
 }  // namespace
 
-ReplicationInstanceClient::ReplicationInstanceClient(CoordinatorInstance *coord_instance,
-                                                     CoordinatorToReplicaConfig config,
-                                                     HealthCheckClientCallback succ_cb,
-                                                     HealthCheckClientCallback fail_cb)
+ReplicationInstanceClient::ReplicationInstanceClient(CoordinatorToReplicaConfig config,
+                                                     CoordinatorInstance *coord_instance)
     : rpc_context_{CreateClientContext(config)},
       rpc_client_{config.mgt_server, &rpc_context_},
       config_{std::move(config)},
-      coord_instance_{coord_instance},
-      succ_cb_{std::move(succ_cb)},
-      fail_cb_{std::move(fail_cb)} {}
+      coord_instance_(coord_instance) {}
 
 auto ReplicationInstanceClient::InstanceName() const -> std::string { return config_.instance_name; }
 
@@ -76,9 +73,9 @@ void ReplicationInstanceClient::StartStateCheck() {
                                         config_.ManagementSocketAddress());
                           auto const res = SendStateCheckRpc();
                           if (res) {
-                            succ_cb_(coord_instance_, instance_name, res);
+                            coord_instance_->InstanceSuccessCallback(instance_name, res);
                           } else {
-                            fail_cb_(coord_instance_, instance_name, res);
+                            coord_instance_->InstanceFailCallback(instance_name, res);
                           }
                         });
 }
@@ -125,8 +122,8 @@ auto ReplicationInstanceClient::SendDemoteToReplicaRpc() const -> bool {
   return false;
 }
 
-auto ReplicationInstanceClient::RegisterReplica(utils::UUID const &uuid,
-                                                ReplicationClientInfo replication_client_info) const -> bool {
+auto ReplicationInstanceClient::SendRegisterReplicaRpc(utils::UUID const &uuid,
+                                                       ReplicationClientInfo replication_client_info) const -> bool {
   auto const instance_name = replication_client_info.instance_name;
   try {
     auto stream{rpc_client_.Stream<RegisterReplicaOnMainRpc>(uuid, std::move(replication_client_info))};

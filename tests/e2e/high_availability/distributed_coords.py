@@ -498,7 +498,7 @@ def test_even_number_coords(use_durability, test_name):
         "coordinator_4": 7693,
     }
 
-    for coord, port in port_mappings.items():
+    for _, port in port_mappings.items():
         coord_cursor = connect(host="localhost", port=port).cursor()
 
         def show_instances():
@@ -1748,7 +1748,7 @@ def test_multiple_old_mains_single_failover(test_name):
     time_slept = 0
     failover_time = 5
     while time_slept < failover_time:
-        with pytest.raises(Exception) as e:
+        with pytest.raises(Exception):
             execute_and_fetch_all(instance_1_cursor, "CREATE ();")
         vertex_count += 1
 
@@ -1839,7 +1839,7 @@ def test_force_reset_works_after_failed_registration(test_name):
     mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_1_cursor))
     mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_2_cursor))
 
-    with pytest.raises(Exception) as e:
+    with pytest.raises(Exception):
         execute_and_fetch_all(
             coord_cursor_3,
             "REGISTER INSTANCE instance_4 WITH CONFIG {'bolt_server': 'localhost:7680', 'management_server': 'localhost:10050', 'replication_server': 'localhost:10051'};",
@@ -1984,7 +1984,7 @@ def test_force_reset_works_after_failed_registration_and_replica_down(test_name)
 
     # 4
 
-    with pytest.raises(Exception) as e:
+    with pytest.raises(Exception):
         execute_and_fetch_all(
             coord_cursor_3,
             "REGISTER INSTANCE instance_4 WITH CONFIG {'bolt_server': 'localhost:7680', 'management_server': 'localhost:10050', 'replication_server': 'localhost:10051'};",
@@ -2872,8 +2872,6 @@ def test_all_coords_down_resume(test_name):
     def show_instances_coord3():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCES;"))))
 
-    coord_cursor_1 = connect(host="localhost", port=7690).cursor()
-
     def show_instances_coord1():
         coord_cursor_1 = connect(host="localhost", port=7690).cursor()
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;"))))
@@ -2931,7 +2929,6 @@ def test_all_coords_down_resume(test_name):
     leader_data = update_tuple_value(leader_data, leader, 0, -1, "leader")
     leader_data = update_tuple_value(leader_data, main, 0, -1, "main")
 
-    coord_cursor_1 = connect(host="localhost", port=7690).cursor()
     coord_cursor_2 = connect(host="localhost", port=7691).cursor()
 
     mg_sleep_and_assert(leader_data, show_instances_coord1)

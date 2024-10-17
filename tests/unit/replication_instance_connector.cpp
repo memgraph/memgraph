@@ -27,8 +27,6 @@
 #include <gtest/gtest.h>
 #include "json/json.hpp"
 
-using memgraph::coordination::HealthCheckClientCallback;
-using memgraph::coordination::HealthCheckInstanceCallback;
 using memgraph::coordination::ReplicationClientsInfo;
 using memgraph::coordination::ReplicationInstanceClient;
 using memgraph::coordination::ReplicationInstanceConnector;
@@ -38,7 +36,7 @@ using testing::_;
 
 class ReplicationInstanceClientMock : public ReplicationInstanceClient {
  public:
-  ReplicationInstanceClientMock() : ReplicationInstanceClient(nullptr, {}, nullptr, nullptr) {}
+  ReplicationInstanceClientMock() : ReplicationInstanceClient({}, nullptr) {}
   MOCK_METHOD(std::chrono::seconds, InstanceDownTimeoutSec, (), (override, const));
   MOCK_METHOD(std::chrono::seconds, InstanceGetUUIDFrequencySec, (), (override, const));
   MOCK_METHOD(std::string, InstanceName, (), (override, const));
@@ -66,7 +64,7 @@ TEST_F(ReplicationInstanceConnectorTest, OnFailPing) {
   auto client = std::make_unique<ReplicationInstanceClientMock>();
   EXPECT_CALL(*client, InstanceDownTimeoutSec()).Times(1);
 
-  auto connector = ReplicationInstanceConnector(std::move(client), nullptr, nullptr);
+  auto connector = ReplicationInstanceConnector({}, nullptr);
   connector.OnFailPing();
 }
 
@@ -74,7 +72,7 @@ TEST_F(ReplicationInstanceConnectorTest, InstanceName) {
   auto client = std::make_unique<ReplicationInstanceClientMock>();
   EXPECT_CALL(*client, InstanceName()).Times(1);
 
-  auto connector = ReplicationInstanceConnector(std::move(client), nullptr, nullptr);
+  auto connector = ReplicationInstanceConnector({}, nullptr);
   connector.InstanceName();
 }
 
@@ -82,7 +80,7 @@ TEST_F(ReplicationInstanceConnectorTest, CoordinatorSocketAddress) {
   auto client = std::make_unique<ReplicationInstanceClientMock>();
   EXPECT_CALL(*client, ManagementSocketAddress()).Times(1);
 
-  auto connector = ReplicationInstanceConnector(std::move(client), nullptr, nullptr);
+  auto connector = ReplicationInstanceConnector({}, nullptr);
   connector.ManagementSocketAddress();
 }
 
@@ -90,7 +88,7 @@ TEST_F(ReplicationInstanceConnectorTest, ReplicationSocketAddress) {
   auto client = std::make_unique<ReplicationInstanceClientMock>();
   EXPECT_CALL(*client, ReplicationSocketAddress()).Times(1);
 
-  auto connector = ReplicationInstanceConnector(std::move(client), nullptr, nullptr);
+  auto connector = ReplicationInstanceConnector({}, nullptr);
   connector.ReplicationSocketAddress();
 }
 
@@ -98,7 +96,7 @@ TEST_F(ReplicationInstanceConnectorTest, SendDemoteToReplicaRpc) {
   auto client = std::make_unique<ReplicationInstanceClientMock>();
   EXPECT_CALL(*client, SendDemoteToReplicaRpc()).Times(1);
 
-  auto connector = ReplicationInstanceConnector(std::move(client), nullptr, nullptr);
+  auto connector = ReplicationInstanceConnector({}, nullptr);
   connector.SendDemoteToReplicaRpc();
 }
 
@@ -109,7 +107,7 @@ TEST_F(ReplicationInstanceConnectorTest, ManipulatingChecks) {
   EXPECT_CALL(*client, PauseStateCheck()).Times(1);
   EXPECT_CALL(*client, ResumeStateCheck()).Times(1);
 
-  auto connector = ReplicationInstanceConnector(std::move(client), nullptr, nullptr);
+  auto connector = ReplicationInstanceConnector({}, nullptr);
   connector.StartStateCheck();
   connector.StopStateCheck();
   connector.PauseStateCheck();
@@ -120,6 +118,6 @@ TEST_F(ReplicationInstanceConnectorTest, SendEnableWritingOnMainRpc) {
   auto client = std::make_unique<ReplicationInstanceClientMock>();
   EXPECT_CALL(*client, SendEnableWritingOnMainRpc()).Times(1);
 
-  auto connector = ReplicationInstanceConnector(std::move(client), nullptr, nullptr);
-  connector.EnableWritingOnMain();
+  auto connector = ReplicationInstanceConnector({}, nullptr);
+  connector.SendEnableWritingOnMainRpc();
 }

@@ -26,15 +26,11 @@
 namespace memgraph::coordination {
 
 class CoordinatorInstance;
-using HealthCheckClientCallback =
-    std::function<void(CoordinatorInstance *, std::string_view, std::optional<InstanceState>)>;
 using ReplicationClientsInfo = std::vector<ReplicationClientInfo>;
 
 class ReplicationInstanceClient {
  public:
-  explicit ReplicationInstanceClient(CoordinatorInstance *coord_instance, CoordinatorToReplicaConfig config,
-                                     HealthCheckClientCallback succ_cb = nullptr,
-                                     HealthCheckClientCallback fail_cb = nullptr);
+  explicit ReplicationInstanceClient(CoordinatorToReplicaConfig config, CoordinatorInstance *coord_instance);
 
   virtual ~ReplicationInstanceClient() = default;
 
@@ -63,7 +59,7 @@ class ReplicationInstanceClient {
 
   virtual auto SendEnableWritingOnMainRpc() const -> bool;
 
-  auto RegisterReplica(utils::UUID const &uuid, ReplicationClientInfo replication_client_info) const -> bool;
+  auto SendRegisterReplicaRpc(utils::UUID const &uuid, ReplicationClientInfo replication_client_info) const -> bool;
 
   auto SendStateCheckRpc() const -> std::optional<InstanceState>;
 
@@ -90,11 +86,6 @@ class ReplicationInstanceClient {
 
   CoordinatorToReplicaConfig config_;
   CoordinatorInstance *coord_instance_;
-  // The reason why we have HealthCheckClientCallback is because we need to acquire lock
-  // before we do correct function call (main or replica), as otherwise we can enter REPLICA callback
-  // but right before instance was promoted to MAIN
-  HealthCheckClientCallback succ_cb_;
-  HealthCheckClientCallback fail_cb_;
 };
 
 }  // namespace memgraph::coordination

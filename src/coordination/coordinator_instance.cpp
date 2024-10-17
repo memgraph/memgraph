@@ -62,39 +62,6 @@ using nuraft::ptr;
 CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &config)
     : coordinator_management_server_{ManagementServerConfig{
           io::network::Endpoint{kDefaultManagementServerIp, static_cast<uint16_t>(config.management_port)}}} {
-  client_succ_cb_ = [](CoordinatorInstance *self, std::string_view instance_name,
-                       std::optional<InstanceState> instance_state) -> void {
-    if (self->raft_state_->IsLockOpened()) {
-      spdlog::trace("Lock is still opened, not executing instance success callback.");
-      return;
-    }
-
-    if (!self->is_leader_ready_) {
-      spdlog::trace("Leader is not ready, not executing instance fail callback.");
-      return;
-    }
-
-    auto lock = std::unique_lock{self->coord_instance_lock_};
-    auto &instance = self->FindReplicationInstance(instance_name);
-    std::invoke(instance.GetSuccessCallback(), self, instance, instance_state);
-  };
-
-  client_fail_cb_ = [](CoordinatorInstance *self, std::string_view instance_name,
-                       std::optional<InstanceState> instance_state) -> void {
-    if (self->raft_state_->IsLockOpened()) {
-      spdlog::trace("Lock is still opened, not executing instance fail callback.");
-      return;
-    }
-
-    if (!self->is_leader_ready_) {
-      spdlog::trace("Leader is not ready, not executing instance fail callback.");
-      return;
-    }
-    auto lock = std::unique_lock{self->coord_instance_lock_};
-    auto &instance = self->FindReplicationInstance(instance_name);
-    std::invoke(instance.GetFailCallback(), self, instance, instance_state);
-  };
-
   CoordinatorInstanceManagementServerHandlers::Register(coordinator_management_server_, *this);
   MG_ASSERT(coordinator_management_server_.Start());
 
@@ -416,11 +383,8 @@ auto CoordinatorInstance::ReconcileClusterState_() -> ReconcileClusterStateStatu
   }
 
   // we could create this at the end.
-  std::ranges::for_each(raft_state_replication_instances, [this](auto &&instance) {
-    auto client = std::make_unique<ReplicationInstanceClient>(this, instance.config, client_succ_cb_, client_fail_cb_);
-    repl_instances_.emplace_back(std::move(client), &CoordinatorInstance::InstanceSuccessCallback,
-                                 &CoordinatorInstance::InstanceFailCallback);
-  });
+  std::ranges::for_each(raft_state_replication_instances,
+                        [this](auto &&instance) { repl_instances_.emplace_back(instance.config, this); });
 
   auto current_mains = repl_instances_ | ranges::views::filter([raft_state_ptr = raft_state_.get()](auto &&instance) {
                          return raft_state_ptr->IsCurrentMain(instance.InstanceName());
@@ -632,7 +596,7 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view instance
     return SetInstanceToMainCoordinatorStatus::FAILED_TO_CLOSE_LOCK;
   }
   MG_ASSERT(!raft_state_->IsLockOpened(), "After setting replication instance we need to be in healthy state.");
-  if (!new_main->EnableWritingOnMain()) {
+  if (!new_main->SendEnableWritingOnMainRpc()) {
     return SetInstanceToMainCoordinatorStatus::ENABLE_WRITING_FAILED;
   }
   return SetInstanceToMainCoordinatorStatus::SUCCESS;
@@ -686,9 +650,7 @@ auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorToReplicaConfig
     spdlog::trace("Lock is not opened anymore or coordinator is not leader after instance registration.");
   }};
 
-  auto client = std::make_unique<ReplicationInstanceClient>(this, config, client_succ_cb_, client_fail_cb_);
-  auto *new_instance = &repl_instances_.emplace_back(std::move(client), &CoordinatorInstance::InstanceSuccessCallback,
-                                                     &CoordinatorInstance::InstanceFailCallback);
+  auto *new_instance = &repl_instances_.emplace_back(config, this);
 
   // We do this here not under callbacks because we need to add replica to the current main.
   if (!new_instance->SendDemoteToReplicaRpc()) {
@@ -701,7 +663,8 @@ auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorToReplicaConfig
   if (main_name.has_value()) {
     auto &current_main = FindReplicationInstance(*main_name);
 
-    if (!current_main.RegisterReplica(raft_state_->GetCurrentMainUUID(), new_instance->GetReplicationClientInfo())) {
+    if (!current_main.SendRegisterReplicaRpc(raft_state_->GetCurrentMainUUID(),
+                                             new_instance->GetReplicationClientInfo())) {
       spdlog::error("Failed to register replica instance.");
       return RegisterInstanceCoordinatorStatus::RPC_FAILED;
     }
@@ -881,9 +844,21 @@ auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorToCoordinatorConfig 
   return AddCoordinatorInstanceStatus::SUCCESS;
 }
 
-void CoordinatorInstance::InstanceSuccessCallback(ReplicationInstanceConnector &instance,
+void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name,
                                                   std::optional<InstanceState> instance_state) {
-  auto const instance_name = instance.InstanceName();
+  if (raft_state_->IsLockOpened()) {
+    spdlog::trace("Lock is still opened, not executing instance success callback.");
+    return;
+  }
+
+  if (!is_leader_ready_) {
+    spdlog::trace("Leader is not ready, not executing instance success callback.");
+    return;
+  }
+
+  auto lock = std::unique_lock{coord_instance_lock_};
+  auto &instance = FindReplicationInstance(instance_name);
+
   spdlog::trace("Instance {} performing success callback in thread {}.", instance_name, std::this_thread::get_id());
 
   instance.OnSuccessPing();
@@ -931,7 +906,7 @@ void CoordinatorInstance::InstanceSuccessCallback(ReplicationInstanceConnector &
       // I should be main and I am main. I could've died and came back up before triggering failover. In that case
       // writing is disabled.
       if (!instance_state->is_writing_enabled) {
-        if (!instance.EnableWritingOnMain()) {
+        if (!instance.SendEnableWritingOnMainRpc()) {
           spdlog::error("Failed to enable writing on main instance {}.", instance_name);
         }
       }
@@ -957,9 +932,21 @@ void CoordinatorInstance::InstanceSuccessCallback(ReplicationInstanceConnector &
   }
 }
 
-void CoordinatorInstance::InstanceFailCallback(ReplicationInstanceConnector &instance,
+void CoordinatorInstance::InstanceFailCallback(std::string_view instance_name,
                                                std::optional<InstanceState> /*instance_state*/) {
-  auto const instance_name = instance.InstanceName();
+  if (raft_state_->IsLockOpened()) {
+    spdlog::trace("Lock is still opened, not executing instance fail callback.");
+    return;
+  }
+
+  if (!is_leader_ready_) {
+    spdlog::trace("Leader is not ready, not executing instance fail callback.");
+    return;
+  }
+
+  auto lock = std::unique_lock{coord_instance_lock_};
+  auto &instance = FindReplicationInstance(instance_name);
+
   spdlog::trace("Instance {} performing fail callback in thread {}.", instance_name, std::this_thread::get_id());
   instance.OnFailPing();
 

@@ -23,7 +23,6 @@
 using memgraph::coordination::CoordinatorInstance;
 using memgraph::coordination::CoordinatorInstanceInitConfig;
 using memgraph::coordination::CoordinatorToCoordinatorConfig;
-using memgraph::coordination::HealthCheckInstanceCallback;
 using memgraph::io::network::Endpoint;
 
 // Networking is used in this test, be careful with ports used.
