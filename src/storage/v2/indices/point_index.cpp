@@ -495,26 +495,19 @@ PointIterable::PointIterable(Storage *storage, Transaction *transaction, PointIn
   }
 }
 
-// TODO: can't template querying because pimpl is forward declared
 namespace {
 
 template <typename point_type>
-auto create_bounding_box(const point_type &point, double boundary) -> bg::model::box<point_type>;
+// TODO: restrict to cartesian
+auto create_bounding_box(const point_type &point, double boundary) -> bg::model::box<point_type> {
+  constexpr auto d = boost::geometry::traits::dimension<point_type>::value;
 
-template <typename point_type>
-requires(boost::geometry::traits::dimension<point_type>::value ==
-         2) auto create_bounding_box(const point_type &point, double boundary) -> bg::model::box<point_type> {
-  point_type min_corner(bg::get<0>(point) - boundary, bg::get<1>(point) - boundary);
-  point_type max_corner(bg::get<0>(point) + boundary, bg::get<1>(point) + boundary);
-  return {min_corner, max_corner};
-}
-
-template <typename point_type>
-requires(boost::geometry::traits::dimension<point_type>::value ==
-         3) auto create_bounding_box(const point_type &point, double boundary) -> bg::model::box<point_type> {
-  point_type min_corner(bg::get<0>(point) - boundary, bg::get<1>(point) - boundary, bg::get<2>(point) - boundary);
-  point_type max_corner(bg::get<0>(point) + boundary, bg::get<1>(point) + boundary, bg::get<2>(point) + boundary);
-  return {min_corner, max_corner};
+  return [&]<auto... I>(std::index_sequence<I...>) {
+    auto min_corner = point_type{(bg::get<I>(point) - boundary)...};
+    auto max_corner = point_type{(bg::get<I>(point) + boundary)...};
+    return bg::model::box<point_type>{min_corner, max_corner};
+  }
+  (std::make_index_sequence<d>{});
 }
 
 template <typename point_type>
@@ -537,9 +530,13 @@ auto get_index_iterator_distance(Index &index, PropertyValue const &point_value,
     return index.qbegin(bgi::satisfies([](auto const &) { return true; }));
   }
 
-  auto point = std::invoke([&]() {
-    using point_type = Index::value_type::point_type;
-    if constexpr (boost::geometry::traits::dimension<point_type>::value == 3) {
+  using point_type = Index::value_type::point_type;
+  using CoordinateSystem = typename boost::geometry::traits::coordinate_system<point_type>::type;
+  auto constexpr dimensions = boost::geometry::traits::dimension<point_type>::value;
+  auto constexpr is_cartesian = std::is_same<CoordinateSystem, boost::geometry::cs::cartesian>::value;
+
+  auto center_point = std::invoke([&]() {
+    if constexpr (dimensions == 3) {
       auto tmp_point = point_value.ValuePoint3d();
       return point_type(tmp_point.x(), tmp_point.y(), tmp_point.z());
     } else {
@@ -548,40 +545,56 @@ auto get_index_iterator_distance(Index &index, PropertyValue const &point_value,
     }
   });
 
-  auto get_inner_box_boundary = [](double radius) {
-    using point_type = Index::value_type::point_type;
-    auto constexpr dimension = boost::geometry::traits::dimension<point_type>::value;
-    auto offset = radius / std::sqrt(dimension);
-    // Need to ensure this inner box will not intersect with actual boundary,
-    // because `bgi::covered_by` includes edges we are using `!bgi::covered_by` for our OUTSIDE
-    // conditions.
-    return std::max(0.0, std::nexttoward(offset, 0.0));
+  auto inner_exclusion_box = [&] {
+    auto get_inner_box_boundary = [](double radius) {
+      auto offset = radius / std::sqrt(dimensions);
+      // Need to ensure this inner box will not intersect with actual boundary,
+      // because `bgi::covered_by` includes edges we are using `!bgi::covered_by` for our OUTSIDE
+      // conditions.
+      return std::max(0.0, std::nexttoward(offset, 0.0));
+    };
+
+    if constexpr (is_cartesian) {
+      return create_bounding_box(center_point, get_inner_box_boundary(boundary));
+    } else {
+      //????
+      return create_bounding_box(center_point, get_inner_box_boundary(boundary));
+    }
+  };
+
+  auto outer_inclusion_box = [&] {
+    if constexpr (is_cartesian) {
+      return create_bounding_box(center_point, boundary);
+    } else {
+      //????
+      return create_bounding_box(center_point, boundary);
+    }
   };
 
   switch (condition) {
     case PointDistanceCondition::OUTSIDE: {
       // BOOST 1.81.0 covered_by geometry must be box
-      return index.qbegin(!bgi::covered_by(create_bounding_box(point, get_inner_box_boundary(boundary))) &&
-                          bgi::satisfies([point, boundary](const auto &value) {
-                            return bg::distance(value.point(), point) > boundary;
+      return index.qbegin(!bgi::covered_by(inner_exclusion_box()) &&
+                          bgi::satisfies([center_point, boundary](const auto &value) {
+                            return bg::distance(value.point(), center_point) > boundary;
                           }));
     }
     case PointDistanceCondition::INSIDE: {
-      return index.qbegin(bgi::covered_by(create_bounding_box(point, boundary)) &&
-                          bgi::satisfies([point, boundary](const auto &value) {
-                            return bg::distance(value.point(), point) < boundary;
+      return index.qbegin(bgi::covered_by(outer_inclusion_box()) &&
+                          bgi::satisfies([center_point, boundary](const auto &value) {
+                            return bg::distance(value.point(), center_point) < boundary;
                           }));
     }
     case PointDistanceCondition::INSIDE_AND_BOUNDARY: {
-      return index.qbegin(bgi::covered_by(create_bounding_box(point, boundary)) &&
-                          bgi::satisfies([point, boundary](const auto &value) {
-                            return bg::distance(value.point(), point) <= boundary;
+      return index.qbegin(bgi::covered_by(outer_inclusion_box()) &&
+                          bgi::satisfies([center_point, boundary](const auto &value) {
+                            return bg::distance(value.point(), center_point) <= boundary;
                           }));
     }
     case PointDistanceCondition::OUTSIDE_AND_BOUNDARY: {
-      return index.qbegin(!bgi::covered_by(create_bounding_box(point, get_inner_box_boundary(boundary))) &&
-                          bgi::satisfies([point, boundary](const auto &value) {
-                            return bg::distance(value.point(), point) >= boundary;
+      return index.qbegin(!bgi::covered_by(inner_exclusion_box()) &&
+                          bgi::satisfies([center_point, boundary](const auto &value) {
+                            return bg::distance(value.point(), center_point) >= boundary;
                           }));
     }
   }
