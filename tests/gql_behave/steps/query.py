@@ -16,6 +16,7 @@ import parser
 import database
 from behave import given, step, then, when
 from neo4j.graph import Node, Path, Relationship
+from neo4j.spatial import CartesianPoint, WGS84Point
 
 
 @given("parameters are")
@@ -101,6 +102,19 @@ def parse_props(props_key_value):
                 properties += key + ": true, "
             else:
                 properties += key + ": false, "
+        elif isinstance(value, CartesianPoint):
+            properties += key + ": POINT({" + f"x:{value.x}, y:{value.y},"
+            properties += (
+                f"{('z:' + str(value.z) + ', ') if hasattr(value, 'z') else ''}" + f" srid:{value.srid}" + "})" + ", "
+            )
+        elif isinstance(value, WGS84Point):
+            properties += key + ": POINT({" + f"longitude:{value.longitude}, latitude:{value.latitude},"
+            properties += (
+                f"{'height:' + str(value.height) + ', ' if hasattr(value, 'height') else ''}"
+                + f" srid:{value.srid}"
+                + "})"
+                + ", "
+            )
         else:
             properties += key + ": " + str(value) + ", "
     properties = properties[:-2]

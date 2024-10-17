@@ -106,7 +106,7 @@ def test_point_replication(connection, test_name):
         "prop1: point({x: 1, y: 2, srid: 4326}), "
         "prop2: point({x: 3, y: 4, z: 5, srid: 4979}), "
         "prop3: point({x: 6, y: 7, srid: 7203}), "
-        "prop4: point({x: 8, y: 9, z: 10, srid: 9757}) "
+        "prop4: point({x: 8, y: 9, z: 10, srid: 9157}) "
         " });",
     )
 
@@ -140,7 +140,7 @@ def test_point_replication(connection, test_name):
             "n.prop4.x, n.prop4.y, n.prop4.z, n.prop4.srid;",
         )
 
-    expected_result = [(1, 2, 4326, 3, 4, 5, 4979, 6, 7, 7203, 8, 9, 10, 9757)]
+    expected_result = [(1, 2, 4326, 3, 4, 5, 4979, 6, 7, 7203, 8, 9, 10, 9157)]
 
     cursor_replica = connection(BOLT_PORTS["replica_1"], "replica").cursor()
     replica_1_enums = get_props(cursor_replica)
