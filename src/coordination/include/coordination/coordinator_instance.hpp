@@ -43,6 +43,13 @@ struct NewMainRes {
   uint64_t latest_commit_timestamp;
 };
 
+enum class FailoverStatus : uint8_t {
+  SUCCESS,
+  FAILURE_LOCK_CLOSED,
+  FAILURE_LOCK_OPENED,
+  NO_INSTANCE_ALIVE,
+};
+
 using InstanceNameDbHistories = std::pair<std::string, replication_coordination_glue::DatabaseHistories>;
 
 class CoordinatorInstance {
@@ -68,8 +75,7 @@ class CoordinatorInstance {
   auto ShowInstancesStatusAsFollower() const -> std::vector<InstanceStatus>;
 
   // Finds most up to date instance that could become new main. Only alive instances are taken into account.
-  // Returns true if main instance was selected and all writing to raft log succeeded.
-  [[nodiscard]] auto TryFailover() -> bool;
+  [[nodiscard]] auto TryFailover() -> FailoverStatus;
 
   auto AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) -> AddCoordinatorInstanceStatus;
 
@@ -78,7 +84,7 @@ class CoordinatorInstance {
   static auto GetMostUpToDateInstanceFromHistories(std::list<ReplicationInstanceConnector> &instances)
       -> std::optional<std::string>;
 
-  static auto ChooseMostUpToDateInstance(std::span<InstanceNameDbHistories> histories) -> NewMainRes;
+  static auto ChooseMostUpToDateInstance(std::span<InstanceNameDbHistories> histories) -> std::optional<NewMainRes>;
 
   auto HasMainState(std::string_view instance_name) const -> bool;
 

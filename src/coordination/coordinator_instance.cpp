@@ -415,6 +415,7 @@ auto CoordinatorInstance::ReconcileClusterState_() -> ReconcileClusterStateStatu
     return ReconcileClusterStateStatus::SUCCESS;
   }
 
+  // we could create this at the end.
   std::ranges::for_each(raft_state_replication_instances, [this](auto &&instance) {
     auto client = std::make_unique<ReplicationInstanceClient>(this, instance.config, client_succ_cb_, client_fail_cb_);
     repl_instances_.emplace_back(std::move(client), &CoordinatorInstance::InstanceSuccessCallback,
@@ -436,10 +437,26 @@ auto CoordinatorInstance::ReconcileClusterState_() -> ReconcileClusterStateStatu
     spdlog::trace(
         "No main can be determined from the current state in logs. Trying to find most up to date instance by doing "
         "failover");
-    if (!TryFailover()) {
-      spdlog::trace("Failover failed while reconciling cluster state.");
-      return ReconcileClusterStateStatus::FAIL;
-    }
+    auto const failover_res = TryFailover();
+    switch (failover_res) {
+      case FailoverStatus::SUCCESS: {
+        spdlog::trace("Failover successful after failing to promote main instance.");
+        break;
+      };
+      case FailoverStatus::NO_INSTANCE_ALIVE: {
+        spdlog::trace("Failover failed because no instance is alive.");
+        return ReconcileClusterStateStatus::FAIL;
+      };
+      case FailoverStatus::FAILURE_LOCK_CLOSED: {
+        spdlog::trace("Opening the lock failed during failover.");
+        return ReconcileClusterStateStatus::FAIL;
+      };
+      case FailoverStatus::FAILURE_LOCK_OPENED: {
+        spdlog::trace(
+            "Writing to Raft log partially succeeded while in failover, reconciliation task will be scheduled.");
+        return ReconcileClusterStateStatus::FAIL;
+      };
+    };
   } else {
     MG_ASSERT(
         false,
@@ -460,24 +477,23 @@ auto CoordinatorInstance::TryVerifyOrCorrectClusterState() -> ReconcileClusterSt
 
 void CoordinatorInstance::ShuttingDown() { is_shutting_down_.store(true, std::memory_order_release); }
 
-auto CoordinatorInstance::TryFailover() -> bool {
+auto CoordinatorInstance::TryFailover() -> FailoverStatus {
   // TODO: (andi) Remove has replica state.
   // TODO: (andi) Ideally, we have one log which would atomically update cluster state in raft log.
   // We don't need to stop state check as long as we are holding coord_instance_lock_.
   // If I have only one append then opening and closing the lock won't be needed.
-
-  if (!raft_state_->AppendOpenLock()) {
-    spdlog::error("Failed to open the lock while doing failover.");
-    return true;  // we return true because if we couldn't open the lock that means that the state in raft log is still
-                  // ok. The expected caller's action is to just repeat the process.
-  }
 
   spdlog::trace("Trying failover in thread {}.", std::this_thread::get_id());
 
   auto const maybe_most_up_to_date_instance = GetMostUpToDateInstanceFromHistories(repl_instances_);
   if (!maybe_most_up_to_date_instance.has_value()) {
     spdlog::error("Couldn't choose instance for failover, check logs for more details.");
-    return false;
+    return FailoverStatus::NO_INSTANCE_ALIVE;
+  }
+
+  if (!raft_state_->AppendOpenLock()) {
+    spdlog::error("Failed to open the lock while doing failover.");
+    return FailoverStatus::FAILURE_LOCK_CLOSED;
   }
 
   auto const &new_main_name = *maybe_most_up_to_date_instance;
@@ -497,31 +513,31 @@ auto CoordinatorInstance::TryFailover() -> bool {
 
   if (std::ranges::any_of(repl_instances_ | ranges::views::filter(not_main), failed_to_update_role)) {
     spdlog::error("Aborting failover. Failed to update role for one of replicas.");
-    return false;
+    return FailoverStatus::FAILURE_LOCK_OPENED;
   }
 
   if (std::ranges::any_of(repl_instances_ | ranges::views::filter(not_main), failed_to_update_uuid)) {
     spdlog::error("Aborting failover. Failed to update uuid for one of replicas.");
-    return false;
+    return FailoverStatus::FAILURE_LOCK_OPENED;
   }
 
   if (!raft_state_->AppendUpdateUUIDForNewMainLog(new_main_uuid)) {
     spdlog::error("Aborting failover. Failed to update uuid of main instance.");
-    return false;
+    return FailoverStatus::FAILURE_LOCK_OPENED;
   }
 
   // it's important that this is executed after setting uuid for each replica instance. Otherwise check if IsCurrentMain
   // isn't enough in ReconcileClusterState_.
   if (!raft_state_->AppendSetInstanceAsMainLog(new_main_name, new_main_uuid)) {
     spdlog::error("Aborting failover. Failed to add log to set instance {} as new main.", new_main_name);
-    return false;
+    return FailoverStatus::FAILURE_LOCK_OPENED;
   }
 
   if (!raft_state_->AppendCloseLock()) {
     spdlog::error("Aborting failover as we failed to close lock on action.");
-    return false;
+    return FailoverStatus::FAILURE_LOCK_OPENED;
   }
-  return true;
+  return FailoverStatus::SUCCESS;
 }
 
 auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view instance_name)
@@ -889,9 +905,26 @@ void CoordinatorInstance::InstanceSuccessCallback(ReplicationInstanceConnector &
         // running reconcile cluster state in thread pool is not a problem because we have a guarantee that if
         // TryFailover failed the lock remains opened, hence callbacks won't get executed until lock is closed.
         // It's possible that the lock didn't even get opened. In that case we will repeat the action.
-        if (!TryFailover()) {
-          thread_pool_.AddTask([this]() { this->ReconcileClusterState(); });
-        }
+        auto const failover_res = TryFailover();
+        switch (failover_res) {
+          case FailoverStatus::SUCCESS: {
+            spdlog::trace("Failover successful after failing to promote main instance.");
+            break;
+          };
+          case FailoverStatus::NO_INSTANCE_ALIVE: {
+            spdlog::trace("Failover failed because no instance is alive.");
+            break;
+          };
+          case FailoverStatus::FAILURE_LOCK_CLOSED: {
+            spdlog::trace("Opening the lock failed during failover.");
+            break;
+          };
+          case FailoverStatus::FAILURE_LOCK_OPENED: {
+            spdlog::trace(
+                "Writing to Raft log partially succeeded during failover, reconciliation task will be scheduled.");
+            thread_pool_.AddTask([this]() { this->ReconcileClusterState(); });
+          };
+        };
         return;
       }
     } else {
@@ -932,18 +965,33 @@ void CoordinatorInstance::InstanceFailCallback(ReplicationInstanceConnector &ins
 
   if (raft_state_->IsCurrentMain(instance_name) && !instance.IsAlive()) {
     spdlog::trace("Cluster without main instance, trying failover.");
-    if (!TryFailover()) {
-      // running reconcile cluster state in thread pool is not a problem because we have a guarantee that if TryFailover
-      // failed the lock remains opened, hence callbacks won't get executed until lock is closed.
-      thread_pool_.AddTask([this]() { this->ReconcileClusterState(); });
-    }
+    auto const failover_res = TryFailover();
+    switch (failover_res) {
+      case FailoverStatus::SUCCESS: {
+        spdlog::trace("Failover successful after failing to promote main instance.");
+        break;
+      };
+      case FailoverStatus::NO_INSTANCE_ALIVE: {
+        spdlog::trace("Failover failed because no instance is alive.");
+        break;
+      };
+      case FailoverStatus::FAILURE_LOCK_CLOSED: {
+        spdlog::trace("Opening the lock failed during failover.");
+        break;
+      };
+      case FailoverStatus::FAILURE_LOCK_OPENED: {
+        spdlog::trace(
+            "Writing to Raft log partially succeeded during failover, reconciliation task will be scheduled.");
+        thread_pool_.AddTask([this]() { this->ReconcileClusterState(); });
+      };
+    };
   }
 
   spdlog::trace("Instance {} finished fail callback.", instance_name);
 }
 
 auto CoordinatorInstance::ChooseMostUpToDateInstance(std::span<InstanceNameDbHistories> instance_database_histories)
-    -> NewMainRes {
+    -> std::optional<NewMainRes> {
   std::optional<NewMainRes> new_main_res;
 
   for (auto const &instance_res_pair : instance_database_histories) {
@@ -999,7 +1047,7 @@ auto CoordinatorInstance::ChooseMostUpToDateInstance(std::span<InstanceNameDbHis
     }
   }
 
-  return std::move(*new_main_res);
+  return new_main_res;
 }
 
 auto CoordinatorInstance::HasMainState(std::string_view instance_name) const -> bool {
@@ -1030,28 +1078,28 @@ auto CoordinatorInstance::GetMostUpToDateInstanceFromHistories(std::list<Replica
 
   auto maybe_instance_db_histories = instances | ranges::views::transform(get_ts);
 
-  auto const ts_has_value = [](auto &&instance_history) -> bool { return instance_history.HasValue(); };
-
-  auto instance_histories = maybe_instance_db_histories | ranges::views::filter(ts_has_value);
-
-  if (std::ranges::distance(instance_histories) == 0) {
-    return std::nullopt;
-  }
+  auto const history_has_value = [](auto &&instance_history) -> bool {
+    auto const &[_, history] = instance_history;
+    return history.HasValue();
+  };
 
   auto transform_to_pairs = [](auto &&instance_history) {
     auto const &[instance, history] = instance_history;
     return std::make_pair(instance.InstanceName(), history.GetValue());
   };
 
-  auto instance_db_histories = ranges::views::zip(instances, instance_histories) |
-                               ranges::views::transform(transform_to_pairs) | ranges::to<std::vector>();
+  auto instance_db_histories = ranges::views::zip(instances, maybe_instance_db_histories) |
+                               ranges::views::filter(history_has_value) | ranges::views::transform(transform_to_pairs) |
+                               ranges::to<std::vector>();
 
-  auto const [most_up_to_date_instance, latest_epoch, latest_commit_timestamp] =
-      CoordinatorInstance::ChooseMostUpToDateInstance(instance_db_histories);
-
-  spdlog::trace("The most up to date instance is {} with epoch {} and {} latest commit timestamp.",
-                most_up_to_date_instance, latest_epoch, latest_commit_timestamp);  // NOLINT
-  return most_up_to_date_instance;
+  auto maybe_newest_instance = CoordinatorInstance::ChooseMostUpToDateInstance(instance_db_histories);
+  if (maybe_newest_instance.has_value()) {
+    auto const [most_up_to_date_instance, latest_epoch, latest_commit_timestamp] = *maybe_newest_instance;
+    spdlog::trace("The most up to date instance is {} with epoch {} and {} latest commit timestamp.",
+                  most_up_to_date_instance, latest_epoch, latest_commit_timestamp);  // NOLINT
+    return most_up_to_date_instance;
+  }
+  return std::nullopt;
 }
 
 }  // namespace memgraph::coordination
