@@ -23,6 +23,7 @@ class VectorSearchIndex(Workload):
     def __init__(self, variant: str = None, benchmark_context: BenchmarkContext = None):
         super().__init__(variant, benchmark_context=benchmark_context)
         self._vertex_count = VectorSearchIndex.SCALE
+        random.seed(10)
 
     def indexes_generator(self):
         return [
@@ -50,8 +51,10 @@ class VectorSearchIndex(Workload):
         vector = [random.random() for _ in range(0, VectorSearchIndex.VECTOR_SIZE)]
         i = self._vertex_count
         self._vertex_count += 1
-        # TODO(gitbuda): Use the parameter.
-        return ("CREATE (:Node {id:%i, vector: %s});" % (i, str(vector)), {})
+        return ("CREATE (:Node {id:%i, vector: $vector});" % (i), {"vector": vector})
 
     def benchmark__vector__running_traversals(self):
+        return ("RETURN 1;", {})
+
+    def benchmark__vector__single_index_lookup(self):
         return ("RETURN 1;", {})
