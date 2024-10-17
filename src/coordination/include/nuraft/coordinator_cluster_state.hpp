@@ -46,6 +46,7 @@ struct ReplicationInstanceState {
   // For MAIN we don't enable writing until cluster is in healthy state
   utils::UUID instance_uuid;
 
+  // TODO: (andi) This isn't needed
   bool needs_demote{false};
 
   friend auto operator==(ReplicationInstanceState const &lhs, ReplicationInstanceState const &rhs) -> bool {
@@ -78,8 +79,6 @@ class CoordinatorClusterState {
 
   auto HasMainState(std::string_view instance_name) const -> bool;
 
-  auto HasReplicaState(std::string_view instance_name) const -> bool;
-
   auto IsCurrentMain(std::string_view instance_name) const -> bool;
 
   auto DoAction(TRaftLog const &log_entry, RaftLogAction log_action) -> void;
@@ -92,22 +91,20 @@ class CoordinatorClusterState {
 
   auto GetReplicationInstances() const -> std::map<std::string, ReplicationInstanceState, std::less<>>;
 
-  auto GetIsLockOpened() const -> bool;
+  auto IsLockOpened() const -> bool;
 
   auto GetCurrentMainUUID() const -> utils::UUID;
 
+  auto TryGetCurrentMainName() const -> std::optional<std::string>;
+
   // Setter function used on parsing data from json
-  void SetReplicationInstances(std::map<std::string, ReplicationInstanceState, std::less<>>);
+  void SetCurrentMainUUID(utils::UUID);
 
   // Setter function used on parsing data from json
   void SetIsLockOpened(bool);
 
   // Setter function used on parsing data from json
-  void SetCurrentMainUUID(utils::UUID);
-
-  auto GetInstanceUUID(std::string_view) const -> utils::UUID;
-
-  auto TryGetCurrentMainName() const -> std::optional<std::string>;
+  void SetReplicationInstances(std::map<std::string, ReplicationInstanceState, std::less<>>);
 
   friend auto operator==(CoordinatorClusterState const &lhs, CoordinatorClusterState const &rhs) -> bool {
     return lhs.repl_instances_ == rhs.repl_instances_ && lhs.current_main_uuid_ == rhs.current_main_uuid_;

@@ -443,9 +443,7 @@ void CoordinatorInstance::ShuttingDown() { is_shutting_down_.store(true, std::me
 
 auto CoordinatorInstance::TryFailover() -> FailoverStatus {
   // TODO: (andi) Remove has replica state.
-  // TODO: (andi) Ideally, we have one log which would atomically update cluster state in raft log.
   // We don't need to stop state check as long as we are holding coord_instance_lock_.
-  // If I have only one append then opening and closing the lock won't be needed.
 
   spdlog::trace("Trying failover in thread {}.", std::this_thread::get_id());
 
@@ -1037,20 +1035,11 @@ auto CoordinatorInstance::ChooseMostUpToDateInstance(std::span<InstanceNameDbHis
   return new_main_res;
 }
 
-auto CoordinatorInstance::HasMainState(std::string_view instance_name) const -> bool {
-  return raft_state_->HasMainState(instance_name);
-}
-
-auto CoordinatorInstance::HasReplicaState(std::string_view instance_name) const -> bool {
-  return raft_state_->HasReplicaState(instance_name);
-}
-
 auto CoordinatorInstance::GetRoutingTable() const -> RoutingTable { return raft_state_->GetRoutingTable(); }
 
-auto CoordinatorInstance::IsLeader() const -> bool { return raft_state_->IsLeader(); }
-
-auto CoordinatorInstance::GetRaftState() -> RaftState & { return *raft_state_; }
-auto CoordinatorInstance::GetRaftState() const -> RaftState const & { return *raft_state_; }
+auto CoordinatorInstance::GetCoordinatorToCoordinatorConfigs() const -> std::vector<CoordinatorToCoordinatorConfig> {
+  return raft_state_->GetCoordinatorToCoordinatorConfigs();
+}
 
 auto CoordinatorInstance::GetMostUpToDateInstanceFromHistories(std::list<ReplicationInstanceConnector> &instances)
     -> std::optional<std::string> {

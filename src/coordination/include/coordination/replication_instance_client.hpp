@@ -64,7 +64,7 @@ class ReplicationInstanceClient {
   auto SendStateCheckRpc() const -> std::optional<InstanceState>;
 
   auto SendGetInstanceTimestampsRpc() const
-      -> utils::BasicResult<GetInstanceUUIDError, replication_coordination_glue::DatabaseHistories>;
+      -> utils::BasicResult<GetInstanceTimestampsError, replication_coordination_glue::DatabaseHistories>;
 
   virtual auto InstanceDownTimeoutSec() const -> std::chrono::seconds;
 

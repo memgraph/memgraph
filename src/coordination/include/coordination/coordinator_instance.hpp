@@ -68,6 +68,7 @@ class CoordinatorInstance {
 
   [[nodiscard]] auto SetReplicationInstanceToMain(std::string_view instance_name) -> SetInstanceToMainCoordinatorStatus;
 
+  // TODO: (andi) These shouldn't all be public.
   auto ShowInstances() const -> std::vector<InstanceStatus>;
 
   auto ShowInstancesAsLeader() const -> std::vector<InstanceStatus>;
@@ -86,10 +87,6 @@ class CoordinatorInstance {
 
   static auto ChooseMostUpToDateInstance(std::span<InstanceNameDbHistories> histories) -> std::optional<NewMainRes>;
 
-  auto HasMainState(std::string_view instance_name) const -> bool;
-
-  auto HasReplicaState(std::string_view instance_name) const -> bool;
-
   auto GetLeaderCoordinatorData() const -> std::optional<CoordinatorToCoordinatorConfig>;
 
   auto DemoteInstanceToReplica(std::string_view instance_name) -> DemoteInstanceCoordinatorStatus;
@@ -98,14 +95,11 @@ class CoordinatorInstance {
 
   auto ReconcileClusterState() -> ReconcileClusterStateStatus;
 
-  auto IsLeader() const -> bool;
-
   void ShuttingDown();
 
   void AddOrUpdateClientConnectors(std::vector<CoordinatorToCoordinatorConfig> const &configs);
 
-  auto GetRaftState() -> RaftState &;
-  auto GetRaftState() const -> RaftState const &;
+  auto GetCoordinatorToCoordinatorConfigs() const -> std::vector<CoordinatorToCoordinatorConfig>;
 
   void InstanceSuccessCallback(std::string_view instance_name, std::optional<InstanceState> instance_state);
   void InstanceFailCallback(std::string_view instance_name, std::optional<InstanceState> instance_state);
