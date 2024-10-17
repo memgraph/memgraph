@@ -454,7 +454,7 @@ def test_even_number_coords(use_durability, test_name):
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(coord_cursor_3, "SET INSTANCE instance_3 TO MAIN;")
 
-    assert "Couldn't set instance to main as cluster didn't accept start of action!" in str(e.value)
+    assert "Couldn't promote instance since raft server couldn't append the log!" in str(e.value)
 
     follower_data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "unknown", "follower"),

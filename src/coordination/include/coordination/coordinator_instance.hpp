@@ -61,19 +61,33 @@ class CoordinatorInstance {
   CoordinatorInstance &operator=(CoordinatorInstance &&) noexcept = delete;
   ~CoordinatorInstance();
 
+  // We don't need to open lock and close the lock since we need only one writing to raft log here.
+  // If some of actions fail like sending rpc, demoting or rpc failed, we clear in-memory structures that we have.
+  // If writing to raft succeeds, we know what everything up to that point passed so all good.
   [[nodiscard]] auto RegisterReplicationInstance(CoordinatorToReplicaConfig const &config)
       -> RegisterInstanceCoordinatorStatus;
+
+  // Here we reverse logic from RegisterReplicationInstance. 1st we write to raft log and then we try to unregister
+  // replication instance from in-memory structures. If raft passes and some of rpc actions or deletions fails, user
+  // should repeat the action. Instance will be deleted twice from raft log but since that action is idempotent, no
+  // failure will actually happen.
   [[nodiscard]] auto UnregisterReplicationInstance(std::string_view instance_name)
       -> UnregisterInstanceCoordinatorStatus;
 
+  // The logic here is that as long as we didn't set uuid for the whole cluster, actions will be reverted on instances
+  // on the next state check.
   [[nodiscard]] auto SetReplicationInstanceToMain(std::string_view instance_name) -> SetInstanceToMainCoordinatorStatus;
 
-  // TODO: (andi) These shouldn't all be public.
+  // If user demotes main to replica, cluster will be without main instance. User should then call
+  // TryVerifyOrCorrectClusterState or SetReplicationInstanceToMain. The logic here is that as long as we didn't set
+  // uuid for the whole cluster, actions will be reverted on instances on the next state check.
+  [[nodiscard]] auto DemoteInstanceToReplica(std::string_view instance_name) -> DemoteInstanceCoordinatorStatus;
+
+  [[nodiscard]] auto TryVerifyOrCorrectClusterState() -> ReconcileClusterStateStatus;
+
   auto ShowInstances() const -> std::vector<InstanceStatus>;
 
   auto ShowInstancesAsLeader() const -> std::vector<InstanceStatus>;
-
-  auto ShowInstancesStatusAsFollower() const -> std::vector<InstanceStatus>;
 
   // Finds most up to date instance that could become new main. Only alive instances are taken into account.
   [[nodiscard]] auto TryFailover() -> FailoverStatus;
@@ -89,10 +103,6 @@ class CoordinatorInstance {
 
   auto GetLeaderCoordinatorData() const -> std::optional<CoordinatorToCoordinatorConfig>;
 
-  auto DemoteInstanceToReplica(std::string_view instance_name) -> DemoteInstanceCoordinatorStatus;
-
-  auto TryVerifyOrCorrectClusterState() -> ReconcileClusterStateStatus;
-
   auto ReconcileClusterState() -> ReconcileClusterStateStatus;
 
   void ShuttingDown();
@@ -107,6 +117,7 @@ class CoordinatorInstance {
  private:
   auto FindReplicationInstance(std::string_view replication_instance_name) -> ReplicationInstanceConnector &;
   auto ReconcileClusterState_() -> ReconcileClusterStateStatus;
+  auto ShowInstancesStatusAsFollower() const -> std::vector<InstanceStatus>;
 
   // When a coordinator is becoming a leader, we could be in several situations:
   // 1. Whole cluster was ok, lock was closed, we will find current main. Only last leader probably died.
@@ -117,8 +128,6 @@ class CoordinatorInstance {
   //    1. close the lock.
   //    2. find main = TryFailover.
   //    3. close the lock.
-  // 3. TODO: (Can some other state occur?) What happens when something in registration or setting instance to main
-  // fails?
   auto GetBecomeLeaderCallback() -> std::function<void()>;
 
   auto GetBecomeFollowerCallback() -> std::function<void()>;

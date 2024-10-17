@@ -529,32 +529,12 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view instance
                   instance_name);
     return SetInstanceToMainCoordinatorStatus::NO_INSTANCE_WITH_NAME;
   }
-
-  if (!raft_state_->AppendOpenLock()) {
-    return SetInstanceToMainCoordinatorStatus::FAILED_TO_OPEN_LOCK;
-  }
-
-  utils::OnScopeExit const do_reconcile_cluster_state{[this]() {
-    if (raft_state_->IsLockOpened() && raft_state_->IsLeader()) {
-      spdlog::trace(
-          "Adding task to try reconcile cluster state as lock didn't close successfully after setting instance to "
-          "MAIN.");
-      thread_pool_.AddTask([this]() { this->ReconcileClusterState(); });
-      return;
-    }
-    spdlog::trace("Lock is not opened anymore or coordinator is not leader, after setting instance to MAIN.");
-  }};
-
-  new_main->PauseStateCheck();
-  utils::OnScopeExit const scope_exit{[&new_main] { new_main->ResumeStateCheck(); }};
-
   auto const is_not_new_main = [&instance_name](auto &&instance) { return instance.InstanceName() != instance_name; };
 
   auto const new_main_uuid = utils::UUID{};
 
-  auto const failed_to_swap = [this, &new_main_uuid](auto &&instance) {
-    return !instance.SendSwapAndUpdateUUID(new_main_uuid) ||
-           !raft_state_->AppendUpdateUUIDForInstanceLog(instance.InstanceName(), new_main_uuid);
+  auto const failed_to_swap = [&new_main_uuid](auto &&instance) {
+    return !instance.SendSwapAndUpdateUUID(new_main_uuid);
   };
 
   if (std::ranges::any_of(repl_instances_ | ranges::views::filter(is_not_new_main), failed_to_swap)) {
@@ -562,56 +542,75 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view instance
     return SetInstanceToMainCoordinatorStatus::SWAP_UUID_FAILED;
   }
 
-  spdlog::trace("Swapped uuid for all replica instances");
-
   auto repl_clients_info = repl_instances_ | ranges::views::filter(is_not_new_main) |
                            ranges::views::transform(&ReplicationInstanceConnector::GetReplicationClientInfo) |
                            ranges::to<ReplicationClientsInfo>();
 
-  spdlog::trace("Collected ReplicationClientsInfo, trying to promote instance {} to main", instance_name);
-
   if (!new_main->SendPromoteToMainRpc(new_main_uuid, std::move(repl_clients_info))) {
-    spdlog::trace("Promoting instance {} failed", instance_name);
     return SetInstanceToMainCoordinatorStatus::COULD_NOT_PROMOTE_TO_MAIN;
   }
 
-  spdlog::trace("Instance {} promoted to main.", instance_name);
-
-  if (!raft_state_->AppendUpdateUUIDForNewMainLog(new_main_uuid)) {
-    return SetInstanceToMainCoordinatorStatus::RAFT_LOG_ERROR;
+  if (!new_main->SendEnableWritingOnMainRpc()) {
+    return SetInstanceToMainCoordinatorStatus::ENABLE_WRITING_FAILED;
   }
 
-  spdlog::trace("Updated UUID for new main.");
+  auto const failed_to_update_uuid = [this, &new_main_uuid](auto &&instance) {
+    return !raft_state_->AppendUpdateUUIDForInstanceLog(instance.InstanceName(), new_main_uuid);
+  };
+
+  if (std::ranges::any_of(repl_instances_ | ranges::views::filter(is_not_new_main), failed_to_update_uuid)) {
+    return SetInstanceToMainCoordinatorStatus::RAFT_LOG_ERROR;
+  }
 
   if (!raft_state_->AppendSetInstanceAsMainLog(instance_name, new_main_uuid)) {
     return SetInstanceToMainCoordinatorStatus::RAFT_LOG_ERROR;
   }
 
-  spdlog::trace("Instance {} promoted to main on leader", instance_name);
+  if (!raft_state_->AppendUpdateUUIDForNewMainLog(new_main_uuid)) {
+    return SetInstanceToMainCoordinatorStatus::RAFT_LOG_ERROR;
+  }
 
-  if (!raft_state_->AppendCloseLock()) {
-    spdlog::error("Aborting failover as we failed to close lock on action.");
-    return SetInstanceToMainCoordinatorStatus::FAILED_TO_CLOSE_LOCK;
-  }
-  MG_ASSERT(!raft_state_->IsLockOpened(), "After setting replication instance we need to be in healthy state.");
-  if (!new_main->SendEnableWritingOnMainRpc()) {
-    return SetInstanceToMainCoordinatorStatus::ENABLE_WRITING_FAILED;
-  }
   return SetInstanceToMainCoordinatorStatus::SUCCESS;
+}
+
+auto CoordinatorInstance::DemoteInstanceToReplica(std::string_view instance_name) -> DemoteInstanceCoordinatorStatus {
+  auto lock = std::lock_guard{coord_instance_lock_};
+
+  if (!is_leader_ready_) {
+    return DemoteInstanceCoordinatorStatus::NOT_LEADER;
+  }
+
+  if (raft_state_->IsLockOpened()) {
+    return DemoteInstanceCoordinatorStatus::LOCK_OPENED;
+  }
+
+  auto const name_matches = [instance_name](auto &&instance) { return instance.InstanceName() == instance_name; };
+
+  auto instance = std::ranges::find_if(repl_instances_, name_matches);
+  if (instance == repl_instances_.end()) {
+    return DemoteInstanceCoordinatorStatus::NO_INSTANCE_WITH_NAME;
+  }
+
+  if (!instance->SendDemoteToReplicaRpc()) {
+    return DemoteInstanceCoordinatorStatus::RPC_FAILED;
+  }
+
+  if (!raft_state_->AppendSetInstanceAsReplicaLog(instance_name)) {
+    return DemoteInstanceCoordinatorStatus::RAFT_LOG_ERROR;
+  }
+
+  return DemoteInstanceCoordinatorStatus::SUCCESS;
 }
 
 auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorToReplicaConfig const &config)
     -> RegisterInstanceCoordinatorStatus {
-  spdlog::trace("Acquiring lock to register replication instance in thread {}", std::this_thread::get_id());
   auto lock = std::lock_guard{coord_instance_lock_};
-  spdlog::trace("Acquired lock to register replication instance", std::this_thread::get_id());
 
   if (raft_state_->IsLockOpened()) {
     return RegisterInstanceCoordinatorStatus::LOCK_OPENED;
   }
 
   if (!is_leader_ready_) {
-    spdlog::trace("Leader is not ready, existing.");
     return RegisterInstanceCoordinatorStatus::NOT_LEADER;
   }
 
@@ -633,26 +632,12 @@ auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorToReplicaConfig
     return RegisterInstanceCoordinatorStatus::REPL_ENDPOINT_EXISTS;
   }
 
-  if (!raft_state_->AppendOpenLock()) {
-    return RegisterInstanceCoordinatorStatus::FAILED_TO_OPEN_LOCK;
-  }
-
-  utils::OnScopeExit const do_reset{[this]() {
-    if (raft_state_->IsLockOpened() && raft_state_->IsLeader()) {
-      spdlog::trace(
-          "Adding task to try reconcile cluster state as lock didn't close successfully after registration of "
-          "instance.");
-      thread_pool_.AddTask([this]() { this->ReconcileClusterState(); });
-      return;
-    }
-    spdlog::trace("Lock is not opened anymore or coordinator is not leader after instance registration.");
-  }};
-
   auto *new_instance = &repl_instances_.emplace_back(config, this);
 
   // We do this here not under callbacks because we need to add replica to the current main.
   if (!new_instance->SendDemoteToReplicaRpc()) {
     spdlog::error("Failed to demote instance {} to replica.", config.instance_name);
+    repl_instances_.pop_back();
     return RegisterInstanceCoordinatorStatus::RPC_FAILED;
   }
 
@@ -663,83 +648,21 @@ auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorToReplicaConfig
 
     if (!current_main.SendRegisterReplicaRpc(raft_state_->GetCurrentMainUUID(),
                                              new_instance->GetReplicationClientInfo())) {
-      spdlog::error("Failed to register replica instance.");
+      spdlog::error("Failed to register instance {} on main instance {}.", config.instance_name, main_name);
+      repl_instances_.pop_back();
       return RegisterInstanceCoordinatorStatus::RPC_FAILED;
     }
   }
 
   if (!raft_state_->AppendRegisterReplicationInstanceLog(config)) {
+    repl_instances_.pop_back();
     return RegisterInstanceCoordinatorStatus::RAFT_LOG_ERROR;
   }
-
-  if (!raft_state_->AppendCloseLock()) {
-    spdlog::error("Aborting register instance as we failed to close lock on action.");
-    return RegisterInstanceCoordinatorStatus::FAILED_TO_CLOSE_LOCK;
-  }
-
-  MG_ASSERT(!raft_state_->IsLockOpened(), "After registration of replication instance we need to be in healthy state.");
 
   new_instance->StartStateCheck();
 
   spdlog::info("Instance {} registered", config.instance_name);
   return RegisterInstanceCoordinatorStatus::SUCCESS;
-}
-
-auto CoordinatorInstance::DemoteInstanceToReplica(std::string_view instance_name) -> DemoteInstanceCoordinatorStatus {
-  spdlog::trace("Acquiring lock to demote instance to replica in thread {}", std::this_thread::get_id());
-  auto lock = std::lock_guard{coord_instance_lock_};
-  spdlog::trace("Acquired lock to demote instance to replica");
-
-  if (!is_leader_ready_) {
-    spdlog::trace("Leader isn't ready.");
-    return DemoteInstanceCoordinatorStatus::NOT_LEADER;
-  }
-
-  if (raft_state_->IsLockOpened()) {
-    spdlog::error("Lock is still opened.");
-    return DemoteInstanceCoordinatorStatus::LOCK_OPENED;
-  }
-
-  if (!raft_state_->AppendOpenLock()) {
-    spdlog::error("Failed to open lock to demote instance to REPLICA");
-    return DemoteInstanceCoordinatorStatus::FAILED_TO_OPEN_LOCK;
-  }
-
-  utils::OnScopeExit const do_reset{[this]() {
-    if (raft_state_->IsLockOpened() && raft_state_->IsLeader()) {
-      spdlog::trace(
-          "Adding task to try reconcile cluster state as lock didn't close successfully after demote of instance.");
-      thread_pool_.AddTask([this]() { this->ReconcileClusterState(); });
-      return;
-    }
-    spdlog::trace("Lock is not opened anymore or coordinator is not leader after demoting instance.");
-  }};
-
-  auto const name_matches = [&instance_name](ReplicationInstanceConnector const &instance) {
-    return instance.InstanceName() == instance_name;
-  };
-
-  auto instance = std::ranges::find_if(repl_instances_, name_matches);
-  if (instance == repl_instances_.end()) {
-    return DemoteInstanceCoordinatorStatus::NO_INSTANCE_WITH_NAME;
-  }
-
-  // if (!instance->DemoteToReplica(&CoordinatorInstance::ReplicaSuccessCallback,
-  //                                &CoordinatorInstance::InstanceFailCallback)) {
-  //   spdlog::error("Failed to send demote to replica rpc for instance {}", instance_name);
-  //   return DemoteInstanceCoordinatorStatus::RPC_FAILED;
-  // }
-
-  if (!raft_state_->AppendSetInstanceAsReplicaLog(instance->InstanceName())) {
-    spdlog::error("Failed to send demote to replica rpc for instance {}", instance_name);
-    return DemoteInstanceCoordinatorStatus::RPC_FAILED;
-  }
-
-  if (!raft_state_->AppendCloseLock()) {
-    return DemoteInstanceCoordinatorStatus::FAILED_TO_CLOSE_LOCK;
-  }
-
-  return DemoteInstanceCoordinatorStatus::SUCCESS;
 }
 
 auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instance_name)
@@ -771,20 +694,9 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
     return UnregisterInstanceCoordinatorStatus::IS_MAIN;
   }
 
-  if (!raft_state_->AppendOpenLock()) {
-    return UnregisterInstanceCoordinatorStatus::FAILED_TO_OPEN_LOCK;
+  if (!raft_state_->AppendUnregisterReplicationInstanceLog(instance_name)) {
+    return UnregisterInstanceCoordinatorStatus::RAFT_LOG_ERROR;
   }
-
-  utils::OnScopeExit const do_reset{[this]() {
-    if (raft_state_->IsLockOpened() && raft_state_->IsLeader()) {
-      spdlog::trace(
-          "Adding task to try reconcile cluster state as lock didn't close successfully after unregistration of "
-          "instance.");
-      thread_pool_.AddTask([this]() { this->ReconcileClusterState(); });
-      return;
-    }
-    spdlog::trace("Unregistration done. Lock is not opened anymore or coordinator is not leader.");
-  }};
 
   inst_to_remove->StopStateCheck();
 
@@ -798,18 +710,6 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
   }
 
   std::erase_if(repl_instances_, name_matches);
-
-  if (!raft_state_->AppendUnregisterReplicationInstanceLog(instance_name)) {
-    return UnregisterInstanceCoordinatorStatus::RAFT_LOG_ERROR;
-  }
-
-  if (!raft_state_->AppendCloseLock()) {
-    spdlog::error("Aborting register instance as we failed to close lock on action.");
-    return UnregisterInstanceCoordinatorStatus::FAILED_TO_CLOSE_LOCK;
-  }
-
-  MG_ASSERT(!raft_state_->IsLockOpened(),
-            "After unregistration of replication instance we need to be in healthy state.");
 
   return UnregisterInstanceCoordinatorStatus::SUCCESS;
 }

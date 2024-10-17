@@ -24,5 +24,5 @@ add_subdirectory(integration)
 # e2e test binaries
 add_subdirectory(e2e)
 
-# # mgbench benchmark test binaries
+# mgbench benchmark test binaries
 add_subdirectory(mgbench)
