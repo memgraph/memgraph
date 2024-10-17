@@ -9,27 +9,49 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+import random
+
+from benchmark_context import BenchmarkContext
 from workloads.base import Workload
 
 
 class VectorSearchIndex(Workload):
     NAME = "vector_search_index"
-    SCALE = 10
+    SCALE = 1000
     VECTOR_SIZE = 1500
+
+    def __init__(self, variant: str = None, benchmark_context: BenchmarkContext = None):
+        super().__init__(variant, benchmark_context=benchmark_context)
+        self._vertex_count = VectorSearchIndex.SCALE
 
     def indexes_generator(self):
         return [
-            # TODO(gitbuda): This is just an example.
             ("CREATE INDEX ON :Node(id);", {}),
             ("CREATE INDEX ON :Node(vector);", {}),
         ]
 
     def dataset_generator(self):
         queries = []
-        for i in range(0, VectorSearchIndex.SCALE):
-            vector = [float(i) for i in range(0, VectorSearchIndex.VECTOR_SIZE)]
+        # Add nodes because they contain the vectors.
+        for i in range(0, self._vertex_count):
+            vector = [random.random() for _ in range(0, VectorSearchIndex.VECTOR_SIZE)]
             queries.append(("CREATE (:Node {id:%i, vector: %s});" % (i, str(vector)), {}))
+        # Add edges because we also want to benchmark traversals.
+        # TODO(gitbuda): Add edges because of traversals.
         return queries
 
-    def benchmark__test__match_all_nodes(self):
-        return ("MATCH (n:Node) RETURN n;", {})
+    def _get_random_vertex(self):
+        return random.randint(1, VectorSearchIndex.SCALE)
+
+    def benchmark__vector__single_vertex_lookup(self):
+        return ("MATCH (n:User {id : $id}) RETURN n;", {"id": self._get_random_vertex()})
+
+    def benchmark__vector__single_vertex_create(self):
+        vector = [random.random() for _ in range(0, VectorSearchIndex.VECTOR_SIZE)]
+        i = self._vertex_count
+        self._vertex_count += 1
+        # TODO(gitbuda): Use the parameter.
+        return ("CREATE (:Node {id:%i, vector: %s});" % (i, str(vector)), {})
+
+    def benchmark__vector__running_traversals(self):
+        return ("RETURN 1;", {})
