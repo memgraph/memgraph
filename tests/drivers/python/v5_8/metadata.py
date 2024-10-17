@@ -19,8 +19,6 @@ from memgraph_utils import *
 from neo4j import GraphDatabase, Query
 from neo4j.exceptions import ClientError, TransientError
 
-checking_logs = True
-
 
 def check_md(tx_md):
     n = 0
@@ -90,10 +88,7 @@ def trace_off(session, old_log_level):
 
 def check_logs(session):
     log_path = get_log_file_path(session)
-    global checking_logs
-    checking_logs = len(log_path) != 0
-    if not checking_logs:
-        return 0
+    assert len(log_path) != 0, "No log file found! Test requires logging to file."
     metadata_pattern = re.compile(r"\[Run.*\{(.*)\}\s*$")
     md_lines = 0
     with open(log_path) as log_file:
@@ -109,13 +104,10 @@ if __name__ == "__main__":
     with GraphDatabase.driver("bolt://localhost:7687", auth=None, encrypted=False) as driver:
         with driver.session() as session:
             old_md_lines = check_logs(session)
-            if not checking_logs:
-                print("WARNING: Skipping log check, since there is no log file")
             old_log_level = trace_on(session)
             session_run(session)
             transaction_run(session, driver)
-            if checking_logs:
-                md_lines = check_logs(session)
-                assert md_lines - old_md_lines == 3, f"Found {md_lines - old_md_lines} metadata lines instead of 3"
+            md_lines = check_logs(session)
+            assert md_lines - old_md_lines == 3, f"Found {md_lines - old_md_lines} metadata lines instead of 3"
             trace_off(session, old_log_level)
     print("All ok!")
