@@ -126,11 +126,12 @@ inline bool IsThisThreadRegistered() noexcept { return current_memory.has_value(
 
 // Leaving "memory" variable here in order to generate a better module compilation error.
 // It should never be used; instead use MemoryDispatcherGuard.
-inline struct UnsupportedMgpMemory {
+struct UnsupportedMgpMemory {
   UnsupportedMgpMemory() = default;
   void operator=(mgp_memory *)
       __attribute__((error("mgp::memory must not be used as of v2.18.1. Please use MemoryDispatcherGuard instead.")));
-} memory;
+};
+inline UnsupportedMgpMemory memory;  // NOSONAR
 
 class MemoryDispatcherGuard final {
  public:
