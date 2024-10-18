@@ -91,7 +91,7 @@
             :checker         (checker/compose
                               {:stats      (checker/stats)
                                :exceptions (unhandled-exceptions)
-                               :log-checker (checker/log-file-pattern #"[Aa]ssert*|critical|NullPointerException|json.exception.parse_error" "memgraph.log")
+                               :log-checker (checker/log-file-pattern #"[Aa]ssert*|Segmentation fault|core dumped|critical|NullPointerException|json.exception.parse_error" "memgraph.log")
                                :workload   (:checker workload)})
             :nodes           (keys (:nodes-config opts))
             :nemesis         (:nemesis nemesis-config)

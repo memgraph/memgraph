@@ -24,7 +24,7 @@ def wait_for_status_change(
     instance_names: Set[str],
     new_state: str,
     max_duration: int = 20,
-    time_between_attempt: int = 5,
+    time_between_attempt: int = 0.5,
 ):
     result = function_to_retrieve_data()
 
@@ -40,7 +40,7 @@ def wait_for_status_change(
         if duration > max_duration:
             assert (
                 False
-            ), f" mg_sleep_and_assert has tried for too long and did not get the expected result! Last result was: {result}"
+            ), f"wait_for_status_change has tried for too long and did not get the expected result! Last result was: {result}"
 
         time.sleep(time_between_attempt)
         result = function_to_retrieve_data()
@@ -126,3 +126,19 @@ def mg_sleep_and_assert_collection(
         result = function_to_retrieve_data()
 
     return result
+
+
+def mg_sleep_and_assert_until_role_change(
+    function_to_execute, expected_role, max_duration=20, time_between_attempts=0.2
+):
+    result = function_to_execute()
+    start_time = time.time()
+    while result != expected_role:
+        duration = time.time() - start_time
+        if duration > max_duration:
+            assert (
+                False
+            ), " mg_sleep_and_assert_until_role_change has tried for too long and did not get the expected result!"
+
+        time.sleep(time_between_attempts)
+        result = function_to_execute()

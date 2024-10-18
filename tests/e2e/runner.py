@@ -98,7 +98,6 @@ def run(args):
                 # NOTE: If the setup quries create users AND there are some
                 # validation queries, the connection here has to get the right
                 # username/password.
-                print(f"Executing validation queries for {name}")
                 conn = mg_instance.get_connection()
                 for validation in validation_queries:
                     data = mg_instance.query(validation["query"], conn)[0][0]
