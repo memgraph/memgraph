@@ -31,6 +31,7 @@
 #include "utils/result.hpp"
 #include "utils/variant_helpers.hpp"
 
+#include <cstdint>
 #include <optional>
 #include <ranges>
 
@@ -240,6 +241,8 @@ class DbAccessor final {
   }
 
   std::optional<uint64_t> GetTransactionId() { return accessor_->GetTransactionId(); }
+
+  void AddNewVectorIndexEntry(VertexAccessor &vertex) { accessor_->AddNewVectorIndexEntry(vertex.impl_); }
 
   VerticesIterable Vertices(storage::View view) { return VerticesIterable(accessor_->Vertices(view)); }
 
@@ -593,6 +596,9 @@ class DbAccessor final {
   }
 
   void DropTextIndex(const std::string &index_name) { accessor_->DropTextIndex(index_name); }
+
+  // not used at the moment since we are creating vector index directly via storage accessor
+  void CreateVectorIndex(const storage::VectorIndexSpec &spec) { accessor_->CreateVectorIndex(spec); }
 
   utils::BasicResult<storage::StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
       storage::LabelId label, storage::PropertyId property) {
