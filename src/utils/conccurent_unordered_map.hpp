@@ -15,7 +15,7 @@
 #include <shared_mutex>
 #include <unordered_map>
 
-#include "utils/rw_spin_lock.hpp"
+#include "utils/rw_lock.hpp"
 
 namespace memgraph::utils {
 
@@ -125,7 +125,7 @@ class ConcurrentUnorderedMap {
 
    private:
     std::unordered_map<K, T>::iterator itr_;
-    std::unique_lock<RWSpinLock> lock_;
+    std::unique_lock<ReadPrioritizedRWLock> lock_;
   };
 
   struct ConstIterator {
@@ -152,7 +152,7 @@ class ConcurrentUnorderedMap {
 
    private:
     std::unordered_map<K, T>::const_iterator itr_;
-    std::shared_lock<RWSpinLock> lock_;
+    std::shared_lock<ReadPrioritizedRWLock> lock_;
   };
 
   ConstIterator begin() const {
@@ -171,7 +171,7 @@ class ConcurrentUnorderedMap {
 
  private:
   std::unordered_map<K, T> map_;
-  mutable RWSpinLock mtx_;
+  mutable ReadPrioritizedRWLock mtx_;
 };
 
 }  // namespace memgraph::utils
