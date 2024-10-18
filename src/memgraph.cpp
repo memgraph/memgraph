@@ -601,7 +601,7 @@ int main(int argc, char **argv) {
 
   std::vector<memgraph::storage::VectorIndexSpec> vector_index_specs;
   if (!FLAGS_experimental_vector_indexes.empty()) {
-    const auto specs = memgraph::utils::Split(FLAGS_experimental_vector_indexes, ",");
+    const auto specs = memgraph::utils::Split(FLAGS_experimental_vector_indexes, ";");
     if (!specs.empty()) {
       auto storage = db_acc->Access();
       vector_index_specs.reserve(specs.size());

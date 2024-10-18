@@ -294,10 +294,12 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
   if (!FLAGS_experimental_vector_indexes.empty()) {
     const auto tx_start_timestamp = context.db_accessor->GetTransactionStartTimestamp();
     if (tx_start_timestamp) {
-      context.db_accessor->VectorIndexAddVertex(new_node, *tx_start_timestamp);
+      auto &vector_index_keys = context.db_accessor->GetVectorIndexKeys();
+      context.db_accessor->VectorIndexAddVertex(new_node, *tx_start_timestamp, vector_index_keys);
+    } else {
+      // If tx_start_timestamp is not set, we are in a IN_MEMORY_ANALYTICAL mode
+      throw mg_exception::NotYetImplementedException();
     }
-    // If tx_start_timestamp is not set, we are in a IN_MEMORY_ANALYTICAL mode
-    throw mg_exception::NotYetImplementedException();
   }
 
   (*frame)[node_info.symbol] = new_node;

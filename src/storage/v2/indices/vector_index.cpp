@@ -30,7 +30,7 @@ namespace usearch {
 template <>
 struct unum::usearch::hash_gt<memgraph::storage::VectorIndexKey> {
   std::size_t operator()(memgraph::storage::VectorIndexKey const &element) const noexcept {
-    return std::hash<uint64_t>{}(element.start_timestamp) ^ std::hash<memgraph::storage::Gid>{}(element.vertex->gid);
+    return std::hash<uint64_t>{}(element.commit_timestamp) ^ std::hash<memgraph::storage::Gid>{}(element.vertex->gid);
   }
 };
 
@@ -85,12 +85,12 @@ void VectorIndex::CreateIndex(const VectorIndexSpec &spec) {
   spdlog::trace("Created vector index " + spec.index_name);
 }
 
-void VectorIndex::AddNode(Vertex *vertex, uint64_t timestamp) {
+void VectorIndex::AddNode(Vertex *vertex, uint64_t commit_timestamp, std::vector<VectorIndexKey> &keys) {
   for (auto &[key, index] : pimpl->index_) {
     const auto label_id = key.label();
     const auto property_id = key.property();
     if (utils::Contains(vertex->labels, label_id) && vertex->properties.HasProperty(property_id)) {
-      const auto key = VectorIndexKey{vertex, timestamp};
+      const auto key = VectorIndexKey{vertex, commit_timestamp};
       const auto &property_value = vertex->properties.GetProperty(property_id);
       const auto &list = property_value.ValueList();
       spdlog::trace("Adding node to vector index");
@@ -103,6 +103,16 @@ void VectorIndex::AddNode(Vertex *vertex, uint64_t timestamp) {
       std::ranges::transform(list, vec.begin(),
                              [](const auto &value) { return static_cast<float>(value.ValueDouble()); });
       index.add(key, vec.data());
+      keys.emplace_back(key);
+    }
+  }
+}
+
+void VectorIndex::Commit(const std::vector<VectorIndexKey> &keys, uint64_t commit_timestamp) {
+  for (auto &[_, index] : pimpl->index_) {
+    for (const auto &key : keys) {
+      const auto new_key = VectorIndexKey{key.vertex, commit_timestamp};
+      index.rename(key, new_key);
     }
   }
 }
@@ -118,6 +128,28 @@ std::vector<std::string> VectorIndex::ListAllIndices() {
     indices.push_back(index_name);
   }
   return indices;
+}
+
+std::vector<Vertex *> VectorIndex::Search(const std::string &index_name, uint64_t start_timestamp,
+                                          uint64_t result_set_size, const std::vector<float> &query_vector) {
+  const auto &label_prop = pimpl->index_name_to_label_prop_.at(index_name);
+  const auto &index = pimpl->index_.at(label_prop);
+
+  std::vector<Vertex *> result;
+  result.reserve(result_set_size);
+
+  auto filtering_function = [start_timestamp](const VectorIndexKey &key) {
+    // This transcation can see only nodes that were committed before the start_timestamp.
+    return key.commit_timestamp < start_timestamp;
+  };
+
+  const auto result_keys = index.filtered_search(query_vector.data(), result_set_size, filtering_function);
+  for (std::size_t i = 0; i < result_keys.size(); ++i) {
+    const auto &key = static_cast<VectorIndexKey>(result_keys[i].member.key);
+    result.push_back(key.vertex);
+  }
+
+  return result;
 }
 
 }  // namespace memgraph::storage

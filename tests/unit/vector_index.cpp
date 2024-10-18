@@ -78,7 +78,8 @@ TYPED_TEST(VectorSearchTest, AddNodeTest) {
       memgraph::storage::PropertyValue(3.0), memgraph::storage::PropertyValue(4.0),
       memgraph::storage::PropertyValue(5.0)};
   vertex_accessor.SetProperty(property, memgraph::storage::PropertyValue(vec));
-  index.AddNode(vertex_accessor.vertex_, 0);
+  auto keys = std::vector<memgraph::storage::VectorIndexKey>();
+  index.AddNode(vertex_accessor.vertex_, 0, keys);
 
   EXPECT_EQ(index.Size("test_index"), 1);
 }
@@ -107,10 +108,14 @@ TYPED_TEST(VectorSearchTest, SearchTest) {
       memgraph::storage::PropertyValue(3.0), memgraph::storage::PropertyValue(4.0),
       memgraph::storage::PropertyValue(5.0)};
   vertex_accessor.SetProperty(property, memgraph::storage::PropertyValue(vec));
-  index.AddNode(vertex_accessor.vertex_, 0);
+  auto keys = std::vector<memgraph::storage::VectorIndexKey>();
+  index.AddNode(vertex_accessor.vertex_, 0, keys);
 
   EXPECT_EQ(index.Size("test_index"), 1);
   std::vector<float> query = {1.0, 2.0, 3.0, 4.0, 5.0};
-  const auto &result = index.Search("test_index", 0, 1, query);
+  const auto &result = index.Search("test_index", 1, 1, query);
   EXPECT_EQ(result.size(), 1);
+
+  const auto &vertex = result[0];
+  EXPECT_EQ(vertex->gid, vertex_accessor.Gid());
 }

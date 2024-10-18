@@ -309,8 +309,8 @@ class Storage {
       return storage_->indices_.text_index_.Aggregate(index_name, search_query, aggregation_query);
     }
 
-    void VectorIndexAddVertex(const VertexAccessor &vertex, uint64_t timestamp) {
-      storage_->indices_.vector_index_.AddNode(vertex.vertex_, timestamp);
+    void VectorIndexAddVertex(const VertexAccessor &vertex, uint64_t timestamp, std::vector<VectorIndexKey> &keys) {
+      storage_->indices_.vector_index_.AddNode(vertex.vertex_, timestamp, keys);
     }
 
     virtual IndicesInfo ListAllIndices() const = 0;
@@ -332,6 +332,8 @@ class Storage {
     std::optional<uint64_t> GetTransactionId() const;
 
     std::optional<uint64_t> GetTransactionStartTimestamp() const;
+
+    std::vector<VectorIndexKey> &GetVectorIndexKeys();
 
     void AdvanceCommand();
 

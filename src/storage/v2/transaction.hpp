@@ -12,10 +12,10 @@
 #pragma once
 
 #include <atomic>
-#include <limits>
 #include <memory>
 
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/vector_index_utils.hpp"
 #include "utils/memory.hpp"
 #include "utils/skip_list.hpp"
 
@@ -32,7 +32,6 @@
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_info_cache.hpp"
-#include "storage/v2/view.hpp"
 #include "utils/pmr/list.hpp"
 
 #include <rocksdb/utilities/transaction.h>
@@ -142,6 +141,9 @@ struct Transaction {
   PointIndexContext point_index_ctx_;
   /// Tracks changes relevant to point index (used during Commit/AdvanceCommand)
   PointIndexChangeCollector point_index_change_collector_;
+
+  // Used to track new entries in the vector index
+  std::vector<VectorIndexKey> vector_index_keys_{};
 };
 
 inline bool operator==(const Transaction &first, const Transaction &second) {

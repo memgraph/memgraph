@@ -144,6 +144,8 @@ std::optional<uint64_t> Storage::Accessor::GetTransactionStartTimestamp() const 
   return {};
 }
 
+std::vector<VectorIndexKey> &Storage::Accessor::GetVectorIndexKeys() { return transaction_.vector_index_keys_; }
+
 std::vector<LabelId> Storage::Accessor::ListAllPossiblyPresentVertexLabels() const {
   std::vector<LabelId> vertex_labels;
   storage_->stored_node_labels_.for_each([&vertex_labels](const auto &label) { vertex_labels.push_back(label); });

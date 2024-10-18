@@ -24,6 +24,7 @@
 #include "storage/v2/edge_direction.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/edge_type_property_index.hpp"
+#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
 #include "storage/v2/metadata_delta.hpp"
@@ -1083,6 +1084,11 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
 
     if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
       mem_storage->indices_.text_index_.Commit();
+    }
+
+    if (!FLAGS_experimental_vector_indexes.empty()) {
+      mem_storage->indices_.vector_index_.Commit(transaction_.vector_index_keys_,
+                                                 transaction_.commit_timestamp->load());
     }
   }
 
