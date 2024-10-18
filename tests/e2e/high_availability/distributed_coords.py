@@ -862,6 +862,9 @@ def test_distributed_automatic_failover_with_leadership_change(test_name):
         ),
     ]
 
+    mg_sleep_and_assert_until_role_change(
+        lambda: execute_and_fetch_all(new_main_cursor, "SHOW REPLICATION ROLE;")[0][0], "main"
+    )
     expected_data_on_new_main = [state for state in all_possible_states if state[0] != main_name]
     mg_sleep_and_assert_collection(expected_data_on_new_main, retrieve_data_show_replicas)
 
