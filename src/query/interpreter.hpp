@@ -234,6 +234,8 @@ struct CurrentDB {
     trigger_context_collector_.reset();
   }
 
+  std::string name() const { return db_acc_ ? db_acc_->get()->name() : ""; }
+
   // TODO: don't provide explicitly via constructor, instead have a lazy way of getting the current/default
   // DatabaseAccess
   //       hence, explict bolt "use DB" in metadata wouldn't necessarily get access unless query required it.

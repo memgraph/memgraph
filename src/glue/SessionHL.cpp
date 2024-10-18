@@ -13,7 +13,6 @@
 #include <utility>
 #include "auth/auth.hpp"
 #include "auth/exceptions.hpp"
-#include "gflags/gflags.h"
 
 #include "audit/log.hpp"
 #include "dbms/constants.hpp"
@@ -24,13 +23,10 @@
 #include "glue/query_user.hpp"
 #include "glue/run_id.hpp"
 #include "license/license.hpp"
-#include "query/auth_checker.hpp"
 #include "query/discard_value_stream.hpp"
 #include "query/interpreter_context.hpp"
 #include "query/query_user.hpp"
 #include "utils/event_map.hpp"
-#include "utils/spin_lock.hpp"
-#include "utils/variant_helpers.hpp"
 
 namespace memgraph::metrics {
 extern const Event ActiveBoltSessions;
@@ -119,6 +115,7 @@ void MultiDatabaseAuth(memgraph::query::QueryUserOrRole *user, std::string_view 
 }
 #endif
 }  // namespace
+
 namespace memgraph::glue {
 
 #ifdef MG_ENTERPRISE
