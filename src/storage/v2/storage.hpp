@@ -45,6 +45,7 @@
 #include "storage/v2/storage_error.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/transaction.hpp"
+#include "storage/v2/vertex_accessor.hpp"
 #include "storage/v2/vertices_iterable.hpp"
 #include "utils/compressor.hpp"
 #include "utils/event_counter.hpp"
@@ -309,10 +310,6 @@ class Storage {
       return storage_->indices_.text_index_.Aggregate(index_name, search_query, aggregation_query);
     }
 
-    void VectorIndexAddVertex(const VertexAccessor &vertex, uint64_t timestamp, std::vector<VectorIndexKey> &keys) {
-      storage_->indices_.vector_index_.AddNode(vertex.vertex_, timestamp, keys);
-    }
-
     virtual IndicesInfo ListAllIndices() const = 0;
 
     virtual ConstraintsInfo ListAllConstraints() const = 0;
@@ -331,9 +328,7 @@ class Storage {
 
     std::optional<uint64_t> GetTransactionId() const;
 
-    std::optional<uint64_t> GetTransactionStartTimestamp() const;
-
-    std::vector<VectorIndexKey> &GetVectorIndexKeys();
+    void AddNewVectorIndexEntry(VertexAccessor &vertex);
 
     void AdvanceCommand();
 

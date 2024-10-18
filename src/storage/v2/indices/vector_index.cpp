@@ -9,11 +9,12 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v2/indices/vector_index.hpp"
 #include <cstdint>
+#include <thread>
 
 #include "absl/container/flat_hash_map.h"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/vertex.hpp"
 #include "usearch/index.hpp"
 #include "usearch/index_dense.hpp"
@@ -73,48 +74,39 @@ void VectorIndex::CreateIndex(const VectorIndexSpec &spec) {
   // TODO(DavIvek): Take a look under https://github.com/memgraph/cmake/blob/main/vs_usearch.cpp to see how to inject
   // custom key.
   // TODO(DavIvek): Parametrize everything (e.g. vector_size should be dynamic).
+
+  // size and limit are important parameters for the usearch index to work properly.
   uint64_t vector_size = spec.config["size"];
+  uint64_t limit = spec.config["limit"];
   unum::usearch::metric_punned_t metric(vector_size, unum::usearch::metric_kind_t::l2sq_k,
                                         unum::usearch::scalar_kind_t::f32_k);
 
   const auto label_prop = LabelPropKey{spec.label, spec.property};
   pimpl->index_name_to_label_prop_.emplace(spec.index_name, label_prop);
   pimpl->index_.emplace(label_prop, mg_vector_index_t::make(metric));
-  pimpl->index_[label_prop].reserve(100);
+  pimpl->index_[label_prop].reserve(limit);
 
   spdlog::trace("Created vector index " + spec.index_name);
 }
 
-void VectorIndex::AddNode(Vertex *vertex, uint64_t commit_timestamp, std::vector<VectorIndexKey> &keys) {
-  for (auto &[key, index] : pimpl->index_) {
-    const auto label_id = key.label();
-    const auto property_id = key.property();
-    if (utils::Contains(vertex->labels, label_id) && vertex->properties.HasProperty(property_id)) {
-      const auto key = VectorIndexKey{vertex, commit_timestamp};
-      const auto &property_value = vertex->properties.GetProperty(property_id);
-      const auto &list = property_value.ValueList();
-      spdlog::trace("Adding node to vector index");
-
-      // TODO(DavIvek): This is a temporary solution. Maybe we will need to modify PropertyValues so we don't need to
-      // call ValueDouble for each element.
-      // TODO (DavIvek): Does usearch have some specific type based on the quantization,
-      // from the config we could maybe deduce the right type (having that at runtime could be a problem)?
-      std::vector<float> vec(list.size());
-      std::ranges::transform(list, vec.begin(),
-                             [](const auto &value) { return static_cast<float>(value.ValueDouble()); });
-      index.add(key, vec.data());
-      keys.emplace_back(key);
+void VectorIndex::AddNodeToNewIndexEntries(Vertex *vertex, std::vector<VectorIndexTuple> &keys) {
+  for (const auto &[label_prop, _] : pimpl->index_) {
+    if (utils::Contains(vertex->labels, label_prop.label()) && vertex->properties.HasProperty(label_prop.property())) {
+      keys.emplace_back(vertex, label_prop);
     }
   }
 }
 
-void VectorIndex::Commit(const std::vector<VectorIndexKey> &keys, uint64_t commit_timestamp) {
-  for (auto &[_, index] : pimpl->index_) {
-    for (const auto &key : keys) {
-      const auto new_key = VectorIndexKey{key.vertex, commit_timestamp};
-      index.rename(key, new_key);
-    }
-  }
+void VectorIndex::AddNodeToIndex(Vertex *vertex, const LabelPropKey &label_prop, uint64_t commit_timestamp) {
+  auto &index = pimpl->index_.at(label_prop);
+  const auto &vector_property = vertex->properties.GetProperty(label_prop.property()).ValueList();
+  std::vector<float> vector;
+  vector.reserve(vector_property.size());
+  std::transform(vector_property.begin(), vector_property.end(), std::back_inserter(vector),
+                 [](const auto &value) { return value.ValueDouble(); });
+
+  const auto key = VectorIndexKey{vertex, commit_timestamp};
+  index.add(key, vector.data());
 }
 
 std::size_t VectorIndex::Size(const std::string &index_name) {
@@ -143,7 +135,7 @@ std::vector<Vertex *> VectorIndex::Search(const std::string &index_name, uint64_
     return key.commit_timestamp < start_timestamp;
   };
 
-  const auto result_keys = index.filtered_search(query_vector.data(), result_set_size, filtering_function);
+  const auto &result_keys = index.filtered_search(query_vector.data(), result_set_size, filtering_function);
   for (std::size_t i = 0; i < result_keys.size(); ++i) {
     const auto &key = static_cast<VectorIndexKey>(result_keys[i].member.key);
     result.push_back(key.vertex);

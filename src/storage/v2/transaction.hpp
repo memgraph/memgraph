@@ -15,7 +15,7 @@
 #include <memory>
 
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/indices/vector_index_utils.hpp"
+#include "storage/v2/indices/vector_index.hpp"
 #include "utils/memory.hpp"
 #include "utils/skip_list.hpp"
 
@@ -143,7 +143,7 @@ struct Transaction {
   PointIndexChangeCollector point_index_change_collector_;
 
   // Used to track new entries in the vector index
-  std::vector<VectorIndexKey> vector_index_keys_{};
+  std::vector<VectorIndexTuple> new_vector_index_entries_{};
 };
 
 inline bool operator==(const Transaction &first, const Transaction &second) {

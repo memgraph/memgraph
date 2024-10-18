@@ -242,9 +242,7 @@ class DbAccessor final {
 
   std::optional<uint64_t> GetTransactionId() { return accessor_->GetTransactionId(); }
 
-  std::optional<uint64_t> GetTransactionStartTimestamp() { return accessor_->GetTransactionStartTimestamp(); }
-
-  std::vector<storage::VectorIndexKey> &GetVectorIndexKeys() { return accessor_->GetVectorIndexKeys(); }
+  void AddNewVectorIndexEntry(VertexAccessor &vertex) { accessor_->AddNewVectorIndexEntry(vertex.impl_); }
 
   VerticesIterable Vertices(storage::View view) { return VerticesIterable(accessor_->Vertices(view)); }
 
@@ -471,11 +469,6 @@ class DbAccessor final {
   std::string TextIndexAggregate(const std::string &index_name, const std::string &search_query,
                                  const std::string &aggregation_query) const {
     return accessor_->TextIndexAggregate(index_name, search_query, aggregation_query);
-  }
-
-  void VectorIndexAddVertex(const VertexAccessor &vertex, uint64_t timestamp,
-                            std::vector<storage::VectorIndexKey> &keys) {
-    accessor_->VectorIndexAddVertex(vertex.impl_, timestamp, keys);
   }
 
   std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const {

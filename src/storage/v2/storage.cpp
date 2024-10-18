@@ -23,6 +23,8 @@
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
+#include "storage/v2/view.hpp"
+#include "utils/algorithm.hpp"
 #include "utils/atomic_memory_block.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/event_gauge.hpp"
@@ -137,14 +139,11 @@ std::optional<uint64_t> Storage::Accessor::GetTransactionId() const {
   return {};
 }
 
-std::optional<uint64_t> Storage::Accessor::GetTransactionStartTimestamp() const {
-  if (is_transaction_active_) {
-    return transaction_.start_timestamp;
-  }
-  return {};
+void Storage::Accessor::AddNewVectorIndexEntry(VertexAccessor &vertex) {
+  // TODO(@DavIvek): Use VertexAccessor for labels and properties checks
+  auto *vertex_ptr = vertex.vertex_;
+  storage_->indices_.vector_index_.AddNodeToNewIndexEntries(vertex_ptr, transaction_.new_vector_index_entries_);
 }
-
-std::vector<VectorIndexKey> &Storage::Accessor::GetVectorIndexKeys() { return transaction_.vector_index_keys_; }
 
 std::vector<LabelId> Storage::Accessor::ListAllPossiblyPresentVertexLabels() const {
   std::vector<LabelId> vertex_labels;

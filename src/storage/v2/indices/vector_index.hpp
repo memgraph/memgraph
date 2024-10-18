@@ -14,12 +14,44 @@
 #include <cstdint>
 #include <json/json.hpp>
 #include <string>
-#include "storage/v2/indices/vector_index_utils.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/vertex.hpp"
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(experimental_vector_indexes);
 namespace memgraph::storage {
+
+// TODO(DavIvek): The below code should be discarded and replaces with proper queries. IMPORTANT: Once we have the
+// fully tested index implementation.
+
+// The `VectorIndexSpec` structure represents a specification for creating a vector index in the system.
+// It includes the index name, the label and property on which the index is created,
+// and the configuration options for the index in the form of a JSON object.
+struct VectorIndexSpec {
+  // NOTE: The index name is required because CALL is used to query the index -> somehow we have to specify what's the
+  // used index. Technically we could use only label+prop to address the right index but in practice we can have
+  // multiple indexes on the same label+prop with different configs.
+  std::string index_name;
+  LabelId label;
+  PropertyId property;
+  nlohmann::json config;
+};
+
+// The `VectorIndexKey` structure is used as a key to manage nodes in the index, uniquely identifying
+// an entry by a pointer to a vertex and a timestamp. Via start_timestamp we implement the MVCC logic.
+struct VectorIndexKey {
+  Vertex *vertex;
+  uint64_t commit_timestamp;
+
+  bool operator<(const VectorIndexKey &rhs) {
+    return std::make_tuple(vertex, commit_timestamp) < std::make_tuple(rhs.vertex, rhs.commit_timestamp);
+  }
+  bool operator==(const VectorIndexKey &rhs) const {
+    return vertex == rhs.vertex && commit_timestamp == rhs.commit_timestamp;
+  }
+};
+
+using VectorIndexTuple = std::tuple<Vertex *, LabelPropKey>;
 
 // The `VectorIndex` class is a high-level interface for managing vector indexes.
 // It supports creating new indexes, adding nodes to an index, listing all indexes,
@@ -37,8 +69,8 @@ class VectorIndex {
   VectorIndex &operator=(VectorIndex &&) noexcept;
 
   void CreateIndex(const VectorIndexSpec &spec);
-  void AddNode(Vertex *vertex, uint64_t commit_timestamp, std::vector<VectorIndexKey> &keys);
-  void Commit(const std::vector<VectorIndexKey> &keys, uint64_t commit_timestamp);
+  void AddNodeToNewIndexEntries(Vertex *vertex, std::vector<VectorIndexTuple> &keys);
+  void AddNodeToIndex(Vertex *vertex, const LabelPropKey &label_prop, uint64_t commit_timestamp);
   std::vector<std::string> ListAllIndices();
   std::size_t Size(const std::string &index_name);
   std::vector<Vertex *> Search(const std::string &index_name, uint64_t start_timestamp, uint64_t result_set_size,

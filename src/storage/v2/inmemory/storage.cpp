@@ -19,6 +19,7 @@
 #include "flags/general.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "memory/global_memory_control.hpp"
+#include "mg_exceptions.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/edge_direction.hpp"
@@ -1087,8 +1088,13 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
     }
 
     if (!FLAGS_experimental_vector_indexes.empty()) {
-      mem_storage->indices_.vector_index_.Commit(transaction_.vector_index_keys_,
-                                                 transaction_.commit_timestamp->load());
+      if (commit_timestamp_.has_value()) {
+        for (const auto &[vertex, label_prop] : transaction_.new_vector_index_entries_) {
+          mem_storage->indices_.vector_index_.AddNodeToIndex(vertex, label_prop, *commit_timestamp_);
+        }
+      } else {
+        throw mg_exception::NotYetImplementedException();
+      }
     }
   }
 
