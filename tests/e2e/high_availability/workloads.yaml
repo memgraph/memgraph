@@ -15,10 +15,6 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["high_availability/coord_cluster_registration.py"]
 
-  - name: "Not replicate from old main"
-    binary: "tests/e2e/pytest_runner.sh"
-    args: ["high_availability/not_replicate_from_old_main.py"]
-
   - name: "Disable writing on main after restart"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["high_availability/disable_writing_on_main_after_restart.py"]

@@ -14,6 +14,7 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_communication_config.hpp"
+#include "coordination/instance_state.hpp"
 #include "coordination/rpc_errors.hpp"
 #include "replication_coordination_glue/common.hpp"
 #include "replication_coordination_glue/role.hpp"
@@ -25,14 +26,11 @@
 namespace memgraph::coordination {
 
 class CoordinatorInstance;
-using HealthCheckClientCallback = std::function<void(CoordinatorInstance *, std::string_view)>;
 using ReplicationClientsInfo = std::vector<ReplicationClientInfo>;
 
 class ReplicationInstanceClient {
  public:
-  explicit ReplicationInstanceClient(CoordinatorInstance *coord_instance, CoordinatorToReplicaConfig config,
-                                     HealthCheckClientCallback succ_cb = nullptr,
-                                     HealthCheckClientCallback fail_cb = nullptr);
+  explicit ReplicationInstanceClient(CoordinatorToReplicaConfig config, CoordinatorInstance *coord_instance);
 
   virtual ~ReplicationInstanceClient() = default;
 
@@ -42,34 +40,31 @@ class ReplicationInstanceClient {
   ReplicationInstanceClient(ReplicationInstanceClient &&) noexcept = delete;
   ReplicationInstanceClient &operator=(ReplicationInstanceClient &&) noexcept = delete;
 
-  virtual void StartFrequentCheck();
-  virtual void StopFrequentCheck();
-  virtual void PauseFrequentCheck();
-  virtual void ResumeFrequentCheck();
+  virtual void StartStateCheck();
+  virtual void StopStateCheck();
+  virtual void PauseStateCheck();
+  virtual void ResumeStateCheck();
 
   virtual auto InstanceName() const -> std::string;
   virtual auto BoltSocketAddress() const -> std::string;
   virtual auto ManagementSocketAddress() const -> std::string;
   virtual auto ReplicationSocketAddress() const -> std::string;
 
-  virtual auto DemoteToReplica() const -> bool;
+  virtual auto SendDemoteToReplicaRpc() const -> bool;
 
   virtual auto SendPromoteReplicaToMainRpc(utils::UUID const &uuid,
                                            ReplicationClientsInfo replication_clients_info) const -> bool;
-
-  virtual auto SendGetInstanceUUIDRpc() const
-      -> memgraph::utils::BasicResult<GetInstanceUUIDError, std::optional<utils::UUID>>;
 
   virtual auto SendUnregisterReplicaRpc(std::string_view instance_name) const -> bool;
 
   virtual auto SendEnableWritingOnMainRpc() const -> bool;
 
-  auto RegisterReplica(utils::UUID const &uuid, ReplicationClientInfo replication_client_info) const -> bool;
+  auto SendRegisterReplicaRpc(utils::UUID const &uuid, ReplicationClientInfo replication_client_info) const -> bool;
 
-  auto SendFrequentHeartbeat() const -> bool;
+  auto SendStateCheckRpc() const -> std::optional<InstanceState>;
 
   auto SendGetInstanceTimestampsRpc() const
-      -> utils::BasicResult<GetInstanceUUIDError, replication_coordination_glue::DatabaseHistories>;
+      -> utils::BasicResult<GetInstanceTimestampsError, replication_coordination_glue::DatabaseHistories>;
 
   virtual auto InstanceDownTimeoutSec() const -> std::chrono::seconds;
 
@@ -91,11 +86,6 @@ class ReplicationInstanceClient {
 
   CoordinatorToReplicaConfig config_;
   CoordinatorInstance *coord_instance_;
-  // The reason why we have HealthCheckClientCallback is because we need to acquire lock
-  // before we do correct function call (main or replica), as otherwise we can enter REPLICA callback
-  // but right before instance was promoted to MAIN
-  HealthCheckClientCallback succ_cb_;
-  HealthCheckClientCallback fail_cb_;
 };
 
 }  // namespace memgraph::coordination

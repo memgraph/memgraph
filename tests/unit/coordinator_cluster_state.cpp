@@ -62,29 +62,6 @@ TEST_F(CoordinatorClusterStateTest, RegisterReplicationInstance) {
   ASSERT_EQ(instances.size(), 1);
   ASSERT_EQ(instances[0].config, config);
   ASSERT_EQ(instances[0].status, ReplicationRole::REPLICA);
-
-  ASSERT_TRUE(cluster_state.HasReplicaState("instance3"));
-}
-
-TEST_F(CoordinatorClusterStateTest, UnregisterReplicationInstance) {
-  CoordinatorClusterState cluster_state{};
-
-  auto config =
-      CoordinatorToReplicaConfig{.instance_name = "instance3",
-                                 .mgt_server = Endpoint{"127.0.0.1", 10112},
-                                 .bolt_server = Endpoint{"127.0.0.1", 7687},
-                                 .replication_client_info = {.instance_name = "instance_name",
-                                                             .replication_mode = ReplicationMode::ASYNC,
-                                                             .replication_server = Endpoint{"127.0.0.1", 10001}},
-                                 .instance_health_check_frequency_sec = std::chrono::seconds{1},
-                                 .instance_down_timeout_sec = std::chrono::seconds{5},
-                                 .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
-                                 .ssl = std::nullopt};
-
-  cluster_state.DoAction(config, RaftLogAction::REGISTER_REPLICATION_INSTANCE);
-  cluster_state.DoAction("instance3", RaftLogAction::UNREGISTER_REPLICATION_INSTANCE);
-
-  ASSERT_EQ(cluster_state.GetReplicationInstances().size(), 0);
 }
 
 TEST_F(CoordinatorClusterStateTest, SetInstanceToMain) {
@@ -127,8 +104,6 @@ TEST_F(CoordinatorClusterStateTest, SetInstanceToMain) {
   ASSERT_TRUE(cluster_state.MainExists());
   ASSERT_TRUE(cluster_state.HasMainState("instance3"));
   ASSERT_FALSE(cluster_state.HasMainState("instance2"));
-  ASSERT_TRUE(cluster_state.HasReplicaState("instance2"));
-  ASSERT_FALSE(cluster_state.HasReplicaState("instance3"));
 }
 
 TEST_F(CoordinatorClusterStateTest, SetInstanceToReplica) {
@@ -176,8 +151,6 @@ TEST_F(CoordinatorClusterStateTest, SetInstanceToReplica) {
   ASSERT_TRUE(cluster_state.MainExists());
   ASSERT_TRUE(cluster_state.HasMainState("instance2"));
   ASSERT_FALSE(cluster_state.HasMainState("instance3"));
-  ASSERT_TRUE(cluster_state.HasReplicaState("instance3"));
-  ASSERT_FALSE(cluster_state.HasReplicaState("instance2"));
   ASSERT_TRUE(cluster_state.IsCurrentMain("instance2"));
 }
 

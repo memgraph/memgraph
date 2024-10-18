@@ -6,7 +6,6 @@ copy_e2e_python_files(high_availability coord_cluster_registration.py)
 copy_e2e_python_files(high_availability distributed_coords.py)
 copy_e2e_python_files(high_availability disable_writing_on_main_after_restart.py)
 copy_e2e_python_files(high_availability manual_setting_replicas.py)
-copy_e2e_python_files(high_availability not_replicate_from_old_main.py)
 copy_e2e_python_files(high_availability common.py)
 copy_e2e_python_files(high_availability workloads.yaml)
 

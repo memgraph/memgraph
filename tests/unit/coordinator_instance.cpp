@@ -23,8 +23,6 @@
 using memgraph::coordination::CoordinatorInstance;
 using memgraph::coordination::CoordinatorInstanceInitConfig;
 using memgraph::coordination::CoordinatorToCoordinatorConfig;
-using memgraph::coordination::HealthCheckClientCallback;
-using memgraph::coordination::HealthCheckInstanceCallback;
 using memgraph::io::network::Endpoint;
 
 // Networking is used in this test, be careful with ports used.
@@ -208,9 +206,8 @@ TEST_F(CoordinatorInstanceTest, GetConnectedCoordinatorsConfigs) {
                                      .coordinator_hostname = "localhost"};
   auto const wait_and_assert = [&](auto const &instance) {
     ASSERT_TRUE(HasBecomeEqual([&instance]() { return instance.ShowInstances().size(); }, 3));
-    ASSERT_TRUE(HasBecomeEqual(
-        [&instance]() { return instance.GetRaftState().GetCoordinatorToCoordinatorConfigs().size(); }, 3));
-    auto const coord_to_coord_configs = instance.GetRaftState().GetCoordinatorToCoordinatorConfigs();
+    ASSERT_TRUE(HasBecomeEqual([&instance]() { return instance.GetCoordinatorToCoordinatorConfigs().size(); }, 3));
+    auto const coord_to_coord_configs = instance.GetCoordinatorToCoordinatorConfigs();
     auto const coord1_config_it = std::ranges::find_if(
         coord_to_coord_configs, [this](auto const &config) { return config.coordinator_id == coordinator_ids[0]; });
     auto const coord2_config_it = std::ranges::find_if(
@@ -281,8 +278,7 @@ TEST_F(CoordinatorInstanceTest, GetRoutingTable) {
   spdlog::trace("Added coordinator instances!");
   {
     ASSERT_TRUE(HasBecomeEqual([&instance1]() { return instance1.ShowInstances().size(); }, 3));
-    ASSERT_TRUE(HasBecomeEqual(
-        [&instance1]() { return instance1.GetRaftState().GetCoordinatorToCoordinatorConfigs().size(); }, 3));
+    ASSERT_TRUE(HasBecomeEqual([&instance1]() { return instance1.GetCoordinatorToCoordinatorConfigs().size(); }, 3));
     auto const routing_table = instance1.GetRoutingTable();
     ASSERT_EQ(routing_table.size(), 1);
     auto const &routers = routing_table[0];
@@ -301,8 +297,7 @@ TEST_F(CoordinatorInstanceTest, GetRoutingTable) {
 
   {
     ASSERT_TRUE(HasBecomeEqual([&instance2]() { return instance2.ShowInstances().size(); }, 3));
-    ASSERT_TRUE(HasBecomeEqual(
-        [&instance2]() { return instance2.GetRaftState().GetCoordinatorToCoordinatorConfigs().size(); }, 3));
+    ASSERT_TRUE(HasBecomeEqual([&instance2]() { return instance2.GetCoordinatorToCoordinatorConfigs().size(); }, 3));
     auto const routing_table = instance2.GetRoutingTable();
     ASSERT_EQ(routing_table.size(), 1);
     auto const &routers = routing_table[0];
@@ -321,8 +316,7 @@ TEST_F(CoordinatorInstanceTest, GetRoutingTable) {
 
   {
     ASSERT_TRUE(HasBecomeEqual([&instance3]() { return instance3.ShowInstances().size(); }, 3));
-    ASSERT_TRUE(HasBecomeEqual(
-        [&instance3]() { return instance3.GetRaftState().GetCoordinatorToCoordinatorConfigs().size(); }, 3));
+    ASSERT_TRUE(HasBecomeEqual([&instance3]() { return instance3.GetCoordinatorToCoordinatorConfigs().size(); }, 3));
     auto const routing_table = instance3.GetRoutingTable();
     ASSERT_EQ(routing_table.size(), 1);
     auto const &routers = routing_table[0];

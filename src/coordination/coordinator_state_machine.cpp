@@ -155,10 +155,6 @@ auto CoordinatorStateMachine::HasMainState(std::string_view instance_name) const
   return cluster_state_.HasMainState(instance_name);
 }
 
-auto CoordinatorStateMachine::HasReplicaState(std::string_view instance_name) const -> bool {
-  return cluster_state_.HasReplicaState(instance_name);
-}
-
 auto CoordinatorStateMachine::CreateLog(nlohmann::json &&log) -> ptr<buffer> {
   auto const log_dump = log.dump();
   ptr<buffer> log_buf = buffer::alloc(sizeof(uint32_t) + log_dump.size());
@@ -411,11 +407,7 @@ auto CoordinatorStateMachine::IsCurrentMain(std::string_view instance_name) cons
   return cluster_state_.IsCurrentMain(instance_name);
 }
 
-auto CoordinatorStateMachine::GetInstanceUUID(std::string_view instance_name) const -> utils::UUID {
-  return cluster_state_.GetInstanceUUID(instance_name);
-}
-
-auto CoordinatorStateMachine::IsLockOpened() const -> bool { return cluster_state_.GetIsLockOpened(); }
+auto CoordinatorStateMachine::IsLockOpened() const -> bool { return cluster_state_.IsLockOpened(); }
 
 auto CoordinatorStateMachine::TryGetCurrentMainName() const -> std::optional<std::string> {
   return cluster_state_.TryGetCurrentMainName();
