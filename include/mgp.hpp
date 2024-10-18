@@ -124,14 +124,14 @@ inline void UnRegister() noexcept { current_memory.reset(); }
 inline bool IsThisThreadRegistered() noexcept { return current_memory.has_value(); }
 };  // namespace MemoryDispatcher
 
-// The use of MemoryDispatcherGuard should be the prefered way to pass
-// the memory pointer to this header. The use of the 'mgp_memory *memory'
-// pointer is deprecated and will be removed in upcoming releases.
-
-// TODO - Once we deprecate this we should remove this
-// and make sure nothing relies on it anymore. This alone
-// can not guarantee threadsafe use of query procedures.
-inline mgp_memory *memory{nullptr};
+// Leaving "memory" variable here in order to generate a better module compilation error.
+// It should never be used; instead use MemoryDispatcherGuard.
+struct UnsupportedMgpMemory {
+  UnsupportedMgpMemory() = default;
+  void operator=(mgp_memory *) __attribute__((diagnose_if(
+      true, "mgp::memory must not be used as of v2.18.1. Please use MemoryDispatcherGuard instead.", "error")));
+};
+inline UnsupportedMgpMemory memory;  // NOSONAR
 
 class MemoryDispatcherGuard final {
  public:
@@ -145,18 +145,9 @@ class MemoryDispatcherGuard final {
   ~MemoryDispatcherGuard() { MemoryDispatcher::UnRegister(); }
 };
 
-// Currently we want to preserve both ways(using mgp::memory and
-// MemoryDispatcherGuard) of setting the correct memory resource
-// from the shared object files. This forwarding function is a
-// helper function for that purpose. Once we get rid of the
-// 'mgp_memory *memory' pointer this function will not be needed
-// anymore and the calls to the memory resource should rely on
-// the mapping instead.
+// Thread must be registered, otherwise the function will segfault.
 template <typename Func, typename... Args>
 inline decltype(auto) MemHandlerCallback(Func &&func, Args &&...args) {
-  if (!MemoryDispatcher::IsThisThreadRegistered()) {
-    return std::forward<Func>(func)(std::forward<Args>(args)..., memory);
-  }
   return std::forward<Func>(func)(std::forward<Args>(args)..., MemoryDispatcher::GetMemoryResource());
 }
 
