@@ -1,0 +1,53 @@
+name: Begin MG release process
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: "Release version (format: X.Y)"
+        required: true
+        type: string
+      patch_version:
+        description: "Patch version (format: Z)"
+        required: true
+        type: string
+
+jobs:
+  begin_release_job:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v2
+
+      - name: Track or create release branch
+        run: |
+          git pull --all
+          echo Test and use remote branch when it already exists - failure is ok since it will get created automatically as needed
+          if git checkout -b release/${{ github.event.inputs.release_version }} origin/release/${{ github.event.inputs.release_version }} ; then
+            echo Remote branch already exists
+          else
+            echo Creating local branch
+            git checkout -b release/${{ github.event.inputs.release_version }}
+          fi
+          git branch
+
+      - name: Modify CMakeLists.txt
+        run: |
+          temp_file=$( mktemp --tmpdir=. )
+          awk '/MEMGRAPH_OVERRIDE_VERSION/ {gsub(/".*"/, "\"${{ github.event.inputs.release_version }}.${{ github.event.inputs.patch_version }}\""); print; next} {print}' CMakeLists.txt > $temp_file
+          mv $temp_file CMakeLists.txt
+          grep OVERRIDE CMakeLists.txt
+
+      - name: Git config
+        run: |
+          git config --global user.email "hal.eisen@memgraph.io"
+          git config --global user.name "Hal Eisen automation bot"
+          echo push.autoSetupRemote will silently add \"--set-upstream origin\" to the \"git push\" when the remote branch is missing
+          git config --global push.autoSetupRemote true
+
+      - name: Add, commit and push CMakeLists.txt
+        run: |
+          git add CMakeLists.txt
+          git commit -m "Update CMakeLists.txt with new memgraph override version"
+          git push
