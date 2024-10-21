@@ -179,18 +179,7 @@ class fmt::formatter<QueryLogWrapper> : public fmt::ostream_formatter {};
 #endif
 
 std::ostream &operator<<(std::ostream &os, const QueryLogWrapper &qlw) {
-  // Avoids copies if possible
-  struct str_helper {
-    str_helper(std::string_view view_in) : sv{view_in} {}
-    str_helper(std::string str_in) : str{std::move(str_in)}, sv{str} {}
-    std::string_view view() const { return sv; }
-
-   private:
-    std::string str;
-    std::string_view sv;
-  };
-
-  auto final_query = str_helper{qlw.query};
+  auto final_query = memgraph::utils::NoCopyStr{qlw.query};
 #if MG_ENTERPRISE
   os << "[Run - " << qlw.db_name << "] ";
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
