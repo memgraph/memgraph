@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <sys/types.h>
 #include <chrono>
 #include <cstdint>
 #include <functional>
@@ -21,6 +22,7 @@
 
 #include "io/network/endpoint.hpp"
 #include "kvstore/kvstore.hpp"
+#include "mg_exceptions.hpp"
 #include "mg_procedure.h"
 #include "query/exceptions.hpp"
 #include "replication/config.hpp"
@@ -308,6 +310,15 @@ class Storage {
     std::string TextIndexAggregate(const std::string &index_name, const std::string &search_query,
                                    const std::string &aggregation_query) const {
       return storage_->indices_.text_index_.Aggregate(index_name, search_query, aggregation_query);
+    }
+
+    std::vector<std::pair<Gid, double>> VectorIndexSearch(const std::string &index_name, uint64_t number_of_results,
+                                                          const std::vector<float> &vector) const {
+      if (is_transaction_active_) {
+        return storage_->indices_.vector_index_.Search(index_name, transaction_.start_timestamp, number_of_results,
+                                                       vector);
+      }
+      throw mg_exception::NotYetImplementedException();
     }
 
     virtual IndicesInfo ListAllIndices() const = 0;

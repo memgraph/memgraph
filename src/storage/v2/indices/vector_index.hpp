@@ -73,8 +73,8 @@ class VectorIndex {
   void AddNodeToIndex(Vertex *vertex, const LabelPropKey &label_prop, uint64_t commit_timestamp);
   std::vector<std::string> ListAllIndices();
   std::size_t Size(const std::string &index_name);
-  std::vector<Vertex *> Search(const std::string &index_name, uint64_t start_timestamp, uint64_t result_set_size,
-                               const std::vector<float> &query_vector);
+  std::vector<std::pair<Gid, double>> Search(const std::string &index_name, uint64_t start_timestamp,
+                                             uint64_t result_set_size, const std::vector<float> &query_vector);
 
  private:
   struct Impl;

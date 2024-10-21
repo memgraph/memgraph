@@ -122,12 +122,14 @@ std::vector<std::string> VectorIndex::ListAllIndices() {
   return indices;
 }
 
-std::vector<Vertex *> VectorIndex::Search(const std::string &index_name, uint64_t start_timestamp,
-                                          uint64_t result_set_size, const std::vector<float> &query_vector) {
+std::vector<std::pair<Gid, double>> VectorIndex::Search(const std::string &index_name, uint64_t start_timestamp,
+                                                        uint64_t result_set_size,
+                                                        const std::vector<float> &query_vector) {
   const auto &label_prop = pimpl->index_name_to_label_prop_.at(index_name);
   const auto &index = pimpl->index_.at(label_prop);
 
-  std::vector<Vertex *> result;
+  // The result vector will contain pairs of vertices and their score.
+  std::vector<std::pair<Gid, double>> result;
   result.reserve(result_set_size);
 
   auto filtering_function = [start_timestamp](const VectorIndexKey &key) {
@@ -138,7 +140,7 @@ std::vector<Vertex *> VectorIndex::Search(const std::string &index_name, uint64_
   const auto &result_keys = index.filtered_search(query_vector.data(), result_set_size, filtering_function);
   for (std::size_t i = 0; i < result_keys.size(); ++i) {
     const auto &key = static_cast<VectorIndexKey>(result_keys[i].member.key);
-    result.push_back(key.vertex);
+    result.emplace_back(key.vertex->gid, result_keys[i].distance);
   }
 
   return result;
