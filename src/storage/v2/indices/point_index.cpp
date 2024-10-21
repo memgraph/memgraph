@@ -524,35 +524,42 @@ create_bounding_box(const point_type &center_point, double boundary) -> bg::mode
   auto radLon = toRadians(bg::get<0>(center_point));
   auto radLat = toRadians(bg::get<1>(center_point));
 
-  constexpr auto MIN_LAT = -M_PI;
-  constexpr auto MAX_LAT = M_PI;
+  constexpr auto MIN_LAT = -M_PI_2;
+  constexpr auto MAX_LAT = M_PI_2;
 
-  constexpr auto MIN_LON = -2.0 * M_PI;
-  constexpr auto MAX_LON = 2.0 * M_PI;
+  constexpr auto MIN_LON = -M_PI;
+  constexpr auto MAX_LON = M_PI;
 
   double minLat = radLat - radDist;
   double maxLat = radLat + radDist;
 
   double minLon, maxLon;
+  // check if latitude needs to truncate at the poles
   if (minLat > MIN_LAT && maxLat < MAX_LAT) {
     double deltaLon = std::asin(std::sin(radDist) / std::cos(radLat));
     minLon = radLon - deltaLon;
     if (minLon < MIN_LON) minLon += 2.0 * M_PI;
     maxLon = radLon + deltaLon;
     if (maxLon > MAX_LON) maxLon -= 2.0 * M_PI;
+
+    // for rtree `covered_by` needs the box the have lb <= ub
+    // it internally will deal with these non-normalised degrees
+    if (maxLon < minLon) maxLon += 2.0 * M_PI;
+
   } else {
     minLat = std::max(minLat, MIN_LAT);
     maxLat = std::min(maxLat, MAX_LAT);
     minLon = MIN_LON;
     maxLon = MAX_LON;
   }
+
   if constexpr (n_dimensions == 2) {
-    auto min_corner = point_type{toDegrees(minLat), toDegrees(minLon)};
-    auto max_corner = point_type{toDegrees(maxLat), toDegrees(maxLon)};
+    auto min_corner = point_type{toDegrees(minLon), toDegrees(minLat)};
+    auto max_corner = point_type{toDegrees(maxLon), toDegrees(maxLat)};
     return bg::model::box<point_type>{min_corner, max_corner};
   } else {
-    auto min_corner = point_type{toDegrees(minLat), toDegrees(minLon), 0.0};
-    auto max_corner = point_type{toDegrees(maxLat), toDegrees(maxLon), std::numeric_limits<double>::infinity()};
+    auto min_corner = point_type{toDegrees(minLon), toDegrees(minLat), 0.0};
+    auto max_corner = point_type{toDegrees(maxLon), toDegrees(maxLat), std::numeric_limits<double>::infinity()};
     return bg::model::box<point_type>{min_corner, max_corner};
   }
 }
@@ -586,14 +593,6 @@ auto get_index_iterator_distance(Index &index, PropertyValue const &point_value,
     } else {
       auto tmp_point = point_value.ValuePoint2d();
       return point_type(tmp_point.x(), tmp_point.y());
-    }
-  });
-
-  auto center_point2 = std::invoke([&]() {
-    if constexpr (dimensions == 3) {
-      return point_value.ValuePoint3d();
-    } else {
-      return point_value.ValuePoint2d();
     }
   });
 
