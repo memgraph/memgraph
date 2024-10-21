@@ -489,7 +489,7 @@ inline std::ostream &operator<<(std::ostream &os, const PropertyValueImpl<Alloc>
     case PropertyValueType::Double:
       return os << value.ValueDouble();
     case PropertyValueType::String:
-      return os << value.ValueString();
+      return os << "\"" << value.ValueString() << "\"";
     case PropertyValueType::List:
       os << "[";
       utils::PrintIterable(os, value.ValueList());
