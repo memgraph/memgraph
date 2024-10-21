@@ -518,7 +518,6 @@ template <typename point_type>
 requires std::is_same<typename bg::traits::coordinate_system<point_type>::type,
                       bg::cs::geographic<bg::degree>>::value auto
 create_bounding_box(const point_type &center_point, double boundary) -> bg::model::box<point_type> {
-  constexpr auto n_dimensions = bg::traits::dimension<point_type>::value;
   double radDist = boundary / MEAN_EARTH_RADIUS;
 
   auto radLon = toRadians(bg::get<0>(center_point));
@@ -553,13 +552,15 @@ create_bounding_box(const point_type &center_point, double boundary) -> bg::mode
     maxLon = MAX_LON;
   }
 
+  constexpr auto n_dimensions = bg::traits::dimension<point_type>::value;
   if constexpr (n_dimensions == 2) {
     auto min_corner = point_type{toDegrees(minLon), toDegrees(minLat)};
     auto max_corner = point_type{toDegrees(maxLon), toDegrees(maxLat)};
     return bg::model::box<point_type>{min_corner, max_corner};
   } else {
-    auto min_corner = point_type{toDegrees(minLon), toDegrees(minLat), 0.0};
-    auto max_corner = point_type{toDegrees(maxLon), toDegrees(maxLat), std::numeric_limits<double>::infinity()};
+    auto height_center = bg::get<2>(center_point);
+    auto min_corner = point_type{toDegrees(minLon), toDegrees(minLat), height_center - boundary};
+    auto max_corner = point_type{toDegrees(maxLon), toDegrees(maxLat), height_center + boundary};
     return bg::model::box<point_type>{min_corner, max_corner};
   }
 }
@@ -582,45 +583,33 @@ auto get_index_iterator_distance(Index &index, PropertyValue const &point_value,
   }
 
   using point_type = Index::value_type::point_type;
-  using CoordinateSystem = typename bg::traits::coordinate_system<point_type>::type;
   auto constexpr dimensions = bg::traits::dimension<point_type>::value;
-  auto constexpr is_cartesian = std::is_same<CoordinateSystem, bg::cs::cartesian>::value;
 
-  auto center_point = std::invoke([&]() {
-    if constexpr (dimensions == 3) {
-      auto tmp_point = point_value.ValuePoint3d();
-      return point_type(tmp_point.x(), tmp_point.y(), tmp_point.z());
-    } else {
+  auto center_point = std::invoke([&]() -> point_type {
+    if constexpr (dimensions == 2) {
       auto tmp_point = point_value.ValuePoint2d();
-      return point_type(tmp_point.x(), tmp_point.y());
+      return {tmp_point.x(), tmp_point.y()};
+    } else {
+      auto tmp_point = point_value.ValuePoint3d();
+      return {tmp_point.x(), tmp_point.y(), tmp_point.z()};
     }
   });
 
   auto inner_exclusion_box = [&] {
-    auto get_inner_box_boundary = [](double radius) {
-      auto offset = radius / std::sqrt(dimensions);
-      // Need to ensure this inner box will not intersect with actual boundary,
-      // because `bgi::covered_by` includes edges we are using `!bgi::covered_by` for our OUTSIDE
-      // conditions.
-      return std::max(0.0, std::nexttoward(offset, 0.0));
-    };
+    // dimensional scaling
+    auto offset = boundary / std::sqrt(dimensions);
+    // Need to ensure this inner box will not intersect with actual boundary,
+    // because `bgi::covered_by` includes edges we are using `!bgi::covered_by` for our OUTSIDE
+    // conditions.
+    auto slightly_smaller = std::max(0.0, std::nexttoward(offset, 0.0));
 
-    if constexpr (is_cartesian) {
-      return create_bounding_box(center_point, get_inner_box_boundary(boundary));
-    } else if constexpr (dimensions == 3) {
-      // TODO
-      auto min_corner = point_type{0, 0, 0};
-      auto max_corner = point_type{0, 0, 0};
-      return bg::model::box<point_type>{min_corner, max_corner};
-    } else {
-      // TODO
-      auto min_corner = point_type{0, 0};
-      auto max_corner = point_type{0, 0};
-      return bg::model::box<point_type>{min_corner, max_corner};
-    }
+    return create_bounding_box(center_point, slightly_smaller);
   };
 
-  auto outer_inclusion_box = [&] { return create_bounding_box(center_point, boundary); };
+  auto outer_inclusion_box = [&] {
+    auto silghtly_larger = std::nexttoward(boundary, std::numeric_limits<double>::infinity());
+    return create_bounding_box(center_point, silghtly_larger);
+  };
 
   switch (condition) {
     case PointDistanceCondition::OUTSIDE: {
