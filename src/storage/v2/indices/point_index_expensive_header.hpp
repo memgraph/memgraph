@@ -26,12 +26,12 @@ struct Vertex;
 
 struct IndexPointWGS2d {
   explicit IndexPointWGS2d(Point2d point) : rep{point.x(), point.y()} { DMG_ASSERT(IsWGS(point.crs())); }
-  using point_type = bg::model::point<double, 2, bg::cs::spherical_equatorial<bg::degree>>;
+  using point_type = bg::model::point<double, 2, bg::cs::geographic<bg::degree>>;
   point_type rep;
 };
 struct IndexPointWGS3d {
   explicit IndexPointWGS3d(Point3d point) : rep{point.x(), point.y(), point.z()} { DMG_ASSERT(IsWGS(point.crs())); }
-  using point_type = bg::model::point<double, 3, bg::cs::spherical_equatorial<bg::degree>>;
+  using point_type = bg::model::point<double, 3, bg::cs::geographic<bg::degree>>;
   point_type rep;
 };
 struct IndexPointCartesian2d {
