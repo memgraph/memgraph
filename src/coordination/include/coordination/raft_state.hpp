@@ -78,8 +78,9 @@ class RaftState {
   auto AppendOpenLock() -> bool;
   auto AppendCloseLock() -> bool;
   auto AppendInstanceNeedsDemote(std::string_view) -> bool;
+  auto AppendClusterUpdate(std::vector<DataInstanceState> cluster_state, utils::UUID uuid) -> bool;
 
-  auto GetReplicationInstances() const -> std::vector<ReplicationInstanceState>;
+  auto GetDataInstances() const -> std::vector<DataInstanceState>;
 
   // TODO: (andi) Ideally we delete this and rely just on one thing.
   auto MainExists() const -> bool;

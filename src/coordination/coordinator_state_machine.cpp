@@ -201,30 +201,47 @@ auto CoordinatorStateMachine::SerializeUpdateUUIDForInstance(InstanceUUIDUpdate 
   return CreateLog({{"action", RaftLogAction::UPDATE_UUID_FOR_INSTANCE}, {"info", instance_uuid_change}});
 }
 
+auto CoordinatorStateMachine::SerializeUpdateClusterState(std::vector<DataInstanceState> cluster_state,
+                                                          utils::UUID uuid) -> ptr<buffer> {
+  return CreateLog({{"action", RaftLogAction::UPDATE_CLUSTER_STATE}, {"cluster_state", cluster_state}, {"uuid", uuid}});
+}
+
 auto CoordinatorStateMachine::DecodeLog(buffer &data) -> std::pair<TRaftLog, RaftLogAction> {
   buffer_serializer bs(data);
   auto const json = nlohmann::json::parse(bs.get_str());
   auto const action = json["action"].get<RaftLogAction>();
-  auto const &info = json.at("info");
 
   switch (action) {
+    case RaftLogAction::UPDATE_CLUSTER_STATE: {
+      auto const &cluster_state = json.at("cluster_state");
+      auto const &uuid = json.at("uuid");
+      return {std::make_pair(cluster_state.get<std::vector<DataInstanceState>>(), uuid.get<utils::UUID>()), action};
+    }
     case RaftLogAction::OPEN_LOCK:
       [[fallthrough]];
     case RaftLogAction::CLOSE_LOCK: {
       return {std::monostate{}, action};
     }
-    case RaftLogAction::REGISTER_REPLICATION_INSTANCE:
+    case RaftLogAction::REGISTER_REPLICATION_INSTANCE: {
+      auto const &info = json.at("info");
       return {info.get<CoordinatorToReplicaConfig>(), action};
-    case RaftLogAction::UPDATE_UUID_OF_NEW_MAIN:
+    }
+    case RaftLogAction::UPDATE_UUID_OF_NEW_MAIN: {
+      auto const &info = json.at("info");
       return {info.get<utils::UUID>(), action};
+    }
     case RaftLogAction::UPDATE_UUID_FOR_INSTANCE:
-    case RaftLogAction::SET_INSTANCE_AS_MAIN:
+    case RaftLogAction::SET_INSTANCE_AS_MAIN: {
+      auto const &info = json.at("info");
       return std::pair{info.get<InstanceUUIDUpdate>(), action};
+    }
     case RaftLogAction::UNREGISTER_REPLICATION_INSTANCE:
     case RaftLogAction::INSTANCE_NEEDS_DEMOTE:
       [[fallthrough]];
-    case RaftLogAction::SET_INSTANCE_AS_REPLICA:
+    case RaftLogAction::SET_INSTANCE_AS_REPLICA: {
+      auto const &info = json.at("info");
       return {info.get<std::string>(), action};
+    }
   }
   throw std::runtime_error("Unknown action");
 }
@@ -397,8 +414,8 @@ auto CoordinatorStateMachine::CreateSnapshotInternal(ptr<snapshot> const &snapsh
   }
 }
 
-auto CoordinatorStateMachine::GetReplicationInstances() const -> std::vector<ReplicationInstanceState> {
-  return cluster_state_.GetAllReplicationInstances();
+auto CoordinatorStateMachine::GetDataInstances() const -> std::vector<DataInstanceState> {
+  return cluster_state_.GetDataInstances();
 }
 
 auto CoordinatorStateMachine::GetCurrentMainUUID() const -> utils::UUID { return cluster_state_.GetCurrentMainUUID(); }

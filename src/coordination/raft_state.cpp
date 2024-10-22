@@ -512,14 +512,31 @@ auto RaftState::AppendUpdateUUIDForInstanceLog(std::string_view instance_name, c
   return true;
 }
 
+auto RaftState::AppendClusterUpdate(std::vector<DataInstanceState> cluster_state, utils::UUID uuid) -> bool {
+  auto new_log = CoordinatorStateMachine::SerializeUpdateClusterState(std::move(cluster_state), uuid);
+  auto const res = raft_server_->append_entries({new_log});
+  if (!res->get_accepted()) {
+    spdlog::error("Failed to accept request for updating cluster state.");
+    return false;
+  }
+  spdlog::trace("Request for updating cluster state accepted.");
+
+  if (res->get_result_code() != nuraft::cmd_result_code::OK) {
+    spdlog::error("Failed to update cluster state. Error code {}", int(res->get_result_code()));
+    return false;
+  }
+
+  return true;
+}
+
 auto RaftState::MainExists() const -> bool { return state_machine_->MainExists(); }
 
 auto RaftState::HasMainState(std::string_view instance_name) const -> bool {
   return state_machine_->HasMainState(instance_name);
 }
 
-auto RaftState::GetReplicationInstances() const -> std::vector<ReplicationInstanceState> {
-  return state_machine_->GetReplicationInstances();
+auto RaftState::GetDataInstances() const -> std::vector<DataInstanceState> {
+  return state_machine_->GetDataInstances();
 }
 
 auto RaftState::GetCurrentMainUUID() const -> utils::UUID { return state_machine_->GetCurrentMainUUID(); }
@@ -537,21 +554,17 @@ auto RaftState::TryGetCurrentMainName() const -> std::optional<std::string> {
 auto RaftState::GetRoutingTable() const -> RoutingTable {
   auto res = RoutingTable{};
 
-  auto const repl_instance_to_bolt = [](ReplicationInstanceState const &instance) {
+  auto const repl_instance_to_bolt = [](auto &&instance) {
     return instance.config.BoltSocketAddress();  // non-resolved IP
   };
 
-  auto const is_instance_main = [&](ReplicationInstanceState const &instance) {
-    return IsCurrentMain(instance.config.instance_name);
-  };
+  auto const is_instance_main = [&](auto &&instance) { return IsCurrentMain(instance.config.instance_name); };
 
-  auto const is_instance_replica = [&](ReplicationInstanceState const &instance) {
-    return !IsCurrentMain(instance.config.instance_name);
-  };
+  auto const is_instance_replica = [&](auto &&instance) { return !IsCurrentMain(instance.config.instance_name); };
 
-  auto const &raft_log_repl_instances = GetReplicationInstances();
+  auto const raft_log_data_instances = GetDataInstances();
 
-  auto bolt_mains = raft_log_repl_instances | ranges::views::filter(is_instance_main) |
+  auto bolt_mains = raft_log_data_instances | ranges::views::filter(is_instance_main) |
                     ranges::views::transform(repl_instance_to_bolt) | ranges::to<std::vector>();
   MG_ASSERT(bolt_mains.size() <= 1, "There can be at most one main instance active!");
 
@@ -559,7 +572,7 @@ auto RaftState::GetRoutingTable() const -> RoutingTable {
     res.emplace_back(std::move(bolt_mains), "WRITE");
   }
 
-  auto bolt_replicas = raft_log_repl_instances | ranges::views::filter(is_instance_replica) |
+  auto bolt_replicas = raft_log_data_instances | ranges::views::filter(is_instance_replica) |
                        ranges::views::transform(repl_instance_to_bolt) | ranges::to<std::vector>();
   if (!std::ranges::empty(bolt_replicas)) {
     res.emplace_back(std::move(bolt_replicas), "READ");

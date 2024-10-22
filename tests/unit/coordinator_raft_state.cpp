@@ -70,7 +70,7 @@ TEST_F(RaftStateTest, RaftStateEmptyMetadata) {
 
   ASSERT_EQ(raft_state->InstanceName(), fmt::format("coordinator_{}", coordinator_id));
   ASSERT_TRUE(raft_state->IsLeader());
-  ASSERT_TRUE(raft_state->GetReplicationInstances().empty());
+  ASSERT_TRUE(raft_state->GetDataInstances().empty());
 
   auto const coords = raft_state->GetCoordinatorInstances();
   ASSERT_EQ(coords.size(), 1);
