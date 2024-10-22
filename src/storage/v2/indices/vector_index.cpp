@@ -49,6 +49,48 @@ namespace memgraph::storage {
 
 using mg_vector_index_t = unum::usearch::index_dense_gt<VectorIndexKey, unum::usearch::uint40_t>;
 
+/// Helper function that converts a string representation of a metric kind to the corresponding
+/// `unum::usearch::metric_kind_t` value.
+unum::usearch::metric_kind_t GetMetricKindFromConfig(const std::string &metric_str) {
+  static const std::unordered_map<std::string, unum::usearch::metric_kind_t> metric_map = {
+      {"ip", unum::usearch::metric_kind_t::ip_k},
+      {"cos", unum::usearch::metric_kind_t::cos_k},
+      {"l2sq", unum::usearch::metric_kind_t::l2sq_k},
+      {"pearson", unum::usearch::metric_kind_t::pearson_k},
+      {"haversine", unum::usearch::metric_kind_t::haversine_k},
+      {"divergence", unum::usearch::metric_kind_t::divergence_k},
+      {"hamming", unum::usearch::metric_kind_t::hamming_k},
+      {"tanimoto", unum::usearch::metric_kind_t::tanimoto_k},
+      {"sorensen", unum::usearch::metric_kind_t::sorensen_k},
+      {"jaccard", unum::usearch::metric_kind_t::jaccard_k}};
+
+  auto it = metric_map.find(metric_str);
+  if (it != metric_map.end()) {
+    return it->second;
+  }
+  throw std::invalid_argument("Unknown metric kind: " + metric_str);
+}
+
+/// Helper function that converts a string representation of a scalar kind to the corresponding
+/// `unum::usearch::scalar_kind_t` value.
+unum::usearch::scalar_kind_t GetScalarKindFromConfig(const std::string &scalar_str) {
+  static const std::unordered_map<std::string, unum::usearch::scalar_kind_t> scalar_map = {
+      {"b1x8", unum::usearch::scalar_kind_t::b1x8_k}, {"u40", unum::usearch::scalar_kind_t::u40_k},
+      {"uuid", unum::usearch::scalar_kind_t::uuid_k}, {"bf16", unum::usearch::scalar_kind_t::bf16_k},
+      {"f64", unum::usearch::scalar_kind_t::f64_k},   {"f32", unum::usearch::scalar_kind_t::f32_k},
+      {"f16", unum::usearch::scalar_kind_t::f16_k},   {"f8", unum::usearch::scalar_kind_t::f8_k},
+      {"u64", unum::usearch::scalar_kind_t::u64_k},   {"u32", unum::usearch::scalar_kind_t::u32_k},
+      {"u16", unum::usearch::scalar_kind_t::u16_k},   {"u8", unum::usearch::scalar_kind_t::u8_k},
+      {"i64", unum::usearch::scalar_kind_t::i64_k},   {"i32", unum::usearch::scalar_kind_t::i32_k},
+      {"i16", unum::usearch::scalar_kind_t::i16_k},   {"i8", unum::usearch::scalar_kind_t::i8_k}};
+
+  auto it = scalar_map.find(scalar_str);
+  if (it != scalar_map.end()) {
+    return it->second;
+  }
+  throw std::invalid_argument("Unknown scalar kind: " + scalar_str);
+}
+
 // The `Impl` structure implements the underlying functionality of the `VectorIndex` class.
 // It uses the PIMPL (Pointer to Implementation) idiom to separate the interface of `VectorIndex`
 // from its implementation, making it easier to maintain, extend, and hide implementation details.
@@ -71,15 +113,19 @@ VectorIndex::VectorIndex() : pimpl(std::make_unique<Impl>()) {}
 VectorIndex::~VectorIndex() {}
 
 void VectorIndex::CreateIndex(const VectorIndexSpec &spec) {
-  // TODO(DavIvek): Take a look under https://github.com/memgraph/cmake/blob/main/vs_usearch.cpp to see how to inject
-  // custom key.
-  // TODO(DavIvek): Parametrize everything (e.g. vector_size should be dynamic).
-
   // size and limit are important parameters for the usearch index to work properly.
   uint64_t vector_size = spec.config["size"];
   uint64_t limit = spec.config["limit"];
-  unum::usearch::metric_punned_t metric(vector_size, unum::usearch::metric_kind_t::l2sq_k,
-                                        unum::usearch::scalar_kind_t::f32_k);
+
+  // Read metric kind from config, with a fallback to default 'l2sq_k' if not provided.
+  std::string metric_kind_str = spec.config.contains("metric") ? spec.config["metric"] : "l2sq";
+  unum::usearch::metric_kind_t metric_kind = GetMetricKindFromConfig(metric_kind_str);
+
+  // Read scalar kind from config, with a fallback to default 'f32_k' if not provided.
+  std::string scalar_kind_str = spec.config.contains("scalar") ? spec.config["scalar"] : "f32";
+  unum::usearch::scalar_kind_t scalar_kind = GetScalarKindFromConfig(scalar_kind_str);
+
+  unum::usearch::metric_punned_t metric(vector_size, metric_kind, scalar_kind);
 
   const auto label_prop = LabelPropKey{spec.label, spec.property};
   pimpl->index_name_to_label_prop_.emplace(spec.index_name, label_prop);
@@ -134,6 +180,7 @@ std::vector<std::pair<Gid, double>> VectorIndex::Search(const std::string &index
 
   auto filtering_function = [start_timestamp](const VectorIndexKey &key) {
     // This transcation can see only nodes that were committed before the start_timestamp.
+    // TODO(@DavIvek): Implement MVCC logic. -> This works only when there is no update on the node.
     return key.commit_timestamp < start_timestamp;
   };
 

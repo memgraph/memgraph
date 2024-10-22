@@ -43,6 +43,7 @@ void VectorSearch::Search(mgp_list *args, mgp_graph *memgraph_graph, mgp_result 
 
     for (const auto &result : results) {
       auto record = record_factory.NewRecord();
+
       // result is also a list with two elements: node_id and score
       auto result_list = result.ValueList();
       record.Insert(VectorSearch::kReturnNodeId.data(), result_list[0].ValueNode());
