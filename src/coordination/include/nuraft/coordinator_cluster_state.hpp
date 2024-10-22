@@ -55,9 +55,6 @@ struct DataInstanceState {
 void to_json(nlohmann::json &j, DataInstanceState const &instance_state);
 void from_json(nlohmann::json const &j, DataInstanceState &instance_state);
 
-using TRaftLog = std::variant<std::pair<std::vector<DataInstanceState>, utils::UUID>, std::string, utils::UUID,
-                              CoordinatorToReplicaConfig, InstanceUUIDUpdate, std::monostate>;
-
 // Represents the state of the cluster from the coordinator's perspective.
 // Source of truth since it is modified only as the result of RAFT's commiting.
 class CoordinatorClusterState {
@@ -79,7 +76,8 @@ class CoordinatorClusterState {
 
   auto IsCurrentMain(std::string_view instance_name) const -> bool;
 
-  auto DoAction(TRaftLog const &log_entry, RaftLogAction log_action) -> void;
+  auto DoAction(std::optional<std::pair<std::vector<DataInstanceState>, utils::UUID>> log_entry,
+                RaftLogAction log_action) -> void;
 
   auto Serialize(ptr<buffer> &data) -> void;
 

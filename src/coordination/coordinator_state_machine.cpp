@@ -171,42 +171,13 @@ auto CoordinatorStateMachine::SerializeCloseLock() -> ptr<buffer> {
   return CreateLog({{"action", RaftLogAction::CLOSE_LOCK}, {"info", nullptr}});
 }
 
-auto CoordinatorStateMachine::SerializeRegisterInstance(CoordinatorToReplicaConfig const &config) -> ptr<buffer> {
-  return CreateLog({{"action", RaftLogAction::REGISTER_REPLICATION_INSTANCE}, {"info", config}});
-}
-
-auto CoordinatorStateMachine::SerializeUnregisterInstance(std::string_view instance_name) -> ptr<buffer> {
-  return CreateLog({{"action", RaftLogAction::UNREGISTER_REPLICATION_INSTANCE}, {"info", instance_name}});
-}
-
-auto CoordinatorStateMachine::SerializeSetInstanceAsMain(InstanceUUIDUpdate const &instance_uuid_change)
-    -> ptr<buffer> {
-  return CreateLog({{"action", RaftLogAction::SET_INSTANCE_AS_MAIN}, {"info", instance_uuid_change}});
-}
-
-auto CoordinatorStateMachine::SerializeSetInstanceAsReplica(std::string_view instance_name) -> ptr<buffer> {
-  return CreateLog({{"action", RaftLogAction::SET_INSTANCE_AS_REPLICA}, {"info", instance_name}});
-}
-
-auto CoordinatorStateMachine::SerializeInstanceNeedsDemote(std::string_view instance_name) -> ptr<buffer> {
-  return CreateLog({{"action", RaftLogAction::INSTANCE_NEEDS_DEMOTE}, {"info", std::string{instance_name}}});
-}
-
-auto CoordinatorStateMachine::SerializeUpdateUUIDForNewMain(utils::UUID const &uuid) -> ptr<buffer> {
-  return CreateLog({{"action", RaftLogAction::UPDATE_UUID_OF_NEW_MAIN}, {"info", uuid}});
-}
-
-auto CoordinatorStateMachine::SerializeUpdateUUIDForInstance(InstanceUUIDUpdate const &instance_uuid_change)
-    -> ptr<buffer> {
-  return CreateLog({{"action", RaftLogAction::UPDATE_UUID_FOR_INSTANCE}, {"info", instance_uuid_change}});
-}
-
 auto CoordinatorStateMachine::SerializeUpdateClusterState(std::vector<DataInstanceState> cluster_state,
                                                           utils::UUID uuid) -> ptr<buffer> {
   return CreateLog({{"action", RaftLogAction::UPDATE_CLUSTER_STATE}, {"cluster_state", cluster_state}, {"uuid", uuid}});
 }
 
-auto CoordinatorStateMachine::DecodeLog(buffer &data) -> std::pair<TRaftLog, RaftLogAction> {
+auto CoordinatorStateMachine::DecodeLog(buffer &data)
+    -> std::pair<std::optional<std::pair<std::vector<DataInstanceState>, utils::UUID>>, RaftLogAction> {
   buffer_serializer bs(data);
   auto const json = nlohmann::json::parse(bs.get_str());
   auto const action = json["action"].get<RaftLogAction>();
@@ -220,27 +191,7 @@ auto CoordinatorStateMachine::DecodeLog(buffer &data) -> std::pair<TRaftLog, Raf
     case RaftLogAction::OPEN_LOCK:
       [[fallthrough]];
     case RaftLogAction::CLOSE_LOCK: {
-      return {std::monostate{}, action};
-    }
-    case RaftLogAction::REGISTER_REPLICATION_INSTANCE: {
-      auto const &info = json.at("info");
-      return {info.get<CoordinatorToReplicaConfig>(), action};
-    }
-    case RaftLogAction::UPDATE_UUID_OF_NEW_MAIN: {
-      auto const &info = json.at("info");
-      return {info.get<utils::UUID>(), action};
-    }
-    case RaftLogAction::UPDATE_UUID_FOR_INSTANCE:
-    case RaftLogAction::SET_INSTANCE_AS_MAIN: {
-      auto const &info = json.at("info");
-      return std::pair{info.get<InstanceUUIDUpdate>(), action};
-    }
-    case RaftLogAction::UNREGISTER_REPLICATION_INSTANCE:
-    case RaftLogAction::INSTANCE_NEEDS_DEMOTE:
-      [[fallthrough]];
-    case RaftLogAction::SET_INSTANCE_AS_REPLICA: {
-      auto const &info = json.at("info");
-      return {info.get<std::string>(), action};
+      return {{}, action};
     }
   }
   throw std::runtime_error("Unknown action");
@@ -250,8 +201,8 @@ auto CoordinatorStateMachine::pre_commit(ulong const /*log_idx*/, buffer & /*dat
 
 auto CoordinatorStateMachine::commit(ulong const log_idx, buffer &data) -> ptr<buffer> {
   logger_.Log(nuraft_log_level::TRACE, fmt::format("Commit: log_idx={}, data.size()={}", log_idx, data.size()));
-  auto const &[parsed_data, log_action] = DecodeLog(data);
-  cluster_state_.DoAction(parsed_data, log_action);
+  auto [parsed_data, log_action] = DecodeLog(data);
+  cluster_state_.DoAction(std::move(parsed_data), log_action);
   if (durability_) {
     durability_->Put(kLastCommitedIdx, std::to_string(log_idx));
   }

@@ -90,81 +90,14 @@ auto CoordinatorClusterState::IsCurrentMain(std::string_view instance_name) cons
   return it != data_instances_.end() && it->status == ReplicationRole::MAIN && it->instance_uuid == current_main_uuid_;
 }
 
-auto CoordinatorClusterState::DoAction(TRaftLog const &log_entry, RaftLogAction log_action) -> void {
+auto CoordinatorClusterState::DoAction(std::optional<std::pair<std::vector<DataInstanceState>, utils::UUID>> log_entry,
+                                       RaftLogAction log_action) -> void {
   auto lock = std::lock_guard{log_lock_};
   switch (log_action) {
     case RaftLogAction::UPDATE_CLUSTER_STATE: {
       spdlog::trace("DoAction: update cluster state.");
-      auto data = std::get<std::pair<std::vector<DataInstanceState>, utils::UUID>>(log_entry);
-      data_instances_ = std::move(data.first);
-      current_main_uuid_ = data.second;
-      break;
-    }
-    case RaftLogAction::REGISTER_REPLICATION_INSTANCE: {
-      auto const &config = std::get<CoordinatorToReplicaConfig>(log_entry);
-      spdlog::trace("DoAction: register replication instance {}.", config.instance_name);
-      // Setting instance uuid to random, if registration fails, we are still in random state
-      data_instances_.emplace_back(config, ReplicationRole::REPLICA, utils::UUID{}, false);
-      break;
-    }
-    case RaftLogAction::UNREGISTER_REPLICATION_INSTANCE: {
-      auto const instance_name = std::get<std::string>(log_entry);
-      spdlog::trace("DoAction: unregister replication instance {}.", instance_name);
-      std::ranges::remove_if(data_instances_, [&instance_name](auto &&data_instance) {
-        return data_instance.config.instance_name == instance_name;
-      });
-      break;
-    }
-    case RaftLogAction::SET_INSTANCE_AS_MAIN: {
-      auto const instance_uuid_change = std::get<InstanceUUIDUpdate>(log_entry);
-      auto it = std::ranges::find_if(data_instances_,
-                                     [instance_name = instance_uuid_change.instance_name](auto &&data_instance) {
-                                       return data_instance.config.instance_name == instance_name;
-                                     });
-      MG_ASSERT(it != data_instances_.end(), "Instance does not exist as part of raft state!");
-      it->status = ReplicationRole::MAIN;
-      it->instance_uuid = instance_uuid_change.uuid;
-      spdlog::trace("DoAction: set replication instance {} as main with uuid {}", instance_uuid_change.instance_name,
-                    std::string{instance_uuid_change.uuid});
-      break;
-    }
-    case RaftLogAction::SET_INSTANCE_AS_REPLICA: {
-      auto const instance_name = std::get<std::string>(log_entry);
-      auto it = std::ranges::find_if(data_instances_, [&instance_name](auto &&data_instance) {
-        return data_instance.config.instance_name == instance_name;
-      });
-      MG_ASSERT(it != data_instances_.end(), "Instance does not exist as part of raft state!");
-      it->status = ReplicationRole::REPLICA;
-      it->needs_demote = false;
-      spdlog::trace("DoAction: set replication instance {} as replica", instance_name);
-      break;
-    }
-    case RaftLogAction::UPDATE_UUID_OF_NEW_MAIN: {
-      current_main_uuid_ = std::get<utils::UUID>(log_entry);
-      spdlog::trace("DoAction: update uuid of new main {}", std::string{current_main_uuid_});
-      break;
-    }
-    case RaftLogAction::UPDATE_UUID_FOR_INSTANCE: {
-      auto const instance_uuid_change = std::get<InstanceUUIDUpdate>(log_entry);
-      auto it = std::ranges::find_if(data_instances_,
-                                     [instance_name = instance_uuid_change.instance_name](auto &&data_instance) {
-                                       return data_instance.config.instance_name == instance_name;
-                                     });
-
-      MG_ASSERT(it != data_instances_.end(), "Instance doesn't exist as part of RAFT state");
-      it->instance_uuid = instance_uuid_change.uuid;
-      spdlog::trace("DoAction: update uuid for instance {} to {}", instance_uuid_change.instance_name,
-                    std::string{instance_uuid_change.uuid});
-      break;
-    }
-    case RaftLogAction::INSTANCE_NEEDS_DEMOTE: {
-      auto const instance_name = std::get<std::string>(log_entry);
-      auto it = std::ranges::find_if(data_instances_, [&instance_name](auto &&data_instance) {
-        return data_instance.config.instance_name == instance_name;
-      });
-      MG_ASSERT(it != data_instances_.end(), "Instance does not exist as part of raft state!");
-      it->needs_demote = true;
-      spdlog::trace("Added action that instance {} needs demote to replica", instance_name);
+      data_instances_ = std::move(log_entry->first);
+      current_main_uuid_ = log_entry->second;
       break;
     }
     case RaftLogAction::OPEN_LOCK: {
