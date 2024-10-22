@@ -68,6 +68,6 @@ class VectorSearchIndex(Workload):
 
     def DELETE_ME__benchmark__vector__single_index_lookup(self):
         return (
-            'CALL vector_search.search("index", 10, $query) YIELD * RETURN node_id, score;',
+            'CALL vector_search.search("index", 10, $query) YIELD * RETURN id(node), distance;',
             {"query": self._get_random_vector()},
         )
