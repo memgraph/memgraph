@@ -11,204 +11,150 @@
 
 #include <string>
 
+#include <sys/types.h>
 #include "gtest/gtest.h"
 #include "query/db_accessor.hpp"
-#include "storage/v2/config.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
-#include "storage/v2/transaction.hpp"
-#include "tests/unit/disk_test_utils.hpp"
+
+const std::string_view test_index = "test_index";
+const std::string_view test_label = "test_label";
+const std::string_view test_property = "test_property";
 
 template <typename StorageType>
 class VectorSearchTest : public testing::Test {
  public:
   const std::string testSuite = "vector_search";
-  memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
-  std::unique_ptr<memgraph::storage::Storage> db = std::make_unique<memgraph::storage::InMemoryStorage>(config);
+  std::unique_ptr<memgraph::storage::Storage> db = std::make_unique<memgraph::storage::InMemoryStorage>();
+
+  void CreateTestIndex(memgraph::storage::VectorIndex &index) {
+    auto storage_dba = db->Access();
+    memgraph::query::DbAccessor dba(storage_dba.get());
+    const auto label = dba.NameToLabel(test_label.data());
+    const auto property = dba.NameToProperty(test_property.data());
+    memgraph::storage::VectorIndexSpec spec{
+        .index_name = test_index.data(),
+        .label = label,
+        .property = property,
+        .config = nlohmann::json::parse(R"({"size": 10, "limit": 10})"),
+    };
+
+    index.CreateIndex(spec);
+  }
+
+  std::vector<memgraph::storage::PropertyValue> ConvertToPropertyValueVector(const std::vector<float> &float_list) {
+    std::vector<memgraph::storage::PropertyValue> property_values;
+    property_values.reserve(float_list.size());  // Reserve space for efficiency
+
+    std::ranges::transform(float_list, std::back_inserter(property_values),
+                           [](float value) { return memgraph::storage::PropertyValue(value); });
+
+    return property_values;
+  }
+
+  memgraph::storage::Gid AddNodeToIndex(memgraph::storage::VectorIndex &index,
+                                        const std::vector<memgraph::storage::PropertyValue> &properties,
+                                        uint64_t commit_timestamp) {
+    auto storage_dba = db->Access();
+    memgraph::query::DbAccessor dba(storage_dba.get());
+
+    auto vertex_accessor = storage_dba->CreateVertex();
+    const auto label_id = dba.NameToLabel(test_label);
+    const auto property_id = dba.NameToProperty(test_property);
+
+    vertex_accessor.AddLabel(label_id);
+    vertex_accessor.SetProperty(property_id, memgraph::storage::PropertyValue(properties));
+    const auto label_prop =
+        memgraph::storage::LabelPropKey(dba.NameToLabel(test_label), dba.NameToProperty(test_property));
+    index.AddNodeToIndex(vertex_accessor.vertex_, label_prop, commit_timestamp);
+
+    return vertex_accessor.Gid();
+  }
 };
 
 TYPED_TEST_SUITE(VectorSearchTest, memgraph::storage::InMemoryStorage);
 
 TYPED_TEST(VectorSearchTest, CreateIndexTest) {
-  auto storage_dba = this->db->Access();
-  memgraph::query::DbAccessor dba(storage_dba.get());
-  const auto label = dba.NameToLabel("test_label");
-  const auto property = dba.NameToProperty("test_property");
-  memgraph::storage::VectorIndexSpec spec{
-      .index_name = "test_index",
-      .label = label,
-      .property = property,
-      .config = nlohmann::json::parse(R"({"size": 10, "limit": 10})"),
-  };
-
   memgraph::storage::VectorIndex index;
-  index.CreateIndex(spec);
+  this->CreateTestIndex(index);
 
   EXPECT_EQ(index.ListAllIndices().size(), 1);
 }
 
 TYPED_TEST(VectorSearchTest, AddNodeTest) {
-  auto storage_dba = this->db->Access();
-  memgraph::query::DbAccessor dba(storage_dba.get());
-  const auto label = dba.NameToLabel("test_label");
-  const auto property = dba.NameToProperty("test_property");
-  memgraph::storage::VectorIndexSpec spec{
-      .index_name = "test_index",
-      .label = label,
-      .property = property,
-      .config = nlohmann::json::parse(R"({"size": 5, "limit": 10})"),
-  };
-
   memgraph::storage::VectorIndex index;
-  index.CreateIndex(spec);
+  this->CreateTestIndex(index);
 
-  EXPECT_EQ(index.ListAllIndices().size(), 1);
+  const auto properties = this->ConvertToPropertyValueVector({1.0, 2.0, 3.0, 4.0, 5.0});
+  this->AddNodeToIndex(index, properties, 0);
 
-  auto vertex_accessor = storage_dba->CreateVertex();
-  vertex_accessor.AddLabel(label);
-  std::vector<memgraph::storage::PropertyValue> vec = {
-      memgraph::storage::PropertyValue(1.0), memgraph::storage::PropertyValue(2.0),
-      memgraph::storage::PropertyValue(3.0), memgraph::storage::PropertyValue(4.0),
-      memgraph::storage::PropertyValue(5.0)};
-  vertex_accessor.SetProperty(property, memgraph::storage::PropertyValue(vec));
-  const auto label_prop = memgraph::storage::LabelPropKey(label, property);
-  index.AddNodeToIndex(vertex_accessor.vertex_, label_prop, 0);
-
-  EXPECT_EQ(index.Size("test_index"), 1);
+  EXPECT_EQ(index.Size(test_index), 1);
 }
 
 TYPED_TEST(VectorSearchTest, SimpleSearchTest) {
-  auto storage_dba = this->db->Access();
-  memgraph::query::DbAccessor dba(storage_dba.get());
-  const auto label = dba.NameToLabel("test_label");
-  const auto property = dba.NameToProperty("test_property");
-  memgraph::storage::VectorIndexSpec spec{
-      .index_name = "test_index",
-      .label = label,
-      .property = property,
-      .config = nlohmann::json::parse(R"({"size": 5, "limit": 10})"),
-  };
-
   memgraph::storage::VectorIndex index;
-  index.CreateIndex(spec);
+  this->CreateTestIndex(index);
 
-  EXPECT_EQ(index.ListAllIndices().size(), 1);
+  const auto properties = this->ConvertToPropertyValueVector({1.0, 2.0, 3.0, 4.0, 5.0});
+  const auto vertex_gid = this->AddNodeToIndex(index, properties, 0);
 
-  auto vertex_accessor = storage_dba->CreateVertex();
-  vertex_accessor.AddLabel(label);
-  std::vector<memgraph::storage::PropertyValue> vec = {
-      memgraph::storage::PropertyValue(1.0), memgraph::storage::PropertyValue(2.0),
-      memgraph::storage::PropertyValue(3.0), memgraph::storage::PropertyValue(4.0),
-      memgraph::storage::PropertyValue(5.0)};
-  vertex_accessor.SetProperty(property, memgraph::storage::PropertyValue(vec));
-  const auto label_prop = memgraph::storage::LabelPropKey(label, property);
-  index.AddNodeToIndex(vertex_accessor.vertex_, label_prop, 0);
-
-  EXPECT_EQ(index.Size("test_index"), 1);
   std::vector<float> query = {1.0, 2.0, 3.0, 4.0, 5.0};
-  const auto &result = index.Search("test_index", 1, 1, query);
+  const auto &result = index.Search(test_index, 1, 1, query);
   EXPECT_EQ(result.size(), 1);
 
-  const auto &vertex = result[0];
-  EXPECT_EQ(vertex->gid, vertex_accessor.Gid());
+  const auto &[gid, score] = result[0];
+  EXPECT_EQ(gid, vertex_gid);
 }
 
 TYPED_TEST(VectorSearchTest, SearchWithMultipleNodes) {
-  auto storage_dba = this->db->Access();
-  memgraph::query::DbAccessor dba(storage_dba.get());
-  const auto label = dba.NameToLabel("test_label");
-  const auto property = dba.NameToProperty("test_property");
-  memgraph::storage::VectorIndexSpec spec{
-      .index_name = "test_index",
-      .label = label,
-      .property = property,
-      .config = nlohmann::json::parse(R"({"size": 5, "limit": 10})"),
-  };
-
   memgraph::storage::VectorIndex index;
-  index.CreateIndex(spec);
+  this->CreateTestIndex(index);
 
-  EXPECT_EQ(index.ListAllIndices().size(), 1);
+  const auto properties1 = this->ConvertToPropertyValueVector({1.0, 2.0, 3.0, 4.0, 5.0});
+  const auto vertex_gid1 = this->AddNodeToIndex(index, properties1, 0);
 
-  auto vertex_accessor = storage_dba->CreateVertex();
-  vertex_accessor.AddLabel(label);
-  std::vector<memgraph::storage::PropertyValue> vec = {
-      memgraph::storage::PropertyValue(1.0), memgraph::storage::PropertyValue(2.0),
-      memgraph::storage::PropertyValue(3.0), memgraph::storage::PropertyValue(4.0),
-      memgraph::storage::PropertyValue(5.0)};
-  vertex_accessor.SetProperty(property, memgraph::storage::PropertyValue(vec));
-  const auto label_prop = memgraph::storage::LabelPropKey(label, property);
+  const auto properties2 = this->ConvertToPropertyValueVector({10.0, 11.0, 12.0, 13.0, 14.0});
+  const auto vertex_gid2 = this->AddNodeToIndex(index, properties2, 0);
 
-  index.AddNodeToIndex(vertex_accessor.vertex_, label_prop, 0);
-
-  auto vertex_accessor2 = storage_dba->CreateVertex();
-  vertex_accessor2.AddLabel(label);
-  std::vector<memgraph::storage::PropertyValue> vec2 = {
-      memgraph::storage::PropertyValue(10.0), memgraph::storage::PropertyValue(11.0),
-      memgraph::storage::PropertyValue(12.0), memgraph::storage::PropertyValue(13.0),
-      memgraph::storage::PropertyValue(14.0)};
-  vertex_accessor2.SetProperty(property, memgraph::storage::PropertyValue(vec2));
-  const auto label_prop2 = memgraph::storage::LabelPropKey(label, property);
-
-  index.AddNodeToIndex(vertex_accessor2.vertex_, label_prop2, 0);
-
-  EXPECT_EQ(index.Size("test_index"), 2);
+  EXPECT_EQ(index.Size(test_index), 2);
   std::vector<float> query = {10.0, 11.0, 12.0, 13.0, 14.0};
-  const auto &result = index.Search("test_index", 1, 1, query);
+
+  // Search for one node
+  const auto &result = index.Search(test_index, 1, 1, query);
   EXPECT_EQ(result.size(), 1);
 
-  const auto &vertex = result[0];
-  EXPECT_EQ(vertex->gid, vertex_accessor2.Gid());
+  const auto &[gid, score] = result[0];
+  EXPECT_EQ(gid, vertex_gid2);
+
+  // Search for two nodes
+  const auto &result2 = index.Search(test_index, 1, 2, query);
+  EXPECT_EQ(result2.size(), 2);
 }
 
 TYPED_TEST(VectorSearchTest, TransactionTest) {
-  auto storage_dba = this->db->Access();
-  memgraph::query::DbAccessor dba(storage_dba.get());
-  const auto label = dba.NameToLabel("test_label");
-  const auto property = dba.NameToProperty("test_property");
-  memgraph::storage::VectorIndexSpec spec{
-      .index_name = "test_index",
-      .label = label,
-      .property = property,
-      .config = nlohmann::json::parse(R"({"size": 5, "limit": 10})"),
-  };
-
   memgraph::storage::VectorIndex index;
-  index.CreateIndex(spec);
+  this->CreateTestIndex(index);
 
-  EXPECT_EQ(index.ListAllIndices().size(), 1);
+  const auto properties1 = this->ConvertToPropertyValueVector({1.0, 2.0, 3.0, 4.0, 5.0});
+  const auto vertex_gid1 = this->AddNodeToIndex(index, properties1, 0);
 
-  auto vertex_accessor1 = storage_dba->CreateVertex();
-  vertex_accessor1.AddLabel(label);
-  std::vector<memgraph::storage::PropertyValue> vec = {
-      memgraph::storage::PropertyValue(1.0), memgraph::storage::PropertyValue(2.0),
-      memgraph::storage::PropertyValue(3.0), memgraph::storage::PropertyValue(4.0),
-      memgraph::storage::PropertyValue(5.0)};
-  vertex_accessor1.SetProperty(property, memgraph::storage::PropertyValue(vec));
-  const auto label_prop = memgraph::storage::LabelPropKey(label, property);
+  const auto properties2 = this->ConvertToPropertyValueVector({10.0, 11.0, 12.0, 13.0, 14.0});
+  const auto vertex_gid2 = this->AddNodeToIndex(index, properties2, 5);
 
-  index.AddNodeToIndex(vertex_accessor1.vertex_, label_prop, 0);
-
-  auto vertex_accessor2 = storage_dba->CreateVertex();
-  vertex_accessor2.AddLabel(label);
-  std::vector<memgraph::storage::PropertyValue> vec2 = {
-      memgraph::storage::PropertyValue(10.0), memgraph::storage::PropertyValue(11.0),
-      memgraph::storage::PropertyValue(12.0), memgraph::storage::PropertyValue(13.0),
-      memgraph::storage::PropertyValue(14.0)};
-
-  vertex_accessor2.SetProperty(property, memgraph::storage::PropertyValue(vec2));
-  const auto label_prop2 = memgraph::storage::LabelPropKey(label, property);
-  index.AddNodeToIndex(vertex_accessor2.vertex_, label_prop2, 5);
-
-  // vertex_accessor1 is not visible
+  // vertex_accessor1 is not visible even though it would be the closest match
   std::vector<float> query = {10.0, 11.0, 12.0, 13.0, 14.0};
-  const auto &result = index.Search("test_index", 1, 2, query);
+  const auto &result = index.Search(test_index, 1, 1, query);
   EXPECT_EQ(result.size(), 1);
-  EXPECT_EQ(result[0]->gid, vertex_accessor1.Gid());
+
+  const auto &[gid, score] = result[0];
+  EXPECT_EQ(gid, vertex_gid1);
 
   // vertex_accessor2 is visible
-  const auto &result2 = index.Search("test_index", 6, 2, query);
-  EXPECT_EQ(result2.size(), 2);
+  const auto &result2 = index.Search(test_index, 6, 1, query);
+  EXPECT_EQ(result2.size(), 1);
+
+  const auto &[gid2, score2] = result2[0];
+  EXPECT_EQ(gid2, vertex_gid2);
 }

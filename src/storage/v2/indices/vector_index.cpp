@@ -155,7 +155,7 @@ void VectorIndex::AddNodeToIndex(Vertex *vertex, const LabelPropKey &label_prop,
   index.add(key, vector.data());
 }
 
-std::size_t VectorIndex::Size(const std::string &index_name) {
+std::size_t VectorIndex::Size(std::string_view index_name) {
   const auto label_prop = pimpl->index_name_to_label_prop_.at(index_name);
   return pimpl->index_.at(label_prop).size();
 }
@@ -168,7 +168,7 @@ std::vector<std::string> VectorIndex::ListAllIndices() {
   return indices;
 }
 
-std::vector<std::pair<Gid, double>> VectorIndex::Search(const std::string &index_name, uint64_t start_timestamp,
+std::vector<std::pair<Gid, double>> VectorIndex::Search(std::string_view index_name, uint64_t start_timestamp,
                                                         uint64_t result_set_size,
                                                         const std::vector<float> &query_vector) {
   const auto &label_prop = pimpl->index_name_to_label_prop_.at(index_name);
