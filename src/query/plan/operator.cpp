@@ -6420,10 +6420,7 @@ UniqueCursorPtr ScanAllByPointDistance::MakeCursor(utils::MemoryResource *mem) c
                                            context.db_accessor, view_);
     auto boundary_value = boundary_value_->Accept(boundary_evaluator);
 
-    // TODO: need to work out View::New
-
-    return std::make_optional(
-        db->PointVertices(storage::View::OLD, label_, property_, *crs, value, boundary_value, boundary_condition_));
+    return std::make_optional(db->PointVertices(label_, property_, *crs, *value, boundary_value, boundary_condition_));
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
                                                                 view_, std::move(vertices), "ScanAllByPointDistance");

@@ -243,12 +243,9 @@ class DiskStorage final : public Storage {
 
     void DropGraph() override;
 
-    auto PointVertices(View view, LabelId label, PropertyId property, CoordinateReferenceSystem crs)
-        -> PointIterable override;
-
-    auto PointVertices(View view, LabelId label, PropertyId property, CoordinateReferenceSystem crs,
-                       PropertyValue point_value, PropertyValue boundary_value, PointDistanceCondition condition)
-        -> PointIterable override;
+    auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
+                       PropertyValue const &point_value, PropertyValue const &boundary_value,
+                       PointDistanceCondition condition) -> PointIterable override;
   };
 
   using Storage::Access;

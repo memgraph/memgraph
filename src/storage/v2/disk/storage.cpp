@@ -2168,15 +2168,10 @@ void DiskStorage::DiskAccessor::DropGraph() {
   throw utils::NotYetImplemented("Drop graph is not yet implemented for on-disk storage");
 }
 
-auto DiskStorage::DiskAccessor::PointVertices(View /*view*/, LabelId /*label*/, PropertyId /*property*/,
-                                              CoordinateReferenceSystem /*crs*/) -> PointIterable {
-  throw utils::NotYetImplemented("Point Vertices is not yet implemented for on-disk storage");
-};
-
-auto DiskStorage::DiskAccessor::PointVertices(View /*view*/, LabelId /*label*/, PropertyId /*property*/,
-                                              CoordinateReferenceSystem /*crs*/, PropertyValue /*point_value*/,
-                                              PropertyValue /*boundary_value*/, PointDistanceCondition /*condition*/)
-    -> PointIterable {
+auto DiskStorage::DiskAccessor::PointVertices(LabelId /*label*/, PropertyId /*property*/,
+                                              CoordinateReferenceSystem /*crs*/, PropertyValue const & /*point_value*/,
+                                              PropertyValue const & /*boundary_value*/,
+                                              PointDistanceCondition /*condition*/) -> PointIterable {
   throw utils::NotYetImplemented("Point Vertices is not yet implemented for on-disk storage");
 };
 
