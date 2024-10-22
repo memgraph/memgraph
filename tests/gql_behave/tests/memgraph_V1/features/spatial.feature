@@ -948,10 +948,88 @@ Feature: Spatial related features
             """
         When executing query:
             """
-            WITH point({x:0, y:0, z:0, crs:"wgs-84-3d"}) AS a MATCH (m:L1) WHERE point.distance(m.prop, a) <= 111320 RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
+            WITH point({x:0, y:0, z:0, crs:"wgs-84-3d"}) AS a MATCH (m:L1) WHERE point.distance(m.prop, a) <= 111320 RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC, m.prop.z ASC;
             """
         Then the result should be:
             | m                                                                         |
             | (:L1{prop:POINT({longitude:-1.0, latitude:0.0, height:0.0, srid:4979})})  |
             | (:L1{prop:POINT({longitude: 0.0, latitude:0.0, height:0.0, srid:4979})})  |
             | (:L1{prop:POINT({longitude: 1.0, latitude:0.0, height:0.0, srid:4979})})  |
+
+        When executing query:
+            """
+            WITH point({x:0, y:0, z:0, crs:"wgs-84-3d"}) AS a MATCH (m:L1) WHERE point.distance(m.prop, a) < 111320 RETURN m ORDER BY m.prop.x ASC, m.prop.y, m.prop.z ASC;
+            """
+        Then the result should be:
+            | m                                                                         |
+            | (:L1{prop:POINT({longitude:-1.0, latitude:0.0, height:0.0, srid:4979})})  |
+            | (:L1{prop:POINT({longitude: 0.0, latitude:0.0, height:0.0, srid:4979})})  |
+            | (:L1{prop:POINT({longitude: 1.0, latitude:0.0, height:0.0, srid:4979})})  |
+
+        When executing query:
+            """
+            WITH point({x:0, y:0, z:0, crs:"wgs-84-3d"}) AS a MATCH (m:L1) WHERE point.distance(m.prop, a) > 111320 RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC, m.prop.z ASC;
+            """
+        Then the result should be:
+            | m                                                                            |
+            | (:L1{prop:POINT({longitude:-2.0,latitude:0.0,height:0.0,srid:4979})})        |
+            | (:L1{prop:POINT({longitude:-1.0,latitude:0.0,height:-1000.0,srid:4979})})    |
+            | (:L1{prop:POINT({longitude: 1.0, latitude:0.0, height:1000.0, srid:4979})})  |
+            | (:L1{prop:POINT({longitude:2.0,latitude:0.0,height:0.0,srid:4979})})         |
+
+        When executing query:
+            """
+            WITH point({x:0, y:0, z:0, crs:"wgs-84-3d"}) AS a MATCH (m:L1) WHERE point.distance(m.prop, a) >= 111320 RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC, m.prop.z ASC;
+            """
+        Then the result should be:
+            | m                                                                            |
+            | (:L1{prop:POINT({longitude:-2.0,latitude:0.0,height:0.0,srid:4979})})        |
+            | (:L1{prop:POINT({longitude:-1.0,latitude:0.0,height:-1000.0,srid:4979})})    |
+            | (:L1{prop:POINT({longitude: 1.0,latitude:0.0,height:1000.0,srid:4979})})     |
+            | (:L1{prop:POINT({longitude: 2.0,latitude:0.0,height:0.0,srid:4979})})        |
+
+    Scenario: Point index scan wgs84-3d at 180deg boundary:
+        Given an empty graph
+        And with new point index :L1(prop)
+        And having executed
+            """
+            UNWIND [
+                POINT({x:  180, y: 0, z:0, crs:"wgs-84-3d"}),
+                POINT({x: -180, y: 0, z:0, crs:"wgs-84-3d"}),
+                POINT({x: -179, y: 0, z:0, crs:"wgs-84-3d"}),
+                POINT({x:  179, y: 0, z:0, crs:"wgs-84-3d"}),
+                POINT({x:  178, y: 0, z:0, crs:"wgs-84-3d"}),
+                POINT({x: -178, y: 0, z:0, crs:"wgs-84-3d"}),
+                POINT({x:  180, y: 1, z:0, crs:"wgs-84-3d"}),
+                POINT({x: -180, y: 1, z:0, crs:"wgs-84-3d"}),
+                POINT({x: -179, y: 1, z:0, crs:"wgs-84-3d"}),
+                POINT({x:  179, y: 1, z:0, crs:"wgs-84-3d"}),
+                POINT({x:  178, y: 1, z:0, crs:"wgs-84-3d"}),
+                POINT({x: -178, y: 1, z:0, crs:"wgs-84-3d"}),
+                POINT({x: -179, y: 0, z:-100, crs:"wgs-84-3d"}),
+                POINT({x: -179, y: 0, z:100, crs:"wgs-84-3d"}),
+                POINT({x: 179, y: 0, z:-100, crs:"wgs-84-3d"}),
+                POINT({x: 179, y: 0, z:100, crs:"wgs-84-3d"}),
+                POINT({x: 179, y: 0, z:1000, crs:"wgs-84-3d"}),
+                POINT({x: 179, y: 0, z:-1000, crs:"wgs-84-3d"}),
+                POINT({x: -179, y: 0, z:1000, crs:"wgs-84-3d"}),
+                POINT({x: -179, y: 0, z:-1000, crs:"wgs-84-3d"})
+            ] AS point
+            CREATE (:L1 {prop: point});
+            """
+        When executing query:
+            """
+            WITH point({x:180, y:0, z:0, crs:"wgs-84-3d"}) AS a MATCH (m:L1) WHERE point.distance(m.prop, a) <= 111320 RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC, m.prop.z ASC;
+            """
+        Then the result should be:
+            | m                                                                          |
+            | (:L1{prop:POINT({longitude:-180.0,latitude:0.0,height:0.0,srid:4979})})    |
+            | (:L1{prop:POINT({longitude:-180.0,latitude:1.0,height:0.0,srid:4979})})    |
+            | (:L1{prop:POINT({longitude:-179.0,latitude:0.0,height:-100.0,srid:4979})}) |
+            | (:L1{prop:POINT({longitude:-179.0,latitude:0.0,height:0.0,srid:4979})})    |
+            | (:L1{prop:POINT({longitude:-179.0,latitude:0.0,height:100.0,srid:4979})})  |
+            | (:L1{prop:POINT({longitude:179.0,latitude:0.0,height:-100.0,srid:4979})})    |
+            | (:L1{prop:POINT({longitude:179.0,latitude:0.0,height:0.0,srid:4979})})       |
+            | (:L1{prop:POINT({longitude:179.0,latitude:0.0,height:100.0,srid:4979})})   |
+            | (:L1{prop:POINT({longitude:180.0,latitude:0.0,height:0.0,srid:4979})})     |
+            | (:L1{prop:POINT({longitude:180.0,latitude:1.0,height:0.0,srid:4979})})     |
