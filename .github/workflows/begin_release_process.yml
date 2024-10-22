@@ -43,8 +43,6 @@ jobs:
         run: |
           git config --global user.email "hal.eisen@memgraph.io"
           git config --global user.name "Hal Eisen automation bot"
-          echo push.autoSetupRemote will silently add \"--set-upstream origin\" to the \"git push\" when the remote branch is missing
-          git config --global push.autoSetupRemote true
 
       - name: Add, commit and push CMakeLists.txt
         run: |
@@ -61,7 +59,7 @@ jobs:
           title: "CMakeLists.txt update for v${{ github.event.inputs.release_version }}.${{ github.event.inputs.patch_version }}"
           body: Setting MEMGRAPH_OVERRIDE_VERSION via actions/create-pull-request@v7
 
-      - name: Check outputs
+      - name: Show PR details
         if: ${{ steps.cpr.outputs.pull-request-number }}
         run: |
           echo "Pull Request Number - ${{ steps.cpr.outputs.pull-request-number }}"
@@ -73,7 +71,3 @@ jobs:
           token: ${{ secrets.HAL_EISEN_RELEASE_AUTOMATION_TOKEN }}
           pull-request-number: ${{ steps.cpr.outputs.pull-request-number }}
 
-      - uses: peter-evans/enable-pull-request-automerge@v3
-        with:
-          token: ${{ secrets.HAL_EISEN_RELEASE_AUTOMATION_TOKEN }}
-          pull-request-number: ${{ steps.cpr.outputs.pull-request-number }}

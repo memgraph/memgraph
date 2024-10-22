@@ -48,7 +48,7 @@ jobs:
           title: "BSL.txt update for v${{ github.event.inputs.release_version }}.${{ github.event.inputs.patch_version }}"
           body: Setting CHANGE DATE via actions/create-pull-request@v7
 
-      - name: Check PR details
+      - name: Show PR details
         if: ${{ steps.cpr.outputs.pull-request-number }}
         run: |
           echo "Pull Request Number - ${{ steps.cpr.outputs.pull-request-number }}"
@@ -60,8 +60,3 @@ jobs:
           token: ${{ secrets.HAL_EISEN_RELEASE_AUTOMATION_TOKEN }}
           pull-request-number: ${{ steps.cpr.outputs.pull-request-number }}
 
-      - name: Initiaite merge
-        uses: peter-evans/enable-pull-request-automerge@v3
-        with:
-          token: ${{ secrets.HAL_EISEN_RELEASE_AUTOMATION_TOKEN }}
-          pull-request-number: ${{ steps.cpr.outputs.pull-request-number }}
