@@ -939,8 +939,8 @@ Feature: Spatial related features
                 POINT({x:  0, y: 0, z:0, crs:"wgs-84-3d"}),
                 POINT({x:  1, y: 0, z:0, crs:"wgs-84-3d"}),
                 POINT({x: -1, y: 0, z:0, crs:"wgs-84-3d"}),
-                POINT({x:  1, y: 0, z:100, crs:"wgs-84-3d"}),
-                POINT({x: -1, y: 0, z:-100, crs:"wgs-84-3d"}),
+                POINT({x:  1, y: 0, z:1000, crs:"wgs-84-3d"}),
+                POINT({x: -1, y: 0, z:-1000, crs:"wgs-84-3d"}),
                 POINT({x: -2, y: 0, z:0, crs:"wgs-84-3d"}),
                 POINT({x:  2, y: 0, z:0, crs:"wgs-84-3d"})
             ] AS point
@@ -951,7 +951,7 @@ Feature: Spatial related features
             WITH point({x:0, y:0, z:0, crs:"wgs-84-3d"}) AS a MATCH (m:L1) WHERE point.distance(m.prop, a) <= 111320 RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
             """
         Then the result should be:
-            | m                                                          |
-            | (:L1{prop:POINT({longitude:-1.0,latitude:0.0,srid:4326})}) |
-            | (:L1{prop:POINT({longitude:0.0,latitude:0.0,srid:4326})})  |
-            | (:L1{prop:POINT({longitude:1.0,latitude:0.0,srid:4326})})  |
+            | m                                                                         |
+            | (:L1{prop:POINT({longitude:-1.0, latitude:0.0, height:0.0, srid:4979})})  |
+            | (:L1{prop:POINT({longitude: 0.0, latitude:0.0, height:0.0, srid:4979})})  |
+            | (:L1{prop:POINT({longitude: 1.0, latitude:0.0, height:0.0, srid:4979})})  |
