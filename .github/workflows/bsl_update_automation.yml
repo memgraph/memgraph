@@ -1,0 +1,67 @@
+name: Update BSL with new CHANGE DATE
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: "Release version (format: X.Y)"
+        required: true
+        type: string
+      patch_version:
+        description: "Patch version (format: Z)"
+        required: true
+        type: string
+
+jobs:
+  update_bsl_change_date_job:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v2
+
+      - name: Modify BSL.txt
+        run: |
+          temp_file=$( mktemp --tmpdir=. )
+          new_date=$( date -d "$(date +%F) + 4 years" +%F )
+          awk '/CHANGE DATE/ {gsub(/[0-9]{4}-[0-9]{2}-[0-9]{2}/, "'$new_date'"); print; next} {print}' licenses/BSL.txt > $temp_file
+          mv $temp_file licenses/BSL.txt
+          grep "CHANGE DATE" licenses/BSL.txt
+
+      - name: Git config
+        run: |
+          git config --global user.email "hal.eisen@memgraph.io"
+          git config --global user.name "Hal Eisen automation bot"
+
+      - name: Add, commit and push BSL.txt
+        run: |
+          git add licenses/BSL.txt
+          git commit -m "Update BSL.txt with new CHANGE DATE for v${{ github.event.inputs.release_version }}.${{ github.event.inputs.patch_version }}"
+
+      - name: Create pull request
+        id: cpr
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.HAL_EISEN_RELEASE_AUTOMATION_TOKEN }}
+          base: master
+          branch: bsl-update-v${{ github.event.inputs.release_version }}.${{ github.event.inputs.patch_version }}
+          title: "BSL.txt update for v${{ github.event.inputs.release_version }}.${{ github.event.inputs.patch_version }}"
+          body: Setting CHANGE DATE via actions/create-pull-request@v7
+
+      - name: Check PR details
+        if: ${{ steps.cpr.outputs.pull-request-number }}
+        run: |
+          echo "Pull Request Number - ${{ steps.cpr.outputs.pull-request-number }}"
+          echo "Pull Request URL - ${{ steps.cpr.outputs.pull-request-url }}"
+
+      - name: Allow auto merge
+        uses: peter-evans/enable-pull-request-automerge@v3
+        with:
+          token: ${{ secrets.HAL_EISEN_RELEASE_AUTOMATION_TOKEN }}
+          pull-request-number: ${{ steps.cpr.outputs.pull-request-number }}
+
+      - name: Initiaite merge
+        uses: peter-evans/enable-pull-request-automerge@v3
+        with:
+          token: ${{ secrets.HAL_EISEN_RELEASE_AUTOMATION_TOKEN }}
+          pull-request-number: ${{ steps.cpr.outputs.pull-request-number }}

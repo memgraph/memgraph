@@ -50,4 +50,30 @@ jobs:
         run: |
           git add CMakeLists.txt
           git commit -m "Update CMakeLists.txt with new memgraph override version"
-          git push
+
+      - name: Create pull request
+        id: cpr
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.HAL_EISEN_RELEASE_AUTOMATION_TOKEN }}
+          base: release/${{ github.event.inputs.release_version }}
+          branch: CMakeLists-update-v${{ github.event.inputs.release_version }}.${{ github.event.inputs.patch_version }}
+          title: "CMakeLists.txt update for v${{ github.event.inputs.release_version }}.${{ github.event.inputs.patch_version }}"
+          body: Setting MEMGRAPH_OVERRIDE_VERSION via actions/create-pull-request@v7
+
+      - name: Check outputs
+        if: ${{ steps.cpr.outputs.pull-request-number }}
+        run: |
+          echo "Pull Request Number - ${{ steps.cpr.outputs.pull-request-number }}"
+          echo "Pull Request URL - ${{ steps.cpr.outputs.pull-request-url }}"
+
+      - name: Allow auto merge
+        uses: peter-evans/enable-pull-request-automerge@v3
+        with:
+          token: ${{ secrets.HAL_EISEN_RELEASE_AUTOMATION_TOKEN }}
+          pull-request-number: ${{ steps.cpr.outputs.pull-request-number }}
+
+      - uses: peter-evans/enable-pull-request-automerge@v3
+        with:
+          token: ${{ secrets.HAL_EISEN_RELEASE_AUTOMATION_TOKEN }}
+          pull-request-number: ${{ steps.cpr.outputs.pull-request-number }}
