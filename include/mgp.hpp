@@ -30,8 +30,18 @@
 #include "_mgp.hpp"
 #include "mg_exceptions.hpp"
 #include "mg_procedure.h"
+#include "storage/v2/id_types.hpp"
 
 namespace mgp {
+
+class VectorSearchException : public std::exception {
+ public:
+  explicit VectorSearchException(std::string message) : message_(std::move(message)) {}
+  const char *what() const noexcept override { return message_.c_str(); }
+
+ private:
+  std::string message_;
+};
 
 class TextSearchException : public std::exception {
  public:
@@ -570,7 +580,6 @@ class List {
   /// @brief returns the string representation
   std::string ToString() const;
 
- private:
   mgp_list *ptr_;
 };
 
@@ -4544,6 +4553,19 @@ inline std::string_view AggregateOverTextIndex(mgp_graph *memgraph_graph, std::s
   }
 
   return results_or_error.At(kAggregationResultsKey).ValueString();
+}
+
+inline List SearchVectorIndex(mgp_graph *memgraph_graph, std::string_view index_name, List &query_vector,
+                              size_t result_size) {
+  auto results_or_error = Map(mgp::MemHandlerCallback(graph_search_vector_index, memgraph_graph, index_name.data(),
+                                                      query_vector.ptr_, result_size));
+  if (results_or_error.KeyExists(kErrorMsgKey)) {
+    if (!results_or_error.At(kErrorMsgKey).IsString()) {
+      throw VectorSearchException{"The error message is not a string!"};
+    }
+    throw VectorSearchException(results_or_error.At(kErrorMsgKey).ValueString().data());
+  }
+  return results_or_error.At(kSearchResultsKey).ValueList();
 }
 
 inline bool CreateExistenceConstraint(mgp_graph *memgraph_graph, const std::string_view label,

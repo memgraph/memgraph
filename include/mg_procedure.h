@@ -926,6 +926,9 @@ enum mgp_error mgp_graph_aggregate_over_text_index(struct mgp_graph *graph, cons
 /// The current implementation always returns without errors.
 enum mgp_error mgp_graph_has_vector_index(struct mgp_graph *graph, const char *index_name, int *result);
 
+enum mgp_error mgp_graph_search_vector_index(struct mgp_graph *graph, const char *index_name, struct mgp_list *query,
+                                             int result_size, struct mgp_memory *memory, struct mgp_map **result);
+
 /// Creates label index for given label.
 /// mgp_error::MGP_ERROR_NO_ERROR is always returned.
 /// if label index already exists, result will be 0, otherwise 1.

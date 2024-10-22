@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 // TODO(gitbuda): Try to use logging under xyz_search modules.
+#include <algorithm>
 #include <iostream>
 #include <string_view>
 
@@ -36,14 +37,16 @@ void VectorSearch::Search(mgp_list *args, mgp_graph *memgraph_graph, mgp_result 
   try {
     const auto index_name = arguments[0].ValueString();
     const auto result_set_size = arguments[1].ValueInt();
-    const auto query_vector = arguments[2].ValueList();
+    auto query_vector = arguments[2].ValueList();
 
-    // // TODO(DavIvek): Call the implementation NOTE: C API should be ~20-30% faster.
-    // NOTE: The bellow code is just a placeholder -> remove with the correct code.
-    for (const auto &node : mgp::Graph(memgraph_graph).Nodes()) {
+    auto results = mgp::SearchVectorIndex(memgraph_graph, index_name, query_vector, result_set_size);
+
+    for (const auto &result : results) {
       auto record = record_factory.NewRecord();
-      record.Insert(VectorSearch::kReturnNodeId.data(), node.Id().AsInt());
-      record.Insert(VectorSearch::kReturnScore.data(), node.GetProperty("score"));
+      // result is also a list with two elements: node_id and score
+      auto result_list = result.ValueList();
+      record.Insert(VectorSearch::kReturnNodeId.data(), result_list[0].ValueNode());
+      record.Insert(VectorSearch::kReturnScore.data(), result_list[1].ValueDouble());
     }
 
   } catch (const std::exception &e) {
@@ -61,7 +64,7 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
                      mgp::Parameter(VectorSearch::kParameterQueryVector, {mgp::Type::List, mgp::Type::Any}),
                  },
                  {
-                     mgp::Return(VectorSearch::kReturnNodeId, mgp::Type::Int),
+                     mgp::Return(VectorSearch::kReturnNodeId, mgp::Type::Node),
                      mgp::Return(VectorSearch::kReturnScore, mgp::Type::Double),
                  },
                  module, memory);
