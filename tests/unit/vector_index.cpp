@@ -144,7 +144,7 @@ TYPED_TEST(VectorSearchTest, TransactionTest) {
   const auto properties2 = this->ConvertToPropertyValueVector({10.0, 11.0, 12.0, 13.0, 14.0});
   const auto vertex_gid2 = this->AddNodeToIndex(index, properties2, 5);
 
-  // vertex_accessor1 is not visible even though it would be the closest match
+  // vertex_accessor2 is not visible even though it would be the closest match
   std::vector<float> query = {10.0, 11.0, 12.0, 13.0, 14.0};
   const auto &result = index.Search(test_index, 1, 1, query);
   EXPECT_EQ(result.size(), 1);
