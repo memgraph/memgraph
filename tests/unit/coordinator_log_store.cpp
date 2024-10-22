@@ -69,7 +69,7 @@ TEST_F(CoordinatorLogStoreTests, TestBasicSerialization) {
                                     .ssl = std::nullopt};
 
   auto cluster_state = std::vector<DataInstanceState>();
-  cluster_state.emplace_back(config, ReplicationRole::REPLICA, UUID{}, false);
+  cluster_state.emplace_back(config, ReplicationRole::REPLICA, UUID{});
 
   auto buffer = CoordinatorStateMachine::SerializeUpdateClusterState(cluster_state, UUID{});
 
@@ -153,9 +153,9 @@ TEST_F(CoordinatorLogStoreTests, TestMultipleInstancesSerialization) {
     ASSERT_EQ(log_store.start_index(), 1);
 
     auto cluster_state = std::vector<DataInstanceState>();
-    cluster_state.emplace_back(config1, ReplicationRole::REPLICA, UUID{}, false);
-    cluster_state.emplace_back(config2, ReplicationRole::REPLICA, UUID{}, false);
-    cluster_state.emplace_back(config3, ReplicationRole::REPLICA, UUID{}, false);
+    cluster_state.emplace_back(config1, ReplicationRole::REPLICA, UUID{});
+    cluster_state.emplace_back(config2, ReplicationRole::REPLICA, UUID{});
+    cluster_state.emplace_back(config3, ReplicationRole::REPLICA, UUID{});
 
     auto log_entry_update = cs_new<log_entry>(
         1, CoordinatorStateMachine::SerializeUpdateClusterState(cluster_state, UUID{}), nuraft::log_val_type::app_log);
@@ -227,7 +227,7 @@ TEST_F(CoordinatorLogStoreTests, TestPackAndApplyPack) {
                                    .instance_down_timeout_sec = std::chrono::seconds{5},
                                    .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
                                    .ssl = std::nullopt};
-    cluster_state.emplace_back(config, ReplicationRole::REPLICA, UUID{}, false);
+    cluster_state.emplace_back(config, ReplicationRole::REPLICA, UUID{});
 
     auto buffer = CoordinatorStateMachine::SerializeUpdateClusterState(cluster_state, UUID{});
 
@@ -261,9 +261,9 @@ TEST_F(CoordinatorLogStoreTests, TestPackAndApplyPack) {
           .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
           .ssl = std::nullopt};
 
-      cluster_state.emplace_back(config1, ReplicationRole::REPLICA, UUID{}, false);
+      cluster_state.emplace_back(config1, ReplicationRole::REPLICA, UUID{});
       auto buffer1 = CoordinatorStateMachine::SerializeUpdateClusterState(cluster_state, UUID{});
-      cluster_state.emplace_back(config2, ReplicationRole::REPLICA, UUID{}, false);
+      cluster_state.emplace_back(config2, ReplicationRole::REPLICA, UUID{});
       auto buffer2 = CoordinatorStateMachine::SerializeUpdateClusterState(cluster_state, UUID{});
 
       auto log_entry1 = cs_new<log_entry>(i, buffer1, nuraft::log_val_type::app_log);
@@ -334,7 +334,7 @@ TEST_F(CoordinatorLogStoreTests, TestCompact) {
         .instance_down_timeout_sec = std::chrono::seconds{5},
         .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
         .ssl = std::nullopt};
-    cluster_state.emplace_back(config, ReplicationRole::REPLICA, UUID{}, false);
+    cluster_state.emplace_back(config, ReplicationRole::REPLICA, UUID{});
 
     auto buffer = CoordinatorStateMachine::SerializeUpdateClusterState(cluster_state, UUID{});
 

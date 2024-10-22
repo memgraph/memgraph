@@ -133,7 +133,7 @@ TEST_F(RaftStateTest, GetMixedRoutingTable) {
           .replication_client_info = ReplicationClientInfo{.instance_name = "instance1",
                                                            .replication_mode = ReplicationMode::ASYNC,
                                                            .replication_server = Endpoint{"0.0.0.0", 10001}}},
-      ReplicationRole::MAIN, curr_uuid, false);
+      ReplicationRole::MAIN, curr_uuid);
 
   cluster_state.emplace_back(
       CoordinatorToReplicaConfig{
@@ -143,7 +143,7 @@ TEST_F(RaftStateTest, GetMixedRoutingTable) {
           .replication_client_info = ReplicationClientInfo{.instance_name = "instance2",
                                                            .replication_mode = ReplicationMode::ASYNC,
                                                            .replication_server = Endpoint{"0.0.0.0", 10002}}},
-      ReplicationRole::REPLICA, curr_uuid, false);
+      ReplicationRole::REPLICA, curr_uuid);
 
   cluster_state.emplace_back(
       CoordinatorToReplicaConfig{
@@ -154,7 +154,7 @@ TEST_F(RaftStateTest, GetMixedRoutingTable) {
                                                            .replication_mode = ReplicationMode::ASYNC,
                                                            .replication_server = Endpoint{"0.0.0.0", 10003}}},
 
-      ReplicationRole::REPLICA, curr_uuid, false);
+      ReplicationRole::REPLICA, curr_uuid);
 
   raft_state_leader->AppendClusterUpdate(cluster_state, curr_uuid);
 

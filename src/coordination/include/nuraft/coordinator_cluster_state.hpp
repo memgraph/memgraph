@@ -46,9 +46,6 @@ struct DataInstanceState {
   // For MAIN we don't enable writing until cluster is in healthy state
   utils::UUID instance_uuid;
 
-  // TODO: (andi) This isn't needed
-  bool needs_demote{false};
-
   friend auto operator==(DataInstanceState const &lhs, DataInstanceState const &rhs) -> bool = default;
 };
 

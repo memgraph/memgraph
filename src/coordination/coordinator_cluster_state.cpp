@@ -19,17 +19,14 @@
 namespace memgraph::coordination {
 
 void to_json(nlohmann::json &j, DataInstanceState const &instance_state) {
-  j = nlohmann::json{{"config", instance_state.config},
-                     {"status", instance_state.status},
-                     {"uuid", instance_state.instance_uuid},
-                     {"needs_demote", instance_state.needs_demote}};
+  j = nlohmann::json{
+      {"config", instance_state.config}, {"status", instance_state.status}, {"uuid", instance_state.instance_uuid}};
 }
 
 void from_json(nlohmann::json const &j, DataInstanceState &instance_state) {
   j.at("config").get_to(instance_state.config);
   j.at("status").get_to(instance_state.status);
   j.at("uuid").get_to(instance_state.instance_uuid);
-  j.at("needs_demote").get_to(instance_state.needs_demote);
 }
 
 CoordinatorClusterState::CoordinatorClusterState(std::vector<DataInstanceState> instances,

@@ -81,7 +81,7 @@ TEST_F(RaftLogSerialization, SerializeUpdateClusterState) {
 
   std::vector<DataInstanceState> cluster_state;
 
-  cluster_state.emplace_back(config, ReplicationRole::REPLICA, UUID{}, false);
+  cluster_state.emplace_back(config, ReplicationRole::REPLICA, UUID{});
 
   auto buffer = CoordinatorStateMachine::SerializeUpdateClusterState(cluster_state, UUID{});
   auto const [payload, action] = CoordinatorStateMachine::DecodeLog(*buffer);

@@ -655,7 +655,7 @@ auto CoordinatorInstance::RegisterReplicationInstance(CoordinatorToReplicaConfig
   }
 
   auto cluster_state = raft_state_->GetDataInstances();
-  cluster_state.emplace_back(config, ReplicationRole::REPLICA, curr_main_uuid, false);
+  cluster_state.emplace_back(config, ReplicationRole::REPLICA, curr_main_uuid);
 
   if (!raft_state_->AppendClusterUpdate(std::move(cluster_state), curr_main_uuid)) {
     spdlog::error("Aborting instance registration. Writing to Raft failed.");
