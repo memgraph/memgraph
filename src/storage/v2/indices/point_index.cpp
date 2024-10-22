@@ -282,21 +282,9 @@ void PointIndexContext::update_current(PointIndexChangeCollector &collector) {
 }
 
 auto PointIndexContext::PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
-                                      Storage *storage, Transaction *transaction) -> PointIterable {
-  auto const &indexes = *current_indexes_;
-  auto it = indexes.find(LabelPropKey{label, property});
-  if (it == indexes.cend()) {
-    spdlog::warn("Failure why trying to locate a point index that should exist");
-    return {};
-  }
-
-  auto const &point_index = *it->second;
-  return {storage, transaction, point_index, crs};
-}
-
-auto PointIndexContext::PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
-                                      Storage *storage, Transaction *transaction, PropertyValue point_value,
-                                      PropertyValue boundary_value, PointDistanceCondition condition) -> PointIterable {
+                                      Storage *storage, Transaction *transaction, PropertyValue const &point_value,
+                                      PropertyValue const &boundary_value, PointDistanceCondition condition)
+    -> PointIterable {
   auto const &indexes = *current_indexes_;
   auto it = indexes.find(LabelPropKey{label, property});
   if (it == indexes.cend()) {
@@ -329,31 +317,6 @@ PointIndex::PointIndex(std::shared_ptr<index_t<IndexPointWGS2d>> points2dWGS,
       cartesian_3d_index_{std::move(points3dCartesian)} {}
 
 struct PointIterable::impl {
-  explicit impl(Storage *storage, Transaction *transaction, std::shared_ptr<index_t<IndexPointWGS2d>> index)
-      : storage_{storage},
-        transaction_{transaction},
-        crs_{CoordinateReferenceSystem::WGS84_2d},
-        wgs84_2d_{std::move(index)} {}
-
-  explicit impl(Storage *storage, Transaction *transaction, std::shared_ptr<index_t<IndexPointWGS3d>> index)
-      : storage_{storage},
-        transaction_{transaction},
-        crs_{CoordinateReferenceSystem::WGS84_3d},
-        wgs84_3d_{std::move(index)} {}
-
-  explicit impl(Storage *storage, Transaction *transaction, std::shared_ptr<index_t<IndexPointCartesian2d>> index)
-      : storage_{storage},
-        transaction_{transaction},
-        crs_{CoordinateReferenceSystem::Cartesian_2d},
-        cartesian_2d_{std::move(index)} {}
-
-  explicit impl(Storage *storage, Transaction *transaction, std::shared_ptr<index_t<IndexPointCartesian3d>> index)
-      : storage_{storage},
-        transaction_{transaction},
-        crs_{CoordinateReferenceSystem::Cartesian_3d},
-        cartesian_3d_{std::move(index)} {}
-
-  // TODO: can this be made smaller?
   explicit impl(Storage *storage, Transaction *transaction, std::shared_ptr<index_t<IndexPointWGS2d>> index,
                 PropertyValue point_value, PropertyValue boundary_value, PointDistanceCondition condition)
       : storage_{storage},
@@ -447,27 +410,6 @@ PointIterable::PointIterable() : pimpl{nullptr} {};
 PointIterable::~PointIterable() = default;
 PointIterable::PointIterable(PointIterable &&) noexcept = default;
 PointIterable &PointIterable::operator=(PointIterable &&) = default;
-PointIterable::PointIterable(Storage *storage, Transaction *transaction, PointIndex const &index,
-                             storage::CoordinateReferenceSystem crs) {
-  switch (crs) {
-    case CoordinateReferenceSystem::WGS84_2d: {
-      pimpl = std::make_unique<impl>(storage, transaction, index.GetWgs2dIndex());
-      return;
-    }
-    case CoordinateReferenceSystem::WGS84_3d: {
-      pimpl = std::make_unique<impl>(storage, transaction, index.GetWgs3dIndex());
-      return;
-    }
-    case CoordinateReferenceSystem::Cartesian_2d: {
-      pimpl = std::make_unique<impl>(storage, transaction, index.GetCartesian2dIndex());
-      return;
-    }
-    case CoordinateReferenceSystem::Cartesian_3d: {
-      pimpl = std::make_unique<impl>(storage, transaction, index.GetCartesian3dIndex());
-      return;
-    }
-  }
-}
 
 PointIterable::PointIterable(Storage *storage, Transaction *transaction, PointIndex const &index,
                              storage::CoordinateReferenceSystem crs, PropertyValue point_value,

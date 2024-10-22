@@ -3007,15 +3007,10 @@ void InMemoryStorage::InMemoryAccessor::DropGraph() {
   memory::PurgeUnusedMemory();
 }
 
-auto InMemoryStorage::InMemoryAccessor::PointVertices(View /*view*/, LabelId label, PropertyId property,
-                                                      CoordinateReferenceSystem crs) -> PointIterable {
-  return transaction_.point_index_ctx_.PointVertices(label, property, crs, storage_, &transaction_);
-};
-
-auto InMemoryStorage::InMemoryAccessor::PointVertices(View /*view*/, LabelId label, PropertyId property,
-                                                      CoordinateReferenceSystem crs, PropertyValue point_value,
-                                                      PropertyValue boundary_value, PointDistanceCondition condition)
-    -> PointIterable {
+auto InMemoryStorage::InMemoryAccessor::PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
+                                                      PropertyValue const &point_value,
+                                                      PropertyValue const &boundary_value,
+                                                      PointDistanceCondition condition) -> PointIterable {
   return transaction_.point_index_ctx_.PointVertices(label, property, crs, storage_, &transaction_, point_value,
                                                      boundary_value, condition);
 };

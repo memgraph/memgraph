@@ -312,11 +312,11 @@ class DbAccessor final {
     return VerticesIterable(accessor_->Vertices(label, property, lower, upper, view));
   }
 
-  auto PointVertices(storage::View view, storage::LabelId label, storage::PropertyId property,
-                     storage::CoordinateReferenceSystem crs, TypedValue *point_value, TypedValue boundary_value,
+  auto PointVertices(storage::LabelId label, storage::PropertyId property, storage::CoordinateReferenceSystem crs,
+                     TypedValue const &point_value, TypedValue const &boundary_value,
                      plan::PointDistanceCondition condition) -> PointIterable {
     return PointIterable(accessor_->PointVertices(
-        view, label, property, crs, static_cast<storage::PropertyValue>(*point_value),
+        label, property, crs, static_cast<storage::PropertyValue>(point_value),
         static_cast<storage::PropertyValue>(boundary_value), static_cast<storage::PointDistanceCondition>(condition)));
   }
 
