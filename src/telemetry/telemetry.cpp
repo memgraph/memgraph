@@ -56,6 +56,11 @@ Telemetry::Telemetry(std::string url, std::filesystem::path storage_directory, s
          metrics::global_one_shot_events[metrics::OneShotEvents::kFirstSuccessfulQueryTs].load()},
         {"first_failed_query", metrics::global_one_shot_events[metrics::OneShotEvents::kFirstFailedQueryTs].load()}};
   });
+  // TODO(gitbuda): Check if CollectData() should be called here -> an issue might be that some collectors are added
+  // after constructor call.
+  //   NOTE: scheduler is fist waiting and then executing the function.
+  //   IDEA: Probably the best way is to implement scheduler_.Run|FireOnce to get all measurements right after
+  //   instance start, e.g. 60s after successful run.
   scheduler_.Run("Telemetry", refresh_interval, [&] { CollectData(); });
 }
 
@@ -122,7 +127,7 @@ void Telemetry::CollectData(const std::string &event) {
       }
     }
   }
-  if (event == "") {
+  if (event.empty()) {
     StoreData(num_++, data);
   } else {
     StoreData(event, data);
