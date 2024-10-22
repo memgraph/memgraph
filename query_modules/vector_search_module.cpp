@@ -23,7 +23,7 @@ constexpr std::string_view kProcedureSearch = "search";
 constexpr std::string_view kParameterIndexName = "index_name";
 constexpr std::string_view kParameterResultSetSize = "result_set_size";
 constexpr std::string_view kParameterQueryVector = "query_vector";
-constexpr std::string_view kReturnNodeId = "node_id";
+constexpr std::string_view kReturnNode = "node";
 constexpr std::string_view kReturnScore = "score";
 
 void Search(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
@@ -46,7 +46,7 @@ void VectorSearch::Search(mgp_list *args, mgp_graph *memgraph_graph, mgp_result 
 
       // result is also a list with two elements: node_id and score
       auto result_list = result.ValueList();
-      record.Insert(VectorSearch::kReturnNodeId.data(), result_list[0].ValueNode());
+      record.Insert(VectorSearch::kReturnNode.data(), result_list[0].ValueNode());
       record.Insert(VectorSearch::kReturnScore.data(), result_list[1].ValueDouble());
     }
 
@@ -65,7 +65,7 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
                      mgp::Parameter(VectorSearch::kParameterQueryVector, {mgp::Type::List, mgp::Type::Any}),
                  },
                  {
-                     mgp::Return(VectorSearch::kReturnNodeId, mgp::Type::Node),
+                     mgp::Return(VectorSearch::kReturnNode, mgp::Type::Node),
                      mgp::Return(VectorSearch::kReturnScore, mgp::Type::Double),
                  },
                  module, memory);
