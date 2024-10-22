@@ -23,7 +23,7 @@ jobs:
       - name: Modify BSL.txt
         run: |
           temp_file=$( mktemp --tmpdir=. )
-          new_date=$( date -d "$(date +%F) + 4 years" +%F )
+          new_date=$( date -d "+ 4 years" +%F )
           awk '/CHANGE DATE/ {gsub(/[0-9]{4}-[0-9]{2}-[0-9]{2}/, "'$new_date'"); print; next} {print}' licenses/BSL.txt > $temp_file
           mv $temp_file licenses/BSL.txt
           grep "CHANGE DATE" licenses/BSL.txt
