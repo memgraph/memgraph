@@ -929,3 +929,29 @@ Feature: Spatial related features
             | (:L1{prop:POINT({longitude:179.0,latitude:0.0,srid:4326})})   |
             | (:L1{prop:POINT({longitude:180.0,latitude:0.0,srid:4326})})   |
             | (:L1{prop:POINT({longitude:180.0,latitude:1.0,srid:4326})})   |
+
+    Scenario: Point index scan wgs84-3d at 0deg boundary:
+        Given an empty graph
+        And with new point index :L1(prop)
+        And having executed
+            """
+            UNWIND [
+                POINT({x:  0, y: 0, z:0, crs:"wgs-84-3d"}),
+                POINT({x:  1, y: 0, z:0, crs:"wgs-84-3d"}),
+                POINT({x: -1, y: 0, z:0, crs:"wgs-84-3d"}),
+                POINT({x:  1, y: 0, z:100, crs:"wgs-84-3d"}),
+                POINT({x: -1, y: 0, z:-100, crs:"wgs-84-3d"}),
+                POINT({x: -2, y: 0, z:0, crs:"wgs-84-3d"}),
+                POINT({x:  2, y: 0, z:0, crs:"wgs-84-3d"})
+            ] AS point
+            CREATE (:L1 {prop: point});
+            """
+        When executing query:
+            """
+            WITH point({x:0, y:0, z:0, crs:"wgs-84-3d"}) AS a MATCH (m:L1) WHERE point.distance(m.prop, a) <= 111320 RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
+            """
+        Then the result should be:
+            | m                                                          |
+            | (:L1{prop:POINT({longitude:-1.0,latitude:0.0,srid:4326})}) |
+            | (:L1{prop:POINT({longitude:0.0,latitude:0.0,srid:4326})})  |
+            | (:L1{prop:POINT({longitude:1.0,latitude:0.0,srid:4326})})  |
