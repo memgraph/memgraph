@@ -584,6 +584,8 @@ auto get_index_iterator_distance(Index &index, PropertyValue const &point_value,
 
   using point_type = Index::value_type::point_type;
   auto constexpr dimensions = bg::traits::dimension<point_type>::value;
+  using CoordinateSystem = typename bg::traits::coordinate_system<point_type>::type;
+  auto constexpr is_cartesian = std::is_same<CoordinateSystem, bg::cs::cartesian>::value;
 
   auto center_point = std::invoke([&]() -> point_type {
     if constexpr (dimensions == 2) {
@@ -611,31 +613,50 @@ auto get_index_iterator_distance(Index &index, PropertyValue const &point_value,
     return create_bounding_box(center_point, silghtly_larger);
   };
 
+  auto true_distance = [](auto a, auto b) {
+    if constexpr (is_cartesian || dimensions == 2) {
+      return bg::distance(a, b);
+    } else {
+      // SPECIAL CASE: WGS-84 3D
+
+      // We could reply on boost implementation that ignores the height for distance, but for possible future
+      // boost changes, going to hand code operations to the 2d equivilant.
+
+      // distance using average height of the two points
+      auto h1 = bg::get<2>(a);
+      auto h2 = bg::get<2>(b);
+      auto middle = std::midpoint(h1, h2);
+      auto avg_a = point_type{bg::get<0>(a), bg::get<1>(a), middle};
+      auto avg_b = point_type{bg::get<0>(b), bg::get<1>(b), middle};
+      auto distance_spherical = bg::distance(a, b);
+
+      // use Pythagoras' theorem, combining height difference
+      auto height_diff = h1 - h2;
+      return std::sqrt(height_diff * height_diff + distance_spherical * distance_spherical);
+    }
+  };
+
   switch (condition) {
     case PointDistanceCondition::OUTSIDE: {
       // BOOST 1.81.0 covered_by geometry must be box
-      return index.qbegin(!bgi::covered_by(inner_exclusion_box()) &&
-                          bgi::satisfies([center_point, boundary](const auto &value) {
-                            return bg::distance(value.point(), center_point) > boundary;
-                          }));
+      return index.qbegin(!bgi::covered_by(inner_exclusion_box()) && bgi::satisfies([=](const auto &value) {
+        return true_distance(value.point(), center_point) > boundary;
+      }));
     }
     case PointDistanceCondition::INSIDE: {
-      return index.qbegin(bgi::covered_by(outer_inclusion_box()) &&
-                          bgi::satisfies([center_point, boundary](const auto &value) {
-                            return bg::distance(value.point(), center_point) < boundary;
+      return index.qbegin(bgi::covered_by(outer_inclusion_box()) && bgi::satisfies([=](const auto &value) {
+                            return true_distance(value.point(), center_point) < boundary;
                           }));
     }
     case PointDistanceCondition::INSIDE_AND_BOUNDARY: {
-      return index.qbegin(bgi::covered_by(outer_inclusion_box()) &&
-                          bgi::satisfies([center_point, boundary](const auto &value) {
-                            return bg::distance(value.point(), center_point) <= boundary;
+      return index.qbegin(bgi::covered_by(outer_inclusion_box()) && bgi::satisfies([=](const auto &value) {
+                            return true_distance(value.point(), center_point) <= boundary;
                           }));
     }
     case PointDistanceCondition::OUTSIDE_AND_BOUNDARY: {
-      return index.qbegin(!bgi::covered_by(inner_exclusion_box()) &&
-                          bgi::satisfies([center_point, boundary](const auto &value) {
-                            return bg::distance(value.point(), center_point) >= boundary;
-                          }));
+      return index.qbegin(!bgi::covered_by(inner_exclusion_box()) && bgi::satisfies([=](const auto &value) {
+        return true_distance(value.point(), center_point) >= boundary;
+      }));
     }
   }
 }
