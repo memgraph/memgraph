@@ -61,7 +61,7 @@ void from_json(nlohmann::json const &j, ReplicationInstanceState &instance_state
 using TRaftLog = std::variant<std::string, utils::UUID, CoordinatorToReplicaConfig, InstanceUUIDUpdate, std::monostate>;
 
 // Represents the state of the cluster from the coordinator's perspective.
-// Source of truth since it is modified only as the result of RAFT's commiting
+// Source of truth since it is modified only as the result of RAFT's commiting.
 class CoordinatorClusterState {
  public:
   CoordinatorClusterState() = default;
