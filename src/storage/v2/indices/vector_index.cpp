@@ -114,7 +114,7 @@ VectorIndex::~VectorIndex() {}
 
 void VectorIndex::CreateIndex(const VectorIndexSpec &spec) {
   // size and limit are important parameters for the usearch index to work properly.
-  uint64_t vector_size = spec.config["size"];
+  uint64_t vector_dimension = spec.config["dimension"];
   uint64_t limit = spec.config["limit"];
 
   // Read metric kind from config, with a fallback to default 'l2sq_k' if not provided.
@@ -125,7 +125,7 @@ void VectorIndex::CreateIndex(const VectorIndexSpec &spec) {
   std::string scalar_kind_str = spec.config.contains("scalar") ? spec.config["scalar"] : "f32";
   unum::usearch::scalar_kind_t scalar_kind = GetScalarKindFromConfig(scalar_kind_str);
 
-  unum::usearch::metric_punned_t metric(vector_size, metric_kind, scalar_kind);
+  unum::usearch::metric_punned_t metric(vector_dimension, metric_kind, scalar_kind);
 
   const auto label_prop = LabelPropKey{spec.label, spec.property};
   pimpl->index_name_to_label_prop_.emplace(spec.index_name, label_prop);

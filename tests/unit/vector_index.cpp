@@ -38,7 +38,7 @@ class VectorSearchTest : public testing::Test {
         .index_name = test_index.data(),
         .label = label,
         .property = property,
-        .config = nlohmann::json::parse(R"({"size": 10, "limit": 10})"),
+        .config = nlohmann::json::parse(R"({"dimension": 5, "limit": 10})"),
     };
 
     index.CreateIndex(spec);
@@ -106,6 +106,7 @@ TYPED_TEST(VectorSearchTest, SimpleSearchTest) {
 
   const auto &[gid, score] = result[0];
   EXPECT_EQ(gid, vertex_gid);
+  EXPECT_EQ(score, 0.0);
 }
 
 TYPED_TEST(VectorSearchTest, SearchWithMultipleNodes) {
