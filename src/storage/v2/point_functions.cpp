@@ -11,55 +11,45 @@
 
 #include "storage/v2/point_functions.hpp"
 
+#include "storage/v2/indices/point_index_expensive_header.hpp"
+
 namespace memgraph::storage {
 
-namespace {
-
-constexpr auto PI_RADIANS = std::numbers::pi_v<double> / 180.0;
-
-/// Input in radians
-constexpr double GeneralHaversine(double phi_1, double phi_2, double lambda_2, double lambda_1, double r) {
-  auto delta_phi = phi_2 - phi_1;
-  auto delta_lambda = lambda_2 - lambda_1;
-
-  auto sin_delta_phi = sin(delta_phi / 2.0);
-  auto sin_delta_lambda = sin(delta_lambda / 2.0);
-
-  auto a = sin_delta_phi * sin_delta_phi + cos(phi_1) * cos(phi_2) * (sin_delta_lambda * sin_delta_lambda);
-  auto c = 2 * atan2(sqrt(a), sqrt(1 - a));
-
-  return r * c;
-}
-
-}  // namespace
-
 double Haversine(Point2d const &point1, Point2d const &point2) {
-  auto phi_1 = point1.latitude() * PI_RADIANS;
-  auto phi_2 = point2.latitude() * PI_RADIANS;
-  auto lambda_2 = point2.longitude() * PI_RADIANS;
-  auto lambda_1 = point1.longitude() * PI_RADIANS;
-
-  return GeneralHaversine(phi_1, phi_2, lambda_2, lambda_1, MEAN_EARTH_RADIUS);
+  using pt = IndexPointWGS2d::point_type;
+  auto boost_p1 = pt{point1.x(), point1.y()};
+  auto boost_p2 = pt{point2.x(), point2.y()};
+  return bg::distance(boost_p1, boost_p2);
 }
 
 double Haversine(Point3d const &point1, Point3d const &point2) {
-  auto phi_1 = point1.latitude() * PI_RADIANS;
-  auto phi_2 = point2.latitude() * PI_RADIANS;
-  auto lambda_2 = point2.longitude() * PI_RADIANS;
-  auto lambda_1 = point1.longitude() * PI_RADIANS;
+  using pt = IndexPointWGS3d::point_type;
 
-  auto horizontal_distance = GeneralHaversine(phi_1, phi_2, lambda_2, lambda_1, MEAN_EARTH_RADIUS);
-  auto delta_height = point2.z() - point1.z();
+  // SPECIAL CASE: WGS-84 3D
 
-  return std::sqrt(horizontal_distance * horizontal_distance + delta_height * delta_height);
+  // We could reply on boost implementation that ignores the height for distance, but for possible future
+  // boost changes, going to hand code operations to the 2d equivilant.
+
+  // distance using average height of the two points
+  auto h1 = point1.z();
+  auto h2 = point2.z();
+  auto middle = std::midpoint(h1, h2);
+  auto boost_p1 = pt{point1.x(), point1.y(), middle};
+  auto boost_p2 = pt{point2.x(), point2.y(), middle};
+  auto distance_spherical = bg::distance(boost_p1, boost_p2);
+
+  // use Pythagoras' theorem, combining height difference
+  auto height_diff = h1 - h2;
+  return std::sqrt(height_diff * height_diff + distance_spherical * distance_spherical);
 }
 
 double Distance(Point2d const &point1, Point2d const &point2) {
   MG_ASSERT(point1.crs() == point2.crs());
   if (point1.crs() == CoordinateReferenceSystem::Cartesian_2d) {
-    auto dx = point1.x() - point2.x();
-    auto dy = point1.y() - point2.y();
-    return std::sqrt(dx * dx + dy * dy);
+    using pt = IndexPointCartesian2d::point_type;
+    auto boost_p1 = pt{point1.x(), point1.y()};
+    auto boost_p2 = pt{point2.x(), point2.y()};
+    return bg::distance(boost_p1, boost_p2);
   }
   return Haversine(point1, point2);
 }
@@ -67,10 +57,10 @@ double Distance(Point2d const &point1, Point2d const &point2) {
 double Distance(Point3d const &point1, Point3d const &point2) {
   MG_ASSERT(point1.crs() == point2.crs());
   if (point1.crs() == CoordinateReferenceSystem::Cartesian_3d) {
-    auto dx = point1.x() - point2.x();
-    auto dy = point1.y() - point2.y();
-    auto dz = point1.z() - point2.z();
-    return std::sqrt(dx * dx + dy * dy + dz * dz);
+    using pt = IndexPointCartesian3d::point_type;
+    auto boost_p1 = pt{point1.x(), point1.y(), point1.z()};
+    auto boost_p2 = pt{point2.x(), point2.y(), point2.z()};
+    return bg::distance(boost_p1, boost_p2);
   }
   return Haversine(point1, point2);
 }
