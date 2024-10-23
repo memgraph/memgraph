@@ -3417,9 +3417,9 @@ mgp_vertex *GetVertexByGid(mgp_graph *graph, memgraph::storage::Gid id, mgp_memo
   return std::visit(get_vertex_by_gid, graph->impl);
 }
 
-void WrapVectorSearch(mgp_graph *graph, mgp_memory *memory, mgp_map **result,
-                      const std::vector<std::pair<memgraph::storage::Gid, double>> &found_vertices,
-                      const std::optional<std::string> &error_msg = std::nullopt) {
+void WrapVectorSearchResults(mgp_graph *graph, mgp_memory *memory, mgp_map **result,
+                             const std::vector<std::pair<memgraph::storage::Gid, double>> &found_vertices,
+                             const std::optional<std::string> &error_msg = std::nullopt) {
   if (const auto err = mgp_map_make_empty(memory, result); err != mgp_error::MGP_ERROR_NO_ERROR) {
     throw std::logic_error("Retrieving vector search results failed during creation of a mgp_map");
   }
@@ -3624,6 +3624,7 @@ mgp_error mgp_graph_search_vector_index(mgp_graph *graph, const char *index_name
     std::optional<std::string> error_msg = std::nullopt;
     try {
       std::vector<float> search_query_vector;
+      search_query_vector.reserve(search_query->elems.size());
       for (auto &elem : search_query->elems) {
         double value = 0.0;
         auto err = mgp_value_get_double(&elem, &value);
@@ -3636,7 +3637,7 @@ mgp_error mgp_graph_search_vector_index(mgp_graph *graph, const char *index_name
     } catch (memgraph::query::QueryException &e) {
       error_msg = e.what();
     }
-    WrapVectorSearch(graph, memory, result, found_vertices, error_msg);
+    WrapVectorSearchResults(graph, memory, result, found_vertices, error_msg);
   });
 }
 

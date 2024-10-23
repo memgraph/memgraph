@@ -10,7 +10,6 @@
 // licenses/APL.txt.
 
 #include <cstdint>
-#include <thread>
 
 #include "absl/container/flat_hash_map.h"
 #include "storage/v2/id_types.hpp"
@@ -50,8 +49,12 @@ namespace memgraph::storage {
 
 using mg_vector_index_t = unum::usearch::index_dense_gt<VectorIndexKey, unum::usearch::uint40_t>;
 
-/// Helper function that converts a string representation of a metric kind to the corresponding
+/// @brief Converts a string representation of a metric kind to the corresponding
 /// `unum::usearch::metric_kind_t` value.
+///
+/// @param metric_str A string representing the metric kind (e.g., "ip", "cos").
+/// @return The corresponding `unum::usearch::metric_kind_t` value.
+/// @throws std::invalid_argument if the metric kind is unknown.
 unum::usearch::metric_kind_t GetMetricKindFromConfig(const std::string &metric_str) {
   static const std::unordered_map<std::string, unum::usearch::metric_kind_t> metric_map = {
       {"ip", unum::usearch::metric_kind_t::ip_k},
@@ -72,8 +75,12 @@ unum::usearch::metric_kind_t GetMetricKindFromConfig(const std::string &metric_s
   throw std::invalid_argument("Unknown metric kind: " + metric_str);
 }
 
-/// Helper function that converts a string representation of a scalar kind to the corresponding
+/// @brief Converts a string representation of a scalar kind to the corresponding
 /// `unum::usearch::scalar_kind_t` value.
+///
+/// @param scalar_str A string representing the scalar kind (e.g., "f32", "i64").
+/// @return The corresponding `unum::usearch::scalar_kind_t` value.
+/// @throws std::invalid_argument if the scalar kind is unknown.
 unum::usearch::scalar_kind_t GetScalarKindFromConfig(const std::string &scalar_str) {
   static const std::unordered_map<std::string, unum::usearch::scalar_kind_t> scalar_map = {
       {"b1x8", unum::usearch::scalar_kind_t::b1x8_k}, {"u40", unum::usearch::scalar_kind_t::u40_k},
@@ -92,26 +99,23 @@ unum::usearch::scalar_kind_t GetScalarKindFromConfig(const std::string &scalar_s
   throw std::invalid_argument("Unknown scalar kind: " + scalar_str);
 }
 
-// The `Impl` structure implements the underlying functionality of the `VectorIndex` class.
-// It uses the PIMPL (Pointer to Implementation) idiom to separate the interface of `VectorIndex`
-// from its implementation, making it easier to maintain, extend, and hide implementation details.
+/// @brief Implements the underlying functionality of the `VectorIndex` class.
+///
+/// The `Impl` structure follows the PIMPL (Pointer to Implementation) idiom to separate
+/// the interface of `VectorIndex` from its implementation
 struct VectorIndex::Impl {
-  Impl() = default;
-  ~Impl() = default;
-
-  // The `index_` member is a map that associates a `LabelPropKey` (a combination of label and property)
-  // with the actual vector index (`mg_vector_index_t`). This allows us to store multiple vector indexes
-  // based on different labels and properties.
+  /// The `index_` member is a map that associates a `LabelPropKey` (a combination of label and property)
+  /// with the actual vector index (`mg_vector_index_t`). This allows us to store multiple vector indexes
+  /// based on different labels and properties.
   std::map<LabelPropKey, mg_vector_index_t> index_;
 
-  // The `index_name_to_label_prop_` is a hash map that maps an index name (as a string) to the corresponding
-  // `LabelPropKey`. This allows the system to quickly resolve an index name to the specific label and property
-  // associated with that index, enabling easy lookup and management of indexes by name.
+  /// The `index_name_to_label_prop_` is a hash map that maps an index name (as a string) to the corresponding
+  /// `LabelPropKey`. This allows the system to quickly resolve an index name to the specific label and property
+  /// associated with that index, enabling easy lookup and management of indexes by name.
   absl::flat_hash_map<std::string, LabelPropKey> index_name_to_label_prop_;
 };
 
 VectorIndex::VectorIndex() : pimpl(std::make_unique<Impl>()) {}
-VectorIndex::~VectorIndex() {}
 
 void VectorIndex::CreateIndex(const VectorIndexSpec &spec) {
   // check mandatory fields
@@ -165,12 +169,12 @@ void VectorIndex::AddNodeToIndex(Vertex *vertex, const LabelPropKey &label_prop,
   index.add(key, vector.data());
 }
 
-std::size_t VectorIndex::Size(std::string_view index_name) {
+std::size_t VectorIndex::Size(std::string_view index_name) const {
   const auto label_prop = pimpl->index_name_to_label_prop_.at(index_name);
   return pimpl->index_.at(label_prop).size();
 }
 
-std::vector<std::string> VectorIndex::ListAllIndices() {
+std::vector<std::string> VectorIndex::ListAllIndices() const {
   std::vector<std::string> indices;
   for (const auto &[index_name, _] : pimpl->index_name_to_label_prop_) {
     indices.push_back(index_name);
@@ -180,7 +184,7 @@ std::vector<std::string> VectorIndex::ListAllIndices() {
 
 std::vector<std::pair<Gid, double>> VectorIndex::Search(std::string_view index_name, uint64_t start_timestamp,
                                                         uint64_t result_set_size,
-                                                        const std::vector<float> &query_vector) {
+                                                        const std::vector<float> &query_vector) const {
   const auto &label_prop = pimpl->index_name_to_label_prop_.at(index_name);
   const auto &index = pimpl->index_.at(label_prop);
 
