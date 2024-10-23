@@ -459,10 +459,10 @@ auto create_bounding_box(const point_type &center_point, double boundary) -> bg:
 template <typename point_type>
 requires std::is_same_v<typename bg::traits::coordinate_system<point_type>::type, bg::cs::geographic<bg::degree>>
 auto create_bounding_box(const point_type &center_point, double boundary) -> bg::model::box<point_type> {
-  double radDist = boundary / MEAN_EARTH_RADIUS;
+  double const radDist = boundary / MEAN_EARTH_RADIUS;
 
-  auto radLon = toRadians(bg::get<0>(center_point));
-  auto radLat = toRadians(bg::get<1>(center_point));
+  auto const radLon = toRadians(bg::get<0>(center_point));
+  auto const radLat = toRadians(bg::get<1>(center_point));
 
   constexpr auto MIN_LAT = -M_PI_2;
   constexpr auto MAX_LAT = M_PI_2;
