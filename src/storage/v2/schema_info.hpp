@@ -113,8 +113,7 @@ struct SchemaTracking final : public SchemaTrackingInterface {
 
   void UpdateEdgeStats(EdgeRef edge_ref, EdgeTypeId edge_type, const VertexKey &new_from_labels,
                        const VertexKey &new_to_labels, const VertexKey &old_from_labels, const VertexKey &old_to_labels,
-                       bool prop_on_edges, std::optional<std::unique_lock<utils::RWSpinLock>> from_lock = {},
-                       std::optional<std::unique_lock<utils::RWSpinLock>> to_lock = {});
+                       bool prop_on_edges);
 
  private:
   friend LocalSchemaTracking;
@@ -198,13 +197,12 @@ struct SchemaInfo {
     AnalyticalEdgeModifyingAccessor(SchemaInfo &si, bool prop_on_edges)
         : tracking_{&si.tracking_}, ordering_lock_{si.operation_ordering_mutex_}, properties_on_edges_{prop_on_edges} {}
 
-    void AddLabel(Vertex *vertex, LabelId label, std::unique_lock<utils::RWSpinLock> vertex_guard);
+    void AddLabel(Vertex *vertex, LabelId label);
 
-    void RemoveLabel(Vertex *vertex, LabelId label, std::unique_lock<utils::RWSpinLock> vertex_guard);
+    void RemoveLabel(Vertex *vertex, LabelId label);
 
    private:
-    void UpdateAnalyticalEdges(Vertex *vertex, const utils::small_vector<LabelId> &old_labels,
-                               std::unique_lock<utils::RWSpinLock> vertex_lock);
+    void UpdateAnalyticalEdges(Vertex *vertex, const utils::small_vector<LabelId> &old_labels);
 
     SharedSchemaTracking *tracking_{};
     std::unique_lock<std::shared_mutex> ordering_lock_;  //!< Order guaranteeing lock

@@ -141,7 +141,7 @@ inline utils::small_vector<LabelId> GetCommittedLabels(const Vertex &vertex) {
 }
 
 std::map<PropertyId, ExtendedPropertyType> GetCommittedProperty(const Edge &edge) {
-  auto lock = std::unique_lock{edge.lock};
+  auto lock = std::shared_lock{edge.lock};
   auto props = edge.properties.ExtendedPropertyTypes();
   if (edge.delta) {
     ApplyUncommittedDeltasForRead(edge.delta, [&props](const Delta &delta) {
@@ -158,7 +158,7 @@ std::map<PropertyId, ExtendedPropertyType> GetCommittedProperty(const Edge &edge
 std::unordered_map<PropertyId, std::pair<ExtendedPropertyType, ExtendedPropertyType>> GetPropertyDiff(
     Edge *edge, uint64_t commit_ts) {
   std::unordered_map<PropertyId, std::pair<ExtendedPropertyType, ExtendedPropertyType>> diff;
-  auto lock = std::unique_lock{edge->lock};
+  auto lock = std::shared_lock{edge->lock};
   // Check if edge was modified by this transaction
   if (!edge->delta || edge->delta->timestamp->load(std::memory_order::acquire) != commit_ts) return diff;
   // Prefill diff with current properties (as if no change has been made)
@@ -271,8 +271,8 @@ void SchemaTracking<TContainer>::ProcessTransaction(const SchemaTracking<TOtherC
 
   // Post process (edge updates)
   for (const auto &[edge_ref, edge_type, from, to] : post_process) {
-    auto from_lock = std::unique_lock{from->lock, std::defer_lock};
-    auto to_lock = std::unique_lock{to->lock, std::defer_lock};
+    auto from_lock = std::shared_lock{from->lock, std::defer_lock};
+    auto to_lock = std::shared_lock{to->lock, std::defer_lock};
 
     if (to == from) {
       from_lock.lock();
@@ -546,14 +546,10 @@ template <template <class...> class TContainer>
 void SchemaTracking<TContainer>::UpdateEdgeStats(EdgeRef edge_ref, EdgeTypeId edge_type,
                                                  const VertexKey &new_from_labels, const VertexKey &new_to_labels,
                                                  const VertexKey &old_from_labels, const VertexKey &old_to_labels,
-                                                 bool prop_on_edges,
-                                                 std::optional<std::unique_lock<utils::RWSpinLock>> from_lock,
-                                                 std::optional<std::unique_lock<utils::RWSpinLock>> to_lock) {
+                                                 bool prop_on_edges) {
   // Lookup needs to happen while holding the locks, but the update itself does not
   auto &new_tracking = edge_lookup({edge_type, new_from_labels, new_to_labels});
   auto &old_tracking = edge_lookup({edge_type, old_from_labels, old_to_labels});
-  if (from_lock && from_lock->owns_lock()) from_lock->unlock();
-  if (to_lock && to_lock->owns_lock()) to_lock->unlock();
   UpdateEdgeStats(new_tracking, old_tracking, edge_ref, prop_on_edges);
 }
 
@@ -575,6 +571,7 @@ void SchemaTracking<TContainer>::UpdateEdgeStats(auto &new_tracking, auto &old_t
     }
   }
 }
+
 //
 //
 // Snapshot recovery
@@ -669,62 +666,30 @@ void SchemaInfo::TransactionalEdgeModifyingAccessor::UpdateTransactionalEdges(
 }
 
 void SchemaInfo::AnalyticalEdgeModifyingAccessor::UpdateAnalyticalEdges(
-    Vertex *vertex, const utils::small_vector<LabelId> &old_labels, std::unique_lock<utils::RWSpinLock> vertex_lock) {
-  // Update edge stats
-  // Need to loop though the IN/OUT edges and lock both vertices
-  // Locking is done in order of GID
-  // Optimization: one vertex will already be locked; first loop through all edges that can lock; then unlock the
-  // vertex and loop through the rest
+    Vertex *vertex, const utils::small_vector<LabelId> &old_labels) {
+  // No need to lock anything, we are here, meaning this is the only modifying function currently active
   constexpr bool InEdge = true;
   constexpr bool OutEdge = !InEdge;
-  auto process = [&](auto &edge, const auto edge_dir, const bool vertex_locked) {
+  auto process = [&](auto &edge, const auto edge_dir) {
     const auto [edge_type, other_vertex, edge_ref] = edge;
-
-    auto guard = std::unique_lock{vertex->lock, std::defer_lock};
-    auto other_guard = std::unique_lock{other_vertex->lock, std::defer_lock};
-
-    if (vertex == other_vertex) {
-      if (!vertex_locked) return;
-      // Nothing to do, both ends are already locked
-    } else if (vertex->gid < other_vertex->gid) {
-      if (!vertex_locked) return;
-      other_guard.lock();
-    } else {
-      if (vertex_locked) return;
-      // Since the vertex is already locked, nothing we can do now; recheck when unlocked
-      other_guard.lock();
-      guard.lock();
-    }
     tracking_->UpdateEdgeStats(edge_ref, edge_type, (edge_dir == InEdge) ? other_vertex->labels : vertex->labels,
                                (edge_dir == InEdge) ? vertex->labels : other_vertex->labels,
                                (edge_dir == InEdge) ? other_vertex->labels : old_labels,
-                               (edge_dir == InEdge) ? old_labels : other_vertex->labels, properties_on_edges_,
-                               std::move(guard), std::move(other_guard));
+                               (edge_dir == InEdge) ? old_labels : other_vertex->labels, properties_on_edges_);
   };
 
-  // Loop 1: Handle all edges where the other vertex has a higher Gid
-  bool vertex_locked = true;
-  auto process_all_possible = [&]() {
-    for (const auto &edge : vertex->in_edges) {
-      process(edge, InEdge, vertex_locked);
-    }
-    for (const auto &edge : vertex->out_edges) {
-      process(edge, OutEdge, vertex_locked);
-    }
-  };
-  process_all_possible();
-
-  // Loop 2: Handle all edges where the other vertex has a lower Gid (unlock vertex first)
-  vertex_lock.unlock();
-  vertex_locked = false;
-  process_all_possible();
+  for (const auto &edge : vertex->in_edges) {
+    process(edge, InEdge);
+  }
+  for (const auto &edge : vertex->out_edges) {
+    process(edge, OutEdge);
+  }
 }
 
 // Vertex
 // Calling this after change has been applied
 // Special case for when the vertex has edges
-void SchemaInfo::AnalyticalEdgeModifyingAccessor::AddLabel(Vertex *vertex, LabelId label,
-                                                           std::unique_lock<utils::RWSpinLock> vertex_guard) {
+void SchemaInfo::AnalyticalEdgeModifyingAccessor::AddLabel(Vertex *vertex, LabelId label) {
   DMG_ASSERT(vertex->lock.is_locked(), "Trying to read from an unlocked vertex; LINE {}", __LINE__);
   auto old_labels = vertex->labels;
   auto itr = std::find(old_labels.begin(), old_labels.end(), label);
@@ -734,13 +699,12 @@ void SchemaInfo::AnalyticalEdgeModifyingAccessor::AddLabel(Vertex *vertex, Label
   // Update vertex stats
   tracking_->UpdateLabels(vertex, old_labels, vertex->labels);
   // Update edge stats
-  UpdateAnalyticalEdges(vertex, old_labels, std::move(vertex_guard));
+  UpdateAnalyticalEdges(vertex, old_labels);
 }
 
 // Calling this after change has been applied
 // Special case for when the vertex has edges
-void SchemaInfo::AnalyticalEdgeModifyingAccessor::RemoveLabel(Vertex *vertex, LabelId label,
-                                                              std::unique_lock<utils::RWSpinLock> vertex_guard) {
+void SchemaInfo::AnalyticalEdgeModifyingAccessor::RemoveLabel(Vertex *vertex, LabelId label) {
   DMG_ASSERT(vertex->lock.is_locked(), "Trying to read from an unlocked vertex; LINE {}", __LINE__);
   // Move all stats and edges to new label
   auto old_labels = vertex->labels;
@@ -748,7 +712,7 @@ void SchemaInfo::AnalyticalEdgeModifyingAccessor::RemoveLabel(Vertex *vertex, La
   // Update vertex stats
   tracking_->UpdateLabels(vertex, old_labels, vertex->labels);
   // Update edge stats
-  UpdateAnalyticalEdges(vertex, old_labels, std::move(vertex_guard));
+  UpdateAnalyticalEdges(vertex, old_labels);
 }
 
 // Vertex
@@ -794,8 +758,10 @@ void SchemaInfo::VertexModifyingAccessor::CreateEdge(Vertex *from, Vertex *to, E
 }
 
 void SchemaInfo::VertexModifyingAccessor::DeleteEdge(Vertex *from, Vertex *to, EdgeTypeId edge_type, EdgeRef edge_ref) {
-  // Vertices changed by the tx ( no need to lock )
+  // Analytical or edge created during this TX
   if (!post_process_ || EdgeCreatedDuringThisTx(edge_ref, from, commit_ts_, properties_on_edges_)) {
+    // Analytical: no need to lock since the vertex labels cannot change due to shared lock
+    // Transactional: no need to lock IF edge created during this TX
     tracking_->DeleteEdge(edge_type, edge_ref, from, to, properties_on_edges_);
   } else {  // Post process
     post_process_->emplace(edge_ref, edge_type, from, to);
@@ -813,9 +779,12 @@ void SchemaInfo::VertexModifyingAccessor::SetProperty(EdgeRef edge, EdgeTypeId t
                                                       PropertyId property, ExtendedPropertyType now,
                                                       ExtendedPropertyType before) {
   DMG_ASSERT(properties_on_edges_, "Trying to modify property on edge when explicitly disabled.");
+  DMG_ASSERT(edge.ptr->lock.is_locked(), "Trying to read from an unlocked edge; LINE {}", __LINE__);
   if (now == before) return;  // Nothing to do
-  if (!post_process_ ||
-      EdgeCreatedDuringThisTx(edge.ptr, commit_ts_)) {  // We can process in-place if created during this transaction
+  // Analytical or edge created during this TX
+  if (!post_process_ || EdgeCreatedDuringThisTx(edge.ptr, commit_ts_)) {
+    // Analytical: no need to lock since the vertex labels cannot change due to shared lock
+    // Transactional: no need to lock IF edge created during this TX
     tracking_->SetProperty(type, from, to, property, now, before, properties_on_edges_);
   } else {  // Not created during this tx; needs to be post-processed
     post_process_->emplace(edge, type, from, to);
