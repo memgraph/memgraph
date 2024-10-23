@@ -22,9 +22,9 @@
 #include "utils/logging.hpp"
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_HIDDEN_string(experimental_vector_indexes, "",
-                     "Enables vector search indexes on nodes with Label and property specified in the "
-                     "IndexName__Label1__property1__{JSON_config};IndexName__Label2__property2 format.");
+DEFINE_string(experimental_vector_indexes, "",
+              "Enables vector search indexes on nodes with Label and property specified in the "
+              "IndexName__Label1__property1__{JSON_config};IndexName__Label2__property2 format.");
 
 namespace unum {
 namespace usearch {
