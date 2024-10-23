@@ -514,14 +514,18 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
   auto add_prop_greater = [&](auto *expr1, auto *expr2, auto bound_type) -> bool {
     PropertyLookup *prop_lookup = nullptr;
     Identifier *ident = nullptr;
+    bool is_prop_filter = false;
 
+    // We need to get both possible lookups `n.prop > thing` and `thing > n.prop`
+    // Only one can be used in the rewrite, so even when we add both into all_filters_ only one can be used
+    // example where two can be inserted `n0.propA > n1.propB`, the rewritten scan could be for n0 or n1
     if (get_property_lookup(expr1, prop_lookup, ident)) {
       // n.prop > value
       auto filter = make_filter(FilterInfo::Type::Property);
       filter.property_filter.emplace(symbol_table, symbol_table.at(*ident), prop_lookup->property_,
                                      Bound(expr2, bound_type), std::nullopt);
       all_filters_.emplace_back(filter);
-      return true;
+      is_prop_filter = true;
     }
     if (get_property_lookup(expr2, prop_lookup, ident)) {
       // value > n.prop
@@ -529,9 +533,9 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       filter.property_filter.emplace(symbol_table, symbol_table.at(*ident), prop_lookup->property_, std::nullopt,
                                      Bound(expr1, bound_type));
       all_filters_.emplace_back(filter);
-      return true;
+      is_prop_filter = true;
     }
-    return false;
+    return is_prop_filter;
   };
   auto add_prop_range = [&](RangeOperator *range) {
     auto filter = RangeOpToFilter(range, symbol_table);
