@@ -116,6 +116,7 @@ struct VectorIndex::Impl {
 };
 
 VectorIndex::VectorIndex() : pimpl(std::make_unique<Impl>()) {}
+VectorIndex::~VectorIndex() {}
 
 void VectorIndex::CreateIndex(const VectorIndexSpec &spec) {
   // check mandatory fields

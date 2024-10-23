@@ -64,6 +64,11 @@ using VectorIndexTuple = std::pair<Vertex *, LabelPropKey>;
 class VectorIndex {
  public:
   VectorIndex();
+  ~VectorIndex();
+  VectorIndex(const VectorIndex &) = delete;
+  VectorIndex &operator=(const VectorIndex &) = delete;
+  VectorIndex(VectorIndex &&) noexcept;
+  VectorIndex &operator=(VectorIndex &&) noexcept;
 
   /// @brief Creates a new index based on the specified configuration.
   /// @param spec The specification for the index to be created.
