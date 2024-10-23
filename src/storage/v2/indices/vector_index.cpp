@@ -19,6 +19,7 @@
 #include "usearch/index.hpp"
 #include "usearch/index_dense.hpp"
 #include "utils/algorithm.hpp"
+#include "utils/logging.hpp"
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_HIDDEN_string(experimental_vector_indexes, "",
@@ -113,9 +114,12 @@ VectorIndex::VectorIndex() : pimpl(std::make_unique<Impl>()) {}
 VectorIndex::~VectorIndex() {}
 
 void VectorIndex::CreateIndex(const VectorIndexSpec &spec) {
-  // size and limit are important parameters for the usearch index to work properly.
+  // check mandatory fields
+  MG_ASSERT(spec.config.contains("dimension"), "Vector index must have a 'dimension' field in the config.");
+  MG_ASSERT(spec.config.contains("limit"), "Vector index must have a 'size' field in the config.");
+
   uint64_t vector_dimension = spec.config["dimension"];
-  uint64_t limit = spec.config["limit"];
+  uint64_t index_size = spec.config["limit"];
 
   // Read metric kind from config, with a fallback to default 'l2sq_k' if not provided.
   std::string metric_kind_str = spec.config.contains("metric") ? spec.config["metric"] : "l2sq";
@@ -130,7 +134,7 @@ void VectorIndex::CreateIndex(const VectorIndexSpec &spec) {
   const auto label_prop = LabelPropKey{spec.label, spec.property};
   pimpl->index_name_to_label_prop_.emplace(spec.index_name, label_prop);
   pimpl->index_.emplace(label_prop, mg_vector_index_t::make(metric));
-  pimpl->index_[label_prop].reserve(limit);
+  pimpl->index_[label_prop].reserve(index_size);
 
   spdlog::trace("Created vector index " + spec.index_name);
 }
@@ -148,9 +152,15 @@ void VectorIndex::AddNodeToIndex(Vertex *vertex, const LabelPropKey &label_prop,
   const auto &vector_property = vertex->properties.GetProperty(label_prop.property()).ValueList();
   std::vector<float> vector;
   vector.reserve(vector_property.size());
-  std::transform(vector_property.begin(), vector_property.end(), std::back_inserter(vector),
-                 [](const auto &value) { return value.ValueDouble(); });
-
+  std::transform(vector_property.begin(), vector_property.end(), std::back_inserter(vector), [](const auto &value) {
+    if (value.IsDouble()) {
+      return static_cast<float>(value.ValueDouble());
+    }
+    if (value.IsInt()) {
+      return static_cast<float>(value.ValueInt());
+    }
+    throw std::invalid_argument("Vector index property must be a list of floats or integers.");
+  });
   const auto key = VectorIndexKey{vertex, commit_timestamp};
   index.add(key, vector.data());
 }

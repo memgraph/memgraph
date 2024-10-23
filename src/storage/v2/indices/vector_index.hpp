@@ -51,7 +51,7 @@ struct VectorIndexKey {
   }
 };
 
-using VectorIndexTuple = std::tuple<Vertex *, LabelPropKey>;
+using VectorIndexTuple = std::pair<Vertex *, LabelPropKey>;
 
 // The `VectorIndex` class is a high-level interface for managing vector indexes.
 // It supports creating new indexes, adding nodes to an index, listing all indexes,

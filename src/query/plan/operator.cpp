@@ -287,6 +287,7 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
 
   MultiPropsInitChecked(&new_node, properties);
 
+  // TODO: Move this to UpdateOnAddLabel, UpdateOnSetProperty, etc.
   if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     context.db_accessor->TextIndexAddVertex(new_node);
   }
