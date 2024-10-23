@@ -164,6 +164,7 @@ declare -A primary_urls=(
   ["mgcxx"]="http://$local_cache_host/git/mgcxx.git"
   ["strong_type"]="http://$local_cache_host/git/strong_type.git"
   ["usearch"]="http://$local_cache_host/git/usearch.git"
+  ["croncpp"]="http://$local_cache_host/git/croncpp.git"
 )
 
 # The goal of secondary urls is to have links to the "source of truth" of
@@ -198,6 +199,7 @@ declare -A secondary_urls=(
   ["mgcxx"]="https://github.com/memgraph/mgcxx.git"
   ["strong_type"]="https://github.com/rollbear/strong_type.git"
   ["usearch"]="https://github.com/unum-cloud/usearch.git"
+  ["croncpp"]="https://github.com/mariusbancila/croncpp.git"
 )
 
 # antlr
@@ -340,8 +342,13 @@ repo_clone_try_double "${primary_urls[mgcxx]}" "${secondary_urls[mgcxx]}" "mgcxx
 strong_type_ref="v14"
 repo_clone_try_double "${primary_urls[strong_type]}" "${secondary_urls[strong_type]}" "strong_type" "$strong_type_ref"
 
+# usearch
 usearch_ref="v2.15.3"
 repo_clone_try_double "${primary_urls[usearch]}" "${secondary_urls[usearch]}" "usearch" "$usearch_ref"
 pushd usearch
 git submodule update --init --recursive
 popd
+
+# croncpp
+croncpp_ref="v2023.03.30"
+repo_clone_try_double "${primary_urls[croncpp]}" "${secondary_urls[croncpp]}" "croncpp" "$croncpp_ref"

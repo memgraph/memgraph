@@ -11,17 +11,22 @@
 
 #include "flags/run_time_configurable.hpp"
 
+#include <optional>
 #include <stdexcept>
 #include <string>
 
+#include "croncpp.h"
 #include "gflags/gflags.h"
 
 #include "flags/log_level.hpp"
 #include "spdlog/spdlog.h"
 #include "utils/exceptions.hpp"
 #include "utils/flag_validation.hpp"
+#include "utils/rw_lock.hpp"
+#include "utils/rw_spin_lock.hpp"
 #include "utils/settings.hpp"
 #include "utils/string.hpp"
+#include "utils/synchronized.hpp"
 
 namespace {
 bool ValidTimezone(std::string_view tz);
@@ -65,6 +70,9 @@ DEFINE_VALIDATED_string(timezone, "UTC", "Define instance's timezone (IANA forma
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(query_log_directory, "", "Path to directory where the query logs should be stored.");
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(storage_snapshot_cron, "", "Define periodic snapshot schedule via cron format.");
+
 namespace {
 // Bolt server name
 constexpr auto kServerNameSettingKey = "server.name";
@@ -95,12 +103,16 @@ constexpr auto kQueryLogDirectoryGFlagsKey = "query-log-directory";
 constexpr auto kTimezoneSettingKey = "timezone";
 constexpr auto kTimezoneGFlagsKey = kTimezoneSettingKey;
 
+constexpr auto kSnapshotCronSettingKey = "storage.snapshot.cron";
+constexpr auto kSnapshotCronGFlagsKey = "storage-snapshot-cron";
+
 // NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
 // Local cache-like thing
 std::atomic<double> execution_timeout_sec_;
 std::atomic<bool> hops_limit_partial_results{true};
 std::atomic<bool> cartesian_product_enabled_{true};
 std::atomic<const std::chrono::time_zone *> timezone_{nullptr};
+memgraph::utils::Synchronized<std::optional<cron::cronexpr>, memgraph::utils::RWSpinLock> snapshot_cron_{};
 // NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
 
 auto ToLLEnum(std::string_view val) {
@@ -245,6 +257,25 @@ void Initialize() {
    * Register query log directory setting
    */
   register_flag(kQueryLogDirectoryGFlagsKey, kQueryLogDirectorySettingKey, kRestore);
+
+  /*
+   * Register snapshot cron setting
+   */
+  register_flag(
+      kSnapshotCronGFlagsKey, kSnapshotCronSettingKey, !kRestore,
+      [](const std::string &val) {
+        *snapshot_cron_.Lock() = val.empty() ? std::nullopt : std::optional(cron::make_cron(val));
+      },
+      [](const std::string_view val) {
+        // Empty str means nullopt
+        if (val.empty()) return true;
+        try {
+          cron::make_cron(val);
+        } catch (cron::bad_cronexpr & /* unused */) {
+          return false;
+        }
+        return true;
+      });
 }
 
 std::string GetServerName() {
@@ -267,6 +298,14 @@ std::string GetQueryLogDirectory() {
   // Thread safe read of gflag
   gflags::GetCommandLineOption(kQueryLogDirectoryGFlagsKey, &s);
   return s;
+}
+
+std::optional<std::string> GetSnapshotCron() {
+  const auto cron_locked = snapshot_cron_.ReadLock();
+  if (cron_locked->has_value()) {
+    return cron::to_cronstr(cron_locked->value());
+  }
+  return std::nullopt;
 }
 
 }  // namespace memgraph::flags::run_time

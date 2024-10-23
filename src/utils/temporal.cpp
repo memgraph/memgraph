@@ -549,15 +549,7 @@ int64_t LocalDateTime::SubSecondsAsNanoseconds() const {
       .count();
 }
 
-std::string LocalDateTime::ToString() const {
-  auto zt = std::chrono::zoned_time(us_since_epoch_);  // Default to UTC
-  const auto *tz = flags::run_time::GetTimezone();
-  if (tz) {
-    // APPLY TIMEZONE (UTC to local)
-    zt = std::chrono::zoned_time(tz, us_since_epoch_);
-  }
-  return std::format("{:%Y-%m-%dT%H:%M:%S}", zt);
-}
+std::string LocalDateTime::ToString() const { return std::format("{:%Y-%m-%dT%H:%M:%S}", zoned_time()); }
 
 Date LocalDateTime::date() const {
   // Date does not support timezones; use calendar time offset
@@ -570,6 +562,43 @@ LocalTime LocalDateTime::local_time() const {
   /* remove everything above hours */ GetAndSubtractDuration<std::chrono::days>(local_datetime);
   if (local_datetime.count() < 0) local_datetime += std::chrono::hours(24);
   return LocalTime{local_datetime.count()};
+}
+
+std::chrono::zoned_time<std::chrono::microseconds> LocalDateTime::zoned_time() const {
+  const auto *tz = flags::run_time::GetTimezone();
+  if (tz) {
+    // APPLY TIMEZONE (UTC to local)
+    return {tz, us_since_epoch_};
+  }
+  return {"UTC", us_since_epoch_};  // Default to UTC
+}
+
+std::tm LocalDateTime::tm() const {
+  using namespace std::chrono_literals;
+  std::tm out;
+
+  const auto this_date = date();
+  out.tm_mday = this_date.day;
+  out.tm_mon = this_date.month - 1;     // 0 based
+  out.tm_year = this_date.year - 1900;  // Counts from 1900
+
+  const auto this_time = local_time();
+  out.tm_sec = this_time.second;
+  out.tm_min = this_time.minute;
+  out.tm_hour = this_time.hour;
+
+  const auto ztime = zoned_time();
+  const auto days = std::chrono::local_days{time_point_cast<std::chrono::days>(ztime.get_local_time())};
+  out.tm_wday = std::chrono::weekday{days}.c_encoding();
+  out.tm_yday =
+      std::chrono::duration_cast<std::chrono::days>((days - DaysSinceEpoch(this_date.year, 1, 1)).time_since_epoch())
+          .count();
+  const auto info = ztime.get_time_zone()->get_info(us_since_epoch_);
+  out.tm_isdst = info.save != 0s;
+  out.tm_gmtoff = info.offset.count();
+  out.tm_zone = ztime.get_time_zone()->name().data();
+
+  return out;
 }
 
 size_t LocalDateTimeHash::operator()(const LocalDateTime &local_date_time) const {

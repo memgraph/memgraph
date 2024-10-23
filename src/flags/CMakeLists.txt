@@ -18,5 +18,5 @@ add_library(mg-flags STATIC
 )
 target_include_directories(mg-flags PUBLIC include)
 target_link_libraries(mg-flags
-        PUBLIC spdlog::spdlog mg-settings mg-utils
+        PUBLIC spdlog::spdlog mg-settings mg-utils croncpp::croncpp
         PRIVATE lib::rangev3)

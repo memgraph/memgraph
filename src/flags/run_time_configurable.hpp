@@ -63,4 +63,11 @@ const std::chrono::time_zone *GetTimezone();
  */
 std::string GetQueryLogDirectory();
 
+/**
+ * @brief Get the periodic snapshot interval as defined via cron.
+ *
+ * @return std::optional<std::string>
+ */
+std::optional<std::string> GetSnapshotCron();
+
 }  // namespace memgraph::flags::run_time
