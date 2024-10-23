@@ -21,9 +21,6 @@
 DECLARE_string(experimental_vector_indexes);
 namespace memgraph::storage {
 
-/// TODO(DavIvek): The below code should be discarded and replaces with proper queries. IMPORTANT: Once we have the
-/// fully tested index implementation.
-
 /// @struct VectorIndexSpec
 /// @brief Represents a specification for creating a vector index in the system.
 ///
