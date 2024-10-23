@@ -712,8 +712,6 @@ def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_reco
 
     mg_sleep_and_assert(3, get_vertex_count)
 
-    assert execute_and_fetch_all(instance_4_cursor, "MATCH (n) RETURN count(n);")[0][0] == 3
-
     # 9
 
     interactive_mg_runner.kill(memgraph_instances_description, "instance_2")

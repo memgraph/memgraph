@@ -88,7 +88,7 @@ class CoordinatorInstance {
 
   auto ShowInstances() const -> std::vector<InstanceStatus>;
 
-  auto ShowInstancesAsLeader() const -> std::vector<InstanceStatus>;
+  auto ShowInstancesAsLeader() const -> std::optional<std::vector<InstanceStatus>>;
 
   // Finds most up to date instance that could become new main. Only alive instances are taken into account.
   [[nodiscard]] auto TryFailover() -> FailoverStatus;

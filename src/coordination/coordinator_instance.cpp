@@ -220,8 +220,11 @@ auto CoordinatorInstance::ShowInstancesStatusAsFollower() const -> std::vector<I
   return instances_status;
 }
 
-auto CoordinatorInstance::ShowInstancesAsLeader() const -> std::vector<InstanceStatus> {
+auto CoordinatorInstance::ShowInstancesAsLeader() const -> std::optional<std::vector<InstanceStatus>> {
   spdlog::trace("Processing show instances as leader");
+  if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
+    return std::nullopt;
+  }
   auto instances_status = GetCoordinatorsInstanceStatus();
 
   auto const stringify_repl_role = [this](auto &&instance) -> std::string {
@@ -251,8 +254,9 @@ auto CoordinatorInstance::ShowInstancesAsLeader() const -> std::vector<InstanceS
 }
 
 auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
-  if (status.load(std::memory_order_acquire) == CoordinatorStatus::LEADER_READY) {
-    return ShowInstancesAsLeader();
+  auto const leader_results = ShowInstancesAsLeader();
+  if (leader_results.has_value()) {
+    return *leader_results;
   }
 
   auto const leader_id = raft_state_->GetLeaderId();
