@@ -240,7 +240,7 @@ Feature: Spatial related features
               point({longitude: 12.78, latitude: 56.7}),
               point({longitude: 12.79, latitude: 56.71})
             ) AS dist
-            RETURN 1268 < dist AND dist < 1269 AS result;
+            RETURN 1270.8 < dist AND dist < 1271.0 AS result;
             """
         Then the result should be:
             | result |
@@ -250,10 +250,10 @@ Feature: Spatial related features
         When executing query:
             """
             WITH point.distance(
-              point({longitude: 12.78, latitude: 56.7,   height: 100}),
-              point({longitude: 12.79, latitude: 56.71,  height: 100})
+              point({longitude: 12.78, latitude: 56.7,   height: 1000}),
+              point({longitude: 12.79, latitude: 56.71,  height: 0})
             ) AS dist
-            RETURN 1268 < dist AND dist < 1269 AS result;
+            RETURN 1617.1 < dist AND dist < 1617.2 AS result;
             """
         Then the result should be:
             | result |

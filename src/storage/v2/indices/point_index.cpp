@@ -459,6 +459,8 @@ auto create_bounding_box(const point_type &center_point, double boundary) -> bg:
 template <typename point_type>
 requires std::is_same_v<typename bg::traits::coordinate_system<point_type>::type, bg::cs::geographic<bg::degree>>
 auto create_bounding_box(const point_type &center_point, double boundary) -> bg::model::box<point_type> {
+  // Our approximation for earth radius
+  constexpr double MEAN_EARTH_RADIUS = 6'371'009;
   double const radDist = boundary / MEAN_EARTH_RADIUS;
 
   auto const radLon = toRadians(bg::get<0>(center_point));
@@ -570,7 +572,7 @@ auto get_index_iterator_distance(Index &index, PropertyValue const &point_value,
       auto middle = std::midpoint(h1, h2);
       auto avg_a = point_type{bg::get<0>(a), bg::get<1>(a), middle};
       auto avg_b = point_type{bg::get<0>(b), bg::get<1>(b), middle};
-      auto distance_spherical = bg::distance(a, b);
+      auto distance_spherical = bg::distance(avg_a, avg_b);
 
       // use Pythagoras' theorem, combining height difference
       auto height_diff = h1 - h2;

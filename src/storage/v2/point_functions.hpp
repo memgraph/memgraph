@@ -15,8 +15,6 @@
 
 namespace memgraph::storage {
 
-constexpr double MEAN_EARTH_RADIUS = 6'371'009;
-
 double Haversine(const Point2d &point1, const Point2d &point2);
 
 double Haversine(const Point3d &point1, const Point3d &point2);
