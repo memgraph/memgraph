@@ -445,8 +445,8 @@ double toRadians(double degrees) { return degrees * M_PI / 180.0; }
 double toDegrees(double radians) { return radians * 180.0 / M_PI; }
 
 template <typename point_type>
-requires std::is_same<typename bg::traits::coordinate_system<point_type>::type, bg::cs::cartesian>::value auto
-create_bounding_box(const point_type &center_point, double boundary) -> bg::model::box<point_type> {
+requires std::is_same_v<typename bg::traits::coordinate_system<point_type>::type, bg::cs::cartesian>
+auto create_bounding_box(const point_type &center_point, double boundary) -> bg::model::box<point_type> {
   constexpr auto n_dimensions = bg::traits::dimension<point_type>::value;
   return [&]<auto... I>(std::index_sequence<I...>) {
     auto const min_corner = point_type{(bg::get<I>(center_point) - boundary)...};
@@ -457,9 +457,8 @@ create_bounding_box(const point_type &center_point, double boundary) -> bg::mode
 }
 
 template <typename point_type>
-requires std::is_same<typename bg::traits::coordinate_system<point_type>::type,
-                      bg::cs::geographic<bg::degree>>::value auto
-create_bounding_box(const point_type &center_point, double boundary) -> bg::model::box<point_type> {
+requires std::is_same_v<typename bg::traits::coordinate_system<point_type>::type, bg::cs::geographic<bg::degree>>
+auto create_bounding_box(const point_type &center_point, double boundary) -> bg::model::box<point_type> {
   double radDist = boundary / MEAN_EARTH_RADIUS;
 
   auto radLon = toRadians(bg::get<0>(center_point));
@@ -474,10 +473,11 @@ create_bounding_box(const point_type &center_point, double boundary) -> bg::mode
   double minLat = radLat - radDist;
   double maxLat = radLat + radDist;
 
-  double minLon, maxLon;
+  double minLon;  // NOLINT(cppcoreguidelines-init-variables)
+  double maxLon;  // NOLINT(cppcoreguidelines-init-variables)
   // check if latitude needs to truncate at the poles
   if (minLat > MIN_LAT && maxLat < MAX_LAT) {
-    double deltaLon = std::asin(std::sin(radDist) / std::cos(radLat));
+    double const deltaLon = std::asin(std::sin(radDist) / std::cos(radLat));
     minLon = radLon - deltaLon;
     if (minLon < MIN_LON) minLon += 2.0 * M_PI;
     maxLon = radLon + deltaLon;
@@ -527,7 +527,7 @@ auto get_index_iterator_distance(Index &index, PropertyValue const &point_value,
   using point_type = Index::value_type::point_type;
   auto constexpr dimensions = bg::traits::dimension<point_type>::value;
   using CoordinateSystem = typename bg::traits::coordinate_system<point_type>::type;
-  auto constexpr is_cartesian = std::is_same<CoordinateSystem, bg::cs::cartesian>::value;
+  auto constexpr is_cartesian = std::is_same_v<CoordinateSystem, bg::cs::cartesian>;
 
   auto center_point = std::invoke([&]() -> point_type {
     if constexpr (dimensions == 2) {
@@ -551,8 +551,8 @@ auto get_index_iterator_distance(Index &index, PropertyValue const &point_value,
   };
 
   auto outer_inclusion_box = [&] {
-    auto silghtly_larger = std::nexttoward(boundary, std::numeric_limits<double>::infinity());
-    return create_bounding_box(center_point, silghtly_larger);
+    auto slightly_larger = std::nexttoward(boundary, std::numeric_limits<long double>::infinity());
+    return create_bounding_box(center_point, slightly_larger);
   };
 
   auto true_distance = [](auto a, auto b) {
