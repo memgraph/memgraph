@@ -109,6 +109,7 @@ class BoltClient(BaseClient):
         self._bolt_port = (
             benchmark_context.vendor_args["bolt-port"] if "bolt-port" in benchmark_context.vendor_args.keys() else 7687
         )
+        self._vendor_name = benchmark_context.vendor_name
 
     def _get_args(self, **kwargs):
         return _convert_args_to_flags(self._client_binary, **kwargs)
@@ -146,10 +147,17 @@ class BoltClient(BaseClient):
 
         while True:
             try:
-                subprocess.run(check_db_args, capture_output=True, text=True, check=True)
+                print(f"---> benchmark vendor is {self._vendor_name}")
+                if self._vendor_name == "falkordb":
+                    falkor_check_db_args = ["redis-cli", "-h", "127.0.01", "-p", "6379", "ping"]
+                    print(f"---> running subprocess to check if the db up and running: {falkor_check_db_args}")
+                    subprocess.run(falkor_check_db_args, capture_output=True, text=True, check=True)
+                else:
+                    print(f"---> running subprocess to check if the db up and running: {check_db_args}")
+                    subprocess.run(check_db_args, capture_output=True, text=True, check=True)
                 break
             except subprocess.CalledProcessError as e:
-                log.log("Checking if database is up and running failed...")
+                log.warning("Checking if database is up and running failed...")
                 log.warning("Reported errors from client:")
                 log.warning("Error: {}".format(e.stderr))
                 log.warning("Database is not up yet, waiting 3 seconds...")
@@ -181,6 +189,7 @@ class BoltClient(BaseClient):
 
         ret = None
         try:
+            print(f"---> running subprocess({args})")
             ret = subprocess.run(args, capture_output=True)
         finally:
             error = ret.stderr.decode("utf-8").strip().split("\n")
@@ -450,6 +459,7 @@ class Memgraph(BaseRunner):
         if self._proc_mg is not None:
             raise Exception("The database process is already running!")
         args = self._set_args(**kwargs)
+        print(f"---> starting database {args}")
         self._proc_mg = subprocess.Popen(args, stdout=subprocess.DEVNULL)
         time.sleep(0.2)
         if self._proc_mg.poll() is not None:
@@ -1091,3 +1101,168 @@ class Neo4jDocker(BaseRunner):
         ret = subprocess.run(command, capture_output=True, check=True, text=True)
         time.sleep(0.2)
         return ret
+
+
+class Falkordb(BaseRunner):
+    def __init__(self, benchmark_context: BenchmarkContext):
+        super().__init__(benchmark_context=benchmark_context)
+        print(f"---> creating falkordb runner with context: {benchmark_context}")
+        self._memgraph_binary = benchmark_context.vendor_binary
+        self._bolt_num_workers = benchmark_context.num_workers_for_benchmark
+        self._performance_tracking = benchmark_context.performance_tracking
+        self._directory = tempfile.TemporaryDirectory(dir=benchmark_context.temporary_directory)
+        self._vendor_args = benchmark_context.vendor_args
+        self._bolt_port = self._vendor_args["bolt-port"] if "bolt-port" in self._vendor_args.keys() else 7687
+        self._proc_mg = None
+        self._stop_event = threading.Event()
+        self._rss = []
+
+        # Determine Memgraph version
+        #      print(f"---> running subprocess to determin if database is running: {self._memgraph_binary} --version")
+        #      ret = subprocess.run([self._memgraph_binary, "--version"], stdout=subprocess.PIPE, check=True)
+        #      version = re.search(r"[0-9]+\.[0-9]+\.[0-9]+", ret.stdout.decode("utf-8")).group(0)
+        #      self._memgraph_version = tuple(map(int, version.split(".")))
+        #      print(f"---> got memgraph version: {self._memgraph_version}")
+        atexit.register(self._cleanup)
+
+    def __del__(self):
+        self._cleanup()
+        atexit.unregister(self._cleanup)
+
+    def _set_args(self, **kwargs):
+        data_directory = os.path.join(self._directory.name, "memgraph")
+        kwargs["bolt_port"] = self._bolt_port
+        kwargs["data_directory"] = data_directory
+        kwargs["storage_properties_on_edges"] = True
+        kwargs["bolt_num_workers"] = self._bolt_num_workers
+        for key, value in self._vendor_args.items():
+            kwargs[key] = value
+        return _convert_args_to_flags(self._memgraph_binary, **kwargs)
+
+    def _start(self, **kwargs):
+        print(f"---> _start({kwargs})")
+        if self._proc_mg is not None:
+            raise Exception("The database process is already running!")
+        args = self._set_args(**kwargs)
+        print(f"---> starting database {args}")
+        self._proc_mg = subprocess.Popen(args, stdout=subprocess.DEVNULL)
+        time.sleep(0.2)
+        if self._proc_mg.poll() is not None:
+            self._proc_mg = None
+            raise Exception("The database process died prematurely!")
+        _wait_for_server_socket(6379)
+        ret = self._proc_mg.poll()
+
+    def _cleanup(self):
+        print(f"---> _cleanup() falkordb")
+        if self._proc_mg is None:
+            return 0
+
+        # use redis-cli to save the data
+        save_args = ["redis-cli", "SAVE"]
+        result = subprocess.run(save_args, capture_output=True, text=True)
+        print(f"executing {save_args} returns {result.stdout}")
+
+        usage = _get_usage(self._proc_mg.pid)
+        self._proc_mg.terminate()
+        ret = self._proc_mg.wait()
+        self._proc_mg = None
+        return ret, usage
+
+    def start_db_init(self, workload):
+        print(f"---> start_db_init({workload})")
+        if self._performance_tracking:
+            p = threading.Thread(target=self.res_background_tracking, args=(self._rss, self._stop_event))
+            self._stop_event.clear()
+            self._rss.clear()
+            p.start()
+        self._start(storage_snapshot_on_exit=True, **self._vendor_args)
+
+    def stop_db_init(self, workload):
+        print(f"---> stop_db_init({workload})")
+        if self._performance_tracking:
+            self._stop_event.set()
+            self.dump_rss(workload)
+        ret, usage = self._cleanup()
+        # copy redis dump to a backup
+        self.backup_redis_dump()
+
+        return usage
+
+    def backup_redis_dump(self):
+        print("---> backup redis dump")
+        out = subprocess.run(
+            args="cp -f /home/barak_bar/redisdb/dump.rdb /home/barak_bar/redisdb/dump.rdb.bk",
+            cwd=self._directory.name,
+            capture_output=True,
+            shell=True,
+        )
+        print(out.stderr.decode("utf-8"))
+        print(out.stdout.decode("utf-8"))
+
+    def restore_redis_dump(self):
+        print("---> restoring redis dump")
+        out = subprocess.run(
+            args="cp -f /home/barak_bar/redisdb/dump.rdb.bk /home/barak_bar/redisdb/dump.rdb",
+            cwd=self._directory.name,
+            capture_output=True,
+            shell=True,
+        )
+        print(out.stderr.decode("utf-8"))
+        print(out.stdout.decode("utf-8"))
+
+    def start_db(self, workload):
+        print(f"---> start_db({workload})")
+        if self._performance_tracking:
+            p = threading.Thread(target=self.res_background_tracking, args=(self._rss, self._stop_event))
+            self._stop_event.clear()
+            self._rss.clear()
+            p.start()
+        self._start(data_recovery_on_startup=True, **self._vendor_args)
+
+    def stop_db(self, workload):
+        print(f"---> stop_db({workload})")
+        if self._performance_tracking:
+            self._stop_event.set()
+            self.dump_rss(workload)
+        ret, usage = self._cleanup()
+        return usage
+
+    def clean_db(self):
+        print(f"---> clean_db()")
+        if self._proc_mg is not None:
+            raise Exception("The database process is already running, cannot clear data it!")
+        else:
+            out = subprocess.run(
+                args="rm /home/barak_bar/redisdb/dump.rdb",
+                cwd=self._directory.name,
+                capture_output=True,
+                shell=True,
+            )
+            print(out.stderr.decode("utf-8"))
+            print(out.stdout.decode("utf-8"))
+
+    def res_background_tracking(self, res, stop_event):
+        print(f"---> res_background_tracking({res}, {stop_event})")
+        print("Started rss tracking.")
+        while not stop_event.is_set():
+            if self._proc_mg != None:
+                self._rss.append(_get_current_usage(self._proc_mg.pid))
+            time.sleep(0.05)
+        print("Stopped rss tracking. ")
+
+    def dump_rss(self, workload):
+        print(f"---> dump_rss({workload})")
+        file_name = workload + "_rss"
+        Path.mkdir(Path().cwd() / "memgraph_memory", exist_ok=True)
+        file = Path(Path().cwd() / "memgraph_memory" / file_name)
+        file.touch()
+        with file.open("r+") as f:
+            for rss in self._rss:
+                f.write(str(rss))
+                f.write("\n")
+            f.close()
+
+    def fetch_client(self) -> BoltClient:
+        print(f"---> fetch_client self.benchmark_context: {self.benchmark_context} ")
+        return BoltClient(benchmark_context=self.benchmark_context)

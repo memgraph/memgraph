@@ -19,7 +19,7 @@ from pathlib import Path
 
 def parse_arguments():
     parser = argparse.ArgumentParser(
-        description="Run graph database benchmarks on supported databases(Memgraph and Neo4j)",
+        description="Run graph database benchmarks on supported databases(Memgraph FalkorDB and Neo4j)",
     )
     parser.add_argument(
         "--vendor",
@@ -27,7 +27,7 @@ def parse_arguments():
         action="append",
         metavar=("vendor_name", "vendor_binary"),
         help="Forward name and paths to vendors binary"
-        "Example: --vendor memgraph /path/to/binary --vendor neo4j /path/to/binary",
+        "Example: --vendor memgraph /path/to/binary --vendor falkordb /path/to/binary --vendor neo4j /path/to/binary",
     )
 
     parser.add_argument(
@@ -236,7 +236,7 @@ def run_full_benchmarks(
 
     for config in configurations:
         full_config = default_args + config
-        print(full_config)
+        print(f"---> calling benchmark.py executing subprocess.run with {full_config}")
         subprocess.run(args=full_config, check=True)
 
 
@@ -279,7 +279,7 @@ if __name__ == "__main__":
     realistic = args.realistic
     mixed = args.mixed
 
-    vendor_names = {"memgraph", "neo4j"}
+    vendor_names = {"memgraph", "falkordb", "neo4j"}
     for vendor_name, vendor_binary in args.vendor:
         path = Path(vendor_binary)
         if vendor_name.lower() in vendor_names and path.is_file():

@@ -207,8 +207,8 @@ def parse_args():
     parser_vendor_native.add_argument(
         "--vendor-name",
         default="memgraph",
-        choices=["memgraph", "neo4j"],
-        help="Input vendor binary name (memgraph, neo4j)",
+        choices=["memgraph", "falkordb", "neo4j"],
+        help="Input vendor binary name (memgraph, falkordb, neo4j)",
     )
     parser_vendor_native.add_argument(
         "--vendor-binary",
@@ -642,6 +642,7 @@ def run_isolated_workload_without_authorization(
 
 
 def setup_indices_and_import_dataset(client, vendor_runner, generated_queries, workload, storage_mode):
+    print(f"---> in setup_indices_and_import_dataset vendor is {vendor_runner}")
     if benchmark_context.vendor_name == "memgraph":
         # Neo4j will get started just before import -> without this if statement it would try to start it twice
         vendor_runner.start_db_init(VENDOR_RUNNER_IMPORT)
