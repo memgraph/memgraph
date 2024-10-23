@@ -4233,7 +4233,8 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         for (const auto &[label_id, prop_id] : info.point_label_property) {
           results.push_back({TypedValue(point_label_property_index_mark), TypedValue(storage->LabelToName(label_id)),
                              TypedValue(storage->PropertyToName(prop_id)),
-                             TypedValue(static_cast<int>(storage_acc->ApproximatePointCount(label_id, prop_id)))});
+                             TypedValue(static_cast<int>(
+                                 storage_acc->ApproximateVerticesPointCount(label_id, prop_id).value_or(0)))});
         }
 
         std::sort(results.begin(), results.end(), [&label_index_mark](const auto &record_1, const auto &record_2) {
@@ -5195,11 +5196,11 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       }
       // Vertex label property_point
       for (const auto &[label_id, property] : index_info.point_label_property) {
-        node_indexes.push_back(
-            nlohmann::json::object({{"labels", {storage->LabelToName(label_id)}},
-                                    {"properties", {storage->PropertyToName(property)}},
-                                    {"count", storage_acc->ApproximatePointCount(label_id, property)},
-                                    {"type", "label+property_point"}}));
+        node_indexes.push_back(nlohmann::json::object(
+            {{"labels", {storage->LabelToName(label_id)}},
+             {"properties", {storage->PropertyToName(property)}},
+             {"count", storage_acc->ApproximateVerticesPointCount(label_id, property).value_or(0)},
+             {"type", "label+property_point"}}));
       }
       // Edge type indices
       for (const auto type : index_info.edge_type) {

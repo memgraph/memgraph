@@ -599,6 +599,7 @@ Result<std::vector<VertexAccessor>> Storage::Accessor::TryDeleteVertices(const s
     if (schema_acc) schema_acc->DeleteVertex(vertex_ptr);
 
     vertex_ptr->deleted = true;
+    transaction_.UpdateOnVertexDelete(vertex_ptr);
 
     deleted_vertices.emplace_back(vertex_ptr, storage_, &transaction_, true);
   }

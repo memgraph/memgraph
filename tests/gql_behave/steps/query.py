@@ -16,6 +16,7 @@ import parser
 import database
 from behave import given, step, then, when
 from neo4j.graph import Node, Path, Relationship
+from neo4j.spatial import CartesianPoint, WGS84Point
 
 
 @given("parameters are")
@@ -35,7 +36,7 @@ def having_executed_step(context):
 
 def cleanup_index(index_arg, context, params):
     # Define the cleanup logic
-    drop_query = f"DROP INDEX {index_arg};"
+    drop_query = f"DROP INDEX ON {index_arg};"
     database.query(drop_query, context, params)
 
 
@@ -53,7 +54,7 @@ def with_new_index_step(context, index_arg):
 
 def cleanup_point_index(index_arg, context, params):
     # Define the cleanup logic
-    drop_query = f"DROP POINT INDEX {index_arg};"
+    drop_query = f"DROP POINT INDEX ON {index_arg};"
     database.query(drop_query, context, params)
 
 
@@ -101,6 +102,19 @@ def parse_props(props_key_value):
                 properties += key + ": true, "
             else:
                 properties += key + ": false, "
+        elif isinstance(value, CartesianPoint):
+            properties += key + ": POINT({" + f"x:{value.x}, y:{value.y},"
+            properties += (
+                f"{('z:' + str(value.z) + ', ') if hasattr(value, 'z') else ''}" + f" srid:{value.srid}" + "})" + ", "
+            )
+        elif isinstance(value, WGS84Point):
+            properties += key + ": POINT({" + f"longitude:{value.longitude}, latitude:{value.latitude},"
+            properties += (
+                f"{'height:' + str(value.height) + ', ' if hasattr(value, 'height') else ''}"
+                + f" srid:{value.srid}"
+                + "})"
+                + ", "
+            )
         else:
             properties += key + ": " + str(value) + ", "
     properties = properties[:-2]

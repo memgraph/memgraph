@@ -11,17 +11,20 @@
 
 #pragma once
 
-#include <string>
-#include <unordered_set>
-#include <utility>
+#include <cstdio>          // Ensure EOF macro is defined
+#pragma push_macro("EOF")  // hide EOF for antlr headers
+#include <support/Any.h>
+#include "query/frontend/opencypher/generated/MemgraphCypherBaseVisitor.h"
+#pragma pop_macro("EOF")  // bring EOF back
 
 #include "query/frontend/ast/ast.hpp"
-#include "query/frontend/opencypher/generated/MemgraphCypherBaseVisitor.h"
 #include "query/parameters.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 
-#include <support/Any.h>
+#include <string>
+#include <unordered_set>
+#include <utility>
 
 namespace memgraph::query::frontend {
 
