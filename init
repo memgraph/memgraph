@@ -135,6 +135,14 @@ fi
 # develop on them -> pre-commit hook not required -> we can use latest
 # packages.
 if [[ "$ci" == "false" ]]; then
+  if python3 --version | grep -q '^Python 3\.12'; then
+    if [ -d .env ]; then
+      rm -rf .env
+    fi
+    python3 -m virtualenv -p python3 .env
+    source .env/bin/activate
+  fi
+
   if [ "${DISTRO}" != "centos-7" ] && [ "$DISTRO" != "debian-10" ] && [ "${DISTRO}" != "ubuntu-18.04" ] && [ "${DISTRO}" != "amzn-2" ]; then
     python3 -m pip install pre-commit
     python3 -m pre_commit install
@@ -143,6 +151,10 @@ if [[ "$ci" == "false" ]]; then
     python3 -m pip install black==23.1.*
     echo "Install isort"
     python3 -m pip install isort==5.12.*
+  fi
+
+  if python3 --version | grep -q '^Python 3\.12'; then
+    deactivate
   fi
 fi
 
