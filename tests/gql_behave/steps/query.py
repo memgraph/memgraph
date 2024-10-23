@@ -36,7 +36,7 @@ def having_executed_step(context):
 
 def cleanup_index(index_arg, context, params):
     # Define the cleanup logic
-    drop_query = f"DROP INDEX {index_arg};"
+    drop_query = f"DROP INDEX ON {index_arg};"
     database.query(drop_query, context, params)
 
 
@@ -54,7 +54,7 @@ def with_new_index_step(context, index_arg):
 
 def cleanup_point_index(index_arg, context, params):
     # Define the cleanup logic
-    drop_query = f"DROP POINT INDEX {index_arg};"
+    drop_query = f"DROP POINT INDEX ON {index_arg};"
     database.query(drop_query, context, params)
 
 
