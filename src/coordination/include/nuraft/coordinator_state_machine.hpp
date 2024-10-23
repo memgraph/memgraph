@@ -20,7 +20,6 @@
 #include "nuraft/coordinator_cluster_state.hpp"
 #include "nuraft/coordinator_log_store.hpp"
 #include "nuraft/logger_wrapper.hpp"
-#include "nuraft/raft_log_action.hpp"
 
 #include <optional>
 #include <variant>
@@ -60,13 +59,10 @@ class CoordinatorStateMachine : public state_machine {
   ~CoordinatorStateMachine() override = default;
 
   static auto CreateLog(nlohmann::json &&log) -> ptr<buffer>;
-  static auto SerializeOpenLock() -> ptr<buffer>;
-  static auto SerializeCloseLock() -> ptr<buffer>;
   static auto SerializeUpdateClusterState(std::vector<DataInstanceState> cluster_state, utils::UUID uuid)
       -> ptr<buffer>;
 
-  static auto DecodeLog(buffer &data)
-      -> std::pair<std::optional<std::pair<std::vector<DataInstanceState>, utils::UUID>>, RaftLogAction>;
+  static auto DecodeLog(buffer &data) -> std::pair<std::vector<DataInstanceState>, utils::UUID>;
 
   auto pre_commit(ulong log_idx, buffer &data) -> ptr<buffer> override;
 
@@ -102,8 +98,6 @@ class CoordinatorStateMachine : public state_machine {
   auto IsCurrentMain(std::string_view instance_name) const -> bool;
 
   auto GetCurrentMainUUID() const -> utils::UUID;
-  auto IsLockOpened() const -> bool;
-
   auto TryGetCurrentMainName() const -> std::optional<std::string>;
 
  private:

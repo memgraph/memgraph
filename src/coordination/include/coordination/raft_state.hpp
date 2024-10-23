@@ -69,8 +69,6 @@ class RaftState {
   auto IsLeader() const -> bool;
   auto GetCoordinatorId() const -> uint32_t;
 
-  auto AppendOpenLock() -> bool;
-  auto AppendCloseLock() -> bool;
   auto AppendClusterUpdate(std::vector<DataInstanceState> cluster_state, utils::UUID uuid) -> bool;
 
   auto GetDataInstances() const -> std::vector<DataInstanceState>;
@@ -84,7 +82,6 @@ class RaftState {
 
   auto GetLeaderCoordinatorData() const -> std::optional<CoordinatorToCoordinatorConfig>;
 
-  auto IsLockOpened() const -> bool;
   auto GetRoutingTable() const -> RoutingTable;
 
   // Returns elapsed time in ms since last successful response from the coordinator with id srv_id

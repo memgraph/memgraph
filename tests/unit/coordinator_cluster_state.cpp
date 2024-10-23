@@ -25,7 +25,6 @@ using memgraph::coordination::CoordinatorClusterState;
 using memgraph::coordination::CoordinatorToReplicaConfig;
 using memgraph::coordination::DataInstanceState;
 using memgraph::coordination::InstanceUUIDUpdate;
-using memgraph::coordination::RaftLogAction;
 using memgraph::io::network::Endpoint;
 using memgraph::replication_coordination_glue::ReplicationMode;
 using memgraph::replication_coordination_glue::ReplicationRole;
@@ -60,7 +59,7 @@ TEST_F(CoordinatorClusterStateTest, RegisterReplicationInstance) {
   auto const uuid = UUID{};
   data_instances.emplace_back(config, ReplicationRole::REPLICA, uuid);
 
-  cluster_state.DoAction(std::make_pair(data_instances, uuid), RaftLogAction::UPDATE_CLUSTER_STATE);
+  cluster_state.DoAction(std::make_pair(data_instances, uuid));
 
   auto instances = cluster_state.GetDataInstances();
   ASSERT_EQ(instances.size(), 1);
@@ -85,7 +84,7 @@ TEST_F(CoordinatorClusterStateTest, SetInstanceToReplica) {
                                    .ssl = std::nullopt};
     auto const uuid = UUID{};
     data_instances.emplace_back(config, ReplicationRole::MAIN, uuid);
-    cluster_state.DoAction(std::make_pair(data_instances, uuid), RaftLogAction::UPDATE_CLUSTER_STATE);
+    cluster_state.DoAction(std::make_pair(data_instances, uuid));
   }
   {
     auto config =
@@ -102,7 +101,7 @@ TEST_F(CoordinatorClusterStateTest, SetInstanceToReplica) {
 
     auto const uuid = UUID{};
     data_instances.emplace_back(config, ReplicationRole::REPLICA, uuid);
-    cluster_state.DoAction(std::make_pair(data_instances, uuid), RaftLogAction::UPDATE_CLUSTER_STATE);
+    cluster_state.DoAction(std::make_pair(data_instances, uuid));
   }
 
   auto const repl_instances = cluster_state.GetDataInstances();
@@ -154,7 +153,7 @@ TEST_F(CoordinatorClusterStateTest, Marshalling) {
 
   auto const uuid = UUID{};
   data_instances.emplace_back(config, ReplicationRole::REPLICA, uuid);
-  cluster_state.DoAction(std::make_pair(data_instances, uuid), RaftLogAction::UPDATE_CLUSTER_STATE);
+  cluster_state.DoAction(std::make_pair(data_instances, uuid));
 
   ptr<buffer> data{};
   cluster_state.Serialize(data);

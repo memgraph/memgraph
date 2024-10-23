@@ -334,43 +334,6 @@ auto RaftState::GetLeaderCoordinatorData() const -> std::optional<CoordinatorToC
 
 auto RaftState::IsLeader() const -> bool { return raft_server_->is_leader(); }
 
-auto RaftState::AppendOpenLock() -> bool {
-  auto new_log = CoordinatorStateMachine::SerializeOpenLock();
-  auto const res = raft_server_->append_entries({new_log});
-
-  if (!res->get_accepted()) {
-    spdlog::error("Failed to accept request to open lock");
-    return false;
-  }
-  spdlog::trace("Request for opening lock in thread {} accepted", std::this_thread::get_id());
-
-  if (res->get_result_code() != nuraft::cmd_result_code::OK) {
-    spdlog::error("Failed to open lock with error code {}", int(res->get_result_code()));
-    return false;
-  }
-
-  return true;
-}
-
-auto RaftState::AppendCloseLock() -> bool {
-  auto new_log = CoordinatorStateMachine::SerializeCloseLock();
-  auto const res = raft_server_->append_entries({new_log});
-
-  if (!res->get_accepted()) {
-    spdlog::error("Failed to accept request to close lock");
-    return false;
-  }
-
-  spdlog::trace("Request for closing lock in thread {} accepted", std::this_thread::get_id());
-
-  if (res->get_result_code() != nuraft::cmd_result_code::OK) {
-    spdlog::error("Failed to close lock with error code {}", int(res->get_result_code()));
-    return false;
-  }
-
-  return true;
-}
-
 auto RaftState::AppendClusterUpdate(std::vector<DataInstanceState> cluster_state, utils::UUID uuid) -> bool {
   auto new_log = CoordinatorStateMachine::SerializeUpdateClusterState(std::move(cluster_state), uuid);
   auto const res = raft_server_->append_entries({new_log});
@@ -403,8 +366,6 @@ auto RaftState::GetCurrentMainUUID() const -> utils::UUID { return state_machine
 auto RaftState::IsCurrentMain(std::string_view instance_name) const -> bool {
   return state_machine_->IsCurrentMain(instance_name);
 }
-
-auto RaftState::IsLockOpened() const -> bool { return state_machine_->IsLockOpened(); }
 
 auto RaftState::TryGetCurrentMainName() const -> std::optional<std::string> {
   return state_machine_->TryGetCurrentMainName();

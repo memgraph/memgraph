@@ -14,7 +14,6 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_communication_config.hpp"
-#include "nuraft/raft_log_action.hpp"
 #include "replication_coordination_glue/role.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/uuid.hpp"
@@ -57,8 +56,7 @@ void from_json(nlohmann::json const &j, DataInstanceState &instance_state);
 class CoordinatorClusterState {
  public:
   CoordinatorClusterState() = default;
-  explicit CoordinatorClusterState(std::vector<DataInstanceState> instances, utils::UUID current_main_uuid,
-                                   bool is_lock_opened);
+  explicit CoordinatorClusterState(std::vector<DataInstanceState> instances, utils::UUID current_main_uuid);
 
   CoordinatorClusterState(CoordinatorClusterState const &);
   CoordinatorClusterState &operator=(CoordinatorClusterState const &);
@@ -73,8 +71,7 @@ class CoordinatorClusterState {
 
   auto IsCurrentMain(std::string_view instance_name) const -> bool;
 
-  auto DoAction(std::optional<std::pair<std::vector<DataInstanceState>, utils::UUID>> log_entry,
-                RaftLogAction log_action) -> void;
+  auto DoAction(std::pair<std::vector<DataInstanceState>, utils::UUID> log_entry) -> void;
 
   auto Serialize(ptr<buffer> &data) -> void;
 
@@ -82,17 +79,12 @@ class CoordinatorClusterState {
 
   auto GetDataInstances() const -> std::vector<DataInstanceState>;
 
-  auto IsLockOpened() const -> bool;
-
   auto GetCurrentMainUUID() const -> utils::UUID;
 
   auto TryGetCurrentMainName() const -> std::optional<std::string>;
 
   // Setter function used on parsing data from json
   void SetCurrentMainUUID(utils::UUID);
-
-  // Setter function used on parsing data from json
-  void SetIsLockOpened(bool);
 
   // Setter function used on parsing data from json
   void SetDataInstances(std::vector<DataInstanceState>);
@@ -104,7 +96,6 @@ class CoordinatorClusterState {
  private:
   std::vector<DataInstanceState> data_instances_{};
   utils::UUID current_main_uuid_{};
-  bool is_lock_opened_{false};
   mutable utils::ResourceLock log_lock_{};
 };
 

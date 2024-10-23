@@ -12,7 +12,6 @@
 #include "coordination/coordinator_communication_config.hpp"
 #include "io/network/endpoint.hpp"
 #include "nuraft/coordinator_state_machine.hpp"
-#include "nuraft/raft_log_action.hpp"
 #include "utils/file.hpp"
 #include "utils/uuid.hpp"
 
@@ -23,7 +22,6 @@
 using memgraph::coordination::CoordinatorStateMachine;
 using memgraph::coordination::CoordinatorToReplicaConfig;
 using memgraph::coordination::DataInstanceState;
-using memgraph::coordination::RaftLogAction;
 using memgraph::coordination::ReplicationClientInfo;
 using memgraph::io::network::Endpoint;
 using memgraph::replication_coordination_glue::ReplicationMode;
@@ -85,5 +83,4 @@ TEST_F(RaftLogSerialization, SerializeUpdateClusterState) {
 
   auto buffer = CoordinatorStateMachine::SerializeUpdateClusterState(cluster_state, UUID{});
   auto const [payload, action] = CoordinatorStateMachine::DecodeLog(*buffer);
-  ASSERT_EQ(action, RaftLogAction::UPDATE_CLUSTER_STATE);
 }

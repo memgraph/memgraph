@@ -30,13 +30,11 @@ void from_json(nlohmann::json const &j, DataInstanceState &instance_state) {
 }
 
 CoordinatorClusterState::CoordinatorClusterState(std::vector<DataInstanceState> instances,
-                                                 utils::UUID current_main_uuid, bool is_lock_opened)
-    : data_instances_{std::move(instances)}, current_main_uuid_(current_main_uuid), is_lock_opened_(is_lock_opened) {}
+                                                 utils::UUID current_main_uuid)
+    : data_instances_{std::move(instances)}, current_main_uuid_(current_main_uuid) {}
 
 CoordinatorClusterState::CoordinatorClusterState(CoordinatorClusterState const &other)
-    : data_instances_{other.data_instances_},
-      current_main_uuid_(other.current_main_uuid_),
-      is_lock_opened_(other.is_lock_opened_) {}
+    : data_instances_{other.data_instances_}, current_main_uuid_(other.current_main_uuid_) {}
 
 CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterState const &other) {
   if (this == &other) {
@@ -44,14 +42,11 @@ CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterSt
   }
   data_instances_ = other.data_instances_;
   current_main_uuid_ = other.current_main_uuid_;
-  is_lock_opened_ = other.is_lock_opened_;
   return *this;
 }
 
 CoordinatorClusterState::CoordinatorClusterState(CoordinatorClusterState &&other) noexcept
-    : data_instances_{std::move(other.data_instances_)},
-      current_main_uuid_(other.current_main_uuid_),
-      is_lock_opened_(other.is_lock_opened_) {}
+    : data_instances_{std::move(other.data_instances_)}, current_main_uuid_(other.current_main_uuid_) {}
 
 CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterState &&other) noexcept {
   if (this == &other) {
@@ -59,7 +54,6 @@ CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterSt
   }
   data_instances_ = std::move(other.data_instances_);
   current_main_uuid_ = other.current_main_uuid_;
-  is_lock_opened_ = other.is_lock_opened_;
   return *this;
 }
 
@@ -87,27 +81,11 @@ auto CoordinatorClusterState::IsCurrentMain(std::string_view instance_name) cons
   return it != data_instances_.end() && it->status == ReplicationRole::MAIN && it->instance_uuid == current_main_uuid_;
 }
 
-auto CoordinatorClusterState::DoAction(std::optional<std::pair<std::vector<DataInstanceState>, utils::UUID>> log_entry,
-                                       RaftLogAction log_action) -> void {
+auto CoordinatorClusterState::DoAction(std::pair<std::vector<DataInstanceState>, utils::UUID> log_entry) -> void {
   auto lock = std::lock_guard{log_lock_};
-  switch (log_action) {
-    case RaftLogAction::UPDATE_CLUSTER_STATE: {
-      spdlog::trace("DoAction: update cluster state.");
-      data_instances_ = std::move(log_entry->first);
-      current_main_uuid_ = log_entry->second;
-      break;
-    }
-    case RaftLogAction::OPEN_LOCK: {
-      is_lock_opened_ = true;
-      spdlog::trace("DoAction: Opened lock");
-      break;
-    }
-    case RaftLogAction::CLOSE_LOCK: {
-      is_lock_opened_ = false;
-      spdlog::trace("DoAction: Closed lock");
-      break;
-    }
-  }
+  spdlog::trace("DoAction: update cluster state.");
+  data_instances_ = std::move(log_entry.first);
+  current_main_uuid_ = log_entry.second;
 }
 
 auto CoordinatorClusterState::Serialize(ptr<buffer> &data) -> void {
@@ -145,16 +123,6 @@ auto CoordinatorClusterState::TryGetCurrentMainName() const -> std::optional<std
 
 auto CoordinatorClusterState::GetCurrentMainUUID() const -> utils::UUID { return current_main_uuid_; }
 
-auto CoordinatorClusterState::IsLockOpened() const -> bool {
-  auto lock = std::shared_lock{log_lock_};
-  return is_lock_opened_;
-}
-
-void CoordinatorClusterState::SetIsLockOpened(bool is_lock_opened) {
-  auto lock = std::unique_lock{log_lock_};
-  is_lock_opened_ = is_lock_opened;
-}
-
 void CoordinatorClusterState::SetDataInstances(std::vector<DataInstanceState> data_instances) {
   auto lock = std::unique_lock{log_lock_};
   data_instances_ = std::move(data_instances);
@@ -166,14 +134,11 @@ void CoordinatorClusterState::SetCurrentMainUUID(utils::UUID current_main_uuid) 
 }
 
 void to_json(nlohmann::json &j, CoordinatorClusterState const &state) {
-  j = nlohmann::json{{"data_instances", state.GetDataInstances()},
-                     {"is_lock_opened", state.IsLockOpened()},
-                     {"current_main_uuid", state.GetCurrentMainUUID()}};
+  j = nlohmann::json{{"data_instances", state.GetDataInstances()}, {"current_main_uuid", state.GetCurrentMainUUID()}};
 }
 
 void from_json(nlohmann::json const &j, CoordinatorClusterState &instance_state) {
   instance_state.SetDataInstances(j.at("data_instances").get<std::vector<DataInstanceState>>());
-  instance_state.SetIsLockOpened(j.at("is_lock_opened").get<int>());
   instance_state.SetCurrentMainUUID(j.at("current_main_uuid").get<utils::UUID>());
 }
 

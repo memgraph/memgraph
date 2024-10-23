@@ -32,7 +32,6 @@ using memgraph::coordination::CoordinatorStateMachine;
 using memgraph::coordination::CoordinatorToCoordinatorConfig;
 using memgraph::coordination::CoordinatorToReplicaConfig;
 using memgraph::coordination::InstanceUUIDUpdate;
-using memgraph::coordination::RaftLogAction;
 using memgraph::io::network::Endpoint;
 using memgraph::replication_coordination_glue::ReplicationMode;
 using memgraph::utils::UUID;

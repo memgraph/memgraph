@@ -14,7 +14,6 @@
 #include "io/network/endpoint.hpp"
 #include "kvstore/kvstore.hpp"
 #include "nuraft/coordinator_state_machine.hpp"
-#include "nuraft/raft_log_action.hpp"
 #include "utils/uuid.hpp"
 
 #include <gflags/gflags.h>
@@ -24,7 +23,6 @@ using memgraph::coordination::CoordinatorLogStore;
 using memgraph::coordination::CoordinatorStateMachine;
 using memgraph::coordination::CoordinatorToReplicaConfig;
 using memgraph::coordination::DataInstanceState;
-using memgraph::coordination::RaftLogAction;
 using memgraph::coordination::ReplicationClientInfo;
 using memgraph::io::network::Endpoint;
 using memgraph::replication_coordination_glue::ReplicationMode;
@@ -106,7 +104,6 @@ TEST_F(CoordinatorLogStoreTests, TestBasicSerialization) {
 
     ASSERT_EQ(log_store.next_slot(), 2);
     ASSERT_EQ(log_store.start_index(), 1);
-    ASSERT_EQ(action, RaftLogAction::UPDATE_CLUSTER_STATE);
   }  // destroy again
 }
 
@@ -190,18 +187,7 @@ TEST_F(CoordinatorLogStoreTests, TestMultipleInstancesSerialization) {
 
   // Check the contents of the logs
   auto const log_entries = log_store.log_entries(1, log_store.next_slot());
-  for (auto &entry : *log_entries) {
-    auto const [payload, action] = CoordinatorStateMachine::DecodeLog(entry->get_buf());
-
-    auto const term = entry->get_term();
-    switch (entry->get_term()) {
-      case 1:
-        ASSERT_EQ(action, RaftLogAction::UPDATE_CLUSTER_STATE);
-        break;
-      default:
-        FAIL() << "Unexpected log entry";
-    }
-  }
+  ASSERT_EQ(log_entries->size(), 1);
 }
 
 TEST_F(CoordinatorLogStoreTests, TestPackAndApplyPack) {
