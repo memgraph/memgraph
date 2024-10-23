@@ -19,6 +19,7 @@
 #include <thread>
 
 #include "utils/logging.hpp"
+#include "utils/temporal.hpp"
 #include "utils/thread.hpp"
 
 namespace memgraph::utils {
@@ -45,84 +46,81 @@ class Scheduler {
     DMG_ASSERT(!IsRunning(), "Thread already running.");
     DMG_ASSERT(pause > std::chrono::seconds(0), "Pause is invalid. Expected > 0, got {}.", pause.count());
 
-    thread_ = std::jthread([this, pause, f, service_name, start_time](std::stop_token token) mutable {
-      auto find_first_execution = [&]() {
-        if (start_time) {              // Custom start time; execute as soon as possible
-          return *start_time - pause;  // -= simplifies the logic later on
-        }
-        return std::chrono::system_clock::now();
-      };
-
-      auto find_next_execution = [&](auto now) {
-        if (start_time) {                                  // Custom start time
-          while (*start_time < now) *start_time += pause;  // Find first start in the future
-          *start_time -= pause;                            // -= simplifies the logic later on
-          return *start_time;
-        }
-        return now;
-      };
-
-      auto next_execution = find_first_execution();
-
-      utils::ThreadSetName(service_name);
-
-      while (true) {
-        // First wait then execute the function. We do that in that order
-        // because most of the schedulers are started at the beginning of the
-        // program and there is probably no work to do in scheduled function at
-        // the start of the program. Since Server will log some messages on
-        // the program start we let him log first and we make sure by first
-        // waiting that function f will not log before it.
-        // Check for pause also.
-        auto lk = std::unique_lock{mutex_};
-        next_execution += pause;
-        auto now = std::chrono::system_clock::now();
-        if (next_execution > now) {
-          condition_variable_.wait_until(lk, next_execution, [&] { return token.stop_requested(); });
-        } else {
-          next_execution = find_next_execution(now);  // Compensate for time drift when using a start time
-        }
-
-        pause_cv_.wait(lk, [&] { return !is_paused_.load(std::memory_order_acquire) || token.stop_requested(); });
-
-        if (token.stop_requested()) break;
-
-        f();
-      }
-    });
-  }
-
-  // Sets atomic is_paused_ to false and notifies thread
-  void Resume() {
-    is_paused_.store(false, std::memory_order_release);
-    pause_cv_.notify_one();
-  }
-
-  // Sets atomic is_paused_ to true.
-  void Pause() { is_paused_.store(true, std::memory_order_release); }
-
-  // Concurrent threads may request stopping the scheduler. In that case only one of them will
-  // actually stop the scheduler, the other one won't. We need to know which one is the successful
-  // one so that we don't try to join thread concurrently since this could cause undefined behavior.
-  void Stop() {
-    if (thread_.request_stop()) {
-      is_paused_.store(false, std::memory_order_release);
-      pause_cv_.notify_one();
-      condition_variable_.notify_one();
-      if (thread_.joinable()) thread_.join();
+    // Setup
+    std::chrono::system_clock::time_point next_execution;
+    if (start_time) {                        // Custom start time; execute as soon as possible
+      next_execution = *start_time - pause;  // -= simplifies the logic later on
+    } else {
+      next_execution = std::chrono::system_clock::now();
     }
-  }
 
-  // Checking stop_possible() is necessary because otherwise calling IsRunning
-  // on a non-started Scheduler would return true.
-  bool IsRunning() {
-    std::stop_token token = thread_.get_stop_token();
-    return token.stop_possible() && !token.stop_requested();
-  }
+    // Function to calculate next
+    auto find_next_execution = [=](const auto &now) mutable {
+      next_execution += pause;
+      if (next_execution > now) return next_execution;
+      if (start_time) {                                  // Custom start time
+        while (*start_time < now) *start_time += pause;  // Find first start in the future
+        *start_time -= pause;                            // -= simplifies the logic later on
+        return *start_time;
+      }
+      return now;
+    };
+
+    thread_ = std::jthread([this, f = f, service_name = service_name,
+                            find_next_execution = std::move(find_next_execution)](std::stop_token token) mutable {
+      ThreadRun(
+          std::move(service_name), std::move(f),
+          [find_next_execution = std::move(find_next_execution)](const auto &now) mutable {
+            return find_next_execution(now);
+          },
+          token);
+    });
+  };
+
+  // Can throw if cron expression is incorrect
+  void Run(const std::string &service_name, const std::function<void()> &f, std::string_view cron_expr);
+
+  void Resume();
+
+  void Pause();
+
+  void Stop();
+
+  bool IsRunning();
 
   ~Scheduler() { Stop(); }
 
  private:
+  template <typename F>
+  void ThreadRun(std::string service_name, std::function<void()> f, F &&get_next, std::stop_token token) {
+    utils::ThreadSetName(service_name);
+
+    while (true) {
+      // First wait then execute the function. We do that in that order
+      // because most of the schedulers are started at the beginning of the
+      // program and there is probably no work to do in scheduled function at
+      // the start of the program. Since Server will log some messages on
+      // the program start we let him log first and we make sure by first
+      // waiting that function f will not log before it.
+      // Check for pause also.
+      const auto now = std::chrono::system_clock::now();
+      const auto next = get_next(now);
+      if (next > now) {
+        auto lk = std::unique_lock{mutex_};
+        condition_variable_.wait_until(lk, next, [&] { return token.stop_requested(); });
+      }
+
+      if (is_paused_) {
+        auto lk = std::unique_lock{mutex_};
+        pause_cv_.wait(lk, [&] { return !is_paused_.load(std::memory_order_acquire) || token.stop_requested(); });
+      }
+
+      if (token.stop_requested()) break;
+
+      f();
+    }
+  }
+
   /**
    * Variable is true when thread is paused.
    */

@@ -338,3 +338,6 @@ import_library(mgcxx_text_search STATIC ${MGCXX_TEXT_SEARCH_LIBRARY} ${MGCXX_INC
 
 # setup strong_type (cmake sub_directory tolerant)
 add_subdirectory(strong_type EXCLUDE_FROM_ALL)
+
+# setup croncpp
+add_subdirectory(croncpp EXCLUDE_FROM_ALL)

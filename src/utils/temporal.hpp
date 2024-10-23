@@ -260,6 +260,10 @@ struct LocalDateTime {
    */
   explicit LocalDateTime(int64_t offset_epoch_us);
 
+  template <typename TClock>
+  explicit LocalDateTime(std::chrono::time_point<TClock> time_point)
+      : us_since_epoch_(std::chrono::duration_cast<std::chrono::microseconds>(time_point.time_since_epoch()).count()) {}
+
   /**
    * @brief Construct a new LocalDateTime object using local/calendar date and time.
    *
@@ -337,6 +341,9 @@ struct LocalDateTime {
    * @return Date
    */
   LocalTime local_time() const;
+
+  std::chrono::zoned_time<std::chrono::microseconds> zoned_time() const;
+  std::tm tm() const;
 
   auto operator<=>(const LocalDateTime &) const = default;
 

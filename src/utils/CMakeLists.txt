@@ -24,6 +24,7 @@ target_sources(mg-utils
     compressor.cpp
     logging.cpp
     string.cpp
+    scheduler.cpp
 
     PUBLIC
     FILE_SET HEADERS
@@ -37,6 +38,7 @@ target_sources(mg-utils
     static_vector.hpp
     logging.hpp
     string.hpp
+    scheduler.hpp
 )
 
 find_package(Boost REQUIRED)
@@ -45,7 +47,7 @@ find_package(gflags REQUIRED)
 find_package(Threads REQUIRED)
 find_package(ZLIB REQUIRED)
 
-target_link_libraries(mg-utils PUBLIC Boost::headers fmt::fmt spdlog::spdlog json ZLIB::ZLIB)
+target_link_libraries(mg-utils PUBLIC Boost::headers fmt::fmt spdlog::spdlog json ZLIB::ZLIB croncpp::croncpp)
 target_link_libraries(mg-utils PRIVATE librdtsc stdc++fs Threads::Threads gflags uuid rt mg-flags)
 
 add_library(mg-settings STATIC)
