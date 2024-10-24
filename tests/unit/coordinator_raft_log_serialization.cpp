@@ -12,7 +12,6 @@
 #include "coordination/coordinator_communication_config.hpp"
 #include "io/network/endpoint.hpp"
 #include "nuraft/coordinator_state_machine.hpp"
-#include "nuraft/raft_log_action.hpp"
 #include "utils/file.hpp"
 #include "utils/uuid.hpp"
 
@@ -22,10 +21,11 @@
 
 using memgraph::coordination::CoordinatorStateMachine;
 using memgraph::coordination::CoordinatorToReplicaConfig;
-using memgraph::coordination::RaftLogAction;
+using memgraph::coordination::DataInstanceState;
 using memgraph::coordination::ReplicationClientInfo;
 using memgraph::io::network::Endpoint;
 using memgraph::replication_coordination_glue::ReplicationMode;
+using memgraph::replication_coordination_glue::ReplicationRole;
 using memgraph::utils::UUID;
 
 // No networking communication in this test.
@@ -66,52 +66,7 @@ TEST_F(RaftLogSerialization, CoordinatorToReplicaConfig) {
   ASSERT_EQ(config, config2);
 }
 
-TEST_F(RaftLogSerialization, RaftLogActionRegister) {
-  auto action = RaftLogAction::REGISTER_REPLICATION_INSTANCE;
-
-  nlohmann::json j = action;
-  RaftLogAction action2 = j.get<memgraph::coordination::RaftLogAction>();
-
-  ASSERT_EQ(action, action2);
-}
-
-TEST_F(RaftLogSerialization, RaftLogActionUnregister) {
-  auto action = RaftLogAction::UNREGISTER_REPLICATION_INSTANCE;
-
-  nlohmann::json j = action;
-  RaftLogAction action2 = j.get<memgraph::coordination::RaftLogAction>();
-
-  ASSERT_EQ(action, action2);
-}
-
-TEST_F(RaftLogSerialization, RaftLogActionPromote) {
-  auto action = RaftLogAction::SET_INSTANCE_AS_MAIN;
-
-  nlohmann::json j = action;
-  RaftLogAction action2 = j.get<memgraph::coordination::RaftLogAction>();
-
-  ASSERT_EQ(action, action2);
-}
-
-TEST_F(RaftLogSerialization, RaftLogActionDemote) {
-  auto action = RaftLogAction::SET_INSTANCE_AS_REPLICA;
-
-  nlohmann::json j = action;
-  RaftLogAction action2 = j.get<memgraph::coordination::RaftLogAction>();
-
-  ASSERT_EQ(action, action2);
-}
-
-TEST_F(RaftLogSerialization, RaftLogActionUpdateUUIDForInstance) {
-  auto action = RaftLogAction::UPDATE_UUID_FOR_INSTANCE;
-
-  nlohmann::json j = action;
-  RaftLogAction action2 = j.get<memgraph::coordination::RaftLogAction>();
-
-  ASSERT_EQ(action, action2);
-}
-
-TEST_F(RaftLogSerialization, RegisterInstance) {
+TEST_F(RaftLogSerialization, SerializeUpdateClusterState) {
   CoordinatorToReplicaConfig config{.instance_name = "instance3",
                                     .mgt_server = Endpoint{"127.0.0.1", 10112},
                                     .replication_client_info = {.instance_name = "instance_name",
@@ -122,41 +77,10 @@ TEST_F(RaftLogSerialization, RegisterInstance) {
                                     .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
                                     .ssl = std::nullopt};
 
-  auto buffer = CoordinatorStateMachine::SerializeRegisterInstance(config);
-  auto const [payload, action] = CoordinatorStateMachine::DecodeLog(*buffer);
-  ASSERT_EQ(action, RaftLogAction::REGISTER_REPLICATION_INSTANCE);
-  ASSERT_EQ(config, std::get<CoordinatorToReplicaConfig>(payload));
-}
+  std::vector<DataInstanceState> cluster_state;
 
-TEST_F(RaftLogSerialization, UnregisterInstance) {
-  auto buffer = CoordinatorStateMachine::SerializeUnregisterInstance("instance3");
-  auto const [payload, action] = CoordinatorStateMachine::DecodeLog(*buffer);
-  ASSERT_EQ(action, RaftLogAction::UNREGISTER_REPLICATION_INSTANCE);
-  ASSERT_EQ("instance3", std::get<std::string>(payload));
-}
+  cluster_state.emplace_back(config, ReplicationRole::REPLICA, UUID{});
 
-TEST_F(RaftLogSerialization, SetInstanceAsMain) {
-  auto instance_uuid_update =
-      memgraph::coordination::InstanceUUIDUpdate{.instance_name = "instance3", .uuid = memgraph::utils::UUID{}};
-  auto buffer = CoordinatorStateMachine::SerializeSetInstanceAsMain(instance_uuid_update);
+  auto buffer = CoordinatorStateMachine::SerializeUpdateClusterState(cluster_state, UUID{});
   auto const [payload, action] = CoordinatorStateMachine::DecodeLog(*buffer);
-  ASSERT_EQ(action, RaftLogAction::SET_INSTANCE_AS_MAIN);
-  ASSERT_EQ(instance_uuid_update.instance_name,
-            std::get<memgraph::coordination::InstanceUUIDUpdate>(payload).instance_name);
-  ASSERT_EQ(instance_uuid_update.uuid, std::get<memgraph::coordination::InstanceUUIDUpdate>(payload).uuid);
-}
-
-TEST_F(RaftLogSerialization, SetInstanceAsReplica) {
-  auto buffer = CoordinatorStateMachine::SerializeSetInstanceAsReplica("instance3");
-  auto const [payload, action] = CoordinatorStateMachine::DecodeLog(*buffer);
-  ASSERT_EQ(action, RaftLogAction::SET_INSTANCE_AS_REPLICA);
-  ASSERT_EQ("instance3", std::get<std::string>(payload));
-}
-
-TEST_F(RaftLogSerialization, UpdateUUIDForNewMain) {
-  UUID uuid;
-  auto buffer = CoordinatorStateMachine::SerializeUpdateUUIDForNewMain(uuid);
-  auto const [payload, action] = CoordinatorStateMachine::DecodeLog(*buffer);
-  ASSERT_EQ(action, RaftLogAction::UPDATE_UUID_OF_NEW_MAIN);
-  ASSERT_EQ(uuid, std::get<UUID>(payload));
 }

@@ -22,7 +22,6 @@ target_sources(mg-coordination
         include/coordination/coordinator_instance_connector.hpp
         include/coordination/coordination_observer.hpp
 
-        include/nuraft/raft_log_action.hpp
         include/nuraft/coordinator_cluster_state.hpp
         include/nuraft/coordinator_log_store.hpp
         include/nuraft/coordinator_state_machine.hpp

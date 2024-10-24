@@ -45,10 +45,11 @@ struct NewMainRes {
 
 enum class FailoverStatus : uint8_t {
   SUCCESS,
-  FAILURE_LOCK_CLOSED,
-  FAILURE_LOCK_OPENED,
+  RAFT_FAILURE,
   NO_INSTANCE_ALIVE,
 };
+
+enum class CoordinatorStatus : uint8_t { FOLLOWER, LEADER_NOT_READY, LEADER_READY };
 
 using InstanceNameDbHistories = std::pair<std::string, replication_coordination_glue::DatabaseHistories>;
 
@@ -76,7 +77,7 @@ class CoordinatorInstance {
 
   // The logic here is that as long as we didn't set uuid for the whole cluster, actions will be reverted on instances
   // on the next state check.
-  [[nodiscard]] auto SetReplicationInstanceToMain(std::string_view instance_name) -> SetInstanceToMainCoordinatorStatus;
+  [[nodiscard]] auto SetReplicationInstanceToMain(std::string_view new_main_name) -> SetInstanceToMainCoordinatorStatus;
 
   // If user demotes main to replica, cluster will be without main instance. User should then call
   // TryVerifyOrCorrectClusterState or SetReplicationInstanceToMain. The logic here is that as long as we didn't set
@@ -87,7 +88,7 @@ class CoordinatorInstance {
 
   auto ShowInstances() const -> std::vector<InstanceStatus>;
 
-  auto ShowInstancesAsLeader() const -> std::vector<InstanceStatus>;
+  auto ShowInstancesAsLeader() const -> std::optional<std::vector<InstanceStatus>>;
 
   // Finds most up to date instance that could become new main. Only alive instances are taken into account.
   [[nodiscard]] auto TryFailover() -> FailoverStatus;
@@ -137,7 +138,7 @@ class CoordinatorInstance {
   // Raft updates leadership before callback is executed. IsLeader() can return true, but
   // leader callback or reconcile cluster state haven't yet be executed. This flag tracks if coordinator is set up to
   // accept queries.
-  std::atomic<bool> is_leader_ready_{false};
+  std::atomic<CoordinatorStatus> status{CoordinatorStatus::FOLLOWER};
   std::atomic<bool> is_shutting_down_{false};
   // NOTE: Must be std::list because we rely on pointer stability.
   std::list<ReplicationInstanceConnector> repl_instances_;

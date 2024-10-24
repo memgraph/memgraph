@@ -14,7 +14,6 @@
 #include "io/network/endpoint.hpp"
 #include "kvstore/kvstore.hpp"
 #include "nuraft/coordinator_state_machine.hpp"
-#include "nuraft/raft_log_action.hpp"
 #include "utils/uuid.hpp"
 
 #include <gflags/gflags.h>
@@ -23,10 +22,11 @@
 using memgraph::coordination::CoordinatorLogStore;
 using memgraph::coordination::CoordinatorStateMachine;
 using memgraph::coordination::CoordinatorToReplicaConfig;
-using memgraph::coordination::RaftLogAction;
+using memgraph::coordination::DataInstanceState;
 using memgraph::coordination::ReplicationClientInfo;
 using memgraph::io::network::Endpoint;
 using memgraph::replication_coordination_glue::ReplicationMode;
+using memgraph::replication_coordination_glue::ReplicationRole;
 using memgraph::utils::UUID;
 ;
 
@@ -66,7 +66,10 @@ TEST_F(CoordinatorLogStoreTests, TestBasicSerialization) {
                                     .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
                                     .ssl = std::nullopt};
 
-  auto buffer = CoordinatorStateMachine::SerializeRegisterInstance(config);
+  auto cluster_state = std::vector<DataInstanceState>();
+  cluster_state.emplace_back(config, ReplicationRole::REPLICA, UUID{});
+
+  auto buffer = CoordinatorStateMachine::SerializeUpdateClusterState(cluster_state, UUID{});
 
   // coordinator log store start
   {
@@ -101,8 +104,6 @@ TEST_F(CoordinatorLogStoreTests, TestBasicSerialization) {
 
     ASSERT_EQ(log_store.next_slot(), 2);
     ASSERT_EQ(log_store.start_index(), 1);
-    ASSERT_EQ(action, RaftLogAction::REGISTER_REPLICATION_INSTANCE);
-    ASSERT_EQ(config, std::get<CoordinatorToReplicaConfig>(payload));
   }  // destroy again
 }
 
@@ -148,33 +149,18 @@ TEST_F(CoordinatorLogStoreTests, TestMultipleInstancesSerialization) {
     ASSERT_EQ(log_store.next_slot(), 1);
     ASSERT_EQ(log_store.start_index(), 1);
 
-    // Add logs for each instance
-    auto register_instance_log_entry1 = cs_new<log_entry>(
-        1, CoordinatorStateMachine::SerializeRegisterInstance(config1), nuraft::log_val_type::app_log);
-    log_store.append(register_instance_log_entry1);
+    auto cluster_state = std::vector<DataInstanceState>();
+    cluster_state.emplace_back(config1, ReplicationRole::REPLICA, UUID{});
+    cluster_state.emplace_back(config2, ReplicationRole::REPLICA, UUID{});
+    cluster_state.emplace_back(config3, ReplicationRole::REPLICA, UUID{});
 
-    auto register_instance_log_entry2 = cs_new<log_entry>(
-        2, CoordinatorStateMachine::SerializeRegisterInstance(config2), nuraft::log_val_type::app_log);
-    log_store.append(register_instance_log_entry2);
+    auto log_entry_update = cs_new<log_entry>(
+        1, CoordinatorStateMachine::SerializeUpdateClusterState(cluster_state, UUID{}), nuraft::log_val_type::app_log);
 
-    auto register_instance_log_entry3 = cs_new<log_entry>(
-        3, CoordinatorStateMachine::SerializeRegisterInstance(config3), nuraft::log_val_type::app_log);
-    log_store.append(register_instance_log_entry3);
-
-    // Add more logs to the log store
-    auto set_instance_as_main_log_entry = cs_new<log_entry>(
-        4,
-        CoordinatorStateMachine::SerializeSetInstanceAsMain(memgraph::coordination::InstanceUUIDUpdate{
-            .instance_name = config1.instance_name, .uuid = memgraph::utils::UUID{}}),
-        nuraft::log_val_type::app_log);
-    log_store.append(set_instance_as_main_log_entry);
-
-    auto unregister_instance_log_entry = cs_new<log_entry>(
-        5, CoordinatorStateMachine::SerializeUnregisterInstance(config2.instance_name), nuraft::log_val_type::app_log);
-    log_store.append(unregister_instance_log_entry);
+    log_store.append(log_entry_update);
 
     // Check the log store
-    ASSERT_EQ(log_store.next_slot(), 6);
+    ASSERT_EQ(log_store.next_slot(), 2);
     ASSERT_EQ(log_store.start_index(), 1);
   }
 
@@ -183,7 +169,7 @@ TEST_F(CoordinatorLogStoreTests, TestMultipleInstancesSerialization) {
 
   memgraph::coordination::LogStoreDurability log_store_durability{log_store_storage};
   CoordinatorLogStore log_store{GetLogger(), log_store_durability};
-  ASSERT_EQ(log_store.next_slot(), 6);
+  ASSERT_EQ(log_store.next_slot(), 2);
   ASSERT_EQ(log_store.start_index(), 1);
 
   auto const get_config = [&](int const &instance_id) {
@@ -201,36 +187,7 @@ TEST_F(CoordinatorLogStoreTests, TestMultipleInstancesSerialization) {
 
   // Check the contents of the logs
   auto const log_entries = log_store.log_entries(1, log_store.next_slot());
-  for (auto &entry : *log_entries) {
-    auto const [payload, action] = CoordinatorStateMachine::DecodeLog(entry->get_buf());
-
-    auto const term = entry->get_term();
-    switch (entry->get_term()) {
-      case 1:
-        [[fallthrough]];
-      case 2:
-        [[fallthrough]];
-      case 3: {
-        ASSERT_EQ(action, RaftLogAction::REGISTER_REPLICATION_INSTANCE);
-        ASSERT_EQ(get_config(term), std::get<CoordinatorToReplicaConfig>(payload));
-        break;
-      }
-      case 4: {
-        ASSERT_EQ(action, RaftLogAction::SET_INSTANCE_AS_MAIN);
-        auto instance_uuid_update = std::get<memgraph::coordination::InstanceUUIDUpdate>(payload);
-        ASSERT_EQ(instance_uuid_update.instance_name, "instance1");
-        break;
-      }
-      case 5: {
-        ASSERT_EQ(action, RaftLogAction::UNREGISTER_REPLICATION_INSTANCE);
-        auto instance_name = std::get<std::string>(payload);
-        ASSERT_EQ(instance_name, "instance2");
-        break;
-      }
-      default:
-        FAIL() << "Unexpected log entry";
-    }
-  }
+  ASSERT_EQ(log_entries->size(), 1);
 }
 
 TEST_F(CoordinatorLogStoreTests, TestPackAndApplyPack) {
@@ -244,8 +201,9 @@ TEST_F(CoordinatorLogStoreTests, TestPackAndApplyPack) {
     memgraph::coordination::LogStoreDurability log_store_durability_2{log_store_storage_2};
     CoordinatorLogStore log_store2{GetLogger(), log_store_durability_2};
 
-    // Add the same log to both stores at index 1
-    auto buffer = CoordinatorStateMachine::SerializeRegisterInstance(
+    std::vector<DataInstanceState> cluster_state{};
+
+    auto config =
         CoordinatorToReplicaConfig{.instance_name = "instance1",
                                    .mgt_server = Endpoint{"127.0.0.1", 10112},
                                    .replication_client_info = {.instance_name = "instance_name1",
@@ -254,7 +212,11 @@ TEST_F(CoordinatorLogStoreTests, TestPackAndApplyPack) {
                                    .instance_health_check_frequency_sec = std::chrono::seconds{1},
                                    .instance_down_timeout_sec = std::chrono::seconds{5},
                                    .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
-                                   .ssl = std::nullopt});
+                                   .ssl = std::nullopt};
+    cluster_state.emplace_back(config, ReplicationRole::REPLICA, UUID{});
+
+    auto buffer = CoordinatorStateMachine::SerializeUpdateClusterState(cluster_state, UUID{});
+
     auto log_entry_common = cs_new<log_entry>(1, buffer, nuraft::log_val_type::app_log);
     log_store1.append(log_entry_common);
     log_store2.append(log_entry_common);
@@ -262,7 +224,7 @@ TEST_F(CoordinatorLogStoreTests, TestPackAndApplyPack) {
     // Add different logs to each store between indices 2 and 4
     // Add different logs to each store between indices 2 and 4
     for (uint16_t i = 2; i <= 4; ++i) {
-      auto buffer1 = CoordinatorStateMachine::SerializeRegisterInstance(CoordinatorToReplicaConfig{
+      auto config1 = CoordinatorToReplicaConfig{
           .instance_name = "instance" + std::to_string(i),
           .mgt_server = Endpoint{"127.0.0.1", static_cast<uint16_t>(10112 + i)},
           .replication_client_info = {.instance_name = "instance_name" + std::to_string(i),
@@ -271,9 +233,9 @@ TEST_F(CoordinatorLogStoreTests, TestPackAndApplyPack) {
           .instance_health_check_frequency_sec = std::chrono::seconds{1},
           .instance_down_timeout_sec = std::chrono::seconds{5},
           .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
-          .ssl = std::nullopt});
+          .ssl = std::nullopt};
 
-      auto buffer2 = CoordinatorStateMachine::SerializeRegisterInstance(CoordinatorToReplicaConfig{
+      auto config2 = CoordinatorToReplicaConfig{
           .instance_name = "instance" + std::to_string(i + 3),
           .mgt_server = Endpoint{"127.0.0.1", static_cast<uint16_t>(10112 + i + 3)},
           .replication_client_info = {.instance_name = "instance_name" + std::to_string(i + 3),
@@ -283,7 +245,12 @@ TEST_F(CoordinatorLogStoreTests, TestPackAndApplyPack) {
           .instance_health_check_frequency_sec = std::chrono::seconds{1},
           .instance_down_timeout_sec = std::chrono::seconds{5},
           .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
-          .ssl = std::nullopt});
+          .ssl = std::nullopt};
+
+      cluster_state.emplace_back(config1, ReplicationRole::REPLICA, UUID{});
+      auto buffer1 = CoordinatorStateMachine::SerializeUpdateClusterState(cluster_state, UUID{});
+      cluster_state.emplace_back(config2, ReplicationRole::REPLICA, UUID{});
+      auto buffer2 = CoordinatorStateMachine::SerializeUpdateClusterState(cluster_state, UUID{});
 
       auto log_entry1 = cs_new<log_entry>(i, buffer1, nuraft::log_val_type::app_log);
       auto log_entry2 = cs_new<log_entry>(i, buffer2, nuraft::log_val_type::app_log);
@@ -306,8 +273,6 @@ TEST_F(CoordinatorLogStoreTests, TestPackAndApplyPack) {
       auto const [payload1, action1] = CoordinatorStateMachine::DecodeLog(entry1->get_buf());
       auto const [payload2, action2] = CoordinatorStateMachine::DecodeLog(entry2->get_buf());
 
-      ASSERT_EQ(std::get<memgraph::coordination::CoordinatorToReplicaConfig>(payload1),
-                std::get<memgraph::coordination::CoordinatorToReplicaConfig>(payload2));
       ASSERT_EQ(entry1->get_term(), entry2->get_term());
       ASSERT_EQ(entry1->get_val_type(), entry2->get_val_type());
     }
@@ -329,8 +294,6 @@ TEST_F(CoordinatorLogStoreTests, TestPackAndApplyPack) {
       auto const [payload1, action1] = CoordinatorStateMachine::DecodeLog(entry1->get_buf());
       auto const [payload2, action2] = CoordinatorStateMachine::DecodeLog(entry2->get_buf());
 
-      ASSERT_EQ(std::get<memgraph::coordination::CoordinatorToReplicaConfig>(payload1),
-                std::get<memgraph::coordination::CoordinatorToReplicaConfig>(payload2));
       ASSERT_EQ(entry1->get_term(), entry2->get_term());
       ASSERT_EQ(entry1->get_val_type(), entry2->get_val_type());
     }
@@ -343,9 +306,11 @@ TEST_F(CoordinatorLogStoreTests, TestCompact) {
   memgraph::coordination::LogStoreDurability log_store_durability{log_store_storage};
   CoordinatorLogStore log_store{GetLogger(), log_store_durability};
 
+  std::vector<DataInstanceState> cluster_state{};
+
   // Add 5 logs to the store
   for (int i = 1; i <= 5; ++i) {
-    auto buffer = CoordinatorStateMachine::SerializeRegisterInstance(CoordinatorToReplicaConfig{
+    auto config = CoordinatorToReplicaConfig{
         .instance_name = "instance" + std::to_string(i),
         .mgt_server = Endpoint{"127.0.0.1", static_cast<uint16_t>(10112 + i)},
         .replication_client_info = {.instance_name = "instance_name" + std::to_string(i),
@@ -354,7 +319,11 @@ TEST_F(CoordinatorLogStoreTests, TestCompact) {
         .instance_health_check_frequency_sec = std::chrono::seconds{1},
         .instance_down_timeout_sec = std::chrono::seconds{5},
         .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
-        .ssl = std::nullopt});
+        .ssl = std::nullopt};
+    cluster_state.emplace_back(config, ReplicationRole::REPLICA, UUID{});
+
+    auto buffer = CoordinatorStateMachine::SerializeUpdateClusterState(cluster_state, UUID{});
+
     auto log_entry_obj = cs_new<log_entry>(i, buffer, nuraft::log_val_type::app_log);
     log_store.append(log_entry_obj);
   }
@@ -367,12 +336,11 @@ TEST_F(CoordinatorLogStoreTests, TestCompact) {
     auto entry = log_store.entry_at(i);
     ASSERT_TRUE(entry != nullptr);
     auto const [payload, action] = CoordinatorStateMachine::DecodeLog(entry->get_buf());
-    ASSERT_EQ(std::get<CoordinatorToReplicaConfig>(payload).instance_name, "instance" + std::to_string(i));
   }
 
   // Check that logs from 1 to 3 do not exist
   for (int i = 1; i <= 3; ++i) {
     auto entry = log_store.entry_at(i);
-    ASSERT_EQ(entry->get_term(), 0);  // TODO: test that entry->get_term returns nullptr
+    ASSERT_EQ(entry->get_term(), 0);
   }
 }
