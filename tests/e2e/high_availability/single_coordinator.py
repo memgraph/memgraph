@@ -712,6 +712,11 @@ def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_reco
 
     mg_sleep_and_assert(3, get_vertex_count)
 
+    def get_vertex_count():
+        return execute_and_fetch_all(instance_2_cursor, "MATCH (n) RETURN count(n)")[0][0]
+
+    mg_sleep_and_assert(3, get_vertex_count)
+
     # 9
 
     interactive_mg_runner.kill(memgraph_instances_description, "instance_2")
@@ -731,9 +736,21 @@ def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_reco
         ("instance_3", "localhost:7687", "", "localhost:10013", "down", "unknown"),
         ("instance_4", "localhost:7691", "", "localhost:10014", "down", "unknown"),
     ]
+
     mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_instances)
 
     # 12
+
+    instance_1_cursor = connect(host="localhost", port=7688).cursor()
+
+    mg_sleep_and_assert_until_role_change(
+        lambda: execute_and_fetch_all(instance_1_cursor, "SHOW REPLICATION ROLE;")[0][0], "main"
+    )
+
+    def get_vertex_count():
+        return execute_and_fetch_all(instance_1_cursor, "MATCH (n) RETURN count(n)")[0][0]
+
+    mg_sleep_and_assert(2, get_vertex_count)
 
     interactive_mg_runner.start(memgraph_instances_description, "instance_2")
 
@@ -748,14 +765,11 @@ def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_reco
     ]
     mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_instances)
 
-    # 12
-    instance_1_cursor = connect(host="localhost", port=7688).cursor()
     instance_2_cursor = connect(host="localhost", port=7689).cursor()
 
-    def get_vertex_count():
-        return execute_and_fetch_all(instance_1_cursor, "MATCH (n) RETURN count(n)")[0][0]
-
-    mg_sleep_and_assert(2, get_vertex_count)
+    mg_sleep_and_assert_until_role_change(
+        lambda: execute_and_fetch_all(instance_2_cursor, "SHOW REPLICATION ROLE;")[0][0], "replica"
+    )
 
     def get_vertex_count():
         return execute_and_fetch_all(instance_2_cursor, "MATCH (n) RETURN count(n)")[0][0]
@@ -763,10 +777,6 @@ def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_reco
     mg_sleep_and_assert(2, get_vertex_count)
 
     # 13
-
-    mg_sleep_and_assert_until_role_change(
-        lambda: execute_and_fetch_all(instance_1_cursor, "SHOW REPLICATION ROLE;")[0][0], "main"
-    )
 
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(instance_1_cursor, "CREATE (:Epoch3Vertex {prop:1});")
