@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <cstdint>
 #include <string>
 
 #include <sys/types.h>
@@ -29,16 +30,22 @@ class VectorSearchTest : public testing::Test {
   const std::string testSuite = "vector_search";
   std::unique_ptr<memgraph::storage::Storage> db = std::make_unique<memgraph::storage::InMemoryStorage>();
 
-  void CreateTestIndex(memgraph::storage::VectorIndex &index) {
+  void CreateTestIndex(memgraph::storage::VectorIndex &index, std::size_t dimension = 5, std::size_t limit = 10) {
     auto storage_dba = db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     const auto label = dba.NameToLabel(test_label.data());
     const auto property = dba.NameToProperty(test_property.data());
+
+    // Build JSON object dynamically
+    nlohmann::json config;
+    config["dimension"] = dimension;
+    config["limit"] = limit;
+
     memgraph::storage::VectorIndexSpec spec{
         .index_name = test_index.data(),
         .label = label,
         .property = property,
-        .config = nlohmann::json::parse(R"({"dimension": 5, "limit": 10})"),
+        .config = config,  // Pass the dynamically created config
     };
 
     index.CreateIndex(spec);
@@ -158,4 +165,28 @@ TYPED_TEST(VectorSearchTest, TransactionTest) {
 
   const auto &[gid2, score2] = result2[0];
   EXPECT_EQ(gid2, vertex_gid2);
+}
+
+TYPED_TEST(VectorSearchTest, ConcurrencyTest) {
+  memgraph::storage::VectorIndex index;
+  const auto index_size = 10;
+  this->CreateTestIndex(index, 5, index_size);
+
+  // create 1k threads and add 1k nodes
+  std::vector<std::thread> threads;
+  threads.reserve(index_size);
+  for (int i = 0; i < index_size; i++) {
+    threads.emplace_back(std::thread([this, &index, i]() {
+      // properties start from i and end at i + 5
+      const auto properties =
+          this->ConvertToPropertyValueVector({(float)i, (float)i + 1, (float)i + 2, (float)i + 3, (float)i + 4});
+      this->AddNodeToIndex(index, properties, i);
+    }));
+  }
+
+  for (auto &thread : threads) {
+    thread.join();
+  }
+
+  EXPECT_EQ(index.Size(test_index), index_size);
 }
