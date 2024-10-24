@@ -19,11 +19,13 @@
 #include "flags/general.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "memory/global_memory_control.hpp"
+#include "mg_exceptions.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/edge_direction.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/edge_type_property_index.hpp"
+#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
 #include "storage/v2/metadata_delta.hpp"
@@ -1083,6 +1085,16 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
 
     if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
       mem_storage->indices_.text_index_.Commit();
+    }
+
+    if (!FLAGS_experimental_vector_indexes.empty()) {
+      if (commit_timestamp_.has_value()) {
+        for (const auto &[vertex, label_prop] : transaction_.new_vector_index_entries_) {
+          mem_storage->indices_.vector_index_.AddNodeToIndex(vertex, label_prop, *commit_timestamp_);
+        }
+      } else {
+        throw mg_exception::NotYetImplementedException();
+      }
     }
   }
 

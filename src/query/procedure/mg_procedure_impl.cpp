@@ -11,6 +11,8 @@
 
 #include "query/procedure/mg_procedure_impl.hpp"
 
+#include <math.h>
+
 #include <algorithm>
 #include <cstddef>
 #include <cstring>
@@ -3415,6 +3417,95 @@ mgp_vertex *GetVertexByGid(mgp_graph *graph, memgraph::storage::Gid id, mgp_memo
   return std::visit(get_vertex_by_gid, graph->impl);
 }
 
+void WrapVectorSearchResults(mgp_graph *graph, mgp_memory *memory, mgp_map **result,
+                             const std::vector<std::pair<memgraph::storage::Gid, double>> &found_vertices,
+                             const std::optional<std::string> &error_msg = std::nullopt) {
+  if (const auto err = mgp_map_make_empty(memory, result); err != mgp_error::MGP_ERROR_NO_ERROR) {
+    throw std::logic_error("Retrieving vector search results failed during creation of a mgp_map");
+  }
+
+  mgp_value *error_value = nullptr;
+  if (error_msg.has_value()) {
+    if (const auto err = mgp_value_make_string(error_msg.value().data(), memory, &error_value);
+        err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::logic_error("Retrieving vector search results failed during creation of a string mgp_value");
+    }
+  }
+
+  mgp_list *search_results = nullptr;
+  if (const auto err = mgp_list_make_empty(found_vertices.size(), memory, &search_results);
+      err != mgp_error::MGP_ERROR_NO_ERROR) {
+    throw std::logic_error("Retrieving vector search results failed during creation of a mgp_list");
+  }
+
+  for (const auto &[vertex_id, distance] : found_vertices) {
+    mgp_value *vertex = nullptr;
+    mgp_value *distance_value = nullptr;
+    if (const auto err = mgp_value_make_vertex(GetVertexByGid(graph, vertex_id, memory), &vertex);
+        err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::logic_error("Retrieving vector search results failed during creation of a vertex mgp_value");
+    }
+
+    if (const auto err = mgp_value_make_double(distance, memory, &distance_value);
+        err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::logic_error("Retrieving vector search results failed during creation of a double mgp_value");
+    }
+    mgp_list *vertex_distance_pair = nullptr;
+    if (const auto err = mgp_list_make_empty(2, memory, &vertex_distance_pair); err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::logic_error("Retrieving vector search results failed during creation of a mgp_list");
+    }
+
+    if (const auto err = mgp_list_append_extend(vertex_distance_pair, vertex); err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::logic_error(
+          "Retrieving vector search results failed during insertion of the mgp_value into the result list");
+    }
+
+    if (const auto err = mgp_list_append_extend(vertex_distance_pair, distance_value);
+        err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::logic_error(
+          "Retrieving vector search results failed during insertion of the mgp_value into the result list");
+    }
+    mgp_value *vertex_distance_pair_value = nullptr;
+    if (const auto err = mgp_value_make_list(vertex_distance_pair, &vertex_distance_pair_value);
+        err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::logic_error("Retrieving vector search results failed during creation of a list mgp_value");
+    }
+
+    if (const auto err = mgp_list_append(search_results, vertex_distance_pair_value);
+        err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::logic_error(
+          "Retrieving vector search results failed during insertion of the mgp_value into the result list");
+    }
+
+    mgp_value_destroy(vertex_distance_pair_value);
+    mgp_value_destroy(vertex);
+    mgp_value_destroy(distance_value);
+    mgp_list_destroy(vertex_distance_pair);
+  }
+
+  if (error_msg.has_value()) {
+    if (const auto err = mgp_map_insert(*result, "error_msg", error_value); err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::logic_error("Retrieving vector search error failed during insertion into mgp_map");
+    }
+    return;
+  }
+
+  mgp_value *search_results_value = nullptr;
+  if (const auto err = mgp_value_make_list(search_results, &search_results_value);
+      err != mgp_error::MGP_ERROR_NO_ERROR) {
+    throw std::logic_error("Retrieving vector search results failed during creation of a list mgp_value");
+  }
+
+  if (const auto err = mgp_map_insert(*result, "search_results", search_results_value);
+      err != mgp_error::MGP_ERROR_NO_ERROR) {
+    throw std::logic_error("Retrieving vector search results failed during insertion into mgp_map");
+  }
+
+  mgp_value_destroy(error_value);
+  mgp_value_destroy(search_results_value);
+  mgp_list_destroy(search_results);
+}
+
 void WrapTextSearch(mgp_graph *graph, mgp_memory *memory, mgp_map **result,
                     const std::vector<memgraph::storage::Gid> &vertex_ids = {},
                     const std::optional<std::string> &error_msg = std::nullopt) {
@@ -3519,6 +3610,34 @@ mgp_error mgp_graph_aggregate_over_text_index(mgp_graph *graph, const char *inde
       error_msg = e.what();
     }
     WrapTextIndexAggregation(memory, result, search_results, error_msg);
+  });
+}
+
+mgp_error mgp_graph_has_vector_index(mgp_graph *graph, const char *index_name, int *result) {
+  return mgp_error::MGP_ERROR_NOT_YET_IMPLEMENTED;
+}
+
+mgp_error mgp_graph_search_vector_index(mgp_graph *graph, const char *index_name, mgp_list *search_query,
+                                        int result_size, mgp_memory *memory, mgp_map **result) {
+  return WrapExceptions([graph, memory, index_name, search_query, result, result_size]() {
+    std::vector<std::pair<memgraph::storage::Gid, double>> found_vertices;
+    std::optional<std::string> error_msg = std::nullopt;
+    try {
+      std::vector<float> search_query_vector;
+      search_query_vector.reserve(search_query->elems.size());
+      for (auto &elem : search_query->elems) {
+        double value = 0.0;
+        auto err = mgp_value_get_double(&elem, &value);
+        if (err != mgp_error::MGP_ERROR_NO_ERROR) {
+          throw std::logic_error("Retrieving vector search results failed during conversion of a mgp_value");
+        }
+        search_query_vector.push_back(static_cast<float>(value));
+      }
+      found_vertices = graph->getImpl()->VectorIndexSearch(index_name, result_size, search_query_vector);
+    } catch (memgraph::query::QueryException &e) {
+      error_msg = e.what();
+    }
+    WrapVectorSearchResults(graph, memory, result, found_vertices, error_msg);
   });
 }
 

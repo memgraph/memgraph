@@ -56,6 +56,7 @@
 #include "requests/requests.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/durability/durability.hpp"
+#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "system/system.hpp"
 #include "telemetry/telemetry.hpp"
@@ -597,6 +598,43 @@ int main(int argc, char **argv) {
                                                                   FLAGS_data_directory);
   memgraph::query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();
   memgraph::query::procedure::gCallableAliasMapper.LoadMapping(FLAGS_query_callable_mappings_path);
+
+  std::vector<memgraph::storage::VectorIndexSpec> vector_index_specs;
+  if (!FLAGS_experimental_vector_indexes.empty()) {
+    const auto specs = memgraph::utils::Split(FLAGS_experimental_vector_indexes, ";");
+    if (!specs.empty()) {
+      auto storage = db_acc->Access();
+      vector_index_specs.reserve(specs.size());
+      for (const auto &spec : specs) {
+        const auto an_index_split = memgraph::utils::Split(spec, "__");
+        if (an_index_split.size() != 3 && an_index_split.size() != 4) {
+          LOG_FATAL(
+              "--experimental-vector-indexes is not in the right format to use vector indexes. Use "
+              "Label__property__\{JSON\},... format instead.");
+        }
+        const auto &label_name = an_index_split[1];
+        const auto &property_name = an_index_split[2];
+        const auto label_id = storage->NameToLabel(label_name);
+        const auto property_id = storage->NameToProperty(property_name);
+        if (an_index_split.size() == 3) {
+          vector_index_specs.emplace_back(memgraph::storage::VectorIndexSpec{
+              .index_name = an_index_split[0], .label = label_id, .property = property_id, .config = {}});
+        }
+        if (an_index_split.size() == 4) {
+          vector_index_specs.emplace_back(
+              memgraph::storage::VectorIndexSpec{.index_name = an_index_split[0],
+                                                 .label = label_id,
+                                                 .property = property_id,
+                                                 .config = nlohmann::json::parse(an_index_split[3])});
+        }
+      }
+      for (const auto &spec : vector_index_specs) {
+        spdlog::info("Having vector index named {} on :{}({}) with config: {}", spec.index_name,
+                     storage->LabelToName(spec.label), storage->PropertyToName(spec.property), spec.config.dump());
+        storage->CreateVectorIndex(spec);
+      }
+    }
+  }
 
   // TODO Make multi-tenant
   if (!FLAGS_init_file.empty()) {

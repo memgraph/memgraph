@@ -57,6 +57,7 @@ PyObject *gMgpImmutableObjectError{nullptr};     // NOLINT(cppcoreguidelines-avo
 PyObject *gMgpValueConversionError{nullptr};     // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 PyObject *gMgpSerializationError{nullptr};       // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 PyObject *gMgpAuthorizationError{nullptr};       // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+PyObject *gMgNotYetImplementedError{nullptr};    // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
 constexpr auto kMicrosecondsInMillisecond{1000};
 constexpr auto kMicrosecondsInSecond{1000000};
@@ -112,6 +113,10 @@ bool RaiseExceptionFromErrorCode(const mgp_error error) {
     }
     case mgp_error::MGP_ERROR_AUTHORIZATION_ERROR: {
       PyErr_SetString(gMgpAuthorizationError, "Authorization Error. Permission Denied.");
+      return true;
+    }
+    case mgp_error::MGP_ERROR_NOT_YET_IMPLEMENTED: {
+      PyErr_SetString(gMgNotYetImplementedError, "Not Yet Implemented Error.");
       return true;
     }
   }

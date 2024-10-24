@@ -11,7 +11,9 @@
 
 #pragma once
 
+#include <sys/types.h>
 #include <chrono>
+#include <cstdint>
 #include <functional>
 #include <optional>
 #include <semaphore>
@@ -20,6 +22,7 @@
 
 #include "io/network/endpoint.hpp"
 #include "kvstore/kvstore.hpp"
+#include "mg_exceptions.hpp"
 #include "mg_procedure.h"
 #include "query/exceptions.hpp"
 #include "replication/config.hpp"
@@ -35,6 +38,7 @@
 #include "storage/v2/edges_iterable.hpp"
 #include "storage/v2/enum_store.hpp"
 #include "storage/v2/indices/indices.hpp"
+#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/replication_client.hpp"
@@ -43,6 +47,7 @@
 #include "storage/v2/storage_error.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/transaction.hpp"
+#include "storage/v2/vertex_accessor.hpp"
 #include "storage/v2/vertices_iterable.hpp"
 #include "utils/compressor.hpp"
 #include "utils/event_counter.hpp"
@@ -307,6 +312,15 @@ class Storage {
       return storage_->indices_.text_index_.Aggregate(index_name, search_query, aggregation_query);
     }
 
+    std::vector<std::pair<Gid, double>> VectorIndexSearch(const std::string &index_name, uint64_t number_of_results,
+                                                          const std::vector<float> &vector) const {
+      if (is_transaction_active_) {
+        return storage_->indices_.vector_index_.Search(index_name, transaction_.start_timestamp, number_of_results,
+                                                       vector);
+      }
+      throw mg_exception::NotYetImplementedException();
+    }
+
     virtual IndicesInfo ListAllIndices() const = 0;
 
     virtual ConstraintsInfo ListAllConstraints() const = 0;
@@ -324,6 +338,8 @@ class Storage {
     virtual void FinalizeTransaction() = 0;
 
     std::optional<uint64_t> GetTransactionId() const;
+
+    void AddNewVectorIndexEntry(VertexAccessor &vertex);
 
     void AdvanceCommand();
 
@@ -380,6 +396,8 @@ class Storage {
     void CreateTextIndex(const std::string &index_name, LabelId label);
 
     void DropTextIndex(const std::string &index_name);
+
+    void CreateVectorIndex(const VectorIndexSpec &spec);
 
     virtual utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
         LabelId label, PropertyId property) = 0;
