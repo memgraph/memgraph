@@ -423,14 +423,8 @@ def test_even_number_coords(use_durability, test_name):
         "DEMOTE INSTANCE instance_3",
     )
 
-    execute_and_fetch_all(
-        coord_cursor_3,
-        "DEMOTE INSTANCE instance_2",
-    )
-
     leader_data_demoted = leader_data_original.copy()
     leader_data_demoted = update_tuple_value(leader_data_demoted, "instance_3", 0, -1, "replica")
-    leader_data_demoted = update_tuple_value(leader_data_demoted, "instance_2", 0, -1, "replica")
 
     mg_sleep_and_assert(leader_data_demoted, show_instances_coord3)
     mg_sleep_and_assert(leader_data_demoted, show_instances_coord1)
@@ -481,7 +475,7 @@ def test_even_number_coords(use_durability, test_name):
         ("coordinator_4", "localhost:7693", "localhost:10114", "localhost:10124", "up", "follower"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "replica"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
 
     leader_coord_instance_3_demoted = find_instance_and_assert_instances(instance_role="leader", num_coordinators=3)
@@ -489,7 +483,6 @@ def test_even_number_coords(use_durability, test_name):
     assert leader_coord_instance_3_demoted is not None, "Leader not found"
 
     leader_data = update_tuple_value(leader_data, leader_coord_instance_3_demoted, 0, -1, "leader")
-    leader_data = update_tuple_value(leader_data, "instance_1", 0, -1, "main")
 
     port_mappings = {
         "coordinator_1": 7690,
