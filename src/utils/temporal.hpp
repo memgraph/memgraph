@@ -13,10 +13,12 @@
 
 #include <chrono>
 #include <cstdint>
+#include <ctime>
 #include <iosfwd>
 #include <limits>
 
 #include "utils/exceptions.hpp"
+#include "utils/logging.hpp"
 
 namespace memgraph::utils {
 
@@ -260,9 +262,11 @@ struct LocalDateTime {
    */
   explicit LocalDateTime(int64_t offset_epoch_us);
 
-  template <typename TClock>
-  explicit LocalDateTime(std::chrono::time_point<TClock> time_point)
-      : us_since_epoch_(std::chrono::duration_cast<std::chrono::microseconds>(time_point.time_since_epoch()).count()) {}
+  template <typename TClock, typename TDuration>
+  explicit LocalDateTime(const std::chrono::time_point<TClock, TDuration> &time_point)
+      : us_since_epoch_(std::chrono::duration_cast<std::chrono::microseconds>(time_point.time_since_epoch())) {}
+
+  explicit LocalDateTime(std::tm tm);
 
   /**
    * @brief Construct a new LocalDateTime object using local/calendar date and time.

@@ -11,7 +11,10 @@
 
 #include "utils/scheduler.hpp"
 
+#include <ctime>
+
 #include "croncpp.h"
+#include "utils/temporal.hpp"
 
 namespace memgraph::utils {
 
@@ -22,7 +25,17 @@ void Scheduler::Run(const std::string &service_name, const std::function<void()>
       [this, f = f, service_name = service_name, cron = cron::make_cron(cron_expr)](std::stop_token token) mutable {
         ThreadRun(
             std::move(service_name), std::move(f),
-            [cron = std::move(cron)](const auto &now) { return cron::cron_next(cron, now); }, token);
+            [cron = std::move(cron)](const auto &now) {
+              auto tm_now = LocalDateTime{now}.tm();
+              // Hack to force the mktime to reinterpret the time as is in the system tz
+              tm_now.tm_gmtoff = 0;
+              tm_now.tm_isdst = -1;
+              tm_now.tm_zone = nullptr;
+              const auto tm_next = cron::cron_next(cron, tm_now);
+              // LocalDateTime reads only the date and time values, ignoring the system tz
+              return LocalDateTime{tm_next}.us_since_epoch_;
+            },
+            token);
       });
 }
 }  // namespace memgraph::utils

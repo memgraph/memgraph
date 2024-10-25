@@ -57,6 +57,18 @@ std::optional<T> ParseNumber(const std::string_view string, const size_t size) {
   return value;
 }
 
+auto Params2Time(const DateParameters &date_parameters, const LocalTimeParameters &local_time_parameters) {
+  auto us_since_epoch_local = std::chrono::microseconds{Date{date_parameters}.MicrosecondsSinceEpoch() +
+                                                        LocalTime{local_time_parameters}.MicrosecondsSinceEpoch()};
+  if (const auto *tz = flags::run_time::GetTimezone(); tz) {
+    // APPLY TIMEZONE (local to UTC)
+    return tz->to_sys(
+        std::chrono::local_time<std::chrono::microseconds>(std::chrono::microseconds(us_since_epoch_local)));
+  }
+  // Fallback to UTC
+  return std::chrono::sys_time<std::chrono::microseconds>(std::chrono::microseconds(us_since_epoch_local));
+}
+
 }  // namespace
 
 Date::Date(const int64_t microseconds) {
@@ -496,19 +508,12 @@ LocalDateTime::LocalDateTime(const int64_t offset_epoch_us)
   // Already UTC
 }
 
-LocalDateTime::LocalDateTime(const DateParameters &date_parameters, const LocalTimeParameters &local_time_parameters) {
-  auto us_since_epoch_local = std::chrono::microseconds{Date{date_parameters}.MicrosecondsSinceEpoch() +
-                                                        LocalTime{local_time_parameters}.MicrosecondsSinceEpoch()};
-  const auto *tz = flags::run_time::GetTimezone();
-  if (tz) {
-    // APPLY TIMEZONE (local to UTC)
-    us_since_epoch_ =
-        tz->to_sys(std::chrono::local_time<std::chrono::microseconds>(std::chrono::microseconds(us_since_epoch_local)));
-  } else {
-    // Fallback to UTC
-    us_since_epoch_ = std::chrono::sys_time<std::chrono::microseconds>(std::chrono::microseconds(us_since_epoch_local));
-  }
-}
+LocalDateTime::LocalDateTime(const DateParameters &date_parameters, const LocalTimeParameters &local_time_parameters)
+    : us_since_epoch_(Params2Time(date_parameters, local_time_parameters)) {}
+
+LocalDateTime::LocalDateTime(std::tm tm)
+    : us_since_epoch_{Params2Time(DateParameters{.year = tm.tm_year + 1900, .month = tm.tm_mon + 1, .day = tm.tm_mday},
+                                  LocalTimeParameters{.hour = tm.tm_hour, .minute = tm.tm_min, .second = tm.tm_sec})} {}
 
 LocalDateTime::LocalDateTime(const Date &date, const LocalTime &local_time) {
   auto us_since_epoch_local =

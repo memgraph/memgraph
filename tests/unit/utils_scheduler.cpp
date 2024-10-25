@@ -9,11 +9,14 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <fmt/core.h>
 #include "gtest/gtest.h"
 
 #include <atomic>
 #include <chrono>
+#include "tests/unit/timezone_handler.hpp"
 #include "utils/scheduler.hpp"
+#include "utils/temporal.hpp"
 
 /**
  * Scheduler runs every 2 seconds and increases one variable. Test thread
@@ -167,4 +170,194 @@ TEST(Scheduler, ConcurrentStops) {
   std::jthread stopper1([&scheduler]() { scheduler.Stop(); });
 
   std::jthread stopper2([&scheduler]() { scheduler.Stop(); });
+}
+
+TEST(Scheduler, CronAny) {
+  std::atomic<int> x{0};
+  std::function<void()> func{[&x]() { ++x; }};
+  memgraph::utils::Scheduler scheduler;
+
+  const auto now = std::chrono::system_clock::now();
+  const auto timeout1 = now + std::chrono::seconds(3);
+
+  // Execute every second
+  scheduler.Run("Test", func, "* * * * * *");
+
+  while (x == 0 && std::chrono::system_clock::now() < timeout1) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
+  ASSERT_GE(x, 1);
+}
+
+TEST(Scheduler, CronEveryNs) {
+  std::atomic<int> x{0};
+  std::function<void()> func{[&x]() { ++x; }};
+  memgraph::utils::Scheduler scheduler;
+
+  const auto now = std::chrono::system_clock::now();
+  const auto timeout1 = now + std::chrono::seconds(6);
+
+  // Execute every second
+  scheduler.Run("Test", func, "*/2 * * * * *");
+
+  while (x < 2 && std::chrono::system_clock::now() < timeout1) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
+  ASSERT_GE(std::chrono::system_clock::now() - now, std::chrono::seconds{4});
+  ASSERT_GE(x, 2);
+}
+
+TEST(Scheduler, CronSpecificTime) {
+  std::atomic<int> x{0};
+  std::function<void()> func{[&x]() { ++x; }};
+  memgraph::utils::Scheduler scheduler;
+
+  const auto now = std::chrono::system_clock::now();
+  const auto local_time = (memgraph::utils::LocalDateTime{now} + memgraph::utils::Duration(2e6 /*us*/)).local_time();
+  const auto timeout1 = now + std::chrono::seconds(3);
+
+  // Execute at specific time
+  scheduler.Run("Test", func, fmt::format("{} {} {} * * *", local_time.second, local_time.minute, local_time.hour));
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+  ASSERT_EQ(x, 0);
+
+  while (x == 0 && std::chrono::system_clock::now() < timeout1) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
+  ASSERT_EQ(x, 1);
+}
+
+TEST(Scheduler, CronSpecificTimeWTZ) {
+  HandleTimezone htz;
+
+  auto test = [&]() {
+    std::atomic<int> x{0};
+    std::function<void()> func{[&x]() { ++x; }};
+    memgraph::utils::Scheduler scheduler;
+
+    const auto now = std::chrono::system_clock::now();
+    const auto local_time = (memgraph::utils::LocalDateTime{now} + memgraph::utils::Duration(2e6 /*us*/)).local_time();
+    const auto timeout1 = now + std::chrono::seconds(3);
+
+    // Execute at specific time
+    scheduler.Run("Test", func, fmt::format("{} {} {} * * *", local_time.second, local_time.minute, local_time.hour));
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    ASSERT_EQ(x, 0);
+
+    while (x == 0 && std::chrono::system_clock::now() < timeout1) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    ASSERT_EQ(x, 1);
+  };
+
+  htz.Set("UTC");
+  test();
+  htz.Set("Europe/Rome");
+  test();
+  htz.Set("America/Los_Angeles");
+  test();
+}
+
+TEST(Scheduler, CronSpecificDate) {
+  std::atomic<int> x{0};
+  std::function<void()> func{[&x]() { ++x; }};
+  memgraph::utils::Scheduler scheduler;
+
+  const auto now = std::chrono::system_clock::now();
+  const auto local_date = memgraph::utils::LocalDateTime{now}.date();
+
+  // Execute every second
+  scheduler.Run("Test", func, fmt::format("* * * {} {} *", local_date.day, local_date.month));
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+  ASSERT_GT(x, 0);
+}
+
+TEST(Scheduler, CronSpecificDateWTZ) {
+  HandleTimezone htz;
+
+  auto test = [&]() {
+    std::atomic<int> x{0};
+    std::function<void()> func{[&x]() { ++x; }};
+    memgraph::utils::Scheduler scheduler;
+
+    const auto now = std::chrono::system_clock::now();
+    const auto local_date = memgraph::utils::LocalDateTime{now}.date();
+
+    // Execute every second
+    scheduler.Run("Test", func, fmt::format("* * * {} {} *", local_date.day, local_date.month));
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+    ASSERT_GT(x, 0);
+  };
+
+  htz.Set("UTC");
+  test();
+  htz.Set("Europe/Rome");
+  test();
+  htz.Set("America/Los_Angeles");
+  test();
+}
+
+TEST(Scheduler, CronSpecificDateTime) {
+  std::atomic<int> x{0};
+  std::function<void()> func{[&x]() { ++x; }};
+  memgraph::utils::Scheduler scheduler;
+
+  const auto now = std::chrono::system_clock::now();
+  const auto timeout1 = now + std::chrono::seconds(3);
+  const auto next = memgraph::utils::LocalDateTime{now} + memgraph::utils::Duration(2e6 /*us*/);
+  const auto local_date = next.date();
+  const auto local_time = next.local_time();
+
+  // Execute every second
+  scheduler.Run("Test", func,
+                fmt::format("{} {} {} {} {} *", local_time.second, local_time.minute, local_time.hour, local_date.day,
+                            local_date.month));
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+  ASSERT_EQ(x, 0);
+
+  while (x == 0 && std::chrono::system_clock::now() < timeout1) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
+  ASSERT_EQ(x, 1);
+}
+
+TEST(Scheduler, CronSpecificDateTimeWTZ) {
+  HandleTimezone htz;
+
+  auto test = [&]() {
+    std::atomic<int> x{0};
+    std::function<void()> func{[&x]() { ++x; }};
+    memgraph::utils::Scheduler scheduler;
+
+    const auto now = std::chrono::system_clock::now();
+    const auto timeout1 = now + std::chrono::seconds(3);
+    const auto next = memgraph::utils::LocalDateTime{now} + memgraph::utils::Duration(2e6 /*us*/);
+    const auto local_date = next.date();
+    const auto local_time = next.local_time();
+
+    // Execute every second
+    scheduler.Run("Test", func,
+                  fmt::format("{} {} {} {} {} *", local_time.second, local_time.minute, local_time.hour, local_date.day,
+                              local_date.month));
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    ASSERT_EQ(x, 0);
+
+    while (x == 0 && std::chrono::system_clock::now() < timeout1) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    ASSERT_EQ(x, 1);
+  };
+
+  htz.Set("UTC");
+  test();
+  htz.Set("Europe/Rome");
+  test();
+  htz.Set("America/Los_Angeles");
+  test();
 }
