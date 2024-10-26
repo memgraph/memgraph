@@ -297,14 +297,12 @@ auto ReplicationHandler::GetDatabasesHistories() -> replication_coordination_glu
   return results;
 }
 
-auto ReplicationHandler::GetReplicaUUID() -> std::optional<utils::UUID> {
-  if (!repl_state_.IsReplica()) {
-    spdlog::trace(
-        "Got unexpected request for fetching current main uuid as replica but the instance is not replica at the "
-        "moment. Returning empty uuid.");
-    return {};
-  }
+auto ReplicationHandler::GetMainUUID() -> utils::UUID {
+  return std::get<RoleMainData>(repl_state_.ReplicationData()).uuid_;
+}
 
+// Caller's job to check whether we are main or replica.
+auto ReplicationHandler::GetReplicaUUID() -> std::optional<utils::UUID> {
   return std::get<RoleReplicaData>(repl_state_.ReplicationData()).uuid_;
 }
 

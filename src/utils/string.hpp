@@ -476,4 +476,25 @@ inline std::string DoubleToString(const double value) {
   return std::string(sv);
 }
 
+// Avoids copies if possible
+struct NoCopyStr {
+  explicit NoCopyStr(std::string_view view_in) : sv{view_in} {}
+  NoCopyStr &operator=(std::string &&str_in) {
+    str = std::move(str_in);
+    sv = str;
+    return *this;
+  }
+  std::string_view view() const { return sv; }
+
+  ~NoCopyStr() = default;
+  NoCopyStr(NoCopyStr &) = delete;
+  NoCopyStr &operator=(NoCopyStr &) = delete;
+  NoCopyStr(NoCopyStr &&) = delete;
+  NoCopyStr &operator=(NoCopyStr &&) = delete;
+
+ private:
+  std::string str;
+  std::string_view sv;
+};
+
 }  // namespace memgraph::utils

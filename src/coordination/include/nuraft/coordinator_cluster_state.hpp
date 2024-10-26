@@ -14,7 +14,6 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_communication_config.hpp"
-#include "nuraft/raft_log_action.hpp"
 #include "replication_coordination_glue/role.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/uuid.hpp"
@@ -35,7 +34,7 @@ using nuraft::buffer_serializer;
 using nuraft::ptr;
 using replication_coordination_glue::ReplicationRole;
 
-struct ReplicationInstanceState {
+struct DataInstanceState {
   CoordinatorToReplicaConfig config;
   ReplicationRole status;
 
@@ -46,26 +45,18 @@ struct ReplicationInstanceState {
   // For MAIN we don't enable writing until cluster is in healthy state
   utils::UUID instance_uuid;
 
-  bool needs_demote{false};
-
-  friend auto operator==(ReplicationInstanceState const &lhs, ReplicationInstanceState const &rhs) -> bool {
-    return lhs.config == rhs.config && lhs.status == rhs.status && lhs.instance_uuid == rhs.instance_uuid &&
-           lhs.needs_demote == rhs.needs_demote;
-  }
+  friend auto operator==(DataInstanceState const &lhs, DataInstanceState const &rhs) -> bool = default;
 };
 
-void to_json(nlohmann::json &j, ReplicationInstanceState const &instance_state);
-void from_json(nlohmann::json const &j, ReplicationInstanceState &instance_state);
-
-using TRaftLog = std::variant<std::string, utils::UUID, CoordinatorToReplicaConfig, InstanceUUIDUpdate, std::monostate>;
+void to_json(nlohmann::json &j, DataInstanceState const &instance_state);
+void from_json(nlohmann::json const &j, DataInstanceState &instance_state);
 
 // Represents the state of the cluster from the coordinator's perspective.
-// Source of truth since it is modified only as the result of RAFT's commiting
+// Source of truth since it is modified only as the result of RAFT's commiting.
 class CoordinatorClusterState {
  public:
   CoordinatorClusterState() = default;
-  explicit CoordinatorClusterState(std::map<std::string, ReplicationInstanceState, std::less<>> instances,
-                                   utils::UUID const &current_main_uuid, bool is_lock_opened);
+  explicit CoordinatorClusterState(std::vector<DataInstanceState> instances, utils::UUID current_main_uuid);
 
   CoordinatorClusterState(CoordinatorClusterState const &);
   CoordinatorClusterState &operator=(CoordinatorClusterState const &);
@@ -78,45 +69,33 @@ class CoordinatorClusterState {
 
   auto HasMainState(std::string_view instance_name) const -> bool;
 
-  auto HasReplicaState(std::string_view instance_name) const -> bool;
-
   auto IsCurrentMain(std::string_view instance_name) const -> bool;
 
-  auto DoAction(TRaftLog const &log_entry, RaftLogAction log_action) -> void;
+  auto DoAction(std::pair<std::vector<DataInstanceState>, utils::UUID> log_entry) -> void;
 
   auto Serialize(ptr<buffer> &data) -> void;
 
   static auto Deserialize(buffer &data) -> CoordinatorClusterState;
 
-  auto GetAllReplicationInstances() const -> std::vector<ReplicationInstanceState>;
-
-  auto GetReplicationInstances() const -> std::map<std::string, ReplicationInstanceState, std::less<>>;
-
-  auto GetIsLockOpened() const -> bool;
+  auto GetDataInstances() const -> std::vector<DataInstanceState>;
 
   auto GetCurrentMainUUID() const -> utils::UUID;
 
-  // Setter function used on parsing data from json
-  void SetReplicationInstances(std::map<std::string, ReplicationInstanceState, std::less<>>);
-
-  // Setter function used on parsing data from json
-  void SetIsLockOpened(bool);
+  auto TryGetCurrentMainName() const -> std::optional<std::string>;
 
   // Setter function used on parsing data from json
   void SetCurrentMainUUID(utils::UUID);
 
-  auto GetInstanceUUID(std::string_view) const -> utils::UUID;
-
-  auto TryGetCurrentMainName() const -> std::optional<std::string>;
+  // Setter function used on parsing data from json
+  void SetDataInstances(std::vector<DataInstanceState>);
 
   friend auto operator==(CoordinatorClusterState const &lhs, CoordinatorClusterState const &rhs) -> bool {
-    return lhs.repl_instances_ == rhs.repl_instances_ && lhs.current_main_uuid_ == rhs.current_main_uuid_;
+    return lhs.data_instances_ == rhs.data_instances_ && lhs.current_main_uuid_ == rhs.current_main_uuid_;
   }
 
  private:
-  std::map<std::string, ReplicationInstanceState, std::less<>> repl_instances_{};
+  std::vector<DataInstanceState> data_instances_{};
   utils::UUID current_main_uuid_{};
-  bool is_lock_opened_{false};
   mutable utils::ResourceLock log_lock_{};
 };
 

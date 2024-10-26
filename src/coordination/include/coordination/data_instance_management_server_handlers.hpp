@@ -29,6 +29,9 @@ class DataInstanceManagementServerHandlers {
                        replication::ReplicationHandler &replication_handler);
 
  private:
+  static void StateCheckHandler(replication::ReplicationHandler &replication_handler, slk::Reader *req_reader,
+                                slk::Builder *res_builder);
+
   static void PromoteReplicaToMainHandler(replication::ReplicationHandler &replication_handler, slk::Reader *req_reader,
                                           slk::Builder *res_builder);
   static void RegisterReplicaOnMainHandler(replication::ReplicationHandler &replication_handler,

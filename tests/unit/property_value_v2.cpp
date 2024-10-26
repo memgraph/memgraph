@@ -301,7 +301,7 @@ TEST(PropertyValue, StringCopy) {
   {
     std::stringstream ss;
     ss << pv;
-    ASSERT_EQ(ss.str(), "nandare");
+    ASSERT_EQ(ss.str(), R"("nandare")");
   }
 }
 
@@ -347,7 +347,7 @@ TEST(PropertyValue, StringMove) {
   {
     std::stringstream ss;
     ss << pv;
-    ASSERT_EQ(ss.str(), "nandare");
+    ASSERT_EQ(ss.str(), R"("nandare")");
   }
 }
 
@@ -405,7 +405,7 @@ TEST(PropertyValue, ListCopy) {
   {
     std::stringstream ss;
     ss << pv;
-    ASSERT_EQ(ss.str(), "[nandare, 123]");
+    ASSERT_EQ(ss.str(), R"(["nandare", 123])");
   }
 }
 
@@ -461,7 +461,7 @@ TEST(PropertyValue, ListMove) {
   {
     std::stringstream ss;
     ss << pv;
-    ASSERT_EQ(ss.str(), "[nandare, 123]");
+    ASSERT_EQ(ss.str(), R"(["nandare", 123])");
   }
 }
 

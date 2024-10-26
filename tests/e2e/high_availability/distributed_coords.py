@@ -30,6 +30,7 @@ from mg_utils import (
     mg_sleep_and_assert,
     mg_sleep_and_assert_collection,
     mg_sleep_and_assert_multiple,
+    mg_sleep_and_assert_until_role_change,
     wait_for_status_change,
 )
 
@@ -281,6 +282,48 @@ def cleanup_after_test():
     interactive_mg_runner.kill_all(keep_directories=False)
 
 
+def test_leadership_change(test_name):
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
+
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+
+    coord_cursor_3 = connect(host="localhost", port=7692).cursor()
+    for query in get_default_setup_queries():
+        execute_and_fetch_all(coord_cursor_3, query)
+
+    interactive_mg_runner.kill(inner_instances_description, "coordinator_3")
+
+    coord_cursor_1 = connect(host="localhost", port=7690).cursor()
+
+    def show_instances_coord1():
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;"))))
+
+    coord_cursor_2 = connect(host="localhost", port=7691).cursor()
+
+    def show_instances_coord2():
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
+
+    leader_data = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "down", "follower"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
+        ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
+    ]
+
+    leader_name = find_instance_and_assert_instances(
+        instance_role="leader", num_coordinators=3, coord_ids_to_skip_validation={3}
+    )
+
+    leader_data = update_tuple_value(leader_data, leader_name, 0, -1, "leader")
+
+    mg_sleep_and_assert(leader_data, show_instances_coord1, time_between_attempt=3)
+    mg_sleep_and_assert(leader_data, show_instances_coord2, time_between_attempt=3)
+
+    interactive_mg_runner.start(inner_instances_description, "coordinator_3")
+
+
 @pytest.mark.parametrize("use_durability", [True, False])
 def test_even_number_coords(use_durability, test_name):
     # Goal is to check that nothing gets broken on even number of coords when 2 coords are down
@@ -388,6 +431,10 @@ def test_even_number_coords(use_durability, test_name):
     mg_sleep_and_assert(leader_data_demoted, show_instances_coord2)
     mg_sleep_and_assert(leader_data_demoted, show_instances_coord4)
 
+    mg_sleep_and_assert_until_role_change(
+        lambda: execute_and_fetch_all(instance_3_cursor, "SHOW REPLICATION ROLE;")[0][0], "replica"
+    )
+
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(instance_3_cursor, "SHOW REPLICAS;")
     assert str(e.value) == "Replica can't show registered replicas (it shouldn't have any)!"
@@ -401,7 +448,7 @@ def test_even_number_coords(use_durability, test_name):
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(coord_cursor_3, "SET INSTANCE instance_3 TO MAIN;")
 
-    assert "Couldn't set instance to main as cluster didn't accept start of action!" in str(e.value)
+    assert "Couldn't promote instance since raft server couldn't append the log!" in str(e.value)
 
     follower_data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "unknown", "follower"),
@@ -428,19 +475,14 @@ def test_even_number_coords(use_durability, test_name):
         ("coordinator_4", "localhost:7693", "localhost:10114", "localhost:10124", "up", "follower"),
         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "replica"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
 
     leader_coord_instance_3_demoted = find_instance_and_assert_instances(instance_role="leader", num_coordinators=3)
 
-    main_instance_3_demoted = find_instance_and_assert_instances(instance_role="main", num_coordinators=3)
-
     assert leader_coord_instance_3_demoted is not None, "Leader not found"
 
-    assert main_instance_3_demoted is not None, "Main not found"
-
     leader_data = update_tuple_value(leader_data, leader_coord_instance_3_demoted, 0, -1, "leader")
-    leader_data = update_tuple_value(leader_data, main_instance_3_demoted, 0, -1, "main")
 
     port_mappings = {
         "coordinator_1": 7690,
@@ -449,7 +491,7 @@ def test_even_number_coords(use_durability, test_name):
         "coordinator_4": 7693,
     }
 
-    for coord, port in port_mappings.items():
+    for _, port in port_mappings.items():
         coord_cursor = connect(host="localhost", port=port).cursor()
 
         def show_instances():
@@ -695,6 +737,10 @@ def test_distributed_automatic_failover(test_name):
             {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}},
         ),
     ]
+
+    mg_sleep_and_assert_until_role_change(
+        lambda: execute_and_fetch_all(new_main_cursor, "SHOW REPLICATION ROLE;")[0][0], "main"
+    )
     mg_sleep_and_assert_collection(expected_data_on_new_main, retrieve_data_show_replicas)
 
     interactive_mg_runner.start(inner_instances_description, "instance_3")
@@ -750,7 +796,6 @@ def test_distributed_automatic_failover_with_leadership_change(test_name):
     ]
 
     wait_for_status_change(show_instances_coord1, {"instance_1", "instance_2"}, "main")
-    wait_for_status_change(show_instances_coord1, {"instance_3"}, "unknown")
 
     leader_name = find_instance_and_assert_instances(
         instance_role="leader", num_coordinators=3, coord_ids_to_skip_validation={3}
@@ -810,6 +855,9 @@ def test_distributed_automatic_failover_with_leadership_change(test_name):
         ),
     ]
 
+    mg_sleep_and_assert_until_role_change(
+        lambda: execute_and_fetch_all(new_main_cursor, "SHOW REPLICATION ROLE;")[0][0], "main"
+    )
     expected_data_on_new_main = [state for state in all_possible_states if state[0] != main_name]
     mg_sleep_and_assert_collection(expected_data_on_new_main, retrieve_data_show_replicas)
 
@@ -1490,6 +1538,10 @@ def test_multiple_failovers_in_row_no_leadership_change(test_name):
 
     instance_3_cursor = connect(port=7689, host="localhost").cursor()
 
+    mg_sleep_and_assert_until_role_change(
+        lambda: execute_and_fetch_all(instance_3_cursor, "SHOW REPLICATION ROLE;")[0][0], "main"
+    )
+
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(instance_3_cursor, "CREATE ();")
     assert "At least one SYNC replica has not confirmed committing last transaction." in str(e.value)
@@ -1692,7 +1744,7 @@ def test_multiple_old_mains_single_failover(test_name):
     time_slept = 0
     failover_time = 5
     while time_slept < failover_time:
-        with pytest.raises(Exception) as e:
+        with pytest.raises(Exception):
             execute_and_fetch_all(instance_1_cursor, "CREATE ();")
         vertex_count += 1
 
@@ -1783,7 +1835,7 @@ def test_force_reset_works_after_failed_registration(test_name):
     mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_1_cursor))
     mg_sleep_and_assert(vertex_count, get_vertex_count_func(instance_2_cursor))
 
-    with pytest.raises(Exception) as e:
+    with pytest.raises(Exception):
         execute_and_fetch_all(
             coord_cursor_3,
             "REGISTER INSTANCE instance_4 WITH CONFIG {'bolt_server': 'localhost:7680', 'management_server': 'localhost:10050', 'replication_server': 'localhost:10051'};",
@@ -1928,7 +1980,7 @@ def test_force_reset_works_after_failed_registration_and_replica_down(test_name)
 
     # 4
 
-    with pytest.raises(Exception) as e:
+    with pytest.raises(Exception):
         execute_and_fetch_all(
             coord_cursor_3,
             "REGISTER INSTANCE instance_4 WITH CONFIG {'bolt_server': 'localhost:7680', 'management_server': 'localhost:10050', 'replication_server': 'localhost:10051'};",
@@ -2671,6 +2723,10 @@ def test_coordinator_user_action_demote_instance_to_replica(test_name):
     mg_sleep_and_assert(data, show_instances_coord1)
     mg_sleep_and_assert(data, show_instances_coord2)
 
+    mg_sleep_and_assert_until_role_change(
+        lambda: execute_and_fetch_all(instance_3_cursor, "SHOW REPLICATION ROLE;")[0][0], "replica"
+    )
+
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(instance_3_cursor, "SHOW REPLICAS;")
     assert str(e.value) == "Replica can't show registered replicas (it shouldn't have any)!"
@@ -2812,8 +2868,6 @@ def test_all_coords_down_resume(test_name):
     def show_instances_coord3():
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCES;"))))
 
-    coord_cursor_1 = connect(host="localhost", port=7690).cursor()
-
     def show_instances_coord1():
         coord_cursor_1 = connect(host="localhost", port=7690).cursor()
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCES;"))))
@@ -2871,7 +2925,6 @@ def test_all_coords_down_resume(test_name):
     leader_data = update_tuple_value(leader_data, leader, 0, -1, "leader")
     leader_data = update_tuple_value(leader_data, main, 0, -1, "main")
 
-    coord_cursor_1 = connect(host="localhost", port=7690).cursor()
     coord_cursor_2 = connect(host="localhost", port=7691).cursor()
 
     mg_sleep_and_assert(leader_data, show_instances_coord1)

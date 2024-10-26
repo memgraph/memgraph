@@ -20,7 +20,6 @@
 #include "nuraft/coordinator_cluster_state.hpp"
 #include "nuraft/coordinator_log_store.hpp"
 #include "nuraft/logger_wrapper.hpp"
-#include "nuraft/raft_log_action.hpp"
 
 #include <optional>
 #include <variant>
@@ -60,18 +59,10 @@ class CoordinatorStateMachine : public state_machine {
   ~CoordinatorStateMachine() override = default;
 
   static auto CreateLog(nlohmann::json &&log) -> ptr<buffer>;
-  static auto SerializeOpenLock() -> ptr<buffer>;
-  static auto SerializeCloseLock() -> ptr<buffer>;
-  static auto SerializeRegisterInstance(CoordinatorToReplicaConfig const &config) -> ptr<buffer>;
-  static auto SerializeUnregisterInstance(std::string_view instance_name) -> ptr<buffer>;
-  static auto SerializeSetInstanceAsMain(InstanceUUIDUpdate const &instance_uuid_change) -> ptr<buffer>;
-  static auto SerializeSetInstanceAsReplica(std::string_view instance_name) -> ptr<buffer>;
-  static auto SerializeUpdateUUIDForNewMain(utils::UUID const &uuid) -> ptr<buffer>;
-  static auto SerializeUpdateUUIDForInstance(InstanceUUIDUpdate const &instance_uuid_change) -> ptr<buffer>;
-  static auto SerializeAddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) -> ptr<buffer>;
-  static auto SerializeInstanceNeedsDemote(std::string_view instance_name) -> ptr<buffer>;
+  static auto SerializeUpdateClusterState(std::vector<DataInstanceState> cluster_state, utils::UUID uuid)
+      -> ptr<buffer>;
 
-  static auto DecodeLog(buffer &data) -> std::pair<TRaftLog, RaftLogAction>;
+  static auto DecodeLog(buffer &data) -> std::pair<std::vector<DataInstanceState>, utils::UUID>;
 
   auto pre_commit(ulong log_idx, buffer &data) -> ptr<buffer> override;
 
@@ -97,20 +88,16 @@ class CoordinatorStateMachine : public state_machine {
 
   auto create_snapshot(snapshot &s, async_result<bool>::handler_type &when_done) -> void override;
 
-  auto GetReplicationInstances() const -> std::vector<ReplicationInstanceState>;
+  auto GetDataInstances() const -> std::vector<DataInstanceState>;
 
   void UpdateStateMachineFromSnapshotDurability();
 
   // Getters
   auto MainExists() const -> bool;
   auto HasMainState(std::string_view instance_name) const -> bool;
-  auto HasReplicaState(std::string_view instance_name) const -> bool;
   auto IsCurrentMain(std::string_view instance_name) const -> bool;
 
   auto GetCurrentMainUUID() const -> utils::UUID;
-  auto GetInstanceUUID(std::string_view instance_name) const -> utils::UUID;
-  auto IsLockOpened() const -> bool;
-
   auto TryGetCurrentMainName() const -> std::optional<std::string>;
 
  private:

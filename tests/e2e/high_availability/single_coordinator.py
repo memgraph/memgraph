@@ -20,7 +20,11 @@ from common import (
     get_logs_path,
     ignore_elapsed_time_from_results,
 )
-from mg_utils import mg_sleep_and_assert, mg_sleep_and_assert_collection
+from mg_utils import (
+    mg_sleep_and_assert,
+    mg_sleep_and_assert_collection,
+    mg_sleep_and_assert_until_role_change,
+)
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
@@ -316,6 +320,9 @@ def test_replication_works_on_failover_replica_1_epoch_2_commits_away(data_recov
     mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_instances)
 
     # 9
+    mg_sleep_and_assert_until_role_change(
+        lambda: execute_and_fetch_all(instance_2_cursor, "SHOW REPLICATION ROLE;")[0][0], "main"
+    )
 
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(instance_2_cursor, "CREATE (:Epoch3 {prop:3});")
@@ -492,13 +499,20 @@ def test_replication_works_on_failover_replica_2_epochs_more_commits_away(data_r
 
     # 7
 
+    mg_sleep_and_assert_until_role_change(
+        lambda: execute_and_fetch_all(instance_1_cursor, "SHOW REPLICATION ROLE;")[0][0], "main"
+    )
+
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(instance_1_cursor, "CREATE (:Epoch2Vertex {prop:1});")
     assert "At least one SYNC replica has not confirmed committing last transaction." in str(e.value)
 
     # 8
 
-    assert execute_and_fetch_all(instance_4_cursor, "MATCH (n) RETURN count(n);")[0][0] == 4
+    def get_vertex_count():
+        return execute_and_fetch_all(instance_4_cursor, "MATCH (n) RETURN count(n)")[0][0]
+
+    mg_sleep_and_assert(4, get_vertex_count)
 
     # 9
 
@@ -516,6 +530,10 @@ def test_replication_works_on_failover_replica_2_epochs_more_commits_away(data_r
     mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_instances)
 
     # 11
+
+    mg_sleep_and_assert_until_role_change(
+        lambda: execute_and_fetch_all(instance_4_cursor, "SHOW REPLICATION ROLE;")[0][0], "main"
+    )
 
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(instance_4_cursor, "CREATE (:Epoch3Vertex {prop:1});")
@@ -681,6 +699,10 @@ def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_reco
 
     # 8
 
+    mg_sleep_and_assert_until_role_change(
+        lambda: execute_and_fetch_all(instance_2_cursor, "SHOW REPLICATION ROLE;")[0][0], "main"
+    )
+
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(instance_2_cursor, "CREATE (:Epoch2Vertex {prop:1});")
     assert "At least one SYNC replica has not confirmed committing last transaction." in str(e.value)
@@ -690,7 +712,10 @@ def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_reco
 
     mg_sleep_and_assert(3, get_vertex_count)
 
-    assert execute_and_fetch_all(instance_4_cursor, "MATCH (n) RETURN count(n);")[0][0] == 3
+    def get_vertex_count():
+        return execute_and_fetch_all(instance_2_cursor, "MATCH (n) RETURN count(n)")[0][0]
+
+    mg_sleep_and_assert(3, get_vertex_count)
 
     # 9
 
@@ -711,9 +736,21 @@ def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_reco
         ("instance_3", "localhost:7687", "", "localhost:10013", "down", "unknown"),
         ("instance_4", "localhost:7691", "", "localhost:10014", "down", "unknown"),
     ]
+
     mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_instances)
 
     # 12
+
+    instance_1_cursor = connect(host="localhost", port=7688).cursor()
+
+    mg_sleep_and_assert_until_role_change(
+        lambda: execute_and_fetch_all(instance_1_cursor, "SHOW REPLICATION ROLE;")[0][0], "main"
+    )
+
+    def get_vertex_count():
+        return execute_and_fetch_all(instance_1_cursor, "MATCH (n) RETURN count(n)")[0][0]
+
+    mg_sleep_and_assert(2, get_vertex_count)
 
     interactive_mg_runner.start(memgraph_instances_description, "instance_2")
 
@@ -728,14 +765,11 @@ def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_reco
     ]
     mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_instances)
 
-    # 12
-    instance_1_cursor = connect(host="localhost", port=7688).cursor()
     instance_2_cursor = connect(host="localhost", port=7689).cursor()
 
-    def get_vertex_count():
-        return execute_and_fetch_all(instance_1_cursor, "MATCH (n) RETURN count(n)")[0][0]
-
-    mg_sleep_and_assert(2, get_vertex_count)
+    mg_sleep_and_assert_until_role_change(
+        lambda: execute_and_fetch_all(instance_2_cursor, "SHOW REPLICATION ROLE;")[0][0], "replica"
+    )
 
     def get_vertex_count():
         return execute_and_fetch_all(instance_2_cursor, "MATCH (n) RETURN count(n)")[0][0]
@@ -743,6 +777,7 @@ def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_reco
     mg_sleep_and_assert(2, get_vertex_count)
 
     # 13
+
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(instance_1_cursor, "CREATE (:Epoch3Vertex {prop:1});")
     assert "At least one SYNC replica has not confirmed committing last transaction." in str(e.value)
@@ -764,8 +799,6 @@ def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_reco
     mg_sleep_and_assert_collection(vertex_objects, get_vertex_objects_func_creator(instance_1_cursor))
 
     mg_sleep_and_assert_collection(vertex_objects, get_vertex_objects_func_creator(instance_2_cursor))
-
-    # 15
 
 
 @pytest.mark.parametrize("data_recovery", ["false", "true"])
@@ -875,6 +908,10 @@ def test_replication_correct_replica_chosen_up_to_date_data(data_recovery, test_
     mg_sleep_and_assert(expected_data_on_coord, retrieve_data_show_instances)
 
     # 8
+
+    mg_sleep_and_assert_until_role_change(
+        lambda: execute_and_fetch_all(instance_2_cursor, "SHOW REPLICATION ROLE;")[0][0], "main"
+    )
 
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(instance_2_cursor, "CREATE (:Epoch2Vertex {prop:1});")
@@ -990,16 +1027,24 @@ def test_replication_works_on_failover_simple(test_name):
             {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}},
         ),
     ]
+
+    mg_sleep_and_assert_until_role_change(
+        lambda: execute_and_fetch_all(new_main_cursor, "SHOW REPLICATION ROLE;")[0][0], "main"
+    )
     mg_sleep_and_assert_collection(expected_data_on_new_main, retrieve_data_show_replicas)
 
     # 5
+
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(new_main_cursor, "CREATE ();")
     assert "At least one SYNC replica has not confirmed committing last transaction." in str(e.value)
     # 6
     alive_replica_cursor = connect(host="localhost", port=7689).cursor()
-    res = execute_and_fetch_all(alive_replica_cursor, "MATCH (n) RETURN count(n) as count;")[0][0]
-    assert res == 1, "Vertex should be replicated"
+
+    def get_vertex_count():
+        return execute_and_fetch_all(alive_replica_cursor, "MATCH (n) RETURN count(n) as count;")[0][0]
+
+    mg_sleep_and_assert(1, get_vertex_count)
 
     # 7
     interactive_mg_runner.start(memgraph_instances_description, "instance_3")
@@ -1299,6 +1344,10 @@ def test_simple_automatic_failover(test_name):
             {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}},
         ),
     ]
+
+    mg_sleep_and_assert_until_role_change(
+        lambda: execute_and_fetch_all(new_main_cursor, "SHOW REPLICATION ROLE;")[0][0], "main"
+    )
     mg_sleep_and_assert_collection(expected_data_on_new_main, retrieve_data_show_replicas)
 
     interactive_mg_runner.start(memgraph_instances_description, "instance_3")

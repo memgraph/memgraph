@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -55,6 +55,11 @@ class SynchronizedMetaDataStore {
     for (const auto &elem : element_store_) {
       func(elem);
     }
+  }
+
+  void clear() {
+    std::unique_lock write_lock(lock_);
+    element_store_.clear();
   }
 
  private:

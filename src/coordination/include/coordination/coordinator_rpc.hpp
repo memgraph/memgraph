@@ -15,6 +15,7 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_communication_config.hpp"
+#include "coordination/instance_state.hpp"
 #include "coordination/instance_status.hpp"
 #include "replication_coordination_glue/common.hpp"
 #include "rpc/messages.hpp"
@@ -208,8 +209,8 @@ struct GetDatabaseHistoriesRes {
   static void Load(GetDatabaseHistoriesRes *self, memgraph::slk::Reader *reader);
   static void Save(const GetDatabaseHistoriesRes &self, memgraph::slk::Builder *builder);
 
-  explicit GetDatabaseHistoriesRes(const replication_coordination_glue::DatabaseHistories &database_histories)
-      : database_histories(database_histories) {}
+  explicit GetDatabaseHistoriesRes(replication_coordination_glue::DatabaseHistories db_histories)
+      : database_histories(std::move(db_histories)) {}
   GetDatabaseHistoriesRes() = default;
 
   replication_coordination_glue::DatabaseHistories database_histories;
@@ -234,15 +235,40 @@ struct ShowInstancesRes {
   static void Load(ShowInstancesRes *self, memgraph::slk::Reader *reader);
   static void Save(const ShowInstancesRes &self, memgraph::slk::Builder *builder);
 
-  explicit ShowInstancesRes(std::vector<InstanceStatus> instances_status)
+  explicit ShowInstancesRes(std::optional<std::vector<InstanceStatus>> instances_status)
       : instances_status_(std::move(instances_status)) {}
 
   ShowInstancesRes() = default;
 
-  std::vector<InstanceStatus> instances_status_;
+  std::optional<std::vector<InstanceStatus>> instances_status_;
 };
 
 using ShowInstancesRpc = rpc::RequestResponse<ShowInstancesReq, ShowInstancesRes>;
+
+struct StateCheckReq {
+  static const utils::TypeInfo kType;  // TODO: make constexpr?
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(StateCheckReq *self, memgraph::slk::Reader *reader);
+  static void Save(const StateCheckReq &self, memgraph::slk::Builder *builder);
+  StateCheckReq() = default;
+};
+
+struct StateCheckRes {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(StateCheckRes *self, memgraph::slk::Reader *reader);
+  static void Save(const StateCheckRes &self, memgraph::slk::Builder *builder);
+
+  StateCheckRes(bool replica, std::optional<utils::UUID> req_uuid, bool writing_enabled)
+      : state({.is_replica = replica, .uuid = req_uuid, .is_writing_enabled = writing_enabled}) {}
+  StateCheckRes() = default;
+
+  InstanceState state;
+};
+
+using StateCheckRpc = rpc::RequestResponse<StateCheckReq, StateCheckRes>;
 
 }  // namespace memgraph::coordination
 
@@ -292,6 +318,11 @@ void Save(memgraph::coordination::ShowInstancesRes const &self, memgraph::slk::B
 void Load(memgraph::coordination::ShowInstancesRes *self, memgraph::slk::Reader *reader);
 void Save(memgraph::coordination::ShowInstancesReq const &self, memgraph::slk::Builder *builder);
 void Load(memgraph::coordination::ShowInstancesReq *self, memgraph::slk::Reader *reader);
+
+void Save(memgraph::coordination::StateCheckRes const &self, memgraph::slk::Builder *builder);
+void Load(memgraph::coordination::StateCheckRes *self, memgraph::slk::Reader *reader);
+void Save(memgraph::coordination::StateCheckReq const &self, memgraph::slk::Builder *builder);
+void Load(memgraph::coordination::StateCheckReq *self, memgraph::slk::Reader *reader);
 
 }  // namespace memgraph::slk
 

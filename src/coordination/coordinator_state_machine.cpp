@@ -12,6 +12,8 @@
 #ifdef MG_ENTERPRISE
 
 #include "nuraft/coordinator_state_machine.hpp"
+
+#include "coordination/coordinator_exceptions.hpp"
 #include "nuraft/constants_log_durability.hpp"
 #include "nuraft/coordinator_cluster_state.hpp"
 #include "nuraft/coordinator_state_manager.hpp"
@@ -155,10 +157,6 @@ auto CoordinatorStateMachine::HasMainState(std::string_view instance_name) const
   return cluster_state_.HasMainState(instance_name);
 }
 
-auto CoordinatorStateMachine::HasReplicaState(std::string_view instance_name) const -> bool {
-  return cluster_state_.HasReplicaState(instance_name);
-}
-
 auto CoordinatorStateMachine::CreateLog(nlohmann::json &&log) -> ptr<buffer> {
   auto const log_dump = log.dump();
   ptr<buffer> log_buf = buffer::alloc(sizeof(uint32_t) + log_dump.size());
@@ -167,78 +165,26 @@ auto CoordinatorStateMachine::CreateLog(nlohmann::json &&log) -> ptr<buffer> {
   return log_buf;
 }
 
-auto CoordinatorStateMachine::SerializeOpenLock() -> ptr<buffer> {
-  return CreateLog({{"action", RaftLogAction::OPEN_LOCK}, {"info", nullptr}});
+auto CoordinatorStateMachine::SerializeUpdateClusterState(std::vector<DataInstanceState> cluster_state,
+                                                          utils::UUID uuid) -> ptr<buffer> {
+  return CreateLog({{"cluster_state", cluster_state}, {"uuid", uuid}});
 }
 
-auto CoordinatorStateMachine::SerializeCloseLock() -> ptr<buffer> {
-  return CreateLog({{"action", RaftLogAction::CLOSE_LOCK}, {"info", nullptr}});
-}
-
-auto CoordinatorStateMachine::SerializeRegisterInstance(CoordinatorToReplicaConfig const &config) -> ptr<buffer> {
-  return CreateLog({{"action", RaftLogAction::REGISTER_REPLICATION_INSTANCE}, {"info", config}});
-}
-
-auto CoordinatorStateMachine::SerializeUnregisterInstance(std::string_view instance_name) -> ptr<buffer> {
-  return CreateLog({{"action", RaftLogAction::UNREGISTER_REPLICATION_INSTANCE}, {"info", instance_name}});
-}
-
-auto CoordinatorStateMachine::SerializeSetInstanceAsMain(InstanceUUIDUpdate const &instance_uuid_change)
-    -> ptr<buffer> {
-  return CreateLog({{"action", RaftLogAction::SET_INSTANCE_AS_MAIN}, {"info", instance_uuid_change}});
-}
-
-auto CoordinatorStateMachine::SerializeSetInstanceAsReplica(std::string_view instance_name) -> ptr<buffer> {
-  return CreateLog({{"action", RaftLogAction::SET_INSTANCE_AS_REPLICA}, {"info", instance_name}});
-}
-
-auto CoordinatorStateMachine::SerializeInstanceNeedsDemote(std::string_view instance_name) -> ptr<buffer> {
-  return CreateLog({{"action", RaftLogAction::INSTANCE_NEEDS_DEMOTE}, {"info", std::string{instance_name}}});
-}
-
-auto CoordinatorStateMachine::SerializeUpdateUUIDForNewMain(utils::UUID const &uuid) -> ptr<buffer> {
-  return CreateLog({{"action", RaftLogAction::UPDATE_UUID_OF_NEW_MAIN}, {"info", uuid}});
-}
-
-auto CoordinatorStateMachine::SerializeUpdateUUIDForInstance(InstanceUUIDUpdate const &instance_uuid_change)
-    -> ptr<buffer> {
-  return CreateLog({{"action", RaftLogAction::UPDATE_UUID_FOR_INSTANCE}, {"info", instance_uuid_change}});
-}
-
-auto CoordinatorStateMachine::DecodeLog(buffer &data) -> std::pair<TRaftLog, RaftLogAction> {
+auto CoordinatorStateMachine::DecodeLog(buffer &data) -> std::pair<std::vector<DataInstanceState>, utils::UUID> {
   buffer_serializer bs(data);
   auto const json = nlohmann::json::parse(bs.get_str());
-  auto const action = json["action"].get<RaftLogAction>();
-  auto const &info = json.at("info");
 
-  switch (action) {
-    case RaftLogAction::OPEN_LOCK:
-      [[fallthrough]];
-    case RaftLogAction::CLOSE_LOCK: {
-      return {std::monostate{}, action};
-    }
-    case RaftLogAction::REGISTER_REPLICATION_INSTANCE:
-      return {info.get<CoordinatorToReplicaConfig>(), action};
-    case RaftLogAction::UPDATE_UUID_OF_NEW_MAIN:
-      return {info.get<utils::UUID>(), action};
-    case RaftLogAction::UPDATE_UUID_FOR_INSTANCE:
-    case RaftLogAction::SET_INSTANCE_AS_MAIN:
-      return std::pair{info.get<InstanceUUIDUpdate>(), action};
-    case RaftLogAction::UNREGISTER_REPLICATION_INSTANCE:
-    case RaftLogAction::INSTANCE_NEEDS_DEMOTE:
-      [[fallthrough]];
-    case RaftLogAction::SET_INSTANCE_AS_REPLICA:
-      return {info.get<std::string>(), action};
-  }
-  throw std::runtime_error("Unknown action");
+  auto const &cluster_state = json.at("cluster_state");
+  auto const &uuid = json.at("uuid");
+  return std::make_pair(cluster_state.get<std::vector<DataInstanceState>>(), uuid.get<utils::UUID>());
 }
 
 auto CoordinatorStateMachine::pre_commit(ulong const /*log_idx*/, buffer & /*data*/) -> ptr<buffer> { return nullptr; }
 
 auto CoordinatorStateMachine::commit(ulong const log_idx, buffer &data) -> ptr<buffer> {
   logger_.Log(nuraft_log_level::TRACE, fmt::format("Commit: log_idx={}, data.size()={}", log_idx, data.size()));
-  auto const &[parsed_data, log_action] = DecodeLog(data);
-  cluster_state_.DoAction(parsed_data, log_action);
+  auto parsed_data = DecodeLog(data);
+  cluster_state_.DoAction(std::move(parsed_data));
   if (durability_) {
     durability_->Put(kLastCommitedIdx, std::to_string(log_idx));
   }
@@ -401,8 +347,8 @@ auto CoordinatorStateMachine::CreateSnapshotInternal(ptr<snapshot> const &snapsh
   }
 }
 
-auto CoordinatorStateMachine::GetReplicationInstances() const -> std::vector<ReplicationInstanceState> {
-  return cluster_state_.GetAllReplicationInstances();
+auto CoordinatorStateMachine::GetDataInstances() const -> std::vector<DataInstanceState> {
+  return cluster_state_.GetDataInstances();
 }
 
 auto CoordinatorStateMachine::GetCurrentMainUUID() const -> utils::UUID { return cluster_state_.GetCurrentMainUUID(); }
@@ -410,12 +356,6 @@ auto CoordinatorStateMachine::GetCurrentMainUUID() const -> utils::UUID { return
 auto CoordinatorStateMachine::IsCurrentMain(std::string_view instance_name) const -> bool {
   return cluster_state_.IsCurrentMain(instance_name);
 }
-
-auto CoordinatorStateMachine::GetInstanceUUID(std::string_view instance_name) const -> utils::UUID {
-  return cluster_state_.GetInstanceUUID(instance_name);
-}
-
-auto CoordinatorStateMachine::IsLockOpened() const -> bool { return cluster_state_.GetIsLockOpened(); }
 
 auto CoordinatorStateMachine::TryGetCurrentMainName() const -> std::optional<std::string> {
   return cluster_state_.TryGetCurrentMainName();
