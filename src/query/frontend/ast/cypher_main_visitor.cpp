@@ -2843,11 +2843,11 @@ antlrcpp::Any CypherMainVisitor::visitAtom(MemgraphCypher::AtomContext *ctx) {
     return static_cast<Expression *>(storage_->Create<EnumValueAccess>(std::move(enum_name), std::move(enum_value)));
   }
 
-  // TODO: Implement this. We don't support comprehensions, filtering... at
-  // the moment.
-  // TODO(gitbuda): Come up with much better not yet implemented atom expression. To test run, e.g. MATCH (c) WHERE NOT
-  // ((c)-[:EdgeType]->(d)) RETURN c;
-  throw utils::NotYetImplemented("atom expression '{}'", ctx->getText());
+  // NOTE: Memgraph does NOT support comprehensions, filtering.
+  // To test run, e.g. MATCH (c) WHERE NOT ((c)-[:EdgeType]->(d)) RETURN c;
+  throw utils::NotYetImplemented(
+      "atom expression '{}'. Try to rewrite the query by using OPTIONAL MATCH, WITH and WHERE clauses.",
+      ctx->getText());
 }
 
 antlrcpp::Any CypherMainVisitor::visitParameter(MemgraphCypher::ParameterContext *ctx) {
