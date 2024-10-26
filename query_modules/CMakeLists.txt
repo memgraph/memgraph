@@ -98,7 +98,7 @@ set_target_properties(vector_search PROPERTIES
 install(FILES vector_search_module.cpp DESTINATION lib/memgraph/query_modules/src)
 
 # Install C++ query modules
-install(TARGETS example_c example_cpp schema text_search
+install(TARGETS example_c example_cpp schema text_search vector_search
     DESTINATION lib/memgraph/query_modules
 )
 
