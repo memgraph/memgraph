@@ -68,8 +68,15 @@ StrippedQuery::StrippedQuery(std::string query) : original_(std::move(query)) {
     update(MatchEscapedName(i), Token::ESCAPED_NAME);
     update(MatchUnescapedName(i), Token::UNESCAPED_NAME);
     update(MatchWhitespaceAndComments(i), Token::SPACE);
-    // TODO(gitbuda): Write much better Invalid query message. To test run, e.g. MATCH (n) RETURN n`;
-    if (token == Token::UNMATCHED) throw LexingException("Invalid query.");
+    // NOTE: To throw run, e.g. MATCH (n) RETURN n`;
+    if (token == Token::UNMATCHED) {
+      if (i + 1 <= original_.size()) {
+        const auto unmatched_value = original_.substr(i, 1);
+        throw LexingException("Invalid query. There is a wrong token starting with " + unmatched_value +
+                              ". Remove that part of the query and try to rerun it.");
+      }
+      throw LexingException("Invalid query because of a wrong token.");
+    }
     tokens.emplace_back(token, original_.substr(i, len));
     i += len;
 
