@@ -30,7 +30,6 @@
 #include "_mgp.hpp"
 #include "mg_exceptions.hpp"
 #include "mg_procedure.h"
-#include "storage/v2/id_types.hpp"
 
 namespace mgp {
 
