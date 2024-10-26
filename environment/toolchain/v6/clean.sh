@@ -1,6 +1,6 @@
 #!/bin/bash -ex
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
-PREFIX=/opt/toolchain-v5
+PREFIX=/opt/toolchain-v6
 
 # NOTE: Often times when versions in the build script are changes, something
 # doesn't work. To avoid rebuild of the whole toolchain but rebuild specific
@@ -12,6 +12,8 @@ PREFIX=/opt/toolchain-v5
 # rm -rf "$DIR/output"
 
 # rm -rf "$PREFIX/bin/gcc"
+# rm -rf "$PREFIX/lib/libgmp.a"
+# rm -rf "$PREFIX/lib/libmpfr.a"
 # rm -rf "$PREFIX/bin/ld.gold"
 # rm -rf "$PREFIX/bin/gdb"
 # rm -rf "$PREFIX/bin/cmake"
