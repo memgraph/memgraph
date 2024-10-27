@@ -1199,6 +1199,30 @@ if [ ! -f $PREFIX/lib/libnuraft.a ]; then
     popd
 fi
 
+# TODO(gitbuda): Add Antlr4 generator under $PREFIX/bin.
+ANTLR_TAG="4.13.2" # 2024-08-03
+log_tool_name "antlr4 $ANTLR_TAG"
+if [ ! -f $PREFIX/lib/libantlr4-runtime.a ]; then
+    if [ -d antlr4 ]; then
+        rm -rf antlr4
+    fi
+    git clone https://github.com/antlr/antlr4.git antlr4
+    pushd antlr4
+    git checkout $ANTLR_TAG
+    pushd runtime/Cpp
+    # NOTE: WITH_LIBCXX=OFF is because of the Debian bug.
+    cmake -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_INSTALL_PREFIX=$PREFIX \
+      -DWITH_LIBCXX=OFF \
+      -DCMAKE_SKIP_INSTALL_ALL_DEPENDENCY=true \
+      -DCMAKE_CXX_STANDARD=20 \
+      -DANTLR_BUILD_CPP_TESTS=OFF \
+      -DANTLR_BUILD_SHARED=OFF \
+      .
+    make -j$CPUS antlr4_static install
+    popd && popd
+fi
+
 # NOTE: Skip FBLIBS -> only used on project-pineapples
 #   * older versions don't compile on the latest GCC
 #   * newer versions don't work with OpenSSL 1.0 which is critical for CentOS7
