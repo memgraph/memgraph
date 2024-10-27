@@ -141,19 +141,31 @@ macro(set_path_external_library name type library_location include_dir)
   mark_as_advanced(${name}_LIBRARY ${name}_INCLUDE_DIR)
 endmacro(set_path_external_library)
 
-macro(mg_link_library toolchain_version mg_target_name package_name toolchain_lib_name local_lib_name)
+macro(mg_target_link_library toolchain_version mg_target_name package_name toolchain_lib_name local_lib_name)
     if(DEFINED ENV{MG_TOOLCHAIN_VERSION})
         if($ENV{MG_TOOLCHAIN_VERSION} GREATER_EQUAL ${toolchain_version})
-            message(STATUS "TOOLCHAIN GE ${toolchain_version}")
+            message(STATUS "TOOLCHAIN v${toolchain_version}")
             find_package(${package_name} REQUIRED)
             target_link_libraries(${mg_target_name} ${toolchain_lib_name})
         else()
-            message(STATUS "not the right TOOLCHAIN")
+            message(STATUS "Not the right TOOLCHAIN")
             target_link_libraries(${mg_target_name} ${local_lib_name})
         endif()
     else()
-        message(STATUS "not TOOLCHAIN at all")
+        message(STATUS "Unknown TOOLCHAIN")
         target_link_libraries(${mg_target_name} ${local_lib_name})
+    endif()
+endmacro()
+
+macro(mg_build_if_needed build_macro)
+    if(DEFINED ENV{MG_TOOLCHAIN_VERSION})
+        if($ENV{MG_TOOLCHAIN_VERSION} GREATER_EQUAL 6)
+            message(STATUS "NOTE: RocksDB should be under the toolchain.")
+        else()
+            cmake_language(CALL ${build_macro})
+        endif()
+    else()
+        cmake_language(CALL ${build_macro})
     endif()
 endmacro()
 
@@ -212,8 +224,8 @@ import_header_library(cppitertools ${CMAKE_CURRENT_SOURCE_DIR})
 # Setup json
 import_header_library(json ${CMAKE_CURRENT_SOURCE_DIR})
 
-# TODO(gitbuda): The below import_rocksdb macro is ugly -> generalize.
-macro(import_rocksdb)
+# TODO(gitbuda): The below macro seems hackly -> try to improve.
+macro(build_rocksdb)
   import_external_library(rocksdb STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/rocksdb/lib/librocksdb.a
     ${CMAKE_CURRENT_SOURCE_DIR}/rocksdb/include
@@ -224,19 +236,7 @@ macro(import_rocksdb)
       -DCMAKE_SKIP_INSTALL_ALL_DEPENDENCY=true
     BUILD_COMMAND $(MAKE) rocksdb)
 endmacro()
-# TODO(gitbuda): linking cases
-#   * toolchain without the variable DEFINED
-#   * toolchain with variable defined and rocksdb
-#   * link rocksdb locally despite the version under toolchain
-if(DEFINED ENV{MG_TOOLCHAIN_VERSION})
-    if($ENV{MG_TOOLCHAIN_VERSION} GREATER_EQUAL 6)
-        message(STATUS "NOTE: RocksDB should be under the toolchain.")
-    else()
-        import_rocksdb()
-    endif()
-else()
-    import_rocksdb()
-endif()
+mg_build_if_needed(build_rocksdb)
 
 # Setup libbcrypt
 import_external_library(libbcrypt STATIC
@@ -264,7 +264,6 @@ add_external_project(mgconsole
   CMAKE_ARGS
   -DCMAKE_INSTALL_PREFIX:PATH=${CMAKE_BINARY_DIR}
   BUILD_COMMAND $(MAKE) mgconsole)
-
 add_custom_target(mgconsole DEPENDS mgconsole-proj)
 
 # Setup spdlog
@@ -284,7 +283,6 @@ import_external_library(librdkafka STATIC
   -DWITH_SSL=ON
   -DWITH_SASL=ON)
 target_link_libraries(librdkafka INTERFACE ${OPENSSL_LIBRARIES} ZLIB::ZLIB sasl2)
-
 import_library(librdkafka++ STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/librdkafka/lib/librdkafka++.a
   ${CMAKE_CURRENT_SOURCE_DIR}/librdkafka/include
@@ -364,7 +362,6 @@ add_external_project(mgcxx
 mark_as_advanced(MGCXX_INCLUDE_DIR TANTIVY_TEXT_SEARCH_LIBRARY MGCXX_TEXT_SEARCH_LIBRARY)
 import_library(tantivy_text_search STATIC ${TANTIVY_TEXT_SEARCH_LIBRARY} ${MGCXX_INCLUDE_DIR} mgcxx-proj)
 import_library(mgcxx_text_search STATIC ${MGCXX_TEXT_SEARCH_LIBRARY} ${MGCXX_INCLUDE_DIR} mgcxx-proj)
-
 
 # setup strong_type (cmake sub_directory tolerant)
 add_subdirectory(strong_type EXCLUDE_FROM_ALL)

@@ -298,7 +298,6 @@ repo_clone_try_double "${primary_urls[jemalloc]}" "${secondary_urls[jemalloc]}" 
 
 # this is hack for cmake in libs to set path, and for FindJemalloc to use Jemalloc_INCLUDE_DIR
 pushd jemalloc
-
 ./autogen.sh
 MALLOC_CONF="background_thread:true,retain:false,percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000" \
 ./configure \
@@ -307,7 +306,6 @@ MALLOC_CONF="background_thread:true,retain:false,percpu_arena:percpu,oversize_th
   --with-lg-hugepage=21 \
   --enable-shared=no --prefix=$working_dir \
   --with-malloc-conf="background_thread:true,retain:false,percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000"
-
 make -j$CPUS install
 popd
 
@@ -321,7 +319,6 @@ repo_clone_try_double "${primary_urls[range-v3]}" "${secondary_urls[range-v3]}" 
 #   * ./prepare.sh under NuRaft is downloading ASIO?
 asio_tag="asio-1-24-0"
 repo_clone_try_double "${primary_urls[asio]}" "${secondary_urls[asio]}" "asio" "$asio_tag" true
-
 # NuRaft
 NURAFT_COMMIT_HASH="4b148a7e76291898c838a7457eeda2b16f7317ea"
 NURAFT_TAG="master"
