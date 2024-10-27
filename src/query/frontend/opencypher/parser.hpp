@@ -47,19 +47,29 @@ class Parser {
 
  private:
   class FirstMessageErrorListener : public antlr4::BaseErrorListener {
-    void syntaxError(antlr4::Recognizer *, antlr4::Token *, size_t line, size_t position, const std::string &message,
-                     std::exception_ptr) override {
+   public:
+    explicit FirstMessageErrorListener(const std::string &query) : query_(query) {}
+    void syntaxError(antlr4::Recognizer *, antlr4::Token *token, size_t line, size_t position,
+                     const std::string &message, std::exception_ptr) override {
       if (error_.empty()) {
-        error_ = "line " + std::to_string(line) + ":" + std::to_string(position + 1) + " " + message;
+        if (message.starts_with("no viable alternative at input")) {
+          error_ = "Error on line " + std::to_string(line) + " position " + std::to_string(position + 1) +
+                   " with the " + token->getText() + " token. The underlying parsing error is " + message + "." +
+                   " Take a look at clauses around and try to fix the query.";
+        } else {
+          error_ = "Error on line " + std::to_string(line) + " position " + std::to_string(position + 1) +
+                   ". The underlying parsing error is " + message;
+        }
       }
     }
 
    public:
     std::string error_;
+    const std::string &query_;
   };
 
-  FirstMessageErrorListener error_listener_;
   std::string query_;
+  FirstMessageErrorListener error_listener_{query_};
   antlr4::ANTLRInputStream input_{query_};
   antlropencypher::MemgraphCypherLexer lexer_{&input_};
   antlr4::CommonTokenStream tokens_{&lexer_};
