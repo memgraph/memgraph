@@ -19,6 +19,15 @@ find_package(gflags REQUIRED)
 find_package(fmt 8.0.1 REQUIRED)
 find_package(ZLIB 1.2.11 REQUIRED)
 
+# Search for rocksdb under cmake -> ag -G CMakeLists.txt "rocks"
+find_package(RocksDB REQUIRED)
+if(RocksDB_FOUND)
+    get_target_property(ROCKSDB_LIB_PATH RocksDB::rocksdb LOCATION)
+    message(STATUS "Found RocksDB: ${ROCKSDB_LIB_PATH}")
+else()
+    message(STATUS "Missing RocksDB")
+endif()
+
 set(LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 
 # An uncommon pattern we can safely use as list separator in ExternalProject

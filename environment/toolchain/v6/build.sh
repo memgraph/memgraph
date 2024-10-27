@@ -732,6 +732,7 @@ XZ_VERSION=5.2.5 # for LZMA
 ZLIB_VERSION=1.3.1
 ZSTD_VERSION=1.5.5
 
+
 pushd archives
 if [ ! -f boost_$BOOST_VERSION_UNDERSCORES.tar.gz ]; then
     # do not redirect the download into a file, because it will download the file into a ".1" postfixed file
@@ -1154,6 +1155,30 @@ if [ ! -f $PREFIX/include/libaio.h ]; then
     popd
 fi
 
+ROCKSDB_TAG="v9.7.3"
+log_tool_name "rocksdb $ROCKSDB_TAG"
+if [ ! -d $PREFIX/lib/librocksdb.a ]; then
+    if [ -d rocksdb ]; then
+        rm -rf rocksdb
+    fi
+    git clone https://github.com/facebook/rocksdb.git rocksdb
+    pushd rocksdb
+    git checkout $ROCKSDB_TAG
+    # NOTE: Disables building shared lib but then the find_package fails.
+    # git apply "$DIR/rocksdb-$ROCKSDB_TAG.patch"
+    mkdir -p _build && pushd _build
+    cmake -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_INSTALL_PREFIX=$PREFIX \
+      -DUSE_RTTI=ON \
+      -DWITH_TESTS=OFF \
+      -DGFLAGS_NOTHREADS=OFF \
+      -DCMAKE_INSTALL_LIBDIR=lib \
+      -DCMAKE_SKIP_INSTALL_ALL_DEPENDENCY=true \
+      ..
+    make -j$CPUS rocksdb rocksdb-shared install
+    popd && popd
+fi
+
 # NOTE: Skip FBLIBS -> only used on project-pineapples
 #   * older versions don't compile on the latest GCC
 #   * newer versions don't work with OpenSSL 1.0 which is critical for CentOS7
@@ -1259,6 +1284,7 @@ if false; then
       popd
   fi
 fi
+exit 1
 
 popd
 # NOTE: It's important/clean (e.g., easier upload to S3) to have a separated

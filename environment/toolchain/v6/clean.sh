@@ -40,5 +40,6 @@ PREFIX=/opt/toolchain-v6
 # rm -rf "$PREFIX/include/proxygen"
 # rm -rf "$PREFIX/include/wangle"
 # rm -rf "$PREFIX/include/thrift"
+# rm -rf "$PREFIX/lib/librocksdb.a"
 
 # rm -rf "$PREFIX"
