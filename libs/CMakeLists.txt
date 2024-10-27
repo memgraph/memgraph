@@ -19,15 +19,6 @@ find_package(gflags REQUIRED)
 find_package(fmt 8.0.1 REQUIRED)
 find_package(ZLIB 1.2.11 REQUIRED)
 
-# Search for rocksdb under cmake -> ag -G CMakeLists.txt "rocks"
-find_package(RocksDB REQUIRED)
-if(RocksDB_FOUND)
-    get_target_property(ROCKSDB_LIB_PATH RocksDB::rocksdb LOCATION)
-    message(STATUS "Found RocksDB: ${ROCKSDB_LIB_PATH}")
-else()
-    message(STATUS "Missing RocksDB")
-endif()
-
 set(LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 
 # An uncommon pattern we can safely use as list separator in ExternalProject
@@ -150,6 +141,21 @@ macro(set_path_external_library name type library_location include_dir)
   mark_as_advanced(${name}_LIBRARY ${name}_INCLUDE_DIR)
 endmacro(set_path_external_library)
 
+macro(mg_link_library toolchain_version mg_target_name package_name toolchain_lib_name local_lib_name)
+    if(DEFINED ENV{MG_TOOLCHAIN_VERSION})
+        if($ENV{MG_TOOLCHAIN_VERSION} GREATER_EQUAL ${toolchain_version})
+            message(STATUS "TOOLCHAIN GE ${toolchain_version}")
+            find_package(${package_name} REQUIRED)
+            target_link_libraries(${mg_target_name} ${toolchain_lib_name})
+        else()
+            message(STATUS "not the right TOOLCHAIN")
+            target_link_libraries(${mg_target_name} ${local_lib_name})
+        endif()
+    else()
+        message(STATUS "not TOOLCHAIN at all")
+        target_link_libraries(${mg_target_name} ${local_lib_name})
+    endif()
+endmacro()
 
 # setup antlr
 import_external_library(antlr4 STATIC
@@ -206,16 +212,31 @@ import_header_library(cppitertools ${CMAKE_CURRENT_SOURCE_DIR})
 # Setup json
 import_header_library(json ${CMAKE_CURRENT_SOURCE_DIR})
 
-# Setup RocksDB
-import_external_library(rocksdb STATIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/rocksdb/lib/librocksdb.a
-  ${CMAKE_CURRENT_SOURCE_DIR}/rocksdb/include
-  CMAKE_ARGS -DUSE_RTTI=ON
-  -DWITH_TESTS=OFF
-  -DGFLAGS_NOTHREADS=OFF
-  -DCMAKE_INSTALL_LIBDIR=lib
-  -DCMAKE_SKIP_INSTALL_ALL_DEPENDENCY=true
-  BUILD_COMMAND $(MAKE) rocksdb)
+# TODO(gitbuda): The below import_rocksdb macro is ugly -> generalize.
+macro(import_rocksdb)
+  import_external_library(rocksdb STATIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/rocksdb/lib/librocksdb.a
+    ${CMAKE_CURRENT_SOURCE_DIR}/rocksdb/include
+    CMAKE_ARGS -DUSE_RTTI=ON
+      -DWITH_TESTS=OFF
+      -DGFLAGS_NOTHREADS=OFF
+      -DCMAKE_INSTALL_LIBDIR=lib
+      -DCMAKE_SKIP_INSTALL_ALL_DEPENDENCY=true
+    BUILD_COMMAND $(MAKE) rocksdb)
+endmacro()
+# TODO(gitbuda): linking cases
+#   * toolchain without the variable DEFINED
+#   * toolchain with variable defined and rocksdb
+#   * link rocksdb locally despite the version under toolchain
+if(DEFINED ENV{MG_TOOLCHAIN_VERSION})
+    if($ENV{MG_TOOLCHAIN_VERSION} GREATER_EQUAL 6)
+        message(STATUS "NOTE: RocksDB should be under the toolchain.")
+    else()
+        import_rocksdb()
+    endif()
+else()
+    import_rocksdb()
+endif()
 
 # Setup libbcrypt
 import_external_library(libbcrypt STATIC

@@ -10,6 +10,7 @@ PREFIX=/opt/toolchain-v6
 
 # rm -rf "$DIR/build"
 # rm -rf "$DIR/output"
+# rm -rf "$PREFIX/activate"
 
 # rm -rf "$PREFIX/bin/gcc"
 # rm -rf "$PREFIX/lib/libgmp.a"

@@ -652,6 +652,7 @@ export LD_LIBRARY_PATH=$PREFIX/lib:$PREFIX/lib64
 export CXXFLAGS=-isystem\ $PREFIX/include\ \$CXXFLAGS
 export CFLAGS=-isystem\ $PREFIX/include\ \$CFLAGS
 export MG_TOOLCHAIN_ROOT=$PREFIX
+export MG_TOOLCHAIN_VERSION=$TOOLCHAIN_VERSION
 
 # disable root
 function su () {
@@ -670,7 +671,8 @@ function deactivate() {
     export LD_LIBRARY_PATH=\$ORIG_LD_LIBRARY_PATH
     export CXXFLAGS=\$ORIG_CXXFLAGS
     export CFLAGS=\$ORIG_CFLAGS
-    unset ORIG_PATH ORIG_PS1 ORIG_LD_LIBRARY_PATH ORIG_CXXFLAGS ORIG_CFLAGS MG_TOOLCHAIN_ROOT
+    unset ORIG_PATH ORIG_PS1 ORIG_LD_LIBRARY_PATH ORIG_CXXFLAGS ORIG_CFLAGS
+    unset MG_TOOLCHAIN_ROOT MG_TOOLCHAIN_VERSION
     unset -f su sudo deactivate
 }
 EOF
@@ -1157,7 +1159,7 @@ fi
 
 ROCKSDB_TAG="v9.7.3"
 log_tool_name "rocksdb $ROCKSDB_TAG"
-if [ ! -d $PREFIX/lib/librocksdb.a ]; then
+if [ ! -f $PREFIX/lib/librocksdb.a ]; then
     if [ -d rocksdb ]; then
         rm -rf rocksdb
     fi
