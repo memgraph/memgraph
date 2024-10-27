@@ -316,6 +316,9 @@ range_v3_ref="release-0.12.0"
 repo_clone_try_double "${primary_urls[range-v3]}" "${secondary_urls[range-v3]}" "rangev3" "$range_v3_ref"
 
 # Asio
+# TODO(gitbuda): ASIO under libs/setup.sh.
+#   * Shouldn't ASIO be part of the boost under toolchain?
+#   * ./prepare.sh under NuRaft is downloading ASIO?
 asio_tag="asio-1-24-0"
 repo_clone_try_double "${primary_urls[asio]}" "${secondary_urls[asio]}" "asio" "$asio_tag" true
 

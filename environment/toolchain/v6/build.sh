@@ -1181,6 +1181,24 @@ if [ ! -f $PREFIX/lib/librocksdb.a ]; then
     popd && popd
 fi
 
+NURAFT_COMMIT_HASH="4b148a7e76291898c838a7457eeda2b16f7317ea"
+log_tool_name "nuraft $NURAFT_COMMIT_HASH"
+if [ ! -f $PREFIX/lib/libnuraft.a ]; then
+    if [ -d nuraft ]; then
+        rm -rf nuraft
+    fi
+    git clone https://github.com/eBay/NuRaft.git nuraft
+    pushd nuraft
+    git checkout $NURAFT_COMMIT_HASH
+    git apply "$DIR/nuraft.patch"
+    ./prepare.sh # Downloads ASIO.
+    cmake -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_INSTALL_PREFIX=$PREFIX \
+      .
+    make -j$CPUS install
+    popd
+fi
+
 # NOTE: Skip FBLIBS -> only used on project-pineapples
 #   * older versions don't compile on the latest GCC
 #   * newer versions don't work with OpenSSL 1.0 which is critical for CentOS7
