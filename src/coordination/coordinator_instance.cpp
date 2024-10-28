@@ -902,21 +902,24 @@ auto CoordinatorInstance::GetMostUpToDateInstanceFromHistories(std::list<Replica
     return std::nullopt;
   }
 
+  spdlog::trace("{} data instances can become new main.", instances.size());
+
   auto const get_ts = [](auto &&instance) {
-    spdlog::trace("Sending get instance timestamps to {}", instance.InstanceName());
+    spdlog::trace("Sending get instance timestamps to {}.", instance.InstanceName());
     return instance.GetClient().SendGetInstanceTimestampsRpc();
   };
 
   auto maybe_instance_db_histories = instances | ranges::views::transform(get_ts);
 
   auto const history_has_value = [](auto &&instance_history) -> bool {
-    auto const &[_, history] = instance_history;
-    return history.HasValue();
+    auto const &[instance, history] = instance_history;
+    return history.has_value();
   };
 
   auto transform_to_pairs = [](auto &&instance_history) {
     auto const &[instance, history] = instance_history;
-    return std::make_pair(instance.InstanceName(), history.GetValue());
+    spdlog::trace("Instance {} has history.", instance.InstanceName());
+    return std::make_pair(instance.InstanceName(), *history);
   };
 
   auto instance_db_histories = ranges::views::zip(instances, maybe_instance_db_histories) |

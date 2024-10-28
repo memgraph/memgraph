@@ -179,14 +179,15 @@ auto ReplicationInstanceClient::SendEnableWritingOnMainRpc() const -> bool {
 }
 
 auto ReplicationInstanceClient::SendGetInstanceTimestampsRpc() const
-    -> utils::BasicResult<GetInstanceTimestampsError, replication_coordination_glue::DatabaseHistories> {
+    -> std::optional<replication_coordination_glue::DatabaseHistories> {
   try {
     auto stream{rpc_client_.Stream<coordination::GetDatabaseHistoriesRpc>()};
-    return stream.AwaitResponse().database_histories;
+    auto res = stream.AwaitResponse();
+    return res.database_histories;
 
   } catch (const rpc::RpcFailedException &) {
     spdlog::error("Failed to receive RPC response when sending GetInstanceTimestampRPC");
-    return GetInstanceTimestampsError::RPC_EXCEPTION;
+    return {};
   }
 }
 
