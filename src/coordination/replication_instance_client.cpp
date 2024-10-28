@@ -181,7 +181,7 @@ auto ReplicationInstanceClient::SendEnableWritingOnMainRpc() const -> bool {
 auto ReplicationInstanceClient::SendGetInstanceTimestampsRpc() const
     -> std::optional<replication_coordination_glue::DatabaseHistories> {
   try {
-    auto stream{rpc_client_.Stream<coordination::GetDatabaseHistoriesRpc>()};
+    auto stream{rpc_client_.Stream<GetDatabaseHistoriesRpc>()};
     auto res = stream.AwaitResponse();
     return res.database_histories;
 

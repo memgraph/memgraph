@@ -905,7 +905,7 @@ auto CoordinatorInstance::GetMostUpToDateInstanceFromHistories(std::list<Replica
   spdlog::trace("{} data instances can become new main.", instances.size());
 
   auto const get_ts = [](auto const &instance) {
-    spdlog::trace("Sending get instance timestamps to {}.", instance.InstanceName());
+    spdlog::trace("Sending get instance timestamp to {}.", instance.InstanceName());
     return instance.GetClient().SendGetInstanceTimestampsRpc();
   };
 
@@ -915,8 +915,10 @@ auto CoordinatorInstance::GetMostUpToDateInstanceFromHistories(std::list<Replica
     auto maybe_history = get_ts(instance);
 
     if (maybe_history.has_value()) {
-      spdlog::trace("Instance {} has history.", instance.InstanceName());
+      spdlog::trace("Received history for instance {}.", instance.InstanceName());
       instance_db_histories.emplace_back(instance.InstanceName(), *maybe_history);
+    } else {
+      spdlog::trace("Couldn't receive history for instance {}.", instance.InstanceName());
     }
   }
 
