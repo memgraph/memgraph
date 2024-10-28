@@ -81,11 +81,11 @@ auto CoordinatorClusterState::IsCurrentMain(std::string_view instance_name) cons
   return it != data_instances_.end() && it->status == ReplicationRole::MAIN && it->instance_uuid == current_main_uuid_;
 }
 
-auto CoordinatorClusterState::DoAction(std::pair<std::vector<DataInstanceState>, utils::UUID> log_entry) -> void {
+auto CoordinatorClusterState::DoAction(std::vector<DataInstanceState> data_instances, utils::UUID main_uuid) -> void {
   auto lock = std::lock_guard{log_lock_};
   spdlog::trace("DoAction: update cluster state.");
-  data_instances_ = std::move(log_entry.first);
-  current_main_uuid_ = log_entry.second;
+  data_instances_ = std::move(data_instances);
+  current_main_uuid_ = main_uuid;
 }
 
 auto CoordinatorClusterState::Serialize(ptr<buffer> &data) -> void {

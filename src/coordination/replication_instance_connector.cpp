@@ -93,7 +93,7 @@ auto ReplicationInstanceConnector::GetReplicationClientInfo() const -> coordinat
   return client_.GetReplicationClientInfo();
 }
 
-auto ReplicationInstanceConnector::GetClient() -> ReplicationInstanceClient & { return client_; }
+auto ReplicationInstanceConnector::GetClient() const -> ReplicationInstanceClient const & { return client_; }
 
 }  // namespace memgraph::coordination
 #endif
