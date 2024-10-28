@@ -467,6 +467,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     auto extract_prop_lookup_and_identifers = [&](Expression *lhs, Expression *rhs) -> bool {
       if (get_property_lookup(lhs, propertyLookup, ident)) {
         other = utils::Downcast<Identifier>(rhs);
+        if (other == nullptr) return false;
         // it would not make sense to hint to the Scan subsitution that we could replace with a Point index scan
         // if the point.distance call had same identifer in both lhs and rhs
         // eg. point.distance(x.prop, x) or point.distance(x.prop, x.thing)
