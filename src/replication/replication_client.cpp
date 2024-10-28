@@ -13,13 +13,16 @@
 #include "io/network/endpoint.hpp"
 #include "io/network/fmt.hpp"
 
-namespace memgraph::replication {
-
-static auto CreateClientContext(const memgraph::replication::ReplicationClientConfig &config)
-    -> communication::ClientContext {
-  return (config.ssl) ? communication::ClientContext{config.ssl->key_file, config.ssl->cert_file}
-                      : communication::ClientContext{};
+namespace {
+auto CreateClientContext(const memgraph::replication::ReplicationClientConfig &config)
+    -> memgraph::communication::ClientContext {
+  return (config.ssl) ? memgraph::communication::ClientContext{config.ssl->key_file, config.ssl->cert_file}
+                      : memgraph::communication::ClientContext{};
 }
+
+}  // namespace
+
+namespace memgraph::replication {
 
 ReplicationClient::ReplicationClient(const memgraph::replication::ReplicationClientConfig &config)
     : name_{config.name},
@@ -29,12 +32,13 @@ ReplicationClient::ReplicationClient(const memgraph::replication::ReplicationCli
       mode_{config.mode} {}
 
 ReplicationClient::~ReplicationClient() {
+  auto const &endpoint = rpc_client_.Endpoint();
   try {
-    auto const &endpoint = rpc_client_.Endpoint();
-    spdlog::trace("Closing replication client on {}", endpoint);
+    spdlog::trace("Closing replication client on {}:{}.", endpoint.GetAddress(), endpoint.GetPort());
   } catch (...) {
     // Logging can throw. Not a big deal, just ignore.
   }
+  replica_checker_.Stop();
   thread_pool_.ShutDown();
 }
 

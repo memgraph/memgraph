@@ -36,7 +36,7 @@ bool ReplicationStorageState::FinalizeTransaction(uint64_t timestamp, Storage *s
                                                   std::vector<std::optional<ReplicaStream>> replica_streams) {
   return replication_clients_.WithLock([=, db_acc = std::move(db_acc),
                                         replica_streams = std::move(replica_streams)](auto &clients) mutable {
-    bool finalized_on_all_replicas = true;
+    bool finalized_on_all_replicas{true};
     MG_ASSERT(clients.empty() || db_acc.has_value(),
               "Any clients assumes we are MAIN, we should have gatekeeper_access_wrapper so we can correctly "
               "handle ASYNC tasks");

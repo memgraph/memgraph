@@ -34,8 +34,7 @@ namespace memgraph::replication {
 
 enum class RolePersisted : uint8_t { UNKNOWN_OR_NO, YES };
 
-// TODO: (andi) Rename Error to Status
-enum class RegisterReplicaError : uint8_t { NAME_EXISTS, ENDPOINT_EXISTS, COULD_NOT_BE_PERSISTED, NOT_MAIN, SUCCESS };
+enum class RegisterReplicaStatus : uint8_t { NAME_EXISTS, ENDPOINT_EXISTS, COULD_NOT_BE_PERSISTED, NOT_MAIN, SUCCESS };
 
 struct RoleMainData {
   RoleMainData() = default;
@@ -119,20 +118,24 @@ struct ReplicationState {
   bool TryPersistUnregisterReplica(std::string_view name);
   bool TryPersistRegisteredReplica(const ReplicationClientConfig &config, utils::UUID main_uuid);
 
-  // TODO: locked access
   auto ReplicationData() -> ReplicationData_t & { return replication_data_; }
   auto ReplicationData() const -> ReplicationData_t const & { return replication_data_; }
-  utils::BasicResult<RegisterReplicaError, ReplicationClient *> RegisterReplica(const ReplicationClientConfig &config);
+  utils::BasicResult<RegisterReplicaStatus, ReplicationClient *> RegisterReplica(const ReplicationClientConfig &config);
 
   bool SetReplicationRoleMain(const utils::UUID &main_uuid);
   bool SetReplicationRoleReplica(const ReplicationServerConfig &config,
                                  const std::optional<utils::UUID> &main_uuid = std::nullopt);
+
+  auto GetLock() -> std::mutex & { return mutex_; }
+  auto TryLock() -> bool { return mutex_.try_lock(); }
+  auto Unlock() -> void { mutex_.unlock(); }
 
  private:
   bool HandleVersionMigration(durability::ReplicationRoleEntry &data) const;
 
   std::unique_ptr<kvstore::KVStore> durability_;
   ReplicationData_t replication_data_;
+  std::mutex mutex_;
   std::atomic<RolePersisted> role_persisted = RolePersisted::UNKNOWN_OR_NO;
 };
 

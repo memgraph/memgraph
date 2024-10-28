@@ -403,6 +403,8 @@ class ReplQueryHandler {
     auto const result = handler_->UnregisterReplica(replica_name);
     switch (result) {
       using enum memgraph::query::UnregisterReplicaResult;
+      case NO_ACCESS:
+        throw QueryRuntimeException("Couldn't get unique access to replication state!");
       case NOT_MAIN:
         throw QueryRuntimeException("Replica can't unregister a replica!");
       case COULD_NOT_BE_PERSISTED:
@@ -5985,8 +5987,19 @@ void Interpreter::Commit() {
 
   auto commit_confirmed_by_all_sync_replicas = true;
 
-  bool is_main = interpreter_context_->repl_state->IsMain();
+  auto &repl_state_lock = interpreter_context_->repl_state->GetLock();
+  repl_state_lock.lock();
+  bool const is_main = interpreter_context_->repl_state->IsMain();
+  auto *curr_txn = current_db_.db_transactional_accessor_->GetTransaction();
+  // if I was main with write txn which became replica, abort.
+  if (!is_main && !curr_txn->deltas.empty()) {
+    repl_state_lock.unlock();
+    Abort();
+    return;
+  }
   auto maybe_commit_error = current_db_.db_transactional_accessor_->Commit({.is_main = is_main}, current_db_.db_acc_);
+  repl_state_lock.unlock();
+
   if (maybe_commit_error.HasError()) {
     const auto &error = maybe_commit_error.GetError();
 
