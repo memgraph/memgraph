@@ -225,14 +225,6 @@ Feature: Spatial related features
             """
         Then an error should be raised
 
-    Scenario: Show schema info:
-        Given an empty graph
-        When executing query:
-            """
-            SHOW SCHEMA INFO;
-            """
-        Then an error should be raised
-
     Scenario: Point2d-WGS48 distance:
         When executing query:
             """

@@ -92,7 +92,7 @@ struct IndexHints {
     return false;
   }
 
-  // TODO: use this
+  // TODO: look into making index hints work for point indexes
   template <class TDbAccessor>
   bool HasPointIndex(TDbAccessor *db, storage::LabelId label, storage::PropertyId property) const {
     for (const auto &[index_type, label_hint, property_hint] : point_index_hints_) {

@@ -462,7 +462,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     auto isPointDistance = func && utils::ToUpperCase(func->function_name_) == "POINT.DISTANCE"sv;
     if (!isPointDistance) return false;
     // no need to check # of args as it will already be looked up and checked
-    // hence the existance of func->function_
+    // hence the existence of func->function_
 
     auto extract_prop_lookup_and_identifers = [&](Expression *lhs, Expression *rhs) -> bool {
       if (get_property_lookup(lhs, propertyLookup, ident)) {

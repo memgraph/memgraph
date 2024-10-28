@@ -12,6 +12,7 @@
 #pragma once
 
 #include "memory/query_memory_control.hpp"
+#include "plan/point_distance_condition.hpp"
 #include "query/edge_accessor.hpp"
 #include "query/exceptions.hpp"
 #include "query/hops_limit.hpp"
@@ -43,10 +44,6 @@
 namespace memgraph::query {
 
 class Graph;
-
-namespace plan {
-enum class PointDistanceCondition : uint8_t;
-}  // namespace plan
 
 class SubgraphVertexAccessor final {
  public:
@@ -315,9 +312,9 @@ class DbAccessor final {
   auto PointVertices(storage::LabelId label, storage::PropertyId property, storage::CoordinateReferenceSystem crs,
                      TypedValue const &point_value, TypedValue const &boundary_value,
                      plan::PointDistanceCondition condition) -> PointIterable {
-    return PointIterable(accessor_->PointVertices(
-        label, property, crs, static_cast<storage::PropertyValue>(point_value),
-        static_cast<storage::PropertyValue>(boundary_value), static_cast<storage::PointDistanceCondition>(condition)));
+    return PointIterable(accessor_->PointVertices(label, property, crs,
+                                                  static_cast<storage::PropertyValue>(point_value),
+                                                  static_cast<storage::PropertyValue>(boundary_value), condition));
   }
 
   EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type) {

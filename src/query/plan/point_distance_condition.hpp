@@ -13,7 +13,11 @@
 
 #include <cstdint>
 
+#include "storage/v2/indices/point_index.hpp"
+
 namespace memgraph::query::plan {
-enum class PointDistanceCondition : uint8_t { OUTSIDE, INSIDE, INSIDE_AND_BOUNDARY, OUTSIDE_AND_BOUNDARY };
-enum class WithinBBoxCondition : uint8_t { OUTSIDE, INSIDE };
+
+using PointDistanceCondition = memgraph::storage::PointDistanceCondition;
+using WithinBBoxCondition = memgraph::storage::WithinBBoxCondition;
+
 }  // namespace memgraph::query::plan

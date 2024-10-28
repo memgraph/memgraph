@@ -523,9 +523,6 @@ class ScanAllCursor : public Cursor {
       // iterable, we cannot simply reset it by calling begin().
       auto next_vertices = get_vertices_(frame, context);
       if (!next_vertices) continue;
-      // Since vertices iterator isn't nothrow_move_assignable, we have to use
-      // the roundabout assignment + emplace, instead of simple:
-      // vertices _ = get_vertices_(frame, context);
       vertices_ = std::move(next_vertices);
       vertices_it_.emplace(vertices_.value().begin());
       vertices_end_it_.emplace(vertices_.value().end());
