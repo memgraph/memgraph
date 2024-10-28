@@ -904,27 +904,21 @@ auto CoordinatorInstance::GetMostUpToDateInstanceFromHistories(std::list<Replica
 
   spdlog::trace("{} data instances can become new main.", instances.size());
 
-  auto const get_ts = [](auto &&instance) {
+  auto const get_ts = [](auto const &instance) {
     spdlog::trace("Sending get instance timestamps to {}.", instance.InstanceName());
     return instance.GetClient().SendGetInstanceTimestampsRpc();
   };
 
-  auto maybe_instance_db_histories = instances | ranges::views::transform(get_ts);
+  std::vector<std::pair<std::string, replication_coordination_glue::DatabaseHistories>> instance_db_histories;
 
-  auto const history_has_value = [](auto &&instance_history) -> bool {
-    auto const &[instance, history] = instance_history;
-    return history.has_value();
-  };
+  for (auto const &instance : instances) {
+    auto maybe_history = get_ts(instance);
 
-  auto transform_to_pairs = [](auto &&instance_history) {
-    auto const &[instance, history] = instance_history;
-    spdlog::trace("Instance {} has history.", instance.InstanceName());
-    return std::make_pair(instance.InstanceName(), *history);
-  };
-
-  auto instance_db_histories = ranges::views::zip(instances, maybe_instance_db_histories) |
-                               ranges::views::filter(history_has_value) | ranges::views::transform(transform_to_pairs) |
-                               ranges::to<std::vector>();
+    if (maybe_history.has_value()) {
+      spdlog::trace("Instance {} has history.", instance.InstanceName());
+      instance_db_histories.emplace_back(instance.InstanceName(), *maybe_history);
+    }
+  }
 
   auto maybe_newest_instance = CoordinatorInstance::ChooseMostUpToDateInstance(instance_db_histories);
   if (maybe_newest_instance.has_value()) {
