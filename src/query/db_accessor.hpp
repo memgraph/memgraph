@@ -242,8 +242,6 @@ class DbAccessor final {
 
   std::optional<uint64_t> GetTransactionId() { return accessor_->GetTransactionId(); }
 
-  void AddNewVectorIndexEntry(VertexAccessor &vertex) { accessor_->AddNewVectorIndexEntry(vertex.impl_); }
-
   VerticesIterable Vertices(storage::View view) { return VerticesIterable(accessor_->Vertices(view)); }
 
   VerticesIterable Vertices(storage::View view, storage::LabelId label) {
@@ -476,6 +474,8 @@ class DbAccessor final {
                                                                  const std::vector<float> &vector) const {
     return accessor_->VectorIndexSearch(index_name, number_of_results, vector);
   }
+
+  std::vector<storage::VectorIndexInfo> ListAllVectorIndices() const { return accessor_->ListAllVectorIndices(); }
 
   std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const {
     return accessor_->GetIndexStats(label);

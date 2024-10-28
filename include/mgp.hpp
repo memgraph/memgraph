@@ -4558,6 +4558,27 @@ inline List SearchVectorIndex(mgp_graph *memgraph_graph, std::string_view index_
   return results_or_error.At(kSearchResultsKey).ValueList();
 }
 
+inline List GetVectorIndexInfo(mgp_graph *memgraph_graph) {
+  auto results_or_error = Map(mgp::MemHandlerCallback(graph_show_index_info, memgraph_graph));
+
+  if (results_or_error.KeyExists(kErrorMsgKey)) {
+    if (!results_or_error.At(kErrorMsgKey).IsString()) {
+      throw VectorSearchException{"The error message is not a string!"};
+    }
+    throw VectorSearchException(results_or_error.At(kErrorMsgKey).ValueString().data());
+  }
+
+  if (!results_or_error.KeyExists(kSearchResultsKey)) {
+    throw VectorSearchException{"Incomplete index info results!"};
+  }
+
+  if (!results_or_error.At(kSearchResultsKey).IsList()) {
+    throw VectorSearchException{"Index info results have wrong type!"};
+  }
+
+  return results_or_error.At(kSearchResultsKey).ValueList();
+}
+
 inline bool CreateExistenceConstraint(mgp_graph *memgraph_graph, const std::string_view label,
                                       const std::string_view property) {
   return create_existence_constraint(memgraph_graph, label.data(), property.data());

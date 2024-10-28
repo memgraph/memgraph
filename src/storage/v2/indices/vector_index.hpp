@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <json/json.hpp>
 #include <string>
@@ -20,6 +21,13 @@
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(experimental_vector_indexes);
 namespace memgraph::storage {
+
+struct VectorIndexInfo {
+  std::string index_name;
+  LabelId label;
+  PropertyId property;
+  std::size_t size;
+};
 
 /// @struct VectorIndexSpec
 /// @brief Represents a specification for creating a vector index in the system.
@@ -32,27 +40,6 @@ struct VectorIndexSpec {
   PropertyId property;
   nlohmann::json config;
 };
-
-/// @struct VectorIndexKey
-/// @brief Represents a key for the vector index.
-///
-/// The key consists of a vertex and a commit timestamp. We use commit_timestamp to ensure that the transaction can
-/// see only nodes that were committed before the start_timestamp.
-struct VectorIndexKey {
-  Vertex *vertex;
-  uint64_t commit_timestamp;
-
-  bool operator<(const VectorIndexKey &rhs) {
-    return std::make_tuple(vertex, commit_timestamp) < std::make_tuple(rhs.vertex, rhs.commit_timestamp);
-  }
-  bool operator==(const VectorIndexKey &rhs) const {
-    return vertex == rhs.vertex && commit_timestamp == rhs.commit_timestamp;
-  }
-};
-
-/// We use a pair of Vertex and LabelPropKey to represent in which index the node should be added.
-/// Take a look at transaction.hpp for more details.
-using VectorIndexTuple = std::pair<Vertex *, LabelPropKey>;
 
 /// @class VectorIndex
 /// @brief High-level interface for managing vector indexes.
@@ -74,20 +61,13 @@ class VectorIndex {
   /// @param spec The specification for the index to be created.
   void CreateIndex(const VectorIndexSpec &spec);
 
-  /// @brief Checks to which index the node should be added and adds it to associated keys vector.
-  /// @param vertex The vertex to be added to the associated vector index keys.
-  /// @param keys The vector of keys associated with the index.
-  void AddNodeToNewIndexEntries(Vertex *vertex, std::vector<VectorIndexTuple> &keys);
+  void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update);
 
-  /// @brief Adds a vertex to an existing index.
-  /// @param vertex The vertex to be added.
-  /// @param label_prop The label and property key for the index.
-  /// @param commit_timestamp The commit timestamp for the operation.
-  void AddNodeToIndex(Vertex *vertex, const LabelPropKey &label_prop, uint64_t commit_timestamp);
+  void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex);
 
   /// @brief Lists the names of all existing indexes.
   /// @return A vector of strings representing the names of all indexes.
-  std::vector<std::string> ListAllIndices() const;
+  std::vector<VectorIndexInfo> ListAllIndices() const;
 
   /// @brief Returns the size of the specified index.
   /// @param index_name The name of the index.
@@ -100,10 +80,16 @@ class VectorIndex {
   /// @param result_set_size The number of results to return.
   /// @param query_vector The vector to be used for the search query.
   /// @return A vector of pairs containing the global ID (Gid) and the associated score (distance).
-  std::vector<std::pair<Gid, double>> Search(std::string_view index_name, uint64_t start_timestamp,
-                                             uint64_t result_set_size, const std::vector<float> &query_vector) const;
+  std::vector<std::pair<Gid, double>> Search(std::string_view index_name, uint64_t result_set_size,
+                                             const std::vector<float> &query_vector) const;
 
  private:
+  /// @brief Adds a vertex to an existing index.
+  /// @param vertex The vertex to be added.
+  /// @param label_prop The label and property key for the index.
+  /// @param commit_timestamp The commit timestamp for the operation.
+  void AddNodeToIndex(Vertex *vertex, const LabelPropKey &label_prop);
+
   struct Impl;
   std::unique_ptr<Impl> pimpl;
 };

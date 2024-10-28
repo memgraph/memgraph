@@ -17,37 +17,15 @@
 #include "storage/v2/vertex.hpp"
 #include "usearch/index.hpp"
 #include "usearch/index_dense.hpp"
-#include "utils/algorithm.hpp"
 #include "utils/logging.hpp"
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(experimental_vector_indexes, "",
               "Enables vector search indexes on nodes with Label and property specified in the "
               "IndexName__Label1__property1__{JSON_config};IndexName__Label2__property2 format.");
-
-namespace unum {
-namespace usearch {
-
-template <>
-struct unum::usearch::hash_gt<memgraph::storage::VectorIndexKey> {
-  std::size_t operator()(memgraph::storage::VectorIndexKey const &element) const noexcept {
-    return std::hash<uint64_t>{}(element.commit_timestamp) ^ std::hash<memgraph::storage::Gid>{}(element.vertex->gid);
-  }
-};
-
-template <>
-struct unum::usearch::hash_gt<std::pair<uint64_t, uint64_t>> {
-  std::size_t operator()(std::pair<uint64_t, uint64_t> const &element) const noexcept {
-    return std::hash<uint64_t>{}(element.first) ^ std::hash<uint64_t>{}(element.second);
-  }
-};
-
-}  // namespace usearch
-}  // namespace unum
-
 namespace memgraph::storage {
 
-using mg_vector_index_t = unum::usearch::index_dense_gt<VectorIndexKey, unum::usearch::uint40_t>;
+using mg_vector_index_t = unum::usearch::index_dense_gt<Vertex *, unum::usearch::uint40_t>;
 
 /// @brief Converts a string representation of a metric kind to the corresponding
 /// `unum::usearch::metric_kind_t` value.
@@ -144,15 +122,7 @@ void VectorIndex::CreateIndex(const VectorIndexSpec &spec) {
   spdlog::trace("Created vector index " + spec.index_name);
 }
 
-void VectorIndex::AddNodeToNewIndexEntries(Vertex *vertex, std::vector<VectorIndexTuple> &keys) {
-  for (const auto &[label_prop, _] : pimpl->index_) {
-    if (utils::Contains(vertex->labels, label_prop.label()) && vertex->properties.HasProperty(label_prop.property())) {
-      keys.emplace_back(vertex, label_prop);
-    }
-  }
-}
-
-void VectorIndex::AddNodeToIndex(Vertex *vertex, const LabelPropKey &label_prop, uint64_t commit_timestamp) {
+void VectorIndex::AddNodeToIndex(Vertex *vertex, const LabelPropKey &label_prop) {
   auto &index = pimpl->index_.at(label_prop);
   const auto &vector_property = vertex->properties.GetProperty(label_prop.property()).ValueList();
   std::vector<float> vector;
@@ -166,8 +136,35 @@ void VectorIndex::AddNodeToIndex(Vertex *vertex, const LabelPropKey &label_prop,
     }
     throw std::invalid_argument("Vector index property must be a list of floats or integers.");
   });
-  const auto key = VectorIndexKey{vertex, commit_timestamp};
-  index.add(key, vector.data());
+  index.add(vertex, vector.data());
+}
+
+void VectorIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update) {
+  for (auto &[label_prop, _] : pimpl->index_) {
+    if (label_prop.label() != added_label) {
+      continue;
+    }
+    const auto &vector_property = vertex_after_update->properties.GetProperty(label_prop.property());
+    if (!vector_property.IsNull()) {
+      AddNodeToIndex(vertex_after_update, label_prop);
+    }
+  }
+}
+
+void VectorIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex) {
+  if (value.IsNull()) {
+    return;
+  }
+
+  for (auto &[label_prop, _] : pimpl->index_) {
+    if (label_prop.property() != property) {
+      continue;
+    }
+    if (!utils::Contains(vertex->labels, label_prop.label())) {
+      continue;
+    }
+    AddNodeToIndex(vertex, label_prop);
+  }
 }
 
 std::size_t VectorIndex::Size(std::string_view index_name) const {
@@ -175,16 +172,16 @@ std::size_t VectorIndex::Size(std::string_view index_name) const {
   return pimpl->index_.at(label_prop).size();
 }
 
-std::vector<std::string> VectorIndex::ListAllIndices() const {
-  std::vector<std::string> indices;
-  for (const auto &[index_name, _] : pimpl->index_name_to_label_prop_) {
-    indices.push_back(index_name);
+std::vector<VectorIndexInfo> VectorIndex::ListAllIndices() const {
+  std::vector<VectorIndexInfo> result;
+  result.reserve(pimpl->index_name_to_label_prop_.size());
+  for (const auto &[index_name, label_prop] : pimpl->index_name_to_label_prop_) {
+    result.emplace_back(VectorIndexInfo{index_name, label_prop.label(), label_prop.property(), Size(index_name)});
   }
-  return indices;
+  return result;
 }
 
-std::vector<std::pair<Gid, double>> VectorIndex::Search(std::string_view index_name, uint64_t start_timestamp,
-                                                        uint64_t result_set_size,
+std::vector<std::pair<Gid, double>> VectorIndex::Search(std::string_view index_name, uint64_t result_set_size,
                                                         const std::vector<float> &query_vector) const {
   const auto &label_prop = pimpl->index_name_to_label_prop_.at(index_name);
   const auto &index = pimpl->index_.at(label_prop);
@@ -193,16 +190,10 @@ std::vector<std::pair<Gid, double>> VectorIndex::Search(std::string_view index_n
   std::vector<std::pair<Gid, double>> result;
   result.reserve(result_set_size);
 
-  auto filtering_function = [start_timestamp](const VectorIndexKey &key) {
-    // This transcation can see only nodes that were committed before the start_timestamp.
-    // TODO(@DavIvek): Implement MVCC logic. -> This works only when there is no update on the node.
-    return key.commit_timestamp < start_timestamp;
-  };
-
-  const auto &result_keys = index.filtered_search(query_vector.data(), result_set_size, filtering_function);
+  const auto &result_keys = index.search(query_vector.data(), result_set_size);
   for (std::size_t i = 0; i < result_keys.size(); ++i) {
-    const auto &key = static_cast<VectorIndexKey>(result_keys[i].member.key);
-    result.emplace_back(key.vertex->gid, result_keys[i].distance);
+    const auto &vertex = static_cast<Vertex *>(result_keys[i].member.key);
+    result.emplace_back(vertex->gid, result_keys[i].distance);
   }
 
   return result;

@@ -139,12 +139,6 @@ std::optional<uint64_t> Storage::Accessor::GetTransactionId() const {
   return {};
 }
 
-void Storage::Accessor::AddNewVectorIndexEntry(VertexAccessor &vertex) {
-  // TODO(@DavIvek): Use VertexAccessor for labels and properties checks
-  auto *vertex_ptr = vertex.vertex_;
-  storage_->indices_.vector_index_.AddNodeToNewIndexEntries(vertex_ptr, transaction_.new_vector_index_entries_);
-}
-
 std::vector<LabelId> Storage::Accessor::ListAllPossiblyPresentVertexLabels() const {
   std::vector<LabelId> vertex_labels;
   storage_->stored_node_labels_.for_each([&vertex_labels](const auto &label) { vertex_labels.push_back(label); });

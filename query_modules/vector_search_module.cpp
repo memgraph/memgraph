@@ -10,7 +10,6 @@
 // licenses/APL.txt.
 
 // TODO(gitbuda): Try to use logging under xyz_search modules.
-#include <algorithm>
 #include <iostream>
 #include <string_view>
 
@@ -26,7 +25,14 @@ constexpr std::string_view kParameterQueryVector = "query_vector";
 constexpr std::string_view kReturnNode = "node";
 constexpr std::string_view kReturnDistance = "distance";
 
+constexpr std::string_view kProcedureShowIndexInfo = "show_index_info";
+constexpr std::string_view kReturnIndexName = "index_name";
+constexpr std::string_view kReturnLabel = "label";
+constexpr std::string_view kReturnProperty = "property";
+constexpr std::string_view kReturnSize = "size";
+
 void Search(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
+void ShowIndexInfo(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
 }  // namespace VectorSearch
 
 void VectorSearch::Search(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
@@ -55,6 +61,27 @@ void VectorSearch::Search(mgp_list *args, mgp_graph *memgraph_graph, mgp_result 
   }
 }
 
+void VectorSearch::ShowIndexInfo(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
+  mgp::MemoryDispatcherGuard guard{memory};
+  const auto record_factory = mgp::RecordFactory(result);
+  auto arguments = mgp::List(args);
+
+  try {
+    const auto index_info = mgp::GetVectorIndexInfo(memgraph_graph);
+
+    for (const auto &info : index_info) {
+      auto record = record_factory.NewRecord();
+      auto info_list = info.ValueList();
+      record.Insert(VectorSearch::kReturnIndexName.data(), info_list[0].ValueString());
+      record.Insert(VectorSearch::kReturnLabel.data(), info_list[1].ValueString());
+      record.Insert(VectorSearch::kReturnProperty.data(), info_list[2].ValueString());
+      record.Insert(VectorSearch::kReturnSize.data(), info_list[3].ValueInt());
+    }
+  } catch (const std::exception &e) {
+    record_factory.SetErrorMessage(e.what());
+  }
+}
+
 extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
   try {
     mgp::MemoryDispatcherGuard guard{memory};
@@ -67,6 +94,15 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
                  {
                      mgp::Return(VectorSearch::kReturnNode, mgp::Type::Node),
                      mgp::Return(VectorSearch::kReturnDistance, mgp::Type::Double),
+                 },
+                 module, memory);
+
+    AddProcedure(VectorSearch::ShowIndexInfo, VectorSearch::kProcedureShowIndexInfo, mgp::ProcedureType::Read, {},
+                 {
+                     mgp::Return(VectorSearch::kReturnIndexName, mgp::Type::String),
+                     mgp::Return(VectorSearch::kReturnLabel, mgp::Type::String),
+                     mgp::Return(VectorSearch::kReturnProperty, mgp::Type::String),
+                     mgp::Return(VectorSearch::kReturnSize, mgp::Type::Int),
                  },
                  module, memory);
   } catch (const std::exception &e) {

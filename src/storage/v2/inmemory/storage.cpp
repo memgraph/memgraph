@@ -1087,15 +1087,15 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
       mem_storage->indices_.text_index_.Commit();
     }
 
-    if (!FLAGS_experimental_vector_indexes.empty()) {
-      if (commit_timestamp_.has_value()) {
-        for (const auto &[vertex, label_prop] : transaction_.new_vector_index_entries_) {
-          mem_storage->indices_.vector_index_.AddNodeToIndex(vertex, label_prop, *commit_timestamp_);
-        }
-      } else {
-        throw mg_exception::NotYetImplementedException();
-      }
-    }
+    // if (!FLAGS_experimental_vector_indexes.empty()) {
+    //   if (commit_timestamp_.has_value()) {
+    //     for (const auto &[vertex, label_prop] : transaction_.new_vector_index_entries_) {
+    //       mem_storage->indices_.vector_index_.AddNodeToIndex(vertex, label_prop, *commit_timestamp_);
+    //     }
+    //   } else {
+    //     throw mg_exception::NotYetImplementedException();
+    //   }
+    // }
   }
 
   is_transaction_active_ = false;

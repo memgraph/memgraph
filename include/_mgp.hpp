@@ -360,6 +360,10 @@ inline mgp_map *graph_search_vector_index(mgp_graph *graph, const char *index_na
   return MgInvoke<mgp_map *>(mgp_graph_search_vector_index, graph, index_name, search_vector, result_size, memory);
 }
 
+inline mgp_map *graph_show_index_info(mgp_graph *graph, mgp_memory *memory) {
+  return MgInvoke<mgp_map *>(mgp_graph_show_index_info, graph, memory);
+}
+
 // mgp_vertices_iterator
 
 inline void vertices_iterator_destroy(mgp_vertices_iterator *it) { mgp_vertices_iterator_destroy(it); }

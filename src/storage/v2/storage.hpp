@@ -315,10 +315,13 @@ class Storage {
     std::vector<std::pair<Gid, double>> VectorIndexSearch(const std::string &index_name, uint64_t number_of_results,
                                                           const std::vector<float> &vector) const {
       if (is_transaction_active_) {
-        return storage_->indices_.vector_index_.Search(index_name, transaction_.start_timestamp, number_of_results,
-                                                       vector);
+        return storage_->indices_.vector_index_.Search(index_name, number_of_results, vector);
       }
       throw mg_exception::NotYetImplementedException();
+    }
+
+    std::vector<VectorIndexInfo> ListAllVectorIndices() const {
+      return storage_->indices_.vector_index_.ListAllIndices();
     }
 
     virtual IndicesInfo ListAllIndices() const = 0;
@@ -338,8 +341,6 @@ class Storage {
     virtual void FinalizeTransaction() = 0;
 
     std::optional<uint64_t> GetTransactionId() const;
-
-    void AddNewVectorIndexEntry(VertexAccessor &vertex);
 
     void AdvanceCommand();
 
