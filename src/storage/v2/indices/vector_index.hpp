@@ -26,6 +26,7 @@ struct VectorIndexInfo {
   std::string index_name;
   LabelId label;
   PropertyId property;
+  std::size_t dimension;
   std::size_t size;
 };
 

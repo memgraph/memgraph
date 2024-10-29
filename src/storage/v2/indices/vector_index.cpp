@@ -176,7 +176,10 @@ std::vector<VectorIndexInfo> VectorIndex::ListAllIndices() const {
   std::vector<VectorIndexInfo> result;
   result.reserve(pimpl->index_name_to_label_prop_.size());
   for (const auto &[index_name, label_prop] : pimpl->index_name_to_label_prop_) {
-    result.emplace_back(VectorIndexInfo{index_name, label_prop.label(), label_prop.property(), Size(index_name)});
+    const auto metric = pimpl->index_.at(label_prop).metric();
+    const auto size = pimpl->index_.at(label_prop).size();
+    result.emplace_back(
+        VectorIndexInfo{index_name, label_prop.label(), label_prop.property(), metric.dimensions(), size});
   }
   return result;
 }
