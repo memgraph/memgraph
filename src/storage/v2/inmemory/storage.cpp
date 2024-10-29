@@ -36,6 +36,7 @@
 #include "storage/v2/inmemory/unique_constraints.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/schema_info.hpp"
+#include "storage/v2/vertex.hpp"
 #include "utils/atomic_memory_block.hpp"
 #include "utils/event_gauge.hpp"
 #include "utils/exceptions.hpp"
@@ -1254,6 +1255,9 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
              std::vector<std::tuple<Vertex *const, Vertex *const, Edge *const, PropertyValue>>>
         edge_property_cleanup;
 
+    std::map<LabelPropKey, std::vector<Vertex *>> vector_label_property_cleanup;
+    std::map<LabelPropKey, std::vector<Vertex *>> vector_label_property_restore;
+
     auto delta_size = transaction_.deltas.size();
     for (const auto &delta : transaction_.deltas) {
       auto prev = delta.prev.Get();
@@ -1288,12 +1292,40 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                     }
                   }
                 }
+
+                if (!FLAGS_experimental_vector_indexes.empty()) {
+                  const auto &properties = index_stats.vector.l2p.find(current->label.value);
+                  if (properties != index_stats.vector.l2p.end()) {
+                    for (const auto &property : properties->second) {
+                      auto current_value = vertex->properties.GetProperty(property);
+                      if (!current_value.IsNull()) {
+                        vector_label_property_cleanup[LabelPropKey{current->label.value, property}].emplace_back(
+                            vertex);
+                      }
+                    }
+                  }
+                }
+
                 break;
               }
               case Delta::Action::ADD_LABEL: {
                 auto it = std::find(vertex->labels.begin(), vertex->labels.end(), current->label.value);
                 MG_ASSERT(it == vertex->labels.end(), "Invalid database state!");
                 vertex->labels.push_back(current->label.value);
+
+                if (!FLAGS_experimental_vector_indexes.empty()) {
+                  const auto &properties = index_stats.vector.l2p.find(current->label.value);
+                  if (properties != index_stats.vector.l2p.end()) {
+                    for (const auto &property : properties->second) {
+                      auto current_value = vertex->properties.GetProperty(property);
+                      if (!current_value.IsNull()) {
+                        vector_label_property_restore[LabelPropKey{current->label.value, property}].emplace_back(
+                            vertex);
+                      }
+                    }
+                  }
+                }
+
                 break;
               }
               case Delta::Action::SET_PROPERTY: {
@@ -1308,6 +1340,19 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                     property_cleanup[current->property.key].emplace_back(std::move(current_value), vertex);
                   }
                 }
+
+                if (!FLAGS_experimental_vector_indexes.empty()) {
+                  const auto &labels = index_stats.vector.p2l.find(current->property.key);
+                  if (labels != index_stats.vector.p2l.end()) {
+                    auto current_value = vertex->properties.GetProperty(current->property.key);
+                    if (!current_value.IsNull()) {
+                      for (const auto &label : labels->second) {
+                        vector_label_property_cleanup[LabelPropKey{label, current->property.key}].emplace_back(vertex);
+                      }
+                    }
+                  }
+                }
+
                 // Setting the correct value
                 vertex->properties.SetProperty(current->property.key, *current->property.value);
                 break;
@@ -1512,6 +1557,14 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       }
       for (auto const &[edge_type_property, edge] : edge_property_cleanup) {
         storage_->indices_.AbortEntries(edge_type_property, edge, transaction_.start_timestamp);
+      }
+      if (!FLAGS_experimental_vector_indexes.empty()) {
+        for (auto const &[label_prop, vertices] : vector_label_property_cleanup) {
+          storage_->indices_.vector_index_.AbortEntries(label_prop, vertices);
+        }
+        for (auto const &[label_prop, vertices] : vector_label_property_restore) {
+          storage_->indices_.vector_index_.RestoreEntries(label_prop, vertices);
+        }
       }
 
       // VERTICES

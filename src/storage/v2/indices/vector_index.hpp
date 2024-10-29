@@ -101,6 +101,18 @@ class VectorIndex {
   std::vector<std::pair<Gid, double>> Search(std::string_view index_name, uint64_t result_set_size,
                                              const std::vector<float> &query_vector) const;
 
+  /// @brief Aborts the entries that were inserted in the specified transaction.
+  /// @param label The label of the vertices to be removed.
+  /// @param vertices The vertices to be removed.
+  void AbortEntries(const LabelPropKey &label_prop, std::span<Vertex *const> vertices) const;
+
+  /// @brief Restores the entries that were removed in the specified transaction.
+  /// @param label The label of the vertices to be restored.
+  /// @param vertices The vertices to be restored.
+  void RestoreEntries(const LabelPropKey &label_prop, std::span<Vertex *const> vertices) const;
+
+  void RemoveObsoleteEntries(std::stop_token token) const;
+
   /// @brief Returns the index statistics.
   /// @return The index statistics.
   IndexStats Analysis() const;
@@ -111,11 +123,6 @@ class VectorIndex {
   /// @param label_prop The label and property key for the index.
   /// @param commit_timestamp The commit timestamp for the operation.
   void AddNodeToIndex(Vertex *vertex, const LabelPropKey &label_prop) const;
-
-  /// @brief Removes a vertex from an existing index.
-  /// @param vertex The vertex to be removed.
-  /// @param label_prop The label and property key for the index.
-  void RemoveNodeFromIndex(Vertex *vertex, const LabelPropKey &label_prop) const;
 
   struct Impl;
   std::unique_ptr<Impl> pimpl;

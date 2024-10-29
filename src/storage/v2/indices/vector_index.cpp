@@ -10,6 +10,8 @@
 // licenses/APL.txt.
 
 #include <cstdint>
+#include <ranges>
+#include <stop_token>
 
 #include "absl/container/flat_hash_map.h"
 #include "storage/v2/id_types.hpp"
@@ -17,6 +19,7 @@
 #include "storage/v2/vertex.hpp"
 #include "usearch/index.hpp"
 #include "usearch/index_dense.hpp"
+#include "utils/counter.hpp"
 #include "utils/logging.hpp"
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
@@ -85,7 +88,7 @@ struct VectorIndex::Impl {
   /// The `index_` member is a map that associates a `LabelPropKey` (a combination of label and property)
   /// with the actual vector index (`mg_vector_index_t`). This allows us to store multiple vector indexes
   /// based on different labels and properties.
-  std::map<LabelPropKey, mg_vector_index_t> index_;
+  absl::flat_hash_map<LabelPropKey, mg_vector_index_t> index_;
 
   /// The `index_name_to_label_prop_` is a hash map that maps an index name (as a string) to the corresponding
   /// `LabelPropKey`. This allows the system to quickly resolve an index name to the specific label and property
@@ -139,10 +142,6 @@ void VectorIndex::AddNodeToIndex(Vertex *vertex, const LabelPropKey &label_prop)
   index.add(vertex, vector.data());
 }
 
-void VectorIndex::RemoveNodeFromIndex(Vertex *vertex, const LabelPropKey &label_prop) const {
-  pimpl->index_.at(label_prop).remove(vertex);
-}
-
 void VectorIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update) const {
   for (auto &[label_prop, _] : pimpl->index_) {
     if (label_prop.label() != added_label) {
@@ -160,7 +159,7 @@ void VectorIndex::UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_befo
     if (label_prop.label() != removed_label) {
       continue;
     }
-    RemoveNodeFromIndex(vertex_before_update, label_prop);
+    pimpl->index_.at(label_prop).remove(vertex_before_update);
   }
 }
 
@@ -173,7 +172,7 @@ void VectorIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &
       continue;
     }
     if (value.IsNull()) {
-      RemoveNodeFromIndex(vertex, label_prop);
+      pimpl->index_.at(label_prop).remove(vertex);
     } else {
       AddNodeToIndex(vertex, label_prop);
     }
@@ -201,13 +200,42 @@ std::vector<std::pair<Gid, double>> VectorIndex::Search(std::string_view index_n
   std::vector<std::pair<Gid, double>> result;
   result.reserve(result_set_size);
 
-  const auto &result_keys = index.search(query_vector.data(), result_set_size);
+  const auto &result_keys = index.filtered_search(query_vector.data(), result_set_size,
+                                                  [](const Vertex *vertex) { return !vertex->deleted; });
   for (std::size_t i = 0; i < result_keys.size(); ++i) {
     const auto &vertex = static_cast<Vertex *>(result_keys[i].member.key);
     result.emplace_back(vertex->gid, result_keys[i].distance);
   }
 
   return result;
+}
+
+void VectorIndex::AbortEntries(const LabelPropKey &label_prop, std::span<Vertex *const> vertices) const {
+  auto &index = pimpl->index_.at(label_prop);
+  for (const auto &vertex : vertices) {
+    index.remove(vertex);
+  }
+}
+
+void VectorIndex::RestoreEntries(const LabelPropKey &label_prop, std::span<Vertex *const> vertices) const {
+  for (const auto &vertex : vertices) {
+    AddNodeToIndex(vertex, label_prop);
+  }
+}
+
+void VectorIndex::RemoveObsoleteEntries(std::stop_token token) const {
+  auto maybe_stop = utils::ResettableCounter<2048>();
+  for (auto &[_, index] : pimpl->index_) {
+    if (token.stop_requested() || maybe_stop()) {
+      return;
+    }
+    std::vector<Vertex *> vertices_to_remove;
+    vertices_to_remove.reserve(index.size());
+    index.export_keys(vertices_to_remove.data(), 0, index.size());
+
+    auto deleted = vertices_to_remove | std::views::filter([](const Vertex *vertex) { return vertex->deleted; });
+    std::ranges::for_each(deleted, [&index](Vertex *vertex) { index.remove(vertex); });
+  }
 }
 
 VectorIndex::IndexStats VectorIndex::Analysis() const {
