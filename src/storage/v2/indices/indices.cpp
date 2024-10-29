@@ -75,16 +75,19 @@ void Indices::DropGraphClearIndices() {
 void Indices::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) const {
   label_index_->UpdateOnAddLabel(label, vertex, tx);
   label_property_index_->UpdateOnAddLabel(label, vertex, tx);
+  vector_index_.UpdateOnAddLabel(label, vertex);
 }
 
 void Indices::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, const Transaction &tx) const {
   label_index_->UpdateOnRemoveLabel(label, vertex, tx);
   label_property_index_->UpdateOnRemoveLabel(label, vertex, tx);
+  vector_index_.UpdateOnRemoveLabel(label, vertex);
 }
 
 void Indices::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
                                   const Transaction &tx) const {
   label_property_index_->UpdateOnSetProperty(property, value, vertex, tx);
+  vector_index_.UpdateOnSetProperty(property, value, vertex);
 }
 
 void Indices::UpdateOnSetProperty(EdgeTypeId edge_type, PropertyId property, const PropertyValue &value,

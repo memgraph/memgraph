@@ -62,9 +62,11 @@ class VectorIndex {
   /// @param spec The specification for the index to be created.
   void CreateIndex(const VectorIndexSpec &spec);
 
-  void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update);
+  void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update) const;
 
-  void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex);
+  void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_before_update) const;
+
+  void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex) const;
 
   /// @brief Lists the names of all existing indexes.
   /// @return A vector of strings representing the names of all indexes.
@@ -89,7 +91,9 @@ class VectorIndex {
   /// @param vertex The vertex to be added.
   /// @param label_prop The label and property key for the index.
   /// @param commit_timestamp The commit timestamp for the operation.
-  void AddNodeToIndex(Vertex *vertex, const LabelPropKey &label_prop);
+  void AddNodeToIndex(Vertex *vertex, const LabelPropKey &label_prop) const;
+
+  void RemoveNodeFromIndex(Vertex *vertex, const LabelPropKey &label_prop) const;
 
   struct Impl;
   std::unique_ptr<Impl> pimpl;

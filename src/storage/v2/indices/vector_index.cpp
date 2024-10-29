@@ -122,7 +122,7 @@ void VectorIndex::CreateIndex(const VectorIndexSpec &spec) {
   spdlog::trace("Created vector index " + spec.index_name);
 }
 
-void VectorIndex::AddNodeToIndex(Vertex *vertex, const LabelPropKey &label_prop) {
+void VectorIndex::AddNodeToIndex(Vertex *vertex, const LabelPropKey &label_prop) const {
   auto &index = pimpl->index_.at(label_prop);
   const auto &vector_property = vertex->properties.GetProperty(label_prop.property()).ValueList();
   std::vector<float> vector;
@@ -139,7 +139,11 @@ void VectorIndex::AddNodeToIndex(Vertex *vertex, const LabelPropKey &label_prop)
   index.add(vertex, vector.data());
 }
 
-void VectorIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update) {
+void VectorIndex::RemoveNodeFromIndex(Vertex *vertex, const LabelPropKey &label_prop) const {
+  pimpl->index_.at(label_prop).remove(vertex);
+}
+
+void VectorIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update) const {
   for (auto &[label_prop, _] : pimpl->index_) {
     if (label_prop.label() != added_label) {
       continue;
@@ -151,11 +155,16 @@ void VectorIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_upd
   }
 }
 
-void VectorIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex) {
-  if (value.IsNull()) {
-    return;
+void VectorIndex::UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_before_update) const {
+  for (auto &[label_prop, _] : pimpl->index_) {
+    if (label_prop.label() != removed_label) {
+      continue;
+    }
+    RemoveNodeFromIndex(vertex_before_update, label_prop);
   }
+}
 
+void VectorIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex) const {
   for (auto &[label_prop, _] : pimpl->index_) {
     if (label_prop.property() != property) {
       continue;
@@ -163,7 +172,11 @@ void VectorIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &
     if (!utils::Contains(vertex->labels, label_prop.label())) {
       continue;
     }
-    AddNodeToIndex(vertex, label_prop);
+    if (value.IsNull()) {
+      RemoveNodeFromIndex(vertex, label_prop);
+    } else {
+      AddNodeToIndex(vertex, label_prop);
+    }
   }
 }
 
