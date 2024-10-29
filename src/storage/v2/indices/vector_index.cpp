@@ -180,11 +180,6 @@ void VectorIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &
   }
 }
 
-std::size_t VectorIndex::Size(std::string_view index_name) const {
-  const auto label_prop = pimpl->index_name_to_label_prop_.at(index_name);
-  return pimpl->index_.at(label_prop).size();
-}
-
 std::vector<VectorIndexInfo> VectorIndex::ListAllIndices() const {
   std::vector<VectorIndexInfo> result;
   result.reserve(pimpl->index_name_to_label_prop_.size());
@@ -213,6 +208,17 @@ std::vector<std::pair<Gid, double>> VectorIndex::Search(std::string_view index_n
   }
 
   return result;
+}
+
+VectorIndex::IndexStats VectorIndex::Analysis() const {
+  IndexStats res{};
+  for (const auto &[label_prop, _] : pimpl->index_) {
+    const auto label = label_prop.label();
+    const auto property = label_prop.property();
+    res.l2p[label].emplace_back(property);
+    res.p2l[property].emplace_back(label);
+  }
+  return res;
 }
 
 }  // namespace memgraph::storage

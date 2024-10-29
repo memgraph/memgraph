@@ -22,6 +22,11 @@
 DECLARE_string(experimental_vector_indexes);
 namespace memgraph::storage {
 
+/// @struct VectorIndexInfo
+/// @brief Represents information about a vector index in the system.
+///
+/// This structure includes the index name, the label and property on which the index is created,
+/// the dimension of the vectors in the index, and the size of the index.
 struct VectorIndexInfo {
   std::string index_name;
   LabelId label;
@@ -51,6 +56,11 @@ struct VectorIndexSpec {
 /// to hide implementation details.
 class VectorIndex {
  public:
+  struct IndexStats {
+    std::map<LabelId, std::vector<PropertyId>> l2p;
+    std::map<PropertyId, std::vector<LabelId>> p2l;
+  };
+
   VectorIndex();
   ~VectorIndex();
   VectorIndex(const VectorIndex &) = delete;
@@ -62,20 +72,25 @@ class VectorIndex {
   /// @param spec The specification for the index to be created.
   void CreateIndex(const VectorIndexSpec &spec);
 
+  /// @brief Updates the index when a label is added to a vertex.
+  /// @param added_label The label that was added to the vertex.
+  /// @param vertex_after_update The vertex after the label was added.
   void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update) const;
 
+  /// @brief Updates the index when a label is removed from a vertex.
+  /// @param removed_label The label that was removed from the vertex.
+  /// @param vertex_before_update The vertex before the label was removed.
   void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_before_update) const;
 
+  /// @brief Updates the index when a property is modified on a vertex.
+  /// @param property The property that was modified.
+  /// @param value The new value of the property.
+  /// @param vertex The vertex on which the property was modified.
   void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex) const;
 
   /// @brief Lists the names of all existing indexes.
   /// @return A vector of strings representing the names of all indexes.
   std::vector<VectorIndexInfo> ListAllIndices() const;
-
-  /// @brief Returns the size of the specified index.
-  /// @param index_name The name of the index.
-  /// @return The size of the index as a `std::size_t`.
-  std::size_t Size(std::string_view index_name) const;
 
   /// @brief Searches for nodes in the specified index using a query vector.
   /// @param index_name The name of the index to search.
@@ -86,6 +101,10 @@ class VectorIndex {
   std::vector<std::pair<Gid, double>> Search(std::string_view index_name, uint64_t result_set_size,
                                              const std::vector<float> &query_vector) const;
 
+  /// @brief Returns the index statistics.
+  /// @return The index statistics.
+  IndexStats Analysis() const;
+
  private:
   /// @brief Adds a vertex to an existing index.
   /// @param vertex The vertex to be added.
@@ -93,6 +112,9 @@ class VectorIndex {
   /// @param commit_timestamp The commit timestamp for the operation.
   void AddNodeToIndex(Vertex *vertex, const LabelPropKey &label_prop) const;
 
+  /// @brief Removes a vertex from an existing index.
+  /// @param vertex The vertex to be removed.
+  /// @param label_prop The label and property key for the index.
   void RemoveNodeFromIndex(Vertex *vertex, const LabelPropKey &label_prop) const;
 
   struct Impl;
