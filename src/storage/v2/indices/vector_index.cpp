@@ -190,12 +190,12 @@ void VectorIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &
 std::vector<VectorIndexInfo> VectorIndex::ListAllIndices() const {
   std::vector<VectorIndexInfo> result;
   result.reserve(pimpl->index_name_to_label_prop_.size());
-  std::ranges::for_each(pimpl->index_name_to_label_prop_, [&result, this](const auto &pair) {
+  std::ranges::transform(pimpl->index_name_to_label_prop_, std::back_inserter(result), [this](const auto &pair) {
     const auto &index_name = pair.first;
     const auto &label_prop = pair.second;
     const auto &index = pimpl->index_.at(label_prop);
-    result.emplace_back(VectorIndexInfo{index_name, label_prop.label(), label_prop.property(),
-                                        index.metric().dimensions(), index.size()});
+    return VectorIndexInfo{index_name, label_prop.label(), label_prop.property(), index.metric().dimensions(),
+                           index.size()};
   });
   return result;
 }
