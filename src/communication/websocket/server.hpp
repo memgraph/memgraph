@@ -43,7 +43,7 @@ class Server final {
   void Shutdown();
   void AwaitShutdown();
   [[nodiscard]] bool IsRunning() const;
-  [[nodiscard]] tcp::endpoint GetEndpoint() const;
+  [[nodiscard]] std::optional<boost::asio::ip::tcp::endpoint> GetEndpoint() const;
 
   bool HasErrorHappened() const;
 
