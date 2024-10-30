@@ -190,12 +190,13 @@ void VectorIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &
 std::vector<VectorIndexInfo> VectorIndex::ListAllIndices() const {
   std::vector<VectorIndexInfo> result;
   result.reserve(pimpl->index_name_to_label_prop_.size());
-  for (const auto &[index_name, label_prop] : pimpl->index_name_to_label_prop_) {
-    const auto metric = pimpl->index_.at(label_prop).metric();
-    const auto size = pimpl->index_.at(label_prop).size();
-    result.emplace_back(
-        VectorIndexInfo{index_name, label_prop.label(), label_prop.property(), metric.dimensions(), size});
-  }
+  std::ranges::for_each(pimpl->index_name_to_label_prop_, [&result, this](const auto &pair) {
+    const auto &index_name = pair.first;
+    const auto &label_prop = pair.second;
+    const auto &index = pimpl->index_.at(label_prop);
+    result.emplace_back(VectorIndexInfo{index_name, label_prop.label(), label_prop.property(),
+                                        index.metric().dimensions(), index.size()});
+  });
   return result;
 }
 
@@ -208,8 +209,8 @@ std::vector<std::pair<Gid, double>> VectorIndex::Search(std::string_view index_n
   std::vector<std::pair<Gid, double>> result;
   result.reserve(result_set_size);
 
-  const auto &result_keys = index.filtered_search(query_vector.data(), result_set_size,
-                                                  [](const Vertex *vertex) { return !vertex->deleted; });
+  const auto result_keys = index.filtered_search(query_vector.data(), result_set_size,
+                                                 [](const Vertex *vertex) { return !vertex->deleted; });
   for (std::size_t i = 0; i < result_keys.size(); ++i) {
     const auto &vertex = static_cast<Vertex *>(result_keys[i].member.key);
     result.emplace_back(vertex->gid, result_keys[i].distance);
