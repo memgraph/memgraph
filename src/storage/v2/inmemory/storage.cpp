@@ -1961,15 +1961,23 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) {
       guard.unlock();
       if (aggressive or mark_timestamp == oldest_active_start_timestamp) {
+        auto const released_delta_count =
+            std::accumulate(garbage_undo_buffers.cbegin(), garbage_undo_buffers.cend(), uint64_t{0},
+                            [](uint64_t curr, GCDeltas const &gc_deltas) { return curr + gc_deltas.deltas_.size(); });
+
         // We know no transaction is active, it is safe to simply delete all the garbage undos
         // Nothing can be reading them
         garbage_undo_buffers.clear();
+        memgraph::metrics::DecrementCounter(memgraph::metrics::UnreleasedDeltaObjects, released_delta_count);
       } else {
+        auto released_delta_count = uint64_t{0};
         // garbage_undo_buffers is ordered, pop until we can't
         while (!garbage_undo_buffers.empty() &&
                garbage_undo_buffers.front().mark_timestamp_ <= oldest_active_start_timestamp) {
+          released_delta_count += garbage_undo_buffers.front().deltas_.size();
           garbage_undo_buffers.pop_front();
         }
+        memgraph::metrics::DecrementCounter(memgraph::metrics::UnreleasedDeltaObjects, released_delta_count);
       }
     });
   }
@@ -2196,14 +2204,13 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
       guard.unlock();
       // if lucky, there are no active transactions, hence nothing looking at the deltas
       // remove them now
-
-      auto const sum_func = [](uint32_t curr, auto const &gc_deltas) { return curr + gc_deltas.deltas_.size(); };
-      uint32_t const total_delta_size =
-          std::accumulate(unlinked_undo_buffers.begin(), unlinked_undo_buffers.end(), 0U, sum_func);
+      auto const released_delta_count =
+          std::accumulate(unlinked_undo_buffers.cbegin(), unlinked_undo_buffers.cend(), uint64_t{0},
+                          [](uint64_t curr, GCDeltas const &gc_deltas) { return curr + gc_deltas.deltas_.size(); });
 
       // Now total_deltas contains the sum of all deltas in the unlinked_undo_buffers list
       unlinked_undo_buffers.clear();
-      memgraph::metrics::DecrementCounter(memgraph::metrics::UnreleasedDeltaObjects, total_delta_size);
+      memgraph::metrics::DecrementCounter(memgraph::metrics::UnreleasedDeltaObjects, released_delta_count);
     } else {
       // Take garbage_undo_buffers lock while holding the engine lock to make
       // sure that entries are sorted by mark timestamp in the list.
