@@ -563,8 +563,6 @@ class InMemoryStorage final : public Storage {
   utils::Scheduler snapshot_runner_;
   utils::SpinLock snapshot_lock_;
 
-  // UUID used to distinguish snapshots and to link snapshots to WALs
-  std::string uuid_;
   // Sequence number used to keep track of the chain of WALs.
   uint64_t wal_seq_num_{0};
 
@@ -625,6 +623,8 @@ class InMemoryStorage final : public Storage {
 
   // A way to tell async operation to stop
   std::stop_source stop_source;
+
+  void Clear();
 };
 
 }  // namespace memgraph::storage

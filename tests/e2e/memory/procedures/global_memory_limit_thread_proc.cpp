@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -77,8 +77,7 @@ void Thread(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_m
 
 extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
   try {
-    mgp::memory = memory;
-
+    mgp::MemoryDispatcherGuard guard(memory);
     AddProcedure(Thread, std::string("thread").c_str(), mgp::ProcedureType::Read, {},
                  {mgp::Return(std::string("allocated_all").c_str(), mgp::Type::Bool)}, module, memory);
 

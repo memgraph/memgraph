@@ -21,10 +21,12 @@
 using memgraph::coordination::CoordinatorInstanceInitConfig;
 using memgraph::coordination::CoordinatorStateManagerConfig;
 using memgraph::coordination::CoordinatorToReplicaConfig;
+using memgraph::coordination::DataInstanceState;
 using memgraph::coordination::RaftState;
 using memgraph::coordination::ReplicationClientInfo;
 using memgraph::io::network::Endpoint;
 using memgraph::replication_coordination_glue::ReplicationMode;
+using memgraph::replication_coordination_glue::ReplicationRole;
 using memgraph::utils::UUID;
 using nuraft::ptr;
 
@@ -69,9 +71,8 @@ TEST_F(RaftStateTest, RaftStateEmptyMetadata) {
   raft_state->InitRaftServer();
 
   ASSERT_EQ(raft_state->InstanceName(), fmt::format("coordinator_{}", coordinator_id));
-  ASSERT_EQ(raft_state->RaftSocketAddress(), fmt::format("localhost:{}", coordinator_port));
   ASSERT_TRUE(raft_state->IsLeader());
-  ASSERT_TRUE(raft_state->GetReplicationInstances().empty());
+  ASSERT_TRUE(raft_state->GetDataInstances().empty());
 
   auto const coords = raft_state->GetCoordinatorInstances();
   ASSERT_EQ(coords.size(), 1);
@@ -121,34 +122,41 @@ TEST_F(RaftStateTest, GetMixedRoutingTable) {
 
   raft_state_leader->InitRaftServer();
 
-  raft_state_leader->AppendRegisterReplicationInstanceLog(CoordinatorToReplicaConfig{
-      .instance_name = "instance1",
-      .mgt_server = Endpoint{"0.0.0.0", 10011},
-      .bolt_server = Endpoint{"0.0.0.0", 7687},
-      .replication_client_info = ReplicationClientInfo{.instance_name = "instance1",
-                                                       .replication_mode = ReplicationMode::ASYNC,
-                                                       .replication_server = Endpoint{"0.0.0.0", 10001}}});
-
-  raft_state_leader->AppendRegisterReplicationInstanceLog(CoordinatorToReplicaConfig{
-      .instance_name = "instance2",
-      .mgt_server = Endpoint{"0.0.0.0", 10012},
-      .bolt_server = Endpoint{"0.0.0.0", 7688},
-      .replication_client_info = ReplicationClientInfo{.instance_name = "instance2",
-                                                       .replication_mode = ReplicationMode::ASYNC,
-                                                       .replication_server = Endpoint{"0.0.0.0", 10002}}});
-
-  raft_state_leader->AppendRegisterReplicationInstanceLog(CoordinatorToReplicaConfig{
-      .instance_name = "instance3",
-      .mgt_server = Endpoint{"0.0.0.0", 10013},
-      .bolt_server = Endpoint{"0.0.0.0", 7689},
-      .replication_client_info = ReplicationClientInfo{.instance_name = "instance3",
-                                                       .replication_mode = ReplicationMode::ASYNC,
-                                                       .replication_server = Endpoint{"0.0.0.0", 10003}}});
-
+  std::vector<DataInstanceState> cluster_state{};
   auto const curr_uuid = UUID{};
 
-  raft_state_leader->AppendSetInstanceAsMainLog("instance1", curr_uuid);
-  raft_state_leader->AppendUpdateUUIDForNewMainLog(curr_uuid);
+  cluster_state.emplace_back(
+      CoordinatorToReplicaConfig{
+          .instance_name = "instance1",
+          .mgt_server = Endpoint{"0.0.0.0", 10011},
+          .bolt_server = Endpoint{"0.0.0.0", 7687},
+          .replication_client_info = ReplicationClientInfo{.instance_name = "instance1",
+                                                           .replication_mode = ReplicationMode::ASYNC,
+                                                           .replication_server = Endpoint{"0.0.0.0", 10001}}},
+      ReplicationRole::MAIN, curr_uuid);
+
+  cluster_state.emplace_back(
+      CoordinatorToReplicaConfig{
+          .instance_name = "instance2",
+          .mgt_server = Endpoint{"0.0.0.0", 10012},
+          .bolt_server = Endpoint{"0.0.0.0", 7688},
+          .replication_client_info = ReplicationClientInfo{.instance_name = "instance2",
+                                                           .replication_mode = ReplicationMode::ASYNC,
+                                                           .replication_server = Endpoint{"0.0.0.0", 10002}}},
+      ReplicationRole::REPLICA, curr_uuid);
+
+  cluster_state.emplace_back(
+      CoordinatorToReplicaConfig{
+          .instance_name = "instance3",
+          .mgt_server = Endpoint{"0.0.0.0", 10013},
+          .bolt_server = Endpoint{"0.0.0.0", 7689},
+          .replication_client_info = ReplicationClientInfo{.instance_name = "instance3",
+                                                           .replication_mode = ReplicationMode::ASYNC,
+                                                           .replication_server = Endpoint{"0.0.0.0", 10003}}},
+
+      ReplicationRole::REPLICA, curr_uuid);
+
+  raft_state_leader->AppendClusterUpdate(cluster_state, curr_uuid);
 
   auto const routing_table = raft_state_leader->GetRoutingTable();
 

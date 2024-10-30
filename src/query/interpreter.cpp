@@ -167,6 +167,40 @@ void memgraph::query::CurrentDB::CleanupDBTransaction(bool abort) {
 }
 // namespace memgraph::metrics
 
+struct QueryLogWrapper {
+  std::string_view query;
+  const memgraph::storage::PropertyValue::map_t *metadata;
+  std::string_view db_name;
+};
+
+#if FMT_VERSION > 90000
+template <>
+class fmt::formatter<QueryLogWrapper> : public fmt::ostream_formatter {};
+#endif
+
+std::ostream &operator<<(std::ostream &os, const QueryLogWrapper &qlw) {
+  auto final_query = memgraph::utils::NoCopyStr{qlw.query};
+#if MG_ENTERPRISE
+  os << "[Run - " << qlw.db_name << "] ";
+  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    final_query = memgraph::logging::MaskSensitiveInformation(final_query.view());
+  }
+#else
+  os << "[Run] ";
+#endif
+  os << "'" << final_query.view() << "'";
+  if (!qlw.metadata->empty()) {
+    os << " - {";
+    std::string header;
+    for (const auto &[key, val] : *qlw.metadata) {
+      os << header << key << ":" << val;
+      if (header.empty()) header = ", ";
+    }
+    os << "}";
+  }
+  return os;
+}
+
 namespace memgraph::query {
 
 constexpr std::string_view kSchemaAssert = "SCHEMA.ASSERT";
@@ -356,7 +390,7 @@ class ReplQueryHandler {
       const auto error = handler_->TryRegisterReplica(replication_config).HasError();
 
       if (error) {
-        throw QueryRuntimeException(fmt::format("Couldn't register replica '{}'!", name));
+        throw QueryRuntimeException("Couldn't register replica {}.", name);
       }
 
     } else {
@@ -373,8 +407,8 @@ class ReplQueryHandler {
         throw QueryRuntimeException("Replica can't unregister a replica!");
       case COULD_NOT_BE_PERSISTED:
         [[fallthrough]];
-      case CAN_NOT_UNREGISTER:
-        throw QueryRuntimeException(fmt::format("Couldn't unregister the replica '{}'", replica_name));
+      case CANNOT_UNREGISTER:
+        throw QueryRuntimeException("Couldn't unregister the replica {}.", replica_name);
       case SUCCESS:
         break;
     }
@@ -494,6 +528,8 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException("Couldn't finish force reset as cluster is shutting down!");
       case FAIL:
         throw QueryRuntimeException("Force reset failed, check logs for more details!");
+      case NOT_LEADER_ANYMORE:
+        throw QueryRuntimeException("Force reset failed since the instance is not leader anymore!");
       case SUCCESS:
         break;
     }
@@ -2930,6 +2966,10 @@ PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
     throw IndexInMulticommandTxException();
   }
 
+  if (!current_db.db_acc_->get()->config().salient.items.properties_on_edges) {
+    throw EdgeIndexDisabledPropertiesOnEdgesException();
+  }
+
   auto *index_query = utils::Downcast<EdgeIndexQuery>(parsed_query.query);
   std::function<void(Notification &)> handler;
 
@@ -5303,10 +5343,14 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
   // Handle transaction control queries.
   const auto upper_case_query = utils::ToUpperCase(query_string);
   const auto trimmed_query = utils::Trim(upper_case_query);
+
+  if (trimmed_query == "BEGIN") {
+    ResetInterpreter();
+  }
+  // Reset before logging, as some transaction related information will get logged
+  spdlog::debug("{}", QueryLogWrapper{query_string, metadata_ ? &*metadata_ : &extras.metadata_pv, current_db_.name()});
+
   if (trimmed_query == "BEGIN" || trimmed_query == "COMMIT" || trimmed_query == "ROLLBACK") {
-    if (trimmed_query == "BEGIN") {
-      ResetInterpreter();
-    }
     auto &query_execution = query_executions_.emplace_back(QueryExecution::Create());
     query_execution->prepared_query = PrepareTransactionQuery(trimmed_query, extras);
     auto qid = in_explicit_transaction_ ? static_cast<int>(query_executions_.size() - 1) : std::optional<int>{};

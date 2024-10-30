@@ -62,49 +62,34 @@ class RaftState {
   ~RaftState();
 
   auto InstanceName() const -> std::string;
-  auto RaftSocketAddress() const -> std::string;
 
   auto AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) -> void;
   auto GetCoordinatorInstances() const -> std::vector<CoordinatorToCoordinatorConfig>;
 
   auto IsLeader() const -> bool;
-
   auto GetCoordinatorId() const -> uint32_t;
 
-  auto AppendRegisterReplicationInstanceLog(CoordinatorToReplicaConfig const &config) -> bool;
-  auto AppendUnregisterReplicationInstanceLog(std::string_view instance_name) -> bool;
-  auto AppendSetInstanceAsMainLog(std::string_view instance_name, utils::UUID const &uuid) -> bool;
-  auto AppendSetInstanceAsReplicaLog(std::string_view instance_name) -> bool;
+  auto AppendClusterUpdate(std::vector<DataInstanceState> cluster_state, utils::UUID uuid) -> bool;
 
-  auto AppendUpdateUUIDForNewMainLog(utils::UUID const &uuid) -> bool;
-  auto AppendUpdateUUIDForInstanceLog(std::string_view instance_name, utils::UUID const &uuid) -> bool;
-  auto AppendOpenLock() -> bool;
-  auto AppendCloseLock() -> bool;
-  auto AppendInstanceNeedsDemote(std::string_view) -> bool;
+  auto GetDataInstances() const -> std::vector<DataInstanceState>;
 
-  auto GetReplicationInstances() const -> std::vector<ReplicationInstanceState>;
-
+  // TODO: (andi) Ideally we delete this and rely just on one thing.
   auto MainExists() const -> bool;
   auto HasMainState(std::string_view instance_name) const -> bool;
-  auto HasReplicaState(std::string_view instance_name) const -> bool;
   auto IsCurrentMain(std::string_view instance_name) const -> bool;
-
+  auto TryGetCurrentMainName() const -> std::optional<std::string>;
   auto GetCurrentMainUUID() const -> utils::UUID;
-  auto GetInstanceUUID(std::string_view) const -> utils::UUID;
 
   auto GetLeaderCoordinatorData() const -> std::optional<CoordinatorToCoordinatorConfig>;
 
-  auto IsLockOpened() const -> bool;
   auto GetRoutingTable() const -> RoutingTable;
-
-  auto TryGetCurrentMainName() const -> std::optional<std::string>;
 
   // Returns elapsed time in ms since last successful response from the coordinator with id srv_id
   auto CoordLastSuccRespMs(uint32_t srv_id) -> std::chrono::milliseconds;
 
   auto GetLeaderId() const -> uint32_t;
 
-  [[nodiscard]] auto GetCoordinatorToCoordinatorConfigs() const -> std::vector<CoordinatorToCoordinatorConfig>;
+  auto GetCoordinatorToCoordinatorConfigs() const -> std::vector<CoordinatorToCoordinatorConfig>;
 
  private:
   int coordinator_port_;

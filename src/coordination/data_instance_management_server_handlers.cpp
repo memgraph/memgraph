@@ -22,6 +22,11 @@ namespace memgraph::dbms {
 
 void DataInstanceManagementServerHandlers::Register(memgraph::coordination::DataInstanceManagementServer &server,
                                                     replication::ReplicationHandler &replication_handler) {
+  server.Register<coordination::StateCheckRpc>([&](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
+    spdlog::info("Received StateCheckRpc");
+    DataInstanceManagementServerHandlers::StateCheckHandler(replication_handler, req_reader, res_builder);
+  });
+
   server.Register<coordination::PromoteReplicaToMainRpc>(
       [&](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
         spdlog::info("Received PromoteReplicaToMainRpc");
@@ -30,72 +35,96 @@ void DataInstanceManagementServerHandlers::Register(memgraph::coordination::Data
 
   server.Register<coordination::DemoteMainToReplicaRpc>(
       [&replication_handler](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
-        spdlog::info("Received DemoteMainToReplicaRpc from coordinator server");
+        spdlog::info("Received DemoteMainToReplicaRpc");
         DataInstanceManagementServerHandlers::DemoteMainToReplicaHandler(replication_handler, req_reader, res_builder);
       });
 
   server.Register<replication_coordination_glue::SwapMainUUIDRpc>(
       [&replication_handler](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
-        spdlog::info("Received SwapMainUUIDRPC on coordinator server");
+        spdlog::info("Received SwapMainUUIDRPC");
         DataInstanceManagementServerHandlers::SwapMainUUIDHandler(replication_handler, req_reader, res_builder);
       });
 
   server.Register<coordination::UnregisterReplicaRpc>(
       [&replication_handler](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
-        spdlog::info("Received UnregisterReplicaRpc on coordinator server");
+        spdlog::info("Received UnregisterReplicaRpc");
         DataInstanceManagementServerHandlers::UnregisterReplicaHandler(replication_handler, req_reader, res_builder);
       });
 
   server.Register<coordination::EnableWritingOnMainRpc>(
       [&replication_handler](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
-        spdlog::info("Received EnableWritingOnMainRpc on coordinator server");
+        spdlog::info("Received EnableWritingOnMainRpc");
         DataInstanceManagementServerHandlers::EnableWritingOnMainHandler(replication_handler, req_reader, res_builder);
       });
 
   server.Register<coordination::GetInstanceUUIDRpc>(
       [&replication_handler](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
-        spdlog::info("Received GetInstanceUUIDRpc on coordinator server");
+        spdlog::info("Received GetInstanceUUIDRpc");
         DataInstanceManagementServerHandlers::GetInstanceUUIDHandler(replication_handler, req_reader, res_builder);
       });
 
   server.Register<coordination::GetDatabaseHistoriesRpc>(
       [&replication_handler](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
-        spdlog::info("Received GetDatabasesHistoryRpc on coordinator server");
+        spdlog::info("Received GetDatabasesHistoryRpc");
         DataInstanceManagementServerHandlers::GetDatabaseHistoriesHandler(replication_handler, req_reader, res_builder);
       });
   server.Register<coordination::RegisterReplicaOnMainRpc>([&replication_handler](slk::Reader *req_reader,
                                                                                  slk::Builder *res_builder) -> void {
-    spdlog::info("Received RegisterReplicaOnMainRpc on coordinator server");
+    spdlog::info("Received RegisterReplicaOnMainRpc");
     DataInstanceManagementServerHandlers::RegisterReplicaOnMainHandler(replication_handler, req_reader, res_builder);
   });
+}
+
+void DataInstanceManagementServerHandlers::StateCheckHandler(replication::ReplicationHandler &replication_handler,
+                                                             slk::Reader *req_reader, slk::Builder *res_builder) {
+  coordination::StateCheckReq req;
+  slk::Load(&req, req_reader);
+
+  bool const is_replica = replication_handler.IsReplica();
+  auto const uuid = std::invoke([&replication_handler, is_replica]() -> std::optional<utils::UUID> {
+    if (is_replica) {
+      return replication_handler.GetReplicaUUID();
+    }
+    return replication_handler.GetMainUUID();
+  });
+
+  auto const writing_enabled = std::invoke([&replication_handler, is_replica]() -> bool {
+    if (is_replica) {
+      return false;
+    }
+    return replication_handler.GetReplState().IsMainWriteable();
+  });
+
+  slk::Save(coordination::StateCheckRes{is_replica, uuid, writing_enabled}, res_builder);
+  spdlog::info("State check returned: is_replica = {}, uuid = {}, writing_enabled = {}", is_replica,
+               uuid.has_value() ? std::string{*uuid} : "", writing_enabled);
 }
 
 void DataInstanceManagementServerHandlers::GetDatabaseHistoriesHandler(
     replication::ReplicationHandler &replication_handler, slk::Reader * /*req_reader*/, slk::Builder *res_builder) {
   slk::Save(coordination::GetDatabaseHistoriesRes{replication_handler.GetDatabasesHistories()}, res_builder);
+  spdlog::info("Database's history returned successfully.");
 }
 
 void DataInstanceManagementServerHandlers::SwapMainUUIDHandler(replication::ReplicationHandler &replication_handler,
                                                                slk::Reader *req_reader, slk::Builder *res_builder) {
   if (!replication_handler.IsReplica()) {
-    spdlog::error("Setting main uuid must be performed on replica.");
+    spdlog::error("Setting uuid must be performed on replica.");
     slk::Save(replication_coordination_glue::SwapMainUUIDRes{false}, res_builder);
     return;
   }
 
   replication_coordination_glue::SwapMainUUIDReq req;
   slk::Load(&req, req_reader);
-  spdlog::info(fmt::format("Set replica data UUID  to main uuid {}", std::string(req.uuid)));
   std::get<memgraph::replication::RoleReplicaData>(replication_handler.GetReplState().ReplicationData()).uuid_ =
       req.uuid;
 
   slk::Save(replication_coordination_glue::SwapMainUUIDRes{true}, res_builder);
+  spdlog::info("UUID successfully set to {}.", std::string(req.uuid));
 }
 
 void DataInstanceManagementServerHandlers::DemoteMainToReplicaHandler(
     replication::ReplicationHandler &replication_handler, slk::Reader *req_reader, slk::Builder *res_builder) {
-  spdlog::info("Executing DemoteMainToReplicaHandler");
-
   coordination::DemoteMainToReplicaReq req;
   slk::Load(&req, req_reader);
 
@@ -104,48 +133,59 @@ void DataInstanceManagementServerHandlers::DemoteMainToReplicaHandler(
       .repl_server = io::network::Endpoint("0.0.0.0", req.replication_client_info.replication_server.GetPort())};
 
   if (!replication_handler.SetReplicationRoleReplica(clients_config, std::nullopt)) {
-    spdlog::error("Demoting main to replica failed!");
+    spdlog::error("Demoting main to replica failed.");
     slk::Save(coordination::DemoteMainToReplicaRes{false}, res_builder);
     return;
   }
 
   slk::Save(coordination::DemoteMainToReplicaRes{true}, res_builder);
+  spdlog::info("MAIN successfully demoted to REPLICA.");
 }
 
 void DataInstanceManagementServerHandlers::GetInstanceUUIDHandler(replication::ReplicationHandler &replication_handler,
                                                                   slk::Reader * /*req_reader*/,
                                                                   slk::Builder *res_builder) {
-  spdlog::info("Executing GetInstanceUUIDHandler");
+  if (!replication_handler.IsReplica()) {
+    spdlog::trace(
+        "Got unexpected request for fetching current main uuid as replica but the instance is not replica at the "
+        "moment. Returning empty uuid.");
+    slk::Save(coordination::GetInstanceUUIDRes{{}}, res_builder);
+    return;
+  }
 
-  slk::Save(coordination::GetInstanceUUIDRes{replication_handler.GetReplicaUUID()}, res_builder);
+  auto const replica_uuid = replication_handler.GetReplicaUUID();
+  slk::Save(coordination::GetInstanceUUIDRes{replica_uuid}, res_builder);
+  spdlog::info("Replica's UUID returned successfully: {}.", replica_uuid ? std::string{*replica_uuid} : "");
 }
 
 void DataInstanceManagementServerHandlers::PromoteReplicaToMainHandler(
     replication::ReplicationHandler &replication_handler, slk::Reader *req_reader, slk::Builder *res_builder) {
-  if (!replication_handler.IsReplica()) {
-    spdlog::error("Promote to main must be performed on replica!");
-    slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);
-    return;
-  }
   coordination::PromoteReplicaToMainReq req;
   slk::Load(&req, req_reader);
 
   // This can fail because of disk. If it does, the cluster state could get inconsistent.
-  // We don't handle disk issues.
+  // We don't handle disk issues. If I receive request to promote myself to main when I am already main
+  // I will do it again, the action is idempotent.
   if (const bool success = replication_handler.DoReplicaToMainPromotion(req.main_uuid); !success) {
-    spdlog::error("Promoting replica to main failed!");
+    spdlog::error("Promoting replica to main failed.");
     slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);
     return;
   }
 
   // registering replicas
+  // If disk fails here we are in problem. However, we don't tackle this at the moment since this is so rare event.
+  // If I receive request to promote myself while I am already main, I could have some instances already registered.
+  // In that case ignore failures.
   for (auto const &config : req.replication_clients_info) {
     if (!DoRegisterReplica<coordination::PromoteReplicaToMainRes>(replication_handler, config, res_builder)) {
-      return;
+      continue;
     }
   }
-  spdlog::info("Promote replica to main was success {}", std::string(req.main_uuid));
+
+  replication_handler.GetReplState().GetMainRole().writing_enabled_ = true;
+
   slk::Save(coordination::PromoteReplicaToMainRes{true}, res_builder);
+  spdlog::info("Promoting replica to main finished successfully. New MAIN's uuid: {}", std::string(req.main_uuid));
 }
 
 void DataInstanceManagementServerHandlers::RegisterReplicaOnMainHandler(
@@ -162,7 +202,7 @@ void DataInstanceManagementServerHandlers::RegisterReplicaOnMainHandler(
   // We don't handle disk issues.
   auto const &main_uuid = replication_handler.GetReplState().GetMainRole().uuid_;
   if (req.main_uuid != main_uuid) {
-    spdlog::error("Registering replica to main failed because MAIN has uuid {} and coordinator has sent uuid {}!",
+    spdlog::error("Registering replica to main failed because MAIN's uuid {} != from coordinator's uuid {}!",
                   std::string(req.main_uuid), std::string(main_uuid));
     slk::Save(coordination::RegisterReplicaOnMainRes{false}, res_builder);
     return;
@@ -170,11 +210,12 @@ void DataInstanceManagementServerHandlers::RegisterReplicaOnMainHandler(
 
   if (!DoRegisterReplica<coordination::RegisterReplicaOnMainRes>(replication_handler, req.replication_client_info,
                                                                  res_builder)) {
+    spdlog::error("Replica {} couldn't be registered.", req.replication_client_info.instance_name);
     return;
   }
 
-  spdlog::info("Registering replica {} to main was success ", req.replication_client_info.instance_name);
   slk::Save(coordination::RegisterReplicaOnMainRes{true}, res_builder);
+  spdlog::info("Registering replica {} to main finished successfully.", req.replication_client_info.instance_name);
 }
 
 void DataInstanceManagementServerHandlers::UnregisterReplicaHandler(
@@ -198,7 +239,7 @@ void DataInstanceManagementServerHandlers::UnregisterReplicaHandler(
       spdlog::error("Unregistering replica must be performed on main.");
       slk::Save(coordination::UnregisterReplicaRes{false}, res_builder);
       break;
-    case CAN_NOT_UNREGISTER:
+    case CANNOT_UNREGISTER:
       spdlog::error("Could not unregister replica.");
       slk::Save(coordination::UnregisterReplicaRes{false}, res_builder);
       break;
@@ -207,6 +248,7 @@ void DataInstanceManagementServerHandlers::UnregisterReplicaHandler(
       slk::Save(coordination::UnregisterReplicaRes{false}, res_builder);
       break;
   }
+  spdlog::info("Replica {} successfully unregistered.", req.instance_name);
 }
 
 void DataInstanceManagementServerHandlers::EnableWritingOnMainHandler(
@@ -224,6 +266,7 @@ void DataInstanceManagementServerHandlers::EnableWritingOnMainHandler(
   }
 
   slk::Save(coordination::EnableWritingOnMainRes{true}, res_builder);
+  spdlog::info("Enabled writing on main.");
 }
 
 }  // namespace memgraph::dbms

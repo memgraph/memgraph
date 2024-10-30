@@ -1456,6 +1456,16 @@ TYPED_TEST(IndexTest, EdgeTypeIndexCreate) {
 
       ASSERT_NO_ERROR(acc->Commit());
     }
+
+    // Check that GC doesn't remove useful elements
+    {
+      this->storage->FreeMemory({}, false);
+      auto acc = this->storage->Access();
+      EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, View::OLD), View::OLD),
+                  UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
+      EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, View::NEW), View::NEW),
+                  UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
+    }
   }
 }
 
@@ -1828,6 +1838,16 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCreate) {
                 UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
 
     ASSERT_NO_ERROR(acc->Commit());
+  }
+
+  // Check that GC doesn't remove useful elements
+  {
+    this->storage->FreeMemory({}, false);
+    auto acc = this->storage->Access();
+    EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::OLD), View::OLD),
+                UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
+    EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
+                UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
   }
 }
 

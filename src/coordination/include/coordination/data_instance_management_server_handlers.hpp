@@ -29,6 +29,9 @@ class DataInstanceManagementServerHandlers {
                        replication::ReplicationHandler &replication_handler);
 
  private:
+  static void StateCheckHandler(replication::ReplicationHandler &replication_handler, slk::Reader *req_reader,
+                                slk::Builder *res_builder);
+
   static void PromoteReplicaToMainHandler(replication::ReplicationHandler &replication_handler, slk::Reader *req_reader,
                                           slk::Builder *res_builder);
   static void RegisterReplicaOnMainHandler(replication::ReplicationHandler &replication_handler,
@@ -60,32 +63,50 @@ class DataInstanceManagementServerHandlers {
 
     auto instance_client = replication_handler.RegisterReplica(converter(config));
     if (instance_client.HasError()) {
-      using enum memgraph::replication::RegisterReplicaError;
+      using memgraph::query::RegisterReplicaError;
       switch (instance_client.GetError()) {
-        // Can't happen, checked on the coordinator side
-        case memgraph::query::RegisterReplicaError::NAME_EXISTS:
-          spdlog::error("Replica with the same name already exists!");
+        case RegisterReplicaError::NOT_MAIN: {
+          spdlog::error("Error when registering instance {} as replica. Instance not main anymore.",
+                        config.instance_name);
           slk::Save(TResponse{false}, res_builder);
           return false;
-        // Can't happen, checked on the coordinator side
-        case memgraph::query::RegisterReplicaError::ENDPOINT_EXISTS:
-          spdlog::error("Replica with the same endpoint already exists!");
+        }
+        case RegisterReplicaError::NAME_EXISTS: {
+          spdlog::error(
+              "Error when registering instance {} as replica. Instance with the same name already registered.",
+              config.instance_name);
           slk::Save(TResponse{false}, res_builder);
           return false;
-        // We don't handle disk issues
-        case memgraph::query::RegisterReplicaError::COULD_NOT_BE_PERSISTED:
-          spdlog::error("Registered replica could not be persisted!");
+        }
+        case RegisterReplicaError::ENDPOINT_EXISTS: {
+          spdlog::error(
+              "Error when registering instance {} as replica. Instance with the same endpoint already exists.",
+              config.instance_name);
           slk::Save(TResponse{false}, res_builder);
           return false;
-        case memgraph::query::RegisterReplicaError::ERROR_ACCEPTING_MAIN:
-          spdlog::error("Replica didn't accept change of main!");
+        }
+        case RegisterReplicaError::COULD_NOT_BE_PERSISTED: {
+          spdlog::error("Error when registering instance {} as replica. Registering instance could not be persisted.",
+                        config.instance_name);
           slk::Save(TResponse{false}, res_builder);
           return false;
-        case memgraph::query::RegisterReplicaError::CONNECTION_FAILED:
-          // Connection failure is not a fatal error
-          break;
+        }
+        case RegisterReplicaError::ERROR_ACCEPTING_MAIN: {
+          spdlog::error("Error when registering instance {} as replica. Instance couldn't accept change of main.",
+                        config.instance_name);
+          slk::Save(TResponse{false}, res_builder);
+          return false;
+        }
+        case RegisterReplicaError::CONNECTION_FAILED: {
+          spdlog::error(
+              "Error when registering instance {} as replica. Instance couldn't register all databases successfully.",
+              config.instance_name);
+          slk::Save(TResponse{false}, res_builder);
+          return false;
+        }
       }
     }
+    spdlog::trace("Instance {} successfully registered as replica.", config.instance_name);
     return true;
   }
 };

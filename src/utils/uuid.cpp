@@ -20,7 +20,7 @@ std::string GenerateUUID() {
   char decoded[37];  // magic size from: man 2 uuid_unparse
   uuid_generate(uuid);
   uuid_unparse(uuid, decoded);
-  return std::string(decoded);
+  return {decoded};
 }
 
 }  // namespace memgraph::utils

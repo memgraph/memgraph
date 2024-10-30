@@ -96,6 +96,7 @@ class TTLFixture : public ::testing::Test {
   }
 
   void TearDown() override {
+    db_->StopAllBackgroundTasks();
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
       disk_test_utils::RemoveRocksDbDirs(testSuite);
     }

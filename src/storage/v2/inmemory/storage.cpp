@@ -26,6 +26,7 @@
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/edge_direction.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/edge_type_property_index.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
 #include "storage/v2/metadata_delta.hpp"
@@ -122,7 +123,6 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       recovery_{config.durability.storage_directory / durability::kSnapshotDirectory,
                 config.durability.storage_directory / durability::kWalDirectory},
       lock_file_path_(config.durability.storage_directory / durability::kLockFile),
-      uuid_(utils::GenerateUUID()),
       global_locker_(file_retainer_.AddLocker()) {
   MG_ASSERT(config.salient.storage_mode != StorageMode::ON_DISK_TRANSACTIONAL,
             "Invalid storage mode sent to InMemoryStorage constructor!");
@@ -153,7 +153,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
   }
   if (config_.durability.recover_on_startup) {
     auto info =
-        recovery_.RecoverData(&uuid_, repl_storage_state_, &vertices_, &edges_, &edges_metadata_, &edge_count_,
+        recovery_.RecoverData(uuid(), repl_storage_state_, &vertices_, &edges_, &edges_metadata_, &edge_count_,
                               name_id_mapper_.get(), &indices_, &constraints_, config_, &wal_seq_num_, &enum_store_,
                               config_.salient.items.enable_schema_info ? &schema_info_.Get() : nullptr,
                               [this](Gid edge_gid) { return FindEdge(edge_gid); });
@@ -163,7 +163,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       timestamp_ = std::max(timestamp_, info->next_timestamp);
       if (info->last_durable_timestamp) {
         repl_storage_state_.last_durable_timestamp_ = *info->last_durable_timestamp;
-        spdlog::trace("Recovering last durable timestamp {}", *info->last_durable_timestamp);
+        spdlog::trace("Recovering last durable timestamp {}.", *info->last_durable_timestamp);
       }
     }
   } else if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
@@ -205,6 +205,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       static_cast<InMemoryLabelIndex *>(indices_.label_index_.get())->RunGC();
       static_cast<InMemoryLabelPropertyIndex *>(indices_.label_property_index_.get())->RunGC();
       static_cast<InMemoryEdgeTypeIndex *>(indices_.edge_type_index_.get())->RunGC();
+      static_cast<InMemoryEdgeTypePropertyIndex *>(indices_.edge_type_property_index_.get())->RunGC();
 
       // SkipList is already threadsafe
       vertices_.run_gc();
@@ -569,6 +570,9 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
 
         transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
         transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
+
+        // Update indices if they exist.
+        storage_->indices_.UpdateOnEdgeCreation(from_vertex, to_vertex, edge, edge_type, transaction_);
 
         // Increment edge count.
         storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
@@ -2387,12 +2391,15 @@ StorageInfo InMemoryStorage::GetInfo() {
 }
 
 bool InMemoryStorage::InitializeWalFile(memgraph::replication::ReplicationEpoch &epoch) {
-  if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL)
+  if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL) {
     return false;
+  }
+
   if (!wal_file_) {
-    wal_file_.emplace(recovery_.wal_directory_, uuid_, epoch.id(), config_.salient.items, name_id_mapper_.get(),
+    wal_file_.emplace(recovery_.wal_directory_, uuid(), epoch.id(), config_.salient.items, name_id_mapper_.get(),
                       wal_seq_num_++, &file_retainer_);
   }
+
   return true;
 }
 
@@ -2731,7 +2738,7 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
   Transaction *transaction = accessor->GetTransaction();
   auto const &epoch = repl_storage_state_.epoch_;
   durability::CreateSnapshot(this, transaction, recovery_.snapshot_directory_, recovery_.wal_directory_, &vertices_,
-                             &edges_, uuid_, epoch, repl_storage_state_.history, &file_retainer_);
+                             &edges_, uuid(), epoch, repl_storage_state_.history, &file_retainer_);
 
   memgraph::metrics::Measure(memgraph::metrics::SnapshotCreationLatency_us,
                              std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed()).count());
@@ -2797,7 +2804,7 @@ void InMemoryStorage::CreateSnapshotHandler(
           spdlog::warn(utils::MessageWithLink("Snapshots are disabled for replicas.", "https://memgr.ph/replication"));
           break;
         case CreateSnapshotError::ReachedMaxNumTries:
-          spdlog::warn("Failed to create snapshot. Reached max number of tries. Please contact support");
+          spdlog::warn("Failed to create snapshot. Reached max number of tries. Please contact support.");
           break;
       }
     }
@@ -2857,6 +2864,63 @@ std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>> InMemoryStora
   });
 
   return maybe_edge_info;
+}
+
+void InMemoryStorage::Clear() {
+  // NOTE: Make sure this function is called while exclusively holding on to the main lock
+  // When creating a snapshot, we first lock the snapshot, then create and accessor
+  // GC could be running without the main lock
+  // Engine lock is needed because of PrepareForNewEpoch
+  auto gc_lock = std::unique_lock{gc_lock_};
+  auto engine_lock = std::unique_lock{engine_lock_};
+
+  // Clear main memory
+  vertices_.clear();
+  vertices_.run_gc();
+  vertex_id_ = 0;
+
+  edges_.clear();
+  edges_.run_gc();
+  edge_id_ = 0;
+  edge_count_ = 0;
+
+  timestamp_ = kTimestampInitialId;
+  transaction_id_ = kTransactionInitialId;
+
+  // Reset WALs
+  wal_seq_num_ = 0;
+  wal_file_.reset();
+  wal_unsynced_transactions_ = 0;
+
+  // Reset the commit log
+  commit_log_.reset();
+  commit_log_.emplace();
+
+  // Drop any pending GC work (committed_transactions_ is holding on to old deltas)
+  deleted_vertices_->clear();
+  deleted_edges_->clear();
+  garbage_undo_buffers_->clear();
+  committed_transactions_->clear();
+
+  // Clear indices, constraints and metadata
+  indices_.DropGraphClearIndices();
+  constraints_.DropGraphClearConstraints();
+  edges_metadata_.clear();
+  edges_metadata_.run_gc();
+  stored_node_labels_.clear();
+  stored_edge_types_.clear();
+  labels_to_auto_index_->clear();
+  edge_types_to_auto_index_->clear();
+
+  // Reset helper classes
+  name_id_mapper_ = std::make_unique<NameIdMapper>();
+  enum_store_.clear();
+  schema_info_.Clear();
+
+  // Replication epoch and timestamp reset
+  repl_storage_state_.epoch_.SetEpoch(std::string(utils::UUID{}));
+  repl_storage_state_.last_durable_timestamp_ = 0;
+  repl_storage_state_.history.clear();
 }
 
 IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {

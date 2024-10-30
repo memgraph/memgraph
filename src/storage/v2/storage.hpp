@@ -167,7 +167,9 @@ class Storage {
 
   const std::string &name() const { return config_.salient.name; }
 
-  const utils::UUID &uuid() const { return config_.salient.uuid; }
+  auto uuid() const -> utils::UUID const & { return config_.salient.uuid; }
+
+  auto uuid() -> utils::UUID & { return config_.salient.uuid; }
 
   class Accessor {
    public:

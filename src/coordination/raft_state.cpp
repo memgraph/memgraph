@@ -259,10 +259,6 @@ auto RaftState::GetCoordinatorToCoordinatorConfigs() const -> std::vector<Coordi
   return state_manager_->GetCoordinatorToCoordinatorConfigs();
 }
 
-auto RaftState::RaftSocketAddress() const -> std::string {
-  return raft_server_->get_srv_config(static_cast<int>(coordinator_id_))->get_endpoint();
-}
-
 auto RaftState::AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) -> void {
   spdlog::trace("Adding coordinator instance {} start in RaftState for coordinator_{}", config.coordinator_id,
                 coordinator_id_);
@@ -338,178 +334,17 @@ auto RaftState::GetLeaderCoordinatorData() const -> std::optional<CoordinatorToC
 
 auto RaftState::IsLeader() const -> bool { return raft_server_->is_leader(); }
 
-auto RaftState::AppendOpenLock() -> bool {
-  auto new_log = CoordinatorStateMachine::SerializeOpenLock();
-  auto const res = raft_server_->append_entries({new_log});
-
-  if (!res->get_accepted()) {
-    spdlog::error("Failed to accept request to open lock");
-    return false;
-  }
-  spdlog::trace("Request for opening lock in thread {} accepted", std::this_thread::get_id());
-
-  if (res->get_result_code() != nuraft::cmd_result_code::OK) {
-    spdlog::error("Failed to open lock with error code {}", int(res->get_result_code()));
-    return false;
-  }
-
-  return true;
-}
-
-auto RaftState::AppendCloseLock() -> bool {
-  auto new_log = CoordinatorStateMachine::SerializeCloseLock();
-  auto const res = raft_server_->append_entries({new_log});
-
-  if (!res->get_accepted()) {
-    spdlog::error("Failed to accept request to close lock");
-    return false;
-  }
-
-  spdlog::trace("Request for closing lock in thread {} accepted", std::this_thread::get_id());
-
-  if (res->get_result_code() != nuraft::cmd_result_code::OK) {
-    spdlog::error("Failed to close lock with error code {}", int(res->get_result_code()));
-    return false;
-  }
-
-  return true;
-}
-
-auto RaftState::AppendRegisterReplicationInstanceLog(CoordinatorToReplicaConfig const &config) -> bool {
-  auto new_log = CoordinatorStateMachine::SerializeRegisterInstance(config);
-  auto const res = raft_server_->append_entries({new_log});
-
-  if (!res->get_accepted()) {
-    spdlog::error(
-        "Failed to accept request for registering instance {}. Most likely the reason is that the instance is not "
-        "the "
-        "leader.",
-        config.instance_name);
-    return false;
-  }
-
-  spdlog::trace("Request for registering instance {} accepted", config.instance_name);
-
-  if (res->get_result_code() != nuraft::cmd_result_code::OK) {
-    spdlog::error("Failed to register instance {} with error code {}", config.instance_name,
-                  int(res->get_result_code()));
-    return false;
-  }
-
-  return true;
-}
-
-auto RaftState::AppendUnregisterReplicationInstanceLog(std::string_view instance_name) -> bool {
-  auto new_log = CoordinatorStateMachine::SerializeUnregisterInstance(instance_name);
+auto RaftState::AppendClusterUpdate(std::vector<DataInstanceState> cluster_state, utils::UUID uuid) -> bool {
+  auto new_log = CoordinatorStateMachine::SerializeUpdateClusterState(std::move(cluster_state), uuid);
   auto const res = raft_server_->append_entries({new_log});
   if (!res->get_accepted()) {
-    spdlog::error(
-        "Failed to accept request for unregistering instance {}. Most likely the reason is that the instance is not "
-        "the leader.",
-        instance_name);
+    spdlog::error("Failed to accept request for updating cluster state.");
     return false;
   }
-
-  spdlog::trace("Request for unregistering instance {} accepted", instance_name);
+  spdlog::trace("Request for updating cluster state accepted.");
 
   if (res->get_result_code() != nuraft::cmd_result_code::OK) {
-    spdlog::error("Failed to unregister instance {} with error code {}", instance_name, int(res->get_result_code()));
-    return false;
-  }
-  return true;
-}
-
-auto RaftState::AppendSetInstanceAsMainLog(std::string_view instance_name, utils::UUID const &uuid) -> bool {
-  auto new_log = CoordinatorStateMachine::SerializeSetInstanceAsMain(
-      InstanceUUIDUpdate{.instance_name = std::string{instance_name}, .uuid = uuid});
-  auto const res = raft_server_->append_entries({new_log});
-  if (!res->get_accepted()) {
-    spdlog::error(
-        "Failed to accept request for promoting instance {}. Most likely the reason is that the instance is not "
-        "the leader.",
-        instance_name);
-    return false;
-  }
-
-  spdlog::trace("Request for promoting instance {} accepted", instance_name);
-
-  if (res->get_result_code() != nuraft::cmd_result_code::OK) {
-    spdlog::error("Failed to promote instance {} with error code {}", instance_name, int(res->get_result_code()));
-    return false;
-  }
-  return true;
-}
-
-auto RaftState::AppendSetInstanceAsReplicaLog(std::string_view instance_name) -> bool {
-  auto new_log = CoordinatorStateMachine::SerializeSetInstanceAsReplica(instance_name);
-  auto const res = raft_server_->append_entries({new_log});
-  if (!res->get_accepted()) {
-    spdlog::error(
-        "Failed to accept request for demoting instance {}. Most likely the reason is that the instance is not "
-        "the leader.",
-        instance_name);
-    return false;
-  }
-  spdlog::trace("Request for demoting instance {} accepted", instance_name);
-
-  if (res->get_result_code() != nuraft::cmd_result_code::OK) {
-    spdlog::error("Failed to promote instance {} with error code {}", instance_name, int(res->get_result_code()));
-    return false;
-  }
-
-  return true;
-}
-
-auto RaftState::AppendUpdateUUIDForNewMainLog(utils::UUID const &uuid) -> bool {
-  auto new_log = CoordinatorStateMachine::SerializeUpdateUUIDForNewMain(uuid);
-  auto const res = raft_server_->append_entries({new_log});
-  if (!res->get_accepted()) {
-    spdlog::error(
-        "Failed to accept request for updating UUID. Most likely the reason is that the instance is not "
-        "the leader.");
-    return false;
-  }
-  spdlog::trace("Request for updating UUID to {} accepted", std::string{uuid});
-
-  if (res->get_result_code() != nuraft::cmd_result_code::OK) {
-    spdlog::error("Failed to update UUID with error code {}", int(res->get_result_code()));
-    return false;
-  }
-
-  return true;
-}
-
-auto RaftState::AppendInstanceNeedsDemote(std::string_view instance_name) -> bool {
-  auto new_log = CoordinatorStateMachine::SerializeInstanceNeedsDemote(instance_name);
-  auto const res = raft_server_->append_entries({new_log});
-  if (!res->get_accepted()) {
-    spdlog::error("Failed to accept request that instance {} needs demote", instance_name);
-    return false;
-  }
-
-  spdlog::trace("Request that instance {} needs demote accepted", instance_name);
-
-  if (res->get_result_code() != nuraft::cmd_result_code::OK) {
-    spdlog::error("Failed to add instance {} needs demote with error code {}", instance_name,
-                  static_cast<int>(res->get_result_code()));
-    return false;
-  }
-
-  return true;
-}
-
-auto RaftState::AppendUpdateUUIDForInstanceLog(std::string_view instance_name, const utils::UUID &uuid) -> bool {
-  auto new_log = CoordinatorStateMachine::SerializeUpdateUUIDForInstance(
-      {.instance_name = std::string{instance_name}, .uuid = uuid});
-  auto const res = raft_server_->append_entries({new_log});
-  if (!res->get_accepted()) {
-    spdlog::error("Failed to accept request for updating UUID of instance.");
-    return false;
-  }
-  spdlog::trace("Request for updating UUID of instance {} accepted", instance_name);
-
-  if (res->get_result_code() != nuraft::cmd_result_code::OK) {
-    spdlog::error("Failed to update UUID of instance with error code {}", int(res->get_result_code()));
+    spdlog::error("Failed to update cluster state. Error code {}", int(res->get_result_code()));
     return false;
   }
 
@@ -522,24 +357,14 @@ auto RaftState::HasMainState(std::string_view instance_name) const -> bool {
   return state_machine_->HasMainState(instance_name);
 }
 
-auto RaftState::HasReplicaState(std::string_view instance_name) const -> bool {
-  return state_machine_->HasReplicaState(instance_name);
-}
-
-auto RaftState::GetReplicationInstances() const -> std::vector<ReplicationInstanceState> {
-  return state_machine_->GetReplicationInstances();
+auto RaftState::GetDataInstances() const -> std::vector<DataInstanceState> {
+  return state_machine_->GetDataInstances();
 }
 
 auto RaftState::GetCurrentMainUUID() const -> utils::UUID { return state_machine_->GetCurrentMainUUID(); }
 
 auto RaftState::IsCurrentMain(std::string_view instance_name) const -> bool {
   return state_machine_->IsCurrentMain(instance_name);
-}
-
-auto RaftState::IsLockOpened() const -> bool { return state_machine_->IsLockOpened(); }
-
-auto RaftState::GetInstanceUUID(std::string_view instance_name) const -> utils::UUID {
-  return state_machine_->GetInstanceUUID(instance_name);
 }
 
 auto RaftState::TryGetCurrentMainName() const -> std::optional<std::string> {
@@ -549,21 +374,17 @@ auto RaftState::TryGetCurrentMainName() const -> std::optional<std::string> {
 auto RaftState::GetRoutingTable() const -> RoutingTable {
   auto res = RoutingTable{};
 
-  auto const repl_instance_to_bolt = [](ReplicationInstanceState const &instance) {
+  auto const repl_instance_to_bolt = [](auto &&instance) {
     return instance.config.BoltSocketAddress();  // non-resolved IP
   };
 
-  auto const is_instance_main = [&](ReplicationInstanceState const &instance) {
-    return IsCurrentMain(instance.config.instance_name);
-  };
+  auto const is_instance_main = [&](auto &&instance) { return IsCurrentMain(instance.config.instance_name); };
 
-  auto const is_instance_replica = [&](ReplicationInstanceState const &instance) {
-    return !IsCurrentMain(instance.config.instance_name);
-  };
+  auto const is_instance_replica = [&](auto &&instance) { return !IsCurrentMain(instance.config.instance_name); };
 
-  auto const &raft_log_repl_instances = GetReplicationInstances();
+  auto const raft_log_data_instances = GetDataInstances();
 
-  auto bolt_mains = raft_log_repl_instances | ranges::views::filter(is_instance_main) |
+  auto bolt_mains = raft_log_data_instances | ranges::views::filter(is_instance_main) |
                     ranges::views::transform(repl_instance_to_bolt) | ranges::to<std::vector>();
   MG_ASSERT(bolt_mains.size() <= 1, "There can be at most one main instance active!");
 
@@ -571,7 +392,7 @@ auto RaftState::GetRoutingTable() const -> RoutingTable {
     res.emplace_back(std::move(bolt_mains), "WRITE");
   }
 
-  auto bolt_replicas = raft_log_repl_instances | ranges::views::filter(is_instance_replica) |
+  auto bolt_replicas = raft_log_data_instances | ranges::views::filter(is_instance_replica) |
                        ranges::views::transform(repl_instance_to_bolt) | ranges::to<std::vector>();
   if (!std::ranges::empty(bolt_replicas)) {
     res.emplace_back(std::move(bolt_replicas), "READ");

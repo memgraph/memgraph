@@ -229,7 +229,7 @@ bool ReplicationHandler::DoReplicaToMainPromotion(const utils::UUID &main_uuid) 
     // We need to take bigger timestamp not to lose durability ordering
     storage->timestamp_ =
         std::max(storage->timestamp_, storage->repl_storage_state_.last_durable_timestamp_.load() + 1);
-    spdlog::trace("New timestamp on the MAIN for the database: {} {}", storage->timestamp_, db_acc->name());
+    spdlog::trace("New timestamp on the MAIN is {} for the database {}.", storage->timestamp_, db_acc->name());
   });
 
   // STEP 4) Resume TTL
@@ -270,7 +270,7 @@ auto ReplicationHandler::UnregisterReplica(std::string_view name) -> query::Unre
     auto const n_unregistered =
         std::erase_if(mainData.registered_replicas_, [name](auto const &client) { return client.name_ == name; });
     return n_unregistered != 0 ? query::UnregisterReplicaResult::SUCCESS
-                               : query::UnregisterReplicaResult::CAN_NOT_UNREGISTER;
+                               : query::UnregisterReplicaResult::CANNOT_UNREGISTER;
   };
 
   return std::visit(utils::Overloaded{main_handler, replica_handler}, repl_state_.ReplicationData());
@@ -297,8 +297,12 @@ auto ReplicationHandler::GetDatabasesHistories() -> replication_coordination_glu
   return results;
 }
 
+auto ReplicationHandler::GetMainUUID() -> utils::UUID {
+  return std::get<RoleMainData>(repl_state_.ReplicationData()).uuid_;
+}
+
+// Caller's job to check whether we are main or replica.
 auto ReplicationHandler::GetReplicaUUID() -> std::optional<utils::UUID> {
-  MG_ASSERT(repl_state_.IsReplica(), "Instance is not replica");
   return std::get<RoleReplicaData>(repl_state_.ReplicationData()).uuid_;
 }
 

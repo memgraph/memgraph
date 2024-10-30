@@ -13,6 +13,7 @@ target_sources(mg-coordination
         include/coordination/coordinator_instance.hpp
         include/coordination/data_instance_management_server_handlers.hpp
         include/coordination/instance_status.hpp
+        include/coordination/instance_state.hpp
         include/coordination/replication_instance_connector.hpp
         include/coordination/raft_state.hpp
         include/coordination/rpc_errors.hpp
@@ -21,7 +22,6 @@ target_sources(mg-coordination
         include/coordination/coordinator_instance_connector.hpp
         include/coordination/coordination_observer.hpp
 
-        include/nuraft/raft_log_action.hpp
         include/nuraft/coordinator_cluster_state.hpp
         include/nuraft/coordinator_log_store.hpp
         include/nuraft/coordinator_state_machine.hpp

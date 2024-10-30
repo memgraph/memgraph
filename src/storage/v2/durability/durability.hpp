@@ -102,7 +102,7 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
 // recovery process.
 /// @throw RecoveryFailure
 void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadata &indices_metadata, Indices *indices,
-                            utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
+                            utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper, bool properties_on_edges,
                             const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info = std::nullopt,
                             const std::optional<std::filesystem::path> &storage_dir = std::nullopt);
 
@@ -136,7 +136,7 @@ struct Recovery {
   /// @throw RecoveryFailure
   /// @throw std::bad_alloc
   std::optional<RecoveryInfo> RecoverData(
-      std::string *uuid, ReplicationStorageState &repl_storage_state, utils::SkipList<Vertex> *vertices,
+      utils::UUID &uuid, ReplicationStorageState &repl_storage_state, utils::SkipList<Vertex> *vertices,
       utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata, std::atomic<uint64_t> *edge_count,
       NameIdMapper *name_id_mapper, Indices *indices, Constraints *constraints, Config const &config,
       uint64_t *wal_seq_num, EnumStore *enum_store, SharedSchemaTracking *schema_info,

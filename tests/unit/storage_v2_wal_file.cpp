@@ -223,8 +223,7 @@ class DeltaGenerator final {
 
   DeltaGenerator(const std::filesystem::path &data_directory, bool properties_on_edges, uint64_t seq_num,
                  memgraph::storage::StorageMode storage_mode = memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL)
-      : uuid_(memgraph::utils::GenerateUUID()),
-        epoch_id_(memgraph::utils::GenerateUUID()),
+      : epoch_id_(memgraph::utils::GenerateUUID()),
         seq_num_(seq_num),
         wal_file_(data_directory, uuid_, epoch_id_, {.properties_on_edges = properties_on_edges}, &mapper_, seq_num,
                   &file_retainer_),
@@ -462,7 +461,7 @@ class DeltaGenerator final {
   memgraph::storage::durability::WalInfo GetInfo() {
     return {.offset_metadata = 0,
             .offset_deltas = 0,
-            .uuid = uuid_,
+            .uuid = std::string{uuid_},
             .epoch_id = epoch_id_,
             .seq_num = seq_num_,
             .from_timestamp = tx_from_,
@@ -481,7 +480,7 @@ class DeltaGenerator final {
     deltas_count_ += count;
   }
 
-  std::string uuid_;
+  memgraph::utils::UUID uuid_;
   std::string epoch_id_;
   uint64_t seq_num_;
 

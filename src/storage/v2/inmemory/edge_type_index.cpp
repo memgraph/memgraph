@@ -136,11 +136,16 @@ void InMemoryEdgeTypeIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_t
         continue;
       }
 
-      if (next_it != edges_acc.end() || it->from_vertex->deleted || it->to_vertex->deleted ||
-          !std::ranges::all_of(it->from_vertex->out_edges, [&](const auto &edge) {
-            auto *to_vertex = std::get<InMemoryEdgeTypeIndex::kVertexPos>(edge);
-            return to_vertex != it->to_vertex;
-          })) {
+      const bool vertices_deleted = it->from_vertex->deleted || it->to_vertex->deleted;
+      const bool has_next = next_it != edges_acc.end();
+
+      // When we update specific entries in the index, we don't delete the previous entry.
+      // The way they are removed from the index is through this check. The entries should
+      // be right next to each other(in terms of iterator semantics) and the older one
+      // should be removed here.
+      const bool redundant_duplicate = has_next && it->from_vertex == next_it->from_vertex &&
+                                       it->to_vertex == next_it->to_vertex && it->edge == next_it->edge;
+      if (redundant_duplicate || vertices_deleted) {
         edges_acc.remove(*it);
       }
 
