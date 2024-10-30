@@ -12,10 +12,8 @@
 #include "storage/v2/vertex_accessor.hpp"
 
 #include <algorithm>
-#include <chrono>
 #include <cstdint>
 #include <memory>
-#include <thread>
 #include <tuple>
 #include <utility>
 
@@ -32,6 +30,7 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
 #include "storage/v2/schema_info.hpp"
+#include "storage/v2/schema_info_glue.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex_info_cache.hpp"
@@ -127,8 +126,8 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
   // 2. lock vertex and check
   // 3. if unique lock is needed unlock both the vertex and accessor
   // 4. take unique access and re-lock vertex
-  std::optional<std::variant<SchemaInfo::AnalyticalAccessor, SchemaInfo::AnalyticalUniqueAccessor>> schema_acc;
-  if (auto schema_shared_acc = storage_->SchemaInfoAccessor(); schema_shared_acc) {
+  std::optional<SchemaInfo::ModifyingAccessor> schema_acc;
+  if (auto schema_shared_acc = SchemaInfoAccessor(storage_, transaction_); schema_shared_acc) {
     schema_acc = std::move(*schema_shared_acc);
   }
   auto guard = std::unique_lock{vertex_->lock};
@@ -141,7 +140,8 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
     if (!vertex_->in_edges.empty() || !vertex_->out_edges.empty()) {
       guard.unlock();
       schema_acc.reset();
-      schema_acc = *storage_->SchemaInfoUniqueAccessor();
+      std::visit(utils::Overloaded{[&schema_acc](auto in) { schema_acc = std::move(in); }},
+                 *SchemaInfoUniqueAccessor(storage_, transaction_));
       guard.lock();
       // Need to re-check for serialization errors
       if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
@@ -190,10 +190,7 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
   // NOTE Has to be called at the end because it needs to be able to release the vertex lock (in case edges need to be
   // updated)
   if (schema_acc) {
-    std::visit(utils::Overloaded(
-                   [&](SchemaInfo::AnalyticalAccessor &acc) { acc.AddLabel(vertex_, label); },
-                   [&](SchemaInfo::AnalyticalUniqueAccessor &acc) { acc.AddLabel(vertex_, label, std::move(guard)); }),
-               *schema_acc);
+    std::visit(utils::Overloaded([&](auto &acc) { acc.AddLabel(vertex_, label); }), *schema_acc);
   }
   return true;
 }
@@ -208,8 +205,8 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
   // 2. lock vertex and check
   // 3. if unique lock is needed unlock both the vertex and accessor
   // 4. take unique access and re-lock vertex
-  std::optional<std::variant<SchemaInfo::AnalyticalAccessor, SchemaInfo::AnalyticalUniqueAccessor>> schema_acc;
-  if (auto schema_shared_acc = storage_->SchemaInfoAccessor(); schema_shared_acc) {
+  std::optional<SchemaInfo::ModifyingAccessor> schema_acc;
+  if (auto schema_shared_acc = SchemaInfoAccessor(storage_, transaction_); schema_shared_acc) {
     schema_acc = std::move(*schema_shared_acc);
   }
   auto guard = std::unique_lock{vertex_->lock};
@@ -222,7 +219,8 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
     if (!vertex_->in_edges.empty() || !vertex_->out_edges.empty()) {
       guard.unlock();
       schema_acc.reset();
-      schema_acc = *storage_->SchemaInfoUniqueAccessor();
+      std::visit(utils::Overloaded{[&schema_acc](auto in) { schema_acc = std::move(in); }},
+                 *SchemaInfoUniqueAccessor(storage_, transaction_));
       guard.lock();
       // Need to re-check for serialization errors
       if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
@@ -247,11 +245,7 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
   // NOTE Has to be called at the end because it needs to be able to release the vertex lock (in case edges need to be
   // updated)
   if (schema_acc) {
-    std::visit(utils::Overloaded([&](SchemaInfo::AnalyticalAccessor &acc) { acc.RemoveLabel(vertex_, label); },
-                                 [&](SchemaInfo::AnalyticalUniqueAccessor &acc) {
-                                   acc.RemoveLabel(vertex_, label, std::move(guard));
-                                 }),
-               *schema_acc);
+    std::visit(utils::Overloaded([&](auto &acc) { acc.RemoveLabel(vertex_, label); }), *schema_acc);
   }
   return true;
 }
@@ -357,7 +351,7 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
 
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   // This has to be called before any object gets locked
-  auto schema_acc = storage_->SchemaInfoAccessor();
+  auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
   auto guard = std::unique_lock{vertex_->lock};
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
@@ -381,8 +375,15 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
 
     CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, old_value);
     vertex->properties.SetProperty(property, new_value);
-    if (schema_acc)
-      schema_acc->SetProperty(vertex, property, ExtendedPropertyType{new_value}, ExtendedPropertyType{old_value});
+    if (schema_acc) {
+      std::visit(
+          utils::Overloaded{[vertex, property, new_type = ExtendedPropertyType{new_value},
+                             old_type = ExtendedPropertyType{old_value}](SchemaInfo::VertexModifyingAccessor &acc) {
+                              acc.SetProperty(vertex, property, new_type, old_type);
+                            },
+                            [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+          *schema_acc);
+    }
 
     if (storage_->constraints_.HasTypeConstraints()) {
       if (auto maybe_violation = storage_->constraints_.type_constraints_->Validate(*vertex_, property, new_value)) {
@@ -418,7 +419,7 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
 
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   // This has to be called before any object gets locked
-  auto schema_acc = storage_->SchemaInfoAccessor();
+  auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
   auto guard = std::unique_lock{vertex_->lock};
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
@@ -442,8 +443,14 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
               transaction->constraint_verification_info->RemovedProperty(vertex);
             }
           }
-          if (schema_acc)
-            schema_acc->SetProperty(vertex, property, ExtendedPropertyType{new_value}, ExtendedPropertyType{});
+          if (schema_acc) {
+            std::visit(utils::Overloaded{[vertex, property, new_type = ExtendedPropertyType{new_value}](
+                                             SchemaInfo::VertexModifyingAccessor &acc) {
+                                           acc.SetProperty(vertex, property, new_type, ExtendedPropertyType{});
+                                         },
+                                         [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+                       *schema_acc);
+          }
         }
         // TODO If not performant enough there is also InitProperty()
         if (storage->constraints_.HasTypeConstraints()) {
@@ -468,7 +475,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
 
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   // This has to be called before any object gets locked
-  auto schema_acc = storage_->SchemaInfoAccessor();
+  auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
   auto guard = std::unique_lock{vertex_->lock};
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
@@ -497,8 +504,14 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
           transaction->constraint_verification_info->RemovedProperty(vertex);
         }
       }
-      if (schema_acc)
-        schema_acc->SetProperty(vertex, id, ExtendedPropertyType{new_value}, ExtendedPropertyType{old_value});
+      if (schema_acc) {
+        std::visit(utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) {
+                                       acc.SetProperty(vertex, id, ExtendedPropertyType{new_value},
+                                                       ExtendedPropertyType{old_value});
+                                     },
+                                     [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+                   *schema_acc);
+      }
     }
     if (storage->constraints_.HasTypeConstraints()) {
       if (auto maybe_violation = storage->constraints_.type_constraints_->Validate(*vertex)) {
@@ -515,7 +528,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
     throw query::WriteVertexOperationInEdgeImportModeException();
   }
   // This has to be called before any object gets locked
-  auto schema_acc = storage_->SchemaInfoAccessor();
+  auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
   auto guard = std::unique_lock{vertex_->lock};
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
@@ -535,8 +548,14 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
           CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, old_value);
           storage->indices_.UpdateOnSetProperty(property, new_value, vertex, *transaction);
           transaction->UpdateOnSetProperty(property, old_value, new_value, vertex);
-          if (schema_acc)
-            schema_acc->SetProperty(vertex, property, ExtendedPropertyType{}, ExtendedPropertyType{old_value});
+          if (schema_acc) {
+            std::visit(utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) {
+                                           acc.SetProperty(vertex, property, ExtendedPropertyType{},
+                                                           ExtendedPropertyType{old_value});
+                                         },
+                                         [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+                       *schema_acc);
+          }
         }
         if (transaction->constraint_verification_info) {
           transaction->constraint_verification_info->RemovedProperty(vertex);

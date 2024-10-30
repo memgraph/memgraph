@@ -17,14 +17,19 @@
 
 #include "storage/v2/delta.hpp"
 #include "storage/v2/edge_info_helpers.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
+#include "storage/v2/schema_info_glue.hpp"
 #include "storage/v2/storage.hpp"
+#include "storage/v2/storage_mode.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/atomic_memory_block.hpp"
+#include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
+#include "utils/variant_helpers.hpp"
 
 namespace memgraph::storage {
 std::optional<EdgeAccessor> EdgeAccessor::Create(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex,
@@ -192,7 +197,11 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
   if (!storage_->config_.salient.items.properties_on_edges) return Error::PROPERTIES_DISABLED;
 
   // This needs to happen before locking the object
-  auto schema_acc = storage_->SchemaInfoUniqueAccessor();
+  auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
+
+  // Need to follow lock ordering: 1. vertices in order of GID 2. edge
+  auto v_locks = SchemaInfo::ReadLockFromTo(schema_acc, storage_->GetStorageMode(), from_vertex_, to_vertex_);
+
   auto guard = std::unique_lock{edge_.ptr->lock};
 
   if (!PrepareForWrite(transaction_, edge_.ptr)) return Error::SERIALIZATION_ERROR;
@@ -201,9 +210,8 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
   using ReturnType = decltype(edge_.ptr->properties.GetProperty(property));
   std::optional<ReturnType> current_value;
   const bool skip_duplicate_write = !storage_->config_.salient.items.delta_on_identical_property_update;
-  utils::AtomicMemoryBlock([this, &current_value, &property, &value, transaction = transaction_, edge = edge_,
-                            skip_duplicate_write, &schema_acc]() {
-    current_value.emplace(edge.ptr->properties.GetProperty(property));
+  utils::AtomicMemoryBlock([this, &current_value, &property, &value, skip_duplicate_write, &schema_acc]() {
+    current_value.emplace(edge_.ptr->properties.GetProperty(property));
     if (skip_duplicate_write && current_value == value) {
       return;
     }
@@ -213,20 +221,26 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
     // current code always follows the logical pattern of "create a delta" and
     // "modify in-place". Additionally, the created delta will make other
     // transactions get a SERIALIZATION_ERROR.
-    CreateAndLinkDelta(transaction, edge.ptr, Delta::SetPropertyTag(), from_vertex_, property, *current_value);
-    edge.ptr->properties.SetProperty(property, value);
+    DMG_ASSERT(from_vertex_, "Missing from vertex!");
+    CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), from_vertex_, property, *current_value);
+    edge_.ptr->properties.SetProperty(property, value);
     storage_->indices_.UpdateOnSetProperty(edge_type_, property, value, from_vertex_, to_vertex_, edge_.ptr,
                                            *transaction_);
-    if (schema_acc)
-      schema_acc->SetProperty(edge_type_, from_vertex_, to_vertex_, property, ExtendedPropertyType{value},
-                              ExtendedPropertyType{*current_value});
+    if (schema_acc) {
+      std::visit(utils::Overloaded{
+                     [this, property, new_type = ExtendedPropertyType{value},
+                      old_type = ExtendedPropertyType{*current_value}](SchemaInfo::VertexModifyingAccessor &acc) {
+                       acc.SetProperty(edge_, edge_type_, from_vertex_, to_vertex_, property, new_type, old_type);
+                     },
+                     [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+                 *schema_acc);
+    }
   });
 
   if (transaction_->IsDiskStorage()) {
-    ModifiedEdgeInfo modified_edge(Delta::Action::SET_PROPERTY, from_vertex_->gid, to_vertex_->gid, edge_type_, edge_);
-    transaction_->AddModifiedEdge(Gid(), modified_edge);
+    transaction_->AddModifiedEdge(
+        Gid(), ModifiedEdgeInfo{Delta::Action::SET_PROPERTY, from_vertex_->gid, to_vertex_->gid, edge_type_, edge_});
   }
-
   return std::move(*current_value);
 }
 
@@ -235,7 +249,11 @@ Result<bool> EdgeAccessor::InitProperties(const std::map<storage::PropertyId, st
   if (!storage_->config_.salient.items.properties_on_edges) return Error::PROPERTIES_DISABLED;
 
   // This needs to happen before locking the object
-  auto schema_acc = storage_->SchemaInfoUniqueAccessor();
+  auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
+
+  // Need to follow lock ordering: 1. vertices in order of GID 2. edge
+  auto v_locks = SchemaInfo::ReadLockFromTo(schema_acc, storage_->GetStorageMode(), from_vertex_, to_vertex_);
+
   auto guard = std::unique_lock{edge_.ptr->lock};
 
   if (!PrepareForWrite(transaction_, edge_.ptr)) return Error::SERIALIZATION_ERROR;
@@ -243,14 +261,21 @@ Result<bool> EdgeAccessor::InitProperties(const std::map<storage::PropertyId, st
   if (edge_.ptr->deleted) return Error::DELETED_OBJECT;
 
   if (!edge_.ptr->properties.InitProperties(properties)) return false;
-  utils::AtomicMemoryBlock([this, &properties, transaction_ = transaction_, edge_ = edge_, &schema_acc]() {
+  utils::AtomicMemoryBlock([this, &properties, &schema_acc]() {
     for (const auto &[property, value] : properties) {
+      DMG_ASSERT(from_vertex_, "Missing from vertex!");
       CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), from_vertex_, property, PropertyValue());
       storage_->indices_.UpdateOnSetProperty(edge_type_, property, value, from_vertex_, to_vertex_, edge_.ptr,
                                              *transaction_);
-      if (schema_acc)
-        schema_acc->SetProperty(edge_type_, from_vertex_, to_vertex_, property, ExtendedPropertyType{value},
-                                ExtendedPropertyType{});
+      if (schema_acc) {
+        std::visit(utils::Overloaded{[this, property, new_type = ExtendedPropertyType{value}](
+                                         SchemaInfo::VertexModifyingAccessor &acc) {
+                                       acc.SetProperty(edge_, edge_type_, from_vertex_, to_vertex_, property, new_type,
+                                                       ExtendedPropertyType{});
+                                     },
+                                     [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+                   *schema_acc);
+      }
     }
     // TODO If the current implementation is too slow there is an InitProperties option
   });
@@ -260,11 +285,15 @@ Result<bool> EdgeAccessor::InitProperties(const std::map<storage::PropertyId, st
 
 Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAccessor::UpdateProperties(
     std::map<storage::PropertyId, storage::PropertyValue> &properties) const {
-  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+  const utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   if (!storage_->config_.salient.items.properties_on_edges) return Error::PROPERTIES_DISABLED;
 
   // This needs to happen before locking the object
-  auto schema_acc = storage_->SchemaInfoUniqueAccessor();
+  auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
+
+  // Need to follow lock ordering: 1. vertices in order of GID 2. edge
+  auto v_locks = SchemaInfo::ReadLockFromTo(schema_acc, storage_->GetStorageMode(), from_vertex_, to_vertex_);
+
   auto guard = std::unique_lock{edge_.ptr->lock};
 
   if (!PrepareForWrite(transaction_, edge_.ptr)) return Error::SERIALIZATION_ERROR;
@@ -278,12 +307,19 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAc
     id_old_new_change.emplace(edge_.ptr->properties.UpdateProperties(properties));
     for (auto const &[property, old_value, new_value] : *id_old_new_change) {
       if (skip_duplicate_write && old_value == new_value) continue;
+      DMG_ASSERT(from_vertex_, "Missing from vertex!");
       CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), from_vertex_, property, old_value);
       storage_->indices_.UpdateOnSetProperty(edge_type_, property, new_value, from_vertex_, to_vertex_, edge_.ptr,
                                              *transaction_);
-      if (schema_acc)
-        schema_acc->SetProperty(edge_type_, from_vertex_, to_vertex_, property, ExtendedPropertyType{new_value},
-                                ExtendedPropertyType{old_value});
+      if (schema_acc) {
+        std::visit(utils::Overloaded{
+                       [this, property, new_type = ExtendedPropertyType{new_value},
+                        old_type = ExtendedPropertyType{old_value}](SchemaInfo::VertexModifyingAccessor &acc) {
+                         acc.SetProperty(edge_, edge_type_, from_vertex_, to_vertex_, property, new_type, old_type);
+                       },
+                       [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+                   *schema_acc);
+      }
     }
     // TODO If the current implementation is too slow there is an UpdateProperties option
   });
@@ -295,7 +331,11 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
   if (!storage_->config_.salient.items.properties_on_edges) return Error::PROPERTIES_DISABLED;
 
   // This needs to happen before locking the object
-  auto schema_acc = storage_->SchemaInfoUniqueAccessor();
+  auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
+
+  // Need to follow lock ordering: 1. vertices in order of GID 2. edge
+  auto v_locks = SchemaInfo::ReadLockFromTo(schema_acc, storage_->GetStorageMode(), from_vertex_, to_vertex_);
+
   auto guard = std::unique_lock{edge_.ptr->lock};
 
   if (!PrepareForWrite(transaction_, edge_.ptr)) return Error::SERIALIZATION_ERROR;
@@ -307,13 +347,21 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
   utils::AtomicMemoryBlock([&properties, this, &schema_acc]() {
     properties.emplace(edge_.ptr->properties.Properties());
     for (const auto &property : *properties) {
+      DMG_ASSERT(from_vertex_, "Missing from vertex!");
       CreateAndLinkDelta(transaction_, edge_.ptr, Delta::SetPropertyTag(), from_vertex_, property.first,
                          property.second);
       storage_->indices_.UpdateOnSetProperty(edge_type_, property.first, PropertyValue(), from_vertex_, to_vertex_,
                                              edge_.ptr, *transaction_);
-      if (schema_acc)
-        schema_acc->SetProperty(edge_type_, from_vertex_, to_vertex_, property.first, ExtendedPropertyType{},
-                                ExtendedPropertyType{property.second.type()});
+      if (schema_acc) {
+        std::visit(
+            utils::Overloaded{[this, property_id = property.first, old_type = ExtendedPropertyType{property.second}](
+                                  SchemaInfo::VertexModifyingAccessor &acc) {
+                                acc.SetProperty(edge_, edge_type_, from_vertex_, to_vertex_, property_id,
+                                                ExtendedPropertyType{}, old_type);
+                              },
+                              [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+            *schema_acc);
+      }
     }
     // TODO If the current implementation is too slow there is an ClearProperties option
 
