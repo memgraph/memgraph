@@ -16,6 +16,7 @@
 #include <json/json.hpp>
 #include <string>
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
@@ -122,7 +123,7 @@ class VectorIndex {
   /// @param vertex The vertex to be added.
   /// @param label_prop The label and property key for the index.
   /// @param commit_timestamp The commit timestamp for the operation.
-  void AddNodeToIndex(Vertex *vertex, const LabelPropKey &label_prop) const;
+  void AddNodeToIndex(Vertex *vertex, const LabelPropKey &label_prop, const PropertyValue *value = nullptr) const;
 
   struct Impl;
   std::unique_ptr<Impl> pimpl;

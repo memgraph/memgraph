@@ -10,12 +10,14 @@
 // licenses/APL.txt.
 
 #include <cstdint>
+#include <optional>
 #include <ranges>
 #include <stop_token>
 
 #include "absl/container/flat_hash_map.h"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/vector_index.hpp"
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
 #include "usearch/index.hpp"
 #include "usearch/index_dense.hpp"
@@ -125,9 +127,16 @@ void VectorIndex::CreateIndex(const VectorIndexSpec &spec) {
   spdlog::trace("Created vector index " + spec.index_name);
 }
 
-void VectorIndex::AddNodeToIndex(Vertex *vertex, const LabelPropKey &label_prop) const {
+void VectorIndex::AddNodeToIndex(Vertex *vertex, const LabelPropKey &label_prop, const PropertyValue *value) const {
   auto &index = pimpl->index_.at(label_prop);
-  const auto &vector_property = vertex->properties.GetProperty(label_prop.property()).ValueList();
+  const auto &property = (value != nullptr ? *value : vertex->properties.GetProperty(label_prop.property()));
+  if (property.IsNull()) {
+    return;
+  }
+  if (!property.IsList()) {
+    throw std::invalid_argument("Vector index property must be a list.");
+  }
+  const auto &vector_property = property.ValueList();
   std::vector<float> vector;
   vector.reserve(vector_property.size());
   std::transform(vector_property.begin(), vector_property.end(), std::back_inserter(vector), [](const auto &value) {
@@ -139,6 +148,8 @@ void VectorIndex::AddNodeToIndex(Vertex *vertex, const LabelPropKey &label_prop)
     }
     throw std::invalid_argument("Vector index property must be a list of floats or integers.");
   });
+  // first, try to remove entry (if it exists) and then add new one
+  index.remove(vertex);
   index.add(vertex, vector.data());
 }
 
@@ -147,10 +158,7 @@ void VectorIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_upd
     if (label_prop.label() != added_label) {
       continue;
     }
-    const auto &vector_property = vertex_after_update->properties.GetProperty(label_prop.property());
-    if (!vector_property.IsNull()) {
-      AddNodeToIndex(vertex_after_update, label_prop);
-    }
+    AddNodeToIndex(vertex_after_update, label_prop);
   }
 }
 
@@ -174,7 +182,7 @@ void VectorIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &
     if (value.IsNull()) {
       pimpl->index_.at(label_prop).remove(vertex);
     } else {
-      AddNodeToIndex(vertex, label_prop);
+      AddNodeToIndex(vertex, label_prop, &value);
     }
   }
 }
@@ -212,15 +220,11 @@ std::vector<std::pair<Gid, double>> VectorIndex::Search(std::string_view index_n
 
 void VectorIndex::AbortEntries(const LabelPropKey &label_prop, std::span<Vertex *const> vertices) const {
   auto &index = pimpl->index_.at(label_prop);
-  for (const auto &vertex : vertices) {
-    index.remove(vertex);
-  }
+  std::ranges::for_each(vertices, [&index](Vertex *vertex) { index.remove(vertex); });
 }
 
 void VectorIndex::RestoreEntries(const LabelPropKey &label_prop, std::span<Vertex *const> vertices) const {
-  for (const auto &vertex : vertices) {
-    AddNodeToIndex(vertex, label_prop);
-  }
+  std::ranges::for_each(vertices, [this, &label_prop](Vertex *vertex) { AddNodeToIndex(vertex, label_prop); });
 }
 
 void VectorIndex::RemoveObsoleteEntries(std::stop_token token) const {
@@ -229,8 +233,7 @@ void VectorIndex::RemoveObsoleteEntries(std::stop_token token) const {
     if (token.stop_requested() || maybe_stop()) {
       return;
     }
-    std::vector<Vertex *> vertices_to_remove;
-    vertices_to_remove.reserve(index.size());
+    std::vector<Vertex *> vertices_to_remove(index.size());
     index.export_keys(vertices_to_remove.data(), 0, index.size());
 
     auto deleted = vertices_to_remove | std::views::filter([](const Vertex *vertex) { return vertex->deleted; });
