@@ -460,11 +460,14 @@ class Storage {
         const std::vector<VertexAccessor *> &vertices);
     EdgeInfoForDeletion PrepareDeletableEdges(const std::unordered_set<Vertex *> &vertices,
                                               const std::vector<EdgeAccessor *> &edges, bool detach) noexcept;
-    Result<std::optional<std::vector<EdgeAccessor>>> ClearEdgesOnVertices(const std::unordered_set<Vertex *> &vertices,
-                                                                          std::unordered_set<Gid> &deleted_edge_ids);
+    Result<std::optional<std::vector<EdgeAccessor>>> ClearEdgesOnVertices(
+        const std::unordered_set<Vertex *> &vertices, std::unordered_set<Gid> &deleted_edge_ids,
+        std::optional<SchemaInfo::ModifyingAccessor> &schema_acc);
     Result<std::optional<std::vector<EdgeAccessor>>> DetachRemainingEdges(
-        EdgeInfoForDeletion info, std::unordered_set<Gid> &partially_detached_edge_ids);
-    Result<std::vector<VertexAccessor>> TryDeleteVertices(const std::unordered_set<Vertex *> &vertices);
+        EdgeInfoForDeletion info, std::unordered_set<Gid> &partially_detached_edge_ids,
+        std::optional<SchemaInfo::ModifyingAccessor> &schema_acc);
+    Result<std::vector<VertexAccessor>> TryDeleteVertices(const std::unordered_set<Vertex *> &vertices,
+                                                          std::optional<SchemaInfo::ModifyingAccessor> &schema_acc);
     void MarkEdgeAsDeleted(Edge *edge);
 
    private:
@@ -594,21 +597,6 @@ class Storage {
 
   // Mutable methods only safe if we have UniqueAccess to this storage
   EnumStore enum_store_;
-
-  std::optional<SchemaInfo::AnalyticalAccessor> SchemaInfoAccessor() {
-    if (!config_.salient.items.enable_schema_info) return std::nullopt;
-    if (storage_mode_ != StorageMode::IN_MEMORY_ANALYTICAL) return std::nullopt;
-    return schema_info_.CreateAccessor(config_.salient.items.properties_on_edges);
-  }
-
-  std::optional<SchemaInfo::AnalyticalUniqueAccessor> SchemaInfoUniqueAccessor() {
-    if (!config_.salient.items.enable_schema_info) return std::nullopt;
-    if (storage_mode_ != StorageMode::IN_MEMORY_ANALYTICAL) return std::nullopt;
-    return schema_info_.CreateUniqueAccessor(config_.salient.items.properties_on_edges);
-  }
-
-  SchemaInfo::ReadAccessor SchemaInfoReadAccessor() { return schema_info_.CreateReadAccessor(); }
-  SchemaInfo::WriteAccessor SchemaInfoWriteAccessor() { return schema_info_.CreateWriteAccessor(); }
 
   SchemaInfo schema_info_;
 };

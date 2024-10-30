@@ -14,8 +14,10 @@
 #include <atomic>
 #include <limits>
 #include <memory>
+#include <unordered_map>
 
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/schema_info.hpp"
 #include "utils/memory.hpp"
 #include "utils/skip_list.hpp"
 
@@ -29,6 +31,7 @@
 #include "storage/v2/metadata_delta.hpp"
 #include "storage/v2/modified_edge.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/schema_info_types.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_info_cache.hpp"
@@ -142,6 +145,9 @@ struct Transaction {
   PointIndexContext point_index_ctx_;
   /// Tracks changes relevant to point index (used during Commit/AdvanceCommand)
   PointIndexChangeCollector point_index_change_collector_;
+  /// Tracking schema changes done during the transaction
+  LocalSchemaTracking schema_diff_;
+  std::unordered_set<SchemaInfoPostProcess> post_process_;
 };
 
 inline bool operator==(const Transaction &first, const Transaction &second) {

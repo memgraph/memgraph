@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,6 +12,7 @@
 #include "mg_procedure.h"
 
 #include "mgp.hpp"
+#include "query/exceptions.hpp"
 
 namespace {
 
@@ -27,6 +28,8 @@ void SetFrom(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_
     auto new_from{arguments[1].ValueNode()};
     mgp::Graph graph{memgraph_graph};
     graph.SetFrom(rel, new_from);
+  } catch (const memgraph::query::RetryBasicException &e) {
+    throw;
   } catch (const std::exception &e) {
     return;
   }
@@ -40,6 +43,8 @@ void SetTo(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_me
     auto new_to{arguments[1].ValueNode()};
     mgp::Graph graph{memgraph_graph};
     graph.SetTo(rel, new_to);
+  } catch (const memgraph::query::RetryBasicException &e) {
+    throw;
   } catch (const std::exception &e) {
     return;
   }
@@ -53,6 +58,8 @@ void ChangeType(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, m
     auto new_type{arguments[1].ValueString()};
     mgp::Graph graph{memgraph_graph};
     graph.ChangeType(rel, new_type);
+  } catch (const memgraph::query::RetryBasicException &e) {
+    throw;
   } catch (const std::exception &e) {
     return;
   }

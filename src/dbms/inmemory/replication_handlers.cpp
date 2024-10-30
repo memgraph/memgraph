@@ -21,6 +21,7 @@
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
+#include "storage/v2/schema_info.hpp"
 
 #include <spdlog/spdlog.h>
 #include <cstdint>
@@ -40,11 +41,11 @@ using memgraph::storage::durability::WalDeltaData;
 
 namespace memgraph::dbms {
 namespace {
-std::pair<uint64_t, WalDeltaData> ReadDelta(storage::durability::BaseDecoder *decoder) {
+std::pair<uint64_t, WalDeltaData> ReadDelta(storage::durability::BaseDecoder *decoder, const uint64_t version) {
   try {
     auto timestamp = ReadWalDeltaHeader(decoder);
     spdlog::trace("       Timestamp {}", timestamp);
-    auto delta = ReadWalDeltaData(decoder);
+    auto delta = ReadWalDeltaData(decoder, version);
     return {timestamp, delta};
   } catch (const slk::SlkReaderException &) {
     throw utils::BasicException("Missing data!");
@@ -226,10 +227,10 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
     bool transaction_complete = false;
     while (!transaction_complete) {
       SPDLOG_INFO("Skipping delta");
-      const auto [timestamp, delta] = ReadDelta(&decoder);
-      transaction_complete = storage::durability::IsWalDeltaDataTypeTransactionEnd(
-          delta.type,
-          storage::durability::kVersion);  // TODO: Check if we are always using the latest version when replicating
+      // TODO: Check if we are always using the latest version when replicating
+      const auto [timestamp, delta] = ReadDelta(&decoder, storage::durability::kVersion);
+      transaction_complete =
+          storage::durability::IsWalDeltaDataTypeTransactionEnd(delta.type, storage::durability::kVersion);
     }
 
     const storage::replication::AppendDeltasRes res{false, repl_storage_state.last_durable_timestamp_.load()};
@@ -284,7 +285,8 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
     auto recovered_snapshot = storage::durability::LoadSnapshot(
         *maybe_snapshot_path, &storage->vertices_, &storage->edges_, &storage->edges_metadata_,
         &storage->repl_storage_state_.history, storage->name_id_mapper_.get(), &storage->edge_count_, storage->config_,
-        &storage->enum_store_, storage->config_.salient.items.enable_schema_info ? &storage->schema_info_ : nullptr);
+        &storage->enum_store_,
+        storage->config_.salient.items.enable_schema_info ? &storage->schema_info_.Get() : nullptr);
     spdlog::debug("Snapshot loaded successfully");
     // If this step is present it should always be the first step of
     // the recovery so we use the UUID we read from snasphost
@@ -567,7 +569,7 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
   auto max_delta_timestamp = storage->repl_storage_state_.last_durable_timestamp_.load();
   auto current_durable_commit_timestamp = max_delta_timestamp;
   for (bool transaction_complete = false; !transaction_complete; ++current_delta_idx) {
-    const auto [delta_timestamp, delta] = ReadDelta(decoder);
+    const auto [delta_timestamp, delta] = ReadDelta(decoder, version);
     if (delta_timestamp > max_delta_timestamp) {
       max_delta_timestamp = delta_timestamp;
     }
@@ -731,13 +733,33 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
         // type and invalid from/to pointers because we don't know them
         // here, but that isn't an issue because we won't use that part of
         // the API here.
-        auto ea = EdgeAccessor{edge_ref, EdgeTypeId::FromUint(0UL),     nullptr, nullptr,
-                               storage,  &transaction->GetTransaction()};
 
-        auto ret = ea.SetProperty(transaction->NameToProperty(delta.vertex_edge_set_property.property),
-                                  delta.vertex_edge_set_property.value);
-        if (ret.HasError())
-          throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
+        if (version >= storage::durability::kEdgeSetDeltaWithVertexInfo) {
+          auto vacc = storage->vertices_.access();
+          auto from_v = vacc.find(delta.vertex_edge_set_property.from_gid);
+          if (from_v == vacc.end())
+            throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
+          auto found_edge = std::find_if(from_v->out_edges.begin(), from_v->out_edges.end(),
+                                         [&edge_ref](auto &in) { return std::get<2>(in) == edge_ref; });
+          if (found_edge == from_v->out_edges.end())
+            throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
+          const auto &[edge_type, to, edge_ref] = *found_edge;
+          auto ea = EdgeAccessor{edge_ref, edge_type, &*from_v, to, storage, &transaction->GetTransaction()};
+          auto ret = ea.SetProperty(transaction->NameToProperty(delta.vertex_edge_set_property.property),
+                                    delta.vertex_edge_set_property.value);
+          if (ret.HasError())
+            throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
+        } else {
+          auto found_edge = storage->FindEdge(edge->gid);
+          if (!found_edge)
+            throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
+          const auto &[edge_ref, edge_type, from, to] = *found_edge;
+          auto ea = EdgeAccessor{edge_ref, edge_type, from, to, storage, &transaction->GetTransaction()};
+          auto ret = ea.SetProperty(transaction->NameToProperty(delta.vertex_edge_set_property.property),
+                                    delta.vertex_edge_set_property.value);
+          if (ret.HasError())
+            throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
+        }
         break;
       }
 
