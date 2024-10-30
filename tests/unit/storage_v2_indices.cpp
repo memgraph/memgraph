@@ -1459,12 +1459,55 @@ TYPED_TEST(IndexTest, EdgeTypeIndexCreate) {
 
     // Check that GC doesn't remove useful elements
     {
+      // Double call to free memory: first run unlinks and marks for cleanup; second run deletes
+      this->storage->FreeMemory({}, false);
       this->storage->FreeMemory({}, false);
       auto acc = this->storage->Access();
       EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, View::OLD), View::OLD),
                   UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
       EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, View::NEW), View::NEW),
                   UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
+    }
+    {
+      {
+        auto acc = this->storage->Access();
+        for (auto vertex : acc->Vertices(View::OLD)) {
+          auto edges = vertex.OutEdges(View::OLD)->edges;
+          for (auto &edge : edges) {
+            int64_t id = edge.GetProperty(this->prop_id, View::OLD)->ValueInt();
+            if (id % 3 == 0) {
+              ASSERT_NO_ERROR(acc->DeleteEdge(&edge));
+            }
+          }
+        }
+        acc->Commit();
+      }
+      this->storage->FreeMemory({}, false);
+      this->storage->FreeMemory({}, false);
+      auto acc = this->storage->Access();
+      EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, View::OLD), View::OLD),
+                  UnorderedElementsAre(1, 5, 7, 23, 25, 29));
+    }
+    {
+      {
+        auto acc = this->storage->Access();
+        for (auto vertex : acc->Vertices(View::OLD)) {
+          auto edges = vertex.OutEdges(View::OLD)->edges;
+          for (auto &edge : edges) {
+            int64_t id = edge.GetProperty(this->prop_id, View::OLD)->ValueInt();
+            if (id % 5 == 0) {
+              ASSERT_NO_ERROR(acc->DetachDelete({&vertex}, {}, true));
+              break;
+            }
+          }
+        }
+        acc->Commit();
+      }
+      this->storage->FreeMemory({}, false);
+      this->storage->FreeMemory({}, false);
+      auto acc = this->storage->Access();
+      EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, View::OLD), View::OLD),
+                  UnorderedElementsAre(1, 7, 23, 29));
     }
   }
 }
@@ -1842,12 +1885,55 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCreate) {
 
   // Check that GC doesn't remove useful elements
   {
+    // Double call to free memory: first run unlinks and marks for cleanup; second run deletes
+    this->storage->FreeMemory({}, false);
     this->storage->FreeMemory({}, false);
     auto acc = this->storage->Access();
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::OLD), View::OLD),
                 UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
                 UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
+  }
+  {
+    {
+      auto acc = this->storage->Access();
+      for (auto vertex : acc->Vertices(View::OLD)) {
+        auto edges = vertex.OutEdges(View::OLD)->edges;
+        for (auto &edge : edges) {
+          int64_t id = edge.GetProperty(this->prop_id, View::OLD)->ValueInt();
+          if (id % 3 == 0) {
+            ASSERT_NO_ERROR(acc->DeleteEdge(&edge));
+          }
+        }
+      }
+      acc->Commit();
+    }
+    this->storage->FreeMemory({}, false);
+    this->storage->FreeMemory({}, false);
+    auto acc = this->storage->Access();
+    EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::OLD), View::OLD),
+                UnorderedElementsAre(1, 5, 7, 23, 25, 29));
+  }
+  {
+    {
+      auto acc = this->storage->Access();
+      for (auto vertex : acc->Vertices(View::OLD)) {
+        auto edges = vertex.OutEdges(View::OLD)->edges;
+        for (auto &edge : edges) {
+          int64_t id = edge.GetProperty(this->prop_id, View::OLD)->ValueInt();
+          if (id % 5 == 0) {
+            ASSERT_NO_ERROR(acc->DetachDelete({&vertex}, {}, true));
+            break;
+          }
+        }
+      }
+      acc->Commit();
+    }
+    this->storage->FreeMemory({}, false);
+    this->storage->FreeMemory({}, false);
+    auto acc = this->storage->Access();
+    EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::OLD), View::OLD),
+                UnorderedElementsAre(1, 7, 23, 29));
   }
 }
 
