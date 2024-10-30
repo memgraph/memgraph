@@ -10,7 +10,6 @@
 // licenses/APL.txt.
 
 #include <cstdint>
-#include <optional>
 #include <ranges>
 #include <stop_token>
 
@@ -224,8 +223,11 @@ void VectorIndex::AbortEntries(const LabelPropKey &label_prop, std::span<Vertex 
   std::ranges::for_each(vertices, [&index](Vertex *vertex) { index.remove(vertex); });
 }
 
-void VectorIndex::RestoreEntries(const LabelPropKey &label_prop, std::span<Vertex *const> vertices) const {
-  std::ranges::for_each(vertices, [this, &label_prop](Vertex *vertex) { AddNodeToIndex(vertex, label_prop); });
+void VectorIndex::RestoreEntries(const LabelPropKey &label_prop,
+                                 std::span<std::pair<PropertyValue, Vertex *> const> prop_vertices) const {
+  std::ranges::for_each(prop_vertices, [this, &label_prop](const auto &vertex_property_value_pair) {
+    AddNodeToIndex(vertex_property_value_pair.second, label_prop, &vertex_property_value_pair.first);
+  });
 }
 
 void VectorIndex::RemoveObsoleteEntries(std::stop_token token) const {

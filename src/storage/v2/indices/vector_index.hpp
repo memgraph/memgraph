@@ -110,7 +110,8 @@ class VectorIndex {
   /// @brief Restores the entries that were removed in the specified transaction.
   /// @param label The label of the vertices to be restored.
   /// @param vertices The vertices to be restored.
-  void RestoreEntries(const LabelPropKey &label_prop, std::span<Vertex *const> vertices) const;
+  void RestoreEntries(const LabelPropKey &label_prop,
+                      std::span<std::pair<PropertyValue, Vertex *> const> prop_vertices) const;
 
   void RemoveObsoleteEntries(std::stop_token token) const;
 
