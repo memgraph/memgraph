@@ -20,7 +20,7 @@ ThreadPool::ThreadPool(const size_t pool_size) {
 
 void ThreadPool::AddTask(std::function<void()> new_task) {
   {
-    std::unique_lock pool_guard(pool_lock_);
+    auto guard = std::unique_lock{pool_lock_};
     if (pool_stop_source_.stop_requested()) return;
     task_queue_.emplace(std::move(new_task));
   }
@@ -31,7 +31,7 @@ void ThreadPool::AddTask(std::function<void()> new_task) {
 
 void ThreadPool::ShutDown() {
   {
-    std::unique_lock pool_guard(pool_lock_);
+    auto guard = std::unique_lock{pool_lock_};
     pool_stop_source_.request_stop();
     auto empty_queue = std::queue<TaskSignature>{};
     task_queue_.swap(empty_queue);
@@ -52,7 +52,7 @@ void ThreadPool::ThreadLoop() {
   while (true) {
     TaskSignature task;
     {
-      std::unique_lock guard(pool_lock_);
+      auto guard = std::unique_lock{pool_lock_};
       queue_cv_.wait(guard, token, [&] { return !task_queue_.empty(); });
       if (token.stop_requested()) return;
       task = std::move(task_queue_.front());
