@@ -14,73 +14,52 @@ namespace memgraph::utils {
 
 ThreadPool::ThreadPool(const size_t pool_size) {
   for (size_t i = 0; i < pool_size; ++i) {
-    thread_pool_.emplace_back(([this] { this->ThreadLoop(); }));
+    thread_pool_.emplace_back([this] { this->ThreadLoop(); });
   }
 }
 
 void ThreadPool::AddTask(std::function<void()> new_task) {
-  task_queue_.WithLock([&](auto &queue) {
-    queue.emplace(std::make_unique<TaskSignature>(std::move(new_task)));
-    unfinished_tasks_num_.fetch_add(1);
-  });
-  std::unique_lock pool_guard(pool_lock_);
+  {
+    std::unique_lock pool_guard(pool_lock_);
+    if (pool_stop_source_.stop_requested()) return;
+    task_queue_.emplace(std::move(new_task));
+  }
+  unfinished_tasks_num_.fetch_add(1);
+
   queue_cv_.notify_one();
 }
 
 void ThreadPool::ShutDown() {
-  terminate_pool_.store(true);
   {
     std::unique_lock pool_guard(pool_lock_);
-    queue_cv_.notify_all();
+    pool_stop_source_.request_stop();
+    auto empty_queue = std::queue<TaskSignature>{};
+    task_queue_.swap(empty_queue);
   }
 
-  for (auto &thread : thread_pool_) {
-    if (thread.joinable()) {
-      thread.join();
-    }
-  }
-
+  queue_cv_.notify_all();
   thread_pool_.clear();
-  stopped_.store(true);
 }
 
 ThreadPool::~ThreadPool() {
-  if (!stopped_.load()) {
+  if (!pool_stop_source_.stop_requested()) {
     ShutDown();
   }
 }
 
-std::unique_ptr<ThreadPool::TaskSignature> ThreadPool::PopTask() {
-  return task_queue_.WithLock([](auto &queue) -> std::unique_ptr<TaskSignature> {
-    if (queue.empty()) {
-      return nullptr;
-    }
-    auto front = std::move(queue.front());
-    queue.pop();
-    return front;
-  });
-}
-
 void ThreadPool::ThreadLoop() {
-  std::unique_ptr<TaskSignature> task = PopTask();
+  auto token = pool_stop_source_.get_token();
   while (true) {
-    while (task) {
-      if (terminate_pool_.load()) {
-        return;
-      }
-      (*task)();
-      unfinished_tasks_num_.fetch_sub(1);
-      task = PopTask();
+    TaskSignature task;
+    {
+      std::unique_lock guard(pool_lock_);
+      queue_cv_.wait(guard, token, [&] { return !task_queue_.empty(); });
+      if (token.stop_requested()) return;
+      task = std::move(task_queue_.front());
+      task_queue_.pop();
     }
-
-    std::unique_lock guard(pool_lock_);
-    queue_cv_.wait(guard, [&] {
-      task = PopTask();
-      return task || terminate_pool_.load();
-    });
-    if (terminate_pool_.load()) {
-      return;
-    }
+    task();
+    unfinished_tasks_num_.fetch_sub(1);
   }
 }
 

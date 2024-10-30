@@ -53,18 +53,17 @@ class ThreadPool {
   size_t UnfinishedTasksNum() const;
 
  private:
-  std::unique_ptr<TaskSignature> PopTask();
-
   void ThreadLoop();
 
-  std::vector<std::thread> thread_pool_;
-
-  std::atomic<size_t> unfinished_tasks_num_{0};
-  std::atomic<bool> terminate_pool_{false};
-  std::atomic<bool> stopped_{false};
-  utils::Synchronized<std::queue<std::unique_ptr<TaskSignature>>, utils::SpinLock> task_queue_;
   std::mutex pool_lock_;
-  std::condition_variable queue_cv_;
+  std::condition_variable_any queue_cv_;
+
+  std::queue<TaskSignature> task_queue_;
+  std::stop_source pool_stop_source_;  //<! Common stop source for all the jthreads in `thread_pool_`
+
+  std::vector<std::jthread> thread_pool_;
+
+  std::atomic<size_t> unfinished_tasks_num_{0};  //<! ATM only exists for testing purposes
 };
 
 }  // namespace memgraph::utils
