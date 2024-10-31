@@ -538,7 +538,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     return extract_prop_lookup_and_identifers(func->arguments_[0], func->arguments_[1], func->arguments_[2]);
   };
 
-  auto add_point_withinbbox_filter = [&](auto *expr1, auto *expr2) {
+  auto add_point_withinbbox_filter_binary = [&](auto *expr1, auto *expr2) {
     PropertyLookup *prop_lookup = nullptr;
     Identifier *ident = nullptr;
     Identifier *bottom_left = nullptr;
@@ -554,6 +554,27 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
         auto filter = make_filter(FilterInfo::Type::Point);
         // expr2 is embedded in WithinBBoxCondition
         filter.point_filter.emplace(std::move(symbol), prop_lookup->property_, bottom_left, top_right, expr2);
+        all_filters_.emplace_back(filter);
+        return true;
+      }
+    }
+    return false;
+  };
+
+  auto add_point_withinbbox_filter_unary = [&](auto *expr1, WithinBBoxCondition condition) {
+    PropertyLookup *prop_lookup = nullptr;
+    Identifier *ident = nullptr;
+    Identifier *bottom_left = nullptr;
+    Identifier *top_right = nullptr;
+    if (get_point_withinbbox_function(expr1, prop_lookup, ident, bottom_left, top_right)) {
+      // point.withinbbox(n.prop, bottom_left, top_right)
+      auto symbol = symbol_table.at(*ident);
+      auto collector = UsedSymbolsCollector{symbol_table};
+      bool const uses_same_symbol = utils::Contains(collector.symbols_, symbol);
+      // if expr2 is also dependant on the same symbol then not possible to subsitute with a point index
+      if (!uses_same_symbol) {
+        auto filter = make_filter(FilterInfo::Type::Point);
+        filter.point_filter.emplace(std::move(symbol), prop_lookup->property_, bottom_left, top_right, condition);
         all_filters_.emplace_back(filter);
         return true;
       }
@@ -698,8 +719,8 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     bool is_id_filter = add_id_equal(eq->expression1_, eq->expression2_);
     is_id_filter |= add_id_equal(eq->expression2_, eq->expression1_);
 
-    // TODO: extract WithinBBoxcondition from expression? Is it possible to do here?
-    if (add_point_withinbbox_filter(eq->expression1_, eq->expression2_)) {
+    // WHERE point.withinbbox() = true/false
+    if (add_point_withinbbox_filter_binary(eq->expression1_, eq->expression2_)) {
       return;
     }
 
@@ -756,12 +777,19 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     if (!add_prop_in_list(in->expression1_, in->expression2_)) {
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
     }
-  } else if (auto *is_not_null = utils::Downcast<NotOperator>(expr)) {
-    if (!add_prop_is_not_null_check(is_not_null)) {
+  } else if (auto *is_not = utils::Downcast<NotOperator>(expr)) {
+    // WHERE NOT point.withinbbox()
+    if (!add_point_withinbbox_filter_unary(is_not->expression_, WithinBBoxCondition::OUTSIDE) &&
+        !add_prop_is_not_null_check(is_not)) {
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
     }
   } else if (auto *exists = utils::Downcast<Exists>(expr)) {
     all_filters_.emplace_back(make_filter(FilterInfo::Type::Pattern));
+  } else if (auto *function = utils::Downcast<Function>(expr)) {
+    // WHERE point.withinbbox()
+    if (!add_point_withinbbox_filter_unary(expr, WithinBBoxCondition::INSIDE)) {
+      all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
+    }
   } else {
     all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
   }

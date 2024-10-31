@@ -1095,11 +1095,17 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                 point_filter.distance_.cmp_value_,  // uses the CRS from here
                 point_filter.distance_.boundary_value_, point_filter.distance_.boundary_condition_);
           }
-          case WITHINBBOX: {
+          case WITHINBBOX_UNARY: {
             return std::make_unique<ScanAllByPointWithinbbox>(
                 input, node_symbol, GetLabel(found_index->label), GetProperty(point_filter.property_),
-                point_filter.withinbbox_.bottom_left_, point_filter.withinbbox_.top_right_,
-                point_filter.withinbbox_.boundary_value_);
+                point_filter.withinbbox_unary_.bottom_left_, point_filter.withinbbox_unary_.top_right_,
+                point_filter.withinbbox_unary_.condition);
+          }
+          case WITHINBBOX_BINARY: {
+            return std::make_unique<ScanAllByPointWithinbbox>(
+                input, node_symbol, GetLabel(found_index->label), GetProperty(point_filter.property_),
+                point_filter.withinbbox_binary_.bottom_left_, point_filter.withinbbox_binary_.top_right_,
+                point_filter.withinbbox_binary_.boundary_value_);
           }
         }
       }

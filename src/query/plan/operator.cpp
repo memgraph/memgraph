@@ -6445,6 +6445,17 @@ ScanAllByPointWithinbbox::ScanAllByPointWithinbbox(const std::shared_ptr<Logical
       top_right_{top_right},
       boundary_value_{boundary_value} {}
 
+ScanAllByPointWithinbbox::ScanAllByPointWithinbbox(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
+                                                   storage::LabelId label, storage::PropertyId property,
+                                                   Identifier *bottom_left, Identifier *top_right,
+                                                   WithinBBoxCondition condition)
+    : ScanAll(input, output_symbol, storage::View::OLD),
+      label_(label),
+      property_(property),
+      bottom_left_{bottom_left},
+      top_right_{top_right},
+      condition_{condition} {}
+
 ACCEPT_WITH_INPUT(ScanAllByPointWithinbbox)
 
 UniqueCursorPtr ScanAllByPointWithinbbox::MakeCursor(utils::MemoryResource *mem) const {
@@ -6477,6 +6488,15 @@ UniqueCursorPtr ScanAllByPointWithinbbox::MakeCursor(utils::MemoryResource *mem)
 
     if (!crs1 || !crs2 || crs1 != crs2) return std::nullopt;
 
+    // Expression: where point.withinbbox() / where not point.withinbbox()
+    // Condition was already figured out at preprocessing
+    if (condition_) {
+      return std::make_optional(
+          db->PointVertices(label_, property_, *crs1, *bottom_left_value, *top_right_value, *condition_));
+    }
+
+    // Expression: where point.withinbbox() = true/false
+    // Have to evaluate condition
     ExpressionEvaluator boundary_evaluator(&frame, context.symbol_table, context.evaluation_context,
                                            context.db_accessor, view_);
     auto boundary_value = boundary_value_->Accept(boundary_evaluator);
