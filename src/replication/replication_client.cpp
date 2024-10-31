@@ -38,8 +38,12 @@ ReplicationClient::~ReplicationClient() {
   } catch (...) {
     // Logging can throw. Not a big deal, just ignore.
   }
+  spdlog::trace("Trying to stop scheduler in replication client on {}:{}.", endpoint.GetAddress(), endpoint.GetPort());
   replica_checker_.Stop();
+  spdlog::trace("Stopped scheduler in replication client on {}:{}.", endpoint.GetAddress(), endpoint.GetPort());
   thread_pool_.ShutDown();
+  spdlog::trace("Trying to shutdown thread pool in replication client on {}:{}.", endpoint.GetAddress(),
+                endpoint.GetPort());
 }
 
 }  // namespace memgraph::replication

@@ -78,7 +78,7 @@ jobs:
           cd tests/jepsen
           ./run.sh test \
           --binary ../../build/memgraph \
-          --run-args "--workload hacreate --nodes-config resources/cluster.edn --time-limit 7200 --concurrency 6" \
+          --run-args "--workload hacreate --nodes-config resources/cluster.edn --time-limit 3600 --concurrency 6" \
           --ignore-run-stdout-logs \
           --ignore-run-stderr-logs \
           --nodes-no 6 \

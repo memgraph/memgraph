@@ -289,10 +289,16 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
                                   const std::optional<utils::UUID> &main_uuid) {
     // If we cannot acquire lock on repl_state, we cannot set role to replica.
     if (!repl_state_.TryLock()) {
+      spdlog::trace("Cannot acquire lock on repl state while setting role to replica.");
       return false;
     }
+    spdlog::trace("Acquired lock on repl state when setting role to replica.");
 
-    auto unlock_repl_state = utils::OnScopeExit([this]() { repl_state_.Unlock(); });
+    auto unlock_repl_state = utils::OnScopeExit([this]() {
+      spdlog::trace("Trying to unlock repl state while setting role to replica.");
+      repl_state_.Unlock();
+      spdlog::trace("Unlocked repl state while setting role to replica.");
+    });
 
     if (repl_state_.IsReplica()) {
       if (!AllowIdempotency) {
@@ -319,8 +325,12 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
       storage->repl_storage_state_.replication_clients_.WithLock([](auto &clients) { clients.clear(); });
     });
 
+    spdlog::trace(
+        "Replication storage clients destroyed during demote, setting role to replica and destroying instance level "
+        "clients.");
     // Creates the server
     repl_state_.SetReplicationRoleReplica(config, main_uuid);
+    spdlog::trace("Role set to replica, instance-level clients destroyed.");
 
     // Start
     const auto success =
