@@ -1257,7 +1257,6 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
 
     std::map<LabelPropKey, std::vector<Vertex *>> vector_label_property_cleanup;
     std::map<LabelPropKey, std::vector<std::pair<PropertyValue, Vertex *>>> vector_label_property_restore;
-    // std::map<LabelPropKey, std::vector<std::pair<PropertyValue, Vertex *>>> vector_index_property_updates;
 
     auto delta_size = transaction_.deltas.size();
     for (const auto &delta : transaction_.deltas) {

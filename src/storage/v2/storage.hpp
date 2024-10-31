@@ -314,10 +314,7 @@ class Storage {
 
     std::vector<std::pair<Gid, double>> VectorIndexSearch(const std::string &index_name, uint64_t number_of_results,
                                                           const std::vector<float> &vector) const {
-      if (is_transaction_active_) {
-        return storage_->indices_.vector_index_.Search(index_name, number_of_results, vector);
-      }
-      throw mg_exception::NotYetImplementedException();
+      return storage_->indices_.vector_index_.Search(index_name, number_of_results, vector);
     }
 
     std::vector<VectorIndexInfo> ListAllVectorIndices() const {

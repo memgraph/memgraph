@@ -15,6 +15,7 @@
 #include <stop_token>
 
 #include "absl/container/flat_hash_map.h"
+#include "query/exceptions.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/property_value.hpp"
@@ -131,6 +132,7 @@ void VectorIndex::UpdateVectorIndex(Vertex *vertex, const LabelPropKey &label_pr
   auto &index = pimpl->index_.at(label_prop);
 
   // first, try to remove entry (if it exists) and then add new one
+  // TODO(@DavIvek): check if vertex has lock and if that is needed for current implementation
   index.remove(vertex);
   const auto &property = (value != nullptr ? *value : vertex->properties.GetProperty(label_prop.property()));
   if (property.IsNull()) {
@@ -154,37 +156,39 @@ void VectorIndex::UpdateVectorIndex(Vertex *vertex, const LabelPropKey &label_pr
     }
     throw std::invalid_argument("Vector index property must be a list of floats or integers.");
   });
-  index.add(vertex, vector.data());
+  index.add(vertex, vector.data());  // TODO(@DavIvek): check force vector copy
 }
 
 void VectorIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update) const {
-  std::ranges::for_each(pimpl->index_ | std::views::keys,
-                        [this, vertex_after_update, added_label](const auto &label_prop) {
-                          if (label_prop.label() == added_label) {
-                            UpdateVectorIndex(vertex_after_update, label_prop);
-                          }
-                        });
+  std::ranges::for_each(pimpl->index_ | std::views::keys, [&](const auto &label_prop) {
+    if (label_prop.label() == added_label) {
+      UpdateVectorIndex(vertex_after_update, label_prop);
+    }
+  });
 }
 
 void VectorIndex::UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_before_update) const {
-  std::ranges::for_each(pimpl->index_ | std::views::keys,
-                        [this, vertex_before_update, removed_label](const auto &label_prop) {
-                          if (label_prop.label() == removed_label) {
-                            pimpl->index_.at(label_prop).remove(vertex_before_update);
-                          }
-                        });
+  std::ranges::for_each(pimpl->index_ | std::views::keys, [&](const auto &label_prop) {
+    if (label_prop.label() == removed_label) {
+      pimpl->index_.at(label_prop).remove(vertex_before_update);
+    }
+  });
 }
 
 void VectorIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex) const {
   auto has_property = [&](const auto &label_prop) { return label_prop.property() == property; };
   auto has_label = [&](const auto &label_prop) { return utils::Contains(vertex->labels, label_prop.label()); };
 
-  std::ranges::for_each(
-      pimpl->index_ | std::views::keys | std::views::filter(has_property) | std::views::filter(has_label),
-      [&](const auto &label_prop) { UpdateVectorIndex(vertex, label_prop, &value); });
+  auto view = pimpl->index_ | std::views::keys | std::views::filter(has_property) | std::views::filter(has_label);
+  for (const auto &label_prop : view) {
+    UpdateVectorIndex(vertex, label_prop, &value);
+  }
 }
 
 std::vector<VectorIndexInfo> VectorIndex::ListAllIndices() const {
+  if (FLAGS_experimental_vector_indexes.empty()) {
+    throw query::VectorSearchDisabledException();
+  }
   std::vector<VectorIndexInfo> result;
   result.reserve(pimpl->index_name_to_label_prop_.size());
   std::ranges::transform(pimpl->index_name_to_label_prop_, std::back_inserter(result), [this](const auto &pair) {
@@ -199,6 +203,9 @@ std::vector<VectorIndexInfo> VectorIndex::ListAllIndices() const {
 
 std::vector<std::pair<Gid, double>> VectorIndex::Search(std::string_view index_name, uint64_t result_set_size,
                                                         const std::vector<float> &query_vector) const {
+  if (FLAGS_experimental_vector_indexes.empty()) {
+    throw query::VectorSearchDisabledException();
+  }
   const auto &label_prop = pimpl->index_name_to_label_prop_.at(index_name);
   const auto &index = pimpl->index_.at(label_prop);
 
@@ -218,12 +225,12 @@ std::vector<std::pair<Gid, double>> VectorIndex::Search(std::string_view index_n
 
 void VectorIndex::AbortEntries(const LabelPropKey &label_prop, std::span<Vertex *const> vertices) const {
   auto &index = pimpl->index_.at(label_prop);
-  std::ranges::for_each(vertices, [&index](Vertex *vertex) { index.remove(vertex); });
+  std::ranges::for_each(vertices, [&](Vertex *vertex) { index.remove(vertex); });
 }
 
 void VectorIndex::RestoreEntries(const LabelPropKey &label_prop,
                                  std::span<std::pair<PropertyValue, Vertex *> const> prop_vertices) const {
-  std::ranges::for_each(prop_vertices, [this, &label_prop](const auto &vertex_property_value_pair) {
+  std::ranges::for_each(prop_vertices, [&](const auto &vertex_property_value_pair) {
     UpdateVectorIndex(vertex_property_value_pair.second, label_prop, &vertex_property_value_pair.first);
   });
 }
@@ -238,7 +245,7 @@ void VectorIndex::RemoveObsoleteEntries(std::stop_token token) const {
     index.export_keys(vertices_to_remove.data(), 0, index.size());
 
     auto deleted = vertices_to_remove | std::views::filter([](const Vertex *vertex) { return vertex->deleted; });
-    std::ranges::for_each(deleted, [&index](Vertex *vertex) { index.remove(vertex); });
+    std::ranges::for_each(deleted, [&](Vertex *vertex) { index.remove(vertex); });
   }
 }
 

@@ -8,30 +8,34 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
-
-#include <cstdint>
-#include <string>
-
+#include "storage/v2/indices/vector_index.hpp"
 #include <sys/types.h>
 #include "gtest/gtest.h"
 #include "query/db_accessor.hpp"
-#include "storage/v2/id_types.hpp"
-#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
 
-const std::string_view test_index = "test_index";
-const std::string_view test_label = "test_label";
-const std::string_view test_property = "test_property";
+// NOLINTNEXTLINE(google-build-using-namespace)
+using namespace memgraph::storage;
+
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define ASSERT_NO_ERROR(result) ASSERT_FALSE((result).HasError())
+
+constexpr std::string_view test_index = "test_index";
+constexpr std::string_view test_label = "test_label";
+constexpr std::string_view test_property = "test_property";
 
 template <typename StorageType>
 class VectorSearchTest : public testing::Test {
  public:
-  const std::string testSuite = "vector_search";
-  std::unique_ptr<memgraph::storage::Storage> db = std::make_unique<memgraph::storage::InMemoryStorage>();
+  static constexpr std::string_view testSuite = "vector_search";
+  std::unique_ptr<Storage> storage = std::make_unique<InMemoryStorage>();
 
-  void CreateTestIndex(memgraph::storage::VectorIndex &index, std::size_t dimension = 5, std::size_t limit = 10) {
-    auto storage_dba = db->Access();
+  void CreateIndex(std::size_t dimension = 2, std::size_t limit = 10) {
+    // only requirement is that this is not empty at the moment since it is not used in the test but flag is checked
+    // through the code
+    FLAGS_experimental_vector_indexes = R"(test_index__test_label__test_property__{"dimension": 2, "limit": 10})";
+    auto storage_dba = storage->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     const auto label = dba.NameToLabel(test_label.data());
     const auto property = dba.NameToProperty(test_property.data());
@@ -41,152 +45,128 @@ class VectorSearchTest : public testing::Test {
     config["dimension"] = dimension;
     config["limit"] = limit;
 
-    memgraph::storage::VectorIndexSpec spec{
+    VectorIndexSpec spec{
         .index_name = test_index.data(),
         .label = label,
         .property = property,
         .config = config,  // Pass the dynamically created config
     };
 
-    index.CreateIndex(spec);
+    storage_dba->CreateVectorIndex(spec);
   }
 
-  std::vector<memgraph::storage::PropertyValue> ConvertToPropertyValueVector(const std::vector<float> &float_list) {
-    std::vector<memgraph::storage::PropertyValue> property_values;
-    property_values.reserve(float_list.size());  // Reserve space for efficiency
+  VertexAccessor CreateVertex(Storage::Accessor *accessor, const PropertyValue &property, const LabelId &label) {
+    VertexAccessor vertex = accessor->CreateVertex();
+    // NOLINTBEGIN
+    MG_ASSERT(!vertex.AddLabel(label).HasError());
+    MG_ASSERT(!vertex.SetProperty(accessor->NameToProperty(test_property), property).HasError());
+    // NOLINTEND
 
-    std::ranges::transform(float_list, std::back_inserter(property_values),
-                           [](float value) { return memgraph::storage::PropertyValue(value); });
-
-    return property_values;
-  }
-
-  memgraph::storage::Gid AddNodeToIndex(memgraph::storage::VectorIndex &index,
-                                        const std::vector<memgraph::storage::PropertyValue> &properties,
-                                        uint64_t commit_timestamp) {
-    auto storage_dba = db->Access();
-    memgraph::query::DbAccessor dba(storage_dba.get());
-
-    auto vertex_accessor = storage_dba->CreateVertex();
-    const auto label_id = dba.NameToLabel(test_label);
-    const auto property_id = dba.NameToProperty(test_property);
-
-    vertex_accessor.AddLabel(label_id);
-    vertex_accessor.SetProperty(property_id, memgraph::storage::PropertyValue(properties));
-    const auto label_prop =
-        memgraph::storage::LabelPropKey(dba.NameToLabel(test_label), dba.NameToProperty(test_property));
-    index.AddNodeToIndex(vertex_accessor.vertex_, label_prop, commit_timestamp);
-
-    return vertex_accessor.Gid();
+    return vertex;
   }
 };
 
-TYPED_TEST_SUITE(VectorSearchTest, memgraph::storage::InMemoryStorage);
+TYPED_TEST_SUITE(VectorSearchTest, InMemoryStorage);
 
-TYPED_TEST(VectorSearchTest, CreateIndexTest) {
-  memgraph::storage::VectorIndex index;
-  this->CreateTestIndex(index);
+TYPED_TEST(VectorSearchTest, SimpleAddNodeTest) {
+  this->CreateIndex();
+  auto acc = this->storage->Access();
 
-  EXPECT_EQ(index.ListAllIndices().size(), 1);
-}
-
-TYPED_TEST(VectorSearchTest, AddNodeTest) {
-  memgraph::storage::VectorIndex index;
-  this->CreateTestIndex(index);
-
-  const auto properties = this->ConvertToPropertyValueVector({1.0, 2.0, 3.0, 4.0, 5.0});
-  this->AddNodeToIndex(index, properties, 0);
-
-  EXPECT_EQ(index.Size(test_index), 1);
+  PropertyValue property_value(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
+  this->CreateVertex(acc.get(), property_value, acc->NameToLabel(test_label));
+  ASSERT_NO_ERROR(acc->Commit());
+  const auto vector_index_info = acc->ListAllVectorIndices();
+  EXPECT_EQ(vector_index_info[0].size, 1);
 }
 
 TYPED_TEST(VectorSearchTest, SimpleSearchTest) {
-  memgraph::storage::VectorIndex index;
-  this->CreateTestIndex(index);
+  this->CreateIndex();
+  auto acc = this->storage->Access();
 
-  const auto properties = this->ConvertToPropertyValueVector({1.0, 2.0, 3.0, 4.0, 5.0});
-  const auto vertex_gid = this->AddNodeToIndex(index, properties, 0);
+  PropertyValue property_value(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
+  const auto vertex = this->CreateVertex(acc.get(), property_value, acc->NameToLabel(test_label));
+  ASSERT_NO_ERROR(acc->Commit());
 
-  std::vector<float> query = {1.0, 2.0, 3.0, 4.0, 5.0};
-  const auto &result = index.Search(test_index, 1, 1, query);
+  const auto result = acc->VectorIndexSearch(test_index.data(), 1, std::vector<float>{1.0, 1.0});
   EXPECT_EQ(result.size(), 1);
-
-  const auto &[gid, score] = result[0];
-  EXPECT_EQ(gid, vertex_gid);
-  EXPECT_EQ(score, 0.0);
+  EXPECT_EQ(result[0].first, vertex.Gid());
 }
 
 TYPED_TEST(VectorSearchTest, SearchWithMultipleNodes) {
-  memgraph::storage::VectorIndex index;
-  this->CreateTestIndex(index);
+  this->CreateIndex();
+  auto acc = this->storage->Access();
 
-  const auto properties1 = this->ConvertToPropertyValueVector({1.0, 2.0, 3.0, 4.0, 5.0});
-  const auto vertex_gid1 = this->AddNodeToIndex(index, properties1, 0);
+  PropertyValue properties1(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
+  [[maybe_unused]] const auto vertex1 = this->CreateVertex(acc.get(), properties1, acc->NameToLabel(test_label));
 
-  const auto properties2 = this->ConvertToPropertyValueVector({10.0, 11.0, 12.0, 13.0, 14.0});
-  const auto vertex_gid2 = this->AddNodeToIndex(index, properties2, 0);
+  PropertyValue properties2(std::vector<PropertyValue>{PropertyValue(10.0), PropertyValue(10.0)});
+  const auto vertex2 = this->CreateVertex(acc.get(), properties2, acc->NameToLabel(test_label));
+  ASSERT_NO_ERROR(acc->Commit());
 
-  EXPECT_EQ(index.Size(test_index), 2);
-  std::vector<float> query = {10.0, 11.0, 12.0, 13.0, 14.0};
+  EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 2);
 
-  // Search for one node
-  const auto &result = index.Search(test_index, 1, 1, query);
+  std::vector<float> query = {10.0, 10.0};
+
+  // Perform search for one closest node
+  const auto result = acc->VectorIndexSearch(test_index.data(), 1, query);
   EXPECT_EQ(result.size(), 1);
+  EXPECT_EQ(result[0].first, vertex2.Gid());  // Expect the closest match to be vertex2
 
-  const auto &[gid, score] = result[0];
-  EXPECT_EQ(gid, vertex_gid2);
-
-  // Search for two nodes
-  const auto &result2 = index.Search(test_index, 1, 2, query);
+  // Perform search for two closest nodes
+  const auto result2 = acc->VectorIndexSearch(test_index.data(), 2, query);
   EXPECT_EQ(result2.size(), 2);
 }
 
-TYPED_TEST(VectorSearchTest, TransactionTest) {
-  memgraph::storage::VectorIndex index;
-  this->CreateTestIndex(index);
-
-  const auto properties1 = this->ConvertToPropertyValueVector({1.0, 2.0, 3.0, 4.0, 5.0});
-  const auto vertex_gid1 = this->AddNodeToIndex(index, properties1, 0);
-
-  const auto properties2 = this->ConvertToPropertyValueVector({10.0, 11.0, 12.0, 13.0, 14.0});
-  const auto vertex_gid2 = this->AddNodeToIndex(index, properties2, 5);
-
-  // vertex_accessor2 is not visible even though it would be the closest match
-  std::vector<float> query = {10.0, 11.0, 12.0, 13.0, 14.0};
-  const auto &result = index.Search(test_index, 1, 1, query);
-  EXPECT_EQ(result.size(), 1);
-
-  const auto &[gid, score] = result[0];
-  EXPECT_EQ(gid, vertex_gid1);
-
-  // vertex_accessor2 is visible
-  const auto &result2 = index.Search(test_index, 6, 1, query);
-  EXPECT_EQ(result2.size(), 1);
-
-  const auto &[gid2, score2] = result2[0];
-  EXPECT_EQ(gid2, vertex_gid2);
-}
-
 TYPED_TEST(VectorSearchTest, ConcurrencyTest) {
-  memgraph::storage::VectorIndex index;
-  const auto index_size = 10;
-  this->CreateTestIndex(index, 5, index_size);
+  this->CreateIndex();
+  auto acc = this->storage->Access();
 
-  // create 1k threads and add 1k nodes
+  constexpr auto index_size = 10;
+
+  // Create 1k threads to add 1k nodes
   std::vector<std::thread> threads;
   threads.reserve(index_size);
   for (int i = 0; i < index_size; i++) {
-    threads.emplace_back(std::thread([this, &index, i]() {
-      // properties start from i and end at i + 5
-      const auto properties =
-          this->ConvertToPropertyValueVector({(float)i, (float)i + 1, (float)i + 2, (float)i + 3, (float)i + 4});
-      this->AddNodeToIndex(index, properties, i);
+    threads.emplace_back(std::thread([this, &acc, i]() {
+      // Properties start from i and end at i + 1 (2-dimensional vector)
+      PropertyValue properties(
+          std::vector<PropertyValue>{PropertyValue(static_cast<double>(i)), PropertyValue(static_cast<double>(i + 1))});
+
+      // Each thread adds a node to the index
+      [[maybe_unused]] const auto vertex = this->CreateVertex(acc.get(), properties, acc->NameToLabel(test_label));
     }));
   }
 
+  // Join all threads to ensure all nodes are added
   for (auto &thread : threads) {
     thread.join();
   }
 
-  EXPECT_EQ(index.Size(test_index), index_size);
+  // Commit the changes made by each thread
+  ASSERT_NO_ERROR(acc->Commit());
+
+  // Check that the index has the expected number of entries
+  EXPECT_EQ(acc->ListAllVectorIndices()[0].size, index_size);
+}
+
+TYPED_TEST(VectorSearchTest, SimpleAbortTest) {
+  this->CreateIndex();
+  auto acc = this->storage->Access();
+  constexpr auto index_size = 10;
+
+  // Create multiple nodes within a transaction that will be aborted
+  for (int i = 0; i < index_size; i++) {
+    PropertyValue properties(
+        std::vector<PropertyValue>{PropertyValue(static_cast<double>(i)), PropertyValue(static_cast<double>(i + 1))});
+
+    // Add each node to the index
+    [[maybe_unused]] const auto vertex = this->CreateVertex(acc.get(), properties, acc->NameToLabel(test_label));
+  }
+  EXPECT_EQ(acc->ListAllVectorIndices()[0].size, index_size);
+
+  // Abort the transaction
+  acc->Abort();
+
+  // Expect the index to have 0 entries, as the transaction was aborted
+  EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 0);
 }
