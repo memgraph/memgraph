@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <algorithm>
 #include <cstdint>
 #include <ranges>
 #include <stop_token>
@@ -126,14 +127,20 @@ void VectorIndex::CreateIndex(const VectorIndexSpec &spec) {
   spdlog::trace("Created vector index " + spec.index_name);
 }
 
-void VectorIndex::AddNodeToIndex(Vertex *vertex, const LabelPropKey &label_prop, const PropertyValue *value) const {
+void VectorIndex::UpdateVectorIndex(Vertex *vertex, const LabelPropKey &label_prop, const PropertyValue *value) const {
   auto &index = pimpl->index_.at(label_prop);
+
+  // first, try to remove entry (if it exists) and then add new one
+  index.remove(vertex);
   const auto &property = (value != nullptr ? *value : vertex->properties.GetProperty(label_prop.property()));
   if (property.IsNull()) {
     return;
   }
   if (!property.IsList()) {
     throw std::invalid_argument("Vector index property must be a list.");
+  }
+  if (index.capacity() == index.size()) {
+    throw std::runtime_error("Vector index is full.");
   }
   const auto &vector_property = property.ValueList();
   std::vector<float> vector;
@@ -147,43 +154,34 @@ void VectorIndex::AddNodeToIndex(Vertex *vertex, const LabelPropKey &label_prop,
     }
     throw std::invalid_argument("Vector index property must be a list of floats or integers.");
   });
-  // first, try to remove entry (if it exists) and then add new one
-  index.remove(vertex);
   index.add(vertex, vector.data());
 }
 
 void VectorIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update) const {
-  for (auto &[label_prop, _] : pimpl->index_) {
-    if (label_prop.label() != added_label) {
-      continue;
-    }
-    AddNodeToIndex(vertex_after_update, label_prop);
-  }
+  std::ranges::for_each(pimpl->index_ | std::views::keys,
+                        [this, vertex_after_update, added_label](const auto &label_prop) {
+                          if (label_prop.label() == added_label) {
+                            UpdateVectorIndex(vertex_after_update, label_prop);
+                          }
+                        });
 }
 
 void VectorIndex::UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_before_update) const {
-  for (auto &[label_prop, _] : pimpl->index_) {
-    if (label_prop.label() != removed_label) {
-      continue;
-    }
-    pimpl->index_.at(label_prop).remove(vertex_before_update);
-  }
+  std::ranges::for_each(pimpl->index_ | std::views::keys,
+                        [this, vertex_before_update, removed_label](const auto &label_prop) {
+                          if (label_prop.label() == removed_label) {
+                            pimpl->index_.at(label_prop).remove(vertex_before_update);
+                          }
+                        });
 }
 
 void VectorIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex) const {
-  for (auto &[label_prop, _] : pimpl->index_) {
-    if (label_prop.property() != property) {
-      continue;
-    }
-    if (!utils::Contains(vertex->labels, label_prop.label())) {
-      continue;
-    }
-    if (value.IsNull()) {
-      pimpl->index_.at(label_prop).remove(vertex);
-    } else {
-      AddNodeToIndex(vertex, label_prop, &value);
-    }
-  }
+  auto has_property = [&](const auto &label_prop) { return label_prop.property() == property; };
+  auto has_label = [&](const auto &label_prop) { return utils::Contains(vertex->labels, label_prop.label()); };
+
+  std::ranges::for_each(
+      pimpl->index_ | std::views::keys | std::views::filter(has_property) | std::views::filter(has_label),
+      [&](const auto &label_prop) { UpdateVectorIndex(vertex, label_prop, &value); });
 }
 
 std::vector<VectorIndexInfo> VectorIndex::ListAllIndices() const {
@@ -226,7 +224,7 @@ void VectorIndex::AbortEntries(const LabelPropKey &label_prop, std::span<Vertex 
 void VectorIndex::RestoreEntries(const LabelPropKey &label_prop,
                                  std::span<std::pair<PropertyValue, Vertex *> const> prop_vertices) const {
   std::ranges::for_each(prop_vertices, [this, &label_prop](const auto &vertex_property_value_pair) {
-    AddNodeToIndex(vertex_property_value_pair.second, label_prop, &vertex_property_value_pair.first);
+    UpdateVectorIndex(vertex_property_value_pair.second, label_prop, &vertex_property_value_pair.first);
   });
 }
 

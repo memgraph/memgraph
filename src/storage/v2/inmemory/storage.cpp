@@ -1257,6 +1257,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
 
     std::map<LabelPropKey, std::vector<Vertex *>> vector_label_property_cleanup;
     std::map<LabelPropKey, std::vector<std::pair<PropertyValue, Vertex *>>> vector_label_property_restore;
+    // std::map<LabelPropKey, std::vector<std::pair<PropertyValue, Vertex *>>> vector_index_property_updates;
 
     auto delta_size = transaction_.deltas.size();
     for (const auto &delta : transaction_.deltas) {
@@ -1349,27 +1350,20 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 const auto has_vector_index = vector_index_labels != index_stats.vector.p2l.end();
                 if (has_property_index || has_vector_index) {
                   auto current_value = vertex->properties.GetProperty(current->property.key);
-                  if (has_property_index) {
+                  if (has_property_index && !current_value.IsNull()) {
                     property_cleanup[current->property.key].emplace_back(std::move(current_value), vertex);
                   }
                   if (has_vector_index) {
-                    auto is_indexed_label = [&vector_index_labels](auto label) {
+                    auto has_indexed_label = [&vector_index_labels](auto label) {
                       return std::binary_search(vector_index_labels->second.begin(), vector_index_labels->second.end(),
                                                 label);
                     };
                     auto indexed_labels_on_vertex =
-                        vertex->labels | ranges::views::filter(is_indexed_label) | ranges::to<std::vector<LabelId>>();
-                    if (!current_value.IsNull()) {
-                      // if not null, we have to restore it
-                      for (const auto &label : indexed_labels_on_vertex) {
-                        vector_label_property_restore[LabelPropKey{label, current->property.key}].emplace_back(
-                            std::move(current_value), vertex);
-                      }
-                    } else {
-                      // if null, we have to remove it
-                      for (const auto &label : indexed_labels_on_vertex) {
-                        vector_label_property_cleanup[LabelPropKey{label, current->property.key}].emplace_back(vertex);
-                      }
+                        vertex->labels | ranges::views::filter(has_indexed_label) | ranges::to<std::vector<LabelId>>();
+
+                    for (const auto &label : indexed_labels_on_vertex) {
+                      vector_label_property_restore[LabelPropKey{label, current->property.key}].emplace_back(
+                          *current->property.value, vertex);
                     }
                   }
                 }

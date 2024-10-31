@@ -124,7 +124,7 @@ class VectorIndex {
   /// @param vertex The vertex to be added.
   /// @param label_prop The label and property key for the index.
   /// @param commit_timestamp The commit timestamp for the operation.
-  void AddNodeToIndex(Vertex *vertex, const LabelPropKey &label_prop, const PropertyValue *value = nullptr) const;
+  void UpdateVectorIndex(Vertex *vertex, const LabelPropKey &label_prop, const PropertyValue *value = nullptr) const;
 
   struct Impl;
   std::unique_ptr<Impl> pimpl;
