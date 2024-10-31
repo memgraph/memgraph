@@ -246,6 +246,10 @@ class DiskStorage final : public Storage {
     auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
                        PropertyValue const &point_value, PropertyValue const &boundary_value,
                        PointDistanceCondition condition) -> PointIterable override;
+
+    auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
+                       PropertyValue const &bottom_left, PropertyValue const &top_right, WithinBBoxCondition condition)
+        -> PointIterable override;
   };
 
   using Storage::Access;

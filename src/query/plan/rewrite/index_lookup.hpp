@@ -1096,8 +1096,10 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                 point_filter.distance_.boundary_value_, point_filter.distance_.boundary_condition_);
           }
           case WITHINBBOX: {
-            throw utils::NotYetImplemented("Withinbbox not yet implemented");
-            break;
+            return std::make_unique<ScanAllByPointWithinbbox>(
+                input, node_symbol, GetLabel(found_index->label), GetProperty(point_filter.property_),
+                point_filter.withinbbox_.bottom_left_, point_filter.withinbbox_.top_right_,
+                point_filter.withinbbox_.boundary_value_);
           }
         }
       }

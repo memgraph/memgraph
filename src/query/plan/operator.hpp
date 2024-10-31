@@ -102,6 +102,7 @@ class ScanAllByEdgeTypePropertyValue;
 class ScanAllByEdgeTypePropertyRange;
 class ScanAllByEdgeId;
 class ScanAllByPointDistance;
+class ScanAllByPointWithinbbox;
 class Expand;
 class ExpandVariable;
 class ConstructNamedPath;
@@ -140,11 +141,11 @@ class PeriodicSubquery;
 using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
     Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel, ScanAllByLabelPropertyRange, ScanAllByLabelPropertyValue,
     ScanAllByLabelProperty, ScanAllById, ScanAllByEdge, ScanAllByEdgeType, ScanAllByEdgeTypeProperty,
-    ScanAllByEdgeTypePropertyValue, ScanAllByEdgeTypePropertyRange, ScanAllByEdgeId, ScanAllByPointDistance, Expand,
-    ExpandVariable, ConstructNamedPath, Filter, Produce, Delete, SetProperty, SetProperties, SetLabels, RemoveProperty,
-    RemoveLabels, EdgeUniquenessFilter, Accumulate, Aggregate, Skip, Limit, OrderBy, Merge, Optional, Unwind, Distinct,
-    Union, Cartesian, CallProcedure, LoadCsv, Foreach, EmptyResult, EvaluatePatternFilter, Apply, IndexedJoin, HashJoin,
-    RollUpApply, PeriodicCommit, PeriodicSubquery>;
+    ScanAllByEdgeTypePropertyValue, ScanAllByEdgeTypePropertyRange, ScanAllByEdgeId, ScanAllByPointDistance,
+    ScanAllByPointWithinbbox, Expand, ExpandVariable, ConstructNamedPath, Filter, Produce, Delete, SetProperty,
+    SetProperties, SetLabels, RemoveProperty, RemoveLabels, EdgeUniquenessFilter, Accumulate, Aggregate, Skip, Limit,
+    OrderBy, Merge, Optional, Unwind, Distinct, Union, Cartesian, CallProcedure, LoadCsv, Foreach, EmptyResult,
+    EvaluatePatternFilter, Apply, IndexedJoin, HashJoin, RollUpApply, PeriodicCommit, PeriodicSubquery>;
 
 using LogicalOperatorLeafVisitor = utils::LeafVisitor<Once>;
 
@@ -994,12 +995,47 @@ class ScanAllByPointDistance : public memgraph::query::plan::ScanAll {
     auto object = std::make_unique<ScanAllByPointDistance>();
     object->input_ = input_ ? input_->Clone(storage) : nullptr;
     object->output_symbol_ = output_symbol_;
-    object->view_ = view_;  // TODO: what to do about view, always OLD
+    object->view_ = view_;
     object->label_ = label_;
     object->property_ = property_;
     object->cmp_value_ = cmp_value_ ? cmp_value_->Clone(storage) : nullptr;
     object->boundary_value_ = boundary_value_ ? boundary_value_->Clone(storage) : nullptr;
     object->boundary_condition_ = boundary_condition_;
+
+    return object;
+  }
+};
+
+class ScanAllByPointWithinbbox : public memgraph::query::plan::ScanAll {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  ScanAllByPointWithinbbox() = default;
+  ScanAllByPointWithinbbox(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::LabelId label,
+                           storage::PropertyId property, Identifier *bottom_left, Identifier *top_right,
+                           Expression *boundary_value);
+
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+  std::string ToString() const override;
+
+  storage::LabelId label_;
+  storage::PropertyId property_;
+  Identifier *bottom_left_ = nullptr;
+  Identifier *top_right_ = nullptr;
+  Expression *boundary_value_ = nullptr;
+
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
+    auto object = std::make_unique<ScanAllByPointWithinbbox>();
+    object->input_ = input_ ? input_->Clone(storage) : nullptr;
+    object->output_symbol_ = output_symbol_;
+    object->view_ = view_;
+    object->label_ = label_;
+    object->property_ = property_;
+    object->bottom_left_ = bottom_left_ ? bottom_left_->Clone(storage) : nullptr;
+    object->top_right_ = top_right_ ? top_right_->Clone(storage) : nullptr;
+    object->boundary_value_ = boundary_value_ ? boundary_value_->Clone(storage) : nullptr;
 
     return object;
   }

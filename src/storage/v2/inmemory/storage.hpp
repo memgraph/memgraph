@@ -16,6 +16,7 @@
 #include <memory>
 #include <utility>
 #include "storage/v2/indices/label_index_stats.hpp"
+#include "storage/v2/indices/point_index.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
@@ -446,6 +447,12 @@ class InMemoryStorage final : public Storage {
     auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
                        PropertyValue const &point_value, PropertyValue const &boundary_value,
                        PointDistanceCondition condition) -> PointIterable override;
+
+    /// View is not needed because a new rtree gets created for each transaction and it is always
+    /// using the latest version
+    auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
+                       PropertyValue const &bottom_left, PropertyValue const &top_right, WithinBBoxCondition condition)
+        -> PointIterable override;
 
    protected:
     // TODO Better naming

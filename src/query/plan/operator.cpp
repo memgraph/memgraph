@@ -28,6 +28,7 @@
 #include <cppitertools/chain.hpp>
 #include <cppitertools/imap.hpp>
 #include "memory/query_memory_control.hpp"
+#include "plan/point_distance_condition.hpp"
 #include "query/common.hpp"
 #include "query/procedure/module_fwd.hpp"
 #include "spdlog/spdlog.h"
@@ -117,6 +118,7 @@ extern const Event ScanAllByEdgeTypePropertyValueOperator;
 extern const Event ScanAllByEdgeTypePropertyRangeOperator;
 extern const Event ScanAllByEdgeIdOperator;
 extern const Event ScanAllByPointDistanceOperator;
+extern const Event ScanAllByPointWithinbboxOperator;
 extern const Event ExpandOperator;
 extern const Event ExpandVariableOperator;
 extern const Event ConstructNamedPathOperator;
@@ -6374,7 +6376,7 @@ ScanAllByPointDistance::ScanAllByPointDistance(const std::shared_ptr<LogicalOper
                                                storage::LabelId label, storage::PropertyId property,
                                                Identifier *cmp_value, Expression *boundary_value,
                                                PointDistanceCondition boundary_condition)
-    : ScanAll(input, output_symbol, storage::View::OLD /*TODO what to do when NEW*/),
+    : ScanAll(input, output_symbol, storage::View::OLD),
       label_(label),
       property_(property),
       cmp_value_{cmp_value},
@@ -6430,6 +6432,74 @@ std::string ScanAllByPointDistance::ToString() const {
   auto string = dba_->LabelToName(label_);
   auto basicString = dba_->PropertyToName(property_);
   return fmt::format("ScanAllByPointDistance ({0} :{1} {{{2}}})", name, string, basicString);
+}
+
+ScanAllByPointWithinbbox::ScanAllByPointWithinbbox(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
+                                                   storage::LabelId label, storage::PropertyId property,
+                                                   Identifier *bottom_left, Identifier *top_right,
+                                                   Expression *boundary_value)
+    : ScanAll(input, output_symbol, storage::View::OLD),
+      label_(label),
+      property_(property),
+      bottom_left_{bottom_left},
+      top_right_{top_right},
+      boundary_value_{boundary_value} {}
+
+ACCEPT_WITH_INPUT(ScanAllByPointWithinbbox)
+
+UniqueCursorPtr ScanAllByPointWithinbbox::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByPointWithinbboxOperator);
+
+  auto vertices = [this](Frame &frame, ExecutionContext &context) -> std::optional<PointIterable> {
+    auto *db = context.db_accessor;
+
+    auto evaluator = ReferenceExpressionEvaluator(&frame, &context.symbol_table, &context.evaluation_context);
+    auto *bottom_left_value = evaluator.Visit(*bottom_left_);
+    auto *top_right_value = evaluator.Visit(*top_right_);
+
+    auto get_crs = [](auto const *point) -> std::optional<storage::CoordinateReferenceSystem> {
+      switch (point->type()) {
+        using enum TypedValue::Type;
+        case TypedValue::Type::Point2d: {
+          return point->ValuePoint2d().crs();
+        }
+        case TypedValue::Type::Point3d: {
+          return point->ValuePoint3d().crs();
+        }
+        default: {
+          return std::nullopt;
+        }
+      }
+    };
+
+    auto const crs1 = get_crs(bottom_left_value);
+    auto const crs2 = get_crs(top_right_value);
+
+    if (!crs1 || !crs2 || crs1 != crs2) return std::nullopt;
+
+    ExpressionEvaluator boundary_evaluator(&frame, context.symbol_table, context.evaluation_context,
+                                           context.db_accessor, view_);
+    auto boundary_value = boundary_value_->Accept(boundary_evaluator);
+
+    if (!boundary_value.IsBool()) {
+      throw QueryRuntimeException("point.withinbbox returns a boolean and therefore can only be compared with one.");
+    }
+    auto boundary_condition = boundary_value.ValueBool() ? WithinBBoxCondition::INSIDE : WithinBBoxCondition::OUTSIDE;
+
+    return std::make_optional(
+        db->PointVertices(label_, property_, *crs1, *bottom_left_value, *top_right_value, boundary_condition));
+  };
+  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
+                                                                view_, std::move(vertices), "ScanAllByPointWithinbbox");
+
+  return nullptr;
+}
+
+std::string ScanAllByPointWithinbbox::ToString() const {
+  auto name = output_symbol_.name();
+  auto string = dba_->LabelToName(label_);
+  auto basicString = dba_->PropertyToName(property_);
+  return fmt::format("ScanAllByPointWithinbbox ({0} :{1} {{{2}}})", name, string, basicString);
 }
 
 }  // namespace memgraph::query::plan

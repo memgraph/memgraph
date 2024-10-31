@@ -359,12 +359,12 @@ struct PointFilter {
         distance_{
             .cmp_value_ = cmp_value, .boundary_value_ = boundary_value, .boundary_condition_ = boundary_condition} {}
 
-  PointFilter(Symbol symbol, PropertyIx property, Identifier *lb, Identifier *ub,
-              WithinBBoxCondition boundary_condition)
+  PointFilter(Symbol symbol, PropertyIx property, Identifier *bottom_left, Identifier *top_right,
+              Expression *boundary_value)
       : symbol_(std::move(symbol)),
         property_(std::move(property)),
         function_(Function::WITHINBBOX),
-        withinbbox_{.lb_ = lb, .ub_ = ub, .boundary_condition_ = boundary_condition} {}
+        withinbbox_{.bottom_left_ = bottom_left, .top_right_ = top_right, .boundary_value_ = boundary_value} {}
 
   /// Symbol whose property is looked up.
   Symbol symbol_;
@@ -377,9 +377,9 @@ struct PointFilter {
       PointDistanceCondition boundary_condition_;
     } distance_;
     struct {
-      Identifier *lb_ = nullptr;
-      Identifier *ub_ = nullptr;
-      WithinBBoxCondition boundary_condition_;
+      Identifier *bottom_left_ = nullptr;
+      Identifier *top_right_ = nullptr;
+      Expression *boundary_value_ = nullptr;
     } withinbbox_;
   };
 };

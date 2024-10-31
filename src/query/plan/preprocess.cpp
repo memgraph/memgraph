@@ -17,6 +17,7 @@
 #include <utility>
 #include <variant>
 
+#include "plan/point_distance_condition.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
@@ -510,6 +511,56 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     return false;
   };
 
+  auto get_point_withinbbox_function = [&](Expression *expr, PropertyLookup *&propertyLookup, Identifier *&ident,
+                                           Identifier *&bottom_left, Identifier *&top_right) -> bool {
+    auto *func = utils::Downcast<Function>(expr);
+    auto isPointWithinbbox = func && utils::ToUpperCase(func->function_name_) == "POINT.WITHINBBOX"sv;
+    if (!isPointWithinbbox) return false;
+    // no need to check # of args as it will already be looked up and checked
+    // hence the existence of func->function_
+
+    auto extract_prop_lookup_and_identifers = [&](Expression *point, Expression *bottom_left_expr,
+                                                  Expression *top_right_expr) -> bool {
+      if (get_property_lookup(point, propertyLookup, ident)) {
+        bottom_left = utils::Downcast<Identifier>(bottom_left_expr);
+        if (bottom_left == nullptr) return false;
+        top_right = utils::Downcast<Identifier>(top_right_expr);
+        if (top_right == nullptr) return false;
+        // it would not make sense to hint to the Scan subsitution that we could replace with a Point index scan
+        // if the point.withinbbox call had same identifer in the searched point as in its boundaries
+        if (ident != bottom_left && ident != top_right) {
+          return true;
+        }
+      }
+      return false;
+    };
+
+    return extract_prop_lookup_and_identifers(func->arguments_[0], func->arguments_[1], func->arguments_[2]);
+  };
+
+  auto add_point_withinbbox_filter = [&](auto *expr1, auto *expr2) {
+    PropertyLookup *prop_lookup = nullptr;
+    Identifier *ident = nullptr;
+    Identifier *bottom_left = nullptr;
+    Identifier *top_right = nullptr;
+    if (get_point_withinbbox_function(expr1, prop_lookup, ident, bottom_left, top_right)) {
+      // point.withinbbox(n.prop, bottom_left, top_right) = expr (true/false)
+      auto symbol = symbol_table.at(*ident);
+      auto collector = UsedSymbolsCollector{symbol_table};
+      expr2->Accept(collector);
+      bool const uses_same_symbol = utils::Contains(collector.symbols_, symbol);
+      // if expr2 is also dependant on the same symbol then not possible to subsitute with a point index
+      if (!uses_same_symbol) {
+        auto filter = make_filter(FilterInfo::Type::Point);
+        // expr2 is embedded in WithinBBoxCondition
+        filter.point_filter.emplace(std::move(symbol), prop_lookup->property_, bottom_left, top_right, expr2);
+        all_filters_.emplace_back(filter);
+        return true;
+      }
+    }
+    return false;
+  };
+
   // Checks if either the expr1 and expr2 are property lookups, adds them as
   // PropertyFilter and returns true. Otherwise, returns false.
   auto add_prop_greater = [&](auto *expr1, auto *expr2, auto bound_type) -> bool {
@@ -646,6 +697,12 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     // Try to get ID equality filter.
     bool is_id_filter = add_id_equal(eq->expression1_, eq->expression2_);
     is_id_filter |= add_id_equal(eq->expression2_, eq->expression1_);
+
+    // TODO: extract WithinBBoxcondition from expression? Is it possible to do here?
+    if (add_point_withinbbox_filter(eq->expression1_, eq->expression2_)) {
+      return;
+    }
+
     if (!is_prop_filter && !is_id_filter) {
       // No special filter was added, so just store a generic filter.
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
