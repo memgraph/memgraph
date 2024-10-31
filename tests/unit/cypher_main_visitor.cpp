@@ -19,17 +19,17 @@
 #include <vector>
 
 //////////////////////////////////////////////////////
-// "json.hpp" should always come before "antlr4-runtime.h"
 // "json.hpp" uses libc's EOF macro while
 // "antlr4-runtime.h" contains a static variable of the
 // same name, EOF.
-// This hides the definition of the macro which causes
-// the compilation to fail.
 #include <json/json.hpp>
 // Same is true for <boost/geometry.hpp> that is included by ast.hpp
 #include "query/frontend/ast/ast.hpp"
 //////////////////////////////////////////////////////
+#pragma push_macro("EOF")  // hide EOF for antlr headers
 #include <antlr4-runtime.h>
+#include "query/frontend/opencypher/generated/MemgraphCypherBaseVisitor.h"
+#pragma pop_macro("EOF")  // bring back EOF
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 

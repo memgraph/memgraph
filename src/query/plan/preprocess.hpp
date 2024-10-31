@@ -16,11 +16,13 @@
 #include <set>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
+#include "query/plan/point_distance_condition.hpp"
 
 namespace memgraph::query::plan {
 
@@ -345,6 +347,43 @@ class PropertyFilter {
   std::optional<Bound> upper_bound_{};
 };
 
+/// Stores the symbols and expression used to filter a point.distance.
+struct PointFilter {
+  enum class Function : uint8_t { DISTANCE, WITHINBBOX };
+
+  PointFilter(Symbol symbol, PropertyIx property, Identifier *cmp_value, PointDistanceCondition boundary_condition,
+              Expression *boundary_value)
+      : symbol_(std::move(symbol)),
+        property_(std::move(property)),
+        function_(Function::DISTANCE),
+        distance_{
+            .cmp_value_ = cmp_value, .boundary_value_ = boundary_value, .boundary_condition_ = boundary_condition} {}
+
+  PointFilter(Symbol symbol, PropertyIx property, Identifier *lb, Identifier *ub,
+              WithinBBoxCondition boundary_condition)
+      : symbol_(std::move(symbol)),
+        property_(std::move(property)),
+        function_(Function::WITHINBBOX),
+        withinbbox_{.lb_ = lb, .ub_ = ub, .boundary_condition_ = boundary_condition} {}
+
+  /// Symbol whose property is looked up.
+  Symbol symbol_;
+  PropertyIx property_;
+  Function function_;
+  union {
+    struct {
+      Identifier *cmp_value_ = nullptr;
+      Expression *boundary_value_ = nullptr;
+      PointDistanceCondition boundary_condition_;
+    } distance_;
+    struct {
+      Identifier *lb_ = nullptr;
+      Identifier *ub_ = nullptr;
+      WithinBBoxCondition boundary_condition_;
+    } withinbbox_;
+  };
+};
+
 /// Filtering by ID, for example `MATCH (n) WHERE id(n) = 42 ...`
 class IdFilter {
  public:
@@ -365,7 +404,7 @@ struct FilterInfo {
   /// applied for labels or a property. Non generic types contain extra
   /// information which can be used to produce indexed scans of graph
   /// elements.
-  enum class Type { Generic, Label, Property, Id, Pattern };
+  enum class Type { Generic, Label, Property, Id, Pattern, Point };
 
   // FilterInfo is tricky because FilterMatching is not yet defined:
   //   * if no declared constructor -> FilterInfo is std::__is_complete_or_unbounded
@@ -395,6 +434,8 @@ struct FilterInfo {
   /// Matchings for filters that include patterns
   /// NOTE: The vector is not defined here because FilterMatching is forward declared above.
   std::vector<FilterMatching> matchings;
+  /// Information for Type::Point filtering.
+  std::optional<PointFilter> point_filter{};
 };
 
 /// Stores information on filters used inside the @c Matching of a @c QueryPart.
@@ -406,12 +447,12 @@ class Filters final {
   using iterator = std::vector<FilterInfo>::iterator;
   using const_iterator = std::vector<FilterInfo>::const_iterator;
 
-  auto begin() { return all_filters_.begin(); }
-  auto begin() const { return all_filters_.begin(); }
-  auto end() { return all_filters_.end(); }
-  auto end() const { return all_filters_.end(); }
+  auto begin() -> iterator { return all_filters_.begin(); }
+  auto begin() const -> const_iterator { return all_filters_.begin(); }
+  auto end() -> iterator { return all_filters_.end(); }
+  auto end() const -> const_iterator { return all_filters_.end(); }
 
-  auto empty() const { return all_filters_.empty(); }
+  auto empty() const -> bool { return all_filters_.empty(); }
 
   auto erase(iterator pos) -> iterator;
   auto erase(const_iterator pos) -> iterator;
@@ -436,6 +477,8 @@ class Filters final {
 
   /// Returns a vector of FilterInfo for properties.
   auto PropertyFilters(const Symbol &symbol) const -> std::vector<FilterInfo>;
+
+  auto PointFilters(const Symbol &symbol) const -> std::vector<FilterInfo>;
 
   /// Return a vector of FilterInfo for ID equality filtering.
   auto IdFilters(const Symbol &symbol) const -> std::vector<FilterInfo>;
@@ -544,6 +587,16 @@ inline auto Filters::PropertyFilters(const Symbol &symbol) const -> std::vector<
   std::vector<FilterInfo> filters;
   for (const auto &filter : all_filters_) {
     if (filter.type == FilterInfo::Type::Property && filter.property_filter->symbol_ == symbol) {
+      filters.push_back(filter);
+    }
+  }
+  return filters;
+}
+
+inline auto Filters::PointFilters(const Symbol &symbol) const -> std::vector<FilterInfo> {
+  std::vector<FilterInfo> filters;
+  for (const auto &filter : all_filters_) {
+    if (filter.type == FilterInfo::Type::Point && filter.point_filter->symbol_ == symbol) {
       filters.push_back(filter);
     }
   }

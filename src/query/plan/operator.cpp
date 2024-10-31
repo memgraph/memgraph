@@ -116,6 +116,7 @@ extern const Event ScanAllByEdgeTypePropertyOperator;
 extern const Event ScanAllByEdgeTypePropertyValueOperator;
 extern const Event ScanAllByEdgeTypePropertyRangeOperator;
 extern const Event ScanAllByEdgeIdOperator;
+extern const Event ScanAllByPointDistanceOperator;
 extern const Event ExpandOperator;
 extern const Event ExpandVariableOperator;
 extern const Event ConstructNamedPathOperator;
@@ -522,10 +523,7 @@ class ScanAllCursor : public Cursor {
       // iterable, we cannot simply reset it by calling begin().
       auto next_vertices = get_vertices_(frame, context);
       if (!next_vertices) continue;
-      // Since vertices iterator isn't nothrow_move_assignable, we have to use
-      // the roundabout assignment + emplace, instead of simple:
-      // vertices _ = get_vertices_(frame, context);
-      vertices_.emplace(std::move(next_vertices.value()));
+      vertices_ = std::move(next_vertices);
       vertices_it_.emplace(vertices_.value().begin());
       vertices_end_it_.emplace(vertices_.value().end());
     }
@@ -6371,4 +6369,67 @@ UniqueCursorPtr PeriodicSubquery::MakeCursor(utils::MemoryResource *mem) const {
 
   return MakeUniqueCursorPtr<PeriodicSubqueryCursor>(mem, *this, mem);
 }
+
+ScanAllByPointDistance::ScanAllByPointDistance(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
+                                               storage::LabelId label, storage::PropertyId property,
+                                               Identifier *cmp_value, Expression *boundary_value,
+                                               PointDistanceCondition boundary_condition)
+    : ScanAll(input, output_symbol, storage::View::OLD /*TODO what to do when NEW*/),
+      label_(label),
+      property_(property),
+      cmp_value_{cmp_value},
+      boundary_value_{boundary_value},
+      boundary_condition_{boundary_condition} {}
+
+ACCEPT_WITH_INPUT(ScanAllByPointDistance)
+
+UniqueCursorPtr ScanAllByPointDistance::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByPointDistanceOperator);
+
+  auto vertices = [this](Frame &frame, ExecutionContext &context) -> std::optional<PointIterable> {
+    auto *db = context.db_accessor;
+
+    auto evaluator = ReferenceExpressionEvaluator(&frame, &context.symbol_table, &context.evaluation_context);
+
+    // Is it possible to evaluate this while making cursor?
+    //  Yes - if constant, this would mean we can specialise
+    //  No - in general, this could be a property from another object (bound to variable during evaluation)
+    auto *value = evaluator.Visit(*cmp_value_);
+
+    auto crs = std::invoke([&]() -> std::optional<storage::CoordinateReferenceSystem> {
+      switch (value->type()) {
+        using enum TypedValue::Type;
+        case TypedValue::Type::Point2d: {
+          return value->ValuePoint2d().crs();
+        }
+        case TypedValue::Type::Point3d: {
+          return value->ValuePoint3d().crs();
+        }
+        default: {
+          return std::nullopt;
+        }
+      }
+    });
+
+    if (!crs) return std::nullopt;
+
+    ExpressionEvaluator boundary_evaluator(&frame, context.symbol_table, context.evaluation_context,
+                                           context.db_accessor, view_);
+    auto boundary_value = boundary_value_->Accept(boundary_evaluator);
+
+    return std::make_optional(db->PointVertices(label_, property_, *crs, *value, boundary_value, boundary_condition_));
+  };
+  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
+                                                                view_, std::move(vertices), "ScanAllByPointDistance");
+
+  return nullptr;
+}
+
+std::string ScanAllByPointDistance::ToString() const {
+  auto name = output_symbol_.name();
+  auto string = dba_->LabelToName(label_);
+  auto basicString = dba_->PropertyToName(property_);
+  return fmt::format("ScanAllByPointDistance ({0} :{1} {{{2}}})", name, string, basicString);
+}
+
 }  // namespace memgraph::query::plan

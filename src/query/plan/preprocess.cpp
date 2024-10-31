@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <functional>
 #include <stack>
+#include <string_view>
 #include <unordered_map>
 #include <utility>
 #include <variant>
@@ -25,6 +26,8 @@
 #include "utils/bound.hpp"
 #include "utils/logging.hpp"
 #include "utils/typeinfo.hpp"
+
+using namespace std::string_view_literals;
 
 namespace memgraph::query::plan {
 
@@ -452,12 +455,71 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     }
     return false;
   };
+
+  auto get_point_distance_function = [&](Expression *expr, PropertyLookup *&propertyLookup, Identifier *&ident,
+                                         Identifier *&other) -> bool {
+    auto *func = utils::Downcast<Function>(expr);
+    auto isPointDistance = func && utils::ToUpperCase(func->function_name_) == "POINT.DISTANCE"sv;
+    if (!isPointDistance) return false;
+    // no need to check # of args as it will already be looked up and checked
+    // hence the existence of func->function_
+
+    auto extract_prop_lookup_and_identifers = [&](Expression *lhs, Expression *rhs) -> bool {
+      if (get_property_lookup(lhs, propertyLookup, ident)) {
+        other = utils::Downcast<Identifier>(rhs);
+        if (other == nullptr) return false;
+        // it would not make sense to hint to the Scan subsitution that we could replace with a Point index scan
+        // if the point.distance call had same identifer in both lhs and rhs
+        // eg. point.distance(x.prop, x) or point.distance(x.prop, x.thing)
+        // test to ensure they are different
+        if (other != ident) {
+          return true;
+        }
+        /* check for inplace point({...}) literal OR have another pass do a raise to force it to be identifier*/
+      }
+      return false;
+    };
+
+    auto commutative_apply = [](auto &&func, auto &&arg1, auto &&arg2) {
+      if (func(arg1, arg2)) return true;
+      if (func(arg2, arg1)) return true;
+      return false;
+    };
+
+    return commutative_apply(extract_prop_lookup_and_identifers, func->arguments_[0], func->arguments_[1]);
+  };
+
+  auto add_point_distance_filter = [&](auto *expr1, auto *expr2, PointDistanceCondition kind) {
+    PropertyLookup *prop_lookup = nullptr;
+    Identifier *ident = nullptr;
+    Identifier *other = nullptr;
+    if (get_point_distance_function(expr1, prop_lookup, ident, other)) {
+      // point.distance(n.prop, other) > expr2
+      auto symbol = symbol_table.at(*ident);
+      auto collector = UsedSymbolsCollector{symbol_table};
+      expr2->Accept(collector);
+      bool const uses_same_symbol = utils::Contains(collector.symbols_, symbol);
+      // if expr2 is also dependant on the same symbol then not possible to subsitute with a point index
+      if (!uses_same_symbol) {
+        auto filter = make_filter(FilterInfo::Type::Point);
+        filter.point_filter.emplace(std::move(symbol), prop_lookup->property_, other, kind, expr2);
+        all_filters_.emplace_back(filter);
+        return true;
+      }
+    }
+    return false;
+  };
+
   // Checks if either the expr1 and expr2 are property lookups, adds them as
   // PropertyFilter and returns true. Otherwise, returns false.
   auto add_prop_greater = [&](auto *expr1, auto *expr2, auto bound_type) -> bool {
     PropertyLookup *prop_lookup = nullptr;
     Identifier *ident = nullptr;
     bool is_prop_filter = false;
+
+    // We need to get both possible lookups `n.prop > thing` and `thing > n.prop`
+    // Only one can be used in the rewrite, so even when we add both into all_filters_ only one can be used
+    // example where two can be inserted `n0.propA > n1.propB`, the rewritten scan could be for n0 or n1
     if (get_property_lookup(expr1, prop_lookup, ident)) {
       // n.prop > value
       auto filter = make_filter(FilterInfo::Type::Property);
@@ -596,23 +658,39 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     // We only support property type ranges for now
     add_prop_range(range);
   } else if (auto *gt = utils::Downcast<GreaterOperator>(expr)) {
-    if (!add_prop_greater(gt->expression1_, gt->expression2_, Bound::Type::EXCLUSIVE)) {
-      all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
-    }
+    // look for point.distance(n.prop, other) > expr2
+    if (!add_point_distance_filter(gt->expression1_, gt->expression2_, PointDistanceCondition::OUTSIDE))
+      // look for expr2 > point.distance(n.prop, other)
+      if (!add_point_distance_filter(gt->expression1_, gt->expression2_, PointDistanceCondition::INSIDE))
+        if (!add_prop_greater(gt->expression1_, gt->expression2_, Bound::Type::EXCLUSIVE)) {
+          all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
+        }
   } else if (auto *ge = utils::Downcast<GreaterEqualOperator>(expr)) {
-    if (!add_prop_greater(ge->expression1_, ge->expression2_, Bound::Type::INCLUSIVE)) {
-      all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
-    }
+    // look for point.distance(n.prop, other) >= expr2
+    if (!add_point_distance_filter(ge->expression1_, ge->expression2_, PointDistanceCondition::OUTSIDE_AND_BOUNDARY))
+      // look for expr2 >= point.distance(n.prop, other)
+      if (!add_point_distance_filter(ge->expression1_, ge->expression2_, PointDistanceCondition::INSIDE_AND_BOUNDARY))
+        if (!add_prop_greater(ge->expression1_, ge->expression2_, Bound::Type::INCLUSIVE)) {
+          all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
+        }
   } else if (auto *lt = utils::Downcast<LessOperator>(expr)) {
-    // Like greater, but in reverse.
-    if (!add_prop_greater(lt->expression2_, lt->expression1_, Bound::Type::EXCLUSIVE)) {
-      all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
-    }
+    // look for point.distance(n.prop, other) < expr2
+    if (!add_point_distance_filter(lt->expression1_, lt->expression2_, PointDistanceCondition::INSIDE))
+      // look for expr2 < point.distance(n.prop, other)
+      if (!add_point_distance_filter(lt->expression1_, lt->expression2_, PointDistanceCondition::OUTSIDE))
+        // Like greater, but in reverse.
+        if (!add_prop_greater(lt->expression2_, lt->expression1_, Bound::Type::EXCLUSIVE)) {
+          all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
+        }
   } else if (auto *le = utils::Downcast<LessEqualOperator>(expr)) {
-    // Like greater equal, but in reverse.
-    if (!add_prop_greater(le->expression2_, le->expression1_, Bound::Type::INCLUSIVE)) {
-      all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
-    }
+    // look for point.distance(n.prop, other) <= expr2
+    if (!add_point_distance_filter(le->expression1_, le->expression2_, PointDistanceCondition::INSIDE_AND_BOUNDARY))
+      // look for expr2 <= point.distance(n.prop, other)
+      if (!add_point_distance_filter(le->expression1_, le->expression2_, PointDistanceCondition::OUTSIDE_AND_BOUNDARY))
+        // Like greater equal, but in reverse.
+        if (!add_prop_greater(le->expression2_, le->expression1_, Bound::Type::INCLUSIVE)) {
+          all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
+        }
   } else if (auto *in = utils::Downcast<InListOperator>(expr)) {
     // IN isn't equivalent to Equal because IN isn't a symmetric operator. The
     // IN filter is captured here only if the property lookup occurs on the
