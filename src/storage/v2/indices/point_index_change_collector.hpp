@@ -77,6 +77,8 @@ struct PointIndexChangeCollector {
 
   void ArchiveCurrentChanges();
 
+  void UpdateOnVertexDelete(Vertex *vertex);
+
  private:
   TrackedChanges current_changes_;
   TrackedChanges previous_changes_;

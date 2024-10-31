@@ -35,7 +35,9 @@
 #include "storage/v2/edges_iterable.hpp"
 #include "storage/v2/enum_store.hpp"
 #include "storage/v2/indices/indices.hpp"
+#include "storage/v2/indices/point_index.hpp"
 #include "storage/v2/mvcc.hpp"
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/replication_client.hpp"
 #include "storage/v2/replication/replication_storage_state.hpp"
@@ -247,7 +249,7 @@ class Storage {
                                           const std::optional<utils::Bound<PropertyValue>> &lower,
                                           const std::optional<utils::Bound<PropertyValue>> &upper) const = 0;
 
-    virtual uint64_t ApproximatePointCount(LabelId label, PropertyId property) const = 0;
+    virtual std::optional<uint64_t> ApproximateVerticesPointCount(LabelId label, PropertyId property) const = 0;
 
     virtual std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const = 0;
 
@@ -306,6 +308,8 @@ class Storage {
                                    const std::string &aggregation_query) const {
       return storage_->indices_.text_index_.Aggregate(index_name, search_query, aggregation_query);
     }
+
+    virtual bool PointIndexExists(LabelId label, PropertyId property) const = 0;
 
     virtual IndicesInfo ListAllIndices() const = 0;
 
@@ -445,6 +449,10 @@ class Storage {
     auto GetEnumValue(std::string_view enum_str) -> utils::BasicResult<EnumStorageError, Enum> {
       return storage_->enum_store_.ToEnum(enum_str);
     }
+
+    virtual auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
+                               PropertyValue const &point_value, PropertyValue const &boundary_value,
+                               PointDistanceCondition condition) -> PointIterable = 0;
 
    protected:
     Storage *storage_;

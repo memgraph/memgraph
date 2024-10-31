@@ -12,13 +12,17 @@
 #pragma once
 
 #include "memory/query_memory_control.hpp"
+#include "plan/point_distance_condition.hpp"
 #include "query/edge_accessor.hpp"
 #include "query/exceptions.hpp"
 #include "query/hops_limit.hpp"
+#include "query/typed_value.hpp"
 #include "query/vertex_accessor.hpp"
 #include "storage/v2/constraints/type_constraints.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/point_index.hpp"
+#include "storage/v2/indices/point_iterator.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
 #include "storage/v2/storage.hpp"
@@ -155,6 +159,47 @@ class VerticesIterable final {
   }
 };
 
+template <typename storage_iterator>
+struct query_vertex_iterator final {
+  using value_type = VertexAccessor;
+  explicit query_vertex_iterator(storage_iterator it) : it_(std::move(it)) {}
+  query_vertex_iterator(query_vertex_iterator const &) = default;
+  query_vertex_iterator(query_vertex_iterator &&) = default;
+  query_vertex_iterator &operator=(query_vertex_iterator const &) = default;
+  query_vertex_iterator &operator=(query_vertex_iterator &&) = default;
+
+  VertexAccessor operator*() const { return VertexAccessor{*it_}; }
+
+  auto operator++() -> query_vertex_iterator & {
+    ++it_;
+    return *this;
+  }
+
+  friend bool operator==(query_vertex_iterator const &, query_vertex_iterator const &) = default;
+
+ private:
+  storage_iterator it_;
+};
+
+template <typename storage_iterable>
+struct query_iterable final {
+  using iterator = query_vertex_iterator<typename storage_iterable::iterator>;
+
+  explicit query_iterable(storage_iterable iterable) : iterable_(std::move(iterable)) {}
+  query_iterable(query_iterable const &) = default;
+  query_iterable(query_iterable &&) = default;
+  query_iterable &operator=(query_iterable const &) = default;
+  query_iterable &operator=(query_iterable &&) = default;
+  ~query_iterable() = default;
+
+  iterator begin() { return iterator{iterable_.begin()}; }
+
+  iterator end() { return iterator{iterable_.end()}; }
+
+ private:
+  storage_iterable iterable_;
+};
+
 class EdgesIterable final {
   std::variant<storage::EdgesIterable, std::unordered_set<EdgeAccessor, std::hash<EdgeAccessor>, std::equal_to<void>,
                                                           utils::Allocator<EdgeAccessor>> *>
@@ -211,6 +256,8 @@ class EdgesIterable final {
   }
 };
 
+using PointIterable = query_iterable<storage::PointIterable>;
+
 class DbAccessor final {
   storage::Storage::Accessor *accessor_;
 
@@ -260,6 +307,14 @@ class DbAccessor final {
                             const std::optional<utils::Bound<storage::PropertyValue>> &lower,
                             const std::optional<utils::Bound<storage::PropertyValue>> &upper) {
     return VerticesIterable(accessor_->Vertices(label, property, lower, upper, view));
+  }
+
+  auto PointVertices(storage::LabelId label, storage::PropertyId property, storage::CoordinateReferenceSystem crs,
+                     TypedValue const &point_value, TypedValue const &boundary_value,
+                     plan::PointDistanceCondition condition) -> PointIterable {
+    return PointIterable(accessor_->PointVertices(label, property, crs,
+                                                  static_cast<storage::PropertyValue>(point_value),
+                                                  static_cast<storage::PropertyValue>(boundary_value), condition));
   }
 
   EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type) {
@@ -468,6 +523,10 @@ class DbAccessor final {
     return accessor_->TextIndexAggregate(index_name, search_query, aggregation_query);
   }
 
+  bool PointIndexExists(storage::LabelId label, storage::PropertyId prop) const {
+    return accessor_->PointIndexExists(label, prop);
+  }
+
   std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const {
     return accessor_->GetIndexStats(label);
   }
@@ -499,6 +558,10 @@ class DbAccessor final {
 
   int64_t VerticesCount(storage::LabelId label, storage::PropertyId property) const {
     return accessor_->ApproximateVertexCount(label, property);
+  }
+
+  std::optional<uint64_t> VerticesPointCount(storage::LabelId label, storage::PropertyId property) const {
+    return accessor_->ApproximateVerticesPointCount(label, property);
   }
 
   int64_t VerticesCount(storage::LabelId label, storage::PropertyId property,
