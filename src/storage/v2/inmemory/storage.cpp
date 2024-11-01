@@ -27,6 +27,7 @@
 #include "storage/v2/edge_direction.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/edge_type_property_index.hpp"
+#include "storage/v2/indices/point_index.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
 #include "storage/v2/metadata_delta.hpp"
@@ -143,8 +144,8 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     // Create the lock file and open a handle to it. This will crash the
     // database if it can't open the file for writing or if any other process is
     // holding the file opened.
-    lock_file_handle_.Open(lock_file_path_, utils::OutputFile::Mode::OVERWRITE_EXISTING);
-    MG_ASSERT(lock_file_handle_.AcquireLock(),
+    lock_file_handle_->Open(lock_file_path_, utils::OutputFile::Mode::OVERWRITE_EXISTING);
+    MG_ASSERT(lock_file_handle_->AcquireLock(),
               "Couldn't acquire lock on the storage directory {}"
               "!\nAnother Memgraph process is currently running with the same "
               "storage directory, please stop it first before starting this "
@@ -236,7 +237,7 @@ InMemoryStorage::~InMemoryStorage() {
   }
   if (wal_file_) {
     wal_file_->FinalizeWal();
-    wal_file_ = std::nullopt;
+    wal_file_.reset();
   }
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED) {
     snapshot_runner_.Stop();
@@ -2403,8 +2404,9 @@ bool InMemoryStorage::InitializeWalFile(memgraph::replication::ReplicationEpoch 
   }
 
   if (!wal_file_) {
-    wal_file_.emplace(recovery_.wal_directory_, uuid(), epoch.id(), config_.salient.items, name_id_mapper_.get(),
-                      wal_seq_num_++, &file_retainer_);
+    wal_file_ =
+        std::make_unique<durability::WalFile>(recovery_.wal_directory_, uuid(), epoch.id(), config_.salient.items,
+                                              name_id_mapper_.get(), wal_seq_num_++, &file_retainer_);
   }
 
   return true;
@@ -2418,7 +2420,7 @@ void InMemoryStorage::FinalizeWalFile() {
   }
   if (wal_file_->GetSize() / 1024 >= config_.durability.wal_file_size_kibibytes) {
     wal_file_->FinalizeWal();
-    wal_file_ = std::nullopt;
+    wal_file_.reset();
     wal_unsynced_transactions_ = 0;
   } else {
     // Try writing the internal buffer if possible, if not
@@ -2930,6 +2932,10 @@ void InMemoryStorage::Clear() {
   repl_storage_state_.history.clear();
 }
 
+bool InMemoryStorage::InMemoryAccessor::PointIndexExists(LabelId label, PropertyId property) const {
+  return storage_->indices_.point_index_.PointIndexExists(label, property);
+}
+
 IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory->indices_.label_index_.get());
@@ -3000,5 +3006,13 @@ void InMemoryStorage::InMemoryAccessor::DropGraph() {
 
   memory::PurgeUnusedMemory();
 }
+
+auto InMemoryStorage::InMemoryAccessor::PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
+                                                      PropertyValue const &point_value,
+                                                      PropertyValue const &boundary_value,
+                                                      PointDistanceCondition condition) -> PointIterable {
+  return transaction_.point_index_ctx_.PointVertices(label, property, crs, storage_, &transaction_, point_value,
+                                                     boundary_value, condition);
+};
 
 }  // namespace memgraph::storage

@@ -448,7 +448,7 @@ class DurabilityTest : public ::testing::TestWithParam<TestSetup> {
           ASSERT_EQ(lp_stats->statistic, 3.4);
           ASSERT_EQ(lp_stats->avg_group_size, 5.6);
           ASSERT_EQ(lp_stats->avg_degree, 0.0);
-          ASSERT_EQ(acc->ApproximatePointCount(base_label_indexed, property_point), 12);
+          ASSERT_EQ(acc->ApproximateVerticesPointCount(base_label_indexed, property_point), 12);
           break;
         }
         case DatasetType::BASE_WITH_EDGE_TYPE_PROPERTY_INDEXED: {
@@ -463,7 +463,7 @@ class DurabilityTest : public ::testing::TestWithParam<TestSetup> {
           ASSERT_EQ(lp_stats->statistic, 3.4);
           ASSERT_EQ(lp_stats->avg_group_size, 5.6);
           ASSERT_EQ(lp_stats->avg_degree, 0.0);
-          ASSERT_EQ(acc->ApproximatePointCount(base_label_indexed, property_point), 12);
+          ASSERT_EQ(acc->ApproximateVerticesPointCount(base_label_indexed, property_point), 12);
           break;
         }
         case DatasetType::ONLY_EXTENDED: {
@@ -482,7 +482,7 @@ class DurabilityTest : public ::testing::TestWithParam<TestSetup> {
         }
         case DatasetType::ONLY_BASE_WITH_EXTENDED_INDICES_AND_CONSTRAINTS:
         case DatasetType::BASE_WITH_EXTENDED: {
-          ASSERT_EQ(acc->ApproximatePointCount(base_label_indexed, property_point), 12);
+          ASSERT_EQ(acc->ApproximateVerticesPointCount(base_label_indexed, property_point), 12);
           [[fallthrough]];
         }
         case DatasetType::ONLY_EXTENDED_WITH_BASE_INDICES_AND_CONSTRAINTS: {

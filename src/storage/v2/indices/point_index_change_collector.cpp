@@ -59,4 +59,19 @@ PointIndexChangeCollector::PointIndexChangeCollector(PointIndexContext &ctx)
       })},
       /// Note: this is a copy of current_changes_ so that it has the same keys
       previous_changes_{current_changes_} {}
+
+void PointIndexChangeCollector::UpdateOnVertexDelete(Vertex *vertex) {
+  if (current_changes_.empty()) return;
+
+  constexpr auto all_point_types = std::array{PropertyStoreType::POINT};
+  for (auto prop : vertex->properties.PropertiesOfTypes(all_point_types)) {
+    for (auto label : vertex->labels) {
+      auto k = LabelPropKey{label, prop};
+      auto it = current_changes_.find(k);
+      if (it != current_changes_.end()) {
+        it->second.insert(vertex);
+      }
+    }
+  }
+}
 }  // namespace memgraph::storage

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,12 +11,15 @@
 
 #pragma once
 
-#include <string>
-
+#include <cstdio>          // Ensure EOF macro is defined
+#pragma push_macro("EOF")  // hide EOF for antlr headers
 #include "antlr4-runtime.h"
 #include "query/exceptions.hpp"
 #include "query/frontend/opencypher/generated/MemgraphCypher.h"
 #include "query/frontend/opencypher/generated/MemgraphCypherLexer.h"
+#pragma pop_macro("EOF")  // bring EOF back
+
+#include <string>
 
 namespace memgraph::query::frontend::opencypher {
 
