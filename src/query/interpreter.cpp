@@ -5344,14 +5344,18 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
   // Handle transaction control queries.
   const auto upper_case_query = utils::ToUpperCase(query_string);
   const auto trimmed_query = utils::Trim(upper_case_query);
+  const bool is_begin = trimmed_query == "BEGIN";
 
-  if (trimmed_query == "BEGIN") {
-    ResetInterpreter();
-  }
-  // Reset before logging, as some transaction related information will get logged
-  spdlog::debug("{}", QueryLogWrapper{query_string, metadata_ ? &*metadata_ : &extras.metadata_pv, current_db_.name()});
+  // Explicit transactions define the metadata at the beginning and reuse it
+  spdlog::debug(
+      "{}", QueryLogWrapper{query_string,
+                            (in_explicit_transaction_ && metadata_ && !is_begin) ? &*metadata_ : &extras.metadata_pv,
+                            current_db_.name()});
 
-  if (trimmed_query == "BEGIN" || trimmed_query == "COMMIT" || trimmed_query == "ROLLBACK") {
+  if (is_begin || trimmed_query == "COMMIT" || trimmed_query == "ROLLBACK") {
+    if (is_begin) {
+      ResetInterpreter();
+    }
     auto &query_execution = query_executions_.emplace_back(QueryExecution::Create());
     query_execution->prepared_query = PrepareTransactionQuery(trimmed_query, extras);
     auto qid = in_explicit_transaction_ ? static_cast<int>(query_executions_.size() - 1) : std::optional<int>{};
