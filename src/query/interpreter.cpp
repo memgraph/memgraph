@@ -5346,8 +5346,10 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
   const auto trimmed_query = utils::Trim(upper_case_query);
 
   // Explicit transactions define the metadata at the beginning and reuse it
-  spdlog::debug("{}", QueryLogWrapper{query_string, in_explicit_transaction_ ? &*metadata_ : &extras.metadata_pv,
-                                      current_db_.name()});
+  spdlog::debug(
+      "{}", QueryLogWrapper{query_string,
+                            (in_explicit_transaction_ && trimmed_query != "BEGIN") ? &*metadata_ : &extras.metadata_pv,
+                            current_db_.name()});
 
   if (trimmed_query == "BEGIN" || trimmed_query == "COMMIT" || trimmed_query == "ROLLBACK") {
     if (trimmed_query == "BEGIN") {
