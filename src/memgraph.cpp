@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdlib>
 #include <exception>
@@ -58,6 +59,7 @@
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/storage_mode.hpp"
+#include "storage/v2/view.hpp"
 #include "system/system.hpp"
 #include "telemetry/telemetry.hpp"
 #include "utils/event_gauge.hpp"
@@ -601,9 +603,12 @@ int main(int argc, char **argv) {
 
   std::vector<memgraph::storage::VectorIndexSpec> vector_index_specs;
   if (!FLAGS_experimental_vector_indexes.empty()) {
+    auto storage = db_acc->Access();
+    if (storage->GetCreationStorageMode() == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL) {
+      LOG_FATAL("Vector indexes are not supported in ON_DISK_TRANSACTIONAL storage mode.");
+    }
     const auto specs = memgraph::utils::Split(FLAGS_experimental_vector_indexes, ";");
     if (!specs.empty()) {
-      auto storage = db_acc->Access();
       vector_index_specs.reserve(specs.size());
       for (const auto &spec : specs) {
         const auto an_index_split = memgraph::utils::Split(spec, "__");
@@ -633,6 +638,11 @@ int main(int argc, char **argv) {
                      storage->LabelToName(spec.label), storage->PropertyToName(spec.property), spec.config.dump());
         storage->CreateVectorIndex(spec);
       }
+      // Try to reload vertices in the vector index -> this will be removed once we implement correct durability logic
+      // for vector indexes
+      auto vertices = storage->Vertices(memgraph::storage::View::OLD);
+      std::for_each(vertices.begin(), vertices.end(),
+                    [&storage](const auto &vertex) { storage->TryInsertVertexIntoVectorIndex(vertex); });
     }
   }
 

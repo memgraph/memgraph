@@ -638,4 +638,8 @@ void Storage::Accessor::CreateVectorIndex(const VectorIndexSpec &spec) {
   storage_->indices_.vector_index_.CreateIndex(spec);
 }
 
+void Storage::Accessor::TryInsertVertexIntoVectorIndex(const VertexAccessor &vertex) {
+  storage_->indices_.vector_index_.TryInsertVertex(vertex.vertex_);
+}
+
 }  // namespace memgraph::storage

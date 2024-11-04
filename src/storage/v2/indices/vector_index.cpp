@@ -22,6 +22,7 @@
 #include "storage/v2/vertex.hpp"
 #include "usearch/index.hpp"
 #include "usearch/index_dense.hpp"
+#include "utils/algorithm.hpp"
 #include "utils/counter.hpp"
 #include "utils/logging.hpp"
 
@@ -273,6 +274,16 @@ VectorIndex::IndexStats VectorIndex::Analysis() const {
     res.p2l[property].emplace_back(label);
   }
   return res;
+}
+
+void VectorIndex::TryInsertVertex(Vertex *vertex) const {
+  auto has_property = [&](const auto &label_prop) { return vertex->properties.HasProperty(label_prop.property()); };
+  auto has_label = [&](const auto &label_prop) { return utils::Contains(vertex->labels, label_prop.label()); };
+  for (const auto &[label_prop, _] : pimpl->index_) {
+    if (has_property(label_prop) && has_label(label_prop)) {
+      UpdateVectorIndex(vertex, label_prop);
+    }
+  }
 }
 
 }  // namespace memgraph::storage

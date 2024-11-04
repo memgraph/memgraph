@@ -18,6 +18,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
+#include "storage/v2/vertex_accessor.hpp"
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(experimental_vector_indexes);
@@ -118,6 +119,10 @@ class VectorIndex {
   /// @brief Returns the index statistics.
   /// @return The index statistics.
   IndexStats Analysis() const;
+
+  /// @brief Tries to insert a vertex into the index.
+  /// @param vertex The vertex to be inserted.
+  void TryInsertVertex(Vertex *vertex) const;
 
  private:
   /// @brief Adds a vertex to an existing index.

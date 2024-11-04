@@ -54,7 +54,6 @@
 #include "utils/event_gauge.hpp"
 #include "utils/event_histogram.hpp"
 #include "utils/resource_lock.hpp"
-#include "utils/scheduler.hpp"
 #include "utils/synchronized_metadata_store.hpp"
 #include "utils/timer.hpp"
 #include "utils/uuid.hpp"
@@ -397,6 +396,8 @@ class Storage {
     void DropTextIndex(const std::string &index_name);
 
     void CreateVectorIndex(const VectorIndexSpec &spec);
+
+    void TryInsertVertexIntoVectorIndex(const VertexAccessor &vertex);
 
     virtual utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
         LabelId label, PropertyId property) = 0;
