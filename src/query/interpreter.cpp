@@ -5344,15 +5344,16 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
   // Handle transaction control queries.
   const auto upper_case_query = utils::ToUpperCase(query_string);
   const auto trimmed_query = utils::Trim(upper_case_query);
+  const bool is_begin = trimmed_query == "BEGIN";
 
   // Explicit transactions define the metadata at the beginning and reuse it
   spdlog::debug(
       "{}", QueryLogWrapper{query_string,
-                            (in_explicit_transaction_ && trimmed_query != "BEGIN") ? &*metadata_ : &extras.metadata_pv,
+                            (in_explicit_transaction_ && metadata_ && !is_begin) ? &*metadata_ : &extras.metadata_pv,
                             current_db_.name()});
 
-  if (trimmed_query == "BEGIN" || trimmed_query == "COMMIT" || trimmed_query == "ROLLBACK") {
-    if (trimmed_query == "BEGIN") {
+  if (is_begin || trimmed_query == "COMMIT" || trimmed_query == "ROLLBACK") {
+    if (is_begin) {
       ResetInterpreter();
     }
     auto &query_execution = query_executions_.emplace_back(QueryExecution::Create());
