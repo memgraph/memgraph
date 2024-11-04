@@ -292,13 +292,8 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
       spdlog::trace("Cannot acquire lock on repl state while setting role to replica.");
       return false;
     }
-    spdlog::trace("Acquired lock on repl state when setting role to replica.");
 
-    auto unlock_repl_state = utils::OnScopeExit([this]() {
-      spdlog::trace("Trying to unlock repl state while setting role to replica.");
-      repl_state_.Unlock();
-      spdlog::trace("Unlocked repl state while setting role to replica.");
-    });
+    auto unlock_repl_state = utils::OnScopeExit([this]() { repl_state_.Unlock(); });
 
     if (repl_state_.IsReplica()) {
       if (!AllowIdempotency) {

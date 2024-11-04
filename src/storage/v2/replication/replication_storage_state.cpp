@@ -34,7 +34,6 @@ auto ReplicationStorageState::InitializeTransaction(uint64_t seq_num, Storage *s
 
 bool ReplicationStorageState::FinalizeTransaction(uint64_t timestamp, Storage *storage, DatabaseAccessProtector db_acc,
                                                   std::vector<std::optional<ReplicaStream>> replica_streams) {
-  spdlog::trace("Finalizing txn in ReplicationStorageState.");
   return replication_clients_.WithLock([=, db_acc = std::move(db_acc),
                                         replica_streams = std::move(replica_streams)](auto &clients) mutable {
     bool finalized_on_all_replicas{true};
@@ -42,11 +41,8 @@ bool ReplicationStorageState::FinalizeTransaction(uint64_t timestamp, Storage *s
               "Any clients assumes we are MAIN, we should have gatekeeper_access_wrapper so we can correctly "
               "handle ASYNC tasks");
     for (auto &&[i, replica_stream] : ranges::views::enumerate(replica_streams)) {
-      spdlog::trace("Appending txn end for client {}.", i);
       clients[i]->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionEnd(timestamp); }, replica_stream);
-      spdlog::trace("Appended txn end for client {}.", i);
       const auto finalized = clients[i]->FinalizeTransactionReplication(storage, db_acc, std::move(replica_stream));
-      spdlog::trace("Finalized tnx replication on client {}.", i);
 
       if (clients[i]->Mode() == replication_coordination_glue::ReplicationMode::SYNC) {
         finalized_on_all_replicas = finalized && finalized_on_all_replicas;

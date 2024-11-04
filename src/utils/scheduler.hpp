@@ -112,22 +112,14 @@ class Scheduler {
   // actually stop the scheduler, the other one won't. We need to know which one is the successful
   // one so that we don't try to join thread concurrently since this could cause undefined behavior.
   void Stop() {
-    spdlog::trace("Trying to stop scheduler");
     if (thread_.request_stop()) {
-      spdlog::trace("requested stop on scheduler's thread.");
       {
         auto lk = std::unique_lock{mutex_};
         is_paused_ = false;
       }
-      spdlog::trace("is_paused_ set to false.");
       condition_variable_.notify_one();
-      spdlog::trace("cv notified.");
       if (thread_.joinable()) {
-        spdlog::trace("Trying to join thread in scheduler.");
         thread_.join();
-        spdlog::trace("thread successfully joined.");
-      } else {
-        spdlog::trace("Thread isn't joinable.");
       }
     }
   }
@@ -139,11 +131,7 @@ class Scheduler {
     return token.stop_possible() && !token.stop_requested();
   }
 
-  ~Scheduler() {
-    spdlog::trace("Stopping scheduler's thread on destruction.");
-    Stop();
-    spdlog::trace("Scheduler's thread stopped.");
-  }
+  ~Scheduler() { Stop(); }
 
  private:
   /**

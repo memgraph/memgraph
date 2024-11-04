@@ -32,14 +32,8 @@ ReplicationClient::ReplicationClient(const memgraph::replication::ReplicationCli
       mode_{config.mode} {}
 
 void ReplicationClient::Shutdown() {
-  auto const &endpoint = rpc_client_.Endpoint();
-  spdlog::trace("Trying to stop scheduler when shutting down replication client on {}.", endpoint.SocketAddress());
   replica_checker_.Stop();
-  spdlog::trace("Stopped scheduler when shutting down replication client on {}. Trying to shutdown thread pool.",
-                endpoint.SocketAddress());
   thread_pool_.ShutDown();
-  spdlog::trace("Trying to shutdown thread pool when shutting down replication client on {}.",
-                endpoint.SocketAddress());
 }
 
 ReplicationClient::~ReplicationClient() {
@@ -49,13 +43,8 @@ ReplicationClient::~ReplicationClient() {
   } catch (...) {
     // Logging can throw. Not a big deal, just ignore.
   }
-  spdlog::trace("Trying to stop scheduler in replication client on {}:{}.", endpoint.GetAddress(), endpoint.GetPort());
   replica_checker_.Stop();
-  spdlog::trace("Stopped scheduler in replication client on {}:{}. Trying to shutdown thread pool.",
-                endpoint.GetAddress(), endpoint.GetPort());
   thread_pool_.ShutDown();
-  spdlog::trace("Trying to shutdown thread pool in replication client on {}:{}.", endpoint.GetAddress(),
-                endpoint.GetPort());
 }
 
 }  // namespace memgraph::replication
