@@ -5987,8 +5987,8 @@ void Interpreter::Commit() {
 
   auto commit_confirmed_by_all_sync_replicas = true;
 
-  auto &repl_state_lock = interpreter_context_->repl_state->GetLock();
-  repl_state_lock.lock();
+  spdlog::trace("Trying to lock repl state in interpreter during commit.");
+  interpreter_context_->repl_state->Lock();
   spdlog::trace("Repl state locked in interpreter during commit.");
   bool const is_main = interpreter_context_->repl_state->IsMain();
   auto *curr_txn = current_db_.db_transactional_accessor_->GetTransaction();
@@ -5997,12 +5997,12 @@ void Interpreter::Commit() {
     spdlog::trace("Main with write txn became replica, aborting txn.");
     Abort();
     spdlog::trace("Txn aborted.");
-    repl_state_lock.unlock();
+    interpreter_context_->repl_state->Unlock();
     spdlog::trace("Repl state unlocked in interpreter during commit");
     return;
   }
   auto maybe_commit_error = current_db_.db_transactional_accessor_->Commit({.is_main = is_main}, current_db_.db_acc_);
-  repl_state_lock.unlock();
+  interpreter_context_->repl_state->Unlock();
   spdlog::trace("Repl state unlocked in interpreter during commit");
 
   if (maybe_commit_error.HasError()) {

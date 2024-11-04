@@ -31,6 +31,17 @@ ReplicationClient::ReplicationClient(const memgraph::replication::ReplicationCli
       replica_check_frequency_{config.replica_check_frequency},
       mode_{config.mode} {}
 
+void ReplicationClient::Shutdown() {
+  auto const &endpoint = rpc_client_.Endpoint();
+  spdlog::trace("Trying to stop scheduler when shutting down replication client on {}.", endpoint.SocketAddress());
+  replica_checker_.Stop();
+  spdlog::trace("Stopped scheduler when shutting down replication client on {}. Trying to shutdown thread pool.",
+                endpoint.SocketAddress());
+  thread_pool_.ShutDown();
+  spdlog::trace("Trying to shutdown thread pool when shutting down replication client on {}.",
+                endpoint.SocketAddress());
+}
+
 ReplicationClient::~ReplicationClient() {
   auto const &endpoint = rpc_client_.Endpoint();
   try {

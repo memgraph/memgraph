@@ -317,6 +317,13 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
 #endif
     }
 
+    spdlog::trace("Shutting down instance level clients when demoting replica.");
+
+    auto &repl_clients = std::get<RoleMainData>(repl_state_.ReplicationData()).registered_replicas_;
+    for (auto &client : repl_clients) {
+      client.Shutdown();
+    }
+
     // TODO StorageState needs to be synched. Could have a dangling reference if someone adds a database as we are
     //      deleting the replica.
     // Remove database specific clients

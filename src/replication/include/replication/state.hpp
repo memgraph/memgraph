@@ -126,8 +126,8 @@ struct ReplicationState {
   bool SetReplicationRoleReplica(const ReplicationServerConfig &config,
                                  const std::optional<utils::UUID> &main_uuid = std::nullopt);
 
-  auto GetLock() -> std::mutex & { return mutex_; }
   auto TryLock() -> bool { return mutex_.try_lock(); }
+  auto Lock() -> void { mutex_.lock(); }
   auto Unlock() -> void { mutex_.unlock(); }
 
  private:
