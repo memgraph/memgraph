@@ -118,6 +118,6 @@ if __name__ == "__main__":
             transaction_run(session, driver)
             session_run2(session)
             md_lines = check_logs(session)
-            assert md_lines - old_md_lines == 4, f"Found {md_lines - old_md_lines} metadata lines instead of 3"
+            assert md_lines - old_md_lines == 4, f"Found {md_lines - old_md_lines} metadata lines instead of 4"
             trace_off(session, old_log_level)
     print("All ok!")
