@@ -222,7 +222,7 @@ class InMemoryStorage final : public Storage {
           edge_type, property, lower, upper);
     }
 
-    uint64_t ApproximatePointCount(LabelId label, PropertyId property) const override {
+    std::optional<uint64_t> ApproximateVerticesPointCount(LabelId label, PropertyId property) const override {
       return storage_->indices_.point_index_.ApproximatePointCount(label, property);
     }
 
@@ -293,6 +293,8 @@ class InMemoryStorage final : public Storage {
       return static_cast<InMemoryStorage *>(storage_)->indices_.edge_type_property_index_->IndexExists(edge_type,
                                                                                                        property);
     }
+
+    bool PointIndexExists(LabelId label, PropertyId property) const override;
 
     IndicesInfo ListAllIndices() const override;
 
@@ -439,6 +441,12 @@ class InMemoryStorage final : public Storage {
 
     void DropGraph() override;
 
+    /// View is not needed because a new rtree gets created for each transaction and it is always
+    /// using the latest version
+    auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
+                       PropertyValue const &point_value, PropertyValue const &boundary_value,
+                       PointDistanceCondition condition) -> PointIterable override;
+
    protected:
     // TODO Better naming
     /// @throw std::bad_alloc
@@ -558,7 +566,7 @@ class InMemoryStorage final : public Storage {
   durability::Recovery recovery_;
 
   std::filesystem::path lock_file_path_;
-  utils::OutputFile lock_file_handle_;
+  std::unique_ptr<utils::OutputFile> lock_file_handle_ = std::make_unique<utils::OutputFile>();
 
   utils::Scheduler snapshot_runner_;
   utils::SpinLock snapshot_lock_;
@@ -566,7 +574,7 @@ class InMemoryStorage final : public Storage {
   // Sequence number used to keep track of the chain of WALs.
   uint64_t wal_seq_num_{0};
 
-  std::optional<durability::WalFile> wal_file_;
+  std::unique_ptr<durability::WalFile> wal_file_;
   uint64_t wal_unsynced_transactions_{0};
 
   utils::FileRetainer file_retainer_;

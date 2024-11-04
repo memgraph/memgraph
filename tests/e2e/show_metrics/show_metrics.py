@@ -69,6 +69,7 @@ def test_all_show_metrics_info_values_are_present(memgraph):
         {"name": "ScanAllByLabelPropertyOperator", "type": "Operator", "metric type": "Counter"},
         {"name": "ScanAllByLabelPropertyRangeOperator", "type": "Operator", "metric type": "Counter"},
         {"name": "ScanAllByLabelPropertyValueOperator", "type": "Operator", "metric type": "Counter"},
+        {"name": "ScanAllByPointDistanceOperator", "type": "Operator", "metric type": "Counter"},
         {"name": "ScanAllOperator", "type": "Operator", "metric type": "Counter"},
         {"name": "SetLabelsOperator", "type": "Operator", "metric type": "Counter"},
         {"name": "SetPropertiesOperator", "type": "Operator", "metric type": "Counter"},

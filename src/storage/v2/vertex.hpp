@@ -12,6 +12,10 @@
 #pragma once
 
 #include <alloca.h>
+#include <boost/container_hash/hash_fwd.hpp>
+#include <functional>
+#include <iterator>
+#include <limits>
 #include <tuple>
 
 #include "storage/v2/delta.hpp"

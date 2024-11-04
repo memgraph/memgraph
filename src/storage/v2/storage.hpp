@@ -38,8 +38,10 @@
 #include "storage/v2/edges_iterable.hpp"
 #include "storage/v2/enum_store.hpp"
 #include "storage/v2/indices/indices.hpp"
+#include "storage/v2/indices/point_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/mvcc.hpp"
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/replication_client.hpp"
 #include "storage/v2/replication/replication_storage_state.hpp"
@@ -251,7 +253,7 @@ class Storage {
                                           const std::optional<utils::Bound<PropertyValue>> &lower,
                                           const std::optional<utils::Bound<PropertyValue>> &upper) const = 0;
 
-    virtual uint64_t ApproximatePointCount(LabelId label, PropertyId property) const = 0;
+    virtual std::optional<uint64_t> ApproximateVerticesPointCount(LabelId label, PropertyId property) const = 0;
 
     virtual std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const = 0;
 
@@ -310,6 +312,8 @@ class Storage {
                                    const std::string &aggregation_query) const {
       return storage_->indices_.text_index_.Aggregate(index_name, search_query, aggregation_query);
     }
+
+    virtual bool PointIndexExists(LabelId label, PropertyId property) const = 0;
 
     std::vector<std::tuple<Gid, double, double>> VectorIndexSearch(const std::string &index_name,
                                                                    uint64_t number_of_results,
@@ -464,6 +468,10 @@ class Storage {
       return storage_->enum_store_.ToEnum(enum_str);
     }
 
+    virtual auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
+                               PropertyValue const &point_value, PropertyValue const &boundary_value,
+                               PointDistanceCondition condition) -> PointIterable = 0;
+
    protected:
     Storage *storage_;
     std::shared_lock<utils::ResourceLock> storage_guard_;
@@ -478,11 +486,14 @@ class Storage {
         const std::vector<VertexAccessor *> &vertices);
     EdgeInfoForDeletion PrepareDeletableEdges(const std::unordered_set<Vertex *> &vertices,
                                               const std::vector<EdgeAccessor *> &edges, bool detach) noexcept;
-    Result<std::optional<std::vector<EdgeAccessor>>> ClearEdgesOnVertices(const std::unordered_set<Vertex *> &vertices,
-                                                                          std::unordered_set<Gid> &deleted_edge_ids);
+    Result<std::optional<std::vector<EdgeAccessor>>> ClearEdgesOnVertices(
+        const std::unordered_set<Vertex *> &vertices, std::unordered_set<Gid> &deleted_edge_ids,
+        std::optional<SchemaInfo::ModifyingAccessor> &schema_acc);
     Result<std::optional<std::vector<EdgeAccessor>>> DetachRemainingEdges(
-        EdgeInfoForDeletion info, std::unordered_set<Gid> &partially_detached_edge_ids);
-    Result<std::vector<VertexAccessor>> TryDeleteVertices(const std::unordered_set<Vertex *> &vertices);
+        EdgeInfoForDeletion info, std::unordered_set<Gid> &partially_detached_edge_ids,
+        std::optional<SchemaInfo::ModifyingAccessor> &schema_acc);
+    Result<std::vector<VertexAccessor>> TryDeleteVertices(const std::unordered_set<Vertex *> &vertices,
+                                                          std::optional<SchemaInfo::ModifyingAccessor> &schema_acc);
     void MarkEdgeAsDeleted(Edge *edge);
 
    private:
@@ -612,21 +623,6 @@ class Storage {
 
   // Mutable methods only safe if we have UniqueAccess to this storage
   EnumStore enum_store_;
-
-  std::optional<SchemaInfo::AnalyticalAccessor> SchemaInfoAccessor() {
-    if (!config_.salient.items.enable_schema_info) return std::nullopt;
-    if (storage_mode_ != StorageMode::IN_MEMORY_ANALYTICAL) return std::nullopt;
-    return schema_info_.CreateAccessor(config_.salient.items.properties_on_edges);
-  }
-
-  std::optional<SchemaInfo::AnalyticalUniqueAccessor> SchemaInfoUniqueAccessor() {
-    if (!config_.salient.items.enable_schema_info) return std::nullopt;
-    if (storage_mode_ != StorageMode::IN_MEMORY_ANALYTICAL) return std::nullopt;
-    return schema_info_.CreateUniqueAccessor(config_.salient.items.properties_on_edges);
-  }
-
-  SchemaInfo::ReadAccessor SchemaInfoReadAccessor() { return schema_info_.CreateReadAccessor(); }
-  SchemaInfo::WriteAccessor SchemaInfoWriteAccessor() { return schema_info_.CreateWriteAccessor(); }
 
   SchemaInfo schema_info_;
 };

@@ -4233,7 +4233,8 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         for (const auto &[label_id, prop_id] : info.point_label_property) {
           results.push_back({TypedValue(point_label_property_index_mark), TypedValue(storage->LabelToName(label_id)),
                              TypedValue(storage->PropertyToName(prop_id)),
-                             TypedValue(static_cast<int>(storage_acc->ApproximatePointCount(label_id, prop_id)))});
+                             TypedValue(static_cast<int>(
+                                 storage_acc->ApproximateVerticesPointCount(label_id, prop_id).value_or(0)))});
         }
 
         std::sort(results.begin(), results.end(), [&label_index_mark](const auto &record_1, const auto &record_2) {
@@ -5167,7 +5168,7 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
     auto *storage = db->storage();
     if (storage->config_.salient.items.enable_schema_info) {
       // SCHEMA INFO
-      auto json = storage->SchemaInfoReadAccessor().ToJson(*storage->name_id_mapper_, storage->enum_store_);
+      auto json = storage->schema_info_.ToJson(*storage->name_id_mapper_, storage->enum_store_);
 
       // INDICES
       auto node_indexes = nlohmann::json::array();
@@ -5195,11 +5196,11 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       }
       // Vertex label property_point
       for (const auto &[label_id, property] : index_info.point_label_property) {
-        node_indexes.push_back(
-            nlohmann::json::object({{"labels", {storage->LabelToName(label_id)}},
-                                    {"properties", {storage->PropertyToName(property)}},
-                                    {"count", storage_acc->ApproximatePointCount(label_id, property)},
-                                    {"type", "label+property_point"}}));
+        node_indexes.push_back(nlohmann::json::object(
+            {{"labels", {storage->LabelToName(label_id)}},
+             {"properties", {storage->PropertyToName(property)}},
+             {"count", storage_acc->ApproximateVerticesPointCount(label_id, property).value_or(0)},
+             {"type", "label+property_point"}}));
       }
       // Edge type indices
       for (const auto type : index_info.edge_type) {
@@ -5343,14 +5344,18 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
   // Handle transaction control queries.
   const auto upper_case_query = utils::ToUpperCase(query_string);
   const auto trimmed_query = utils::Trim(upper_case_query);
+  const bool is_begin = trimmed_query == "BEGIN";
 
-  if (trimmed_query == "BEGIN") {
-    ResetInterpreter();
-  }
-  // Reset before logging, as some transaction related information will get logged
-  spdlog::debug("{}", QueryLogWrapper{query_string, metadata_ ? &*metadata_ : &extras.metadata_pv, current_db_.name()});
+  // Explicit transactions define the metadata at the beginning and reuse it
+  spdlog::debug(
+      "{}", QueryLogWrapper{query_string,
+                            (in_explicit_transaction_ && metadata_ && !is_begin) ? &*metadata_ : &extras.metadata_pv,
+                            current_db_.name()});
 
-  if (trimmed_query == "BEGIN" || trimmed_query == "COMMIT" || trimmed_query == "ROLLBACK") {
+  if (is_begin || trimmed_query == "COMMIT" || trimmed_query == "ROLLBACK") {
+    if (is_begin) {
+      ResetInterpreter();
+    }
     auto &query_execution = query_executions_.emplace_back(QueryExecution::Create());
     query_execution->prepared_query = PrepareTransactionQuery(trimmed_query, extras);
     auto qid = in_explicit_transaction_ ? static_cast<int>(query_executions_.size() - 1) : std::optional<int>{};

@@ -183,8 +183,8 @@ auto CoordinatorStateMachine::pre_commit(ulong const /*log_idx*/, buffer & /*dat
 
 auto CoordinatorStateMachine::commit(ulong const log_idx, buffer &data) -> ptr<buffer> {
   logger_.Log(nuraft_log_level::TRACE, fmt::format("Commit: log_idx={}, data.size()={}", log_idx, data.size()));
-  auto parsed_data = DecodeLog(data);
-  cluster_state_.DoAction(std::move(parsed_data));
+  auto [data_instances, main_uuid] = DecodeLog(data);
+  cluster_state_.DoAction(std::move(data_instances), main_uuid);
   if (durability_) {
     durability_->Put(kLastCommitedIdx, std::to_string(log_idx));
   }

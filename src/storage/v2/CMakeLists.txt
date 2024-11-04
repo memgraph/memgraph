@@ -52,6 +52,7 @@ target_sources(mg-storage-v2
         vertices_iterable.cpp
         schema_info.cpp
         edge_ref.cpp
+        indices/point_iterator.cpp
 
         PUBLIC
         FILE_SET HEADERS
@@ -62,6 +63,8 @@ target_sources(mg-storage-v2
         enum_store.hpp
         indices/point_index.hpp
         indices/point_index_change_collector.hpp
+        indices/point_iterator.hpp
+        indices/point_index_expensive_header.hpp
         mvcc.hpp
         point.hpp
         point_functions.hpp

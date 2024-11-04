@@ -78,12 +78,13 @@ class Scheduler {
         next_execution += pause;
         auto now = std::chrono::system_clock::now();
         if (next_execution > now) {
-          condition_variable_.wait_until(lk, next_execution, [&] { return token.stop_requested(); });
+          condition_variable_.wait_until(lk, token, next_execution, [] { return false; });
         } else {
           next_execution = find_next_execution(now);  // Compensate for time drift when using a start time
         }
 
-        pause_cv_.wait(lk, [&] { return !is_paused_.load(std::memory_order_acquire) || token.stop_requested(); });
+        // wait for unpause or stop_requested
+        condition_variable_.wait(lk, token, [&] { return !is_paused_; });
 
         if (token.stop_requested()) break;
 
@@ -94,20 +95,28 @@ class Scheduler {
 
   // Sets atomic is_paused_ to false and notifies thread
   void Resume() {
-    is_paused_.store(false, std::memory_order_release);
-    pause_cv_.notify_one();
+    {
+      auto lk = std::unique_lock{mutex_};
+      is_paused_ = false;
+    }
+    condition_variable_.notify_one();
   }
 
   // Sets atomic is_paused_ to true.
-  void Pause() { is_paused_.store(true, std::memory_order_release); }
+  void Pause() {
+    auto lk = std::unique_lock{mutex_};
+    is_paused_ = true;
+  }
 
   // Concurrent threads may request stopping the scheduler. In that case only one of them will
   // actually stop the scheduler, the other one won't. We need to know which one is the successful
   // one so that we don't try to join thread concurrently since this could cause undefined behavior.
   void Stop() {
     if (thread_.request_stop()) {
-      is_paused_.store(false, std::memory_order_release);
-      pause_cv_.notify_one();
+      {
+        auto lk = std::unique_lock{mutex_};
+        is_paused_ = false;
+      }
       condition_variable_.notify_one();
       if (thread_.joinable()) thread_.join();
     }
@@ -126,12 +135,7 @@ class Scheduler {
   /**
    * Variable is true when thread is paused.
    */
-  std::atomic<bool> is_paused_{false};
-
-  /*
-   * Wait until the thread is resumed.
-   */
-  std::condition_variable pause_cv_;
+  bool is_paused_ = false;
 
   /**
    * Mutex used to synchronize threads using condition variable.
@@ -142,7 +146,7 @@ class Scheduler {
    * Condition variable is used to stop waiting until the end of the
    * time interval if destructor is called.
    */
-  std::condition_variable condition_variable_;
+  std::condition_variable_any condition_variable_;
 
   /**
    * Thread which runs function.

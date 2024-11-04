@@ -11,9 +11,6 @@
 
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 
-#include <support/Any.h>
-#include <tree/ParseTreeVisitor.h>
-
 #include <algorithm>
 #include <any>
 #include <cstring>
