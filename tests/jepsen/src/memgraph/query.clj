@@ -6,6 +6,11 @@
 (dbclient/defquery get-all-instances
   "SHOW INSTANCES;")
 
+
+(dbclient/defquery show-replication-role
+  "SHOW REPLICATION ROLE;")
+
+
 (dbclient/defquery detach-delete-all
   "MATCH (n) DETACH DELETE n;")
 

@@ -73,9 +73,13 @@ class Client {
 
     typename TRequestResponse::Response AwaitResponse() {
       auto res_type = TRequestResponse::Response::kType;
+      auto req_type = TRequestResponse::Request::kType;
 
       // Finalize the request.
       req_builder_.Finalize();
+
+      spdlog::trace("[RpcClient] sent {} to {}:{}", req_type.name, self_->client_->endpoint().GetAddress(),
+                    self_->client_->endpoint().GetPort());
 
       // Receive the response.
       uint64_t response_data_size = 0;
@@ -133,7 +137,8 @@ class Client {
         throw GenericRpcFailedException();
       }
 
-      SPDLOG_TRACE("[RpcClient] received {}", res_type.name);
+      spdlog::trace("[RpcClient] received {} from endpoint {}:{}.", res_type.name, self_->endpoint_.GetAddress(),
+                    self_->endpoint_.GetPort());
 
       return res_load_(&res_reader);
     }
@@ -190,7 +195,6 @@ class Client {
                                                  Args &&...args) {
     typename TRequestResponse::Request request(std::forward<Args>(args)...);
     auto req_type = TRequestResponse::Request::kType;
-    spdlog::trace("[RpcClient] sent {}", req_type.name);
 
     auto guard = std::unique_lock{mutex_};
 
