@@ -312,8 +312,9 @@ class Storage {
       return storage_->indices_.text_index_.Aggregate(index_name, search_query, aggregation_query);
     }
 
-    std::vector<std::pair<Gid, double>> VectorIndexSearch(const std::string &index_name, uint64_t number_of_results,
-                                                          const std::vector<float> &vector) const {
+    std::vector<std::tuple<Gid, double, double>> VectorIndexSearch(const std::string &index_name,
+                                                                   uint64_t number_of_results,
+                                                                   const std::vector<float> &vector) const {
       return storage_->indices_.vector_index_.Search(index_name, number_of_results, vector);
     }
 

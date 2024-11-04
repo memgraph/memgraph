@@ -469,9 +469,9 @@ class DbAccessor final {
     return accessor_->TextIndexAggregate(index_name, search_query, aggregation_query);
   }
 
-  std::vector<std::pair<storage::Gid, double>> VectorIndexSearch(const std::string &index_name,
-                                                                 uint64_t number_of_results,
-                                                                 const std::vector<float> &vector) const {
+  std::vector<std::tuple<storage::Gid, double, double>> VectorIndexSearch(const std::string &index_name,
+                                                                          uint64_t number_of_results,
+                                                                          const std::vector<float> &vector) const {
     return accessor_->VectorIndexSearch(index_name, number_of_results, vector);
   }
 

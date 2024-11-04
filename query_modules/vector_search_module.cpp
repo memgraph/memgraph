@@ -24,6 +24,7 @@ constexpr std::string_view kParameterResultSetSize = "result_set_size";
 constexpr std::string_view kParameterQueryVector = "query_vector";
 constexpr std::string_view kReturnNode = "node";
 constexpr std::string_view kReturnDistance = "distance";
+constexpr std::string_view kReturnSimilarity = "similarity";
 
 constexpr std::string_view kProcedureShowIndexInfo = "show_index_info";
 constexpr std::string_view kReturnIndexName = "index_name";
@@ -55,6 +56,7 @@ void VectorSearch::Search(mgp_list *args, mgp_graph *memgraph_graph, mgp_result 
       auto result_list = result.ValueList();
       record.Insert(VectorSearch::kReturnNode.data(), result_list[0].ValueNode());
       record.Insert(VectorSearch::kReturnDistance.data(), result_list[1].ValueDouble());
+      record.Insert(VectorSearch::kReturnSimilarity.data(), result_list[2].ValueDouble());
     }
 
   } catch (const std::exception &e) {
@@ -96,6 +98,7 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
                  {
                      mgp::Return(VectorSearch::kReturnNode, mgp::Type::Node),
                      mgp::Return(VectorSearch::kReturnDistance, mgp::Type::Double),
+                     mgp::Return(VectorSearch::kReturnSimilarity, mgp::Type::Double),
                  },
                  module, memory);
 

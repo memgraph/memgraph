@@ -99,8 +99,8 @@ class VectorIndex {
   /// @param result_set_size The number of results to return.
   /// @param query_vector The vector to be used for the search query.
   /// @return A vector of pairs containing the global ID (Gid) and the associated score (distance).
-  std::vector<std::pair<Gid, double>> Search(std::string_view index_name, uint64_t result_set_size,
-                                             const std::vector<float> &query_vector) const;
+  std::vector<std::tuple<Gid, double, double>> Search(std::string_view index_name, uint64_t result_set_size,
+                                                      const std::vector<float> &query_vector) const;
 
   /// @brief Aborts the entries that were inserted in the specified transaction.
   /// @param label The label of the vertices to be removed.

@@ -83,6 +83,20 @@ unum::usearch::scalar_kind_t GetScalarKindFromConfig(const std::string &scalar_s
   throw std::invalid_argument("Unknown scalar kind: " + scalar_str);
 }
 
+/// Map from usearch metric kind to similarity function
+/// TODO(@DavIvek): Check if this functions are correct
+static const std::unordered_map<unum::usearch::metric_kind_t, std::function<double(double)>> similarity_map = {
+    {unum::usearch::metric_kind_t::ip_k, [](double distance) { return 1.0 - distance; }},
+    {unum::usearch::metric_kind_t::cos_k, [](double distance) { return std::abs(1.0 - distance); }},
+    {unum::usearch::metric_kind_t::l2sq_k, [](double distance) { return 1.0 / (1.0 + distance); }},
+    {unum::usearch::metric_kind_t::pearson_k, [](double distance) { return 1.0 - distance; }},
+    {unum::usearch::metric_kind_t::haversine_k, [](double distance) { return 1.0 / (1.0 + distance); }},
+    {unum::usearch::metric_kind_t::divergence_k, [](double distance) { return 1.0 / (1.0 + distance); }},
+    {unum::usearch::metric_kind_t::hamming_k, [](double distance) { return 1.0 - distance; }},
+    {unum::usearch::metric_kind_t::tanimoto_k, [](double distance) { return 1.0 - distance; }},
+    {unum::usearch::metric_kind_t::sorensen_k, [](double distance) { return 1.0 - distance; }},
+    {unum::usearch::metric_kind_t::jaccard_k, [](double distance) { return 1.0 - distance; }}};
+
 /// @brief Implements the underlying functionality of the `VectorIndex` class.
 ///
 /// The `Impl` structure follows the PIMPL (Pointer to Implementation) idiom to separate
@@ -201,8 +215,8 @@ std::vector<VectorIndexInfo> VectorIndex::ListAllIndices() const {
   return result;
 }
 
-std::vector<std::pair<Gid, double>> VectorIndex::Search(std::string_view index_name, uint64_t result_set_size,
-                                                        const std::vector<float> &query_vector) const {
+std::vector<std::tuple<Gid, double, double>> VectorIndex::Search(std::string_view index_name, uint64_t result_set_size,
+                                                                 const std::vector<float> &query_vector) const {
   if (FLAGS_experimental_vector_indexes.empty()) {
     throw query::VectorSearchDisabledException();
   }
@@ -210,14 +224,15 @@ std::vector<std::pair<Gid, double>> VectorIndex::Search(std::string_view index_n
   const auto &index = pimpl->index_.at(label_prop);
 
   // The result vector will contain pairs of vertices and their score.
-  std::vector<std::pair<Gid, double>> result;
+  std::vector<std::tuple<Gid, double, double>> result;
   result.reserve(result_set_size);
 
   const auto result_keys = index.filtered_search(query_vector.data(), result_set_size,
                                                  [](const Vertex *vertex) { return !vertex->deleted; });
   for (std::size_t i = 0; i < result_keys.size(); ++i) {
     const auto &vertex = static_cast<Vertex *>(result_keys[i].member.key);
-    result.emplace_back(vertex->gid, result_keys[i].distance);
+    result.emplace_back(vertex->gid, static_cast<double>(result_keys[i].distance),
+                        similarity_map.at(index.metric().metric_kind())(result_keys[i].distance));
   }
 
   return result;

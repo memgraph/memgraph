@@ -31,7 +31,7 @@ class VectorSearchTest : public testing::Test {
   static constexpr std::string_view testSuite = "vector_search";
   std::unique_ptr<Storage> storage = std::make_unique<InMemoryStorage>();
 
-  void CreateIndex(std::size_t dimension = 2, std::size_t limit = 10) {
+  void CreateIndex(const auto dimension = 2, const auto limit = 10) {
     // only requirement is that this is not empty at the moment since it is not used in the test but flag is checked
     // through the code
     FLAGS_experimental_vector_indexes = R"(test_index__test_label__test_property__{"dimension": 2, "limit": 10})";
