@@ -14,7 +14,6 @@
 #include <set>
 
 #include "storage/v2/constraints/constraint_violation.hpp"
-#include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/result.hpp"
 

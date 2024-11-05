@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,13 +9,14 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <shared_mutex>
-#include <thread>
-
 #include "gtest/gtest.h"
 
 #include "utils/rw_lock.hpp"
 #include "utils/timer.hpp"
+
+#include <latch>
+#include <shared_mutex>
+#include <thread>
 
 using namespace std::chrono_literals;
 
@@ -26,7 +27,7 @@ TEST(RWLock, MultipleReaders) {
   memgraph::utils::Timer timer;
   for (int i = 0; i < 3; ++i) {
     threads.push_back(std::thread([&rwlock] {
-      std::shared_lock<memgraph::utils::RWLock> lock(rwlock);
+      auto lock = std::shared_lock{rwlock};
       std::this_thread::sleep_for(100ms);
     }));
   }
@@ -41,22 +42,44 @@ TEST(RWLock, MultipleReaders) {
 
 TEST(RWLock, SingleWriter) {
   memgraph::utils::RWLock rwlock(memgraph::utils::RWLock::Priority::READ);
+  auto count_down_start = std::latch{3};
+  auto count_down_finish = std::latch{4};
 
-  std::vector<std::thread> threads;
   memgraph::utils::Timer timer;
-  for (int i = 0; i < 3; ++i) {
-    threads.push_back(std::thread([&rwlock] {
-      std::unique_lock<memgraph::utils::RWLock> lock(rwlock);
+  std::chrono::duration<double> start;
+  std::chrono::duration<double> total_time;
+
+  auto j1 = [&] {
+    // Start only when all threads exist
+    count_down_start.arrive_and_wait();
+
+    {
+      // In smallest scope possible
+      auto lock = std::unique_lock{rwlock};
       std::this_thread::sleep_for(100ms);
-    }));
+    }
+
+    // Signal that the thread's work has finished
+    count_down_finish.count_down();
+  };
+  auto j2 = [&] {
+    start = timer.Elapsed();  // time from here to avoid the timing cost of setting up threads
+    j1();
+  };
+
+  {
+    auto threads = std::vector<std::jthread>{};
+    threads.emplace_back(j1);
+    threads.emplace_back(j1);
+    std::this_thread::sleep_for(1ms);  // Give time for other threads to have started
+    threads.emplace_back(j2);
+    // avoid timing cost to tear down threads
+    count_down_finish.arrive_and_wait();
+    total_time = timer.Elapsed() - start;
   }
 
-  for (int i = 0; i < 3; ++i) {
-    threads[i].join();
-  }
-
-  EXPECT_LE(timer.Elapsed(), 350ms);
-  EXPECT_GE(timer.Elapsed(), 290ms);
+  EXPECT_LE(total_time, 350ms);
+  EXPECT_GE(total_time, 290ms);
 }
 
 TEST(RWLock, ReadPriority) {
@@ -72,13 +95,13 @@ TEST(RWLock, ReadPriority) {
 
   std::thread t1([&rwlock, &first] {
     std::this_thread::sleep_for(30ms);
-    std::unique_lock<memgraph::utils::RWLock> lock(rwlock);
+    auto lock = std::unique_lock{rwlock};
     EXPECT_FALSE(first);
   });
 
   std::thread t2([&rwlock, &first] {
     std::this_thread::sleep_for(60ms);
-    std::shared_lock<memgraph::utils::RWLock> lock(rwlock);
+    auto lock = std::shared_lock{rwlock};
     EXPECT_TRUE(first);
     first = false;
   });
@@ -102,14 +125,14 @@ TEST(RWLock, WritePriority) {
 
   std::thread t1([&rwlock, &first] {
     std::this_thread::sleep_for(30ms);
-    std::unique_lock<memgraph::utils::RWLock> lock(rwlock);
+    auto lock = std::unique_lock{rwlock};
     EXPECT_TRUE(first);
     first = false;
   });
 
   std::thread t2([&rwlock, &first] {
     std::this_thread::sleep_for(60ms);
-    std::shared_lock<memgraph::utils::RWLock> lock(rwlock);
+    auto lock = std::shared_lock{rwlock};
     EXPECT_FALSE(first);
   });
 

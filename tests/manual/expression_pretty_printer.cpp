@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,11 +13,13 @@
 #include <sstream>
 #include <string>
 
+#include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/ast/pretty_print.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/parameters.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 
 std::string AssembleQueryString(const std::string &expression_string) {
   return "return " + expression_string + " as expr";
@@ -42,6 +44,11 @@ memgraph::query::Expression *GetExpression(memgraph::query::Query *query) {
 }
 
 int main() {
+  std::unique_ptr<memgraph::storage::Storage> store(
+      new memgraph::storage::InMemoryStorage({.salient = {.items = {.properties_on_edges = true}}}));
+  auto storage_acc = store->Access();
+  memgraph::query::DbAccessor db_acc(storage_acc.get());
+
   memgraph::query::AstStorage ast_storage;
   std::ostringstream ss;
   ss << std::cin.rdbuf();
@@ -50,7 +57,7 @@ int main() {
   auto query = ParseQuery(query_string, &ast_storage);
   auto expr = GetExpression(query);
 
-  memgraph::query::PrintExpression(expr, &std::cout);
+  memgraph::query::PrintExpression(expr, &std::cout, db_acc);
   std::cout << std::endl;
 
   return 0;

@@ -24,9 +24,8 @@ namespace memgraph::flags {
 // Each bit is an enabled experiment
 // old experiments can be reused once code cleanup has happened
 enum class Experiments : uint8_t {
-  SYSTEM_REPLICATION = 1 << 0,
-  TEXT_SEARCH = 1 << 1,
-  HIGH_AVAILABILITY = 1 << 2,
+  TEXT_SEARCH = 1 << 0,
+  HIGH_AVAILABILITY = 1 << 1,
 };
 
 bool AreExperimentsEnabled(Experiments experiments);
@@ -34,5 +33,6 @@ bool AreExperimentsEnabled(Experiments experiments);
 auto ReadExperimental(std::string const &) -> Experiments;
 void SetExperimental(Experiments const &);
 void AppendExperimental(Experiments const &);
+auto ValidExperimentalFlag(std::string_view value) -> bool;
 
 }  // namespace memgraph::flags

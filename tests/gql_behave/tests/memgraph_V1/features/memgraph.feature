@@ -76,3 +76,151 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
             MATCH (n) RETURN CASE count(n) WHEN 10 THEN 10 END
             """
         Then an error should be raised
+
+    Scenario: Create enum:
+        Given an empty graph
+        When executing query:
+            """
+            CREATE ENUM Status VALUES { Good, Bad };
+            """
+        Then the result should be empty
+
+    Scenario: Show enums:
+        Given an empty graph
+        # Values will be used from the previous scenario
+        When executing query:
+            """
+            SHOW ENUMS;
+            """
+        Then the result should be:
+            | Enum Name | Enum Values     |
+            | 'Status'  | ['Good', 'Bad'] |
+
+    Scenario: Add value to enum:
+        Given an empty graph
+        And having executed
+            """
+            ALTER ENUM Status ADD VALUE Medium;
+            """
+        When executing query:
+            """
+            SHOW ENUMS;
+            """
+        Then the result should be:
+            | Enum Name | Enum Values     |
+            | 'Status'  | ['Good', 'Bad', 'Medium'] |
+
+    Scenario: Update value in enum:
+        Given an empty graph
+        And having executed
+            """
+            ALTER ENUM Status UPDATE VALUE Medium TO Average;
+            """
+        When executing query:
+            """
+            SHOW ENUMS;
+            """
+        Then the result should be:
+            | Enum Name | Enum Values     |
+            | 'Status'  | ['Good', 'Bad', 'Average'] |
+
+    Scenario: Compare enum values for equality:
+        Given an empty graph
+        # Values will be used from the previous scenario
+        When executing query:
+            """
+            RETURN Status::Good = Status::Good AS result1, Status::Good = Status::Bad AS result2
+            """
+        Then the result should be:
+            | result1 | result2 |
+            | true    | false   |
+
+    Scenario: Compare different enums for equality:
+        Given an empty graph
+        # Values will be used from the previous scenario
+        And having executed
+            """
+            CREATE ENUM NewEnum VALUES { Good, Bad };
+            """
+        When executing query:
+            """
+            RETURN Status::Good = NewEnum::Good AS result1
+            """
+        Then the result should be:
+            | result1 |
+            | false  |
+
+    Scenario: Create an edge with an enum property:
+        Given an empty graph
+        When executing query:
+            """
+            CREATE (n:Person {s: Status::Good})-[:KNOWS {s: Status::Bad}]->(m:Person {s: Status::Bad})
+            """
+        Then the result should be empty
+
+    Scenario: Get nodes and edges with enum properties:
+        Given an empty graph
+        And having executed
+            """
+            CREATE (n:Person {s: Status::Good})-[:KNOWS {s: Status::Bad}]->(m:Person {s: Status::Bad})
+            """
+        When executing query:
+            """
+            MATCH (n)-[e]->(m) RETURN n, n.s, e, e.s, m
+            """
+        Then the result should be:
+            | n                                                          | n.s                                       | e                                                        | e.s                                      | m                                                         |
+            | (:Person{s:{'__type':'mg_enum','__value':'Status::Good'}}) | {__type:'mg_enum',__value:'Status::Good'} | [:KNOWS{s:{'__type':'mg_enum','__value':'Status::Bad'}}] | {__type:'mg_enum',__value:'Status::Bad'} | (:Person{s:{'__type':'mg_enum','__value':'Status::Bad'}}) |
+
+    Scenario: Filter nodes by enum property equal op:
+        Given an empty graph
+        And having executed
+            """
+            CREATE (n:Person {s: Status::Good})-[:KNOWS {s: Status::Bad}]->(m:Person {s: Status::Bad})
+            """
+        When executing query:
+            """
+            MATCH (n) WHERE n.s = Status::Bad RETURN n
+            """
+        Then the result should be:
+            | n                                                         |
+            | (:Person{s:{'__type':'mg_enum','__value':'Status::Bad'}}) |
+
+    Scenario: Filter nodes by enum property comparison op:
+        Given an empty graph
+        And having executed
+            """
+            CREATE (n:Person {s: Status::Good})-[:KNOWS {s: Status::Bad}]->(m:Person {s: Status::Bad})
+            """
+        When executing query:
+            """
+            MATCH (n) WHERE n.s <= Status::Bad RETURN n
+            """
+        Then an error should be raised
+
+    Scenario: Compare enum values for inequality:
+        Given an empty graph
+        # Values will be used from the previous scenario
+        When executing query:
+            """
+            RETURN Status::Good != Status::Good AS result1, Status::Good != Status::Bad AS result2
+            """
+        Then the result should be:
+            | result1 | result2 |
+            | false   | true    |
+
+    Scenario: Alter enum remove value:
+        Given an empty graph
+        When executing query:
+            """
+            ALTER ENUM Status REMOVE VALUE Good;
+            """
+        Then an error should be raised
+
+    Scenario: Drop enum:
+        Given an empty graph
+        When executing query:
+            """
+            DROP ENUM Status;
+            """
+        Then an error should be raised

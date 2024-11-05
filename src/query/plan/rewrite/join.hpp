@@ -19,7 +19,6 @@
 #include <algorithm>
 #include <memory>
 #include <optional>
-#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -27,6 +26,7 @@
 
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
+#include "query/plan/rewrite/general.hpp"
 #include "utils/algorithm.hpp"
 
 namespace memgraph::query::plan {
@@ -77,7 +77,77 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
-  bool PostVisit(ScanAll &scan) override {
+  bool PostVisit(ScanAll &op) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(ScanAllByEdge &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByEdge &op) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(ScanAllByEdgeId &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByEdgeId &op) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(ScanAllByEdgeType &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByEdgeType &op) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(ScanAllByEdgeTypeProperty &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByEdgeTypeProperty &op) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(ScanAllByEdgeTypePropertyValue &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByEdgeTypePropertyValue &op) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(ScanAllByEdgeTypePropertyRange &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByEdgeTypePropertyRange &op) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(ScanAllByPointDistance &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByPointDistance &op) override {
     prev_ops_.pop_back();
     return true;
   }
@@ -463,6 +533,28 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PostVisit(RollUpApply &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(PeriodicCommit &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(PeriodicCommit & /*op*/) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(PeriodicSubquery &op) override {
+    prev_ops_.push_back(&op);
+    op.input()->Accept(*this);
+    RewriteBranch(&op.subquery_);
+    return false;
+  }
+
+  bool PostVisit(PeriodicSubquery & /*op*/) override {
     prev_ops_.pop_back();
     return true;
   }

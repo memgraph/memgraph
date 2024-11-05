@@ -12,6 +12,7 @@ cd tests/jepsen
 ./run.sh test --binary ../../build/memgraph --run-args "--workload bank --nodes-config resources/replication-config.edn --time-limit 120"
 ./run.sh test --binary ../../build/memgraph --run-args "--workload large --nodes-config resources/replication-config.edn --time-limit 120"
 ./run.sh test --binary ../../build/memgraph --run-args "--workload high_availability --nodes-config resources/cluster.edn --time-limit 120"
+./run.sh test --binary ../../build/memgraph --run-args "--workload habank --nodes-config resources/cluster.edn --time-limit 120"
 ```
 
 Local run of each test (including setup):
@@ -41,7 +42,7 @@ ssh n4 -> yes -> exit
 ssh n5 -> yes -> exit
 ```
 
-There is also a unit test in test/jepsen/memgraph/memgraph_test.clj with sanitizers tests for Clojure code being run before main Jepsen tests.
+There are also unit tests in test/jepsen/memgraph/memgraph_test.clj with sanitizers tests for Clojure code being run before main Jepsen tests.
 You can run it with:
 
 ```

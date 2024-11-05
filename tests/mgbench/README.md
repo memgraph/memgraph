@@ -16,7 +16,7 @@ This methodology is designed to be read from top to bottom to understand what is
     - [Workloads](#workloads)
     - [Fine-tuning](#fine-tuning)
     - [Limitations](#limitations)
-  - [:wrench: Benchgraph](#wrench-Benchgraph)
+  - [:wrench: Benchgraph](#wrench-benchgraph)
     - [Important files](#important-files)
     - [Prerequisites](#prerequisites)
     - [Running the benchmark](#running-the-benchmark)
@@ -25,16 +25,23 @@ This methodology is designed to be read from top to bottom to understand what is
   - [:bar\_chart: Results](#bar_chart-results)
   - [:books: Datasets](#books-datasets)
     - [Pokec](#pokec)
+    - [LDBC Interactive](#ldbc-interactive)
+    - [LDBC Bussines Intelligence](#ldbc-bussines-intelligence)
       - [Query list](#query-list)
   - [:computer: Platform](#computer-platform)
-    - [Intel - HP](#intel---hp)
+    - [Intel](#intel)
+    - [AMD](#amd)
   - [:nut\_and\_bolt: Supported databases](#nut_and_bolt-supported-databases)
     - [Database notes](#database-notes)
   - [:raised\_hands: Contributions](#raised_hands-contributions)
-  - [:mega: History and Future of Benchgraph](#mega-history-and-future-of-Benchgraph)
-    - [History of Benchgraph](#history-of-Benchgraph)
-    - [Future of Benchgraph](#future-of-Benchgraph)
-  - [Changelog benchgraph](#changelog-benchgraph)
+  - [:mega: History and Future of Benchgraph](#mega-history-and-future-of-benchgraph)
+    - [History of Benchgraph](#history-of-benchgraph)
+    - [Future of Benchgraph](#future-of-benchgraph)
+  - [Changelog Benchgraph public benchmark](#changelog-benchgraph-public-benchmark)
+    - [Release v4 (latest) - 2024-25-07](#release-v4-latest---2024-25-07)
+    - [Release v3 - 2023-02-10](#release-v3---2023-02-10)
+    - [Release v2 - 2023-25-04](#release-v2---2023-25-04)
+    - [Release v1 - 2022-30-11](#release-v1---2022-30-11)
 
 ## :dart: Design goals
 
@@ -298,28 +305,23 @@ Testing on different hardware platforms and cloudVMs is essential for validating
 
 ### Intel
 
-- Server: HP DL360 G6
-- CPU: 2 x Intel Xeon X5650 6C12T @ 2.67GHz
-- RAM: 144GB
-- OS: Debian 4.19
-
+AWS EC2 `r7i.4xlarge`
 
 ### AMD
 
-- CPU: AMD Ryzen 7 3800X 8-Core Processor
-- RAM: 64GB
+AWS EC2 `r7a.4xlarge`
 
 ## :nut_and_bolt: Supported databases
 
 Due to current [database compatibility](link) requirements, the only supported database systems at the moment are:
-1. Memgraph v2.7
-2. Neo4j Community Edition v5.6.
+1. Memgraph 
+2. Neo4j Community Edition
 
 ### Database notes
 
 Running configurations that differ from default configuration:
 
-- Memgraph - `storage_snapshot_on_exit=true`, `storage_recover_on_startup=true`
+- Memgraph - `storage_snapshot_on_exit=true`, `data_recovery_on_startup=true`
 - Neo4j - `dbms.security.auth_enabled=false`
 
 ## :raised_hands: Contributions
@@ -342,13 +344,19 @@ Benchgraph is currently a passive benchmark since resource usage and saturation 
 
 Latest version: https://memgraph.com/benchgraph
 
-### Release v3 (latest) - 2023-02-10
+### Release v4 (latest) - 2024-25-07 
+
+ - Updated benchmarks with the run on AWS EC2 instances: `r7i.4xlarge`  and `r7a.4xlarge`
+ - Dropped the BI dataset run (due to optimization)
+ - Updated version of Memgraph v2.16 and Neo4j 5.19
+
+### Release v3 - 2023-02-10
 
 - Improvements have been made for the sake of Memgraph internal performance testing.
   - https://github.com/memgraph/memgraph/pull/1286
   - https://github.com/memgraph/memgraph/pull/1280
 
-### Release v2 (latest) - 2023-25-04
+### Release v2 - 2023-25-04
 
 - Benchmark process changes:
   - Executed query count is now identical on both vendors (Memgraph and Neo4j)

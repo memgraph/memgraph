@@ -114,7 +114,7 @@ class BaseEncoder {
     for (const auto &x : value) WriteValue(x);
   }
 
-  void WriteMap(const std::map<std::string, Value> &value) {
+  void WriteMap(const map_t &value) {
     WriteTypeSize(value.size(), MarkerMap);
     for (const auto &x : value) {
       WriteString(x.first);
@@ -225,6 +225,7 @@ class BaseEncoder {
   }
 
   void WriteLocalDateTime(const utils::LocalDateTime &local_date_time) {
+    // Bolt defines local date time without timezone (as if UTC)
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct2));
     WriteRAW(utils::UnderlyingCast(Signature::LocalDateTime));
     WriteInt(local_date_time.SecondsSinceEpoch());
@@ -241,6 +242,23 @@ class BaseEncoder {
     WriteInt(duration.Days());
     WriteInt(duration.SubDaysAsSeconds());
     WriteInt(duration.SubSecondsAsNanoseconds());
+  }
+
+  void WritePoint2d(const Point2d &point_2d) {
+    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct3));
+    WriteRAW(utils::UnderlyingCast(Signature::Point2d));
+    WriteInt(storage::CrsToSrid(point_2d.crs()).value_of());
+    WriteDouble(point_2d.x());
+    WriteDouble(point_2d.y());
+  }
+
+  void WritePoint3d(const Point3d &point_3d) {
+    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct4));
+    WriteRAW(utils::UnderlyingCast(Signature::Point3d));
+    WriteInt(storage::CrsToSrid(point_3d.crs()).value_of());
+    WriteDouble(point_3d.x());
+    WriteDouble(point_3d.y());
+    WriteDouble(point_3d.z());
   }
 
   void WriteLegacyZonedDateTime(const utils::ZonedDateTime &zoned_date_time) {
@@ -330,6 +348,12 @@ class BaseEncoder {
         break;
       case Value::Type::Duration:
         WriteDuration(value.ValueDuration());
+        break;
+      case Value::Type::Point2d:
+        WritePoint2d(value.ValuePoint2d());
+        break;
+      case Value::Type::Point3d:
+        WritePoint3d(value.ValuePoint3d());
         break;
     }
   }

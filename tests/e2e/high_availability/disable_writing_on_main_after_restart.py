@@ -10,17 +10,16 @@
 # licenses/APL.txt.
 
 import os
-import shutil
 import sys
-import tempfile
 
 import interactive_mg_runner
 import pytest
 from common import (
     connect,
     execute_and_fetch_all,
+    get_data_path,
+    get_logs_path,
     ignore_elapsed_time_from_results,
-    safe_execute,
 )
 from mg_utils import mg_sleep_and_assert
 
@@ -31,7 +30,9 @@ interactive_mg_runner.PROJECT_DIR = os.path.normpath(
 interactive_mg_runner.BUILD_DIR = os.path.normpath(os.path.join(interactive_mg_runner.PROJECT_DIR, "build"))
 interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactive_mg_runner.BUILD_DIR, "memgraph"))
 
-TEMP_DIR = tempfile.TemporaryDirectory().name
+file = "disable_writing_on_main_after_restart"
+test_name = "test_writing_disabled_on_main_restart"
+
 
 MEMGRAPH_INSTANCES_DESCRIPTION = {
     "instance_1": {
@@ -49,8 +50,8 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "--instance-down-timeout-sec",
             "5",
         ],
-        "log_file": "high_availability/disable_writing_on_main_after_restart/instance_1.log",
-        "data_directory": f"{TEMP_DIR}/instance_1",
+        "log_file": f"{get_logs_path(file, test_name)}/instance_1.log",
+        "data_directory": f"{get_data_path(file, test_name)}/instance_1",
         "setup_queries": [],
     },
     "instance_2": {
@@ -68,8 +69,8 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "--instance-down-timeout-sec",
             "5",
         ],
-        "log_file": "high_availability/disable_writing_on_main_after_restart/instance_2.log",
-        "data_directory": f"{TEMP_DIR}/instance_2",
+        "log_file": f"{get_logs_path(file, test_name)}/instance_2.log",
+        "data_directory": f"{get_data_path(file, test_name)}/instance_2",
         "setup_queries": [],
     },
     "instance_3": {
@@ -87,8 +88,8 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "--instance-down-timeout-sec",
             "10",
         ],
-        "log_file": "high_availability/disable_writing_on_main_after_restart/instance_3.log",
-        "data_directory": f"{TEMP_DIR}/instance_3",
+        "log_file": f"{get_logs_path(file, test_name)}/instance_3.log",
+        "data_directory": f"{get_data_path(file, test_name)}/instance_3",
         "setup_queries": [],
     },
     "coordinator_1": {
@@ -99,8 +100,11 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "--log-level=TRACE",
             "--coordinator-id=1",
             "--coordinator-port=10111",
+            "--coordinator-hostname=localhost",
+            "--management-port=10121",
         ],
-        "log_file": "high_availability/disable_writing_on_main_after_restart/coordinator1.log",
+        "log_file": f"{get_logs_path(file, test_name)}/coordinator_1.log",
+        "data_directory": f"{get_data_path(file, test_name)}/coordinator_1",
         "setup_queries": [],
     },
     "coordinator_2": {
@@ -111,8 +115,11 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "--log-level=TRACE",
             "--coordinator-id=2",
             "--coordinator-port=10112",
+            "--coordinator-hostname=localhost",
+            "--management-port=10122",
         ],
-        "log_file": "high_availability/disable_writing_on_main_after_restart/coordinator2.log",
+        "log_file": f"{get_logs_path(file, test_name)}/coordinator_2.log",
+        "data_directory": f"{get_data_path(file, test_name)}/coordinator_2",
         "setup_queries": [],
     },
     "coordinator_3": {
@@ -124,31 +131,41 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
             "--coordinator-id=3",
             "--coordinator-port=10113",
             "--also-log-to-stderr",
+            "--coordinator-hostname=localhost",
+            "--management-port=10123",
         ],
-        "log_file": "high_availability/disable_writing_on_main_after_restart/coordinator3.log",
+        "log_file": f"{get_logs_path(file, test_name)}/coordinator_3.log",
+        "data_directory": f"{get_data_path(file, test_name)}/coordinator_3",
         "setup_queries": [],
     },
 }
 
 
+@pytest.fixture(autouse=True)
+def cleanup_after_test():
+    # Run the test
+    yield
+    # Stop + delete directories after running the test
+    interactive_mg_runner.kill_all(keep_directories=False)
+
+
 def test_writing_disabled_on_main_restart():
-    safe_execute(shutil.rmtree, TEMP_DIR)
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
 
     coordinator3_cursor = connect(host="localhost", port=7692).cursor()
 
     execute_and_fetch_all(
         coordinator3_cursor,
-        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': '127.0.0.1:7689', 'management_server': '127.0.0.1:10013', 'replication_server': '127.0.0.1:10003'};",
+        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10003'};",
     )
     execute_and_fetch_all(coordinator3_cursor, "SET INSTANCE instance_3 TO MAIN")
     execute_and_fetch_all(
         coordinator3_cursor,
-        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': '127.0.0.1:7690', 'coordinator_server': '127.0.0.1:10111'}",
+        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111', 'management_server': 'localhost:10121'}",
     )
     execute_and_fetch_all(
         coordinator3_cursor,
-        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': '127.0.0.1:7691', 'coordinator_server': '127.0.0.1:10112'}",
+        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112', 'management_server': 'localhost:10122'}",
     )
 
     def check_coordinator3():
@@ -157,20 +174,20 @@ def test_writing_disabled_on_main_restart():
         )
 
     expected_cluster_coord3 = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
-        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
     mg_sleep_and_assert(expected_cluster_coord3, check_coordinator3)
 
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_3")
 
     expected_cluster_coord3 = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
-        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "down", "unknown"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
     ]
 
     mg_sleep_and_assert(expected_cluster_coord3, check_coordinator3)
@@ -187,10 +204,10 @@ def test_writing_disabled_on_main_restart():
         )
 
     expected_cluster_coord3 = [
-        ("coordinator_1", "127.0.0.1:7690", "127.0.0.1:10111", "", "up", "coordinator"),
-        ("coordinator_2", "127.0.0.1:7691", "127.0.0.1:10112", "", "up", "coordinator"),
-        ("coordinator_3", "0.0.0.0:7692", "0.0.0.0:10113", "", "up", "coordinator"),
-        ("instance_3", "127.0.0.1:7689", "", "127.0.0.1:10013", "up", "main"),
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
 
     mg_sleep_and_assert(expected_cluster_coord3, check_coordinator3)

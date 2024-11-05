@@ -31,19 +31,24 @@
 # approaches have to be employed.
 # NOTE: The instance description / context should be compatible with tests/e2e/runner.py
 
-import atexit
 import logging
 import os
+import secrets
 import sys
-import tempfile
 import time
 from argparse import ArgumentParser
 from inspect import signature
-from typing import Optional
 
 import yaml
 
-from memgraph import MemgraphInstanceRunner, extract_bolt_port
+from memgraph import (
+    MemgraphInstanceRunner,
+    connectable_port,
+    extract_bolt_port,
+    extract_management_port,
+)
+
+log = logging.getLogger("memgraph.tests.e2e")
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", ".."))
@@ -82,8 +87,6 @@ ACTIONS = {
     "quit": lambda _: sys.exit(1),
 }
 
-CLEANUP_DIRECTORIES_ON_EXIT = False
-
 log = logging.getLogger("memgraph.tests.e2e")
 
 
@@ -99,14 +102,20 @@ def load_args():
     return parser.parse_args()
 
 
-def is_port_in_use(port: int) -> bool:
-    import socket
+def wait_until_port_is_free(port: int) -> bool:
+    """
+    Return True when port is free, False if port is still not free after 10s.
+    """
+    for _ in range(100):
+        # If we can connect to the port that means previous process is still running and we have to wait for it to finish.
+        if not connectable_port(port):
+            return True
+        else:
+            time.sleep(0.1)
+    return False
 
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        return s.connect_ex(("localhost", port)) == 0
 
-
-def _start_instance(
+def _start(
     name,
     args,
     log_file,
@@ -116,39 +125,59 @@ def _start_instance(
     data_directory,
     username=None,
     password=None,
-    bolt_port: Optional[int] = None,
+    storage_snapshot_on_exit: bool = False,
 ):
     assert (
         name not in MEMGRAPH_INSTANCES.keys()
-    ), "If this raises, you are trying to start an instance with the same name than one already running."
-    if not bolt_port:
-        bolt_port = extract_bolt_port(args)
-    assert not is_port_in_use(
-        bolt_port
-    ), "If this raises, you are trying to start an instance on a port already used by one already running instance."
+    ), "If this raises, you are trying to start an instance with the same name as the one running."
 
-    log_file_path = os.path.join(BUILD_DIR, "logs", log_file)
-    data_directory_path = os.path.join(BUILD_DIR, data_directory)
+    bolt_port = extract_bolt_port(args)
+    assert wait_until_port_is_free(
+        bolt_port
+    ), f"If this raises, you are trying to start an instance on a port {bolt_port} used by the running instance."
+
+    management_port = extract_management_port(args)
+    if management_port:
+        assert wait_until_port_is_free(
+            management_port
+        ), f"If this raises, you are trying to start with coordinator management port {management_port} which is already in use."
+
+    log_file_path = os.path.join(BUILD_DIR, "e2e", "logs", log_file)
+    data_directory_path = os.path.join(BUILD_DIR, "e2e", "data", data_directory)
+
     mg_instance = MemgraphInstanceRunner(
-        MEMGRAPH_BINARY, use_ssl, {data_directory_path}, username=username, password=password
+        MEMGRAPH_BINARY, use_ssl, data_directory_path, username=username, password=password
     )
     MEMGRAPH_INSTANCES[name] = mg_instance
+
     binary_args = args + ["--log-file", log_file_path] + ["--data-directory", data_directory_path]
 
     if len(procdir) != 0:
         binary_args.append("--query-modules-directory=" + procdir)
 
-    mg_instance.start(args=binary_args, setup_queries=setup_queries, bolt_port=bolt_port)
+    log.info(f"Starting instance with name: {name} on bolt port {bolt_port}")
+    mg_instance.start(
+        args=binary_args,
+        setup_queries=setup_queries,
+        bolt_port=bolt_port,
+        storage_snapshot_on_exit=storage_snapshot_on_exit,
+    )
     assert mg_instance.is_running(), "An error occurred after starting Memgraph instance: application stopped running."
 
 
 def stop_all(keep_directories=True):
+    """
+    Idempotent in a sense that if instances were already stopped, additional call to stop_all won't do anything wrong. Sends SIGTERM signal.
+    """
     for mg_instance in MEMGRAPH_INSTANCES.values():
         mg_instance.stop(keep_directories)
     MEMGRAPH_INSTANCES.clear()
 
 
-def stop_instance(context, name, keep_directories=True):
+def stop(context, name, keep_directories=True):
+    """
+    Idempotent in a sense that stopping already stopped instance won't fail program.
+    """
     for key, _ in context.items():
         if key != name:
             continue
@@ -156,15 +185,19 @@ def stop_instance(context, name, keep_directories=True):
         MEMGRAPH_INSTANCES.pop(name)
 
 
-def stop(context, name, keep_directories=True):
-    if name != "all":
-        stop_instance(context, name, keep_directories)
-        return
-
-    stop_all()
+def kill_all(keep_directories=True):
+    """
+    Idempotent in a sense that killing already dead instances won't fail. Sends SIGKILL signal.
+    """
+    for key in MEMGRAPH_INSTANCES.keys():
+        MEMGRAPH_INSTANCES[key].kill(keep_directories)
+    MEMGRAPH_INSTANCES.clear()
 
 
 def kill(context, name, keep_directories=True):
+    """
+    Kills instance with name 'name' from the 'context'.
+    """
     for key in context.keys():
         if key != name:
             continue
@@ -172,22 +205,7 @@ def kill(context, name, keep_directories=True):
         MEMGRAPH_INSTANCES.pop(name)
 
 
-def kill_all(context, keep_directories=True):
-    for key in MEMGRAPH_INSTANCES.keys():
-        MEMGRAPH_INSTANCES[key].kill(keep_directories)
-    MEMGRAPH_INSTANCES.clear()
-
-
-def cleanup_directories_on_exit(value=True):
-    CLEANUP_DIRECTORIES_ON_EXIT = value
-
-
-@atexit.register
-def cleanup():
-    stop_all(CLEANUP_DIRECTORIES_ON_EXIT)
-
-
-def start_instance(context, name, procdir):
+def start(context, name, procdir=""):
     mg_instances = {}
 
     for key, value in context.items():
@@ -195,57 +213,61 @@ def start_instance(context, name, procdir):
             continue
         args = value["args"]
         log_file = value["log_file"]
-        queries = []
-        if "setup_queries" in value:
-            queries = value["setup_queries"]
+
+        setup_queries = value["setup_queries"] if "setup_queries" in value else []
+
         use_ssl = False
         if "ssl" in value:
             use_ssl = bool(value["ssl"])
             value.pop("ssl")
-        data_directory = ""
-        if "data_directory" in value:
-            data_directory = value["data_directory"]
-        else:
-            data_directory = tempfile.TemporaryDirectory().name
-        username = None
-        if "username" in value:
-            username = value["username"]
-        password = None
-        if "password" in value:
-            password = value["password"]
 
-        default_bolt_port = None
-        if "default_bolt_port" in value:
-            default_bolt_port = value["default_bolt_port"]
+        # If nothing specified, use 8-character random string.
+        data_directory = value["data_directory"] if "data_directory" in value else secrets.token_hex(4)
 
-        instance = _start_instance(
-            name, args, log_file, queries, use_ssl, procdir, data_directory, username, password, default_bolt_port
+        username = value["username"] if "username" in value else None
+        password = value["password"] if "password" in value else None
+
+        storage_snapshot_on_exit = value["storage_snapshot_on_exit"] if "storage_snapshot_on_exit" in value else False
+
+        instance = _start(
+            name,
+            args,
+            log_file,
+            setup_queries,
+            use_ssl,
+            procdir,
+            data_directory,
+            username,
+            password,
+            storage_snapshot_on_exit=storage_snapshot_on_exit,
         )
+        log.info(f"Instance with name {name} started")
         mg_instances[name] = instance
 
     assert len(mg_instances) == 1
 
 
 def start_all(context, procdir="", keep_directories=True):
+    """
+    Start all instances by first stopping all instances and then calling start_instance for each instance from the `context`.
+    """
     stop_all(keep_directories)
     for key, _ in context.items():
-        start_instance(context, key, procdir)
+        start(context, key, procdir)
 
 
-def start_all_keep_others(context, procdir="", keep_directories=True):
+def start_all_keep_others(context, procdir=""):
+    """
+    Start all instances from the context but don't stop currently running instances.
+    """
     for key, _ in context.items():
-        start_instance(context, key, procdir)
-
-
-def start(context, name, procdir=""):
-    if name != "all":
-        start_instance(context, name, procdir)
-        return
-
-    start_all(context)
+        start(context, key, procdir)
 
 
 def info(context):
+    """
+    Prints information about the context.
+    """
     print("{:<15s}{:>6s}".format("NAME", "STATUS"))
     for name, _ in context.items():
         if name not in MEMGRAPH_INSTANCES:
@@ -255,6 +277,9 @@ def info(context):
 
 
 def process_actions(context, actions):
+    """
+    Processes all `actions` using the `context` as context.
+    """
     actions = actions.split(" ")
     actions.reverse()
     while len(actions) > 0:

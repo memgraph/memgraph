@@ -10,8 +10,8 @@
 // licenses/APL.txt.
 #pragma once
 
-#include "utils/spin_lock.hpp"
-#include "utils/synchronized.hpp"
+#include <chrono>
+#include <string>
 
 namespace memgraph::flags::run_time {
 
@@ -36,10 +36,31 @@ std::string GetServerName();
 double GetExecutionTimeout();
 
 /**
+ * @brief Get the hops limit partial results value
+ *
+ * @return bool
+ */
+bool GetHopsLimitPartialResults();
+
+/**
  * @brief Get the cartesian product enabled value
  *
  * @return bool
  */
 bool GetCartesianProductEnabled();
+
+/**
+ * @brief Get the current timezone object
+ *
+ * @return const std::chrono::time_zone*
+ */
+const std::chrono::time_zone *GetTimezone();
+
+/**
+ * @brief Get the query log directory value
+ *
+ * @return std::string
+ */
+std::string GetQueryLogDirectory();
 
 }  // namespace memgraph::flags::run_time

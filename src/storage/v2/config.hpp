@@ -20,6 +20,7 @@
 #include "flags/replication.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/storage_mode.hpp"
+#include "utils/compressor.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/uuid.hpp"
@@ -36,13 +37,16 @@ struct SalientConfig {
   std::string name;
   utils::UUID uuid;
   StorageMode storage_mode{StorageMode::IN_MEMORY_TRANSACTIONAL};
+  utils::CompressionLevel property_store_compression_level{utils::CompressionLevel::MID};
   struct Items {
     bool properties_on_edges{true};
     bool enable_edges_metadata{false};
     bool enable_schema_metadata{false};
+    bool enable_schema_info{false};
     bool enable_label_index_auto_creation{false};
     bool enable_edge_type_index_auto_creation{false};
     bool delta_on_identical_property_update{true};
+    bool property_store_compression_enabled{false};
     friend bool operator==(const Items &lrh, const Items &rhs) = default;
   } items;
 
@@ -53,9 +57,11 @@ inline void to_json(nlohmann::json &data, SalientConfig::Items const &items) {
   data = nlohmann::json{
       {"properties_on_edges", items.properties_on_edges},
       {"enable_schema_metadata", items.enable_schema_metadata},
+      {"enable_schema_info", items.enable_schema_info},
       {"enable_edges_metadata", items.enable_edges_metadata},
       {"enable_label_index_auto_creation", items.enable_label_index_auto_creation},
       {"enable_edge_type_index_auto_creation", items.enable_edge_type_index_auto_creation},
+      {"property_store_compression_enabled", items.property_store_compression_enabled},
   };
 }
 
@@ -63,13 +69,19 @@ inline void from_json(const nlohmann::json &data, SalientConfig::Items &items) {
   data.at("properties_on_edges").get_to(items.properties_on_edges);
   data.at("enable_edges_metadata").get_to(items.enable_edges_metadata);
   data.at("enable_schema_metadata").get_to(items.enable_schema_metadata);
+  data.at("enable_schema_info").get_to(items.enable_schema_info);
   data.at("enable_label_index_auto_creation").get_to(items.enable_label_index_auto_creation);
   data.at("enable_edge_type_index_auto_creation").get_to(items.enable_edge_type_index_auto_creation);
+  data.at("property_store_compression_enabled").get_to(items.property_store_compression_enabled);
 }
 
 inline void to_json(nlohmann::json &data, SalientConfig const &config) {
-  data = nlohmann::json{
-      {"items", config.items}, {"name", config.name}, {"uuid", config.uuid}, {"storage_mode", config.storage_mode}};
+  data = nlohmann::json{{"items", config.items},
+                        {"name", config.name},
+                        {"uuid", config.uuid},
+                        {"storage_mode", config.storage_mode},
+                        "property_store_compression_level",
+                        config.property_store_compression_level};
 }
 
 inline void from_json(const nlohmann::json &data, SalientConfig &config) {
@@ -77,6 +89,7 @@ inline void from_json(const nlohmann::json &data, SalientConfig &config) {
   data.at("name").get_to(config.name);
   data.at("uuid").get_to(config.uuid);
   data.at("storage_mode").get_to(config.storage_mode);
+  data.at("property_store_compression_level").get_to(config.property_store_compression_level);
 }
 
 /// Pass this class to the \ref Storage constructor to change the behavior of
@@ -111,9 +124,6 @@ struct Config {
     uint64_t items_per_batch{1'000'000};  // PER DATABASE
     uint64_t recovery_thread_count{8};    // PER INSTANCE SYSTEM FLAG
 
-    // deprecated
-    bool allow_parallel_index_creation{false};  // KILL
-
     bool allow_parallel_schema_creation{false};  // PER DATABASE
     friend bool operator==(const Durability &lrh, const Durability &rhs) = default;
   } durability;
@@ -145,7 +155,7 @@ struct Config {
 inline auto ReplicationStateRootPath(memgraph::storage::Config const &config) -> std::optional<std::filesystem::path> {
   if (!config.durability.restore_replication_state_on_startup
 #ifdef MG_ENTERPRISE
-      && !memgraph::flags::CoordinationSetupInstance().IsCoordinatorManaged()
+      && !memgraph::flags::CoordinationSetupInstance().IsDataInstanceManagedByCoordinator()
 #endif
   ) {
     spdlog::warn(

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -35,6 +35,12 @@ class Encoder final : public durability::BaseEncoder {
 
   void WriteString(std::string_view value) override;
 
+  void WriteEnum(storage::Enum value) override;
+
+  void WritePoint2d(storage::Point2d value) override;
+
+  void WritePoint3d(storage::Point3d value) override;
+
   void WritePropertyValue(const PropertyValue &value) override;
 
   void WriteBuffer(const uint8_t *buffer, size_t buffer_size);
@@ -60,6 +66,12 @@ class Decoder final : public durability::BaseDecoder {
   std::optional<double> ReadDouble() override;
 
   std::optional<std::string> ReadString() override;
+
+  std::optional<Enum> ReadEnumValue() override;
+
+  std::optional<Point2d> ReadPoint2dValue() override;
+
+  std::optional<Point3d> ReadPoint3dValue() override;
 
   std::optional<PropertyValue> ReadPropertyValue() override;
 

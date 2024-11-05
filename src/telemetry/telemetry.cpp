@@ -17,6 +17,7 @@
 #include <fmt/format.h>
 
 #include "communication/bolt/metrics.hpp"
+#include "query/plan/operator.hpp"
 #include "requests/requests.hpp"
 #include "telemetry/collectors.hpp"
 #include "utils/event_counter.hpp"
@@ -28,6 +29,8 @@
 #include "utils/timestamp.hpp"
 #include "utils/uuid.hpp"
 #include "version.hpp"
+
+#include <mutex>
 
 namespace memgraph::telemetry {
 
@@ -57,7 +60,7 @@ Telemetry::Telemetry(std::string url, std::filesystem::path storage_directory, s
 }
 
 void Telemetry::AddCollector(const std::string &name, const std::function<const nlohmann::json(void)> &func) {
-  std::lock_guard<std::mutex> guard(lock_);
+  auto guard = std::lock_guard{lock_};
   collectors_.emplace_back(name, func);
 }
 
@@ -108,7 +111,7 @@ void Telemetry::SendData() {
 void Telemetry::CollectData(const std::string &event) {
   nlohmann::json data = nlohmann::json::object();
   {
-    std::lock_guard<std::mutex> guard(lock_);
+    auto guard = std::lock_guard{lock_};
     for (auto &collector : collectors_) {
       try {
         data[collector.first] = collector.second();
@@ -149,9 +152,9 @@ void Telemetry::AddClientCollector() {
 }
 
 #ifdef MG_ENTERPRISE
-void Telemetry::AddDatabaseCollector(dbms::DbmsHandler &dbms_handler, replication::ReplicationState &repl_state) {
-  AddCollector("database", [&dbms_handler, &repl_state]() -> nlohmann::json {
-    const auto &infos = dbms_handler.Info(repl_state.GetRole());
+void Telemetry::AddDatabaseCollector(dbms::DbmsHandler &dbms_handler) {
+  AddCollector("database", [&dbms_handler]() -> nlohmann::json {
+    const auto &infos = dbms_handler.Info();
     auto dbs = nlohmann::json::array();
     for (const auto &db_info : infos) {
       dbs.push_back(memgraph::dbms::ToJson(db_info));
@@ -162,10 +165,9 @@ void Telemetry::AddDatabaseCollector(dbms::DbmsHandler &dbms_handler, replicatio
 #else
 #endif
 
-void Telemetry::AddStorageCollector(dbms::DbmsHandler &dbms_handler, memgraph::auth::SynchedAuth &auth,
-                                    memgraph::replication::ReplicationState &repl_state) {
-  AddCollector("storage", [&dbms_handler, &auth, &repl_state]() -> nlohmann::json {
-    auto stats = dbms_handler.Stats(repl_state.GetRole());
+void Telemetry::AddStorageCollector(dbms::DbmsHandler &dbms_handler, memgraph::auth::SynchedAuth &auth) {
+  AddCollector("storage", [&dbms_handler, &auth]() -> nlohmann::json {
+    auto stats = dbms_handler.Stats();
     stats.users = auth->AllUsers().size();
     return ToJson(stats);
   });

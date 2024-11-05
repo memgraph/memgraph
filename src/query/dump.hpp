@@ -12,7 +12,6 @@
 #pragma once
 
 #include "dbms/database.hpp"
-#include "query/db_accessor.hpp"
 #include "query/stream.hpp"
 #include "storage/v2/storage.hpp"
 
@@ -53,11 +52,14 @@ struct PullPlanDump {
   // function, otherwise std::nullopt is returned.
   std::vector<PullChunk> pull_chunks_;
 
+  PullChunk CreateEnumsPullChunk();
   PullChunk CreateLabelIndicesPullChunk();
   PullChunk CreateLabelPropertyIndicesPullChunk();
   PullChunk CreateTextIndicesPullChunk();
+  PullChunk CreatePointIndicesPullChunk();
   PullChunk CreateExistenceConstraintsPullChunk();
   PullChunk CreateUniqueConstraintsPullChunk();
+  PullChunk CreateTypeConstraintsPullChunk();
   PullChunk CreateInternalIndexPullChunk();
   PullChunk CreateVertexPullChunk();
   PullChunk CreateEdgePullChunk();
@@ -65,5 +67,6 @@ struct PullPlanDump {
   PullChunk CreateInternalIndexCleanupPullChunk();
   PullChunk CreateTriggersPullChunk();
   PullChunk CreateEdgeTypeIndicesPullChunk();
+  PullChunk CreateEdgeTypePropertyIndicesPullChunk();
 };
 }  // namespace memgraph::query

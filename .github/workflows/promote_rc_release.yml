@@ -1,0 +1,213 @@
+name: Promote RC to Release
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: true
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: "Release version (format: X.Y.Z)"
+        required: true
+        type: string
+      rc_version:
+        description: "RC version to promote (format: rcX)"
+        required: true
+        type: string
+      force_promote:
+        type: boolean
+        description: "Override existing release"
+        default: false
+      test:
+        description: "Run in test mode"
+        required: false
+        type: boolean
+
+env:
+  s3_region: eu-west-1
+  rc_bucket: deps.memgraph.io
+  rc_dir: memgraph/v${{ github.event.inputs.release_version }}-${{ github.event.inputs.rc_version }}
+  release_bucket: ${{ github.event.inputs.test == 'false' && 'download.memgraph.com' || 'deps.memgraph.io' }}
+  release_dir: memgraph${{ github.event.inputs.test == 'true' && '-release-test' || '' }}/v${{ github.event.inputs.release_version }}
+  package_rpm: memgraph-${{ github.event.inputs.release_version }}_1-1.x86_64.rpm
+  package_deb_amd: memgraph_${{ github.event.inputs.release_version }}-1_amd64.deb
+  package_deb_arm: memgraph_${{ github.event.inputs.release_version }}-1_arm64.deb
+  package_docker: memgraph-${{ github.event.inputs.release_version }}-docker.tar.gz
+  package_docker_relwithdebinfo: memgraph-${{ github.event.inputs.release_version }}-relwithdebinfo-docker.tar.gz
+  docker_repo_rc: memgraph/memgraph
+  docker_repo_release: memgraph/memgraph${{ github.event.inputs.test == 'true' && '-release-test' || '' }}
+
+jobs:
+  PromotePackage:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [centos-9, debian-11, debian-12, docker, fedora-38, fedora-39, rocky-9.3, ubuntu-20.04, ubuntu-22.04, ubuntu-24.04]
+        arch: [amd]
+        include:
+          - os: debian-11
+            arch: arm
+          - os: debian-12
+            arch: arm
+          - os: docker
+            arch: arm
+          - os: ubuntu-22.04
+            arch: arm
+          - os: ubuntu-24.04
+            arch: arm
+    steps:
+      - name: Setup AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_AK_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SAK }}
+          aws-region: ${{ env.s3_region }}
+
+      - name: Setup package path
+        run: |
+          os=${{ matrix.os }}
+          if [[ $os == amzn* || $os == centos* || $os == fedora* || $os == rocky* ]]; then
+            package_name=${package_rpm}
+          elif [[ $os == docker ]]; then
+            package_name=${package_docker}
+          else
+            package_name=${package_deb_amd}
+            if [[ "${{ matrix.arch }}" == "arm" ]]; then
+              package_name=${package_deb_arm}
+            fi
+          fi
+          if [[ "${{ matrix.arch }}" == "arm" ]]; then
+            os="${os}-aarch64"
+          fi
+          echo "package_path=${os}/${package_name}" >> $GITHUB_ENV
+
+      - name: Check if rc package for this build exists
+        run: |
+          if ! aws s3 ls s3://${rc_bucket}/${rc_dir}/${package_path} &> /dev/null; then
+            echo "RC package for ${os} does not exist at s3://${rc_bucket}/${rc_dir}/${package_path}"
+            exit 1
+          fi
+
+      - name: Check if release package for this build aldready exists
+        run: |
+          if aws s3 ls s3://${release_bucket}/${release_dir}/${package_path} &> /dev/null; then
+            echo "Release package for ${os} already exists at s3://${release_bucket}/${release_dir}/${package_path}"
+            if [[ "${{ github.event.inputs.force_promote }}" != "true" ]]; then
+              echo "Set force_promote to true to override existing release!"
+              exit 1
+            fi
+            echo "Forcing promotion of existing release ..."
+          fi
+
+      - name: Promote RC to Release
+        run: |
+          aws s3 cp s3://${rc_bucket}/${rc_dir}/${package_path} s3://${release_bucket}/${release_dir}/${package_path}
+          echo "Successfully promoted RC package for ${os} to s3://${release_bucket}/${release_dir}/${package_path}!"
+
+  PromoteDocker:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [docker]
+        build_type: [Release, RelWithDebInfo]
+    steps:
+      - name: Setup AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_AK_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SAK }}
+          aws-region: ${{ env.s3_region }}
+
+      - name: Check if rc image for this build exists
+        run: |
+          if [[ "${{ matrix.build_type }}" == "Release" ]]; then
+            if ! aws s3 ls s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}/${package_docker} &> /dev/null; then
+              echo "RC package for ${{ matrix.os }} does not exist at s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}/${package_docker}"
+              exit 1
+            elif ! aws s3 ls s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}-aarch64/${package_docker} &> /dev/null; then
+              echo "RC package for ${{ matrix.os }}-aarch64 does not exist at s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}-aarch64/${package_docker}"
+              exit 1
+            fi
+          else
+            if ! aws s3 ls s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}-relwithdebinfo/${package_docker_relwithdebinfo} &> /dev/null; then
+              echo "RC package for ${{ matrix.os }} relwithdebinfo does not exist at s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}-relwithdebinfo/${package_docker_relwithdebinfo}"
+              exit 1
+            fi
+          fi
+
+      - name: Check if release image for this build aldready exists
+        run: |
+          release_image=${docker_repo_release}:${{ github.event.inputs.release_version }}
+          if [[ "${{ matrix.build_type }}" == "RelWithDebInfo" ]]; then
+            release_image=${docker_repo_release}:${{ github.event.inputs.release_version }}-relwithdebinfo
+          fi
+          if docker manifest inspect ${release_image} &> /dev/null; then
+            echo "Release image ${release_image} already exists on DockerHub"
+            if [[ "${{ github.event.inputs.force_promote }}" != "true" ]]; then
+              echo "Set force_promote to true to override existing release!"
+              exit 1
+            fi
+            echo "Forcing promotion of existing release ..."
+          fi
+
+      - name: "Log in to Docker Hub"
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Get dockerhub token
+        if: ${{ matrix.build_type == 'Release' }}
+        run: |
+          dockerhub_token=$(curl -s -H "Content-Type: application/json" -X POST -d '{"username": "${{ secrets.DOCKERHUB_USERNAME }}", "password": "${{ secrets.DOCKERHUB_TOKEN }}"}' https://hub.docker.com/v2/users/login/ | jq -r .token)
+          echo "dockerhub_token=${dockerhub_token}" >> $GITHUB_ENV
+
+      - name: Promote RC to Release (Release)
+        if: ${{ matrix.build_type == 'Release' }}
+        run: |
+          rc_image=${docker_repo_rc}:${{ github.event.inputs.release_version }}
+          release_image=${docker_repo_release}:${{ github.event.inputs.release_version }}
+          release_image_amd=${release_image}-amd64
+          release_image_arm=${release_image}-arm64
+          release_image_latest=${docker_repo_release}:latest
+          # Download and load, retag if necessary, push temporary image
+          # arm64
+          aws s3 cp s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}-aarch64/${package_docker} - | docker load
+          docker tag ${rc_image} ${release_image_arm}
+          docker push ${release_image_arm}
+          # amd64
+          aws s3 cp s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}/${package_docker} - | docker load
+          docker tag ${rc_image} ${release_image_amd}
+          docker push ${release_image_amd}
+          # Setup manifest list for release image
+          docker manifest create ${release_image} \
+          --amend ${release_image_amd} \
+          --amend ${release_image_arm}
+          docker manifest push ${release_image}
+          # Setup manifest list for latest image
+          docker manifest create ${release_image_latest} \
+          --amend ${release_image_amd} \
+          --amend ${release_image_arm}
+          docker manifest push ${release_image_latest}
+          echo "Successfully published ${release_image} and ${release_image_latest} to DockerHub!"
+
+      - name: Clean up temporary images
+        if: ${{ matrix.build_type == 'Release' }}
+        run: |
+          echo "Deleting temporary image ${release_image_amd} ..."
+          curl -i -n -X DELETE -H "Authorization: JWT ${dockerhub_token}" https://hub.docker.com/v2/repositories/${docker_repo_release}/tags/${{ github.event.inputs.release_version }}-amd64/
+          echo "Deleting temporary image ${release_image_arm} ..."
+          curl -i -n -X DELETE -H "Authorization: JWT ${dockerhub_token}" https://hub.docker.com/v2/repositories/${docker_repo_release}/tags/${{ github.event.inputs.release_version }}-arm64/
+
+      - name: Promote RC to Release (RelWithDebInfo)
+        if: ${{ matrix.build_type == 'RelWithDebInfo' }}
+        run: |
+          rc_image=${docker_repo_rc}:${{ github.event.inputs.release_version }}-relwithdebinfo
+          release_image=${docker_repo_release}:${{ github.event.inputs.release_version }}-relwithdebinfo
+          # Download and load, retag if necessary, push relwithdebinfo image
+          aws s3 cp s3://${rc_bucket}/${rc_dir}/${{ matrix.os }}-relwithdebinfo/${package_docker_relwithdebinfo} - | docker load
+          docker tag ${rc_image} ${release_image}
+          docker push ${release_image}
+          echo "Successfully published ${release_image} to DockerHub!"

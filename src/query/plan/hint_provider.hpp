@@ -114,11 +114,26 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
   bool PreVisit(ScanAllById & /*unused*/) override { return true; }
   bool PostVisit(ScanAllById & /*unused*/) override { return true; }
 
+  bool PreVisit(ScanAllByEdge & /*unused*/) override { return true; }
+  bool PostVisit(ScanAllByEdge & /*unused*/) override { return true; }
+
   bool PreVisit(ScanAllByEdgeType & /*unused*/) override { return true; }
   bool PostVisit(ScanAllByEdgeType & /*unused*/) override { return true; }
 
+  bool PreVisit(ScanAllByEdgeTypeProperty & /*unused*/) override { return true; }
+  bool PostVisit(ScanAllByEdgeTypeProperty & /*unused*/) override { return true; }
+
+  bool PreVisit(ScanAllByEdgeTypePropertyValue & /*unused*/) override { return true; }
+  bool PostVisit(ScanAllByEdgeTypePropertyValue & /*unused*/) override { return true; }
+
+  bool PreVisit(ScanAllByEdgeTypePropertyRange & /*unused*/) override { return true; }
+  bool PostVisit(ScanAllByEdgeTypePropertyRange & /*unused*/) override { return true; }
+
   bool PreVisit(ScanAllByEdgeId & /*unused*/) override { return true; }
   bool PostVisit(ScanAllByEdgeId & /*unused*/) override { return true; }
+
+  bool PreVisit(ScanAllByPointDistance & /*unused*/) override { return true; }
+  bool PostVisit(ScanAllByPointDistance & /*unused*/) override { return true; }
 
   bool PreVisit(ConstructNamedPath & /*unused*/) override { return true; }
   bool PostVisit(ConstructNamedPath & /*unused*/) override { return true; }
@@ -219,6 +234,17 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PostVisit(RollUpApply & /*unused*/) override { return true; }
+
+  bool PreVisit(PeriodicCommit & /*unused*/) override { return true; }
+  bool PostVisit(PeriodicCommit & /*unused*/) override { return true; }
+
+  bool PreVisit(PeriodicSubquery &op) override {
+    op.input()->Accept(*this);
+    op.subquery_->Accept(*this);
+    return false;
+  }
+
+  bool PostVisit(PeriodicSubquery & /*op*/) override { return true; }
 
  private:
   const SymbolTable &symbol_table_;

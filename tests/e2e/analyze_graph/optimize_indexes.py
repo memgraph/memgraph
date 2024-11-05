@@ -457,7 +457,7 @@ def test_given_supernode_when_subquery_and_union_then_carry_information(memgraph
         f" | | * EmptyResult",
         f" | | * Merge",
         f" | | |\\ On Match",
-        f" | | | * Expand (s)-[anon7:HAS_REL_TO]->(n)",
+        f" | | | * Expand (n)<-[anon7:HAS_REL_TO]-(s)",
         f" | | | * Once",
         f" | | |\\ On Create",
         f" | | | * CreateExpand (n)<-[anon7:HAS_REL_TO]-(s)",

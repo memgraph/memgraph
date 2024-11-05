@@ -172,6 +172,57 @@ inline bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, Prop
       });
 }
 
+inline bool AnyVersionHasLabelProperty(const Edge &edge, PropertyId key, const PropertyValue &value,
+                                       uint64_t timestamp) {
+  Delta const *delta;
+  bool deleted;
+  bool current_value_equal_to_value;
+  {
+    auto guard = std::shared_lock{edge.lock};
+    delta = edge.delta;
+    deleted = edge.deleted;
+    // Avoid IsPropertyEqual if already not possible
+    if (delta == nullptr && (deleted)) return false;
+    current_value_equal_to_value = edge.properties.IsPropertyEqual(key, value);
+  }
+
+  if (!deleted && current_value_equal_to_value) {
+    return true;
+  }
+
+  constexpr auto interesting = ActionSet<Delta::Action::SET_PROPERTY, Delta::Action::RECREATE_OBJECT,
+                                         Delta::Action::DELETE_DESERIALIZED_OBJECT, Delta::Action::DELETE_OBJECT>{};
+  return AnyVersionSatisfiesPredicate<interesting>(
+      timestamp, delta, [&current_value_equal_to_value, &deleted, key, &value](const Delta &delta) {
+        switch (delta.action) {
+          case Delta::Action::SET_PROPERTY:
+            if (delta.property.key == key) {
+              current_value_equal_to_value = *delta.property.value == value;
+            }
+            break;
+          case Delta::Action::RECREATE_OBJECT: {
+            MG_ASSERT(deleted, "Invalid database state!");
+            deleted = false;
+            break;
+          }
+          case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+          case Delta::Action::DELETE_OBJECT: {
+            MG_ASSERT(!deleted, "Invalid database state!");
+            deleted = true;
+            break;
+          }
+          case Delta::Action::ADD_LABEL:
+          case Delta::Action::REMOVE_LABEL:
+          case Delta::Action::ADD_IN_EDGE:
+          case Delta::Action::ADD_OUT_EDGE:
+          case Delta::Action::REMOVE_IN_EDGE:
+          case Delta::Action::REMOVE_OUT_EDGE:
+            break;
+        }
+        return !deleted && current_value_equal_to_value;
+      });
+}
+
 // Helper function for iterating through label-property index. Returns true if
 // this transaction can see the given vertex, and the visible version has the
 // given label and property.
@@ -202,7 +253,7 @@ inline bool CurrentVersionHasLabelProperty(const Vertex &vertex, LabelId label, 
       auto resLabel = cache.GetHasLabel(view, &vertex, label);
       if (resLabel && *resLabel) {
         auto resProp = cache.GetProperty(view, &vertex, key);
-        if (resProp && *resProp == value) return true;
+        if (resProp && resProp->get() == value) return true;
       }
     }
 
@@ -229,6 +280,39 @@ inline bool CurrentVersionHasLabelProperty(const Vertex &vertex, LabelId label, 
   }
 
   return exists && !deleted && has_label && current_value_equal_to_value;
+}
+
+// Helper function for iterating through label-property index. Returns true if
+// this transaction can see the given vertex, and the visible version has the
+// given label and property.
+inline bool CurrentEdgeVersionHasProperty(const Edge &edge, PropertyId key, const PropertyValue &value,
+                                          Transaction *transaction, View view) {
+  bool exists = true;
+  bool deleted = false;
+  bool current_value_equal_to_value = value.IsNull();
+  const Delta *delta = nullptr;
+  {
+    auto guard = std::shared_lock{edge.lock};
+    deleted = edge.deleted;
+    current_value_equal_to_value = edge.properties.IsPropertyEqual(key, value);
+    delta = edge.delta;
+  }
+
+  // Checking cache has a cost, only do it if we have any deltas
+  // if we have no deltas then what we already have from the vertex is correct.
+  if (delta && transaction->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
+    auto const n_processed = ApplyDeltasForRead(transaction, delta, view, [&, key](const Delta &delta) {
+      // clang-format off
+      DeltaDispatch(delta, utils::ChainedOverloaded{
+        Deleted_ActionMethod(deleted),
+        Exists_ActionMethod(exists),
+        PropertyValueMatch_ActionMethod(current_value_equal_to_value, key,value)
+      });
+      // clang-format on
+    });
+  }
+
+  return exists && !deleted && current_value_equal_to_value;
 }
 
 template <typename TIndexAccessor>
@@ -319,6 +403,20 @@ inline void CreateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vert
   if (maybe_error.Lock()->has_value()) {
     throw utils::OutOfMemoryException((*maybe_error.Lock())->what());
   }
+}
+
+// Helper function that determines, if a transaction has an original start timestamp
+// (for example in a periodic commit when it is necessary to preserve initial index iterators)
+// whether we are allowed to see the entity in the index data structures
+// Returns true if we are allowed to see the entity in the index data structures
+// If the method returns true, the reverts of the deltas will finally decide what's the version
+// of the graph entity
+inline bool CanSeeEntityWithTimestamp(uint64_t insertion_timestamp, Transaction *transaction) {
+  if (!transaction->original_start_timestamp.has_value()) {
+    return true;
+  }
+
+  return insertion_timestamp < transaction->original_start_timestamp.value();
 }
 
 }  // namespace memgraph::storage

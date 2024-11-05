@@ -29,6 +29,7 @@
 #include "storage/v2/indices/indices.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/replication/replication_storage_state.hpp"
+#include "storage/v2/schema_info.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/skip_list.hpp"
 
@@ -101,7 +102,7 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
 // recovery process.
 /// @throw RecoveryFailure
 void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadata &indices_metadata, Indices *indices,
-                            utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
+                            utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper, bool properties_on_edges,
                             const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info = std::nullopt,
                             const std::optional<std::filesystem::path> &storage_dir = std::nullopt);
 
@@ -127,17 +128,19 @@ void RecoverExistenceConstraints(const RecoveredIndicesAndConstraints::Constrain
 void RecoverUniqueConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &, Constraints *,
                               utils::SkipList<Vertex> *, NameIdMapper *,
                               const std::optional<ParallelizedSchemaCreationInfo> &);
+void RecoverTypeConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &, Constraints *,
+                            utils::SkipList<Vertex> *, const std::optional<ParallelizedSchemaCreationInfo> &);
 struct Recovery {
  public:
   /// Recovers data either from a snapshot and/or WAL files.
   /// @throw RecoveryFailure
   /// @throw std::bad_alloc
-  std::optional<RecoveryInfo> RecoverData(std::string *uuid, ReplicationStorageState &repl_storage_state,
-                                          utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
-                                          utils::SkipList<EdgeMetadata> *edges_metadata,
-                                          std::atomic<uint64_t> *edge_count, NameIdMapper *name_id_mapper,
-                                          Indices *indices, Constraints *constraints, const Config &config,
-                                          uint64_t *wal_seq_num);
+  std::optional<RecoveryInfo> RecoverData(
+      utils::UUID &uuid, ReplicationStorageState &repl_storage_state, utils::SkipList<Vertex> *vertices,
+      utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata, std::atomic<uint64_t> *edge_count,
+      NameIdMapper *name_id_mapper, Indices *indices, Constraints *constraints, Config const &config,
+      uint64_t *wal_seq_num, EnumStore *enum_store, SharedSchemaTracking *schema_info,
+      std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge);
 
   const std::filesystem::path snapshot_directory_;
   const std::filesystem::path wal_directory_;

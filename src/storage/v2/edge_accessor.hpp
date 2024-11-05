@@ -11,14 +11,9 @@
 
 #pragma once
 
-#include <optional>
-
 #include "storage/v2/edge.hpp"
 #include "storage/v2/edge_ref.hpp"
-
-#include "storage/v2/config.hpp"
 #include "storage/v2/result.hpp"
-#include "storage/v2/transaction.hpp"
 #include "storage/v2/view.hpp"
 
 namespace memgraph::storage {
@@ -28,6 +23,7 @@ class VertexAccessor;
 struct Indices;
 struct Constraints;
 class Storage;
+struct Transaction;
 
 class EdgeAccessor final {
  private:

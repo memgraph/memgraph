@@ -27,6 +27,7 @@ using memgraph::communication::bolt::Session;
 using memgraph::communication::bolt::SessionException;
 using memgraph::communication::bolt::State;
 using memgraph::communication::bolt::Value;
+using bolt_map_t = memgraph::communication::bolt::map_t;
 
 static const char *kInvalidQuery = "invalid query";
 static const char *kQueryReturn42 = "RETURN 42";
@@ -42,9 +43,8 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
 
   TestSession(TestSessionContext *data, TestInputStream *input_stream, TestOutputStream *output_stream)
       : Session<TestInputStream, TestOutputStream>(input_stream, output_stream) {}
-  std::pair<std::vector<std::string>, std::optional<int>> Interpret(
-      const std::string &query, const std::map<std::string, Value> &params,
-      const std::map<std::string, Value> &extra) override {
+  std::pair<std::vector<std::string>, std::optional<int>> Interpret(const std::string &query, const bolt_map_t &params,
+                                                                    const bolt_map_t &extra) override {
     if (extra.contains("tx_metadata")) {
       auto const &metadata = extra.at("tx_metadata").ValueMap();
       if (!metadata.empty()) md_ = metadata;
@@ -64,7 +64,7 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
     }
   }
 
-  std::map<std::string, Value> Pull(TEncoder *encoder, std::optional<int> n, std::optional<int> qid) override {
+  bolt_map_t Pull(TEncoder *encoder, std::optional<int> n, std::optional<int> qid) override {
     if (should_abort_) {
       throw memgraph::query::HintedAbortError(memgraph::query::AbortReason::TERMINATED);
     }
@@ -97,11 +97,9 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
     }
   }
 
-  std::map<std::string, Value> Discard(std::optional<int> /*unused*/, std::optional<int> /*unused*/) override {
-    return {};
-  }
+  bolt_map_t Discard(std::optional<int> /*unused*/, std::optional<int> /*unused*/) override { return {}; }
 
-  void BeginTransaction(const std::map<std::string, Value> &extra) override {
+  void BeginTransaction(const bolt_map_t &extra) override {
     if (extra.contains("tx_metadata")) {
       auto const &metadata = extra.at("tx_metadata").ValueMap();
       if (!metadata.empty()) md_ = metadata;
@@ -114,24 +112,25 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
 
   bool Authenticate(const std::string & /*username*/, const std::string & /*password*/) override { return true; }
 
+  bool SSOAuthenticate(const std::string & /*username*/, const std::string & /*password*/) override { return true; }
+
 #ifdef MG_ENTERPRISE
-  auto Route(std::map<std::string, Value> const & /*routing*/,
-             std::vector<memgraph::communication::bolt::Value> const & /*bookmarks*/,
-             std::map<std::string, Value> const & /*extra*/) -> std::map<std::string, Value> override {
+  auto Route(bolt_map_t const & /*routing*/, std::vector<memgraph::communication::bolt::Value> const & /*bookmarks*/,
+             bolt_map_t const & /*extra*/) -> bolt_map_t override {
     return {};
   }
 #endif
 
   std::optional<std::string> GetServerNameForInit() override { return std::nullopt; }
 
-  void Configure(const std::map<std::string, memgraph::communication::bolt::Value> &) override {}
+  void Configure(const bolt_map_t &) override {}
   std::string GetCurrentDB() const override { return ""; }
 
   void TestHook_ShouldAbort() { should_abort_ = true; }
 
  private:
   std::string query_;
-  std::map<std::string, Value> md_;
+  bolt_map_t md_;
   bool should_abort_ = false;
 };
 

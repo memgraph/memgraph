@@ -10,8 +10,14 @@
 // licenses/APL.txt.
 
 #include "query/cypher_query_interpreter.hpp"
+#include "frontend/semantic/required_privileges.hpp"
+#include "frontend/semantic/symbol_generator.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
+#include "query/plan/planner.hpp"
+#include "query/plan/rule_based_planner.hpp"
+#include "query/plan/vertex_count_cache.hpp"
+#include "utils/flag_validation.hpp"
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(query_cost_planner, true, "Use the cost-estimating query planner.");
@@ -22,7 +28,24 @@ DEFINE_VALIDATED_int32(query_plan_cache_max_size, 1000, "Maximum number of query
 namespace memgraph::query {
 PlanWrapper::PlanWrapper(std::unique_ptr<LogicalPlan> plan) : plan_(std::move(plan)) {}
 
-ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::string, storage::PropertyValue> &params,
+auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserParameters const &user_parameters)
+    -> Parameters {
+  // Copy over the parameters that were introduced during stripping.
+  Parameters parameters{stripped_query.literals()};
+  // Check that all user-specified parameters are provided.
+  for (const auto &[param_index, param_key] : stripped_query.parameters()) {
+    auto it = user_parameters.find(param_key);
+
+    if (it == user_parameters.end()) {
+      throw UnprovidedParameterError("Parameter ${} not provided.", param_key);
+    }
+
+    parameters.Add(param_index, it->second);
+  }
+  return parameters;
+}
+
+ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &user_parameters,
                        utils::SkipList<QueryCacheEntry> *cache, const InterpreterConfig::Query &query_config) {
   // Strip the query for caching purposes. The process of stripping a query
   // "normalizes" it by replacing any literals with new parameters. This
@@ -30,19 +53,10 @@ ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::stri
   // caching.
   frontend::StrippedQuery stripped_query{query_string};
 
-  // Copy over the parameters that were introduced during stripping.
-  Parameters parameters{stripped_query.literals()};
-
-  // Check that all user-specified parameters are provided.
-  for (const auto &param_pair : stripped_query.parameters()) {
-    auto it = params.find(param_pair.second);
-
-    if (it == params.end()) {
-      throw query::UnprovidedParameterError("Parameter ${} not provided.", param_pair.second);
-    }
-
-    parameters.Add(param_pair.first, it->second);
-  }
+  // get user-specified parameters
+  // ATM we don't need to correctly materise actual PropertyValues exepct Strings
+  // passing nullptr here means Enums will be returned as NULL, DO NOT USE during pulls
+  auto query_parameters = PrepareQueryParameters(stripped_query, user_parameters);
 
   // Cache the query's AST if it isn't already.
   auto hash = stripped_query.hash();
@@ -79,7 +93,7 @@ ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::stri
     // Convert the ANTLR4 parse tree into an AST.
     AstStorage ast_storage;
     frontend::ParsingContext context{.is_query_cached = true};
-    frontend::CypherMainVisitor visitor(context, &ast_storage, &parameters);
+    frontend::CypherMainVisitor visitor(context, &ast_storage, &query_parameters);
 
     visitor.visit(parser->tree());
 
@@ -93,12 +107,10 @@ ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::stri
 
       get_information_from_cache(it->second);
     } else {
-      result.ast_storage.properties_ = ast_storage.properties_;
-      result.ast_storage.labels_ = ast_storage.labels_;
-      result.ast_storage.edge_types_ = ast_storage.edge_types_;
-
-      result.query = visitor.query()->Clone(&result.ast_storage);
+      // Carefully use the query we just built, preserving the ast_storage we used to build it
       result.required_privileges = query::GetRequiredPrivileges(visitor.query());
+      result.query = visitor.query();
+      result.ast_storage = std::move(ast_storage);
 
       is_cacheable = false;
     }
@@ -106,20 +118,22 @@ ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::stri
     get_information_from_cache(it->second);
   }
 
-  return ParsedQuery{query_string,
-                     params,
-                     std::move(parameters),
-                     std::move(stripped_query),
-                     std::move(result.ast_storage),
-                     result.query,
-                     std::move(result.required_privileges),
-                     is_cacheable};
+  return ParsedQuery{
+      query_string,
+      std::move(stripped_query),
+      std::move(result.ast_storage),
+      result.query,
+      std::move(result.required_privileges),
+      is_cacheable,
+      user_parameters,
+      std::move(query_parameters),
+  };
 }
 
 std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameters &parameters,
                                              DbAccessor *db_accessor,
                                              const std::vector<Identifier *> &predefined_identifiers) {
-  auto vertex_counts = plan::MakeVertexCountCache(db_accessor);
+  auto vertex_counts = plan::VertexCountCache(db_accessor);
   auto symbol_table = MakeSymbolTable(query, predefined_identifiers);
   auto planning_context = plan::MakePlanningContext(&ast_storage, &symbol_table, query, &vertex_counts);
   auto [root, cost] = plan::MakeLogicalPlan(&planning_context, parameters, FLAGS_query_cost_planner);
@@ -147,4 +161,11 @@ std::shared_ptr<PlanWrapper> CypherQueryToPlan(uint64_t hash, AstStorage ast_sto
 
   return plan;
 }
+
+SingleNodeLogicalPlan::SingleNodeLogicalPlan(std::unique_ptr<plan::LogicalOperator> root, double cost,
+                                             AstStorage storage, SymbolTable symbol_table)
+    : root_(std::move(root)), cost_(cost), storage_(std::move(storage)), symbol_table_(std::move(symbol_table)) {}
+
+const SymbolTable &SingleNodeLogicalPlan::GetSymbolTable() const { return symbol_table_; }
+
 }  // namespace memgraph::query

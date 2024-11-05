@@ -28,6 +28,7 @@
 #include "query/plan/pretty_print.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/fmt.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/string.hpp"
 
@@ -145,6 +146,8 @@ class InteractiveDbAccessor {
   auto NameToProperty(const std::string &name) { return dba_->NameToProperty(name); }
   auto NameToEdgeType(const std::string &name) { return dba_->NameToEdgeType(name); }
 
+  auto GetEnumValue(std::string_view name, std::string_view value) { return dba_->GetEnumValue(name, value); }
+
   int64_t VerticesCount() { return vertices_count_; }
 
   int64_t VerticesCount(memgraph::storage::LabelId label_id) {
@@ -200,6 +203,71 @@ class InteractiveDbAccessor {
     return ReadVertexCount("label '" + label + "' and property '" + property + "' in range " + range_string.str());
   }
 
+  bool PointIndexExists(memgraph::storage::LabelId label, memgraph::storage::PropertyId property) const {
+    return false;
+  }
+
+  std::optional<uint64_t> VerticesPointCount(memgraph::storage::LabelId label,
+                                             memgraph::storage::PropertyId property) const {
+    return std::nullopt;
+  }
+
+  int64_t EdgesCount(memgraph::storage::EdgeTypeId edge_type_id) {
+    auto edge_type = dba_->EdgeTypeToName(edge_type_id);
+    if (edge_type_edge_count_.find(edge_type) == edge_type_edge_count_.end()) {
+      edge_type_edge_count_[edge_type] = ReadVertexCount("edge type '" + edge_type + "'");
+    }
+    return edge_type_edge_count_.at(edge_type);
+  }
+
+  int64_t EdgesCount(memgraph::storage::EdgeTypeId edge_type_id, memgraph::storage::PropertyId property_id) {
+    auto edge_type = dba_->EdgeTypeToName(edge_type_id);
+    auto property = dba_->PropertyToName(property_id);
+    auto key = std::make_pair(edge_type, property);
+    if (edge_type_property_edge_count_.find(key) == edge_type_property_edge_count_.end()) {
+      edge_type_property_edge_count_[key] =
+          ReadVertexCount("edge type '" + edge_type + "' and property '" + property + "'");
+    }
+    return edge_type_property_edge_count_.at(key);
+  }
+
+  int64_t EdgesCount(memgraph::storage::EdgeTypeId edge_type_id, memgraph::storage::PropertyId property_id,
+                     const memgraph::storage::PropertyValue &value) {
+    auto edge_type = dba_->EdgeTypeToName(edge_type_id);
+    auto property = dba_->PropertyToName(property_id);
+    auto key = std::make_pair(edge_type, property);
+    if (label_property_index_.find(key) == label_property_index_.end()) {
+      return 0;
+    }
+    auto &value_edge_count = property_value_edge_count_[key];
+    if (value_edge_count.find(value) == value_edge_count.end()) {
+      std::stringstream ss;
+      ss << value;
+      int64_t count =
+          ReadVertexCount("edge type '" + edge_type + "' and property '" + property + "' value '" + ss.str() + "'");
+      value_edge_count[value] = count;
+    }
+    return value_edge_count.at(value);
+  }
+
+  int64_t EdgesCount(memgraph::storage::EdgeTypeId edge_type_id, memgraph::storage::PropertyId property_id,
+                     const std::optional<memgraph::utils::Bound<memgraph::storage::PropertyValue>> lower,
+                     const std::optional<memgraph::utils::Bound<memgraph::storage::PropertyValue>> upper) {
+    auto edge_type = dba_->EdgeTypeToName(edge_type_id);
+    auto property = dba_->PropertyToName(property_id);
+    std::stringstream range_string;
+    if (lower) {
+      range_string << (lower->IsInclusive() ? "[" : "(") << lower->value() << (upper ? "," : ", inf)");
+    } else {
+      range_string << "(-inf, ";
+    }
+    if (upper) {
+      range_string << upper->value() << (upper->IsInclusive() ? "]" : ")");
+    }
+    return ReadVertexCount("edge type '" + edge_type + "' and property '" + property + "' in range " +
+                           range_string.str());
+  }
+
   bool LabelIndexExists(memgraph::storage::LabelId label) { return true; }
 
   bool LabelPropertyIndexExists(memgraph::storage::LabelId label_id, memgraph::storage::PropertyId property_id) {
@@ -214,7 +282,20 @@ class InteractiveDbAccessor {
     return label_property_index_.at(key);
   }
 
-  bool EdgeTypeIndexExists(memgraph::storage::EdgeTypeId edge_type) { return true; }
+  bool EdgeTypeIndexExists(memgraph::storage::EdgeTypeId edge_type_id) { return true; }
+
+  bool EdgeTypePropertyIndexExists(memgraph::storage::EdgeTypeId edge_type_id,
+                                   memgraph::storage::PropertyId property_id) {
+    auto edge_type = dba_->EdgeTypeToName(edge_type_id);
+    auto property = dba_->PropertyToName(property_id);
+    auto key = std::make_pair(edge_type, property);
+    if (edge_type_property_index_.find(key) == edge_type_property_index_.end()) {
+      bool resp = timer_.WithPause(
+          [&edge_type, &property]() { return AskYesNo("Index for ':" + edge_type + "(" + property + ")' exists:"); });
+      edge_type_property_index_[key] = resp;
+    }
+    return edge_type_property_index_.at(key);
+  }
 
   std::optional<memgraph::storage::LabelIndexStats> GetIndexStats(const memgraph::storage::LabelId label) const {
     return dba_->GetIndexStats(label);
@@ -240,9 +321,20 @@ class InteractiveDbAccessor {
       }
     };
     save_label_prop_map("label-property-index-exists", label_property_index_);
+    save_label_prop_map("edge-type-property-index-exists", edge_type_property_index_);
     save_label_prop_map("label-property-index-count", label_property_vertex_count_);
+    save_label_prop_map("edge-type-property-index-count", edge_type_property_edge_count_);
     out << "label-property-value-index-count " << property_value_vertex_count_.size() << std::endl;
     for (const auto &prop_value_count : property_value_vertex_count_) {
+      out << "  " << prop_value_count.first.first << " " << prop_value_count.first.second << " "
+          << prop_value_count.second.size() << std::endl;
+      for (const auto &value_count : prop_value_count.second) {
+        const auto &value = value_count.first;
+        out << "    " << value.type() << " " << value << " " << value_count.second << std::endl;
+      }
+    }
+    out << "edge-type-property-value-index-count " << property_value_edge_count_.size() << std::endl;
+    for (const auto &prop_value_count : property_value_edge_count_) {
       out << "  " << prop_value_count.first.first << " " << prop_value_count.first.second << " "
           << prop_value_count.second.size() << std::endl;
       for (const auto &value_count : prop_value_count.second) {
@@ -291,7 +383,9 @@ class InteractiveDbAccessor {
       }
     };
     load_label_prop_map("label-property-index-exists", label_property_index_);
+    load_label_prop_map("edge-type-property-index-exists", edge_type_property_index_);
     load_label_prop_map("label-property-index-count", label_property_vertex_count_);
+    load_label_prop_map("edge-type-property-index-count", edge_type_property_edge_count_);
     int label_property_value_index_size = load_named_size("label-property-value-index-count");
     for (int i = 0; i < label_property_value_index_size; ++i) {
       std::string label;
@@ -313,6 +407,27 @@ class InteractiveDbAccessor {
         property_value_vertex_count_[std::make_pair(label, property)][value] = count;
       }
     }
+    int edge_type_property_value_index_size = load_named_size("edge-type-property-value-index-count");
+    for (int i = 0; i < edge_type_property_value_index_size; ++i) {
+      std::string edge_type;
+      std::string property;
+      int64_t value_count;
+      in >> edge_type >> property >> value_count;
+      if (in.fail()) {
+        throw memgraph::utils::BasicException("Unable to load label property value");
+      }
+      SPDLOG_INFO("Load {} {} {}", edge_type, property, value_count);
+      for (int v = 0; v < value_count; ++v) {
+        auto value = LoadPropertyValue(in);
+        int64_t count;
+        in >> count;
+        if (in.fail()) {
+          throw memgraph::utils::BasicException("Unable to load label property value");
+        }
+        SPDLOG_INFO("Load {} {} {}", value.type(), value, count);
+        property_value_edge_count_[std::make_pair(edge_type, property)][value] = count;
+      }
+    }
   }
 
  private:
@@ -322,10 +437,15 @@ class InteractiveDbAccessor {
   int64_t vertices_count_;
   Timer &timer_;
   std::map<std::string, int64_t> label_vertex_count_;
+  std::map<std::string, int64_t> edge_type_edge_count_;
   std::map<std::pair<std::string, std::string>, int64_t> label_property_vertex_count_;
+  std::map<std::pair<std::string, std::string>, int64_t> edge_type_property_edge_count_;
   std::map<std::pair<std::string, std::string>, bool> label_property_index_;
+  std::map<std::pair<std::string, std::string>, bool> edge_type_property_index_;
   std::map<std::pair<std::string, std::string>, std::map<memgraph::storage::PropertyValue, int64_t>>
       property_value_vertex_count_;
+  std::map<std::pair<std::string, std::string>, std::map<memgraph::storage::PropertyValue, int64_t>>
+      property_value_edge_count_;
   // TODO: Cache faked index counts by range.
 
   int64_t ReadVertexCount(const std::string &message) const {
@@ -451,7 +571,7 @@ memgraph::query::Query *MakeAst(const std::string &query, memgraph::query::AstSt
 // cost.
 auto MakeLogicalPlans(memgraph::query::CypherQuery *query, memgraph::query::AstStorage &ast,
                       memgraph::query::SymbolTable &symbol_table, InteractiveDbAccessor *dba) {
-  auto query_parts = memgraph::query::plan::CollectQueryParts(symbol_table, ast, query);
+  auto query_parts = memgraph::query::plan::CollectQueryParts(symbol_table, ast, query, false);
   std::vector<InteractivePlan> interactive_plans;
   auto ctx = memgraph::query::plan::MakePlanningContext(&ast, &symbol_table, query, dba);
   if (query_parts.query_parts.size() <= 0) {

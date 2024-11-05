@@ -109,6 +109,21 @@ class IndexInMulticommandTxException : public QueryException {
   SPECIALIZE_GET_EXCEPTION_NAME(IndexInMulticommandTxException)
 };
 
+class EdgeIndexDisabledPropertiesOnEdgesException : public QueryException {
+ public:
+  using QueryException::QueryException;
+  EdgeIndexDisabledPropertiesOnEdgesException()
+      : QueryException("Edge indices are allowed only if properties are allowed on edges.") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(EdgeIndexDisabledPropertiesOnEdgesException)
+};
+
+class SchemaAssertInMulticommandTxException : public QueryException {
+ public:
+  using QueryException::QueryException;
+  SchemaAssertInMulticommandTxException() : QueryException("SCHEMA.ASSERT not allowed in multicommand transactions.") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(SchemaAssertInMulticommandTxException)
+};
+
 class ConstraintInMulticommandTxException : public QueryException {
  public:
   using QueryException::QueryException;
@@ -407,6 +422,20 @@ class ReplicationException : public utils::BasicException {
   SPECIALIZE_GET_EXCEPTION_NAME(ReplicationException)
 };
 
+class WriteQueryOnReplicaException : public QueryException {
+ public:
+  WriteQueryOnReplicaException() : QueryException("Write query forbidden on the replica!") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(WriteQueryOnReplicaException)
+};
+
+class WriteQueryOnMainException : public QueryException {
+ public:
+  WriteQueryOnMainException()
+      : QueryException(
+            "Write query forbidden on the main! Coordinator needs to enable writing on main by sending RPC message.") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(WriteQueryOnMainException)
+};
+
 class TransactionQueueInMulticommandTxException : public QueryException {
  public:
   TransactionQueueInMulticommandTxException()
@@ -451,6 +480,33 @@ class TextSearchDisabledException : public TextSearchException {
       : TextSearchException(
             "To use text indices and text search, start Memgraph with the experimental text search feature enabled.") {}
   SPECIALIZE_GET_EXCEPTION_NAME(TextSearchDisabledException)
+};
+
+class EnumModificationInMulticommandTxException : public QueryException {
+ public:
+  EnumModificationInMulticommandTxException()
+      : QueryException("Enum creation or modifications can not be executed in multicommand transactions.") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(EnumModificationInMulticommandTxException)
+};
+
+class TtlInMulticommandTxException : public QueryException {
+ public:
+  TtlInMulticommandTxException()
+      : QueryException("TTL configuration can not be executed in multicommand transactions.") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(TtlInMulticommandTxException)
+};
+
+class ShowSchemaInfoOnDiskException : public QueryException {
+ public:
+  ShowSchemaInfoOnDiskException() : QueryException("Show schema info is not supported for OnDisk.") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(ShowSchemaInfoOnDiskException)
+};
+
+class ShowSchemaInfoInMulticommandTxException : public QueryException {
+ public:
+  ShowSchemaInfoInMulticommandTxException()
+      : QueryException("Show schema info cannot be executed in multicommand transactions.") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(ShowSchemaInfoInMulticommandTxException)
 };
 
 }  // namespace memgraph::query

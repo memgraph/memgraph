@@ -23,7 +23,7 @@
 #include "query/auth_checker.hpp"
 #include "query/config.hpp"
 #include "query/cypher_query_interpreter.hpp"
-#include "query/db_accessor.hpp"
+#include "query/database_access.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/trigger_context.hpp"
 #include "storage/v2/property_value.hpp"
@@ -32,16 +32,17 @@
 
 namespace memgraph::query {
 
+struct QueryCacheEntry;
+
 enum class TransactionStatus;
 struct Trigger {
-  explicit Trigger(std::string name, const std::string &query,
-                   const std::map<std::string, storage::PropertyValue> &user_parameters, TriggerEventType event_type,
-                   utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
+  explicit Trigger(std::string name, const std::string &query, const storage::PropertyValue::map_t &user_parameters,
+                   TriggerEventType event_type, utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
                    const InterpreterConfig::Query &query_config, std::shared_ptr<QueryUserOrRole> owner);
 
-  void Execute(DbAccessor *dba, utils::MemoryResource *execution_memory, double max_execution_time_sec,
-               std::atomic<bool> *is_shutting_down, std::atomic<TransactionStatus> *transaction_status,
-               const TriggerContext &context) const;
+  void Execute(DbAccessor *dba, DatabaseAccessProtector db_acc, utils::MemoryResource *execution_memory,
+               double max_execution_time_sec, std::atomic<bool> *is_shutting_down,
+               std::atomic<TransactionStatus> *transaction_status, const TriggerContext &context) const;
 
   bool operator==(const Trigger &other) const { return name_ == other.name_; }
   // NOLINTNEXTLINE (modernize-use-nullptr)
@@ -84,10 +85,10 @@ struct TriggerStore {
   void RestoreTriggers(utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
                        const InterpreterConfig::Query &query_config, const query::AuthChecker *auth_checker);
 
-  void AddTrigger(std::string name, const std::string &query,
-                  const std::map<std::string, storage::PropertyValue> &user_parameters, TriggerEventType event_type,
-                  TriggerPhase phase, utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
-                  const InterpreterConfig::Query &query_config, std::shared_ptr<QueryUserOrRole> owner);
+  void AddTrigger(std::string name, const std::string &query, const storage::PropertyValue::map_t &user_parameters,
+                  TriggerEventType event_type, TriggerPhase phase, utils::SkipList<QueryCacheEntry> *query_cache,
+                  DbAccessor *db_accessor, const InterpreterConfig::Query &query_config,
+                  std::shared_ptr<QueryUserOrRole> owner);
 
   void DropTrigger(const std::string &name);
   void DropAll();
@@ -109,6 +110,10 @@ struct TriggerStore {
   std::unordered_set<TriggerEventType> GetEventTypes() const;
 
  private:
+  void RestoreTrigger(utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
+                      const InterpreterConfig::Query &query_config, const query::AuthChecker *auth_checker,
+                      std::string_view trigger_name, std::string_view trigger_data);
+
   utils::SpinLock store_lock_;
   kvstore::KVStore storage_;
 

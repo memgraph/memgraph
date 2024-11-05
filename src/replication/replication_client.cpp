@@ -10,31 +10,40 @@
 // licenses/APL.txt.
 
 #include "replication/replication_client.hpp"
+#include "io/network/endpoint.hpp"
 #include "io/network/fmt.hpp"
 
-namespace memgraph::replication {
-
-static auto CreateClientContext(const memgraph::replication::ReplicationClientConfig &config)
-    -> communication::ClientContext {
-  return (config.ssl) ? communication::ClientContext{config.ssl->key_file, config.ssl->cert_file}
-                      : communication::ClientContext{};
+namespace {
+auto CreateClientContext(const memgraph::replication::ReplicationClientConfig &config)
+    -> memgraph::communication::ClientContext {
+  return (config.ssl) ? memgraph::communication::ClientContext{config.ssl->key_file, config.ssl->cert_file}
+                      : memgraph::communication::ClientContext{};
 }
+
+}  // namespace
+
+namespace memgraph::replication {
 
 ReplicationClient::ReplicationClient(const memgraph::replication::ReplicationClientConfig &config)
     : name_{config.name},
       rpc_context_{CreateClientContext(config)},
-      rpc_client_{io::network::Endpoint(io::network::Endpoint::needs_resolving, config.ip_address, config.port),
-                  &rpc_context_},
+      rpc_client_{config.repl_server_endpoint, &rpc_context_},
       replica_check_frequency_{config.replica_check_frequency},
       mode_{config.mode} {}
 
+void ReplicationClient::Shutdown() {
+  replica_checker_.Stop();
+  thread_pool_.ShutDown();
+}
+
 ReplicationClient::~ReplicationClient() {
+  auto const &endpoint = rpc_client_.Endpoint();
   try {
-    auto const &endpoint = rpc_client_.Endpoint();
-    spdlog::trace("Closing replication client on {}", endpoint);
+    spdlog::trace("Closing replication client on {}:{}.", endpoint.GetAddress(), endpoint.GetPort());
   } catch (...) {
     // Logging can throw. Not a big deal, just ignore.
   }
+  replica_checker_.Stop();
   thread_pool_.ShutDown();
 }
 

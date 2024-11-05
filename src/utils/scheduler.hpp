@@ -41,13 +41,28 @@ class Scheduler {
    */
   template <typename TRep, typename TPeriod>
   void Run(const std::string &service_name, const std::chrono::duration<TRep, TPeriod> &pause,
-           const std::function<void()> &f) {
-    DMG_ASSERT(is_working_ == false, "Thread already running.");
-    DMG_ASSERT(pause > std::chrono::seconds(0), "Pause is invalid.");
+           const std::function<void()> &f, std::optional<std::chrono::system_clock::time_point> start_time = {}) {
+    DMG_ASSERT(!IsRunning(), "Thread already running.");
+    DMG_ASSERT(pause > std::chrono::seconds(0), "Pause is invalid. Expected > 0, got {}.", pause.count());
 
-    is_working_ = true;
-    thread_ = std::thread([this, pause, f, service_name]() {
-      auto start_time = std::chrono::system_clock::now();
+    thread_ = std::jthread([this, pause, f, service_name, start_time](std::stop_token token) mutable {
+      auto find_first_execution = [&]() {
+        if (start_time) {              // Custom start time; execute as soon as possible
+          return *start_time - pause;  // -= simplifies the logic later on
+        }
+        return std::chrono::system_clock::now();
+      };
+
+      auto find_next_execution = [&](auto now) {
+        if (start_time) {                                  // Custom start time
+          while (*start_time < now) *start_time += pause;  // Find first start in the future
+          *start_time -= pause;                            // -= simplifies the logic later on
+          return *start_time;
+        }
+        return now;
+      };
+
+      auto next_execution = find_first_execution();
 
       utils::ThreadSetName(service_name);
 
@@ -59,65 +74,70 @@ class Scheduler {
         // the program start we let him log first and we make sure by first
         // waiting that function f will not log before it.
         // Check for pause also.
-        std::unique_lock<std::mutex> lk(mutex_);
+        auto lk = std::unique_lock{mutex_};
+        next_execution += pause;
         auto now = std::chrono::system_clock::now();
-        start_time += pause;
-        if (start_time > now) {
-          condition_variable_.wait_until(lk, start_time, [&] { return !is_working_.load(); });
+        if (next_execution > now) {
+          condition_variable_.wait_until(lk, token, next_execution, [] { return false; });
         } else {
-          start_time = now;
+          next_execution = find_next_execution(now);  // Compensate for time drift when using a start time
         }
 
-        pause_cv_.wait(lk, [&] { return !is_paused_.load(); });
+        // wait for unpause or stop_requested
+        condition_variable_.wait(lk, token, [&] { return !is_paused_; });
 
-        if (!is_working_) break;
+        if (token.stop_requested()) break;
+
         f();
       }
     });
   }
 
+  // Sets atomic is_paused_ to false and notifies thread
   void Resume() {
-    is_paused_.store(false);
-    pause_cv_.notify_one();
-  }
-
-  void Pause() { is_paused_.store(true); }
-
-  /**
-   * @brief Stops the thread execution. This is a blocking call and may take as
-   * much time as one call to the function given previously to Run takes.
-   * @throw std::system_error
-   */
-  void Stop() {
-    is_paused_.store(false);
-    is_working_.store(false);
-    pause_cv_.notify_one();
+    {
+      auto lk = std::unique_lock{mutex_};
+      is_paused_ = false;
+    }
     condition_variable_.notify_one();
-    if (thread_.joinable()) thread_.join();
   }
 
-  /**
-   * Returns whether the scheduler is running.
-   */
-  bool IsRunning() { return is_working_; }
+  // Sets atomic is_paused_ to true.
+  void Pause() {
+    auto lk = std::unique_lock{mutex_};
+    is_paused_ = true;
+  }
+
+  // Concurrent threads may request stopping the scheduler. In that case only one of them will
+  // actually stop the scheduler, the other one won't. We need to know which one is the successful
+  // one so that we don't try to join thread concurrently since this could cause undefined behavior.
+  void Stop() {
+    if (thread_.request_stop()) {
+      {
+        auto lk = std::unique_lock{mutex_};
+        is_paused_ = false;
+      }
+      condition_variable_.notify_one();
+      if (thread_.joinable()) {
+        thread_.join();
+      }
+    }
+  }
+
+  // Checking stop_possible() is necessary because otherwise calling IsRunning
+  // on a non-started Scheduler would return true.
+  bool IsRunning() {
+    std::stop_token token = thread_.get_stop_token();
+    return token.stop_possible() && !token.stop_requested();
+  }
 
   ~Scheduler() { Stop(); }
 
  private:
   /**
-   * Variable is true when thread is running.
-   */
-  std::atomic<bool> is_working_{false};
-
-  /**
    * Variable is true when thread is paused.
    */
-  std::atomic<bool> is_paused_{false};
-
-  /*
-   * Wait until the thread is resumed.
-   */
-  std::condition_variable pause_cv_;
+  bool is_paused_ = false;
 
   /**
    * Mutex used to synchronize threads using condition variable.
@@ -128,12 +148,12 @@ class Scheduler {
    * Condition variable is used to stop waiting until the end of the
    * time interval if destructor is called.
    */
-  std::condition_variable condition_variable_;
+  std::condition_variable_any condition_variable_;
 
   /**
    * Thread which runs function.
    */
-  std::thread thread_;
+  std::jthread thread_;
 };
 
 }  // namespace memgraph::utils

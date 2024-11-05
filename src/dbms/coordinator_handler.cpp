@@ -43,8 +43,10 @@ auto CoordinatorHandler::SetReplicationInstanceToMain(std::string_view instance_
   return coordinator_state_.SetReplicationInstanceToMain(instance_name);
 }
 
-auto CoordinatorHandler::ForceResetClusterState() -> coordination::ForceResetClusterStateStatus {
-  return coordinator_state_.ForceResetClusterState();
+auto CoordinatorHandler::ForceResetClusterState() -> coordination::ReconcileClusterStateStatus {
+  // Query is called ForceResetClusterState but internally we have function which verifies and corrects
+  // cluster state
+  return coordinator_state_.ReconcileClusterState();
 }
 
 auto CoordinatorHandler::ShowInstances() const -> std::vector<coordination::InstanceStatus> {

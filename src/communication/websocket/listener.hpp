@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -40,6 +40,8 @@ class Listener : public std::enable_shared_from_this<Listener> {
   void WriteToAll(std::shared_ptr<std::string> message);
   tcp::endpoint GetEndpoint() const;
 
+  bool HasErrorHappened() const { return error_happened_; }
+
  private:
   Listener(boost::asio::io_context &ioc, ServerContext *context, tcp::endpoint endpoint, AuthenticationInterface &auth);
 
@@ -51,5 +53,6 @@ class Listener : public std::enable_shared_from_this<Listener> {
   tcp::acceptor acceptor_;
   utils::Synchronized<std::list<std::shared_ptr<Session>>, utils::SpinLock> sessions_;
   AuthenticationInterface &auth_;
+  bool error_happened_{false};
 };
 }  // namespace memgraph::communication::websocket

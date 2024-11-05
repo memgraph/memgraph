@@ -23,9 +23,9 @@ void ExpectPropEq(const memgraph::storage::PropertyValue &a, const memgraph::sto
 }
 
 void CheckJsonConversion(const memgraph::storage::PropertyValue &property_value) {
-  const auto json_string = memgraph::query::serialization::SerializePropertyValue(property_value).dump();
+  const auto json_string = memgraph::query::serialization::SerializePropertyValue(property_value, nullptr).dump();
   const auto json_object = nlohmann::json::parse(json_string);
-  ExpectPropEq(property_value, memgraph::query::serialization::DeserializePropertyValue(json_object));
+  ExpectPropEq(property_value, memgraph::query::serialization::DeserializePropertyValue(json_object, nullptr));
 }
 
 }  // namespace
@@ -84,12 +84,22 @@ std::vector<memgraph::storage::PropertyValue> GetPropertyValueListWithBasicTypes
           memgraph::storage::PropertyValue{1.0}};
 }
 
-std::map<std::string, memgraph::storage::PropertyValue> GetPropertyValueMapWithBasicTypes() {
-  return {{"null", memgraph::storage::PropertyValue{}},
-          {"bool", memgraph::storage::PropertyValue{true}},
-          {"int", memgraph::storage::PropertyValue{1}},
-          {"double", memgraph::storage::PropertyValue{1.0}},
-          {"string", memgraph::storage::PropertyValue{"string"}}};
+memgraph::storage::PropertyValue::map_t GetPropertyValueMapWithBasicTypes() {
+  using memgraph::storage::Point2d;
+  using memgraph::storage::Point3d;
+  using memgraph::storage::PropertyValue;
+  using enum memgraph::storage::CoordinateReferenceSystem;
+  return {
+      {"null", PropertyValue{}},
+      {"bool", PropertyValue{true}},
+      {"int", PropertyValue{1}},
+      {"double", PropertyValue{1.0}},
+      {"string", PropertyValue{"string"}},
+      {"point2d_1", PropertyValue{Point2d{WGS84_2d, 1.0, 2.0}}},
+      {"point2d_2", PropertyValue{Point2d{Cartesian_2d, 1.0, 2.0}}},
+      {"point3d_1", PropertyValue{Point3d{WGS84_3d, 1.0, 2.0, 3.0}}},
+      {"point3d_2", PropertyValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}}},
+  };
 }
 
 }  // namespace

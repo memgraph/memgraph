@@ -13,24 +13,28 @@
 
 #ifdef MG_ENTERPRISE
 
+#include "coordination/coordination_observer.hpp"
 #include "coordination/coordinator_communication_config.hpp"
 #include "kvstore/kvstore.hpp"
+#include "nuraft/constants_log_durability.hpp"
 #include "nuraft/coordinator_log_store.hpp"
+#include "nuraft/logger_wrapper.hpp"
 
 #include <spdlog/spdlog.h>
-#include <libnuraft/nuraft.hxx>
 
 namespace memgraph::coordination {
 
 using nuraft::cluster_config;
 using nuraft::cs_new;
+using nuraft::logger;
 using nuraft::srv_config;
 using nuraft::srv_state;
 using nuraft::state_mgr;
 
 class CoordinatorStateManager : public state_mgr {
  public:
-  explicit CoordinatorStateManager(CoordinatorInstanceInitConfig const &config);
+  explicit CoordinatorStateManager(CoordinatorStateManagerConfig const &config, LoggerWrapper logger,
+                                   std::optional<CoordinationClusterChangeObserver> observer = {});
 
   CoordinatorStateManager(CoordinatorStateManager const &) = delete;
   CoordinatorStateManager &operator=(CoordinatorStateManager const &) = delete;
@@ -53,16 +57,30 @@ class CoordinatorStateManager : public state_mgr {
 
   auto system_exit(int exit_code) -> void override;
 
-  auto GetSrvConfig() const -> ptr<srv_config>;
+  [[nodiscard]] auto GetSrvConfig() const -> ptr<srv_config>;
+
+  auto GetCoordinatorToCoordinatorConfigs() const -> std::vector<CoordinatorToCoordinatorConfig>;
 
  private:
+  void NotifyObserver(std::vector<CoordinatorToCoordinatorConfig> const &configs);
+  void HandleVersionMigration();
+  void TryUpdateClusterConfigFromDisk();
+
   int my_id_;
   ptr<CoordinatorLogStore> cur_log_store_;
+  LoggerWrapper logger_;
   ptr<srv_config> my_srv_config_;
   ptr<cluster_config> cluster_config_;
   ptr<srv_state> saved_state_;
-  kvstore::KVStore kv_store_;
+  kvstore::KVStore durability_;
+  std::optional<CoordinationClusterChangeObserver> observer_;
 };
+
+void from_json(nlohmann::json const &json_cluster_config, ptr<cluster_config> &config);
+void to_json(nlohmann::json &j, cluster_config const &cluster_config);
+
+void from_json(nlohmann::json const &json_cluster_config, srv_state &srv_state);
+void to_json(nlohmann::json &j, srv_state const &srv_state);
 
 }  // namespace memgraph::coordination
 #endif

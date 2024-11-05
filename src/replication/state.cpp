@@ -58,7 +58,7 @@ ReplicationState::ReplicationState(std::optional<std::filesystem::path> durabili
   }
   auto replication_data = std::move(fetched_replication_data).GetValue();
 #ifdef MG_ENTERPRISE
-  if (flags::CoordinationSetupInstance().IsCoordinatorManaged() &&
+  if (flags::CoordinationSetupInstance().IsDataInstanceManagedByCoordinator() &&
       std::holds_alternative<RoleReplicaData>(replication_data)) {
     spdlog::trace("Restarted replication uuid for replica");
     std::get<RoleReplicaData>(replication_data).uuid_.reset();
@@ -158,6 +158,7 @@ auto ReplicationState::FetchReplicationData() -> FetchReplicationResult_t {
                 if (json.is_discarded()) return FetchReplicationError::PARSE_ERROR;
                 try {
                   durability::ReplicationReplicaEntry data = json.get<durability::ReplicationReplicaEntry>();
+
                   auto key_name = std::string_view{replica_name}.substr(strlen(durability::kReplicationReplicaPrefix));
                   if (key_name != data.config.name) {
                     return FetchReplicationError::PARSE_ERROR;
@@ -217,15 +218,36 @@ bool ReplicationState::HandleVersionMigration(durability::ReplicationRoleEntry &
       [[fallthrough]];
     }
     case durability::DurabilityVersion::V2: {
+      data.version = durability::DurabilityVersion::V3;
       if (std::holds_alternative<durability::MainRole>(data.role)) {
         auto &main = std::get<durability::MainRole>(data.role);
         main.main_uuid = utils::UUID{};
       }
-      data.version = durability::DurabilityVersion::V3;
-      break;
+      if (!durability_->Put(durability::kReplicationRoleName, nlohmann::json(data).dump())) return false;
+      [[fallthrough]];
     }
     case durability::DurabilityVersion::V3: {
-      // do nothing - add code if V4 ever happens
+      std::map<std::string, std::string> to_put;
+      for (auto [old_key, old_data] : *durability_) {
+        if (old_key == durability::kReplicationRoleName) {
+          data.version = durability::DurabilityVersion::V4;
+          to_put.emplace(durability::kReplicationRoleName, nlohmann::json(data).dump());
+        } else {
+          auto old_json = nlohmann::json::parse(old_data, nullptr, false);
+          if (old_json.is_discarded()) return false;
+          try {
+            durability::ReplicationReplicaEntry const new_data = old_json.get<durability::ReplicationReplicaEntry>();
+            to_put.emplace(old_key, nlohmann::json(new_data).dump());
+          } catch (...) {
+            return false;
+          }
+        }
+      }
+      if (!durability_->PutMultiple(to_put)) return false;  // some reason couldn't persist
+      [[fallthrough]];
+    }
+    case durability::DurabilityVersion::V4: {
+      // do nothing - add code if V5 ever happens
       break;
     }
   }
@@ -276,45 +298,45 @@ bool ReplicationState::SetReplicationRoleReplica(const ReplicationServerConfig &
   return true;
 }
 
-utils::BasicResult<RegisterReplicaError, ReplicationClient *> ReplicationState::RegisterReplica(
+utils::BasicResult<RegisterReplicaStatus, ReplicationClient *> ReplicationState::RegisterReplica(
     const ReplicationClientConfig &config) {
-  auto const replica_handler = [](RoleReplicaData const &) { return RegisterReplicaError::NOT_MAIN; };
+  auto const replica_handler = [](RoleReplicaData const &) { return RegisterReplicaStatus::NOT_MAIN; };
 
   ReplicationClient *client{nullptr};
-  auto const main_handler = [&client, &config, this](RoleMainData &mainData) -> RegisterReplicaError {
+  auto const main_handler = [&client, &config, this](RoleMainData &mainData) -> RegisterReplicaStatus {
     // name check
     auto name_check = [&config](auto const &replicas) {
       auto name_matches = [&name = config.name](auto const &replica) { return replica.name_ == name; };
       return std::any_of(replicas.begin(), replicas.end(), name_matches);
     };
     if (name_check(mainData.registered_replicas_)) {
-      return RegisterReplicaError::NAME_EXISTS;
+      return RegisterReplicaStatus::NAME_EXISTS;
     }
 
     // endpoint check
     auto endpoint_check = [&](auto const &replicas) {
       auto endpoint_matches = [&config](auto const &replica) {
         const auto &ep = replica.rpc_client_.Endpoint();
-        return ep.address == config.ip_address && ep.port == config.port;
+        return ep == config.repl_server_endpoint;
       };
       return std::any_of(replicas.begin(), replicas.end(), endpoint_matches);
     };
     if (endpoint_check(mainData.registered_replicas_)) {
-      return RegisterReplicaError::ENDPOINT_EXISTS;
+      return RegisterReplicaStatus::ENDPOINT_EXISTS;
     }
 
     // Durability
     if (!TryPersistRegisteredReplica(config, mainData.uuid_)) {
-      return RegisterReplicaError::COULD_NOT_BE_PERSISTED;
+      return RegisterReplicaStatus::COULD_NOT_BE_PERSISTED;
     }
 
     // set
     client = &mainData.registered_replicas_.emplace_back(config);
-    return RegisterReplicaError::SUCCESS;
+    return RegisterReplicaStatus::SUCCESS;
   };
 
   const auto &res = std::visit(utils::Overloaded{main_handler, replica_handler}, replication_data_);
-  if (res == RegisterReplicaError::SUCCESS) {
+  if (res == RegisterReplicaStatus::SUCCESS) {
     return client;
   }
   return res;

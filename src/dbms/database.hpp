@@ -11,21 +11,14 @@
 
 #pragma once
 
-#include <algorithm>
-#include <filesystem>
-#include <iterator>
 #include <memory>
 #include <optional>
-#include <string_view>
-#include <unordered_map>
 
-#include "query/cypher_query_interpreter.hpp"
 #include "query/stream/streams.hpp"
+#include "query/time_to_live/time_to_live.hpp"
 #include "query/trigger.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/gatekeeper.hpp"
-#include "utils/lru_cache.hpp"
-#include "utils/synchronized.hpp"
 
 namespace memgraph::dbms {
 
@@ -68,12 +61,12 @@ class Database {
    */
   std::unique_ptr<storage::Storage::Accessor> Access(
       std::optional<storage::IsolationLevel> override_isolation_level = {}) {
-    return storage_->Access(repl_state_->GetRole(), override_isolation_level);
+    return storage_->Access(override_isolation_level);
   }
 
   std::unique_ptr<storage::Storage::Accessor> UniqueAccess(
       std::optional<storage::IsolationLevel> override_isolation_level = {}) {
-    return storage_->UniqueAccess(repl_state_->GetRole(), override_isolation_level);
+    return storage_->UniqueAccess(override_isolation_level);
   }
 
   /**
@@ -110,9 +103,9 @@ class Database {
    * @param force_directory Use the configured directory, do not try to decipher the multi-db version
    * @return DatabaseInfo
    */
-  DatabaseInfo GetInfo(replication_coordination_glue::ReplicationRole replication_role) const {
+  DatabaseInfo GetInfo() const {
     DatabaseInfo info;
-    info.storage_info = storage_->GetInfo(replication_role);
+    info.storage_info = storage_->GetInfo();
     info.triggers = trigger_store_.GetTriggerInfo().size();
     info.streams = streams_.GetStreamInfo().size();
     return info;
@@ -159,11 +152,28 @@ class Database {
    */
   query::PlanCacheLRU *plan_cache() { return &plan_cache_; }
 
+  query::ttl::TTL &ttl() { return time_to_live_; }
+
+  /**
+   * @brief Useful when trying to gracefully destroy Database.
+   *
+   * Tasks might have an accessor to the database, and so, might forbid it from being destroyed.
+   * Call this function before attempting to destroy a database object.
+   * This does not affect stream's, trigger's or ttl's durable data. We will restore to the state prior to shutdown.
+   *
+   */
+  void StopAllBackgroundTasks() {
+    streams()->Shutdown();
+    thread_pool()->ShutDown();
+    ttl().Shutdown();
+  }
+
  private:
   std::unique_ptr<storage::Storage> storage_;       //!< Underlying storage
   query::TriggerStore trigger_store_;               //!< Triggers associated with the storage
   utils::ThreadPool after_commit_trigger_pool_{1};  //!< Thread pool for executing after commit triggers
   query::stream::Streams streams_;                  //!< Streams associated with the storage
+  query::ttl::TTL time_to_live_;                    //!< TTL associated with the storage
 
   // TODO: Move to a better place
   query::PlanCacheLRU plan_cache_;  //!< Plan cache associated with the storage

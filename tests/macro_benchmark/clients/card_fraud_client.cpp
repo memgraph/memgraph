@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -182,12 +182,12 @@ class CardFraudClient : public TestClient {
  public:
   void AnalyticStep() {
     std::this_thread::sleep_for(std::chrono::milliseconds(config_["analytic"]["query_interval_ms"]));
-    std::shared_lock<memgraph::utils::RWLock> lock(world_lock);
+    auto lock = std::shared_lock{world_lock};
     GetCompromisedPosInc(config_["analytic"]["pos_limit"]);
   }
 
   void WorkerStep() {
-    std::shared_lock<memgraph::utils::RWLock> lock(world_lock);
+    auto lock = std::shared_lock{world_lock};
     bool is_fraud = UniformDouble(0, 1) < config_["fraud_probability"];
 
     int64_t pos_id = UniformInt(0, num_pos - 1);
@@ -221,7 +221,7 @@ class CardFraudClient : public TestClient {
   void CleanupStep() {
     if (num_transactions >= config_["cleanup"]["tx_hi"].get<int64_t>()) {
       spdlog::info("Trying to obtain world lock...");
-      std::unique_lock<memgraph::utils::RWLock> lock(world_lock);
+      auto lock = std::unique_lock{world_lock};
       int64_t id_limit = max_tx_id - config_["cleanup"]["tx_lo"].get<int>() + 1;
       spdlog::info(
           "Transaction cleanup started, deleting transactions "

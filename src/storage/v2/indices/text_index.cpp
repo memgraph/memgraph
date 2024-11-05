@@ -13,14 +13,16 @@
 
 #include "flags/experimental.hpp"
 #include "flags/run_time_configurable.hpp"
-#include "query/db_accessor.hpp"
+#include "mgcxx_text_search.hpp"
+#include "query/exceptions.hpp"  // TODO: remove from storage
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
-#include "text_search.hpp"
+
+#include <span>
+#include <vector>
 
 namespace memgraph::storage {
-
-std::string GetPropertyName(PropertyId prop_id, memgraph::query::DbAccessor *db) { return db->PropertyToName(prop_id); }
 
 std::string GetPropertyName(PropertyId prop_id, NameIdMapper *name_id_mapper) {
   return name_id_mapper->IdToName(prop_id.AsUint());
@@ -116,7 +118,8 @@ std::string TextIndex::StringifyProperties(const std::map<PropertyId, PropertyVa
   return utils::Join(indexable_properties_as_string, " ");
 }
 
-std::vector<mgcxx::text_search::Context *> TextIndex::GetApplicableTextIndices(const std::vector<LabelId> &labels) {
+std::vector<mgcxx::text_search::Context *> TextIndex::GetApplicableTextIndices(
+    std::span<storage::LabelId const> labels) {
   if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     throw query::TextSearchDisabledException();
   }
@@ -226,21 +229,21 @@ void TextIndex::RemoveNode(
   }
 }
 
-void TextIndex::CreateIndex(const std::filesystem::path &storage_dir, const std::string &index_name, LabelId label,
-                            memgraph::query::DbAccessor *db) {
+void TextIndex::CreateIndex(std::filesystem::path const &storage_dir, std::string const &index_name, LabelId label,
+                            storage::VerticesIterable vertices, NameIdMapper *nameIdMapper) {
   if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     throw query::TextSearchDisabledException();
   }
 
   CreateEmptyIndex(storage_dir, index_name, label);
 
-  for (const auto &v : db->Vertices(View::NEW)) {
-    if (!v.HasLabel(View::NEW, label).GetValue()) {
+  for (const auto &v : vertices) {
+    if (!v.HasLabel(label, View::NEW).GetValue()) {
       continue;
     }
 
     auto vertex_properties = v.Properties(View::NEW).GetValue();
-    LoadNodeToTextIndices(v.Gid().AsInt(), SerializeProperties(vertex_properties, db),
+    LoadNodeToTextIndices(v.Gid().AsInt(), SerializeProperties(vertex_properties, nameIdMapper),
                           StringifyProperties(vertex_properties), {&index_.at(index_name).context_});
   }
 

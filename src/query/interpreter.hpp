@@ -18,13 +18,12 @@
 
 #include "dbms/database.hpp"
 #include "dbms/dbms_handler.hpp"
+#include "flags/query.hpp"
 #include "memory/query_memory_control.hpp"
 #include "query/auth_checker.hpp"
 #include "query/auth_query_handler.hpp"
 #include "query/config.hpp"
 #include "query/context.hpp"
-#include "query/cypher_query_interpreter.hpp"
-#include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
@@ -33,6 +32,7 @@
 #include "query/metadata.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/read_write_type_checker.hpp"
+#include "query/query_logger.hpp"
 #include "query/stream.hpp"
 #include "query/stream/streams.hpp"
 #include "query/trigger.hpp"
@@ -162,7 +162,8 @@ class CoordinatorQueryHandler {
 
   /// @throw QueryRuntimeException if an error occurred.
   virtual auto AddCoordinatorInstance(uint32_t coordinator_id, std::string_view bolt_server,
-                                      std::string_view coordinator_server) -> void = 0;
+                                      std::string_view coordinator_server, std::string_view management_server)
+      -> void = 0;
 
   virtual void DemoteInstanceToReplica(std::string_view instance_name) = 0;
 
@@ -204,7 +205,7 @@ struct PreparedQuery {
  * NOTE: maybe need to parse more in the future, ATM we ignore some parts from BOLT
  */
 struct QueryExtras {
-  std::map<std::string, memgraph::storage::PropertyValue> metadata_pv;
+  storage::PropertyValue::map_t metadata_pv;
   std::optional<int64_t> tx_timeout;
 };
 
@@ -226,6 +227,15 @@ struct CurrentDB {
     in_explicit_db_ = in_explicit_db;
   }
 
+  void ResetDB() {
+    db_acc_.reset();
+    db_transactional_accessor_.reset();
+    execution_db_accessor_.reset();
+    trigger_context_collector_.reset();
+  }
+
+  std::string name() const { return db_acc_ ? db_acc_->get()->name() : ""; }
+
   // TODO: don't provide explicitly via constructor, instead have a lazy way of getting the current/default
   // DatabaseAccess
   //       hence, explict bolt "use DB" in metadata wouldn't necessarily get access unless query required it.
@@ -235,6 +245,9 @@ struct CurrentDB {
   std::optional<TriggerContextCollector> trigger_context_collector_;
   bool in_explicit_db_{false};
 };
+
+using UserParameters_fn = std::function<UserParameters(storage::Storage const *)>;
+constexpr auto no_params_fn = [](storage::Storage const *) -> UserParameters { return {}; };
 
 class Interpreter final {
  public:
@@ -261,17 +274,27 @@ class Interpreter final {
   };
 #endif
 
+  struct SessionInfo {
+    std::string uuid;
+    std::string username;
+    std::string login_timestamp;
+  };
+
   std::shared_ptr<QueryUserOrRole> user_or_role_{};
+  SessionInfo session_info_;
   bool in_explicit_transaction_{false};
   CurrentDB current_db_;
 
   bool expect_rollback_{false};
   std::shared_ptr<utils::AsyncTimer> current_timeout_timer_{};
-  std::optional<std::map<std::string, storage::PropertyValue>> metadata_{};  //!< User defined transaction metadata
+  std::optional<storage::PropertyValue::map_t> metadata_{};  //!< User defined transaction metadata
 
 #ifdef MG_ENTERPRISE
   void SetCurrentDB(std::string_view db_name, bool explicit_db);
+  void ResetDB() { current_db_.ResetDB(); }
   void OnChangeCB(auto cb) { on_change_.emplace(cb); }
+#else
+  void SetCurrentDB();
 #endif
 
   /**
@@ -282,8 +305,7 @@ class Interpreter final {
    *
    * @throw query::QueryException
    */
-  Interpreter::PrepareResult Prepare(const std::string &query,
-                                     const std::map<std::string, storage::PropertyValue> &params,
+  Interpreter::PrepareResult Prepare(const std::string &query, UserParameters_fn params_getter,
                                      QueryExtras const &extras);
 
 #ifdef MG_ENTERPRISE
@@ -357,7 +379,14 @@ class Interpreter final {
 
   void SetUser(std::shared_ptr<QueryUserOrRole> user);
 
+  void SetSessionInfo(std::string uuid, std::string username, std::string login_timestamp);
+
   std::optional<memgraph::system::Transaction> system_transaction_{};
+
+  std::optional<QueryLogger> query_logger_{};
+
+  bool IsQueryLoggingActive() const;
+  void LogQueryMessage(std::string message);
 
  private:
   void ResetInterpreter() {
@@ -508,13 +537,15 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
         query_execution.reset(nullptr);
       }
     }
-  } catch (const ExplicitTransactionUsageException &) {
+  } catch (const ExplicitTransactionUsageException &e) {
+    LogQueryMessage(e.what());
     if (current_transaction_) {
       memgraph::memory::TryStopTrackingOnTransaction(*current_transaction_);
     }
     query_execution.reset(nullptr);
     throw;
-  } catch (const utils::BasicException &) {
+  } catch (const utils::BasicException &e) {
+    LogQueryMessage(e.what());
     if (current_transaction_) {
       memgraph::memory::TryStopTrackingOnTransaction(*current_transaction_);
     }

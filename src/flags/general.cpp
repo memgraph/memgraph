@@ -11,12 +11,12 @@
 
 #include "general.hpp"
 
-#include "glue/auth_global.hpp"
 #include "storage/v2/config.hpp"
 #include "utils/file.hpp"
 #include "utils/flag_validation.hpp"
 #include "utils/string.hpp"
 
+#include <iostream>
 #include <thread>
 
 // Short help flag.
@@ -51,7 +51,7 @@ DEFINE_string(init_data_file, "", "Path to cypherl file that is used for creatin
 DEFINE_string(data_directory, "mg_data", "Path to directory in which to save all permanent data.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(data_recovery_on_startup, false, "Controls whether the database recovers persisted data on startup.");
+DEFINE_bool(data_recovery_on_startup, true, "Controls whether the database recovers persisted data on startup.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint64(memory_warning_threshold, 1024,
@@ -74,10 +74,6 @@ DEFINE_VALIDATED_uint64(storage_python_gc_cycle_sec, 180,
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(storage_properties_on_edges, false, "Controls whether edges have properties.");
 
-// storage_recover_on_startup deprecated; use data_recovery_on_startup instead
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_HIDDEN_bool(storage_recover_on_startup, false,
-                   "Controls whether the storage recovers persisted data on startup.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_uint64(storage_snapshot_interval_sec, 0,
                         "Storage snapshot creation interval (in seconds). Set "
@@ -147,6 +143,9 @@ DEFINE_bool(storage_delta_on_identical_property_update, true,
             "Controls whether updating a property with the same value should create a delta object.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(schema_info_enabled, false, "Set to true to enable run-time schema info tracking.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(telemetry_enabled, false,
             "Set to true to enable telemetry. We collect information about the "
             "running system (CPU and memory information) and information about "
@@ -207,12 +206,3 @@ DEFINE_string(query_callable_mappings_path, "",
 DEFINE_HIDDEN_string(license_key, "", "License key for Memgraph Enterprise.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_HIDDEN_string(organization_name, "", "Organization name.");
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_string(auth_user_or_role_name_regex, memgraph::glue::kDefaultUserRoleRegex.data(),
-              "Set to the regular expression that each user or role name must fulfill.");
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(auth_password_permit_null, true, "Set to false to disable null passwords.");
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_string(auth_password_strength_regex, memgraph::glue::kDefaultPasswordRegex.data(),
-              "The regular expression that should be used to match the entire "
-              "entered password to ensure its strength.");

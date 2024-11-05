@@ -19,6 +19,7 @@
 #include <mutex>
 #include <optional>
 #include <system_error>
+#include <type_traits>
 #include <utility>
 
 #include "auth/auth.hpp"
@@ -65,6 +66,8 @@ struct Statistics {
   uint64_t isolation_levels[3];  //!< Number of databases in each isolation level [SNAPSHOT, READ_COMM, READ_UNC]
   uint64_t snapshot_enabled;     //!< Number of databases with snapshots enabled
   uint64_t wal_enabled;          //!< Number of databases with WAL enabled
+  uint64_t property_store_compression_enabled;   //!< Number of databases with property store compression enabled
+  uint64_t property_store_compression_level[3];  //!< Number of databases with each compression level [LOW, MID, HIGH]
 };
 
 static inline nlohmann::json ToJson(const Statistics &stats) {
@@ -85,6 +88,11 @@ static inline nlohmann::json ToJson(const Statistics &stats) {
                              {storage::IsolationLevelToString((storage::IsolationLevel)1), stats.isolation_levels[1]},
                              {storage::IsolationLevelToString((storage::IsolationLevel)2), stats.isolation_levels[2]}};
   res["durability"] = {{"snapshot_enabled", stats.snapshot_enabled}, {"WAL_enabled", stats.wal_enabled}};
+  res["property_store_compression_enabled"] = stats.property_store_compression_enabled;
+  res["property_store_compression_level"] = {
+      {utils::CompressionLevelToString(utils::CompressionLevel::LOW), stats.property_store_compression_level[0]},
+      {utils::CompressionLevelToString(utils::CompressionLevel::MID), stats.property_store_compression_level[1]},
+      {utils::CompressionLevelToString(utils::CompressionLevel::HIGH), stats.property_store_compression_level[2]}};
 
   return res;
 }
@@ -132,7 +140,7 @@ class DbmsHandler {
    * @return NewResultT context on success, error on failure
    */
   NewResultT New(const std::string &name, system::Transaction *txn = nullptr) {
-    std::lock_guard<LockT> wr(lock_);
+    auto wr = std::lock_guard{lock_};
     const auto uuid = utils::UUID{};
     return New_(name, uuid, txn);
   }
@@ -145,7 +153,7 @@ class DbmsHandler {
    * @return NewResultT context on success, error on failure
    */
   NewResultT Update(const storage::SalientConfig &config) {
-    std::lock_guard<LockT> wr(lock_);
+    auto wr = std::lock_guard{lock_};
     auto new_db = New_(config);
     if (new_db.HasValue() || new_db.GetError() != NewError::EXISTS) {
       // NOTE: If db already exists we retry below
@@ -166,9 +174,9 @@ class DbmsHandler {
     // TODO: Fix this hack
     if (config.name == kDefaultDB) {
       spdlog::debug("Last commit timestamp for DB {} is {}", kDefaultDB,
-                    db->storage()->repl_storage_state_.last_commit_timestamp_);
+                    db->storage()->repl_storage_state_.last_durable_timestamp_);
       // This seems correct, if database made progress
-      if (db->storage()->repl_storage_state_.last_commit_timestamp_ != storage::kTimestampInitialId) {
+      if (db->storage()->repl_storage_state_.last_durable_timestamp_ != storage::kTimestampInitialId) {
         spdlog::debug("Default storage is not clean, cannot update UUID...");
         return NewError::GENERIC;  // Update error
       }
@@ -197,7 +205,7 @@ class DbmsHandler {
    * @throw UnknownDatabaseException if database not found
    */
   DatabaseAccess Get(std::string_view name = kDefaultDB) {
-    std::shared_lock<LockT> rd(lock_);
+    auto rd = std::shared_lock{lock_};
     return Get_(name);
   }
 
@@ -209,7 +217,7 @@ class DbmsHandler {
    * @throw UnknownDatabaseException if database not found
    */
   DatabaseAccess Get(const utils::UUID &uuid) {
-    std::shared_lock<LockT> rd(lock_);
+    auto rd = std::shared_lock{lock_};
     return Get_(uuid);
   }
 
@@ -259,7 +267,7 @@ class DbmsHandler {
    */
   std::vector<std::string> All() const {
 #ifdef MG_ENTERPRISE
-    std::shared_lock<LockT> rd(lock_);
+    auto rd = std::shared_lock{lock_};
     return db_handler_.All();
 #else
     return {db_gatekeeper_.access()->get()->name()};
@@ -279,7 +287,7 @@ class DbmsHandler {
    */
   auto Count() const -> std::size_t {
 #ifdef MG_ENTERPRISE
-    std::shared_lock<LockT> rd(lock_);
+    auto rd = std::shared_lock{lock_};
     return db_handler_.size();
 #else
     return 1;
@@ -291,11 +299,11 @@ class DbmsHandler {
    *
    * @return Statistics
    */
-  Statistics Stats(memgraph::replication_coordination_glue::ReplicationRole replication_role) {
+  Statistics Stats() {
     Statistics stats{};
     // TODO: Handle overflow?
 #ifdef MG_ENTERPRISE
-    std::shared_lock<LockT> rd(lock_);
+    auto rd = std::shared_lock{lock_};
     for (auto &[_, db_gk] : db_handler_) {
 #else
     {
@@ -304,7 +312,7 @@ class DbmsHandler {
       auto db_acc_opt = db_gk.access();
       if (db_acc_opt) {
         auto &db_acc = *db_acc_opt;
-        const auto &info = db_acc->GetInfo(replication_role);
+        const auto &info = db_acc->GetInfo();
         const auto &storage_info = info.storage_info;
         stats.num_vertex += storage_info.vertex_count;
         stats.num_edges += storage_info.edge_count;
@@ -317,6 +325,11 @@ class DbmsHandler {
         ++stats.isolation_levels[(int)storage_info.isolation_level];
         stats.snapshot_enabled += storage_info.durability_snapshot_enabled;
         stats.wal_enabled += storage_info.durability_wal_enabled;
+        stats.property_store_compression_enabled += storage_info.property_store_compression_enabled;
+
+        using underlying_type = std::underlying_type_t<utils::CompressionLevel>;
+        ++stats.property_store_compression_level[static_cast<underlying_type>(
+            storage_info.property_store_compression_level)];
       }
     }
     return stats;
@@ -327,10 +340,10 @@ class DbmsHandler {
    *
    * @return std::vector<DatabaseInfo>
    */
-  std::vector<DatabaseInfo> Info(memgraph::replication_coordination_glue::ReplicationRole replication_role) {
+  std::vector<DatabaseInfo> Info() {
     std::vector<DatabaseInfo> res;
 #ifdef MG_ENTERPRISE
-    std::shared_lock<LockT> rd(lock_);
+    auto rd = std::shared_lock{lock_};
     res.reserve(std::distance(db_handler_.cbegin(), db_handler_.cend()));
     for (auto &[_, db_gk] : db_handler_) {
 #else
@@ -340,7 +353,7 @@ class DbmsHandler {
       auto db_acc_opt = db_gk.access();
       if (db_acc_opt) {
         auto &db_acc = *db_acc_opt;
-        res.push_back(db_acc->GetInfo(replication_role));
+        res.push_back(db_acc->GetInfo());
       }
     }
     return res;
@@ -354,7 +367,7 @@ class DbmsHandler {
    */
   void RestoreTriggers(query::InterpreterContext *ic) {
 #ifdef MG_ENTERPRISE
-    std::lock_guard<LockT> wr(lock_);
+    auto wr = std::lock_guard{lock_};
     for (auto &[_, db_gk] : db_handler_) {
 #else
     {
@@ -379,7 +392,7 @@ class DbmsHandler {
    */
   void RestoreStreams(query::InterpreterContext *ic) {
 #ifdef MG_ENTERPRISE
-    std::lock_guard<LockT> wr(lock_);
+    auto wr = std::lock_guard{lock_};
     for (auto &[_, db_gk] : db_handler_) {
 #else
     {
@@ -394,6 +407,25 @@ class DbmsHandler {
     }
   }
 
+#ifdef MG_ENTERPRISE
+  /**
+   * @brief Restore TTL of all currently defined databases.
+   *
+   * @param ic global InterpreterContext
+   */
+  void RestoreTTL(query::InterpreterContext *ic) {
+    auto wr = std::lock_guard{lock_};
+    for (auto &[_, db_gk] : db_handler_) {
+      auto db_acc = db_gk.access();
+      if (db_acc) {
+        auto *db = db_acc->get();
+        spdlog::debug("Restoring TTL for database \"{}\"", db->name());
+        db->ttl().Restore(*db_acc, ic);
+      }
+    }
+  }
+#endif
+
   /**
    * @brief todo
    *
@@ -401,7 +433,7 @@ class DbmsHandler {
    */
   void ForEach(std::invocable<DatabaseAccess> auto f) {
 #ifdef MG_ENTERPRISE
-    std::shared_lock<LockT> rd(lock_);
+    auto rd = std::shared_lock{lock_};
     for (auto &[_, db_gk] : db_handler_) {
 #else
     {

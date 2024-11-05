@@ -17,7 +17,9 @@
 #include <filesystem>
 #include <string_view>
 
+#include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/durability/exceptions.hpp"
+#include "storage/v2/durability/serialization.hpp"
 #include "storage/v2/durability/version.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
@@ -26,46 +28,43 @@
 #include "storage_test_utils.hpp"
 #include "utils/file.hpp"
 #include "utils/file_locker.hpp"
-#include "utils/memory.hpp"
 #include "utils/uuid.hpp"
 
 // Helper function used to convert between enum types.
 memgraph::storage::durability::WalDeltaData::Type StorageMetadataOperationToWalDeltaDataType(
     memgraph::storage::durability::StorageMetadataOperation operation) {
+#define add_case(E)                                                \
+  case memgraph::storage::durability::StorageMetadataOperation::E: \
+    return memgraph::storage::durability::WalDeltaData::Type::E
+
   switch (operation) {
-    case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_CREATE:
-      return memgraph::storage::durability::WalDeltaData::Type::LABEL_INDEX_CREATE;
-    case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_DROP:
-      return memgraph::storage::durability::WalDeltaData::Type::LABEL_INDEX_DROP;
-    case memgraph::storage::durability::StorageMetadataOperation::EDGE_TYPE_INDEX_CREATE:
-      return memgraph::storage::durability::WalDeltaData::Type::EDGE_INDEX_CREATE;
-    case memgraph::storage::durability::StorageMetadataOperation::EDGE_TYPE_INDEX_DROP:
-      return memgraph::storage::durability::WalDeltaData::Type::EDGE_INDEX_DROP;
-    case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_STATS_SET:
-      return memgraph::storage::durability::WalDeltaData::Type::LABEL_INDEX_STATS_SET;
-    case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_STATS_CLEAR:
-      return memgraph::storage::durability::WalDeltaData::Type::LABEL_INDEX_STATS_CLEAR;
-    case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_CREATE:
-      return memgraph::storage::durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE;
-    case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_DROP:
-      return memgraph::storage::durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP;
-    case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_SET:
-      return memgraph::storage::durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_STATS_SET;
-    case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_CLEAR:
-      return memgraph::storage::durability::WalDeltaData::Type::LABEL_PROPERTY_INDEX_STATS_CLEAR;
-    case memgraph::storage::durability::StorageMetadataOperation::TEXT_INDEX_CREATE:
-      return memgraph::storage::durability::WalDeltaData::Type::TEXT_INDEX_CREATE;
-    case memgraph::storage::durability::StorageMetadataOperation::TEXT_INDEX_DROP:
-      return memgraph::storage::durability::WalDeltaData::Type::TEXT_INDEX_DROP;
-    case memgraph::storage::durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_CREATE:
-      return memgraph::storage::durability::WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE;
-    case memgraph::storage::durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_DROP:
-      return memgraph::storage::durability::WalDeltaData::Type::EXISTENCE_CONSTRAINT_DROP;
-    case memgraph::storage::durability::StorageMetadataOperation::UNIQUE_CONSTRAINT_CREATE:
-      return memgraph::storage::durability::WalDeltaData::Type::UNIQUE_CONSTRAINT_CREATE;
-    case memgraph::storage::durability::StorageMetadataOperation::UNIQUE_CONSTRAINT_DROP:
-      return memgraph::storage::durability::WalDeltaData::Type::UNIQUE_CONSTRAINT_DROP;
+    add_case(LABEL_INDEX_CREATE);
+    add_case(LABEL_INDEX_DROP);
+    add_case(EDGE_INDEX_CREATE);
+    add_case(EDGE_INDEX_DROP);
+    add_case(EDGE_PROPERTY_INDEX_CREATE);
+    add_case(EDGE_PROPERTY_INDEX_DROP);
+    add_case(LABEL_INDEX_STATS_SET);
+    add_case(LABEL_INDEX_STATS_CLEAR);
+    add_case(LABEL_PROPERTY_INDEX_CREATE);
+    add_case(LABEL_PROPERTY_INDEX_DROP);
+    add_case(POINT_INDEX_CREATE);
+    add_case(POINT_INDEX_DROP);
+    add_case(LABEL_PROPERTY_INDEX_STATS_SET);
+    add_case(LABEL_PROPERTY_INDEX_STATS_CLEAR);
+    add_case(TEXT_INDEX_CREATE);
+    add_case(TEXT_INDEX_DROP);
+    add_case(EXISTENCE_CONSTRAINT_CREATE);
+    add_case(EXISTENCE_CONSTRAINT_DROP);
+    add_case(UNIQUE_CONSTRAINT_CREATE);
+    add_case(UNIQUE_CONSTRAINT_DROP);
+    add_case(TYPE_CONSTRAINT_CREATE);
+    add_case(TYPE_CONSTRAINT_DROP);
+    add_case(ENUM_CREATE);
+    add_case(ENUM_ALTER_ADD);
+    add_case(ENUM_ALTER_UPDATE);
   }
+#undef add_case
 }
 
 // This class mimics the internals of the storage to generate the deltas.
@@ -78,7 +77,8 @@ class DeltaGenerator final {
     explicit Transaction(DeltaGenerator *gen)
         : gen_(gen),
           transaction_(gen->transaction_id_++, gen->timestamp_++, memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION,
-                       gen->storage_mode_, false, false) {}
+                       gen->storage_mode_, false, false,
+                       memgraph::storage::PointIndexStorage{}.CreatePointIndexContext()) {}
 
    public:
     memgraph::storage::Vertex *CreateVertex() {
@@ -223,8 +223,7 @@ class DeltaGenerator final {
 
   DeltaGenerator(const std::filesystem::path &data_directory, bool properties_on_edges, uint64_t seq_num,
                  memgraph::storage::StorageMode storage_mode = memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL)
-      : uuid_(memgraph::utils::GenerateUUID()),
-        epoch_id_(memgraph::utils::GenerateUUID()),
+      : epoch_id_(memgraph::utils::GenerateUUID()),
         seq_num_(seq_num),
         wal_file_(data_directory, uuid_, epoch_id_, {.properties_on_edges = properties_on_edges}, &mapper_, seq_num,
                   &file_retainer_),
@@ -239,7 +238,9 @@ class DeltaGenerator final {
   }
 
   void AppendOperation(memgraph::storage::durability::StorageMetadataOperation operation, const std::string &label,
-                       const std::set<std::string, std::less<>> properties = {}, const std::string &stats = {}) {
+                       const std::set<std::string, std::less<>> properties = {}, const std::string &stats = {},
+                       const std::string &edge_type = {}, const std::string &name = {},
+                       std::string const &enum_val = {}, std::string const &enum_type = {}) {
     auto label_id = memgraph::storage::LabelId::FromUint(mapper_.NameToId(label));
     std::set<memgraph::storage::PropertyId> property_ids;
     for (const auto &property : properties) {
@@ -256,7 +257,132 @@ class DeltaGenerator final {
         ASSERT_TRUE(false) << "Unexpected statistics operation!";
       }
     }
-    wal_file_.AppendOperation(operation, std::nullopt, label_id, property_ids, l_stats, lp_stats, timestamp_);
+    std::optional<memgraph::storage::EdgeTypeId> edge_type_id;
+    if (!edge_type.empty()) {
+      edge_type_id = memgraph::storage::EdgeTypeId::FromUint(mapper_.NameToId(edge_type));
+    }
+
+    std::optional<memgraph::storage::EnumTypeId> enum_type_id;
+    if (!enum_type.empty()) {
+      auto result = enum_store_.ToEnumType(enum_type);
+      ASSERT_TRUE(result.HasValue());
+      enum_type_id = *result;
+    }
+
+    std::optional<memgraph::storage::Enum> enum_id;
+    if (!enum_val.empty()) {
+      auto result = enum_store_.ToEnum(enum_val);
+      ASSERT_TRUE(result.HasValue());
+      enum_id = *result;
+    }
+
+    auto const apply_encode = [&](memgraph::storage::durability::StorageMetadataOperation op, auto &&encode_operation) {
+      // durability
+      auto &encoder = wal_file_.encoder();
+      EncodeOperationPreamble(encoder, op, timestamp_);
+      encode_operation(encoder);
+      wal_file_.UpdateStats(timestamp_);
+    };
+
+    switch (operation) {
+      case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_CREATE:
+      case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_DROP: {
+        apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
+          EncodeLabel(encoder, mapper_, label_id);
+        });
+        break;
+      }
+      case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_STATS_CLEAR:
+      case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_CLEAR: {
+        apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
+          EncodeLabel(encoder, mapper_, label_id);
+        });
+        break;
+      }
+      case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_SET: {
+        apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
+          EncodeLabelPropertyStats(encoder, mapper_, label_id, *property_ids.begin(), lp_stats);
+        });
+        break;
+      }
+      case memgraph::storage::durability::StorageMetadataOperation::EDGE_INDEX_CREATE:
+      case memgraph::storage::durability::StorageMetadataOperation::EDGE_INDEX_DROP: {
+        ASSERT_TRUE(edge_type_id.has_value());
+        apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
+          EncodeEdgeTypeIndex(encoder, mapper_, *edge_type_id);
+        });
+        break;
+      }
+      case memgraph::storage::durability::StorageMetadataOperation::EDGE_PROPERTY_INDEX_CREATE:
+      case memgraph::storage::durability::StorageMetadataOperation::EDGE_PROPERTY_INDEX_DROP: {
+        ASSERT_TRUE(edge_type_id.has_value());
+        apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
+          EncodeEdgeTypePropertyIndex(encoder, mapper_, *edge_type_id, *property_ids.begin());
+        });
+        break;
+      }
+      case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_CREATE:
+      case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_DROP:
+      case memgraph::storage::durability::StorageMetadataOperation::POINT_INDEX_CREATE:
+      case memgraph::storage::durability::StorageMetadataOperation::POINT_INDEX_DROP:
+      case memgraph::storage::durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_CREATE:
+      case memgraph::storage::durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_DROP: {
+        apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
+          EncodeLabelProperty(encoder, mapper_, label_id, *property_ids.begin());
+        });
+        break;
+      }
+      case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_STATS_SET: {
+        apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
+          EncodeLabelStats(encoder, mapper_, label_id, l_stats);
+        });
+        break;
+      }
+      case memgraph::storage::durability::StorageMetadataOperation::TEXT_INDEX_CREATE:
+      case memgraph::storage::durability::StorageMetadataOperation::TEXT_INDEX_DROP: {
+        apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
+          EncodeTextIndex(encoder, mapper_, name, label_id);
+        });
+        break;
+      }
+      case memgraph::storage::durability::StorageMetadataOperation::UNIQUE_CONSTRAINT_CREATE:
+      case memgraph::storage::durability::StorageMetadataOperation::UNIQUE_CONSTRAINT_DROP: {
+        apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
+          EncodeLabelProperties(encoder, mapper_, label_id, property_ids);
+        });
+        break;
+      }
+      case memgraph::storage::durability::StorageMetadataOperation::TYPE_CONSTRAINT_CREATE:
+      case memgraph::storage::durability::StorageMetadataOperation::TYPE_CONSTRAINT_DROP: {
+        apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
+          EncodeTypeConstraint(encoder, mapper_, label_id, *property_ids.begin(),
+                               memgraph::storage::TypeConstraintKind::STRING);
+        });
+      }
+
+      break;
+      case memgraph::storage::durability::StorageMetadataOperation::ENUM_CREATE: {
+        ASSERT_TRUE(enum_type_id.has_value());
+        apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
+          EncodeEnumCreate(encoder, enum_store_, *enum_type_id);
+        });
+        break;
+      }
+      case memgraph::storage::durability::StorageMetadataOperation::ENUM_ALTER_ADD: {
+        ASSERT_TRUE(enum_id.has_value());
+        apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
+          EncodeEnumAlterAdd(encoder, enum_store_, *enum_id);
+        });
+        break;
+      }
+      case memgraph::storage::durability::StorageMetadataOperation::ENUM_ALTER_UPDATE: {
+        ASSERT_TRUE(enum_id.has_value());
+        apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
+          EncodeEnumAlterUpdate(encoder, enum_store_, *enum_id, "Old");
+        });
+        break;
+      }
+    }
     if (valid_) {
       UpdateStats(timestamp_, 1);
       memgraph::storage::durability::WalDeltaData data;
@@ -275,12 +401,13 @@ class DeltaGenerator final {
           break;
         case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_CREATE:
         case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_DROP:
-        case memgraph::storage::durability::StorageMetadataOperation::TEXT_INDEX_CREATE:
-        case memgraph::storage::durability::StorageMetadataOperation::TEXT_INDEX_DROP:
+        case memgraph::storage::durability::StorageMetadataOperation::POINT_INDEX_CREATE:
+        case memgraph::storage::durability::StorageMetadataOperation::POINT_INDEX_DROP:
         case memgraph::storage::durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_CREATE:
         case memgraph::storage::durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_DROP:
           data.operation_label_property.label = label;
           data.operation_label_property.property = *properties.begin();
+          break;
         case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_SET:
           data.operation_label_property_stats.label = label;
           data.operation_label_property_stats.property = *properties.begin();
@@ -291,42 +418,39 @@ class DeltaGenerator final {
           data.operation_label_properties.label = label;
           data.operation_label_properties.properties = properties;
           break;
-        case memgraph::storage::durability::StorageMetadataOperation::EDGE_TYPE_INDEX_CREATE:
-        case memgraph::storage::durability::StorageMetadataOperation::EDGE_TYPE_INDEX_DROP:
-          MG_ASSERT(false, "Invalid function call!");
-      }
-      data_.emplace_back(timestamp_, data);
-    }
-  }
-
-  void AppendEdgeTypeOperation(memgraph::storage::durability::StorageMetadataOperation operation,
-                               const std::string &edge_type) {
-    auto edge_type_id = memgraph::storage::EdgeTypeId::FromUint(mapper_.NameToId(edge_type));
-    wal_file_.AppendOperation(operation, edge_type_id, timestamp_);
-    if (valid_) {
-      UpdateStats(timestamp_, 1);
-      memgraph::storage::durability::WalDeltaData data;
-      data.type = StorageMetadataOperationToWalDeltaDataType(operation);
-      switch (operation) {
-        case memgraph::storage::durability::StorageMetadataOperation::EDGE_TYPE_INDEX_CREATE:
-        case memgraph::storage::durability::StorageMetadataOperation::EDGE_TYPE_INDEX_DROP:
-          data.operation_edge_type.edge_type = edge_type;
+        case memgraph::storage::durability::StorageMetadataOperation::TYPE_CONSTRAINT_CREATE:
+        case memgraph::storage::durability::StorageMetadataOperation::TYPE_CONSTRAINT_DROP:
+          data.operation_label_property_type.label = label;
+          data.operation_label_property_type.property = *properties.begin();
+          data.operation_label_property_type.type = memgraph::storage::TypeConstraintKind::STRING;
           break;
-        case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_CREATE:
-        case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_DROP:
-        case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_STATS_CLEAR:
-        case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_CLEAR:
-        case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_STATS_SET:
-        case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_CREATE:
-        case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_DROP:
         case memgraph::storage::durability::StorageMetadataOperation::TEXT_INDEX_CREATE:
         case memgraph::storage::durability::StorageMetadataOperation::TEXT_INDEX_DROP:
-        case memgraph::storage::durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_CREATE:
-        case memgraph::storage::durability::StorageMetadataOperation::EXISTENCE_CONSTRAINT_DROP:;
-        case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_SET:
-        case memgraph::storage::durability::StorageMetadataOperation::UNIQUE_CONSTRAINT_CREATE:
-        case memgraph::storage::durability::StorageMetadataOperation::UNIQUE_CONSTRAINT_DROP:
-          MG_ASSERT(false, "Invalid function call!");
+          data.operation_text.index_name = name;
+          data.operation_text.label = label;
+          break;
+        case memgraph::storage::durability::StorageMetadataOperation::EDGE_INDEX_CREATE:
+        case memgraph::storage::durability::StorageMetadataOperation::EDGE_INDEX_DROP:
+          data.operation_edge_type.edge_type = edge_type;
+          break;
+        case memgraph::storage::durability::StorageMetadataOperation::EDGE_PROPERTY_INDEX_CREATE:
+        case memgraph::storage::durability::StorageMetadataOperation::EDGE_PROPERTY_INDEX_DROP:
+          data.operation_edge_type_property.edge_type = edge_type;
+          data.operation_edge_type_property.property = *properties.begin();
+          break;
+        case memgraph::storage::durability::StorageMetadataOperation::ENUM_CREATE:
+          data.operation_enum_create.etype = enum_type;
+          data.operation_enum_create.evalues = {"TODO"};
+          break;
+        case memgraph::storage::durability::StorageMetadataOperation::ENUM_ALTER_ADD:
+          data.operation_enum_alter_add.etype = enum_type;
+          data.operation_enum_alter_add.evalue = "TODO";
+          break;
+        case memgraph::storage::durability::StorageMetadataOperation::ENUM_ALTER_UPDATE:
+          data.operation_enum_alter_update.etype = enum_type;
+          data.operation_enum_alter_update.evalue_old = "OLD";
+          data.operation_enum_alter_update.evalue_new = "NEW";
+          break;
       }
       data_.emplace_back(timestamp_, data);
     }
@@ -337,7 +461,7 @@ class DeltaGenerator final {
   memgraph::storage::durability::WalInfo GetInfo() {
     return {.offset_metadata = 0,
             .offset_deltas = 0,
-            .uuid = uuid_,
+            .uuid = std::string{uuid_},
             .epoch_id = epoch_id_,
             .seq_num = seq_num_,
             .from_timestamp = tx_from_,
@@ -356,7 +480,7 @@ class DeltaGenerator final {
     deltas_count_ += count;
   }
 
-  std::string uuid_;
+  memgraph::utils::UUID uuid_;
   std::string epoch_id_;
   uint64_t seq_num_;
 
@@ -365,6 +489,7 @@ class DeltaGenerator final {
   uint64_t vertices_count_{0};
   std::list<memgraph::storage::Vertex> vertices_;
   memgraph::storage::NameIdMapper mapper_;
+  memgraph::storage::EnumStore enum_store_;
 
   memgraph::storage::durability::WalFile wal_file_;
 
@@ -587,6 +712,12 @@ GENERATE_SIMPLE_TEST(TransactionsWithOperation11_, {
   TRANSACTION(true, { tx.CreateVertex(); });
   OPERATION_TX(LABEL_INDEX_CREATE, "hello");
 });
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+GENERATE_SIMPLE_TEST(TransactionsWithOperation12_, {
+  TRANSACTION(true, { tx.CreateVertex(); });
+  TRANSACTION(true, { tx.CreateVertex(); });
+  OPERATION_TX(LABEL_INDEX_CREATE, "hello");
+});
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 GENERATE_SIMPLE_TEST(AllTransactionOperationsWithEnd, {
@@ -647,6 +778,8 @@ GENERATE_SIMPLE_TEST(AllGlobalOperations, {
   OPERATION_TX(EXISTENCE_CONSTRAINT_DROP, "hello", {"world"});
   OPERATION_TX(UNIQUE_CONSTRAINT_CREATE, "hello", {"world", "and", "universe"});
   OPERATION_TX(UNIQUE_CONSTRAINT_DROP, "hello", {"world", "and", "universe"});
+  OPERATION_TX(TYPE_CONSTRAINT_CREATE, "hello", {"world"})
+  OPERATION_TX(TYPE_CONSTRAINT_DROP, "hello", {"world"});
 });
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)

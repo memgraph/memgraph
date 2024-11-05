@@ -18,11 +18,30 @@ namespace memgraph::auth {
 /// Need to be stable, auth durability depends on this
 enum class PasswordHashAlgorithm : uint8_t { BCRYPT = 0, SHA256 = 1, SHA256_MULTIPLE = 2 };
 
+struct HashSize {
+  size_t unsalted;  //!< size defined by the algorithm
+  size_t salted;    //!< size after our salt has been added
+};
+
 void SetHashAlgorithm(std::string_view algo);
 
 auto CurrentHashAlgorithm() -> PasswordHashAlgorithm;
 
+/**
+ * @brief Return algorithm name. Needs to be stable; auth queries depend on it.
+ *
+ * @param hash_algo
+ * @return std::string_view
+ */
 auto AsString(PasswordHashAlgorithm hash_algo) -> std::string_view;
+
+/**
+ * @brief Hash size (unsalted - as given by the algo; and salted - size after our salt is added)
+ *
+ * @param hash_algo
+ * @return struct HashSize
+ */
+auto HashSize(PasswordHashAlgorithm hash_algo) -> struct HashSize;
 
 struct HashedPassword {
   HashedPassword() = default;
@@ -51,4 +70,6 @@ struct HashedPassword {
 
 /// @throw AuthException if unable to hash the password.
 HashedPassword HashPassword(const std::string &password, std::optional<PasswordHashAlgorithm> override_algo = {});
+
+std::optional<HashedPassword> UserDefinedHash(std::string_view password);
 }  // namespace memgraph::auth

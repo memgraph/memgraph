@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,6 +15,7 @@
 #include <string>
 #include <unordered_map>
 
+#include "query/procedure/module_fwd.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/memory.hpp"
 
@@ -38,13 +39,18 @@ struct FunctionContext {
   storage::View view;
 };
 
+using func_impl =
+    std::function<TypedValue(const TypedValue *arguments, int64_t num_arguments, const FunctionContext &context)>;
+using user_func = std::pair<func_impl, std::shared_ptr<procedure::Module>>;
+
 /// Return the function implementation with the given name.
 ///
 /// Note, returned function signature uses C-style access to an array to allow
 /// having an array stored anywhere the caller likes, as long as it is
 /// contiguous in memory. Since most functions don't take many arguments, it's
 /// convenient to have them stored in the calling stack frame.
-std::function<TypedValue(const TypedValue *arguments, int64_t num_arguments, const FunctionContext &context)>
-NameToFunction(const std::string &function_name);
+///
+/// Error, will return std::monostate if function can not be found
+auto NameToFunction(const std::string &function_name) -> std::variant<std::monostate, func_impl, user_func>;
 
 }  // namespace memgraph::query

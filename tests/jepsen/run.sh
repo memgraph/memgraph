@@ -4,6 +4,7 @@ script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 MEMGRAPH_BUILD_PATH="$script_dir/../../build"
 MEMGRAPH_BINARY_PATH="$MEMGRAPH_BUILD_PATH/memgraph"
+MEMGRAPH_MODULE_SUPPORT_LIB_PATH="$MEMGRAPH_BUILD_PATH/src/query/libmemgraph_module_support.so"
 # NOTE: Jepsen Git tags are not consistent, there are: 0.2.4, v0.3.0, 0.3.2, ...
 JEPSEN_VERSION="${JEPSEN_VERSION:-v0.3.5}"
 JEPSEN_ACTIVE_NODES_NO=5
@@ -15,6 +16,7 @@ ENTERPRISE_LICENSE=""
 ORGANIZATION_NAME=""
 PRINT_CONTEXT() {
     echo -e "MEMGRAPH_BINARY_PATH:\t\t $MEMGRAPH_BINARY_PATH"
+    echo -e "MEMGRAPH_MODULE_SUPPORT_LIB_PATH:\t\t $MEMGRAPH_MODULE_SUPPORT_LIB_PATH"
     echo -e "JEPSEN_VERSION:\t\t\t $JEPSEN_VERSION"
     echo -e "JEPSEN_ACTIVE_NODES_NO:\t\t $JEPSEN_ACTIVE_NODES_NO"
     echo -e "CONTROL_LEIN_RUN_ARGS:\t\t $CONTROL_LEIN_RUN_ARGS"
@@ -26,7 +28,7 @@ PRINT_CONTEXT() {
 
 HELP_EXIT() {
     echo ""
-    echo "HELP: $0 help|cluster-up|cluster-refresh|cluster-nodes-cleanup|cluster-dealloc|test|test-all-individually|unit-tests [args]"
+    echo "HELP: $0 help|cluster-up|cluster-refresh|cluster-nodes-cleanup|cluster-dealloc|test|test-all-individually|unit-tests|process-results [args]"
     echo ""
     echo "    test args --binary                 MEMGRAPH_BINARY_PATH"
     echo "              --ignore-run-stdout-logs Ignore lein run stdout logs."
@@ -57,8 +59,16 @@ if ! command -v docker > /dev/null 2>&1 || ! command -v docker compose > /dev/nu
 fi
 
 if [ ! -d "$script_dir/jepsen" ]; then
-    # TODO(deda): install apt get docker-compose-plugin on all build machines.
-    git clone https://github.com/jepsen-io/jepsen.git -b "$JEPSEN_VERSION" "$script_dir/jepsen"
+  echo "Cloning Jepsen $JEPSEN_VERSION ..."
+  git clone http://mgdeps-cache:8000/git/jepsen.git -b "$JEPSEN_VERSION" "$script_dir/jepsen" &> /dev/null \
+  || git clone https://github.com/jepsen-io/jepsen.git -b "$JEPSEN_VERSION" "$script_dir/jepsen"
+  # Apply patch for Jepsen 0.3.5 which replaces openjdk-21-jdk-headless with openjdk-22-jdk-headless
+  if [[ "$JEPSEN_VERSION" == "v0.3.5" ]]; then
+    echo "Applying patch for Jepsen 0.3.5 ..."
+    cd "$script_dir/jepsen"
+    git apply "$script_dir/0-3-5.patch"
+    cd "$script_dir"
+  fi
 fi
 
 PROCESS_ARGS() {
@@ -111,10 +121,15 @@ COPY_BINARIES() {
    # Copy Memgraph binary, handles both cases, when binary is a sym link
    # or a regular file.
    binary_path="$MEMGRAPH_BINARY_PATH"
+   support_lib="${MEMGRAPH_MODULE_SUPPORT_LIB_PATH}"
    if [ -L "$binary_path" ]; then
        binary_path=$(readlink "$binary_path")
    fi
+   if [ -L "support_lib" ]; then
+       support_lib=$(readlink "$support_lib")
+   fi
    binary_name=$(basename -- "$binary_path")
+   support_lib_name=$(basename -- "$support_lib")
    for iter in $(seq 1 "$JEPSEN_ACTIVE_NODES_NO"); do
        jepsen_node_name="jepsen-n$iter"
        docker_exec="docker exec $jepsen_node_name bash -c"
@@ -123,8 +138,9 @@ COPY_BINARIES() {
        else
          _binary_name="$binary_name"
        fi
-       $docker_exec "rm -rf /opt/memgraph/ && mkdir -p /opt/memgraph"
+       $docker_exec "rm -rf /opt/memgraph/ && mkdir -p /opt/memgraph/src/query"
        docker cp "$binary_path" "$jepsen_node_name":/opt/memgraph/"$_binary_name"
+       docker cp "$support_lib" "$jepsen_node_name":"/opt/memgraph/src/query/${support_lib_name}"
        $docker_exec "ln -s /opt/memgraph/$_binary_name /opt/memgraph/memgraph"
        $docker_exec "touch /opt/memgraph/memgraph.log"
        INFO "Copying $binary_name to $jepsen_node_name DONE."
@@ -163,33 +179,16 @@ RUN_JEPSEN() {
 }
 
 PROCESS_RESULTS() {
-    start_time="$1"
-    end_time="$2"
     INFO "Process results..."
-    echo "Start time: ${start_time}, End time: ${end_time}"
-    # Print and pack all test workload runs between start and end time.
     all_workloads=$(docker exec jepsen-control bash -c 'ls /jepsen/memgraph/store/' | grep test-)
     all_workload_run_folders=""
     for workload in $all_workloads; do
-        for time_folder in $(docker exec jepsen-control bash -c "ls /jepsen/memgraph/store/$workload"); do
-            if [[ "$time_folder" == "latest" ]]; then
-                continue
-            fi
-            # The early continue pattern here is nice because bash doesn't
-            # have >= for the string comparison (marginal values).
-            if [[ "$time_folder" < "$start_time" ]]; then
-                continue
-            fi
-            if [[ "$time_folder" > "$end_time" ]]; then
-                continue
-            fi
-            INFO "jepsen.log for $workload/$time_folder"
-            docker exec jepsen-control bash -c "tail -n 50 /jepsen/memgraph/store/$workload/$time_folder/jepsen.log"
-            all_workload_run_folders="$all_workload_run_folders /jepsen/memgraph/store/$workload/$time_folder"
-        done
+        INFO "jepsen.log for $workload/latest"
+        docker exec jepsen-control bash -c "tail -n 50 /jepsen/memgraph/store/$workload/latest/jepsen.log"
+        all_workload_run_folders="$all_workload_run_folders /jepsen/memgraph/store/$workload/latest"
     done
     INFO "Packing results..."
-    docker exec jepsen-control bash -c "tar -czvf /jepsen/memgraph/Jepsen.tar.gz $all_workload_run_folders"
+    docker exec jepsen-control bash -c "tar -czvf /jepsen/memgraph/Jepsen.tar.gz -h $all_workload_run_folders"
     docker cp jepsen-control:/jepsen/memgraph/Jepsen.tar.gz ./
     INFO "Result processing (printing and packing) DONE."
 }
@@ -299,7 +298,6 @@ case $1 in
         RUN_JEPSEN "test $CONTROL_LEIN_RUN_ARGS"
         end_time="$(docker exec jepsen-control bash -c 'date -u +"%Y%m%dT%H%M%S"').000Z"
         INFO "Jepsen run DONE. END_TIME: $end_time"
-        PROCESS_RESULTS "$start_time" "$end_time"
         # Exit if the jepsen run status is not 0
         if [ "$_JEPSEN_RUN_EXIT_STATUS" -ne 0 ]; then
             ERROR "Jepsen FAILED" # important for the coder
@@ -307,32 +305,9 @@ case $1 in
         fi
     ;;
 
-    test-all-individually)
-        PROCESS_ARGS "$@"
-        PRINT_CONTEXT
-        INFO "NOTE: CONTROL_LEIN_RUN_ARGS ignored"
-        COPY_BINARIES
-        start_time="$(docker exec jepsen-control bash -c 'date -u +"%Y%m%dT%H%M%S"').000Z"
-        INFO "Jepsen run in progress... START_TIME: $start_time"
-        for workload in "bank" "large" "high_availability"; do
-          if [ "$workload" == "high_availability" ]; then
-            RUN_JEPSEN "test --workload $workload --nodes-config resources/cluster.edn $CONTROL_LEIN_RUN_ARGS"
-          else
-            RUN_JEPSEN "test --workload $workload --nodes-config resources/replication-config.edn $CONTROL_LEIN_RUN_ARGS"
-          fi
-
-          if [ "$_JEPSEN_RUN_EXIT_STATUS" -ne 0 ]; then
-            break
-          fi
-        done
-        end_time="$(docker exec jepsen-control bash -c 'date -u +"%Y%m%dT%H%M%S"').000Z"
-        INFO "Jepsen run DONE. END_TIME: $end_time"
-        PROCESS_RESULTS "$start_time" "$end_time"
-        # Exit if the jepsen run status is not 0
-        if [ "$_JEPSEN_RUN_EXIT_STATUS" -ne 0 ]; then
-            ERROR "Jepsen FAILED" # important for the coder
-            exit "$_JEPSEN_RUN_EXIT_STATUS" # important for CI
-        fi
+    process-results)
+      PROCESS_ARGS "$@"
+      PROCESS_RESULTS
     ;;
 
     *)

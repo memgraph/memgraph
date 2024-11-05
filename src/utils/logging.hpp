@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <optional>
+#include <string>
 
 #include <fmt/format.h>
 // NOTE: fmt 9+ introduced fmt/std.h, it's important because of, e.g., std::path formatting. toolchain-v4 has fmt 8,
@@ -40,7 +41,8 @@ namespace memgraph::logging {
 
 // TODO (antonio2368): Replace with std::source_location when it's supported by
 // compilers
-inline void AssertFailed(const char *file_name, int line_num, const char *expr, const std::string &message) {
+[[noreturn]] inline void AssertFailed(const char *file_name, int line_num, const char *expr,
+                                      const std::string &message) {
   spdlog::critical(
       "\nAssertion failed in file {} at line {}."
       "\n\tExpression: '{}'"
@@ -101,4 +103,5 @@ inline bool CheckRocksDBStatus(const auto &status) {
   return status.ok();
 }
 
+std::string MaskSensitiveInformation(std::string_view input);
 }  // namespace memgraph::logging

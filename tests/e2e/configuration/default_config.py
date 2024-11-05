@@ -13,8 +13,15 @@
 # "--log-level=TRACE", "--storage-properties-on-edges=True", "--storage-snapshot-interval-sec", "300", "--storage-wal-enabled=True"
 # If you wish to modify these, update the startup_config_dict and workloads.yaml !
 
+
 startup_config_dict = {
-    "auth_module_executable": ("", "", "Absolute path to the auth module executable that should be used."),
+    "auth_module_mappings": (
+        "",
+        "",
+        'Associates auth schemes to external modules. A mapping is structured as follows: "<scheme>:<absolute path>", '
+        'and individual entries are separated with ";". If the mapping contains whitespace, enclose all of it inside '
+        'quotation marks: " "',
+    ),
     "auth_module_timeout_ms": (
         "10000",
         "10000",
@@ -62,13 +69,15 @@ startup_config_dict = {
     "management_port": ("0", "0", "Port on which coordinator servers will be started."),
     "coordinator_port": ("0", "0", "Port on which raft servers will be started."),
     "coordinator_id": ("0", "0", "Unique ID of the raft server."),
+    "ha_durability": ("true", "true", "Whether to use durability for coordinator logs and snapshots."),
     "instance_down_timeout_sec": ("5", "5", "Time duration after which an instance is considered down."),
     "instance_health_check_frequency_sec": ("1", "1", "The time duration between two health checks/pings."),
     "instance_get_uuid_frequency_sec": ("10", "10", "The time duration between two instance uuid checks."),
+    "coordinator_hostname": ("", "", "Instance's hostname. Used as output of SHOW INSTANCES query."),
     "data_directory": ("mg_data", "mg_data", "Path to directory in which to save all permanent data."),
     "data_recovery_on_startup": (
-        "false",
-        "false",
+        "true",
+        "true",
         "Controls whether the database recovers persisted data on startup.",
     ),
     "isolation_level": (
@@ -82,6 +91,7 @@ startup_config_dict = {
         "List of default Kafka brokers as a comma separated list of broker host or host:port.",
     ),
     "log_file": ("", "", "Path to where the log should be stored."),
+    "nuraft_log_file": ("", "", "Path to the file where NuRaft logs are saved."),
     "log_level": (
         "WARNING",
         "TRACE",
@@ -138,6 +148,16 @@ startup_config_dict = {
         "false",
         "false",
         "Controls whether additional metadata should be stored about the edges in order to do faster traversals on certain queries.",
+    ),
+    "storage_property_store_compression_enabled": (
+        "false",
+        "false",
+        "Controls whether the properties should be compressed in the storage.",
+    ),
+    "storage_property_store_compression_level": (
+        "mid",
+        "mid",
+        "Compression level for storing properties. Allowed values: low, mid, high.",
     ),
     "password_encryption_algorithm": ("bcrypt", "bcrypt", "The password encryption algorithm used for authentication."),
     "pulsar_service_url": ("", "", "Default URL used while connecting to Pulsar brokers."),
@@ -208,6 +228,11 @@ startup_config_dict = {
         "false",
         "Set to true to enable telemetry. We collect information about the running system (CPU and memory information) and information about the database runtime (vertex and edge counts and resource usage) to allow for easier improvement of the product.",
     ),
+    "timezone": (
+        "UTC",
+        "UTC",
+        "Define instance's timezone (IANA format).",
+    ),
     "query_cost_planner": ("true", "true", "Use the cost-estimating query planner."),
     "query_plan_cache_max_size": ("1000", "1000", "Maximum number of query plans to cache."),
     "query_vertex_count_to_expand_existing": (
@@ -217,6 +242,11 @@ startup_config_dict = {
     ),
     "query_max_plans": ("1000", "1000", "Maximum number of generated plans for a query."),
     "flag_file": ("", "", "load flags from file"),
+    "hops_limit_partial_results": (
+        "true",
+        "true",
+        "If set to true, the query will return partial results if the hops limit is reached.",
+    ),
     "init_file": (
         "",
         "",
@@ -224,8 +254,8 @@ startup_config_dict = {
     ),
     "init_data_file": ("", "", "Path to cypherl file that is used for creating data after server starts."),
     "replication_restore_state_on_startup": (
-        "false",
-        "false",
+        "true",
+        "true",
         "Restore replication state on startup, e.g. recover replica",
     ),
     "query_callable_mappings_path": (
@@ -241,6 +271,8 @@ startup_config_dict = {
     "experimental_enabled": (
         "",
         "",
-        "Experimental features to be used, comma-separated. Options [system-replication, text-search, high-availability]",
+        "Experimental features to be used, comma-separated. Options [text-search, high-availability]",
     ),
+    "query_log_directory": ("", "", "Path to directory where the query logs should be stored."),
+    "schema_info_enabled": ("false", "false", "Set to true to enable run-time schema info tracking."),
 }

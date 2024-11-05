@@ -18,8 +18,13 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/view.hpp"
+#include "utils/event_counter.hpp"
 #include "utils/rocksdb_serialization.hpp"
 #include "utils/string.hpp"
+
+namespace memgraph::metrics {
+extern const Event UnreleasedDeltaObjects;
+}
 
 namespace memgraph::storage {
 
@@ -114,43 +119,50 @@ inline Delta *CreateDeleteObjectDelta(Transaction *transaction) {
     return nullptr;
   }
   transaction->EnsureCommitTimestampExists();
-  return &transaction->deltas.emplace_back(Delta::DeleteObjectTag(), transaction->commit_timestamp.get(),
-                                           transaction->command_id);
-}
 
-inline Delta *CreateDeleteObjectDelta(Transaction *transaction, std::list<Delta> *deltas) {
-  if (transaction->storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
-    return nullptr;
-  }
-  transaction->EnsureCommitTimestampExists();
-  return &deltas->emplace_back(Delta::DeleteObjectTag(), transaction->commit_timestamp.get(), transaction->command_id);
+  memgraph::utils::OnScopeExit increment_unreleased_deltas(
+      [] { memgraph::metrics::IncrementCounter(memgraph::metrics::UnreleasedDeltaObjects); });
+
+  return &transaction->deltas.emplace(Delta::DeleteObjectTag(), transaction->commit_timestamp.get(),
+                                      transaction->command_id);
 }
 
 /// TODO: what if in-memory analytical
 
-inline Delta *CreateDeleteDeserializedObjectDelta(Transaction *transaction, std::optional<std::string> old_disk_key,
-                                                  std::string &&ts) {
+inline Delta *CreateDeleteDeserializedObjectDelta(Transaction *transaction,
+                                                  std::optional<std::string_view> old_disk_key, std::string &&ts) {
   transaction->EnsureCommitTimestampExists();
+
+  memgraph::utils::OnScopeExit increment_unreleased_deltas(
+      [] { memgraph::metrics::IncrementCounter(memgraph::metrics::UnreleasedDeltaObjects); });
+
   // Should use utils::DecodeFixed64(ts.c_str()) once we will move to RocksDB real timestamps
   uint64_t ts_id = utils::ParseStringToUint64(ts);
-  return &transaction->deltas.emplace_back(Delta::DeleteDeserializedObjectTag(), ts_id, std::move(old_disk_key));
+  return &transaction->deltas.emplace(Delta::DeleteDeserializedObjectTag(), ts_id, std::move(old_disk_key));
 }
 
-inline Delta *CreateDeleteDeserializedObjectDelta(std::list<Delta> *deltas, std::optional<std::string> old_disk_key,
+inline Delta *CreateDeleteDeserializedObjectDelta(delta_container *deltas, std::optional<std::string_view> old_disk_key,
                                                   std::string &&ts) {
+  memgraph::utils::OnScopeExit increment_unreleased_deltas(
+      [] { memgraph::metrics::IncrementCounter(memgraph::metrics::UnreleasedDeltaObjects); });
+
   // Should use utils::DecodeFixed64(ts.c_str()) once we will move to RocksDB real timestamps
   uint64_t ts_id = utils::ParseStringToUint64(ts);
-  return &deltas->emplace_back(Delta::DeleteDeserializedObjectTag(), ts_id, std::move(old_disk_key));
+  return &deltas->emplace(Delta::DeleteDeserializedObjectTag(), ts_id, std::move(old_disk_key));
 }
 
-inline Delta *CreateDeleteDeserializedIndexObjectDelta(std::list<Delta> &deltas,
-                                                       std::optional<std::string> old_disk_key, const uint64_t ts) {
-  return &deltas.emplace_back(Delta::DeleteDeserializedObjectTag(), ts, std::move(old_disk_key));
+inline Delta *CreateDeleteDeserializedIndexObjectDelta(delta_container &deltas,
+                                                       std::optional<std::string_view> old_disk_key,
+                                                       const uint64_t ts) {
+  memgraph::utils::OnScopeExit increment_unreleased_deltas(
+      [] { memgraph::metrics::IncrementCounter(memgraph::metrics::UnreleasedDeltaObjects); });
+  return &deltas.emplace(Delta::DeleteDeserializedObjectTag(), ts, std::move(old_disk_key));
 }
 
 /// TODO: what if in-memory analytical
-inline Delta *CreateDeleteDeserializedIndexObjectDelta(std::list<Delta> &deltas,
-                                                       std::optional<std::string> old_disk_key, const std::string &ts) {
+inline Delta *CreateDeleteDeserializedIndexObjectDelta(delta_container &deltas,
+                                                       std::optional<std::string_view> old_disk_key,
+                                                       const std::string &ts) {
   // Should use utils::DecodeFixed64(ts.c_str()) once we will move to RocksDB real timestamps
   uint64_t ts_id = utils::ParseStringToUint64(ts);
   return CreateDeleteDeserializedIndexObjectDelta(deltas, old_disk_key, ts_id);
@@ -164,9 +176,13 @@ inline void CreateAndLinkDelta(Transaction *transaction, TObj *object, Args &&..
   if (transaction->storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
     return;
   }
+
+  memgraph::utils::OnScopeExit increment_unreleased_deltas(
+      [] { memgraph::metrics::IncrementCounter(memgraph::metrics::UnreleasedDeltaObjects); });
+
   transaction->EnsureCommitTimestampExists();
-  auto delta = &transaction->deltas.emplace_back(std::forward<Args>(args)..., transaction->commit_timestamp.get(),
-                                                 transaction->command_id);
+  auto delta = &transaction->deltas.emplace(std::forward<Args>(args)..., transaction->commit_timestamp.get(),
+                                            transaction->command_id);
 
   // The operations are written in such order so that both `next` and `prev`
   // chains are valid at all times. The chains must be valid at all times

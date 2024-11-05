@@ -73,9 +73,13 @@ class Client {
 
     typename TRequestResponse::Response AwaitResponse() {
       auto res_type = TRequestResponse::Response::kType;
+      auto req_type = TRequestResponse::Request::kType;
 
       // Finalize the request.
       req_builder_.Finalize();
+
+      spdlog::trace("[RpcClient] sent {} to {}:{}", req_type.name, self_->client_->endpoint().GetAddress(),
+                    self_->client_->endpoint().GetPort());
 
       // Receive the response.
       uint64_t response_data_size = 0;
@@ -133,7 +137,8 @@ class Client {
         throw GenericRpcFailedException();
       }
 
-      SPDLOG_TRACE("[RpcClient] received {}", res_type.name);
+      spdlog::trace("[RpcClient] received {} from endpoint {}:{}.", res_type.name, self_->endpoint_.GetAddress(),
+                    self_->endpoint_.GetPort());
 
       return res_load_(&res_reader);
     }
@@ -190,9 +195,8 @@ class Client {
                                                  Args &&...args) {
     typename TRequestResponse::Request request(std::forward<Args>(args)...);
     auto req_type = TRequestResponse::Request::kType;
-    SPDLOG_TRACE("[RpcClient] sent {}", req_type.name);
 
-    std::unique_lock<std::mutex> guard(mutex_);
+    auto guard = std::unique_lock{mutex_};
 
     // Check if the connection is broken (if we haven't used the client for a
     // long time the server could have died).
@@ -204,7 +208,7 @@ class Client {
     if (!client_) {
       client_.emplace(context_);
       if (!client_->Connect(endpoint_)) {
-        SPDLOG_ERROR("Couldn't connect to remote address {}", endpoint_);
+        spdlog::error("Couldn't connect to remote address {}", endpoint_);
         client_ = std::nullopt;
         throw GenericRpcFailedException();
       }

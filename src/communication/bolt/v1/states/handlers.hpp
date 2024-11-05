@@ -25,8 +25,10 @@
 #include "communication/bolt/v1/state.hpp"
 #include "communication/bolt/v1/value.hpp"
 #include "communication/exceptions.hpp"
+#include "license/license_sender.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/logging.hpp"
+#include "utils/memory_tracker.hpp"
 #include "utils/message.hpp"
 
 namespace memgraph::communication::bolt {
@@ -61,6 +63,20 @@ inline std::pair<std::string, std::string> ExceptionToErrorMessage(const std::ex
     return {"Memgraph.TransientError.MemgraphError.MemgraphError", e.what()};
   }
   if (dynamic_cast<const std::bad_alloc *>(&e)) {
+    {
+      // It is possible that something used C based memory allocation and hence we didn't pick up the MemoryErrorStatus
+      // that corresponds to memory tracker errors. It is possible that 3rd party code or something following C++
+      // conventions will throw std::bad_alloc. We will check here and handle as an OutOfMemoryException if that is the
+      // case.
+      [[maybe_unused]] auto blocker = memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker{};
+      if (auto maybe_msg = memgraph::utils::MemoryErrorStatus().msg(); maybe_msg) {
+        DMG_ASSERT(false,
+                   "Something is using C based allocation and triggering MemoryTracker. This should not happen, go via "
+                   "C++ new/delete where possible");
+        return {"Memgraph.TransientError.MemgraphError.MemgraphError", std::move(*maybe_msg)};
+      }
+    }
+
     // std::bad_alloc was thrown, God knows in which state is database ->
     // terminate.
     LOG_FATAL("Memgraph is out of memory");
@@ -80,7 +96,7 @@ namespace details {
 template <bool is_pull, typename TSession>
 State HandlePullDiscard(TSession &session, std::optional<int> n, std::optional<int> qid) {
   try {
-    std::map<std::string, Value> summary;
+    map_t summary;
     if constexpr (is_pull) {
       // Pull can throw.
       summary = session.Pull(&session.encoder_, n, qid);
@@ -210,12 +226,6 @@ State HandleRunV1(TSession &session, const State state, const Marker marker) {
 
   DMG_ASSERT(!session.encoder_buffer_.HasData(), "There should be no data to write in this state");
 
-#if MG_ENTERPRISE
-  spdlog::debug("[Run - {}] '{}'", session.GetCurrentDB(), query.ValueString());
-#else
-  spdlog::debug("[Run] '{}'", query.ValueString());
-#endif
-
   // Increment number of queries in the metrics
   IncrementQueryMetrics(session);
 
@@ -224,7 +234,7 @@ State HandleRunV1(TSession &session, const State state, const Marker marker) {
     const auto [header, qid] = session.Interpret(query.ValueString(), params.ValueMap(), {});
     // Convert std::string to Value
     std::vector<Value> vec;
-    std::map<std::string, Value> data;
+    map_t data;
     vec.reserve(header.size());
     for (auto &i : header) vec.emplace_back(std::move(i));
     data.emplace("fields", std::move(vec));
@@ -281,12 +291,6 @@ State HandleRunV4(TSession &session, const State state, const Marker marker) {
     return HandleFailure(session, e);
   }
 
-#if MG_ENTERPRISE
-  spdlog::debug("[Run - {}] '{}'", session.GetCurrentDB(), query.ValueString());
-#else
-  spdlog::debug("[Run] '{}'", query.ValueString());
-#endif
-
   // Increment number of queries in the metrics
   IncrementQueryMetrics(session);
 
@@ -295,7 +299,7 @@ State HandleRunV4(TSession &session, const State state, const Marker marker) {
     const auto [header, qid] = session.Interpret(query.ValueString(), params.ValueMap(), extra.ValueMap());
     // Convert std::string to Value
     std::vector<Value> vec;
-    std::map<std::string, Value> data;
+    map_t data;
     vec.reserve(header.size());
     for (auto &i : header) vec.emplace_back(std::move(i));
     data.emplace("fields", std::move(vec));
@@ -338,16 +342,19 @@ State HandlePullV5(TSession &session, const State state, const Marker marker) {
 
 template <typename TSession>
 State HandleDiscardV1(TSession &session, const State state, const Marker marker) {
+  spdlog::trace("Received DISCARD message");
   return details::HandlePullDiscardV1<false>(session, state, marker);
 }
 
 template <typename TSession>
 State HandleDiscardV4(TSession &session, const State state, const Marker marker) {
+  spdlog::trace("Received DISCARD message");
   return details::HandlePullDiscardV4<false>(session, state, marker);
 }
 
 template <typename TSession>
 State HandleDiscardV5(TSession &session, const State state, const Marker marker) {
+  spdlog::trace("Received DISCARD message");
   // Using V4 on purpose
   return HandleDiscardV4<TSession>(session, state, marker);
 }
@@ -363,6 +370,7 @@ State HandleReset(TSession &session, const Marker marker) {
   // so we cannot simply "kill" a transaction while it is running. So
   // now this command only resets the session to a clean state. It
   // does not IGNORE running and pending commands as it should.
+  spdlog::trace("Received RESET message");
   if (marker != Marker::TinyStruct) {
     spdlog::trace("Expected TinyStruct marker, but received 0x{:02X}!", utils::UnderlyingCast(marker));
     return State::Close;
@@ -382,6 +390,7 @@ State HandleReset(TSession &session, const Marker marker) {
 
 template <typename TSession>
 State HandleBegin(TSession &session, const State state, const Marker marker) {
+  spdlog::trace("Received BEGIN message");
   if (marker != Marker::TinyStruct1) {
     spdlog::trace("Expected TinyStruct1 marker, but received 0x{:02x}!", utils::UnderlyingCast(marker));
     return State::Close;
@@ -415,6 +424,7 @@ State HandleBegin(TSession &session, const State state, const Marker marker) {
 
 template <typename TSession>
 State HandleCommit(TSession &session, const State state, const Marker marker) {
+  spdlog::trace("Received COMMIT message");
   if (marker != Marker::TinyStruct) {
     spdlog::trace("Expected TinyStruct marker, but received 0x{:02x}!", utils::UnderlyingCast(marker));
     return State::Close;

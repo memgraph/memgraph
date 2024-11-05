@@ -11,21 +11,21 @@
 
 #include "flags/run_time_configurable.hpp"
 
+#include <stdexcept>
 #include <string>
-#include <tuple>
 
 #include "gflags/gflags.h"
 
-#include "flags/bolt.hpp"
-#include "flags/general.hpp"
 #include "flags/log_level.hpp"
-#include "flags/query.hpp"
-#include "spdlog/cfg/helpers-inl.h"
 #include "spdlog/spdlog.h"
 #include "utils/exceptions.hpp"
 #include "utils/flag_validation.hpp"
 #include "utils/settings.hpp"
 #include "utils/string.hpp"
+
+namespace {
+bool ValidTimezone(std::string_view tz);
+}  // namespace
 
 /*
  * Setup GFlags
@@ -50,9 +50,20 @@ DEFINE_double(query_execution_timeout_sec, 600,
               "Maximum allowed query execution time. Queries exceeding this "
               "limit will be aborted. Value of 0 means no limit.");
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(hops_limit_partial_results, true,
+            "If set to true, the query will return partial results if the "
+            "hops limit is reached.");
+
 // Query plan flags
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(cartesian_product_enabled, true, "Enable cartesian product expansion.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
+DEFINE_VALIDATED_string(timezone, "UTC", "Define instance's timezone (IANA format).", { return ValidTimezone(value); });
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(query_log_directory, "", "Path to directory where the query logs should be stored.");
 
 namespace {
 // Bolt server name
@@ -61,6 +72,11 @@ constexpr auto kServerNameGFlagsKey = "bolt_server_name_for_init";
 // Query timeout
 constexpr auto kQueryTxSettingKey = "query.timeout";
 constexpr auto kQueryTxGFlagsKey = "query_execution_timeout_sec";
+
+// Hops limit partial results
+constexpr auto kHopsLimitPartialResultsSettingKey = "hops_limit_partial_results";
+constexpr auto kHopsLimitPartialResultsGFlagsKey = "hops_limit_partial_results";
+
 // Log level
 // No default value because it is not persistent
 constexpr auto kLogLevelSettingKey = "log.level";
@@ -73,10 +89,18 @@ constexpr auto kLogToStderrGFlagsKey = "also_log_to_stderr";
 constexpr auto kCartesianProductEnabledSettingKey = "cartesian-product-enabled";
 constexpr auto kCartesianProductEnabledGFlagsKey = "cartesian-product-enabled";
 
+constexpr auto kQueryLogDirectorySettingKey = "query-log-directory";
+constexpr auto kQueryLogDirectoryGFlagsKey = "query-log-directory";
+
+constexpr auto kTimezoneSettingKey = "timezone";
+constexpr auto kTimezoneGFlagsKey = kTimezoneSettingKey;
+
 // NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
 // Local cache-like thing
 std::atomic<double> execution_timeout_sec_;
+std::atomic<bool> hops_limit_partial_results{true};
 std::atomic<bool> cartesian_product_enabled_{true};
+std::atomic<const std::chrono::time_zone *> timezone_{nullptr};
 // NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
 
 auto ToLLEnum(std::string_view val) {
@@ -101,6 +125,17 @@ auto GenHandler(std::string flag, std::string key) {
   };
 }
 
+auto GetTimezone(std::string_view tz) -> const std::chrono::time_zone * {
+  try {
+    return std::chrono::locate_zone(tz);
+  } catch (const std::runtime_error &e) {
+    spdlog::warn("Unsupported timezone: {}", e.what());
+    return nullptr;
+  }
+}
+
+bool ValidTimezone(std::string_view tz) { return GetTimezone(tz) != nullptr; }
+
 }  // namespace
 
 namespace memgraph::flags::run_time {
@@ -124,19 +159,18 @@ void Initialize() {
     // Get flag info
     gflags::CommandLineFlagInfo info;
     gflags::GetCommandLineFlagInfo(flag.c_str(), &info);
+
+    // Generate settings callback
+    auto callback = [update = GenHandler(flag, key), post_update = std::move(post_update)] {
+      const auto &val = update();
+      post_update(val);
+    };
     // Register setting
-    auto update = GenHandler(flag, key);
-    memgraph::utils::global_settings.RegisterSetting(
-        key, info.default_value,
-        [update, post_update = std::move(post_update)] {
-          const auto &val = update();
-          post_update(val);
-        },
-        validator);
+    memgraph::utils::global_settings.RegisterSetting(key, info.default_value, callback, validator);
 
     if (restore && info.is_default) {
       // No input from the user, restore persistent value from settings
-      update();
+      callback();
     } else {
       // Override with current value - user defined a new value or the run-time flag is not persistent between starts
       memgraph::utils::global_settings.SetValue(key, info.current_value);
@@ -154,6 +188,13 @@ void Initialize() {
   register_flag(kQueryTxGFlagsKey, kQueryTxSettingKey, !kRestore, [&](const std::string &val) {
     execution_timeout_sec_ = std::stod(val);  // Cache for faster reads
   });
+
+  /*
+   * Register hops limit partial results
+   */
+  register_flag(
+      kHopsLimitPartialResultsGFlagsKey, kHopsLimitPartialResultsSettingKey, kRestore,
+      [](const std::string &val) { hops_limit_partial_results = val == "true"; }, ValidBoolStr);
 
   /*
    * Register log level
@@ -183,9 +224,27 @@ void Initialize() {
       },
       ValidBoolStr);
 
+  /*
+   * Register cartesian enable flag
+   */
   register_flag(
       kCartesianProductEnabledGFlagsKey, kCartesianProductEnabledSettingKey, !kRestore,
       [](const std::string &val) { cartesian_product_enabled_ = val == "true"; }, ValidBoolStr);
+
+  /*
+   * Register timezone setting
+   */
+  register_flag(
+      kTimezoneGFlagsKey, kTimezoneSettingKey, kRestore,
+      [](const std::string &val) {
+        timezone_ = ::GetTimezone(val);  // Cache for faster access
+      },
+      ValidTimezone);
+
+  /*
+   * Register query log directory setting
+   */
+  register_flag(kQueryLogDirectoryGFlagsKey, kQueryLogDirectorySettingKey, kRestore);
 }
 
 std::string GetServerName() {
@@ -197,6 +256,17 @@ std::string GetServerName() {
 
 double GetExecutionTimeout() { return execution_timeout_sec_; }
 
+bool GetHopsLimitPartialResults() { return hops_limit_partial_results; }
+
 bool GetCartesianProductEnabled() { return cartesian_product_enabled_; }
+
+const std::chrono::time_zone *GetTimezone() { return timezone_; }
+
+std::string GetQueryLogDirectory() {
+  std::string s;
+  // Thread safe read of gflag
+  gflags::GetCommandLineOption(kQueryLogDirectoryGFlagsKey, &s);
+  return s;
+}
 
 }  // namespace memgraph::flags::run_time

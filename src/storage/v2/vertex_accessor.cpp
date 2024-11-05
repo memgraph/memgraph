@@ -11,27 +11,46 @@
 
 #include "storage/v2/vertex_accessor.hpp"
 
+#include <algorithm>
+#include <cstdint>
 #include <memory>
 #include <tuple>
 #include <utility>
 
 #include "query/exceptions.hpp"
+#include "query/hops_limit.hpp"
+#include "storage/v2/constraints/constraint_violation.hpp"
+#include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/disk/storage.hpp"
+#include "storage/v2/edge.hpp"
 #include "storage/v2/edge_accessor.hpp"
+#include "storage/v2/edge_direction.hpp"
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/indices/indices.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
+#include "storage/v2/schema_info.hpp"
+#include "storage/v2/schema_info_glue.hpp"
 #include "storage/v2/storage.hpp"
+#include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex_info_cache.hpp"
 #include "storage/v2/vertex_info_helpers.hpp"
+#include "storage/v2/view.hpp"
 #include "utils/atomic_memory_block.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
+#include "utils/small_vector.hpp"
 #include "utils/variant_helpers.hpp"
 
 namespace memgraph::storage {
+
+namespace {
+void HandleTypeConstraintViolation(Storage const *storage, ConstraintViolation const &violation) {
+  throw query::QueryException("IS TYPED {} violation on {}({})", TypeConstraintKindToString(*violation.constraint_kind),
+                              storage->LabelToName(violation.label),
+                              storage->PropertyToName(*violation.properties.begin()));
+}
+}  // namespace
 
 namespace detail {
 std::pair<bool, bool> IsVisible(Vertex const *vertex, Transaction const *transaction, View view) {
@@ -102,16 +121,46 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
     throw query::WriteVertexOperationInEdgeImportModeException();
   }
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+  // This has to be called before any object gets locked
+  // 1. do a optimistic shared lock
+  // 2. lock vertex and check
+  // 3. if unique lock is needed unlock both the vertex and accessor
+  // 4. take unique access and re-lock vertex
+  std::optional<SchemaInfo::ModifyingAccessor> schema_acc;
+  if (auto schema_shared_acc = SchemaInfoAccessor(storage_, transaction_); schema_shared_acc) {
+    schema_acc = std::move(*schema_shared_acc);
+  }
   auto guard = std::unique_lock{vertex_->lock};
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
   if (vertex_->deleted) return Error::DELETED_OBJECT;
+
+  // Now that the vertex is locked, we can check if it has any edges and if it does, we can upgrade the accessor
+  if (schema_acc) {
+    if (!vertex_->in_edges.empty() || !vertex_->out_edges.empty()) {
+      guard.unlock();
+      schema_acc.reset();
+      std::visit(utils::Overloaded{[&schema_acc](auto in) { schema_acc = std::move(in); }},
+                 *SchemaInfoUniqueAccessor(storage_, transaction_));
+      guard.lock();
+      // Need to re-check for serialization errors
+      if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
+      if (vertex_->deleted) return Error::DELETED_OBJECT;
+    }
+  }
+
   if (std::find(vertex_->labels.begin(), vertex_->labels.end(), label) != vertex_->labels.end()) return false;
 
   utils::AtomicMemoryBlock([transaction = transaction_, vertex = vertex_, &label]() {
     CreateAndLinkDelta(transaction, vertex, Delta::RemoveLabelTag(), label);
     vertex->labels.push_back(label);
   });
+
+  if (storage_->constraints_.HasTypeConstraints()) {
+    if (auto maybe_violation = storage_->constraints_.type_constraints_->Validate(*vertex_, label)) {
+      HandleTypeConstraintViolation(storage_, *maybe_violation);
+    }
+  }
 
   if (storage_->config_.salient.items.enable_schema_metadata) {
     storage_->stored_node_labels_.try_insert(label);
@@ -136,8 +185,13 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
   storage_->constraints_.unique_constraints_->UpdateOnAddLabel(label, *vertex_, transaction_->start_timestamp);
   if (transaction_->constraint_verification_info) transaction_->constraint_verification_info->AddedLabel(vertex_);
   storage_->indices_.UpdateOnAddLabel(label, vertex_, *transaction_);
-  transaction_->manyDeltasCache.Invalidate(vertex_, label);
+  transaction_->UpdateOnChangeLabel(label, vertex_);
 
+  // NOTE Has to be called at the end because it needs to be able to release the vertex lock (in case edges need to be
+  // updated)
+  if (schema_acc) {
+    std::visit(utils::Overloaded([&](auto &acc) { acc.AddLabel(vertex_, label); }), *schema_acc);
+  }
   return true;
 }
 
@@ -146,10 +200,33 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
   if (transaction_->edge_import_mode_active) {
     throw query::WriteVertexOperationInEdgeImportModeException();
   }
+  // This has to be called before any object gets locked
+  // 1. do an optimistic shared lock
+  // 2. lock vertex and check
+  // 3. if unique lock is needed unlock both the vertex and accessor
+  // 4. take unique access and re-lock vertex
+  std::optional<SchemaInfo::ModifyingAccessor> schema_acc;
+  if (auto schema_shared_acc = SchemaInfoAccessor(storage_, transaction_); schema_shared_acc) {
+    schema_acc = std::move(*schema_shared_acc);
+  }
   auto guard = std::unique_lock{vertex_->lock};
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
   if (vertex_->deleted) return Error::DELETED_OBJECT;
+
+  // Now that the vertex is locked, we can check if it has any edges and if it does, we can upgrade the accessor
+  if (schema_acc) {
+    if (!vertex_->in_edges.empty() || !vertex_->out_edges.empty()) {
+      guard.unlock();
+      schema_acc.reset();
+      std::visit(utils::Overloaded{[&schema_acc](auto in) { schema_acc = std::move(in); }},
+                 *SchemaInfoUniqueAccessor(storage_, transaction_));
+      guard.lock();
+      // Need to re-check for serialization errors
+      if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
+      if (vertex_->deleted) return Error::DELETED_OBJECT;
+    }
+  }
 
   auto it = std::find(vertex_->labels.begin(), vertex_->labels.end(), label);
   if (it == vertex_->labels.end()) return false;
@@ -163,8 +240,13 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
   /// TODO: some by pointers, some by reference => not good, make it better
   storage_->constraints_.unique_constraints_->UpdateOnRemoveLabel(label, *vertex_, transaction_->start_timestamp);
   storage_->indices_.UpdateOnRemoveLabel(label, vertex_, *transaction_);
-  transaction_->manyDeltasCache.Invalidate(vertex_, label);
+  transaction_->UpdateOnChangeLabel(label, vertex_);
 
+  // NOTE Has to be called at the end because it needs to be able to release the vertex lock (in case edges need to be
+  // updated)
+  if (schema_acc) {
+    std::visit(utils::Overloaded([&](auto &acc) { acc.RemoveLabel(vertex_, label); }), *schema_acc);
+  }
   return true;
 }
 
@@ -215,10 +297,10 @@ Result<bool> VertexAccessor::HasLabel(LabelId label, View view) const {
   return has_label;
 }
 
-Result<std::vector<LabelId>> VertexAccessor::Labels(View view) const {
+Result<utils::small_vector<LabelId>> VertexAccessor::Labels(View view) const {
   bool exists = true;
   bool deleted = false;
-  std::vector<LabelId> labels;
+  utils::small_vector<LabelId> labels;
   Delta *delta = nullptr;
   {
     auto guard = std::shared_lock{vertex_->lock};
@@ -262,55 +344,72 @@ Result<std::vector<LabelId>> VertexAccessor::Labels(View view) const {
   return std::move(labels);
 }
 
-Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const PropertyValue &value) {
+Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const PropertyValue &new_value) const {
   if (transaction_->edge_import_mode_active) {
     throw query::WriteVertexOperationInEdgeImportModeException();
   }
 
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+  // This has to be called before any object gets locked
+  auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
   auto guard = std::unique_lock{vertex_->lock};
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
 
   if (vertex_->deleted) return Error::DELETED_OBJECT;
 
-  PropertyValue current_value;
+  PropertyValue old_value;
   const bool skip_duplicate_write = !storage_->config_.salient.items.delta_on_identical_property_update;
-  auto const set_property_impl = [transaction = transaction_, vertex = vertex_, &value, &property, &current_value,
-                                  skip_duplicate_write]() {
-    current_value = vertex->properties.GetProperty(property);
+  auto const set_property_impl = [this, transaction = transaction_, vertex = vertex_, &new_value, &property, &old_value,
+                                  skip_duplicate_write, &schema_acc]() {
+    old_value = vertex->properties.GetProperty(property);
     // We could skip setting the value if the previous one is the same to the new
     // one. This would save some memory as a delta would not be created as well as
     // avoid copying the value. The reason we are not doing that is because the
     // current code always follows the logical pattern of "create a delta" and
     // "modify in-place". Additionally, the created delta will make other
     // transactions get a SERIALIZATION_ERROR.
-    if (skip_duplicate_write && current_value == value) {
+    if (skip_duplicate_write && old_value == new_value) {
       return true;
     }
 
-    CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, current_value);
-    vertex->properties.SetProperty(property, value);
+    CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, old_value);
+    vertex->properties.SetProperty(property, new_value);
+    if (schema_acc) {
+      std::visit(
+          utils::Overloaded{[vertex, property, new_type = ExtendedPropertyType{new_value},
+                             old_type = ExtendedPropertyType{old_value}](SchemaInfo::VertexModifyingAccessor &acc) {
+                              acc.SetProperty(vertex, property, new_type, old_type);
+                            },
+                            [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+          *schema_acc);
+    }
+
+    if (storage_->constraints_.HasTypeConstraints()) {
+      if (auto maybe_violation = storage_->constraints_.type_constraints_->Validate(*vertex_, property, new_value)) {
+        HandleTypeConstraintViolation(storage_, *maybe_violation);
+      }
+    }
 
     return false;
   };
 
   auto early_exit = utils::AtomicMemoryBlock(set_property_impl);
   if (early_exit) {
-    return std::move(current_value);
+    return std::move(old_value);
   }
 
   if (transaction_->constraint_verification_info) {
-    if (!value.IsNull()) {
+    if (!new_value.IsNull()) {
       transaction_->constraint_verification_info->AddedProperty(vertex_);
     } else {
       transaction_->constraint_verification_info->RemovedProperty(vertex_);
     }
   }
-  storage_->indices_.UpdateOnSetProperty(property, value, vertex_, *transaction_);
-  transaction_->manyDeltasCache.Invalidate(vertex_, property);
+  storage_->indices_.UpdateOnSetProperty(property, new_value, vertex_, *transaction_);
+  transaction_->UpdateOnSetProperty(property, old_value, new_value, vertex_);
 
-  return std::move(current_value);
+  return std::move(old_value);
 }
 
 Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
@@ -319,31 +418,51 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
   }
 
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+  // This has to be called before any object gets locked
+  auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
   auto guard = std::unique_lock{vertex_->lock};
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
 
   if (vertex_->deleted) return Error::DELETED_OBJECT;
   bool result{false};
-  utils::AtomicMemoryBlock([&result, &properties, storage = storage_, transaction = transaction_, vertex = vertex_]() {
-    if (!vertex->properties.InitProperties(properties)) {
-      result = false;
-      return;
-    }
-    for (const auto &[property, value] : properties) {
-      CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, PropertyValue());
-      storage->indices_.UpdateOnSetProperty(property, value, vertex, *transaction);
-      transaction->manyDeltasCache.Invalidate(vertex, property);
-      if (transaction->constraint_verification_info) {
-        if (!value.IsNull()) {
-          transaction->constraint_verification_info->AddedProperty(vertex);
-        } else {
-          transaction->constraint_verification_info->RemovedProperty(vertex);
+  utils::AtomicMemoryBlock(
+      [&result, &properties, storage = storage_, transaction = transaction_, vertex = vertex_, &schema_acc]() {
+        if (!vertex->properties.InitProperties(properties)) {
+          result = false;
+          return;
         }
-      }
-    }
-    result = true;
-  });
+        for (const auto &[property, new_value] : properties) {
+          CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, PropertyValue());
+          storage->indices_.UpdateOnSetProperty(property, new_value, vertex, *transaction);
+          transaction->UpdateOnSetProperty(property, PropertyValue{}, new_value, vertex);
+          if (transaction->constraint_verification_info) {
+            if (!new_value.IsNull()) {
+              transaction->constraint_verification_info->AddedProperty(vertex);
+            } else {
+              transaction->constraint_verification_info->RemovedProperty(vertex);
+            }
+          }
+          if (schema_acc) {
+            std::visit(utils::Overloaded{[vertex, property, new_type = ExtendedPropertyType{new_value}](
+                                             SchemaInfo::VertexModifyingAccessor &acc) {
+                                           acc.SetProperty(vertex, property, new_type, ExtendedPropertyType{});
+                                         },
+                                         [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+                       *schema_acc);
+          }
+        }
+        // TODO If not performant enough there is also InitProperty()
+        if (storage->constraints_.HasTypeConstraints()) {
+          for (auto const &[property_id, property_value] : properties) {
+            if (auto maybe_violation =
+                    storage->constraints_.type_constraints_->Validate(*vertex, property_id, property_value)) {
+              HandleTypeConstraintViolation(storage, *maybe_violation);
+            }
+          }
+        }
+        result = true;
+      });
 
   return result;
 }
@@ -355,6 +474,8 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
   }
 
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+  // This has to be called before any object gets locked
+  auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
   auto guard = std::unique_lock{vertex_->lock};
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
@@ -365,22 +486,36 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
   using ReturnType = decltype(vertex_->properties.UpdateProperties(properties));
   std::optional<ReturnType> id_old_new_change;
   utils::AtomicMemoryBlock([storage = storage_, transaction = transaction_, vertex = vertex_, &properties,
-                            &id_old_new_change, skip_duplicate_update]() {
+                            &id_old_new_change, skip_duplicate_update, &schema_acc]() {
     id_old_new_change.emplace(vertex->properties.UpdateProperties(properties));
     if (!id_old_new_change.has_value()) {
       return;
     }
+
     for (auto &[id, old_value, new_value] : *id_old_new_change) {
       storage->indices_.UpdateOnSetProperty(id, new_value, vertex, *transaction);
       if (skip_duplicate_update && old_value == new_value) continue;
-      CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), id, std::move(old_value));
-      transaction->manyDeltasCache.Invalidate(vertex, id);
+      CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), id, old_value);
+      transaction->UpdateOnSetProperty(id, old_value, new_value, vertex);
       if (transaction->constraint_verification_info) {
         if (!new_value.IsNull()) {
           transaction->constraint_verification_info->AddedProperty(vertex);
         } else {
           transaction->constraint_verification_info->RemovedProperty(vertex);
         }
+      }
+      if (schema_acc) {
+        std::visit(utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) {
+                                       acc.SetProperty(vertex, id, ExtendedPropertyType{new_value},
+                                                       ExtendedPropertyType{old_value});
+                                     },
+                                     [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+                   *schema_acc);
+      }
+    }
+    if (storage->constraints_.HasTypeConstraints()) {
+      if (auto maybe_violation = storage->constraints_.type_constraints_->Validate(*vertex)) {
+        HandleTypeConstraintViolation(storage, *maybe_violation);
       }
     }
   });
@@ -392,6 +527,8 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
   if (transaction_->edge_import_mode_active) {
     throw query::WriteVertexOperationInEdgeImportModeException();
   }
+  // This has to be called before any object gets locked
+  auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
   auto guard = std::unique_lock{vertex_->lock};
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
@@ -400,21 +537,31 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
 
   using ReturnType = decltype(vertex_->properties.Properties());
   std::optional<ReturnType> properties;
-  utils::AtomicMemoryBlock([storage = storage_, transaction = transaction_, vertex = vertex_, &properties]() {
-    properties.emplace(vertex->properties.Properties());
-    if (!properties.has_value()) {
-      return;
-    }
-    for (const auto &[property, value] : *properties) {
-      CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, value);
-      storage->indices_.UpdateOnSetProperty(property, PropertyValue(), vertex, *transaction);
-      transaction->manyDeltasCache.Invalidate(vertex, property);
-    }
-    if (transaction->constraint_verification_info) {
-      transaction->constraint_verification_info->RemovedProperty(vertex);
-    }
-    vertex->properties.ClearProperties();
-  });
+  utils::AtomicMemoryBlock(
+      [storage = storage_, transaction = transaction_, vertex = vertex_, &properties, &schema_acc]() {
+        properties.emplace(vertex->properties.Properties());
+        if (!properties.has_value()) {
+          return;
+        }
+        auto new_value = PropertyValue();
+        for (const auto &[property, old_value] : *properties) {
+          CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, old_value);
+          storage->indices_.UpdateOnSetProperty(property, new_value, vertex, *transaction);
+          transaction->UpdateOnSetProperty(property, old_value, new_value, vertex);
+          if (schema_acc) {
+            std::visit(utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) {
+                                           acc.SetProperty(vertex, property, ExtendedPropertyType{},
+                                                           ExtendedPropertyType{old_value});
+                                         },
+                                         [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+                       *schema_acc);
+          }
+        }
+        if (transaction->constraint_verification_info) {
+          transaction->constraint_verification_info->RemovedProperty(vertex);
+        }
+        vertex->properties.ClearProperties();
+      });
 
   return properties.has_value() ? std::move(properties.value()) : ReturnType{};
 }
@@ -585,7 +732,8 @@ auto VertexAccessor::BuildResultWithDisk(edge_store const &in_memory_edges, std:
 };
 
 Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::vector<EdgeTypeId> &edge_types,
-                                                          const VertexAccessor *destination) const {
+                                                          const VertexAccessor *destination,
+                                                          query::HopsLimit *hops_limit) const {
   MG_ASSERT(!destination || destination->transaction_ == transaction_, "Invalid accessor!");
 
   std::vector<EdgeAccessor> disk_edges{};
@@ -599,7 +747,7 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
     if (deleted) return Error::DELETED_OBJECT;
     bool edges_modified_in_tx = !vertex_->in_edges.empty();
 
-    disk_edges = disk_storage->InEdges(this, edge_types, destination, transaction_, view);
+    disk_edges = disk_storage->InEdges(this, edge_types, destination, transaction_, view, hops_limit);
     if (view == View::OLD && !edges_modified_in_tx) {
       return EdgesVertexAccessorResult{.edges = disk_edges, .expanded_count = static_cast<int64_t>(disk_edges.size())};
     }
@@ -615,17 +763,10 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
   {
     auto guard = std::shared_lock{vertex_->lock};
     deleted = vertex_->deleted;
-    expanded_count = static_cast<int64_t>(vertex_->in_edges.size());
-    // TODO: a better filter copy
     if (edge_types.empty() && !destination) {
-      in_edges = vertex_->in_edges;
+      expanded_count = HandleExpansionsWithoutEdgeTypes(in_edges, hops_limit, EdgeDirection::IN);
     } else {
-      for (const auto &[edge_type, from_vertex, edge] : vertex_->in_edges) {
-        if (destination && from_vertex != destination_vertex) continue;
-        if (!edge_types.empty() && std::find(edge_types.begin(), edge_types.end(), edge_type) == edge_types.end())
-          continue;
-        in_edges.emplace_back(edge_type, from_vertex, edge);
-      }
+      expanded_count = HandleExpansionsWithEdgeTypes(in_edges, edge_types, destination, hops_limit, EdgeDirection::IN);
     }
     delta = vertex_->delta;
   }
@@ -675,7 +816,8 @@ Result<EdgesVertexAccessorResult> VertexAccessor::InEdges(View view, const std::
 }
 
 Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std::vector<EdgeTypeId> &edge_types,
-                                                           const VertexAccessor *destination) const {
+                                                           const VertexAccessor *destination,
+                                                           query::HopsLimit *hops_limit) const {
   MG_ASSERT(!destination || destination->transaction_ == transaction_, "Invalid accessor!");
 
   /// TODO: (andi) I think that here should be another check:
@@ -688,7 +830,7 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
     if (deleted) return Error::DELETED_OBJECT;
     bool edges_modified_in_tx = !vertex_->out_edges.empty();
 
-    disk_edges = disk_storage->OutEdges(this, edge_types, destination, transaction_, view);
+    disk_edges = disk_storage->OutEdges(this, edge_types, destination, transaction_, view, hops_limit);
 
     if (view == View::OLD && !edges_modified_in_tx) {
       return EdgesVertexAccessorResult{.edges = disk_edges, .expanded_count = static_cast<int64_t>(disk_edges.size())};
@@ -705,16 +847,11 @@ Result<EdgesVertexAccessorResult> VertexAccessor::OutEdges(View view, const std:
   {
     auto guard = std::shared_lock{vertex_->lock};
     deleted = vertex_->deleted;
-    expanded_count = static_cast<int64_t>(vertex_->out_edges.size());
     if (edge_types.empty() && !destination) {
-      out_edges = vertex_->out_edges;
+      expanded_count = HandleExpansionsWithoutEdgeTypes(out_edges, hops_limit, EdgeDirection::OUT);
     } else {
-      for (const auto &[edge_type, to_vertex, edge] : vertex_->out_edges) {
-        if (destination && to_vertex != dst_vertex) continue;
-        if (!edge_types.empty() && std::find(edge_types.begin(), edge_types.end(), edge_type) == edge_types.end())
-          continue;
-        out_edges.emplace_back(edge_type, to_vertex, edge);
-      }
+      expanded_count =
+          HandleExpansionsWithEdgeTypes(out_edges, edge_types, destination, hops_limit, EdgeDirection::OUT);
     }
     delta = vertex_->delta;
   }
@@ -875,4 +1012,41 @@ Result<size_t> VertexAccessor::OutDegree(View view) const {
   return degree;
 }
 
+int64_t VertexAccessor::HandleExpansionsWithoutEdgeTypes(edge_store &result_edges, query::HopsLimit *hops_limit,
+                                                         EdgeDirection direction) const {
+  int64_t expanded_count = 0;
+  const auto &edges = direction == EdgeDirection::IN ? vertex_->in_edges : vertex_->out_edges;
+  if (hops_limit && hops_limit->IsUsed()) {
+    if (hops_limit->LeftHops() == 0 && static_cast<int64_t>(edges.size()) > 0) {
+      hops_limit->limit_reached = true;
+    } else {
+      expanded_count = std::min(hops_limit->LeftHops(), static_cast<int64_t>(edges.size()));
+      hops_limit->IncrementHopsCount(expanded_count);
+      std::copy_n(edges.begin(), expanded_count, std::back_inserter(result_edges));
+    }
+  } else {
+    expanded_count = static_cast<int64_t>(edges.size());
+    result_edges = edges;
+  }
+  return expanded_count;
+}
+
+int64_t VertexAccessor::HandleExpansionsWithEdgeTypes(edge_store &result_edges,
+                                                      const std::vector<EdgeTypeId> &edge_types,
+                                                      const VertexAccessor *destination, query::HopsLimit *hops_limit,
+                                                      EdgeDirection direction) const {
+  int64_t expanded_count = 0;
+  const auto &edges = direction == EdgeDirection::IN ? vertex_->in_edges : vertex_->out_edges;
+  for (const auto &[edge_type, vertex, edge] : edges) {
+    if (hops_limit && hops_limit->IsUsed()) {
+      hops_limit->IncrementHopsCount(1);
+      if (hops_limit->IsLimitReached()) break;
+    }
+    expanded_count++;
+    if (destination && vertex != destination->vertex_) continue;
+    if (!edge_types.empty() && std::find(edge_types.begin(), edge_types.end(), edge_type) == edge_types.end()) continue;
+    result_edges.emplace_back(edge_type, vertex, edge);
+  }
+  return expanded_count;
+}
 }  // namespace memgraph::storage

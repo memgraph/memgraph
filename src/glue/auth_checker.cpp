@@ -18,21 +18,26 @@
 #include "license/license.hpp"
 #include "query/auth_checker.hpp"
 #include "query/constants.hpp"
+#include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/query_user.hpp"
+#include "storage/v2/id_types.hpp"
 #include "utils/logging.hpp"
 #include "utils/synchronized.hpp"
 #include "utils/variant_helpers.hpp"
 
+#include <algorithm>
+#include <span>
+
 #ifdef MG_ENTERPRISE
 namespace {
 bool IsAuthorizedLabels(const memgraph::auth::UserOrRole &user_or_role, const memgraph::query::DbAccessor *dba,
-                        const std::vector<memgraph::storage::LabelId> &labels,
+                        std::span<memgraph::storage::LabelId const> labels,
                         const memgraph::query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) {
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return true;
   }
-  return std::all_of(labels.begin(), labels.end(), [dba, &user_or_role, fine_grained_privilege](const auto &label) {
+  return std::ranges::all_of(labels, [dba, &user_or_role, fine_grained_privilege](const auto &label) {
     return std::visit(memgraph::utils::Overloaded{[&](auto &user_or_role) {
                         return user_or_role.GetFineGrainedAccessLabelPermissions().Has(
                                    dba->LabelToName(label), memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(
@@ -142,7 +147,7 @@ std::unique_ptr<memgraph::query::FineGrainedAuthChecker> AuthChecker::GetFineGra
 
 bool AuthChecker::IsUserAuthorized(const memgraph::auth::User &user,
                                    const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
-                                   const std::string &db_name) {  // NOLINT
+                                   std::string_view db_name) {  // NOLINT
 #ifdef MG_ENTERPRISE
   if (!db_name.empty() && !user.HasAccess(db_name)) {
     return false;
@@ -157,7 +162,7 @@ bool AuthChecker::IsUserAuthorized(const memgraph::auth::User &user,
 
 bool AuthChecker::IsRoleAuthorized(const memgraph::auth::Role &role,
                                    const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
-                                   const std::string &db_name) {  // NOLINT
+                                   std::string_view db_name) {  // NOLINT
 #ifdef MG_ENTERPRISE
   if (!db_name.empty() && !role.HasAccess(db_name)) {
     return false;
@@ -172,7 +177,7 @@ bool AuthChecker::IsRoleAuthorized(const memgraph::auth::Role &role,
 
 bool AuthChecker::IsUserOrRoleAuthorized(const memgraph::auth::UserOrRole &user_or_role,
                                          const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
-                                         const std::string &db_name) {
+                                         std::string_view db_name) {
   return std::visit(
       utils::Overloaded{
           [&](const auth::User &user) -> bool { return AuthChecker::IsUserAuthorized(user, privileges, db_name); },

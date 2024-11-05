@@ -31,12 +31,13 @@ CoordinatorState::CoordinatorState(CoordinatorInstanceInitConfig const &config) 
 }
 
 CoordinatorState::CoordinatorState(ReplicationInstanceInitConfig const &config) {
-  auto const mgmt_config = ManagementServerConfig{
-      .ip_address = kDefaultReplicationServerIp,
-      .port = static_cast<uint16_t>(config.management_port),
+  ManagementServerConfig const mgmt_config{
+      io::network::Endpoint{kDefaultManagementServerIp, static_cast<uint16_t>(config.management_port)},
   };
-  data_ = CoordinatorMainReplicaData{.coordinator_server_ = std::make_unique<CoordinatorServer>(mgmt_config)};
-  spdlog::trace("Created coordinator server on address {}:{}.", mgmt_config.ip_address, mgmt_config.port);
+  data_ = CoordinatorMainReplicaData{.data_instance_management_server_ =
+                                         std::make_unique<DataInstanceManagementServer>(mgmt_config)};
+  spdlog::trace("Created data instance management server on address {}:{}.", mgmt_config.endpoint.GetAddress(),
+                mgmt_config.endpoint.GetPort());
 }
 
 auto CoordinatorState::RegisterReplicationInstance(CoordinatorToReplicaConfig const &config)
@@ -83,16 +84,20 @@ auto CoordinatorState::DemoteInstanceToReplica(std::string_view instance_name) -
       data_);
 }
 
-auto CoordinatorState::ForceResetClusterState() -> ForceResetClusterStateStatus {
+auto CoordinatorState::ReconcileClusterState() -> ReconcileClusterStateStatus {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Coordinator cannot force reset cluster state since variant holds wrong alternative.");
 
   return std::visit(
-      memgraph::utils::Overloaded{
-          [](const CoordinatorMainReplicaData & /*coordinator_main_replica_data*/) {
-            return ForceResetClusterStateStatus::NOT_COORDINATOR;
-          },
-          [](CoordinatorInstance &coordinator_instance) { return coordinator_instance.TryForceResetClusterState(); }},
+      memgraph::utils::Overloaded{[](const CoordinatorMainReplicaData & /*coordinator_main_replica_data*/) {
+                                    spdlog::error(
+                                        "Coordinator cannot force reset cluster state since it is not a "
+                                        "coordinator instance.");
+                                    return ReconcileClusterStateStatus::FAIL;
+                                  },
+                                  [](CoordinatorInstance &coordinator_instance) {
+                                    return coordinator_instance.TryVerifyOrCorrectClusterState();
+                                  }},
       data_);
 }
 
@@ -117,10 +122,10 @@ auto CoordinatorState::ShowInstances() const -> std::vector<InstanceStatus> {
   return std::get<CoordinatorInstance>(data_).ShowInstances();
 }
 
-auto CoordinatorState::GetCoordinatorServer() const -> CoordinatorServer & {
+auto CoordinatorState::GetDataInstanceManagementServer() const -> DataInstanceManagementServer & {
   MG_ASSERT(std::holds_alternative<CoordinatorMainReplicaData>(data_),
             "Cannot get coordinator server since variant holds wrong alternative");
-  return *std::get<CoordinatorMainReplicaData>(data_).coordinator_server_;
+  return *std::get<CoordinatorMainReplicaData>(data_).data_instance_management_server_;
 }
 
 auto CoordinatorState::AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config)

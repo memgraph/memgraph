@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,17 +11,16 @@
 
 #pragma once
 
-#include <utility>
-
 #include "query/config.hpp"
-#include "query/frontend/semantic/required_privileges.hpp"
-#include "query/frontend/semantic/symbol_generator.hpp"
+#include "query/frontend/ast/ast.hpp"
+#include "query/frontend/semantic/symbol_table.hpp"
 #include "query/frontend/stripped.hpp"
-#include "query/plan/planner.hpp"
-#include "utils/flag_validation.hpp"
+#include "query/parameters.hpp"
+#include "storage/v2/property_value.hpp"
 #include "utils/lru_cache.hpp"
 #include "utils/synchronized.hpp"
-#include "utils/timer.hpp"
+
+#include "gflags/gflags.h"
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(query_cost_planner);
@@ -29,6 +28,13 @@ DECLARE_bool(query_cost_planner);
 DECLARE_int32(query_plan_cache_max_size);
 
 namespace memgraph::query {
+
+namespace plan {
+class LogicalOperator;
+}
+
+class SymbolTable;
+class Query;
 
 // TODO: Maybe this should move to query/plan/planner.
 /// Interface for accessing the root operator of a logical plan.
@@ -48,6 +54,11 @@ class LogicalPlan {
   virtual const SymbolTable &GetSymbolTable() const = 0;
   virtual const AstStorage &GetAstStorage() const = 0;
 };
+
+using UserParameters = storage::PropertyValue::map_t;
+
+auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserParameters const &user_parameters)
+    -> Parameters;
 
 class PlanWrapper {
  public:
@@ -85,27 +96,26 @@ struct QueryCacheEntry {
  */
 struct ParsedQuery {
   std::string query_string;
-  std::map<std::string, storage::PropertyValue> user_parameters;
-  Parameters parameters;
   frontend::StrippedQuery stripped_query;
   AstStorage ast_storage;
   Query *query;
   std::vector<AuthQuery::Privilege> required_privileges;
   bool is_cacheable{true};
+  UserParameters user_parameters;
+  Parameters parameters;
 };
 
-ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::string, storage::PropertyValue> &params,
+ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &user_parameters,
                        utils::SkipList<QueryCacheEntry> *cache, const InterpreterConfig::Query &query_config);
 
 class SingleNodeLogicalPlan final : public LogicalPlan {
  public:
   SingleNodeLogicalPlan(std::unique_ptr<plan::LogicalOperator> root, double cost, AstStorage storage,
-                        SymbolTable symbol_table)
-      : root_(std::move(root)), cost_(cost), storage_(std::move(storage)), symbol_table_(std::move(symbol_table)) {}
+                        SymbolTable symbol_table);
 
   const plan::LogicalOperator &GetRoot() const override { return *root_; }
   double GetCost() const override { return cost_; }
-  const SymbolTable &GetSymbolTable() const override { return symbol_table_; }
+  const SymbolTable &GetSymbolTable() const override;
   const AstStorage &GetAstStorage() const override { return storage_; }
 
  private:

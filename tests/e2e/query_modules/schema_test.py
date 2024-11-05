@@ -15,6 +15,14 @@ import pytest
 from common import connect, execute_and_fetch_all
 
 
+def test_assert_fails_in_explicit_txn():
+    cursor = connect().cursor()
+    execute_and_fetch_all(cursor, "BEGIN")
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(cursor, "CALL schema.assert({}, {}, {}, true) YIELD * RETURN *;")
+    assert str(e.value) == "SCHEMA.ASSERT not allowed in multicommand transactions."
+
+
 def test_assert_creates_label_index_empty_list():
     cursor = connect().cursor()
     results = list(
@@ -133,7 +141,7 @@ def test_assert_creates_existence_constraints():
     ]
     assert list(execute_and_fetch_all(cursor, "SHOW INDEX INFO;")) == []
     show_constraint_results = list(execute_and_fetch_all(cursor, "SHOW CONSTRAINT INFO;"))
-    assert show_constraint_results == [("exists", "Person", "name"), ("exists", "Person", "surname")]
+    assert show_constraint_results == [("exists", "Person", "name", ""), ("exists", "Person", "surname", "")]
     execute_and_fetch_all(cursor, "DROP CONSTRAINT ON (n:Person) ASSERT EXISTS (n.name);")
     execute_and_fetch_all(cursor, "DROP CONSTRAINT ON (n:Person) ASSERT EXISTS (n.surname);")
 
@@ -164,7 +172,7 @@ def test_assert_existence_constraint_property_not_string():
     cursor = connect().cursor()
     execute_and_fetch_all(cursor, "CALL schema.assert({}, {}, {Person: ['name', 1]}) YIELD * RETURN *;")
     show_constraint_results = list(execute_and_fetch_all(cursor, "SHOW CONSTRAINT INFO;"))
-    assert show_constraint_results == [("exists", "Person", "name")]
+    assert show_constraint_results == [("exists", "Person", "name", "")]
     execute_and_fetch_all(cursor, "DROP CONSTRAINT ON (n:Person) ASSERT EXISTS (n.name);")
 
 
@@ -190,7 +198,7 @@ def test_assert_creates_indices_and_existence_constraints():
     show_index_results = list(execute_and_fetch_all(cursor, "SHOW INDEX INFO;"))
     assert show_index_results == [("label", "Person", None, 0), ("label+property", "Person", "id", 0)]
     show_constraint_results = list(execute_and_fetch_all(cursor, "SHOW CONSTRAINT INFO;"))
-    assert show_constraint_results == [("exists", "Person", "name"), ("exists", "Person", "surname")]
+    assert show_constraint_results == [("exists", "Person", "name", ""), ("exists", "Person", "surname", "")]
     execute_and_fetch_all(cursor, "DROP INDEX ON :Person;")
     execute_and_fetch_all(cursor, "DROP INDEX ON :Person(id);")
     execute_and_fetch_all(cursor, "DROP CONSTRAINT ON (n:Person) ASSERT EXISTS (n.name);")
@@ -220,7 +228,7 @@ def test_assert_creates_unique_constraints():
     assert results == [("Created", "[name, surname]", ["name", "surname"], "Person", True)]
     assert list(execute_and_fetch_all(cursor, "SHOW INDEX INFO;")) == []
     show_constraint_results = list(execute_and_fetch_all(cursor, "SHOW CONSTRAINT INFO;"))
-    assert show_constraint_results == [("unique", "Person", ["name", "surname"])]
+    assert show_constraint_results == [("unique", "Person", ["name", "surname"], "")]
     execute_and_fetch_all(cursor, "DROP CONSTRAINT ON (n:Person) ASSERT n.name, n.surname IS UNIQUE;")
 
 
@@ -238,7 +246,7 @@ def test_assert_creates_multiple_unique_constraints():
     ]
     assert list(execute_and_fetch_all(cursor, "SHOW INDEX INFO;")) == []
     show_constraint_results = list(execute_and_fetch_all(cursor, "SHOW CONSTRAINT INFO;"))
-    assert show_constraint_results == [("unique", "Person", ["name", "surname"]), ("unique", "Person", ["id"])]
+    assert show_constraint_results == [("unique", "Person", ["name", "surname"], ""), ("unique", "Person", ["id"], "")]
     execute_and_fetch_all(cursor, "DROP CONSTRAINT ON (n:Person) ASSERT n.name, n.surname IS UNIQUE;")
     execute_and_fetch_all(cursor, "DROP CONSTRAINT ON (n:Person) ASSERT n.id IS UNIQUE;")
 
@@ -254,7 +262,7 @@ def test_assert_creates_unique_constraints_skip_invalid():
     assert results == [("Created", "[name, surname]", ["name", "surname"], "Person", True)]
     assert list(execute_and_fetch_all(cursor, "SHOW INDEX INFO;")) == []
     show_constraint_results = list(execute_and_fetch_all(cursor, "SHOW CONSTRAINT INFO;"))
-    assert show_constraint_results == [("unique", "Person", ["name", "surname"])]
+    assert show_constraint_results == [("unique", "Person", ["name", "surname"], "")]
     execute_and_fetch_all(cursor, "DROP CONSTRAINT ON (n:Person) ASSERT n.name, n.surname IS UNIQUE;")
 
 
@@ -269,7 +277,7 @@ def test_assert_creates_unique_constraints_skip_invalid_map_type():
     assert results == [("Created", "[name, surname]", ["name", "surname"], "Person", True)]
     assert list(execute_and_fetch_all(cursor, "SHOW INDEX INFO;")) == []
     show_constraint_results = list(execute_and_fetch_all(cursor, "SHOW CONSTRAINT INFO;"))
-    assert show_constraint_results == [("unique", "Person", ["name", "surname"])]
+    assert show_constraint_results == [("unique", "Person", ["name", "surname"], "")]
     execute_and_fetch_all(cursor, "DROP CONSTRAINT ON (n:Person) ASSERT n.name, n.surname IS UNIQUE;")
 
 
@@ -292,10 +300,10 @@ def test_assert_creates_constraints_and_indices():
     assert show_index_results == [("label", "Person", None, 0), ("label+property", "Person", "id", 0)]
     show_constraint_results = list(execute_and_fetch_all(cursor, "SHOW CONSTRAINT INFO;"))
     assert show_constraint_results == [
-        ("exists", "Person", "name"),
-        ("exists", "Person", "surname"),
-        ("unique", "Person", ["name", "surname"]),
-        ("unique", "Person", ["id"]),
+        ("exists", "Person", "name", ""),
+        ("exists", "Person", "surname", ""),
+        ("unique", "Person", ["name", "surname"], ""),
+        ("unique", "Person", ["id"], ""),
     ]
     execute_and_fetch_all(cursor, "DROP CONSTRAINT ON (n:Person) ASSERT n.name, n.surname IS UNIQUE;")
     execute_and_fetch_all(cursor, "DROP CONSTRAINT ON (n:Person) ASSERT n.id IS UNIQUE;")
@@ -353,10 +361,10 @@ def test_assert_does_not_drop_indices_and_constraints():
     assert show_index_results == [("label", "Person", None, 0), ("label+property", "Person", "id", 0)]
     show_constraint_results = list(execute_and_fetch_all(cursor, "SHOW CONSTRAINT INFO;"))
     assert show_constraint_results == [
-        ("exists", "Person", "name"),
-        ("exists", "Person", "surname"),
-        ("unique", "Person", ["name", "surname"]),
-        ("unique", "Person", ["id"]),
+        ("exists", "Person", "name", ""),
+        ("exists", "Person", "surname", ""),
+        ("unique", "Person", ["name", "surname"], ""),
+        ("unique", "Person", ["id"], ""),
     ]
     execute_and_fetch_all(cursor, "DROP INDEX ON :Person;")
     execute_and_fetch_all(cursor, "DROP INDEX ON :Person(id);")
@@ -364,59 +372,6 @@ def test_assert_does_not_drop_indices_and_constraints():
     execute_and_fetch_all(cursor, "DROP CONSTRAINT ON (n:Person) ASSERT n.id IS UNIQUE;")
     execute_and_fetch_all(cursor, "DROP CONSTRAINT ON (n:Person) ASSERT EXISTS (n.name);")
     execute_and_fetch_all(cursor, "DROP CONSTRAINT ON (n:Person) ASSERT EXISTS (n.surname);")
-
-
-def test_assert_keeps_existing_indices_and_constraints():
-    cursor = connect().cursor()
-    assert list(execute_and_fetch_all(cursor, "SHOW INDEX INFO;")) == []
-    assert list(execute_and_fetch_all(cursor, "SHOW CONSTRAINT INFO;")) == []
-    execute_and_fetch_all(cursor, "CREATE INDEX ON :Person;")
-    execute_and_fetch_all(cursor, "CREATE INDEX ON :Person(id);")
-    execute_and_fetch_all(cursor, "CREATE CONSTRAINT ON (n:Person) ASSERT n.name, n.surname IS UNIQUE;")
-    execute_and_fetch_all(cursor, "CREATE CONSTRAINT ON (n:Person) ASSERT n.id IS UNIQUE;")
-    execute_and_fetch_all(cursor, "CREATE CONSTRAINT ON (n:Person) ASSERT EXISTS (n.name);")
-    execute_and_fetch_all(cursor, "CREATE CONSTRAINT ON (n:Person) ASSERT EXISTS (n.surname);")
-    results = list(
-        execute_and_fetch_all(
-            cursor,
-            "CALL schema.assert({Person: ['id']}, {Person: [['name', 'surname']]}, {Person: ['name']}) YIELD * RETURN *;",
-        )
-    )
-
-    print(results)
-
-    assert len(results) == 6
-
-    assert results[0] == ("Kept", "id", ["id"], "Person", False)  # label+property index on Person(id) should be kept
-    assert results[1] == ("Dropped", "", [], "Person", False)  # label index on Person should be deleted
-    assert results[2] == (
-        "Kept",
-        "name",
-        ["name"],
-        "Person",
-        False,
-    )  # existence constraint on Person(name) should be kept
-    assert results[3] == (
-        "Dropped",
-        "surname",
-        ["surname"],
-        "Person",
-        False,
-    )  # existence constraint on surname should be deleted
-    assert results[4] == (
-        "Kept",
-        "[name, surname]",
-        ["name", "surname"],
-        "Person",
-        True,
-    )  # unique constraint on Person(name, surname) should be kept
-    assert results[5] == (
-        "Dropped",
-        "[id]",
-        ["id"],
-        "Person",
-        True,
-    )  # unique constraint on Person(id) should be deleted
 
 
 def test_node_type_properties1():

@@ -17,6 +17,7 @@
 #include <utility>
 #include <vector>
 
+#include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/durability/exceptions.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
@@ -31,7 +32,7 @@ struct RecoveryInfo {
   uint64_t next_timestamp{0};
 
   // last timestamp read from a WAL file
-  std::optional<uint64_t> last_commit_timestamp;
+  std::optional<uint64_t> last_durable_timestamp;
 
   std::vector<std::pair<Gid /*first vertex gid*/, uint64_t /*batch size*/>> vertex_batches;
 };
@@ -41,15 +42,18 @@ struct RecoveredIndicesAndConstraints {
   struct IndicesMetadata {
     std::vector<LabelId> label;
     std::vector<std::pair<LabelId, PropertyId>> label_property;
+    std::vector<std::pair<LabelId, PropertyId>> point_label_property;
     std::vector<std::pair<LabelId, LabelIndexStats>> label_stats;
     std::vector<std::pair<LabelId, std::pair<PropertyId, LabelPropertyIndexStats>>> label_property_stats;
     std::vector<EdgeTypeId> edge;
+    std::vector<std::pair<EdgeTypeId, PropertyId>> edge_property;
     std::vector<std::pair<std::string, LabelId>> text_indices;
   } indices;
 
   struct ConstraintsMetadata {
     std::vector<std::pair<LabelId, PropertyId>> existence;
     std::vector<std::pair<LabelId, std::set<PropertyId>>> unique;
+    std::vector<std::tuple<LabelId, PropertyId, TypeConstraintKind>> type;
   } constraints;
 };
 

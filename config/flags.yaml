@@ -59,7 +59,7 @@ modifications:
     value: "true"
     override: true
 
-  - name: "storage_recover_on_startup"
+  - name: "data_recovery_on_startup"
     value: "true"
     override: true
 
@@ -107,10 +107,6 @@ modifications:
     value: "true"
     override: false
 
-  - name: "storage_parallel_index_recovery"
-    value: "false"
-    override: true
-
   - name: "storage_parallel_schema_recovery"
     value: "false"
     override: true
@@ -133,6 +129,10 @@ modifications:
 
   - name: "query_callable_mappings_path"
     value: "/etc/memgraph/apoc_compatibility_mappings.json"
+    override: true
+
+  - name: "query_log_directory"
+    value: "/var/log/memgraph/session_trace"
     override: true
 
 undocumented:

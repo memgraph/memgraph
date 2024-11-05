@@ -14,7 +14,6 @@
 #include "auth/auth.hpp"
 #include "glue/auth.hpp"
 #include "query/auth_checker.hpp"
-#include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "utils/spin_lock.hpp"
 
@@ -37,15 +36,15 @@ class AuthChecker : public query::AuthChecker {
 
   [[nodiscard]] static bool IsUserAuthorized(const auth::User &user,
                                              const std::vector<query::AuthQuery::Privilege> &privileges,
-                                             const std::string &db_name = "");
+                                             std::string_view db_name = "");
 
   [[nodiscard]] static bool IsRoleAuthorized(const auth::Role &role,
                                              const std::vector<query::AuthQuery::Privilege> &privileges,
-                                             const std::string &db_name = "");
+                                             std::string_view db_name = "");
 
   [[nodiscard]] static bool IsUserOrRoleAuthorized(const auth::UserOrRole &user_or_role,
                                                    const std::vector<query::AuthQuery::Privilege> &privileges,
-                                                   const std::string &db_name = "");
+                                                   std::string_view db_name = "");
 
  private:
   auth::SynchedAuth *auth_;

@@ -16,6 +16,7 @@
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
+#include "storage/v2/inmemory/property_constants.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
@@ -117,7 +118,8 @@ void InMemoryLabelPropertyIndex::UpdateOnSetProperty(PropertyId property, const 
     return;
   }
 
-  for (const auto &[_, storage] : index->second) {
+  for (const auto &[label, storage] : index->second) {
+    if (!utils::Contains(vertex->labels, label)) continue;
     auto acc = storage->access();
     acc.insert(Entry{value, vertex, tx.start_timestamp});
   }
@@ -202,6 +204,10 @@ void InMemoryLabelPropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
       continue;
     }
 
+    if (!CanSeeEntityWithTimestamp(index_iterator_->timestamp, self_->transaction_)) {
+      continue;
+    }
+
     if (self_->lower_bound_) {
       if (index_iterator_->value < self_->lower_bound_->value()) {
         continue;
@@ -230,22 +236,6 @@ void InMemoryLabelPropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
   }
 }
 
-// These constants represent the smallest possible value of each type that is
-// contained in a `PropertyValue`. Note that numbers (integers and doubles) are
-// treated as the same "type" in `PropertyValue`.
-const PropertyValue kSmallestBool = PropertyValue(false);
-// NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
-static_assert(-std::numeric_limits<double>::infinity() < std::numeric_limits<int64_t>::min());
-const PropertyValue kSmallestNumber = PropertyValue(-std::numeric_limits<double>::infinity());
-const PropertyValue kSmallestString = PropertyValue("");
-const PropertyValue kSmallestList = PropertyValue(std::vector<PropertyValue>());
-const PropertyValue kSmallestMap = PropertyValue(std::map<std::string, PropertyValue>());
-const PropertyValue kSmallestTemporalData =
-    PropertyValue(TemporalData{static_cast<TemporalType>(0), std::numeric_limits<int64_t>::min()});
-const PropertyValue kSmallestZonedTemporalData = PropertyValue(
-    ZonedTemporalData{static_cast<ZonedTemporalType>(0), utils::AsSysTime(std::numeric_limits<int64_t>::min()),
-                      utils::Timezone(std::chrono::minutes{-utils::MAX_OFFSET_MINUTES})});
-
 InMemoryLabelPropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor,
                                                utils::SkipList<Vertex>::ConstAccessor vertices_accessor, LabelId label,
                                                PropertyId property,
@@ -267,14 +257,6 @@ InMemoryLabelPropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor 
   // inclusive lower bound of the same type, or an exclusive upper bound of the
   // following type. If neither bound is set we yield all items in the index.
 
-  // First we statically verify that our assumptions about the `PropertyValue`
-  // type ordering holds.
-  static_assert(PropertyValue::Type::Bool < PropertyValue::Type::Int);
-  static_assert(PropertyValue::Type::Int < PropertyValue::Type::Double);
-  static_assert(PropertyValue::Type::Double < PropertyValue::Type::String);
-  static_assert(PropertyValue::Type::String < PropertyValue::Type::List);
-  static_assert(PropertyValue::Type::List < PropertyValue::Type::Map);
-
   // Remove any bounds that are set to `Null` because that isn't a valid value.
   if (lower_bound_ && lower_bound_->value().IsNull()) {
     lower_bound_ = std::nullopt;
@@ -284,8 +266,7 @@ InMemoryLabelPropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor 
   }
 
   // Check whether the bounds are of comparable types if both are supplied.
-  if (lower_bound_ && upper_bound_ &&
-      !PropertyValue::AreComparableTypes(lower_bound_->value().type(), upper_bound_->value().type())) {
+  if (lower_bound_ && upper_bound_ && !AreComparableTypes(lower_bound_->value().type(), upper_bound_->value().type())) {
     bounds_valid_ = false;
     return;
   }
@@ -321,6 +302,15 @@ InMemoryLabelPropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor 
         upper_bound_ = utils::MakeBoundExclusive(kSmallestZonedTemporalData);
         break;
       case PropertyValue::Type::ZonedTemporalData:
+        upper_bound_ = utils::MakeBoundExclusive(kSmallestEnum);
+        break;
+      case PropertyValue::Type::Enum:
+        upper_bound_ = utils::MakeBoundExclusive(kSmallestPoint2d);
+        break;
+      case PropertyValue::Type::Point2d:
+        upper_bound_ = utils::MakeBoundExclusive(kSmallestPoint3d);
+        break;
+      case PropertyValue::Type::Point3d:
         // This is the last type in the order so we leave the upper bound empty.
         break;
     }
@@ -356,6 +346,15 @@ InMemoryLabelPropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor 
         break;
       case PropertyValue::Type::ZonedTemporalData:
         lower_bound_ = utils::MakeBoundInclusive(kSmallestZonedTemporalData);
+        break;
+      case PropertyValue::Type::Enum:
+        lower_bound_ = utils::MakeBoundInclusive(kSmallestEnum);
+        break;
+      case PropertyValue::Type::Point2d:
+        lower_bound_ = utils::MakeBoundExclusive(kSmallestPoint2d);
+        break;
+      case PropertyValue::Type::Point3d:
+        lower_bound_ = utils::MakeBoundExclusive(kSmallestPoint3d);
         break;
     }
   }

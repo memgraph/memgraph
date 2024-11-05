@@ -20,7 +20,7 @@
 namespace memgraph::glue {
 
 struct QueryUserOrRole : public query::QueryUserOrRole {
-  bool IsAuthorized(const std::vector<query::AuthQuery::Privilege> &privileges, const std::string &db_name,
+  bool IsAuthorized(const std::vector<query::AuthQuery::Privilege> &privileges, std::string_view db_name,
                     query::UserPolicy *policy) const override;
 
 #ifdef MG_ENTERPRISE

@@ -37,7 +37,7 @@ class OperatorToStringTest : public ::testing::Test {
   OperatorToStringTest()
       : config(disk_test_utils::GenerateOnDiskConfig(testSuite)),
         db(new StorageType(config)),
-        dba_storage(db->Access(memgraph::replication_coordination_glue::ReplicationRole::MAIN)),
+        dba_storage(db->Access()),
         dba(dba_storage.get()) {}
 
   ~OperatorToStringTest() override {
@@ -119,7 +119,7 @@ TYPED_TEST(OperatorToStringTest, ScanAllByLabel) {
 TYPED_TEST(OperatorToStringTest, ScanAllByLabelPropertyRange) {
   std::shared_ptr<LogicalOperator> last_op;
   last_op = std::make_shared<ScanAllByLabelPropertyRange>(
-      nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"), this->dba.NameToProperty("prop"), "prop",
+      nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"), this->dba.NameToProperty("prop"),
       memgraph::utils::MakeBoundInclusive<Expression *>(LITERAL(1)),
       memgraph::utils::MakeBoundExclusive<Expression *>(LITERAL(20)));
   last_op->dba_ = &this->dba;
@@ -130,9 +130,9 @@ TYPED_TEST(OperatorToStringTest, ScanAllByLabelPropertyRange) {
 
 TYPED_TEST(OperatorToStringTest, ScanAllByLabelPropertyValue) {
   std::shared_ptr<LogicalOperator> last_op;
-  last_op = std::make_shared<ScanAllByLabelPropertyValue>(
-      nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"), this->dba.NameToProperty("prop"), "prop",
-      ADD(LITERAL(21), LITERAL(21)));
+  last_op =
+      std::make_shared<ScanAllByLabelPropertyValue>(nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"),
+                                                    this->dba.NameToProperty("prop"), ADD(LITERAL(21), LITERAL(21)));
   last_op->dba_ = &this->dba;
 
   std::string expected_string{"ScanAllByLabelPropertyValue (node :Label {prop})"};
@@ -142,7 +142,7 @@ TYPED_TEST(OperatorToStringTest, ScanAllByLabelPropertyValue) {
 TYPED_TEST(OperatorToStringTest, ScanAllByLabelProperty) {
   std::shared_ptr<LogicalOperator> last_op;
   last_op = std::make_shared<ScanAllByLabelProperty>(nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"),
-                                                     this->dba.NameToProperty("prop"), "prop");
+                                                     this->dba.NameToProperty("prop"));
   last_op->dba_ = &this->dba;
 
   std::string expected_string{"ScanAllByLabelProperty (node :Label {prop})"};

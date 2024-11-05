@@ -95,6 +95,12 @@ bool KVStore::DeletePrefix(const std::string &prefix) {
   }
   return true;
 }
+bool KVStore::SyncWal() {
+  if (!pimpl_) {
+    return true;
+  }
+  return pimpl_->db->SyncWAL().ok();
+}
 
 bool KVStore::PutAndDeleteMultiple(const std::map<std::string, std::string> &items,
                                    const std::vector<std::string> &keys) {

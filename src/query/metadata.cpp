@@ -76,7 +76,7 @@ constexpr std::string_view GetCodeString(const NotificationCode code) {
     case NotificationCode::DEMOTE_INSTANCE_TO_REPLICA:
       return "DemoteInstanceToReplica"sv;
     case NotificationCode::FORCE_RESET_CLUSTER_STATE:
-      return "ForceResetClusterState"sv;
+      return "ReconcileClusterState"sv;
 #endif
     case NotificationCode::REPLICA_PORT_WARNING:
       return "ReplicaPortWarning"sv;
@@ -90,6 +90,12 @@ constexpr std::string_view GetCodeString(const NotificationCode code) {
       return "StopStream"sv;
     case NotificationCode::STOP_ALL_STREAMS:
       return "StopAllStreams"sv;
+    case NotificationCode::ENABLE_TTL:
+      return "EnableTTL"sv;
+    case NotificationCode::DISABLE_TTL:
+      return "DisableTTL"sv;
+    case NotificationCode::STOP_TTL:
+      return "StopTTL"sv;
   }
 }
 }  // namespace

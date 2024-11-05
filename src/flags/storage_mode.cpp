@@ -15,6 +15,7 @@
 #include "utils/enum.hpp"
 #include "utils/flag_validation.hpp"
 
+#include <iostream>
 #include "gflags/gflags.h"
 
 const std::string storage_mode_help_string =

@@ -45,7 +45,7 @@ class Memgraph:
         argp.add_argument("--port", default="7687", help="Database and client port")
         argp.add_argument("--data-directory", default=None)
         argp.add_argument("--storage-snapshot-on-exit", action="store_true")
-        argp.add_argument("--storage-recover-on-startup", action="store_true")
+        argp.add_argument("--data-recovery-on-startup", action="store_true")
         self.log.info("Initializing Runner with arguments %r", args)
         self.args, _ = argp.parse_known_args(args)
         self.num_workers = num_workers
@@ -55,15 +55,27 @@ class Memgraph:
 
     def start(self):
         self.log.info("start")
-        database_args = ["--bolt-port", self.args.port, "--query-execution-timeout-sec", "0"]
+        database_args = [
+            "--bolt-port",
+            self.args.port,
+            "--query-execution-timeout-sec",
+            "0",
+            "--storage-mode",
+            "IN_MEMORY_ANALYTICAL",
+            "--log-level",
+            "TRACE",
+            "--also-log-to-stderr",
+        ]
         if self.num_workers:
             database_args += ["--bolt-num-workers", str(self.num_workers)]
         if self.args.data_directory:
             database_args += ["--data-directory", self.args.data_directory]
-        if self.args.storage_recover_on_startup:
-            database_args += ["--storage-recover-on-startup"]
         if self.args.storage_snapshot_on_exit:
             database_args += ["--storage-snapshot-on-exit"]
+
+        # SHOW SCHEMA INFO has to enable edge metadata (or edge index); otherwise it is unusable
+        database_args += ["--storage-properties-on-edges"]
+        database_args += ["--storage-enable-edges-metadata"]
 
         # find executable path
         runner_bin = self.args.runner_bin

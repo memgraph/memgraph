@@ -1,4 +1,4 @@
-name: "Coverage build and test"
+name: "Diff-coverage"
 
 on:
   workflow_call:
@@ -19,10 +19,18 @@ on:
         type: string
         description: "Should the core coverage build tests be run? Default is true."
         default: 'true'
+      run_clang_tidy:
+        type: string
+        description: "Should the clang-tidy tests be run? Default is true."
+        default: 'true'
+      run_id:
+        type: string
+        description: "The ID of the run that triggered this workflow."
+        default: '0'
 
 env:
   ARCH: ${{ inputs.arch }}
-  BUILD_TYPE: 'Debug' 
+  BUILD_TYPE: 'Debug'
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
   OS: ${{ inputs.os }}
@@ -116,10 +124,123 @@ jobs:
           test-memgraph code-coverage
 
       - name: Save code coverage
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
-          name: "Code coverage(Code analysis)"
+          name: "Code coverage(Code analysis)-${{ inputs.run_id }}"
           path: tools/github/generated/code_coverage.tar.gz
+
+      - name: Stop mgbuild container
+        if: always()
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          stop --remove
+
+  clang-tidy-community:
+    if: ${{ inputs.run_clang_tidy == 'true' }}
+    name: "Clang tidy community"
+    runs-on: [self-hosted, Linux, X64, DockerMgBuild]
+    timeout-minutes: 60
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Spin up mgbuild container
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          run
+
+      - name: Set base branch
+        run: |
+          base_branch="master"
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            base_branch="${{ github.base_ref }}"
+          fi
+          echo "BASE_BRANCH=origin/$base_branch" >> $GITHUB_ENV
+
+      - name: Configure cmake
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --build-type $BUILD_TYPE \
+          build-memgraph --cmake-only --community
+
+      - name: Run clang-tidy
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph clang-tidy --base-branch "${{ env.BASE_BRANCH }}"
+
+      - name: Stop mgbuild container
+        if: always()
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          stop --remove
+
+  clang-tidy-enterprise:
+    if: ${{ inputs.run_clang_tidy == 'true' }}
+    name: "Clang tidy enterprise"
+    runs-on: [self-hosted, Linux, X64, DockerMgBuild]
+    timeout-minutes: 60
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Spin up mgbuild container
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          run
+
+      - name: Set base branch
+        run: |
+          base_branch="master"
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            base_branch="${{ github.base_ref }}"
+          fi
+          echo "BASE_BRANCH=origin/$base_branch" >> $GITHUB_ENV
+
+      - name: Configure cmake
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --build-type $BUILD_TYPE \
+          build-memgraph --cmake-only
 
       - name: Run clang-tidy
         run: |

@@ -3,9 +3,32 @@
 pushd () { command pushd "$@" > /dev/null; }
 popd () { command popd "$@" > /dev/null; }
 
+declare -a pids=()
+
+function cleanup() {
+    for pid in "${pids[@]}"; do
+        if kill -0 "$pid" 2>/dev/null; then
+            echo "Stopping background process with PID $pid (it was still running)"
+            kill "$pid"
+            wait "$pid" 2>/dev/null
+        fi
+    done
+}
+
+trap cleanup EXIT INT TERM
+
+function check_ports_unused() {
+    for port in "$@"; do
+        if nc -z -w 1 localhost "$port" >/dev/null 2>&1; then
+            echo "Port $port is in use."
+            exit 1
+        fi
+    done
+}
+
 function wait_for_server {
     port=$1
-    while ! nc -z -w 1 127.0.0.1 $port; do
+    while ! nc -z -w 1 localhost $port; do
         sleep 0.1
     done
     sleep 1
@@ -26,120 +49,189 @@ mkdir -p $tmpdir
 binary_dir="$DIR/../../build"
 
 # Start instance_1
+check_ports_unused 7687 10011
 $binary_dir/memgraph \
     --bolt-port=7687 \
     --data-directory=$tmpdir/instance_1/ \
-    --query-execution-timeout-sec=5 \
-    --bolt-session-inactivity-timeout=10 \
     --bolt-server-name-for-init="Neo4j/1.1" \
-    --bolt-cert-file="" \
     --log-file=$tmpdir/logs/instance1.log \
     --also-log-to-stderr \
     --management-port=10011 \
     --experimental-enabled=high-availability \
     --telemetry-enabled=false \
-    --log-level ERROR &
+    --log-level TRACE &
+
 pid_instance_1=$!
 wait_for_server 7687
+pids+=($pid_instance_1)
 
 # Start instance_2
+check_ports_unused 7688 10012
 $binary_dir/memgraph \
     --bolt-port=7688 \
     --data-directory=$tmpdir/instance_2 \
-    --query-execution-timeout-sec=5 \
-    --bolt-session-inactivity-timeout=10 \
     --bolt-server-name-for-init="Neo4j/1.1" \
-    --bolt-cert-file="" \
     --log-file=$tmpdir/logs/instance2.log \
     --also-log-to-stderr \
     --management-port=10012 \
     --experimental-enabled=high-availability \
     --telemetry-enabled=false \
-    --log-level ERROR &
+    --log-level TRACE &
+
 pid_instance_2=$!
 wait_for_server 7688
+pids+=($pid_instance_2)
 
 # Start instance_3
+check_ports_unused 7689 10013
 $binary_dir/memgraph \
     --bolt-port=7689 \
     --data-directory=$tmpdir/instance_3 \
-    --query-execution-timeout-sec=5 \
-    --bolt-session-inactivity-timeout=10 \
     --bolt-server-name-for-init="Neo4j/1.1" \
-    --bolt-cert-file="" \
     --log-file=$tmpdir/logs/instance3.log \
     --also-log-to-stderr \
     --management-port=10013 \
     --experimental-enabled=high-availability \
     --telemetry-enabled=false \
-    --log-level ERROR &
+    --log-level TRACE &
+
 pid_instance_3=$!
 wait_for_server 7689
+pids+=($pid_instance_3)
 
 
 # Start coordinator_1
+check_ports_unused 7690 10121 10111
 $binary_dir/memgraph \
     --bolt-port=7690 \
     --data-directory=$tmpdir/coordinator_1 \
-    --query-execution-timeout-sec=5 \
-    --bolt-session-inactivity-timeout=10 \
     --bolt-server-name-for-init="Neo4j/1.1" \
-    --bolt-cert-file="" \
     --log-file=$tmpdir/logs/coordinator1.log \
     --also-log-to-stderr \
     --coordinator-id=1 \
     --coordinator-port=10111 \
+    --coordinator-hostname="localhost" \
+    --management-port=10121 \
     --experimental-enabled=high-availability \
     --telemetry-enabled=false \
-    --log-level ERROR &
+    --log-level TRACE &
+
 pid_coordinator_1=$!
 wait_for_server 7690
+pids+=($pid_coordinator_1)
 
 # Start coordinator_2
+check_ports_unused 7691 10122 10112
 $binary_dir/memgraph \
     --bolt-port=7691 \
     --data-directory=$tmpdir/coordinator_2 \
-    --query-execution-timeout-sec=5 \
-    --bolt-session-inactivity-timeout=10 \
     --bolt-server-name-for-init="Neo4j/1.1" \
-    --bolt-cert-file="" \
     --log-file=$tmpdir/logs/coordinator2.log \
     --also-log-to-stderr \
     --coordinator-id=2 \
     --coordinator-port=10112 \
+    --coordinator-hostname="localhost" \
+    --management-port=10122 \
     --experimental-enabled=high-availability \
     --telemetry-enabled=false \
-    --log-level ERROR &
+    --log-level TRACE &
+
 pid_coordinator_2=$!
 wait_for_server 7691
+pids+=($pid_coordinator_2)
 
 # Start coordinator_3
+check_ports_unused 7692 10123 10113
 $binary_dir/memgraph \
     --bolt-port=7692 \
     --data-directory=$tmpdir/coordinator_3 \
-    --query-execution-timeout-sec=5 \
-    --bolt-session-inactivity-timeout=10 \
     --bolt-server-name-for-init="Neo4j/1.1" \
-    --bolt-cert-file="" \
     --log-file=$tmpdir/logs/coordinator3.log \
     --also-log-to-stderr \
     --coordinator-id=3 \
     --coordinator-port=10113 \
+    --management-port=10123 \
+    --coordinator-hostname="localhost" \
     --experimental-enabled=high-availability \
     --telemetry-enabled=false \
-    --log-level ERROR &
+    --log-level TRACE &
+
 pid_coordinator_3=$!
 wait_for_server 7692
+pids+=($pid_coordinator_3)
 
 sleep 5
 
-echo 'ADD COORDINATOR 2 WITH CONFIG {"bolt_server": "127.0.0.1:7691", "coordinator_server":  "127.0.0.1:10112"};' | $binary_dir/bin/mgconsole --port 7690
-echo 'ADD COORDINATOR 3 WITH CONFIG {"bolt_server": "127.0.0.1:7692", "coordinator_server":  "127.0.0.1:10113"};' | $binary_dir/bin/mgconsole --port 7690
-echo 'REGISTER INSTANCE instance_1 WITH CONFIG {"bolt_server": "127.0.0.1:7687", "management_server": "127.0.0.1:10011", "replication_server": "127.0.0.1:10001"};'  | $binary_dir/bin/mgconsole --port 7690
-echo 'REGISTER INSTANCE instance_2 WITH CONFIG {"bolt_server": "127.0.0.1:7688", "management_server": "127.0.0.1:10012", "replication_server": "127.0.0.1:10002"};'  | $binary_dir/bin/mgconsole --port 7690
-echo 'REGISTER INSTANCE instance_3 WITH CONFIG {"bolt_server": "127.0.0.1:7689", "management_server": "127.0.0.1:10013", "replication_server": "127.0.0.1:10003"};'  | $binary_dir/bin/mgconsole --port 7690
-echo 'SET INSTANCE instance_1 TO MAIN;' | $binary_dir/bin/mgconsole --port 7690
+max_retries=5
 
+run_command() {
+  local cmd=$1
+  local attempt=0
+
+  while [ $attempt -le $max_retries ]; do
+    eval $cmd
+    if [ $? -eq 0 ]; then
+      return 0
+    fi
+    ((attempt++))
+    sleep 1
+  done
+
+  echo "Failed to run command: $cmd after $max_retries attempts."
+
+  return 1
+
+}
+
+commands=(
+    "echo 'ADD COORDINATOR 2 WITH CONFIG {\"bolt_server\": \"localhost:7691\", \"coordinator_server\":  \"localhost:10112\", \"management_server\": \"localhost:10112\"};' | $binary_dir/bin/mgconsole --port 7690"
+    "echo 'ADD COORDINATOR 3 WITH CONFIG {\"bolt_server\": \"localhost:7692\", \"coordinator_server\":  \"localhost:10113\", \"management_server\": \"localhost:10123\"};' | $binary_dir/bin/mgconsole --port 7690"
+    "echo 'REGISTER INSTANCE instance_1 WITH CONFIG {\"bolt_server\": \"localhost:7687\", \"management_server\": \"localhost:10011\", \"replication_server\": \"localhost:10001\"};' | $binary_dir/bin/mgconsole --port 7690"
+    "echo 'REGISTER INSTANCE instance_2 WITH CONFIG {\"bolt_server\": \"localhost:7688\", \"management_server\": \"localhost:10012\", \"replication_server\": \"localhost:10002\"};' | $binary_dir/bin/mgconsole --port 7690"
+    "echo 'REGISTER INSTANCE instance_3 WITH CONFIG {\"bolt_server\": \"localhost:7689\", \"management_server\": \"localhost:10013\", \"replication_server\": \"localhost:10003\"};' | $binary_dir/bin/mgconsole --port 7690"
+    "echo 'SET INSTANCE instance_1 TO MAIN;' | $binary_dir/bin/mgconsole --port 7690"
+)
+
+for cmd in "${commands[@]}"; do
+    run_command "$cmd"
+    if [ $? -ne 0 ]; then
+        echo "Failed to run command: $cmd"
+        exit 1
+    fi
+done
+
+sleep 1
+
+local instances=$(echo "SHOW INSTANCES;" | $binary_dir/bin/mgconsole --port 7690)
+
+local num_leaders=$(echo "$instances" | grep -c "leader")
+if [ $num_leaders -ne 1 ]; then
+    echo "Expected 1 leader after registration, got $num_leaders"
+    exit 1
+fi
+
+local num_followers=$(echo "$instances" | grep -c "follower")
+
+if [ $num_followers -ne 2 ]; then
+    echo "Expected 2 followers after registration, got $num_followers"
+    exit 1
+fi
+
+local num_mains=$(echo "$instances" | grep -c "main")
+
+if [ $num_mains -ne 1 ]; then
+    echo "Expected 1 main after registration, got $num_mains"
+    exit 1
+fi
+
+local num_replicas=$(echo "$instances" | grep -c "replica")
+
+if [ $num_replicas -ne 2 ]; then
+    echo "Expected 2 replicas after registration, got $num_replicas"
+    exit 1
+fi
+
+echo "All instances registered successfully."
 
 code_test=0
 for lang in *; do
@@ -196,14 +288,15 @@ stop_process $pid_instance_2
 echo "Stopping instance3"
 stop_process $pid_instance_3
 
+tar -zcvf test_report.tar.gz $tmpdir/logs/*.log
+
+# Temporary directory cleanup.
+if [ -d $tmpdir ]; then
+    rm -rf $tmpdir
+fi
 
 # Check test exit code.
 if [ $code_test -ne 0 ]; then
     echo "One of the tests failed!"
     exit $code_test
-fi
-
-# Temporary directory cleanup.
-if [ -d $tmpdir ]; then
-    rm -rf $tmpdir
 fi

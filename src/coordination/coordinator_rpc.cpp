@@ -97,6 +97,36 @@ void GetInstanceUUIDRes::Load(GetInstanceUUIDRes *self, memgraph::slk::Reader *r
   memgraph::slk::Load(self, reader);
 }
 
+// ShowInstances
+void ShowInstancesReq::Save(const ShowInstancesReq &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+
+void ShowInstancesReq::Load(ShowInstancesReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+
+void ShowInstancesRes::Save(const ShowInstancesRes &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+
+void ShowInstancesRes::Load(ShowInstancesRes *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+
+// StateCheck
+void StateCheckReq::Save(const StateCheckReq &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+
+void StateCheckReq::Load(StateCheckReq *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
+
+void StateCheckRes::Save(const StateCheckRes &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+
+void StateCheckRes::Load(StateCheckRes *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
+
 // GetDatabaseHistoriesRpc
 
 void GetDatabaseHistoriesReq::Save(const GetDatabaseHistoriesReq & /*self*/, memgraph::slk::Builder * /*builder*/) {
@@ -175,7 +205,19 @@ constexpr utils::TypeInfo coordination::RegisterReplicaOnMainReq::kType{
     utils::TypeId::COORD_REGISTER_REPLICA_ON_MAIN_REQ, "RegisterReplicaOnMainReq", nullptr};
 
 constexpr utils::TypeInfo coordination::RegisterReplicaOnMainRes::kType{
-    utils::TypeId::COORD_REGISTER_REPLICA_ON_MAIN_RES, "RegisterReplicaOnMainRess", nullptr};
+    utils::TypeId::COORD_REGISTER_REPLICA_ON_MAIN_RES, "RegisterReplicaOnMainRes", nullptr};
+
+constexpr utils::TypeInfo coordination::ShowInstancesReq::kType{utils::TypeId::COORD_SHOW_INSTANCES_REQ,
+                                                                "ShowInstancesReq", nullptr};
+
+constexpr utils::TypeInfo coordination::ShowInstancesRes::kType{utils::TypeId::COORD_SHOW_INSTANCES_RES,
+                                                                "ShowInstancesRes", nullptr};
+
+constexpr utils::TypeInfo coordination::StateCheckReq::kType{utils::TypeId::COORD_STATE_CHECK_REQ, "StateCheckReq",
+                                                             nullptr};
+
+constexpr utils::TypeInfo coordination::StateCheckRes::kType{utils::TypeId::COORD_STATE_CHECK_RES, "StateCheckRes",
+                                                             nullptr};
 
 namespace slk {
 
@@ -288,6 +330,35 @@ void Save(const memgraph::coordination::RegisterReplicaOnMainReq &self, memgraph
 void Load(memgraph::coordination::RegisterReplicaOnMainReq *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->main_uuid, reader);
   memgraph::slk::Load(&self->replication_client_info, reader);
+}
+
+// ShowInstancesRpc
+void Save(const memgraph::coordination::ShowInstancesReq &self, memgraph::slk::Builder *builder) { /*empty*/
+}
+
+void Load(memgraph::coordination::ShowInstancesReq *self, memgraph::slk::Reader *reader) { /*empty*/
+}
+
+void Save(const memgraph::coordination::ShowInstancesRes &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.instances_status_, builder);
+}
+
+void Load(memgraph::coordination::ShowInstancesRes *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->instances_status_, reader);
+}
+
+void Save(const memgraph::coordination::StateCheckReq &self, memgraph::slk::Builder *builder) { /*empty*/
+}
+
+void Load(memgraph::coordination::StateCheckReq *self, memgraph::slk::Reader *reader) { /*empty*/
+}
+
+void Save(const memgraph::coordination::StateCheckRes &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.state, builder);
+}
+
+void Load(memgraph::coordination::StateCheckRes *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->state, reader);
 }
 
 }  // namespace slk

@@ -20,7 +20,9 @@
 #include <string_view>
 
 #include "coordination/coordinator_communication_config.hpp"
-#include "coordination/coordinator_server.hpp"
+#include "coordination/coordinator_instance_connector.hpp"
+#include "coordination/coordinator_instance_management_server.hpp"
+#include "coordination/data_instance_management_server.hpp"
 #include "coordination/instance_status.hpp"
 #include "coordination/raft_state.hpp"
 #include "coordination/register_main_replica_coordinator_status.hpp"
@@ -40,6 +42,15 @@ struct NewMainRes {
   std::string latest_epoch;
   uint64_t latest_commit_timestamp;
 };
+
+enum class FailoverStatus : uint8_t {
+  SUCCESS,
+  RAFT_FAILURE,
+  NO_INSTANCE_ALIVE,
+};
+
+enum class CoordinatorStatus : uint8_t { FOLLOWER, LEADER_NOT_READY, LEADER_READY };
+
 using InstanceNameDbHistories = std::pair<std::string, replication_coordination_glue::DatabaseHistories>;
 
 class CoordinatorInstance {
@@ -51,114 +62,97 @@ class CoordinatorInstance {
   CoordinatorInstance &operator=(CoordinatorInstance &&) noexcept = delete;
   ~CoordinatorInstance();
 
+  // We don't need to open lock and close the lock since we need only one writing to raft log here.
+  // If some of actions fail like sending rpc, demoting or rpc failed, we clear in-memory structures that we have.
+  // If writing to raft succeeds, we know what everything up to that point passed so all good.
   [[nodiscard]] auto RegisterReplicationInstance(CoordinatorToReplicaConfig const &config)
       -> RegisterInstanceCoordinatorStatus;
+
+  // Here we reverse logic from RegisterReplicationInstance. 1st we write to raft log and then we try to unregister
+  // replication instance from in-memory structures. If raft passes and some of rpc actions or deletions fails, user
+  // should repeat the action. Instance will be deleted twice from raft log but since that action is idempotent, no
+  // failure will actually happen.
   [[nodiscard]] auto UnregisterReplicationInstance(std::string_view instance_name)
       -> UnregisterInstanceCoordinatorStatus;
 
-  [[nodiscard]] auto SetReplicationInstanceToMain(std::string_view instance_name) -> SetInstanceToMainCoordinatorStatus;
+  // The logic here is that as long as we didn't set uuid for the whole cluster, actions will be reverted on instances
+  // on the next state check.
+  [[nodiscard]] auto SetReplicationInstanceToMain(std::string_view new_main_name) -> SetInstanceToMainCoordinatorStatus;
+
+  // If user demotes main to replica, cluster will be without main instance. User should then call
+  // TryVerifyOrCorrectClusterState or SetReplicationInstanceToMain. The logic here is that as long as we didn't set
+  // uuid for the whole cluster, actions will be reverted on instances on the next state check.
+  [[nodiscard]] auto DemoteInstanceToReplica(std::string_view instance_name) -> DemoteInstanceCoordinatorStatus;
+
+  [[nodiscard]] auto TryVerifyOrCorrectClusterState() -> ReconcileClusterStateStatus;
 
   auto ShowInstances() const -> std::vector<InstanceStatus>;
 
-  auto TryFailover() -> void;
+  auto ShowInstancesAsLeader() const -> std::optional<std::vector<InstanceStatus>>;
+
+  // Finds most up to date instance that could become new main. Only alive instances are taken into account.
+  [[nodiscard]] auto TryFailover() -> FailoverStatus;
 
   auto AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) -> AddCoordinatorInstanceStatus;
 
   auto GetRoutingTable() const -> RoutingTable;
 
-  static auto ChooseMostUpToDateInstance(std::span<InstanceNameDbHistories> histories) -> NewMainRes;
+  static auto GetMostUpToDateInstanceFromHistories(std::list<ReplicationInstanceConnector> &instances)
+      -> std::optional<std::string>;
 
-  auto HasMainState(std::string_view instance_name) const -> bool;
-
-  auto HasReplicaState(std::string_view instance_name) const -> bool;
+  static auto ChooseMostUpToDateInstance(std::span<InstanceNameDbHistories> histories) -> std::optional<NewMainRes>;
 
   auto GetLeaderCoordinatorData() const -> std::optional<CoordinatorToCoordinatorConfig>;
 
-  auto DemoteInstanceToReplica(std::string_view instance_name) -> DemoteInstanceCoordinatorStatus;
-
-  auto TryForceResetClusterState() -> ForceResetClusterStateStatus;
-
-  auto ForceResetClusterState() -> ForceResetClusterStateStatus;
+  auto ReconcileClusterState() -> ReconcileClusterStateStatus;
 
   void ShuttingDown();
 
+  void AddOrUpdateClientConnectors(std::vector<CoordinatorToCoordinatorConfig> const &configs);
+
+  auto GetCoordinatorToCoordinatorConfigs() const -> std::vector<CoordinatorToCoordinatorConfig>;
+
+  void InstanceSuccessCallback(std::string_view instance_name, std::optional<InstanceState> instance_state);
+  void InstanceFailCallback(std::string_view instance_name, std::optional<InstanceState> instance_state);
+
  private:
-  template <ranges::forward_range R>
-  auto GetMostUpToDateInstanceFromHistories(R &&alive_instances) -> std::optional<std::string> {
-    if (ranges::empty(alive_instances)) {
-      return std::nullopt;
-    }
-    auto const get_ts = [](ReplicationInstanceConnector &replica) {
-      spdlog::trace("Sending get instance timestamps to {}", replica.InstanceName());
-      return replica.GetClient().SendGetInstanceTimestampsRpc();
-    };
-
-    auto maybe_instance_db_histories = alive_instances | ranges::views::transform(get_ts) | ranges::to<std::vector>();
-
-    auto const ts_has_error = [](auto const &res) -> bool { return res.HasError(); };
-
-    if (std::ranges::any_of(maybe_instance_db_histories, ts_has_error)) {
-      spdlog::error("At least one instance which was alive didn't provide per database history.");
-      return std::nullopt;
-    }
-
-    auto const ts_has_value = [](auto const &zipped) -> bool {
-      auto &[replica, res] = zipped;
-      return res.HasValue();
-    };
-
-    auto transform_to_pairs = ranges::views::transform([](auto const &zipped) {
-      auto &[replica, res] = zipped;
-      return std::make_pair(replica.InstanceName(), res.GetValue());
-    });
-
-    auto instance_db_histories = ranges::views::zip(alive_instances, maybe_instance_db_histories) |
-                                 ranges::views::filter(ts_has_value) | transform_to_pairs | ranges::to<std::vector>();
-
-    auto [most_up_to_date_instance, latest_epoch, latest_commit_timestamp] =
-        ChooseMostUpToDateInstance(instance_db_histories);
-
-    spdlog::trace("The most up to date instance is {} with epoch {} and {} latest commit timestamp",
-                  most_up_to_date_instance, latest_epoch, latest_commit_timestamp);  // NOLINT
-
-    return most_up_to_date_instance;
-  }
-
   auto FindReplicationInstance(std::string_view replication_instance_name) -> ReplicationInstanceConnector &;
+  auto ReconcileClusterState_() -> ReconcileClusterStateStatus;
+  auto ShowInstancesStatusAsFollower() const -> std::vector<InstanceStatus>;
 
-  void MainFailCallback(std::string_view);
-
-  void MainSuccessCallback(std::string_view);
-
-  void ReplicaSuccessCallback(std::string_view);
-
-  void ReplicaFailCallback(std::string_view);
-
-  void DemoteSuccessCallback(std::string_view repl_instance_name);
-
-  void DemoteFailCallback(std::string_view repl_instance_name);
-
-  auto ForceResetCluster_() -> ForceResetClusterStateStatus;
-
+  // When a coordinator is becoming a leader, we could be in several situations:
+  // 1. Whole cluster was ok, lock was closed, we will find current main. Only last leader probably died.
+  //    In that case we don't need to do anything except start state checks.
+  // 2. We could be in situation where the lock is opened. That means one of steps in the failover failed to
+  //    execute or something failed while we were registering instance, setting instance to main or unregistering
+  //    instance. In that case we should reconcile cluster state, which means:
+  //    1. close the lock.
+  //    2. find main = TryFailover.
+  //    3. close the lock.
   auto GetBecomeLeaderCallback() -> std::function<void()>;
+
   auto GetBecomeFollowerCallback() -> std::function<void()>;
 
-  HealthCheckClientCallback client_succ_cb_, client_fail_cb_;
+  auto GetCoordinatorsInstanceStatus() const -> std::vector<InstanceStatus>;
+
   // Raft updates leadership before callback is executed. IsLeader() can return true, but
-  // leader callback or force reset haven't yet be executed. This flag tracks if coordinator is set up to
+  // leader callback or reconcile cluster state haven't yet be executed. This flag tracks if coordinator is set up to
   // accept queries.
-  std::atomic<bool> is_leader_ready_{false};
+  std::atomic<CoordinatorStatus> status{CoordinatorStatus::FOLLOWER};
   std::atomic<bool> is_shutting_down_{false};
   // NOTE: Must be std::list because we rely on pointer stability.
-  // TODO(antoniofilipovic) do we still rely on pointer stability
   std::list<ReplicationInstanceConnector> repl_instances_;
   mutable utils::ResourceLock coord_instance_lock_{};
 
   std::unique_ptr<RaftState> raft_state_;
 
-  // Thread pool must be destructed first, because there is a possibility we are doing force reset in thread
+  // Thread pool must be destructed first, because there is a possibility we are doing reconcile cluster state in thread
   // while coordinator is destructed
   utils::ThreadPool thread_pool_{1};
+
+  CoordinatorInstanceManagementServer coordinator_management_server_;
+  mutable utils::Synchronized<std::list<std::pair<uint32_t, CoordinatorInstanceConnector>>, utils::SpinLock>
+      coordinator_connectors_;
 };
 
 }  // namespace memgraph::coordination

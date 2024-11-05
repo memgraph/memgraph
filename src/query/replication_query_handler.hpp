@@ -14,6 +14,7 @@
 #include "replication/replication_client.hpp"
 #include "replication_coordination_glue/mode.hpp"
 #include "replication_coordination_glue/role.hpp"
+#include "storage/v2/replication/enums.hpp"
 #include "utils/result.hpp"
 #include "utils/uuid.hpp"
 
@@ -27,18 +28,21 @@ struct ReplicationClientConfig;
 namespace memgraph::query {
 
 enum class RegisterReplicaError : uint8_t {
+  NOT_MAIN,
   NAME_EXISTS,
   ENDPOINT_EXISTS,
   CONNECTION_FAILED,
   COULD_NOT_BE_PERSISTED,
-  ERROR_ACCEPTING_MAIN
+  ERROR_ACCEPTING_MAIN,
+  NO_ACCESS
 };
 
 enum class UnregisterReplicaResult : uint8_t {
   NOT_MAIN,
   COULD_NOT_BE_PERSISTED,
-  CAN_NOT_UNREGISTER,
+  CANNOT_UNREGISTER,
   SUCCESS,
+  NO_ACCESS
 };
 
 enum class ShowReplicaError : uint8_t {
@@ -66,7 +70,7 @@ struct ReplicasInfo {
       : name_(std::move(name)),
         socket_address_(std::move(socket_address)),
         sync_mode_(sync_mode),
-        system_info_(std::move(system_info)),
+        system_info_(system_info),
         data_info_(std::move(data_info)) {}
 
   std::string name_;

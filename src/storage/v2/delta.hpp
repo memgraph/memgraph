@@ -17,6 +17,7 @@
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
+#include "utils/allocator/page_slab_memory_resource.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::storage {
@@ -121,27 +122,36 @@ inline bool operator==(const PreviousPtr::Pointer &a, const PreviousPtr::Pointer
   }
 }
 
-inline bool operator!=(const PreviousPtr::Pointer &a, const PreviousPtr::Pointer &b) { return !(a == b); }
-
 struct opt_str {
-  opt_str(std::optional<std::string> const &other) : str_{other ? new_cstr(*other) : nullptr} {}
+  opt_str(std::optional<std::string_view> other, utils::PageSlabMemoryResource *res)
+      : str_{other ? new_cstr(*other, res) : nullptr} {}
 
-  ~opt_str() { delete[] str_; }
+  ~opt_str() = default;
 
-  auto as_opt_str() const -> std::optional<std::string> {
+  auto as_opt_str() const -> std::optional<std::string_view> {
     if (!str_) return std::nullopt;
-    return std::optional<std::string>{std::in_place, str_};
+    return std::optional<std::string_view>{std::in_place, str_};
   }
 
  private:
-  static auto new_cstr(std::string const &str) -> char const * {
-    auto *mem = new char[str.length() + 1];
-    strcpy(mem, str.c_str());
+  static auto new_cstr(std::string_view str, utils::PageSlabMemoryResource *res) -> char const * {
+    auto const n = str.size() + 1;
+    auto alloc = std::pmr::polymorphic_allocator<char>{res};
+    auto *mem = (std::string_view::pointer)alloc.allocate_bytes(n, alignof(char));
+    std::copy(str.cbegin(), str.cend(), mem);
+    mem[n - 1] = '\0';
     return mem;
   }
 
   char const *str_ = nullptr;
 };
+
+static_assert(!std::is_constructible_v<opt_str, std::optional<std::string_view>, std::pmr::memory_resource *>,
+              "Use of PageSlabMemoryResource is deliberate here");
+static_assert(std::is_constructible_v<opt_str, std::optional<std::string_view>, utils::PageSlabMemoryResource *>,
+              "Use of PageSlabMemoryResource is deliberate here");
+static_assert(std::is_trivially_destructible_v<opt_str>,
+              "uses PageSlabMemoryResource, lifetime linked to that, dtr should be trivial");
 
 struct Delta {
   enum class Action : std::uint8_t {
@@ -179,8 +189,11 @@ struct Delta {
   // DELETE_DESERIALIZED_OBJECT is used to load data from disk committed by past txs.
   // Because of this object was created in past txs, we create timestamp by ourselves inside instead of having it from
   // current tx. This timestamp we got from RocksDB timestamp stored in key.
-  Delta(DeleteDeserializedObjectTag /*tag*/, uint64_t ts, std::optional<std::string> old_disk_key)
-      : timestamp(new std::atomic<uint64_t>(ts)), command_id(0), old_disk_key{.value = old_disk_key} {}
+  Delta(DeleteDeserializedObjectTag /*tag*/, uint64_t ts, std::optional<std::string_view> old_disk_key,
+        utils::PageSlabMemoryResource *res)
+      : timestamp(std::pmr::polymorphic_allocator<Delta>{res}.new_object<std::atomic<uint64_t>>(ts)),
+        command_id(0),
+        old_disk_key{.value = opt_str{old_disk_key, res}} {}
 
   Delta(DeleteObjectTag /*tag*/, std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : timestamp(timestamp), command_id(command_id), action(Action::DELETE_OBJECT) {}
@@ -195,11 +208,22 @@ struct Delta {
       : timestamp(timestamp), command_id(command_id), label{.action = Action::REMOVE_LABEL, .value = label} {}
 
   Delta(SetPropertyTag /*tag*/, PropertyId key, PropertyValue value, std::atomic<uint64_t> *timestamp,
-        uint64_t command_id)
+        uint64_t command_id, utils::PageSlabMemoryResource *res)
       : timestamp(timestamp),
         command_id(command_id),
         property{
-            .action = Action::SET_PROPERTY, .key = key, .value = std::make_unique<PropertyValue>(std::move(value))} {}
+            .action = Action::SET_PROPERTY,
+            .key = key,
+            .value = std::pmr::polymorphic_allocator<Delta>{res}.new_object<pmr::PropertyValue>(std::move(value))} {}
+
+  Delta(SetPropertyTag /*tag*/, Vertex *out_vertex, PropertyId key, PropertyValue value,
+        std::atomic<uint64_t> *timestamp, uint64_t command_id, utils::PageSlabMemoryResource *res)
+      : timestamp(timestamp),
+        command_id(command_id),
+        property{.action = Action::SET_PROPERTY,
+                 .key = key,
+                 .value = std::pmr::polymorphic_allocator<Delta>{res}.new_object<pmr::PropertyValue>(std::move(value)),
+                 .out_vertex = out_vertex} {}
 
   Delta(AddInEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
         uint64_t command_id)
@@ -230,27 +254,7 @@ struct Delta {
   Delta &operator=(const Delta &) = delete;
   Delta &operator=(Delta &&) = delete;
 
-  ~Delta() {
-    switch (action) {
-      case Action::DELETE_OBJECT:
-      case Action::RECREATE_OBJECT:
-      case Action::ADD_LABEL:
-      case Action::REMOVE_LABEL:
-      case Action::ADD_IN_EDGE:
-      case Action::ADD_OUT_EDGE:
-      case Action::REMOVE_IN_EDGE:
-      case Action::REMOVE_OUT_EDGE:
-        break;
-      case Action::DELETE_DESERIALIZED_OBJECT:
-        std::destroy_at(&old_disk_key.value);
-        delete timestamp;
-        timestamp = nullptr;
-        break;
-      case Action::SET_PROPERTY:
-        property.value.reset();
-        break;
-    }
-  }
+  ~Delta() = default;
 
   // TODO: optimize with in-place copy
   std::atomic<uint64_t> *timestamp;
@@ -271,7 +275,8 @@ struct Delta {
     struct {
       Action action;
       PropertyId key;
-      std::unique_ptr<storage::PropertyValue> value;
+      storage::pmr::PropertyValue *value = nullptr;
+      Vertex *out_vertex{nullptr};  // Used by edge's delta to easily rebuild the edge
     } property;
     struct {
       Action action;
@@ -281,6 +286,10 @@ struct Delta {
     } vertex_edge;
   };
 };
+
+// This is important, we want fast discard of unlinked deltas,
+static_assert(std::is_trivially_destructible_v<Delta>,
+              "any allocations use PageSlabMemoryResource, lifetime linked to that, dtr should be trivial");
 
 static_assert(alignof(Delta) >= 8, "The Delta should be aligned to at least 8!");
 

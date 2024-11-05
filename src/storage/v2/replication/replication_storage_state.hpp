@@ -32,23 +32,46 @@
 #include "storage/v2/replication/serialization.hpp"
 #include "utils/synchronized.hpp"
 
+#include <range/v3/view.hpp>
+#include <span>
+
 namespace memgraph::storage {
 
 class Storage;
 
 class ReplicationStorageClient;
+class ReplicaStream;
 
 struct ReplicationStorageState {
   // Only MAIN can send
-  void InitializeTransaction(uint64_t seq_num, Storage *storage, DatabaseAccessProtector db_acc);
-  void AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t timestamp);
-  void AppendDelta(const Delta &delta, const Edge &edge, uint64_t timestamp);
-  void AppendOperation(durability::StorageMetadataOperation operation, LabelId label,
-                       const std::set<PropertyId> &properties, const LabelIndexStats &stats,
-                       const LabelPropertyIndexStats &property_stats, uint64_t final_commit_timestamp);
-  void AppendOperation(durability::StorageMetadataOperation operation, EdgeTypeId edge_type,
-                       uint64_t final_commit_timestamp);
-  bool FinalizeTransaction(uint64_t timestamp, Storage *storage, DatabaseAccessProtector db_acc);
+  auto InitializeTransaction(uint64_t seq_num, Storage *storage, DatabaseAccessProtector db_acc)
+      -> std::vector<std::optional<ReplicaStream>>;
+
+  template <typename... Args>
+  void AppendDelta(std::span<std::optional<ReplicaStream>> replica_streams, Args &&...args) {
+    replication_clients_.WithLock([&](auto &clients) {
+      for (auto &&[client, replica_stream] : ranges::views::zip(clients, replica_streams)) {
+        client->IfStreamingTransaction([&](auto &stream) { stream.AppendDelta(args...); }, replica_stream);
+      }
+    });
+  }
+
+  template <typename Func>
+  void EncodeToReplicas(std::span<std::optional<ReplicaStream>> replica_streams, Func &&func) {
+    replication_clients_.WithLock([&](auto &clients) {
+      for (auto &&[client, replica_stream] : ranges::views::zip(clients, replica_streams)) {
+        client->IfStreamingTransaction(
+            [&](auto &stream) {
+              auto encoder = stream.encoder();
+              func(encoder);
+            },
+            replica_stream);
+      }
+    });
+  }
+
+  bool FinalizeTransaction(uint64_t timestamp, Storage *storage, DatabaseAccessProtector db_acc,
+                           std::vector<std::optional<ReplicaStream>> replica_stream);
 
   // Getters
   auto GetReplicaState(std::string_view name) const -> std::optional<replication::ReplicaState>;
@@ -80,7 +103,7 @@ struct ReplicationStorageState {
   // Each value consists of the epoch id along the last commit belonging to that
   // epoch.
   std::deque<std::pair<std::string, uint64_t>> history;
-  std::atomic<uint64_t> last_commit_timestamp_{kTimestampInitialId};
+  std::atomic<uint64_t> last_durable_timestamp_{kTimestampInitialId};
 
   // We create ReplicationClient using unique_ptr so we can move
   // newly created client into the vector.

@@ -188,6 +188,7 @@ bool Contains(const std::unordered_map<TKey, TValue, THash, TKeyEqual, TAllocato
  */
 template <typename TIterable, typename TElement>
 inline bool Contains(const TIterable &iterable, const TElement &element) {
+  // TODO: C++23 change with std::ranges::contains and inline
   return std::find(iterable.begin(), iterable.end(), element) != iterable.end();
 }
 

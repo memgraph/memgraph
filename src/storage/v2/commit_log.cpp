@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,6 +11,8 @@
 
 #include "storage/v2/commit_log.hpp"
 #include "utils/memory.hpp"
+
+#include <mutex>
 
 namespace memgraph::storage {
 CommitLog::CommitLog() : allocator_(utils::NewDeleteResource()) {}
@@ -46,7 +48,7 @@ CommitLog::~CommitLog() {
 }
 
 void CommitLog::MarkFinished(uint64_t id) {
-  std::lock_guard<utils::SpinLock> guard(lock_);
+  auto guard = std::lock_guard{lock_};
 
   Block *block = FindOrCreateBlock(id);
   block->field[(id % kIdsInBlock) / kIdsInField] |= 1ULL << (id % kIdsInField);
@@ -56,7 +58,7 @@ void CommitLog::MarkFinished(uint64_t id) {
 }
 
 uint64_t CommitLog::OldestActive() {
-  std::lock_guard<utils::SpinLock> guard(lock_);
+  auto guard = std::lock_guard{lock_};
   return oldest_active_;
 }
 

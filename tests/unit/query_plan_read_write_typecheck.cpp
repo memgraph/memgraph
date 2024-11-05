@@ -36,8 +36,7 @@ class ReadWriteTypeCheckTest : public ::testing::Test {
 
   memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
   std::unique_ptr<memgraph::storage::Storage> db{new StorageType(config)};
-  std::unique_ptr<memgraph::storage::Storage::Accessor> dba_storage{
-      db->Access(memgraph::replication_coordination_glue::ReplicationRole::MAIN)};
+  std::unique_ptr<memgraph::storage::Storage::Accessor> dba_storage{db->Access()};
   memgraph::query::DbAccessor dba{dba_storage.get()};
 
   void TearDown() override {
@@ -83,12 +82,12 @@ TYPED_TEST(ReadWriteTypeCheckTest, Filter) {
 
 TYPED_TEST(ReadWriteTypeCheckTest, ScanAllBy) {
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAllByLabelPropertyRange>(
-      nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"), this->dba.NameToProperty("prop"), "prop",
+      nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"), this->dba.NameToProperty("prop"),
       memgraph::utils::MakeBoundInclusive<Expression *>(LITERAL(1)),
       memgraph::utils::MakeBoundExclusive<Expression *>(LITERAL(20)));
-  last_op = std::make_shared<ScanAllByLabelPropertyValue>(
-      last_op, this->GetSymbol("node"), this->dba.NameToLabel("Label"), this->dba.NameToProperty("prop"), "prop",
-      ADD(LITERAL(21), LITERAL(21)));
+  last_op =
+      std::make_shared<ScanAllByLabelPropertyValue>(last_op, this->GetSymbol("node"), this->dba.NameToLabel("Label"),
+                                                    this->dba.NameToProperty("prop"), ADD(LITERAL(21), LITERAL(21)));
 
   this->CheckPlanType(last_op.get(), RWType::R);
 }

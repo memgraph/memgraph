@@ -22,7 +22,6 @@
 #include "dbms/dbms_handler.hpp"
 #include "integrations/constants.hpp"
 #include "mg_procedure.h"
-#include "query/db_accessor.hpp"
 #include "query/discard_value_stream.hpp"
 #include "query/exceptions.hpp"
 #include "query/interpreter.hpp"
@@ -90,8 +89,7 @@ void CallCustomTransformation(const std::string &transformation_name, const std:
                               utils::MemoryResource &memory_resource, const std::string &stream_name) {
   DbAccessor db_accessor{&storage_accessor};
   {
-    auto maybe_transformation =
-        procedure::FindTransformation(procedure::gModuleRegistry, transformation_name, utils::NewDeleteResource());
+    auto maybe_transformation = procedure::FindTransformation(procedure::gModuleRegistry, transformation_name);
 
     if (!maybe_transformation) {
       throw StreamsException("Couldn't find transformation {} for stream '{}'", transformation_name, stream_name);
@@ -534,7 +532,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
       interpreter->Abort();
     }};
 
-    const static std::map<std::string, storage::PropertyValue> empty_parameters{};
+    const static storage::PropertyValue::map_t empty_parameters{};
     uint32_t i = 0;
     while (true) {
       try {
@@ -545,8 +543,10 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
           storage::PropertyValue params_prop{params_value};
           std::string query{query_value.ValueString()};
           spdlog::trace("Executing query '{}' in stream '{}'", query, stream_name);
-          auto prepare_result =
-              interpreter->Prepare(query, params_prop.IsNull() ? empty_parameters : params_prop.ValueMap(), {});
+          auto prepare_result = interpreter->Prepare(
+              query,
+              [=](storage::Storage const *) { return params_prop.IsMap() ? params_prop.ValueMap() : empty_parameters; },
+              {});
           if (!owner->IsAuthorized(prepare_result.privileges, "", &up_to_date_policy)) {
             throw StreamsException{
                 "Couldn't execute query '{}' for stream '{}' because the owner is not authorized to execute the "
@@ -567,6 +567,11 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
         }
         ++i;
         std::this_thread::sleep_for(retry_interval);
+      } catch (const DatabaseContextRequiredException &e) {
+        // No database; we are shutting down
+        interpreter->Abort();
+        spdlog::trace("No database associated with stream '{}'; shuting down...", stream_name);
+        break;
       }
     }
   };
@@ -606,8 +611,15 @@ void Streams::RestoreStreams(TDbAccess db, InterpreterContext *ic) {
       }
       MG_ASSERT(status.name == stream_name, "Expected stream name is '{}', but got '{}'", status.name, stream_name);
 
+      std::shared_ptr<query::QueryUserOrRole> owner = nullptr;
       try {
-        auto owner = ic->auth_checker->GenQueryUser(status.owner, status.owner_role);
+        owner = ic->auth_checker->GenQueryUser(status.owner, status.owner_role);
+      } catch (const utils::BasicException &e) {
+        spdlog::warn(
+            fmt::format("Failed to load stream '{}' because its owner is not an existing Memgraph user.", stream_name));
+        return;
+      }
+      try {
         auto it = CreateConsumer<T>(*locked_streams_map, stream_name, std::move(status.info), std::move(owner), db, ic);
         if (status.is_running) {
           std::visit(
@@ -754,6 +766,22 @@ void Streams::StopAll() {
         },
         stream_data);
   }
+}
+
+void Streams::Shutdown() {
+  auto locked_streams = streams_.Lock();
+  for (auto &[_, stream_data] : *locked_streams) {
+    std::visit(
+        [](const auto &stream_data) {
+          auto locked_stream_source = stream_data.stream_source->Lock();
+          if (locked_stream_source->IsRunning()) {
+            locked_stream_source->Stop();
+          }
+        },
+        stream_data);
+  }
+  // Destroy underlying streams
+  locked_streams->clear();
 }
 
 std::vector<StreamStatus<>> Streams::GetStreamInfo() const {

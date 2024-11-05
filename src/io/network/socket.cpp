@@ -11,10 +11,12 @@
 
 #include <arpa/inet.h>
 #include <fcntl.h>
+#include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <poll.h>
 
 #include "io/network/addrinfo.hpp"
+#include "io/network/endpoint.hpp"
 #include "io/network/network_error.hpp"
 #include "io/network/socket.hpp"
 #include "utils/likely.hpp"
@@ -54,22 +56,34 @@ void Socket::Shutdown() {
 bool Socket::IsOpen() const { return socket_ != -1; }
 
 bool Socket::Connect(const Endpoint &endpoint) {
-  if (socket_ != -1) return false;
+  if (socket_ != -1) {
+    spdlog::trace("Socket::Connect failed, socket_ not ready!");
+    return false;
+  }
 
   try {
     for (const auto &it : AddrInfo{endpoint}) {
       int sfd = socket(it.ai_family, it.ai_socktype, it.ai_protocol);
-      if (sfd == -1) continue;
+      if (sfd == -1) {
+        spdlog::trace("Socket creation failed in Socket::Connect for socket address {}. File descriptor is -1",
+                      endpoint.SocketAddress());
+        continue;
+      }
       if (connect(sfd, it.ai_addr, it.ai_addrlen) == 0) {
         socket_ = sfd;
         endpoint_ = endpoint;
+        spdlog::trace("Successfully connected to socket in Socket::Connect for socket address {}",
+                      endpoint.SocketAddress());
         break;
       }
+      spdlog::trace("Connect failed, closing file descriptor in Socket::Connect for socket address {}",
+                    endpoint.SocketAddress());
       // If the connect failed close the file descriptor to prevent file
       // descriptors being leaked
       close(sfd);
     }
   } catch (const NetworkError &e) {
+    spdlog::trace("Error in Socket::Connect {}", e.trace());
     return false;
   }
 
@@ -77,14 +91,22 @@ bool Socket::Connect(const Endpoint &endpoint) {
 }
 
 bool Socket::Bind(const Endpoint &endpoint) {
-  if (socket_ != -1) return false;
+  if (socket_ != -1) {
+    spdlog::trace("Socket::Bind failed, socket_ not ready!");
+    return false;
+  }
 
   for (const auto &it : AddrInfo{endpoint}) {
     int sfd = socket(it.ai_family, it.ai_socktype, it.ai_protocol);
-    if (sfd == -1) continue;
+    if (sfd == -1) {
+      spdlog::trace("Socket creation failed in Socket::Bind for socket address {}. File descriptor is -1",
+                    endpoint.SocketAddress());
+      continue;
+    }
 
     int on = 1;
     if (setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on)) != 0) {
+      spdlog::trace("setsockopt in Socket::Bind failed for socket address {}", endpoint.SocketAddress());
       // If the setsockopt failed close the file descriptor to prevent file
       // descriptors being leaked
       close(sfd);
@@ -97,10 +119,14 @@ bool Socket::Bind(const Endpoint &endpoint) {
     }
     // If the bind failed close the file descriptor to prevent file
     // descriptors being leaked
+    spdlog::trace("Socket::Bind failed. Closing file descriptor for socket address {}", endpoint.SocketAddress());
     close(sfd);
   }
 
-  if (socket_ == -1) return false;
+  if (socket_ == -1) {
+    spdlog::trace("Socket::Bind failed. socket_ is -1 for socket address {}", endpoint.SocketAddress());
+    return false;
+  }
 
   // detect bound port, used when the server binds to a random port
   struct sockaddr_in6 portdata;
@@ -110,10 +136,13 @@ bool Socket::Bind(const Endpoint &endpoint) {
     // descriptors being leaked
     close(socket_);
     socket_ = -1;
+    spdlog::trace("Socket::Bind failed. getsockname failed, closing file descriptor for socket address {}",
+                  endpoint.SocketAddress());
     return false;
   }
 
-  endpoint_ = Endpoint(endpoint.address, ntohs(portdata.sin6_port));
+  // TODO: (andi) This runs again resolving, shouldn't be needed.
+  endpoint_ = Endpoint(endpoint.GetResolvedIPAddress(), ntohs(portdata.sin6_port));
 
   return true;
 }

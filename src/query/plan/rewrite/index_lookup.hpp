@@ -28,7 +28,9 @@
 
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
+#include "query/plan/rewrite/general.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/label_property_index_stats.hpp"
 
 DECLARE_int64(query_vertex_count_to_expand_existing);
 
@@ -56,6 +58,13 @@ struct IndexHints {
           continue;
         }
         label_property_index_hints_.emplace_back(index_hint);
+      } else if (index_type == IndexHint::IndexType::POINT) {
+        auto property_name = index_hint.property_->name;
+        if (!db->PointIndexExists(db->NameToLabel(label_name), db->NameToProperty(property_name))) {
+          spdlog::debug("Point index for label {} and property {} doesn't exist", label_name, property_name);
+          continue;
+        }
+        point_index_hints_.emplace_back(index_hint);
       }
     }
   }
@@ -83,20 +92,25 @@ struct IndexHints {
     return false;
   }
 
+  // TODO: look into making index hints work for point indexes
+  template <class TDbAccessor>
+  bool HasPointIndex(TDbAccessor *db, storage::LabelId label, storage::PropertyId property) const {
+    for (const auto &[index_type, label_hint, property_hint] : point_index_hints_) {
+      auto label_id = db->NameToLabel(label_hint.name);
+      auto property_id = db->NameToProperty(property_hint->name);
+      if (label_id == label && property_id == property) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   std::vector<IndexHint> label_index_hints_{};
   std::vector<IndexHint> label_property_index_hints_{};
+  std::vector<IndexHint> point_index_hints_{};  // TODO: check this is used somewhere
 };
 
 namespace impl {
-
-struct ExpressionRemovalResult {
-  Expression *trimmed_expression;
-  bool did_remove{false};
-};
-
-// Return the new root expression after removing the given expressions from the
-// given expression tree.
-ExpressionRemovalResult RemoveExpressions(Expression *expr, const std::unordered_set<Expression *> &exprs_to_remove);
 
 struct HashPair {
   template <class T1, class T2>
@@ -136,21 +150,40 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       op.all_filters_ = std::move(leftover_filters);
     }
 
-    // edge uniqueness filter comes always before filter in plan generation
-    LogicalOperator *input = op.input().get();
-    LogicalOperator *parent = &op;
-    while (input->GetTypeInfo() == EdgeUniquenessFilter::kType) {
-      parent = input;
-      input = input->input().get();
-    }
-    bool is_child_cartesian = input->GetTypeInfo() == Cartesian::kType;
+    // Filters are pushed down as far as they can go.
+    // If there is a Cartesian after, that means that the filter is working on data from both branches.
+    // In that case, we need to convert the Cartesian into a Join
+    if (removal.did_remove) {
+      LogicalOperator *input = op.input().get();
+      LogicalOperator *parent = &op;
 
-    if (is_child_cartesian && removal.did_remove) {
-      // if we removed something from filter in front of a Cartesian, then we are doing a join from
-      // 2 different branches
-      auto *cartesian = dynamic_cast<Cartesian *>(input);
-      auto indexed_join = std::make_shared<IndexedJoin>(cartesian->left_op_, cartesian->right_op_);
-      parent->set_input(indexed_join);
+      // Find first possible branching point
+      while (input->HasSingleInput()) {
+        parent = input;
+        input = input->input().get();
+      }
+
+      const bool is_child_cartesian = input->GetTypeInfo() == Cartesian::kType;
+      if (is_child_cartesian) {
+        std::unordered_set<Symbol> modified_symbols;
+        // Number of symbols is small
+        for (const auto &filter : op.all_filters_) {
+          modified_symbols.insert(filter.used_symbols.begin(), filter.used_symbols.end());
+        }
+        auto does_modify = [&]() {
+          const auto &symbols = input->ModifiedSymbols(*symbol_table_);
+          return std::any_of(symbols.begin(), symbols.end(), [&modified_symbols](const auto &sym_in) {
+            return modified_symbols.find(sym_in) != modified_symbols.end();
+          });
+        };
+        if (does_modify()) {
+          // if we removed something from filter in front of a Cartesian, then we are doing a join from
+          // 2 different branches
+          auto *cartesian = dynamic_cast<Cartesian *>(input);
+          auto indexed_join = std::make_shared<IndexedJoin>(cartesian->left_op_, cartesian->right_op_);
+          parent->set_input(indexed_join);
+        }
+      }
     }
 
     if (!op.expression_) {
@@ -158,6 +191,76 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       SetOnParent(op.input());
     }
 
+    return true;
+  }
+
+  bool PreVisit(ScanAllByEdge &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByEdge &op) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(ScanAllByEdgeId &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByEdgeId &op) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(ScanAllByEdgeType &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByEdgeType &op) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(ScanAllByEdgeTypeProperty &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByEdgeTypeProperty &op) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(ScanAllByEdgeTypePropertyValue &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByEdgeTypePropertyValue &op) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(ScanAllByEdgeTypePropertyRange &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByEdgeTypePropertyRange &op) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(ScanAllByPointDistance &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByPointDistance &op) override {
+    prev_ops_.pop_back();
     return true;
   }
 
@@ -607,6 +710,28 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PreVisit(PeriodicCommit &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(PeriodicCommit & /*op*/) override {
+    prev_ops_.pop_back();
+    return false;
+  }
+
+  bool PreVisit(PeriodicSubquery &op) override {
+    prev_ops_.push_back(&op);
+    op.input()->Accept(*this);
+    RewriteBranch(&op.subquery_);
+    return false;
+  }
+
+  bool PostVisit(PeriodicSubquery & /*op*/) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
   std::shared_ptr<LogicalOperator> new_root_;
 
  private:
@@ -630,6 +755,13 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     FilterInfo filter;
     int64_t vertex_count;
     std::optional<storage::LabelPropertyIndexStats> index_stats;
+  };
+
+  struct PointLabelPropertyIndex {
+    LabelIx label;
+    // FilterInfo with PropertyFilter.
+    FilterInfo filter;
+    int64_t vertex_count;
   };
 
   bool DefaultPreVisit() override { throw utils::NotYetImplemented("optimizing index lookup"); }
@@ -702,6 +834,80 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     std::vector<std::pair<IndexHint, FilterInfo>> candidate_indices_{};
     std::unordered_map<std::pair<LabelIx, PropertyIx>, FilterInfo, HashPair> candidate_index_lookup_{};
   };
+
+  CandidateIndices GetCandidatePointIndices(const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols) {
+    auto are_bound = [&bound_symbols](const auto &used_symbols) {
+      for (const auto &used_symbol : used_symbols) {
+        if (!utils::Contains(bound_symbols, used_symbol)) {
+          return false;
+        }
+      }
+      return true;
+    };
+
+    std::vector<std::pair<IndexHint, FilterInfo>> candidate_indices{};
+    std::unordered_map<std::pair<LabelIx, PropertyIx>, FilterInfo, HashPair> candidate_index_lookup{};
+    for (const auto &label : filters_.FilteredLabels(symbol)) {
+      for (const auto &filter : filters_.PointFilters(symbol)) {
+        if (!are_bound(filter.used_symbols)) {
+          // TODO: better more accurate comment
+          // Skip filter expressions which use the symbol whose property we are
+          // looking up or aren't bound. We cannot scan by such expressions. For
+          // example, in `n.a = 2 + n.b` both sides of `=` refer to `n`, so we
+          // cannot scan `n` by property index.
+          continue;
+        }
+
+        const auto &property = filter.point_filter->property_;
+        if (!db_->PointIndexExists(GetLabel(label), GetProperty(property))) {
+          continue;
+        }
+        candidate_indices.emplace_back(
+            IndexHint{.index_type_ = IndexHint::IndexType::POINT, .label_ = label, .property_ = property}, filter);
+        candidate_index_lookup.insert({std::make_pair(label, property), filter});
+      }
+    }
+
+    return CandidateIndices{.candidate_indices_ = candidate_indices, .candidate_index_lookup_ = candidate_index_lookup};
+  }
+
+  std::optional<PointLabelPropertyIndex> FindBestPointLabelPropertyIndex(
+      const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols) {
+    auto [candidate_indices, candidate_index_lookup] = GetCandidatePointIndices(symbol, bound_symbols);
+
+    // TODO: Can point_index_hints_ be populated?
+    //  indexHints: INDEX indexHint ( ',' indexHint )* ;
+    //  indexHint: ':' labelName ( '(' propertyKeyName ')' )? ;
+
+    // First match with the provided hints
+    for (const auto &[index_type, label, maybe_property] : index_hints_.point_index_hints_) {
+      auto property = *maybe_property;
+      auto filter_it = candidate_index_lookup.find(std::make_pair(label, property));
+      if (filter_it != candidate_index_lookup.cend()) {
+        // TODO: isn't .vertex_count as max value wrong?
+        return PointLabelPropertyIndex{
+            .label = label, .filter = filter_it->second, .vertex_count = std::numeric_limits<std::int64_t>::max()};
+      }
+    }
+
+    // Second find a good candidate
+    std::optional<PointLabelPropertyIndex> found;
+    for (const auto &[candidate, filter] : candidate_indices) {
+      const auto &[_, label, maybe_property] = candidate;
+      auto labelId = GetLabel(label);
+      auto propertyId = GetProperty(*maybe_property);
+
+      // TODO: ATM we are looking at index size, are there other situations to select a candidate index over another?
+      auto vertex_count = db_->VerticesPointCount(labelId, propertyId);
+      if (!vertex_count) continue;
+
+      if (!found || vertex_count < found->vertex_count) {
+        found.emplace(label, filter, *vertex_count);
+        continue;
+      }
+    }
+    return found;
+  }
 
   CandidateIndices GetCandidateIndices(const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols) {
     auto are_bound = [&bound_symbols](const auto &used_symbols) {
@@ -865,6 +1071,37 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       // Without labels, we cannot generate any indexed ScanAll.
       return nullptr;
     }
+
+    // Point index prefered over regular label+property index
+    // TODO: figure out how to make NEW work
+    if (view == storage::View::OLD) {
+      auto found_index = FindBestPointLabelPropertyIndex(node_symbol, bound_symbols);
+
+      if (found_index) {
+        FilterInfo const &filter = found_index->filter;
+        auto const &point_filter = filter.point_filter.value();
+
+        filters_.EraseFilter(filter);
+        std::vector<Expression *> removed_expressions;  // out parameter
+        filters_.EraseLabelFilter(node_symbol, found_index->label, &removed_expressions);
+        filter_exprs_for_removal_.insert(filter.expression);
+        filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
+
+        switch (point_filter.function_) {
+          using enum PointFilter::Function;
+          case DISTANCE: {
+            return std::make_unique<ScanAllByPointDistance>(
+                input, node_symbol, GetLabel(found_index->label), GetProperty(point_filter.property_),
+                point_filter.distance_.cmp_value_,  // uses the CRS from here
+                point_filter.distance_.boundary_value_, point_filter.distance_.boundary_condition_);
+          }
+          case WITHINBBOX: {
+            throw utils::NotYetImplemented("Withinbbox not yet implemented");
+            break;
+          }
+        }
+      }
+    }
     auto found_index = FindBestLabelPropertyIndex(node_symbol, bound_symbols);
     if (found_index &&
         // Use label+property index if we satisfy max_vertex_count.
@@ -882,36 +1119,37 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       filters_.EraseLabelFilter(node_symbol, found_index->label, &removed_expressions);
       filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
       if (prop_filter.lower_bound_ || prop_filter.upper_bound_) {
-        return std::make_unique<ScanAllByLabelPropertyRange>(
-            input, node_symbol, GetLabel(found_index->label), GetProperty(prop_filter.property_),
-            prop_filter.property_.name, prop_filter.lower_bound_, prop_filter.upper_bound_, view);
-      } else if (prop_filter.type_ == PropertyFilter::Type::REGEX_MATCH) {
+        return std::make_unique<ScanAllByLabelPropertyRange>(input, node_symbol, GetLabel(found_index->label),
+                                                             GetProperty(prop_filter.property_),
+                                                             prop_filter.lower_bound_, prop_filter.upper_bound_, view);
+      }
+      if (prop_filter.type_ == PropertyFilter::Type::REGEX_MATCH) {
         // Generate index scan using the empty string as a lower bound.
         Expression *empty_string = ast_storage_->Create<PrimitiveLiteral>("");
         auto lower_bound = utils::MakeBoundInclusive(empty_string);
-        return std::make_unique<ScanAllByLabelPropertyRange>(
-            input, node_symbol, GetLabel(found_index->label), GetProperty(prop_filter.property_),
-            prop_filter.property_.name, std::make_optional(lower_bound), std::nullopt, view);
-      } else if (prop_filter.type_ == PropertyFilter::Type::IN) {
+        return std::make_unique<ScanAllByLabelPropertyRange>(input, node_symbol, GetLabel(found_index->label),
+                                                             GetProperty(prop_filter.property_),
+                                                             std::make_optional(lower_bound), std::nullopt, view);
+      }
+      if (prop_filter.type_ == PropertyFilter::Type::IN) {
         // TODO(buda): ScanAllByLabelProperty + Filter should be considered
         // here once the operator and the right cardinality estimation exist.
         auto const &symbol = symbol_table_->CreateAnonymousSymbol();
         auto *expression = ast_storage_->Create<Identifier>(symbol.name_);
         expression->MapTo(symbol);
         auto unwind_operator = std::make_unique<Unwind>(input, prop_filter.value_, symbol);
-        return std::make_unique<ScanAllByLabelPropertyValue>(
-            std::move(unwind_operator), node_symbol, GetLabel(found_index->label), GetProperty(prop_filter.property_),
-            prop_filter.property_.name, expression, view);
-      } else if (prop_filter.type_ == PropertyFilter::Type::IS_NOT_NULL) {
-        return std::make_unique<ScanAllByLabelProperty>(input, node_symbol, GetLabel(found_index->label),
-                                                        GetProperty(prop_filter.property_), prop_filter.property_.name,
-                                                        view);
-      } else {
-        MG_ASSERT(prop_filter.value_, "Property filter should either have bounds or a value expression.");
-        return std::make_unique<ScanAllByLabelPropertyValue>(input, node_symbol, GetLabel(found_index->label),
-                                                             GetProperty(prop_filter.property_),
-                                                             prop_filter.property_.name, prop_filter.value_, view);
+        return std::make_unique<ScanAllByLabelPropertyValue>(std::move(unwind_operator), node_symbol,
+                                                             GetLabel(found_index->label),
+                                                             GetProperty(prop_filter.property_), expression, view);
       }
+      if (prop_filter.type_ == PropertyFilter::Type::IS_NOT_NULL) {
+        return std::make_unique<ScanAllByLabelProperty>(input, node_symbol, GetLabel(found_index->label),
+                                                        GetProperty(prop_filter.property_), view);
+      }
+      MG_ASSERT(prop_filter.value_, "Property filter should either have bounds or a value expression.");
+      return std::make_unique<ScanAllByLabelPropertyValue>(input, node_symbol, GetLabel(found_index->label),
+                                                           GetProperty(prop_filter.property_), prop_filter.value_,
+                                                           view);
     }
     auto maybe_label = FindBestLabelIndex(labels);
     if (!maybe_label) return nullptr;

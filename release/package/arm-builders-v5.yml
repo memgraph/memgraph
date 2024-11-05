@@ -33,3 +33,14 @@ services:
       - "mgdeps-cache:10.42.16.10"
       - "bench-graph-api:10.42.16.10"
     container_name: "mgbuild_v5_ubuntu-22.04-arm"
+
+  mgbuild_v5_ubuntu-24.04-arm:
+    image: "memgraph/mgbuild:v5_ubuntu-24.04-arm"
+    build:
+      context: ubuntu-24.04-arm
+      args:
+        TOOLCHAIN_VERSION: "v5"
+    extra_hosts:
+      - "mgdeps-cache:10.42.16.10"
+      - "bench-graph-api:10.42.16.10"
+    container_name: "mgbuild_v5_ubuntu-24.04-arm"

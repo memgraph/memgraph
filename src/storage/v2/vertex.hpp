@@ -11,6 +11,10 @@
 
 #pragma once
 
+#include <alloca.h>
+#include <boost/container_hash/hash_fwd.hpp>
+#include <functional>
+#include <iterator>
 #include <limits>
 #include <tuple>
 #include <vector>
@@ -20,6 +24,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_store.hpp"
 #include "utils/rw_spin_lock.hpp"
+#include "utils/small_vector.hpp"
 
 namespace memgraph::storage {
 
@@ -32,12 +37,12 @@ struct Vertex {
 
   const Gid gid;
 
-  std::vector<LabelId> labels;
+  utils::small_vector<LabelId> labels;
+
+  utils::small_vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> in_edges;
+  utils::small_vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> out_edges;
+
   PropertyStore properties;
-
-  std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> in_edges;
-  std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> out_edges;
-
   mutable utils::RWSpinLock lock;
   bool deleted;
   // uint8_t PAD;
@@ -47,6 +52,7 @@ struct Vertex {
 };
 
 static_assert(alignof(Vertex) >= 8, "The Vertex should be aligned to at least 8!");
+static_assert(sizeof(Vertex) == 88, "If this changes documentation needs changing");
 
 inline bool operator==(const Vertex &first, const Vertex &second) { return first.gid == second.gid; }
 inline bool operator<(const Vertex &first, const Vertex &second) { return first.gid < second.gid; }

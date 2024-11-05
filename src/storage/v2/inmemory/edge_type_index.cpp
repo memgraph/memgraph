@@ -45,16 +45,16 @@ ReturnType VertexDeletedConnectedEdges(Vertex *vertex, Edge *edge, const Transac
           link = {delta.vertex_edge.edge_type, delta.vertex_edge.vertex, delta.vertex_edge.edge};
           auto it = std::find(vertex->in_edges.begin(), vertex->in_edges.end(), link);
           MG_ASSERT(it == vertex->in_edges.end(), "Invalid database state!");
-          break;
         }
+        break;
       }
       case Delta::Action::ADD_OUT_EDGE: {
         if (edge == delta.vertex_edge.edge.ptr) {
           link = {delta.vertex_edge.edge_type, delta.vertex_edge.vertex, delta.vertex_edge.edge};
           auto it = std::find(vertex->out_edges.begin(), vertex->out_edges.end(), link);
           MG_ASSERT(it == vertex->out_edges.end(), "Invalid database state!");
-          break;
         }
+        break;
       }
       case Delta::Action::REMOVE_IN_EDGE:
       case Delta::Action::REMOVE_OUT_EDGE:
@@ -136,11 +136,17 @@ void InMemoryEdgeTypeIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_t
         continue;
       }
 
-      if (next_it != edges_acc.end() || it->from_vertex->deleted || it->to_vertex->deleted ||
-          !std::ranges::all_of(it->from_vertex->out_edges, [&](const auto &edge) {
-            auto *to_vertex = std::get<InMemoryEdgeTypeIndex::kVertexPos>(edge);
-            return to_vertex != it->to_vertex;
-          })) {
+      const bool vertices_deleted = it->from_vertex->deleted || it->to_vertex->deleted;
+      const bool edge_deleted = it->edge->deleted;
+      const bool has_next = next_it != edges_acc.end();
+
+      // When we update specific entries in the index, we don't delete the previous entry.
+      // The way they are removed from the index is through this check. The entries should
+      // be right next to each other(in terms of iterator semantics) and the older one
+      // should be removed here.
+      const bool redundant_duplicate = has_next && it->from_vertex == next_it->from_vertex &&
+                                       it->to_vertex == next_it->to_vertex && it->edge == next_it->edge;
+      if (redundant_duplicate || vertices_deleted || edge_deleted) {
         edges_acc.remove(*it);
       }
 
@@ -154,6 +160,19 @@ uint64_t InMemoryEdgeTypeIndex::ApproximateEdgeCount(EdgeTypeId edge_type) const
     return it->second.size();
   }
   return 0;
+}
+
+void InMemoryEdgeTypeIndex::AbortEntries(EdgeTypeId edge_type,
+                                         std::span<std::tuple<Vertex *const, Vertex *const, Edge *const> const> edges,
+                                         uint64_t exact_start_timestamp) {
+  auto const it = index_.find(edge_type);
+  if (it == index_.end()) return;
+
+  auto &index_storage = it->second;
+  auto acc = index_storage.access();
+  for (const auto &[from_vertex, to_vertex, edge] : edges) {
+    acc.remove(Entry{from_vertex, to_vertex, edge, exact_start_timestamp});
+  }
 }
 
 void InMemoryEdgeTypeIndex::UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, EdgeTypeId edge_type,
@@ -172,14 +191,8 @@ void InMemoryEdgeTypeIndex::UpdateOnEdgeModification(Vertex *old_from, Vertex *o
   if (it == index_.end()) {
     return;
   }
+
   auto acc = it->second.access();
-
-  auto entry_to_update = std::ranges::find_if(acc, [&](const auto &entry) {
-    return entry.from_vertex == old_from && entry.to_vertex == old_to && entry.edge == edge_ref.ptr;
-  });
-
-  acc.remove(Entry{entry_to_update->from_vertex, entry_to_update->to_vertex, entry_to_update->edge,
-                   entry_to_update->timestamp});
   acc.insert(Entry{new_from, new_to, edge_ref.ptr, tx.start_timestamp});
 }
 
@@ -196,8 +209,8 @@ InMemoryEdgeTypeIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index
 InMemoryEdgeTypeIndex::Iterable::Iterator::Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator)
     : self_(self),
       index_iterator_(index_iterator),
-      current_edge_accessor_(EdgeRef{nullptr}, EdgeTypeId::FromInt(0), nullptr, nullptr, self_->storage_, nullptr),
-      current_edge_(nullptr) {
+      current_edge_(nullptr),
+      current_accessor_(EdgeRef{nullptr}, EdgeTypeId::FromInt(0), nullptr, nullptr, self_->storage_, nullptr) {
   AdvanceUntilValid();
 }
 
@@ -209,67 +222,28 @@ InMemoryEdgeTypeIndex::Iterable::Iterator &InMemoryEdgeTypeIndex::Iterable::Iter
 
 void InMemoryEdgeTypeIndex::Iterable::Iterator::AdvanceUntilValid() {
   for (; index_iterator_ != self_->index_accessor_.end(); ++index_iterator_) {
-    auto *from_vertex = index_iterator_->from_vertex;
-    auto *to_vertex = index_iterator_->to_vertex;
-
-    if (!IsEdgeVisible(index_iterator_->edge, self_->transaction_, self_->view_) || from_vertex->deleted ||
-        to_vertex->deleted) {
+    if (index_iterator_->edge == current_edge_.ptr) {
       continue;
     }
 
-    const bool edge_was_deleted = index_iterator_->edge->deleted;
-    auto [edge_ref, edge_type, deleted_from_vertex, deleted_to_vertex] = GetEdgeInfo();
-    MG_ASSERT(edge_ref != EdgeRef(nullptr), "Invalid database state!");
-
-    if (edge_was_deleted) {
-      from_vertex = deleted_from_vertex;
-      to_vertex = deleted_to_vertex;
+    if (!CanSeeEntityWithTimestamp(index_iterator_->timestamp, self_->transaction_)) {
+      continue;
     }
 
-    auto accessor = EdgeAccessor{edge_ref, edge_type, from_vertex, to_vertex, self_->storage_, self_->transaction_};
+    auto *from_vertex = index_iterator_->from_vertex;
+    auto *to_vertex = index_iterator_->to_vertex;
+    auto edge_ref = EdgeRef(index_iterator_->edge);
+
+    auto accessor =
+        EdgeAccessor{edge_ref, self_->edge_type_, from_vertex, to_vertex, self_->storage_, self_->transaction_};
     if (!accessor.IsVisible(self_->view_)) {
       continue;
     }
 
-    current_edge_accessor_ = accessor;
     current_edge_ = edge_ref;
+    current_accessor_ = accessor;
     break;
   }
-}
-
-std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *> InMemoryEdgeTypeIndex::Iterable::Iterator::GetEdgeInfo() {
-  auto *from_vertex = index_iterator_->from_vertex;
-  auto *to_vertex = index_iterator_->to_vertex;
-
-  if (index_iterator_->edge->deleted) {
-    const auto missing_in_edge =
-        VertexDeletedConnectedEdges(from_vertex, index_iterator_->edge, self_->transaction_, self_->view_);
-    const auto missing_out_edge =
-        VertexDeletedConnectedEdges(to_vertex, index_iterator_->edge, self_->transaction_, self_->view_);
-    if (missing_in_edge && missing_out_edge &&
-        std::get<kEdgeRefPos>(*missing_in_edge) == std::get<kEdgeRefPos>(*missing_out_edge)) {
-      return std::make_tuple(std::get<kEdgeRefPos>(*missing_in_edge), std::get<kEdgeTypeIdPos>(*missing_in_edge),
-                             to_vertex, from_vertex);
-    }
-  }
-
-  const auto &from_edges = from_vertex->out_edges;
-  const auto &to_edges = to_vertex->in_edges;
-
-  auto it = std::find_if(from_edges.begin(), from_edges.end(), [&](const auto &from_entry) {
-    const auto &from_edge = std::get<kEdgeRefPos>(from_entry);
-    return std::any_of(to_edges.begin(), to_edges.end(), [&](const auto &to_entry) {
-      const auto &to_edge = std::get<kEdgeRefPos>(to_entry);
-      return index_iterator_->edge->gid == from_edge.ptr->gid && from_edge.ptr->gid == to_edge.ptr->gid;
-    });
-  });
-
-  if (it != from_edges.end()) {
-    const auto &from_edge = std::get<kEdgeRefPos>(*it);
-    return std::make_tuple(from_edge, std::get<kEdgeTypeIdPos>(*it), from_vertex, to_vertex);
-  }
-
-  return {EdgeRef(nullptr), EdgeTypeId::FromUint(0U), nullptr, nullptr};
 }
 
 void InMemoryEdgeTypeIndex::RunGC() {
@@ -283,6 +257,15 @@ InMemoryEdgeTypeIndex::Iterable InMemoryEdgeTypeIndex::Edges(EdgeTypeId edge_typ
   const auto it = index_.find(edge_type);
   MG_ASSERT(it != index_.end(), "Index for edge-type {} doesn't exist", edge_type.AsUint());
   return {it->second.access(), edge_type, view, storage, transaction};
+}
+
+std::vector<EdgeTypeId> InMemoryEdgeTypeIndex::Analysis() const {
+  std::vector<EdgeTypeId> res;
+  res.reserve(index_.size());
+  for (const auto &[edge_type, _] : index_) {
+    res.emplace_back(edge_type);
+  }
+  return res;
 }
 
 }  // namespace memgraph::storage

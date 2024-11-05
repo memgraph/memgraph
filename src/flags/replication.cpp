@@ -11,9 +11,11 @@
 
 #include "replication.hpp"
 
+#include "gflags/gflags.h"
+
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint64(replication_replica_check_frequency_sec, 1,
               "The time duration between two replica checks/pings. If < 1, replicas will NOT be checked at all. NOTE: "
               "The MAIN instance allocates a new thread for each REPLICA.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(replication_restore_state_on_startup, false, "Restore replication state on startup, e.g. recover replica");
+DEFINE_bool(replication_restore_state_on_startup, true, "Restore replication state on startup, e.g. recover replica");

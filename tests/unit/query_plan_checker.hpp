@@ -20,6 +20,8 @@
 #include "query/plan/operator.hpp"
 #include "query/plan/planner.hpp"
 #include "query/plan/preprocess.hpp"
+#include "query/plan/rule_based_planner.hpp"
+#include "storage/v2/enum.hpp"
 #include "utils/typeinfo.hpp"
 
 namespace memgraph::query::plan {
@@ -66,6 +68,9 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
   PRE_VISIT(ScanAllByLabelPropertyRange);
   PRE_VISIT(ScanAllByLabelProperty);
   PRE_VISIT(ScanAllByEdgeType);
+  PRE_VISIT(ScanAllByEdgeTypeProperty);
+  PRE_VISIT(ScanAllByEdgeTypePropertyValue);
+  PRE_VISIT(ScanAllByEdgeTypePropertyRange);
   PRE_VISIT(ScanAllByEdgeId);
   PRE_VISIT(ScanAllById);
   PRE_VISIT(Expand);
@@ -85,6 +90,7 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
   PRE_VISIT(Limit);
   PRE_VISIT(OrderBy);
   PRE_VISIT(EvaluatePatternFilter);
+
   bool PreVisit(Merge &op) override {
     CheckOp(op);
     op.input()->Accept(*this);
@@ -147,6 +153,15 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
     return false;
   }
 
+  PRE_VISIT(PeriodicCommit);
+  PRE_VISIT(LoadCsv);
+
+  bool PreVisit(PeriodicSubquery &op) override {
+    CheckOp(op);
+    op.input()->Accept(*this);
+    return false;
+  }
+
 #undef PRE_VISIT
 #undef VISIT
 
@@ -196,6 +211,9 @@ using ExpectOrderBy = OpChecker<OrderBy>;
 using ExpectUnwind = OpChecker<Unwind>;
 using ExpectDistinct = OpChecker<Distinct>;
 using ExpectEvaluatePatternFilter = OpChecker<EvaluatePatternFilter>;
+using ExpectPeriodicCommit = OpChecker<PeriodicCommit>;
+using ExpectLoadCsv = OpChecker<LoadCsv>;
+using ExpectBasicCallProcedure = OpChecker<CallProcedure>;
 
 class ExpectFilter : public OpChecker<Filter> {
  public:
@@ -333,9 +351,16 @@ class ExpectAggregate : public OpChecker<Aggregate> {
     EXPECT_EQ(aggr_it, aggregations_.end());
     // TODO: Proper group by expression equality
     std::unordered_set<size_t> got_group_by;
-    for (auto *expr : op.group_by_) got_group_by.insert(typeid(*expr).hash_code());
     std::unordered_set<size_t> expected_group_by;
-    for (auto *expr : group_by_) expected_group_by.insert(typeid(*expr).hash_code());
+    for (auto *expr : op.group_by_) got_group_by.insert(typeid(*expr).hash_code());
+    auto is_constant = [](const Expression *expression) {
+      return utils::Downcast<const PrimitiveLiteral>(expression) || utils::Downcast<const ParameterLookup>(expression);
+    };
+    std::ranges::for_each(group_by_, [&expected_group_by, &is_constant](auto *expr) {
+      if (!is_constant(expr)) {
+        expected_group_by.insert(typeid(*expr).hash_code());
+      }
+    });
     EXPECT_EQ(got_group_by, expected_group_by);
   }
 
@@ -448,6 +473,73 @@ class ExpectScanAllByLabelProperty : public OpChecker<ScanAllByLabelProperty> {
   memgraph::storage::PropertyId property_;
 };
 
+class ExpectScanAllByEdgeTypePropertyValue : public OpChecker<ScanAllByEdgeTypePropertyValue> {
+ public:
+  ExpectScanAllByEdgeTypePropertyValue(memgraph::storage::EdgeTypeId edge_type,
+                                       const std::pair<std::string, memgraph::storage::PropertyId> &prop_pair,
+                                       memgraph::query::Expression *expression)
+      : edge_type_(edge_type), property_(prop_pair.second), expression_(expression) {}
+
+  void ExpectOp(ScanAllByEdgeTypePropertyValue &scan_all, const SymbolTable &) override {
+    EXPECT_EQ(scan_all.common_.edge_types[0], edge_type_);
+    EXPECT_EQ(scan_all.property_, property_);
+    // TODO: Proper expression equality
+    EXPECT_EQ(typeid(scan_all.expression_).hash_code(), typeid(expression_).hash_code());
+  }
+
+ private:
+  memgraph::storage::EdgeTypeId edge_type_;
+  memgraph::storage::PropertyId property_;
+  memgraph::query::Expression *expression_;
+};
+
+class ExpectScanAllByEdgeTypePropertyRange : public OpChecker<ScanAllByEdgeTypePropertyRange> {
+ public:
+  ExpectScanAllByEdgeTypePropertyRange(memgraph::storage::EdgeTypeId edge_type, memgraph::storage::PropertyId property,
+                                       std::optional<ScanAllByEdgeTypePropertyRange::Bound> lower_bound,
+                                       std::optional<ScanAllByEdgeTypePropertyRange::Bound> upper_bound)
+      : edge_type_(edge_type), property_(property), lower_bound_(lower_bound), upper_bound_(upper_bound) {}
+
+  void ExpectOp(ScanAllByEdgeTypePropertyRange &scan_all, const SymbolTable &) override {
+    EXPECT_EQ(scan_all.common_.edge_types[0], edge_type_);
+    EXPECT_EQ(scan_all.property_, property_);
+    if (lower_bound_) {
+      ASSERT_TRUE(scan_all.lower_bound_);
+      // TODO: Proper expression equality
+      EXPECT_EQ(typeid(scan_all.lower_bound_->value()).hash_code(), typeid(lower_bound_->value()).hash_code());
+      EXPECT_EQ(scan_all.lower_bound_->type(), lower_bound_->type());
+    }
+    if (upper_bound_) {
+      ASSERT_TRUE(scan_all.upper_bound_);
+      // TODO: Proper expression equality
+      EXPECT_EQ(typeid(scan_all.upper_bound_->value()).hash_code(), typeid(upper_bound_->value()).hash_code());
+      EXPECT_EQ(scan_all.upper_bound_->type(), upper_bound_->type());
+    }
+  }
+
+ private:
+  memgraph::storage::EdgeTypeId edge_type_;
+  memgraph::storage::PropertyId property_;
+  std::optional<ScanAllByEdgeTypePropertyRange::Bound> lower_bound_;
+  std::optional<ScanAllByEdgeTypePropertyRange::Bound> upper_bound_;
+};
+
+class ExpectScanAllByEdgeTypeProperty : public OpChecker<ScanAllByEdgeTypeProperty> {
+ public:
+  ExpectScanAllByEdgeTypeProperty(memgraph::storage::EdgeTypeId edge_type,
+                                  const std::pair<std::string, memgraph::storage::PropertyId> &prop_pair)
+      : edge_type_(edge_type), property_(prop_pair.second) {}
+
+  void ExpectOp(ScanAllByEdgeTypeProperty &scan_all, const SymbolTable &) override {
+    EXPECT_EQ(scan_all.common_.edge_types[0], edge_type_);
+    EXPECT_EQ(scan_all.property_, property_);
+  }
+
+ private:
+  memgraph::storage::EdgeTypeId edge_type_;
+  memgraph::storage::PropertyId property_;
+};
+
 class ExpectCartesian : public OpChecker<Cartesian> {
  public:
   ExpectCartesian(const std::list<BaseOpChecker *> &left, const std::list<BaseOpChecker *> &right)
@@ -550,6 +642,19 @@ class ExpectRollUpApply : public OpChecker<RollUpApply> {
   const std::list<std::unique_ptr<BaseOpChecker>> &list_collection_branch_;
 };
 
+class ExpectPeriodicSubquery : public OpChecker<PeriodicSubquery> {
+ public:
+  explicit ExpectPeriodicSubquery(const std::list<BaseOpChecker *> &subquery) : subquery_(subquery) {}
+
+  void ExpectOp(PeriodicSubquery &periodic_subquery, const SymbolTable &symbol_table) override {
+    PlanChecker check_subquery(subquery_, symbol_table);
+    periodic_subquery.subquery_->Accept(check_subquery);
+  }
+
+ private:
+  std::list<BaseOpChecker *> subquery_;
+};
+
 template <class T>
 std::list<std::unique_ptr<BaseOpChecker>> MakeCheckers(T arg) {
   std::list<std::unique_ptr<BaseOpChecker>> l;
@@ -567,7 +672,7 @@ std::list<std::unique_ptr<BaseOpChecker>> MakeCheckers(T arg, Rest &&...rest) {
 template <class TPlanner, class TDbAccessor>
 TPlanner MakePlanner(TDbAccessor *dba, AstStorage &storage, SymbolTable &symbol_table, CypherQuery *query) {
   auto planning_context = MakePlanningContext(&storage, &symbol_table, query, dba);
-  auto query_parts = CollectQueryParts(symbol_table, storage, query);
+  auto query_parts = CollectQueryParts(symbol_table, storage, query, false);
   return TPlanner(query_parts, planning_context);
 }
 
@@ -588,9 +693,26 @@ class FakeDbAccessor {
     return 0;
   }
 
+  bool PointIndexExists(memgraph::storage::LabelId label, memgraph::storage::PropertyId property) const {
+    return false;
+  }
+
+  std::optional<uint64_t> VerticesPointCount(storage::LabelId label, storage::PropertyId property) const {
+    return std::nullopt;
+  }
+
   int64_t EdgesCount(memgraph::storage::EdgeTypeId edge_type) const {
     auto found = edge_type_index_.find(edge_type);
     if (found != edge_type_index_.end()) return found->second;
+    return 0;
+  }
+
+  int64_t EdgesCount(memgraph::storage::EdgeTypeId edge_type, memgraph::storage::PropertyId property) const {
+    for (const auto &index : edge_type_property_index_) {
+      if (std::get<0>(index) == edge_type && std::get<1>(index) == property) {
+        return std::get<2>(index);
+      }
+    }
     return 0;
   }
 
@@ -609,6 +731,16 @@ class FakeDbAccessor {
 
   bool EdgeTypeIndexExists(memgraph::storage::EdgeTypeId edge_type) const {
     return edge_type_index_.find(edge_type) != edge_type_index_.end();
+  }
+
+  bool EdgeTypePropertyIndexExists(memgraph::storage::EdgeTypeId edge_type,
+                                   memgraph::storage::PropertyId property) const {
+    for (const auto &index : edge_type_property_index_) {
+      if (std::get<0>(index) == edge_type && std::get<1>(index) == property) {
+        return true;
+      }
+    }
+    return false;
   }
 
   std::optional<memgraph::storage::LabelPropertyIndexStats> GetIndexStats(
@@ -633,6 +765,16 @@ class FakeDbAccessor {
   }
 
   void SetIndexCount(memgraph::storage::EdgeTypeId edge_type, int64_t count) { edge_type_index_[edge_type] = count; }
+
+  void SetIndexCount(memgraph::storage::EdgeTypeId edge_type, memgraph::storage::PropertyId property, int64_t count) {
+    for (auto &index : edge_type_property_index_) {
+      if (std::get<0>(index) == edge_type && std::get<1>(index) == property) {
+        std::get<2>(index) = count;
+        return;
+      }
+    }
+    edge_type_property_index_.emplace_back(edge_type, property, count);
+  }
 
   memgraph::storage::LabelId NameToLabel(const std::string &name) {
     auto found = labels_.find(name);
@@ -667,6 +809,12 @@ class FakeDbAccessor {
 
   std::string PropertyName(memgraph::storage::PropertyId property) const { return PropertyToName(property); }
 
+  auto GetEnumValue(std::string_view name, std::string_view value)
+      -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+    // Does this need to be less fake?
+    return memgraph::storage::Enum{memgraph::storage::EnumTypeId{0}, memgraph::storage::EnumValueId{0}};
+  }
+
  private:
   std::unordered_map<std::string, memgraph::storage::LabelId> labels_;
   std::unordered_map<std::string, memgraph::storage::EdgeTypeId> edge_types_;
@@ -675,6 +823,8 @@ class FakeDbAccessor {
   std::unordered_map<memgraph::storage::LabelId, int64_t> label_index_;
   std::vector<std::tuple<memgraph::storage::LabelId, memgraph::storage::PropertyId, int64_t>> label_property_index_;
   std::unordered_map<memgraph::storage::EdgeTypeId, int64_t> edge_type_index_;
+  std::vector<std::tuple<memgraph::storage::EdgeTypeId, memgraph::storage::PropertyId, int64_t>>
+      edge_type_property_index_;
 };
 
 }  // namespace memgraph::query::plan

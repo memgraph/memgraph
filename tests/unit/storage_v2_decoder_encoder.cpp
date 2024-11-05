@@ -15,6 +15,7 @@
 #include <limits>
 
 #include "storage/v2/durability/serialization.hpp"
+#include "storage/v2/point.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
 #include "utils/temporal.hpp"
@@ -133,7 +134,7 @@ GENERATE_READ_TEST(
     memgraph::storage::PropertyValue("nandare"),
     memgraph::storage::PropertyValue(std::vector<memgraph::storage::PropertyValue>{
         memgraph::storage::PropertyValue("nandare"), memgraph::storage::PropertyValue(123L)}),
-    memgraph::storage::PropertyValue(std::map<std::string, memgraph::storage::PropertyValue>{
+    memgraph::storage::PropertyValue(memgraph::storage::PropertyValue::map_t{
         {"nandare", memgraph::storage::PropertyValue(123)}}),
     memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23)),
     memgraph::storage::PropertyValue(
@@ -141,7 +142,15 @@ GENERATE_READ_TEST(
                                              memgraph::utils::AsSysTime(23), memgraph::utils::Timezone("Etc/UTC"))),
     memgraph::storage::PropertyValue(memgraph::storage::ZonedTemporalData(
         memgraph::storage::ZonedTemporalType::ZonedDateTime, memgraph::utils::AsSysTime(23),
-        memgraph::utils::Timezone(std::chrono::minutes{-60}))));
+        memgraph::utils::Timezone(std::chrono::minutes{-60}))),
+    memgraph::storage::PropertyValue(memgraph::storage::Point2d{memgraph::storage::CoordinateReferenceSystem::WGS84_2d,
+                                                                1.0, 2.0}),
+    memgraph::storage::PropertyValue(memgraph::storage::Point2d{
+        memgraph::storage::CoordinateReferenceSystem::Cartesian_2d, 1.0, 2.0}),
+    memgraph::storage::PropertyValue(memgraph::storage::Point3d{memgraph::storage::CoordinateReferenceSystem::WGS84_3d,
+                                                                1.0, 2.0, 3.0}),
+    memgraph::storage::PropertyValue(memgraph::storage::Point3d{
+        memgraph::storage::CoordinateReferenceSystem::Cartesian_3d, 1.0, 2.0, 3.0}));
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define GENERATE_SKIP_TEST(name, type, ...)                        \
@@ -186,7 +195,7 @@ GENERATE_SKIP_TEST(
     memgraph::storage::PropertyValue("nandare"),
     memgraph::storage::PropertyValue(std::vector<memgraph::storage::PropertyValue>{
         memgraph::storage::PropertyValue("nandare"), memgraph::storage::PropertyValue(123L)}),
-    memgraph::storage::PropertyValue(std::map<std::string, memgraph::storage::PropertyValue>{
+    memgraph::storage::PropertyValue(memgraph::storage::PropertyValue::map_t{
         {"nandare", memgraph::storage::PropertyValue(123)}}),
     memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23)),
     memgraph::storage::PropertyValue(
@@ -194,7 +203,15 @@ GENERATE_SKIP_TEST(
                                              memgraph::utils::AsSysTime(23), memgraph::utils::Timezone("Etc/UTC"))),
     memgraph::storage::PropertyValue(memgraph::storage::ZonedTemporalData(
         memgraph::storage::ZonedTemporalType::ZonedDateTime, memgraph::utils::AsSysTime(23),
-        memgraph::utils::Timezone(std::chrono::minutes{-60}))));
+        memgraph::utils::Timezone(std::chrono::minutes{-60}))),
+    memgraph::storage::PropertyValue(memgraph::storage::Point2d{memgraph::storage::CoordinateReferenceSystem::WGS84_2d,
+                                                                1.0, 2.0}),
+    memgraph::storage::PropertyValue(memgraph::storage::Point2d{
+        memgraph::storage::CoordinateReferenceSystem::Cartesian_2d, 1.0, 2.0}),
+    memgraph::storage::PropertyValue(memgraph::storage::Point3d{memgraph::storage::CoordinateReferenceSystem::WGS84_3d,
+                                                                1.0, 2.0, 3.0}),
+    memgraph::storage::PropertyValue(memgraph::storage::Point3d{
+        memgraph::storage::CoordinateReferenceSystem::Cartesian_3d, 1.0, 2.0, 3.0}));
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define GENERATE_PARTIAL_READ_TEST(name, value)                                          \
@@ -260,14 +277,22 @@ GENERATE_PARTIAL_READ_TEST(
         memgraph::storage::PropertyValue(123L), memgraph::storage::PropertyValue(123.5),
         memgraph::storage::PropertyValue("nandare"),
         memgraph::storage::PropertyValue{
-            std::map<std::string, memgraph::storage::PropertyValue>{{"haihai", memgraph::storage::PropertyValue()}}},
+            memgraph::storage::PropertyValue::map_t{{"haihai", memgraph::storage::PropertyValue()}}},
         memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23)),
         memgraph::storage::PropertyValue(
             memgraph::storage::ZonedTemporalData(memgraph::storage::ZonedTemporalType::ZonedDateTime,
                                                  memgraph::utils::AsSysTime(23), memgraph::utils::Timezone("Etc/UTC"))),
         memgraph::storage::PropertyValue(memgraph::storage::ZonedTemporalData(
             memgraph::storage::ZonedTemporalType::ZonedDateTime, memgraph::utils::AsSysTime(23),
-            memgraph::utils::Timezone(std::chrono::minutes{-60})))}));
+            memgraph::utils::Timezone(std::chrono::minutes{-60}))),
+        memgraph::storage::PropertyValue(memgraph::storage::Point2d{
+            memgraph::storage::CoordinateReferenceSystem::WGS84_2d, 1.0, 2.0}),
+        memgraph::storage::PropertyValue(memgraph::storage::Point2d{
+            memgraph::storage::CoordinateReferenceSystem::Cartesian_2d, 1.0, 2.0}),
+        memgraph::storage::PropertyValue(memgraph::storage::Point3d{
+            memgraph::storage::CoordinateReferenceSystem::WGS84_3d, 1.0, 2.0, 3.0}),
+        memgraph::storage::PropertyValue(memgraph::storage::Point3d{
+            memgraph::storage::CoordinateReferenceSystem::Cartesian_3d, 1.0, 2.0, 3.0})}));
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define GENERATE_PARTIAL_SKIP_TEST(name, value)                                          \
@@ -319,14 +344,22 @@ GENERATE_PARTIAL_SKIP_TEST(
         memgraph::storage::PropertyValue(123L), memgraph::storage::PropertyValue(123.5),
         memgraph::storage::PropertyValue("nandare"),
         memgraph::storage::PropertyValue{
-            std::map<std::string, memgraph::storage::PropertyValue>{{"haihai", memgraph::storage::PropertyValue()}}},
+            memgraph::storage::PropertyValue::map_t{{"haihai", memgraph::storage::PropertyValue()}}},
         memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23)),
         memgraph::storage::PropertyValue(
             memgraph::storage::ZonedTemporalData(memgraph::storage::ZonedTemporalType::ZonedDateTime,
                                                  memgraph::utils::AsSysTime(23), memgraph::utils::Timezone("Etc/UTC"))),
         memgraph::storage::PropertyValue(memgraph::storage::ZonedTemporalData(
             memgraph::storage::ZonedTemporalType::ZonedDateTime, memgraph::utils::AsSysTime(23),
-            memgraph::utils::Timezone(std::chrono::minutes{-60})))}));
+            memgraph::utils::Timezone(std::chrono::minutes{-60}))),
+        memgraph::storage::PropertyValue(memgraph::storage::Point2d{
+            memgraph::storage::CoordinateReferenceSystem::WGS84_2d, 1.0, 2.0}),
+        memgraph::storage::PropertyValue(memgraph::storage::Point2d{
+            memgraph::storage::CoordinateReferenceSystem::Cartesian_2d, 1.0, 2.0}),
+        memgraph::storage::PropertyValue(memgraph::storage::Point3d{
+            memgraph::storage::CoordinateReferenceSystem::WGS84_3d, 1.0, 2.0, 3.0}),
+        memgraph::storage::PropertyValue(memgraph::storage::Point3d{
+            memgraph::storage::CoordinateReferenceSystem::Cartesian_3d, 1.0, 2.0, 3.0})}));
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_F(DecoderEncoderTest, PropertyValueInvalidMarker) {
@@ -352,6 +385,9 @@ TEST_F(DecoderEncoderTest, PropertyValueInvalidMarker) {
         case memgraph::storage::durability::Marker::TYPE_TEMPORAL_DATA:
         case memgraph::storage::durability::Marker::TYPE_ZONED_TEMPORAL_DATA:
         case memgraph::storage::durability::Marker::TYPE_PROPERTY_VALUE:
+        case memgraph::storage::durability::Marker::TYPE_ENUM:
+        case memgraph::storage::durability::Marker::TYPE_POINT_2D:
+        case memgraph::storage::durability::Marker::TYPE_POINT_3D:
           valid_marker = true;
           break;
 
@@ -365,6 +401,7 @@ TEST_F(DecoderEncoderTest, PropertyValueInvalidMarker) {
         case memgraph::storage::durability::Marker::SECTION_EPOCH_HISTORY:
         case memgraph::storage::durability::Marker::SECTION_EDGE_INDICES:
         case memgraph::storage::durability::Marker::SECTION_OFFSETS:
+        case memgraph::storage::durability::Marker::SECTION_ENUMS:
         case memgraph::storage::durability::Marker::DELTA_VERTEX_CREATE:
         case memgraph::storage::durability::Marker::DELTA_VERTEX_DELETE:
         case memgraph::storage::durability::Marker::DELTA_VERTEX_ADD_LABEL:
@@ -376,20 +413,29 @@ TEST_F(DecoderEncoderTest, PropertyValueInvalidMarker) {
         case memgraph::storage::durability::Marker::DELTA_TRANSACTION_END:
         case memgraph::storage::durability::Marker::DELTA_LABEL_INDEX_CREATE:
         case memgraph::storage::durability::Marker::DELTA_LABEL_INDEX_DROP:
+        case memgraph::storage::durability::Marker::DELTA_POINT_INDEX_CREATE:
+        case memgraph::storage::durability::Marker::DELTA_POINT_INDEX_DROP:
         case memgraph::storage::durability::Marker::DELTA_LABEL_INDEX_STATS_SET:
         case memgraph::storage::durability::Marker::DELTA_LABEL_INDEX_STATS_CLEAR:
         case memgraph::storage::durability::Marker::DELTA_LABEL_PROPERTY_INDEX_CREATE:
         case memgraph::storage::durability::Marker::DELTA_LABEL_PROPERTY_INDEX_DROP:
         case memgraph::storage::durability::Marker::DELTA_LABEL_PROPERTY_INDEX_STATS_SET:
         case memgraph::storage::durability::Marker::DELTA_LABEL_PROPERTY_INDEX_STATS_CLEAR:
-        case memgraph::storage::durability::Marker::DELTA_EDGE_TYPE_INDEX_CREATE:
-        case memgraph::storage::durability::Marker::DELTA_EDGE_TYPE_INDEX_DROP:
+        case memgraph::storage::durability::Marker::DELTA_EDGE_INDEX_CREATE:
+        case memgraph::storage::durability::Marker::DELTA_EDGE_INDEX_DROP:
+        case memgraph::storage::durability::Marker::DELTA_EDGE_PROPERTY_INDEX_CREATE:
+        case memgraph::storage::durability::Marker::DELTA_EDGE_PROPERTY_INDEX_DROP:
         case memgraph::storage::durability::Marker::DELTA_TEXT_INDEX_CREATE:
         case memgraph::storage::durability::Marker::DELTA_TEXT_INDEX_DROP:
         case memgraph::storage::durability::Marker::DELTA_EXISTENCE_CONSTRAINT_CREATE:
         case memgraph::storage::durability::Marker::DELTA_EXISTENCE_CONSTRAINT_DROP:
         case memgraph::storage::durability::Marker::DELTA_UNIQUE_CONSTRAINT_CREATE:
         case memgraph::storage::durability::Marker::DELTA_UNIQUE_CONSTRAINT_DROP:
+        case memgraph::storage::durability::Marker::DELTA_TYPE_CONSTRAINT_CREATE:
+        case memgraph::storage::durability::Marker::DELTA_TYPE_CONSTRAINT_DROP:
+        case memgraph::storage::durability::Marker::DELTA_ENUM_CREATE:
+        case memgraph::storage::durability::Marker::DELTA_ENUM_ALTER_ADD:
+        case memgraph::storage::durability::Marker::DELTA_ENUM_ALTER_UPDATE:
         case memgraph::storage::durability::Marker::VALUE_FALSE:
         case memgraph::storage::durability::Marker::VALUE_TRUE:
           valid_marker = false;

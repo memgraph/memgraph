@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -114,7 +114,7 @@ TEST_F(ResourceLockTest, MultiThreadedMixedAccess) {
 
   // Unique vs shared test 1
   {
-    std::unique_lock<ResourceLock> l(lock);
+    auto l = std::unique_lock{lock};
     // Uniquely locked; spin up shared tasks and update while they are running
     for (int i = 0; i < num_threads; ++i) {
       threads.emplace_back([shared_task] { return shared_task(3456); });
@@ -128,7 +128,7 @@ TEST_F(ResourceLockTest, MultiThreadedMixedAccess) {
 
   // Unique vs shared test 2
   {
-    std::shared_lock<ResourceLock> l(lock);
+    auto l = std::shared_lock{lock};
     // Shared locked; spin up unique tasks and read while they are running
     for (int i = 0; i < num_threads; ++i) {
       threads.emplace_back(unique_task);

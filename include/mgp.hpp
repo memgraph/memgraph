@@ -111,81 +111,44 @@ class ExecutionRow;
 struct StealType {};
 inline constexpr StealType steal{};
 
-class MemoryDispatcher final {
- public:
-  MemoryDispatcher() = default;
-  ~MemoryDispatcher() = default;
-  MemoryDispatcher(const MemoryDispatcher &) = delete;
-  MemoryDispatcher(MemoryDispatcher &&) = delete;
-  MemoryDispatcher &operator=(const MemoryDispatcher &) = delete;
-  MemoryDispatcher &operator=(MemoryDispatcher &&) = delete;
+namespace MemoryDispatcher {
 
-  mgp_memory *GetMemoryResource() noexcept {
-    const auto this_id = std::this_thread::get_id();
-    std::shared_lock lock(mut_);
-    return map_[this_id];
-  }
+extern thread_local std::optional<mgp_memory *> current_memory __attribute__((visibility("default")));
 
-  void Register(mgp_memory *mem) noexcept {
-    const auto this_id = std::this_thread::get_id();
-    std::unique_lock lock(mut_);
-    map_[this_id] = mem;
-  }
+inline mgp_memory *GetMemoryResource() noexcept { return current_memory.value_or(nullptr); }
 
-  void UnRegister() noexcept {
-    const auto this_id = std::this_thread::get_id();
-    std::unique_lock lock(mut_);
-    map_.erase(this_id);
-  }
+inline void Register(mgp_memory *mem) noexcept { current_memory = mem; }
 
-  bool IsThisThreadRegistered() noexcept {
-    const auto this_id = std::this_thread::get_id();
-    std::shared_lock lock(mut_);
-    return map_.contains(this_id);
-  }
+inline void UnRegister() noexcept { current_memory.reset(); }
 
- private:
-  std::unordered_map<std::thread::id, mgp_memory *> map_;
-  std::shared_mutex mut_;
+inline bool IsThisThreadRegistered() noexcept { return current_memory.has_value(); }
+};  // namespace MemoryDispatcher
+
+// Leaving "memory" variable here in order to generate a better module compilation error.
+// It should never be used; instead use MemoryDispatcherGuard.
+struct UnsupportedMgpMemory {
+  UnsupportedMgpMemory() = default;
+  void operator=(mgp_memory *) __attribute__((diagnose_if(
+      true, "mgp::memory must not be used as of v2.18.1. Please use MemoryDispatcherGuard instead.", "error")));
 };
-
-// The use of this object, with the help of MemoryDispatcherGuard
-// should be the prefered way to pass the memory pointer to this
-// header. The use of the 'mgp_memory *memory' pointer is deprecated
-// and will be removed in upcoming releases.
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-inline MemoryDispatcher mrd{};
-
-// TODO - Once we deprecate this we should remove this
-// and make sure nothing relies on it anymore. This alone
-// can not guarantee threadsafe use of query procedures.
-inline mgp_memory *memory{nullptr};
+inline UnsupportedMgpMemory memory;  // NOSONAR
 
 class MemoryDispatcherGuard final {
  public:
-  explicit MemoryDispatcherGuard(mgp_memory *mem) { mrd.Register(mem); };
+  explicit MemoryDispatcherGuard(mgp_memory *mem) { MemoryDispatcher::Register(mem); };
 
   MemoryDispatcherGuard(const MemoryDispatcherGuard &) = delete;
   MemoryDispatcherGuard(MemoryDispatcherGuard &&) = delete;
   MemoryDispatcherGuard &operator=(const MemoryDispatcherGuard &) = delete;
   MemoryDispatcherGuard &operator=(MemoryDispatcherGuard &&) = delete;
 
-  ~MemoryDispatcherGuard() { mrd.UnRegister(); }
+  ~MemoryDispatcherGuard() { MemoryDispatcher::UnRegister(); }
 };
 
-// Currently we want to preserve both ways(using mgp::memory and
-// MemoryDispatcherGuard) of setting the correct memory resource
-// from the shared object files. This forwarding function is a
-// helper function for that purpose. Once we get rid of the
-// 'mgp_memory *memory' pointer this function will not be needed
-// anymore and the calls to the memory resource should rely on
-// the mapping instead.
+// Thread must be registered, otherwise the function will segfault.
 template <typename Func, typename... Args>
 inline decltype(auto) MemHandlerCallback(Func &&func, Args &&...args) {
-  if (!mrd.IsThisThreadRegistered()) {
-    return std::forward<Func>(func)(std::forward<Args>(args)..., memory);
-  }
-  return std::forward<Func>(func)(std::forward<Args>(args)..., mrd.GetMemoryResource());
+  return std::forward<Func>(func)(std::forward<Args>(args)..., MemoryDispatcher::GetMemoryResource());
 }
 
 /* #region Graph (Id, Graph, Nodes, GraphRelationships, Relationships & Labels) */

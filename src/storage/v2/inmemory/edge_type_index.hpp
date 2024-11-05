@@ -19,6 +19,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/edge_type_index.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
+#include "storage/v2/vertex_accessor.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/synchronized.hpp"
 
@@ -34,8 +35,14 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
 
     uint64_t timestamp;
 
-    bool operator<(const Entry &rhs) const { return edge->gid < rhs.edge->gid; }
-    bool operator==(const Entry &rhs) const { return edge->gid == rhs.edge->gid; }
+    bool operator<(const Entry &rhs) const {
+      return std::tie(edge->gid, from_vertex->gid, to_vertex->gid, timestamp) <
+             std::tie(rhs.edge->gid, rhs.from_vertex->gid, rhs.to_vertex->gid, rhs.timestamp);
+    }
+    bool operator==(const Entry &rhs) const {
+      return std::tie(edge, from_vertex, to_vertex, timestamp) ==
+             std::tie(rhs.edge, rhs.from_vertex, rhs.to_vertex, rhs.timestamp);
+    }
   };
 
  public:
@@ -53,6 +60,9 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
 
   void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token);
 
+  void AbortEntries(EdgeTypeId edge_type, std::span<std::tuple<Vertex *const, Vertex *const, Edge *const> const> edges,
+                    uint64_t exact_start_timestamp);
+
   uint64_t ApproximateEdgeCount(EdgeTypeId edge_type) const override;
 
   void UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, EdgeTypeId edge_type,
@@ -62,6 +72,8 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
                                 EdgeTypeId edge_type, const Transaction &tx) override;
 
   void DropGraphClearIndices() override;
+
+  std::vector<EdgeTypeId> Analysis() const;
 
   static constexpr std::size_t kEdgeTypeIdPos = 0U;
   static constexpr std::size_t kVertexPos = 1U;
@@ -76,7 +88,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
      public:
       Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator);
 
-      EdgeAccessor const &operator*() const { return current_edge_accessor_; }
+      EdgeAccessor const &operator*() const { return current_accessor_; }
 
       bool operator==(const Iterator &other) const { return index_iterator_ == other.index_iterator_; }
       bool operator!=(const Iterator &other) const { return index_iterator_ != other.index_iterator_; }
@@ -85,12 +97,11 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
 
      private:
       void AdvanceUntilValid();
-      std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *> GetEdgeInfo();
 
       Iterable *self_;
       utils::SkipList<Entry>::Iterator index_iterator_;
-      EdgeAccessor current_edge_accessor_;
       EdgeRef current_edge_{nullptr};
+      EdgeAccessor current_accessor_;
     };
 
     Iterator begin() { return {this, index_accessor_.begin()}; }
@@ -98,7 +109,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
 
    private:
     utils::SkipList<Entry>::Accessor index_accessor_;
-    EdgeTypeId edge_type_;
+    [[maybe_unused]] EdgeTypeId edge_type_;
     View view_;
     Storage *storage_;
     Transaction *transaction_;
@@ -109,7 +120,8 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
   Iterable Edges(EdgeTypeId edge_type, View view, Storage *storage, Transaction *transaction);
 
  private:
-  std::map<EdgeTypeId, utils::SkipList<Entry>> index_;
+  std::map<EdgeTypeId, utils::SkipList<Entry>> index_;  // This should be a std::map because we use it with assumption
+                                                        // that it's sorted
 };
 
 }  // namespace memgraph::storage

@@ -13,7 +13,9 @@
 
 #include <type_traits>
 
+#include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
+#include "query/string_helpers.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/string.hpp"
@@ -24,7 +26,7 @@ namespace {
 
 class ExpressionPrettyPrinter : public ExpressionVisitor<void> {
  public:
-  explicit ExpressionPrettyPrinter(std::ostream *out);
+  explicit ExpressionPrettyPrinter(std::ostream *out, const DbAccessor *dba);
 
   // Unary operators
   void Visit(NotOperator &op) override;
@@ -47,6 +49,7 @@ class ExpressionPrettyPrinter : public ExpressionVisitor<void> {
   void Visit(GreaterOperator &op) override;
   void Visit(LessEqualOperator &op) override;
   void Visit(GreaterEqualOperator &op) override;
+  void Visit(RangeOperator &op) override;
   void Visit(InListOperator &op) override;
   void Visit(SubscriptOperator &op) override;
 
@@ -75,9 +78,11 @@ class ExpressionPrettyPrinter : public ExpressionVisitor<void> {
   void Visit(NamedExpression &op) override;
   void Visit(RegexMatch &op) override;
   void Visit(PatternComprehension &op) override;
+  void Visit(EnumValueAccess &op) override;
 
  private:
   std::ostream *out_;
+  const DbAccessor *dba_;
 };
 
 // Declare all of the different `PrintObject` overloads upfront since they're
@@ -85,28 +90,39 @@ class ExpressionPrettyPrinter : public ExpressionVisitor<void> {
 // of the overloads within the source, which is quite fragile.
 
 template <typename T>
-void PrintObject(std::ostream *out, const T &arg);
+void PrintObject(std::ostream *out, const DbAccessor *dba, const T &arg);
 
-void PrintObject(std::ostream *out, const std::string &str);
+void PrintObject(std::ostream *out, const DbAccessor *dba, const std::string &str);
 
-void PrintObject(std::ostream *out, Aggregation::Op op);
+void PrintObject(std::ostream *out, const DbAccessor *dba, Aggregation::Op op);
 
-void PrintObject(std::ostream *out, Expression *expr);
+void PrintObject(std::ostream *out, const DbAccessor *dba, Expression *expr);
 
 void PrintObject(std::ostream *out, AllPropertiesLookup *apl);
 
-void PrintObject(std::ostream *out, Identifier *expr);
+void PrintObject(std::ostream *out, const DbAccessor *dba, Identifier *expr);
 
-void PrintObject(std::ostream *out, const storage::PropertyValue &value);
+void PrintObject(std::ostream *out, const DbAccessor *dba, const storage::PropertyValue &value);
 
 template <typename T>
-void PrintObject(std::ostream *out, const std::vector<T> &vec);
+void PrintObject(std::ostream *out, const DbAccessor *dba, const std::vector<T> &vec);
 
 template <typename K, typename V>
-void PrintObject(std::ostream *out, const std::map<K, V> &map);
+void PrintObject(std::ostream *out, const DbAccessor *dba, const std::map<K, V> &map);
+
+template <typename K, typename V, typename C, typename A>
+void PrintObject(std::ostream *out, const DbAccessor *dba, const boost::container::flat_map<K, V, C, A> &map);
+
+void PrintObject(std::ostream *out, EnumValueAccess op);
+
+void PrintObject(std::ostream *out, const DbAccessor *dba, storage::Enum value);
+
+void PrintObject(std::ostream *out, storage::Point2d const &value);
+
+void PrintObject(std::ostream *out, storage::Point3d const &value);
 
 template <typename T>
-void PrintObject(std::ostream *out, const T &arg) {
+void PrintObject(std::ostream *out, const DbAccessor * /*dba*/, const T &arg) {
   static_assert(!std::is_convertible_v<T, Expression *>,
                 "This overload shouldn't be called with pointers convertible "
                 "to Expression *. This means your other PrintObject overloads aren't "
@@ -115,13 +131,15 @@ void PrintObject(std::ostream *out, const T &arg) {
   *out << arg;
 }
 
-void PrintObject(std::ostream *out, const std::string &str) { *out << utils::Escape(str); }
+void PrintObject(std::ostream *out, const DbAccessor * /*dba*/, const std::string &str) { *out << utils::Escape(str); }
 
-void PrintObject(std::ostream *out, Aggregation::Op op) { *out << Aggregation::OpToString(op); }
+void PrintObject(std::ostream *out, const DbAccessor * /*dba*/, Aggregation::Op op) {
+  *out << Aggregation::OpToString(op);
+}
 
-void PrintObject(std::ostream *out, Expression *expr) {
+void PrintObject(std::ostream *out, const DbAccessor *dba, Expression *expr) {
   if (expr) {
-    ExpressionPrettyPrinter printer{out};
+    ExpressionPrettyPrinter printer{out, dba};
     expr->Accept(printer);
   } else {
     *out << "<null>";
@@ -130,23 +148,39 @@ void PrintObject(std::ostream *out, Expression *expr) {
 
 void PrintObject(std::ostream *out, AllPropertiesLookup *apl) {
   if (apl) {
-    ExpressionPrettyPrinter printer{out};
     *out << ".*";
   } else {
     *out << "<null>";
   }
 }
 
-void PrintObject(std::ostream *out, Identifier *expr) { PrintObject(out, static_cast<Expression *>(expr)); }
+void PrintObject(std::ostream *out, const DbAccessor *dba, Identifier *expr) {
+  PrintObject(out, dba, static_cast<Expression *>(expr));
+}
 
-void PrintObject(std::ostream *out, const storage::PropertyValue &value) {
+void PrintObject(std::ostream *out, EnumValueAccess op) { *out << op.enum_name_ << "::" << op.enum_value_; }
+
+void PrintObject(std::ostream *out, const DbAccessor *dba, storage::Enum value) {
+  auto enum_str_value = dba->EnumToName(value);
+  if (enum_str_value.HasValue()) {
+    *out << *enum_str_value;
+  } else {
+    *out << "<null>";
+  }
+}
+
+void PrintObject(std::ostream *out, storage::Point2d const &value) { *out << query::CypherConstructionFor(value); }
+
+void PrintObject(std::ostream *out, storage::Point3d const &value) { *out << query::CypherConstructionFor(value); }
+
+void PrintObject(std::ostream *out, const DbAccessor *dba, const storage::PropertyValue &value) {
   switch (value.type()) {
     case storage::PropertyValue::Type::Null:
       *out << "null";
       break;
 
     case storage::PropertyValue::Type::String:
-      PrintObject(out, value.ValueString());
+      PrintObject(out, dba, value.ValueString());
       break;
 
     case storage::PropertyValue::Type::Bool:
@@ -154,73 +188,94 @@ void PrintObject(std::ostream *out, const storage::PropertyValue &value) {
       break;
 
     case storage::PropertyValue::Type::Int:
-      PrintObject(out, value.ValueInt());
+      PrintObject(out, dba, value.ValueInt());
       break;
 
     case storage::PropertyValue::Type::Double:
-      PrintObject(out, value.ValueDouble());
+      PrintObject(out, dba, value.ValueDouble());
       break;
 
     case storage::PropertyValue::Type::List:
-      PrintObject(out, value.ValueList());
+      PrintObject(out, dba, value.ValueList());
       break;
 
     case storage::PropertyValue::Type::Map:
-      PrintObject(out, value.ValueMap());
+      PrintObject(out, dba, value.ValueMap());
       break;
 
     case storage::PropertyValue::Type::TemporalData:
-      PrintObject(out, value.ValueTemporalData());
+      PrintObject(out, dba, value.ValueTemporalData());
       break;
 
     case storage::PropertyValue::Type::ZonedTemporalData:
-      PrintObject(out, value.ValueZonedTemporalData());
+      PrintObject(out, dba, value.ValueZonedTemporalData());
       break;
+    case storage::PropertyValue::Type::Enum:
+      PrintObject(out, dba, value.ValueEnum());
+      break;
+    case storage::PropertyValue::Type::Point2d:
+      PrintObject(out, value.ValuePoint2d());
+      break;
+    case storage::PropertyValue::Type::Point3d:
+      PrintObject(out, value.ValuePoint3d());
   }
 }
 
 template <typename T>
-void PrintObject(std::ostream *out, const std::vector<T> &vec) {
+void PrintObject(std::ostream *out, const DbAccessor *dba, const std::vector<T> &vec) {
   *out << "[";
-  utils::PrintIterable(*out, vec, ", ", [](auto &stream, const auto &item) { PrintObject(&stream, item); });
+  utils::PrintIterable(*out, vec, ", ", [&dba](auto &stream, const auto &item) { PrintObject(&stream, dba, item); });
   *out << "]";
 }
 
 template <typename K, typename V>
-void PrintObject(std::ostream *out, const std::map<K, V> &map) {
+void PrintObject(std::ostream *out, const DbAccessor *dba, const std::map<K, V> &map) {
   *out << "{";
-  utils::PrintIterable(*out, map, ", ", [](auto &stream, const auto &item) {
-    PrintObject(&stream, item.first);
+  utils::PrintIterable(*out, map, ", ", [&dba](auto &stream, const auto &item) {
+    PrintObject(&stream, dba, item.first);
     stream << ": ";
-    PrintObject(&stream, item.second);
+    PrintObject(&stream, dba, item.second);
+  });
+  *out << "}";
+}
+
+template <typename K, typename V, typename C, typename A>
+void PrintObject(std::ostream *out, const DbAccessor *dba, const boost::container::flat_map<K, V, C, A> &map) {
+  *out << "{";
+  utils::PrintIterable(*out, map, ", ", [&dba](auto &stream, const auto &item) {
+    PrintObject(&stream, dba, item.first);
+    stream << ": ";
+    PrintObject(&stream, dba, item.second);
   });
   *out << "}";
 }
 
 template <typename T>
-void PrintOperatorArgs(std::ostream *out, const T &arg) {
+void PrintOperatorArgs(std::ostream *out, const DbAccessor *dba, const T &arg) {
   *out << " ";
-  PrintObject(out, arg);
+  PrintObject(out, dba, arg);
   *out << ")";
 }
 
 template <typename T, typename... Ts>
-void PrintOperatorArgs(std::ostream *out, const T &arg, const Ts &...args) {
+void PrintOperatorArgs(std::ostream *out, const DbAccessor *dba, const T &arg, const Ts &...args) {
   *out << " ";
-  PrintObject(out, arg);
-  PrintOperatorArgs(out, args...);
+  PrintObject(out, dba, arg);
+  PrintOperatorArgs(out, dba, args...);
 }
 
 template <typename... Ts>
-void PrintOperator(std::ostream *out, const std::string &name, const Ts &...args) {
+void PrintOperator(std::ostream *out, const DbAccessor *dba, const std::string &name, const Ts &...args) {
   *out << "(" << name;
-  PrintOperatorArgs(out, args...);
+  PrintOperatorArgs(out, dba, args...);
 }
 
-ExpressionPrettyPrinter::ExpressionPrettyPrinter(std::ostream *out) : out_(out) {}
+ExpressionPrettyPrinter::ExpressionPrettyPrinter(std::ostream *out, const DbAccessor *dba) : out_(out), dba_(dba) {}
 
-#define UNARY_OPERATOR_VISIT(OP_NODE, OP_STR) \
-  void ExpressionPrettyPrinter::Visit(OP_NODE &op) { PrintOperator(out_, OP_STR, op.expression_); }
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define UNARY_OPERATOR_VISIT(OP_NODE, OP_STR)      \
+  /* NOLINTNEXTLINE(bugprone-macro-parentheses) */ \
+  void ExpressionPrettyPrinter::Visit(OP_NODE &op) { PrintOperator(out_, dba_, OP_STR, op.expression_); }
 
 UNARY_OPERATOR_VISIT(NotOperator, "Not");
 UNARY_OPERATOR_VISIT(UnaryPlusOperator, "+");
@@ -229,8 +284,12 @@ UNARY_OPERATOR_VISIT(IsNullOperator, "IsNull");
 
 #undef UNARY_OPERATOR_VISIT
 
-#define BINARY_OPERATOR_VISIT(OP_NODE, OP_STR) \
-  void ExpressionPrettyPrinter::Visit(OP_NODE &op) { PrintOperator(out_, OP_STR, op.expression1_, op.expression2_); }
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define BINARY_OPERATOR_VISIT(OP_NODE, OP_STR)                           \
+  /* NOLINTNEXTLINE(bugprone-macro-parentheses) */                       \
+  void ExpressionPrettyPrinter::Visit(OP_NODE &op) {                     \
+    PrintOperator(out_, dba_, OP_STR, op.expression1_, op.expression2_); \
+  }
 
 BINARY_OPERATOR_VISIT(OrOperator, "Or");
 BINARY_OPERATOR_VISIT(XorOperator, "Xor");
@@ -251,22 +310,29 @@ BINARY_OPERATOR_VISIT(SubscriptOperator, "Subscript");
 
 #undef BINARY_OPERATOR_VISIT
 
+void ExpressionPrettyPrinter::Visit(RangeOperator &op) {
+  op.expr1_->Accept(*this);
+  *out_ << " And ";
+  op.expr2_->Accept(*this);
+  *out_ << ")";
+}
+
 void ExpressionPrettyPrinter::Visit(ListSlicingOperator &op) {
-  PrintOperator(out_, "ListSlicing", op.list_, op.lower_bound_, op.upper_bound_);
+  PrintOperator(out_, dba_, "ListSlicing", op.list_, op.lower_bound_, op.upper_bound_);
 }
 
 void ExpressionPrettyPrinter::Visit(IfOperator &op) {
-  PrintOperator(out_, "If", op.condition_, op.then_expression_, op.else_expression_);
+  PrintOperator(out_, dba_, "If", op.condition_, op.then_expression_, op.else_expression_);
 }
 
-void ExpressionPrettyPrinter::Visit(ListLiteral &op) { PrintOperator(out_, "ListLiteral", op.elements_); }
+void ExpressionPrettyPrinter::Visit(ListLiteral &op) { PrintOperator(out_, dba_, "ListLiteral", op.elements_); }
 
 void ExpressionPrettyPrinter::Visit(MapLiteral &op) {
   std::map<std::string, Expression *> map;
   for (const auto &kv : op.elements_) {
     map[kv.first.name] = kv.second;
   }
-  PrintObject(out_, map);
+  PrintObject(out_, dba_, map);
 }
 
 void ExpressionPrettyPrinter::Visit(MapProjectionLiteral &op) {
@@ -274,75 +340,81 @@ void ExpressionPrettyPrinter::Visit(MapProjectionLiteral &op) {
   for (const auto &kv : op.elements_) {
     map_projection_elements[kv.first.name] = kv.second;
   }
-  PrintObject(out_, op.map_variable_);
-  PrintObject(out_, map_projection_elements);
+  PrintObject(out_, dba_, op.map_variable_);
+  PrintObject(out_, dba_, map_projection_elements);
 }
 
 void ExpressionPrettyPrinter::Visit(AllPropertiesLookup &op) { PrintObject(out_, &op); }
 
-void ExpressionPrettyPrinter::Visit(LabelsTest &op) { PrintOperator(out_, "LabelsTest", op.expression_); }
+void ExpressionPrettyPrinter::Visit(LabelsTest &op) { PrintOperator(out_, dba_, "LabelsTest", op.expression_); }
 
-void ExpressionPrettyPrinter::Visit(Aggregation &op) { PrintOperator(out_, "Aggregation", op.op_); }
+void ExpressionPrettyPrinter::Visit(Aggregation &op) { PrintOperator(out_, dba_, "Aggregation", op.op_); }
 
-void ExpressionPrettyPrinter::Visit(Function &op) { PrintOperator(out_, "Function", op.function_name_, op.arguments_); }
+void ExpressionPrettyPrinter::Visit(Function &op) {
+  PrintOperator(out_, dba_, "Function", op.function_name_, op.arguments_);
+}
 
 void ExpressionPrettyPrinter::Visit(Reduce &op) {
-  PrintOperator(out_, "Reduce", op.accumulator_, op.initializer_, op.identifier_, op.list_, op.expression_);
+  PrintOperator(out_, dba_, "Reduce", op.accumulator_, op.initializer_, op.identifier_, op.list_, op.expression_);
 }
 
-void ExpressionPrettyPrinter::Visit(Coalesce &op) { PrintOperator(out_, "Coalesce", op.expressions_); }
+void ExpressionPrettyPrinter::Visit(Coalesce &op) { PrintOperator(out_, dba_, "Coalesce", op.expressions_); }
 
 void ExpressionPrettyPrinter::Visit(Extract &op) {
-  PrintOperator(out_, "Extract", op.identifier_, op.list_, op.expression_);
+  PrintOperator(out_, dba_, "Extract", op.identifier_, op.list_, op.expression_);
 }
 
-void ExpressionPrettyPrinter::Visit(Exists & /*op*/) { PrintOperator(out_, "Exists", "expression"); }
+void ExpressionPrettyPrinter::Visit(Exists & /*op*/) { PrintOperator(out_, dba_, "Exists", "expression"); }
 
 void ExpressionPrettyPrinter::Visit(All &op) {
-  PrintOperator(out_, "All", op.identifier_, op.list_expression_, op.where_->expression_);
+  PrintOperator(out_, dba_, "All", op.identifier_, op.list_expression_, op.where_->expression_);
 }
 
 void ExpressionPrettyPrinter::Visit(Single &op) {
-  PrintOperator(out_, "Single", op.identifier_, op.list_expression_, op.where_->expression_);
+  PrintOperator(out_, dba_, "Single", op.identifier_, op.list_expression_, op.where_->expression_);
 }
 
 void ExpressionPrettyPrinter::Visit(Any &op) {
-  PrintOperator(out_, "Any", op.identifier_, op.list_expression_, op.where_->expression_);
+  PrintOperator(out_, dba_, "Any", op.identifier_, op.list_expression_, op.where_->expression_);
 }
 
 void ExpressionPrettyPrinter::Visit(None &op) {
-  PrintOperator(out_, "None", op.identifier_, op.list_expression_, op.where_->expression_);
+  PrintOperator(out_, dba_, "None", op.identifier_, op.list_expression_, op.where_->expression_);
 }
 
-void ExpressionPrettyPrinter::Visit(Identifier &op) { PrintOperator(out_, "Identifier", op.name_); }
+void ExpressionPrettyPrinter::Visit(Identifier &op) { PrintOperator(out_, dba_, "Identifier", op.name_); }
 
-void ExpressionPrettyPrinter::Visit(PrimitiveLiteral &op) { PrintObject(out_, op.value_); }
+void ExpressionPrettyPrinter::Visit(PrimitiveLiteral &op) { PrintObject(out_, dba_, op.value_); }
 
 void ExpressionPrettyPrinter::Visit(PropertyLookup &op) {
-  PrintOperator(out_, "PropertyLookup", op.expression_, op.property_.name);
+  PrintOperator(out_, dba_, "PropertyLookup", op.expression_, op.property_.name);
 }
 
-void ExpressionPrettyPrinter::Visit(ParameterLookup &op) { PrintOperator(out_, "ParameterLookup", op.token_position_); }
+void ExpressionPrettyPrinter::Visit(ParameterLookup &op) {
+  PrintOperator(out_, dba_, "ParameterLookup", op.token_position_);
+}
 
 void ExpressionPrettyPrinter::Visit(NamedExpression &op) {
-  PrintOperator(out_, "NamedExpression", op.name_, op.expression_);
+  PrintOperator(out_, dba_, "NamedExpression", op.name_, op.expression_);
 }
 
-void ExpressionPrettyPrinter::Visit(RegexMatch &op) { PrintOperator(out_, "=~", op.string_expr_, op.regex_); }
+void ExpressionPrettyPrinter::Visit(RegexMatch &op) { PrintOperator(out_, dba_, "=~", op.string_expr_, op.regex_); }
 
 void ExpressionPrettyPrinter::Visit(PatternComprehension &op) {
-  PrintOperator(out_, "Pattern Comprehension", op.variable_, op.pattern_, op.filter_, op.resultExpr_);
+  PrintOperator(out_, dba_, "Pattern Comprehension", op.variable_, op.pattern_, op.filter_, op.resultExpr_);
 }
+
+void ExpressionPrettyPrinter::Visit(EnumValueAccess &op) { PrintObject(out_, op); }
 
 }  // namespace
 
-void PrintExpression(Expression *expr, std::ostream *out) {
-  ExpressionPrettyPrinter printer{out};
+void PrintExpression(Expression *expr, std::ostream *out, const DbAccessor &dba) {
+  ExpressionPrettyPrinter printer{out, &dba};
   expr->Accept(printer);
 }
 
-void PrintExpression(NamedExpression *expr, std::ostream *out) {
-  ExpressionPrettyPrinter printer{out};
+void PrintExpression(NamedExpression *expr, std::ostream *out, const DbAccessor &dba) {
+  ExpressionPrettyPrinter printer{out, &dba};
   expr->Accept(printer);
 }
 

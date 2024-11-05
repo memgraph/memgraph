@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,13 +11,13 @@
 
 #pragma once
 
-#include <iostream>
+#include <iosfwd>
 
 #include "query/frontend/ast/ast.hpp"
 
 namespace memgraph::query {
 
-void PrintExpression(Expression *expr, std::ostream *out);
-void PrintExpression(NamedExpression *expr, std::ostream *out);
+void PrintExpression(Expression *expr, std::ostream *out, const DbAccessor &dba);
+void PrintExpression(NamedExpression *expr, std::ostream *out, const DbAccessor &dba);
 
 }  // namespace memgraph::query

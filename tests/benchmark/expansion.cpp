@@ -93,7 +93,7 @@ BENCHMARK_DEFINE_F(ExpansionBenchFixture, Match)(benchmark::State &state) {
 
   while (state.KeepRunning()) {
     ResultStreamFaker results(interpreter->current_db_.db_acc_->get()->storage());
-    interpreter->Prepare(query, {}, {});
+    interpreter->Prepare(query, memgraph::query::no_params_fn, {});
     interpreter->PullAll(&results);
   }
 }
@@ -108,7 +108,7 @@ BENCHMARK_DEFINE_F(ExpansionBenchFixture, Expand)(benchmark::State &state) {
 
   while (state.KeepRunning()) {
     ResultStreamFaker results(interpreter->current_db_.db_acc_->get()->storage());
-    interpreter->Prepare(query, {}, {});
+    interpreter->Prepare(query, memgraph::query::no_params_fn, {});
     interpreter->PullAll(&results);
   }
 }

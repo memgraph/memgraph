@@ -25,7 +25,6 @@ statement : query ;
 
 query : cypherQuery
       | indexQuery
-      | textIndexQuery
       | explainQuery
       | profileQuery
       | databaseInfoQuery
@@ -38,11 +37,14 @@ constraintQuery : ( CREATE | DROP ) CONSTRAINT ON constraint ;
 constraint : '(' nodeName=variable ':' labelName ')' ASSERT EXISTS '(' constraintPropertyList ')'
            | '(' nodeName=variable ':' labelName ')' ASSERT constraintPropertyList IS UNIQUE
            | '(' nodeName=variable ':' labelName ')' ASSERT '(' constraintPropertyList ')' IS NODE KEY
+           | '(' nodeName=variable ':' labelName ')' ASSERT variable propertyLookup IS TYPED typeConstraintType
            ;
 
 constraintPropertyList : variable propertyLookup ( ',' variable propertyLookup )* ;
 
 storageInfo : STORAGE INFO ;
+
+activeUsersInfo : ACTIVE USERS INFO ;
 
 indexInfo : INDEX INFO ;
 
@@ -52,11 +54,13 @@ edgetypeInfo : EDGE_TYPES INFO ;
 
 nodelabelInfo : NODE_LABELS INFO ;
 
+metricsInfo : METRICS INFO ;
+
 buildInfo : BUILD INFO ;
 
-databaseInfoQuery : SHOW ( indexInfo | constraintInfo | edgetypeInfo | nodelabelInfo ) ;
+databaseInfoQuery : SHOW ( indexInfo | constraintInfo | edgetypeInfo | nodelabelInfo | metricsInfo ) ;
 
-systemInfoQuery : SHOW ( storageInfo | buildInfo ) ;
+systemInfoQuery : SHOW ( storageInfo | buildInfo | activeUsersInfo ) ;
 
 explainQuery : EXPLAIN cypherQuery ;
 
@@ -65,8 +69,6 @@ profileQuery : PROFILE cypherQuery ;
 cypherQuery : singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
 
 indexQuery : createIndex | dropIndex;
-
-textIndexQuery : createTextIndex | dropTextIndex;
 
 singleQuery : clause ( clause )* ;
 
@@ -256,6 +258,7 @@ atom : literal
      | parenthesizedExpression
      | functionInvocation
      | variable
+     | enumValueAccess
      ;
 
 literal : numberLiteral
@@ -349,15 +352,12 @@ createIndex : CREATE INDEX ON ':' labelName ( '(' propertyKeyName ')' )? ;
 
 dropIndex : DROP INDEX ON ':' labelName ( '(' propertyKeyName ')' )? ;
 
-indexName : symbolicName ;
-
-createTextIndex : CREATE TEXT INDEX indexName ON ':' labelName ;
-
-dropTextIndex : DROP TEXT INDEX indexName ;
-
 doubleLiteral : FloatingLiteral ;
 
+enumValueAccess : symbolicName ':' ':' symbolicName ;
+
 cypherKeyword : ALL
+              | ALLSHORTEST
               | AND
               | ANY
               | AS
@@ -395,8 +395,8 @@ cypherKeyword : ALL
               | IS
               | KB
               | KEY
-              | LIMIT
               | L_SKIP
+              | LIMIT
               | MATCH
               | MB
               | MEMORY
@@ -422,6 +422,7 @@ cypherKeyword : ALL
               | STORAGE
               | THEN
               | TRUE
+              | TYPED
               | UNION
               | UNIQUE
               | UNLIMITED
@@ -430,7 +431,6 @@ cypherKeyword : ALL
               | WHERE
               | WITH
               | WSHORTEST
-              | ALLSHORTEST
               | XOR
               | YIELD
               ;

@@ -12,7 +12,7 @@
 #include <algorithm>
 #include <functional>
 #include <stack>
-#include <type_traits>
+#include <string_view>
 #include <unordered_map>
 #include <utility>
 #include <variant>
@@ -22,7 +22,12 @@
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/preprocess.hpp"
+#include "query/plan/rewrite/range.hpp"
+#include "utils/bound.hpp"
+#include "utils/logging.hpp"
 #include "utils/typeinfo.hpp"
+
+using namespace std::string_view_literals;
 
 namespace memgraph::query::plan {
 
@@ -173,35 +178,31 @@ void AddExpansionsToMatching(std::vector<Expansion> &expansions, Matching &match
     // Matching may already have some expansions, so offset our index.
     const size_t expansion_ix = matching.expansions.size();
     const auto &node1_sym = symbol_table.at(*expansion.node1->identifier_);
-    matching.node_symbol_to_expansions[node1_sym].insert(expansion_ix);
+    matching.atom_symbol_to_expansions[node1_sym].insert(expansion_ix);
 
     if (expansion.edge) {
       const auto &node2_sym = symbol_table.at(*expansion.node2->identifier_);
-      matching.node_symbol_to_expansions[node2_sym].insert(expansion_ix);
+      matching.atom_symbol_to_expansions[node2_sym].insert(expansion_ix);
+      const auto &edge_sym = symbol_table.at(*expansion.edge->identifier_);
+      matching.atom_symbol_to_expansions[edge_sym].insert(expansion_ix);
     }
 
     matching.expansions.push_back(expansion);
   }
 }
 
-auto SplitExpressionOnAnd(Expression *expression) {
-  // TODO: Think about converting all filtering expression into CNF to improve
-  // the granularity of filters which can be stand alone.
-  std::vector<Expression *> expressions;
-  std::stack<Expression *> pending_expressions;
-  pending_expressions.push(expression);
-  while (!pending_expressions.empty()) {
-    auto *current_expression = pending_expressions.top();
-    pending_expressions.pop();
-    if (auto *and_op = utils::Downcast<AndOperator>(current_expression)) {
-      pending_expressions.push(and_op->expression1_);
-      pending_expressions.push(and_op->expression2_);
-    } else {
-      expressions.push_back(current_expression);
-    }
-  }
-  return expressions;
-}
+auto MatchesIdentifier(Identifier *identifier) {
+  return [identifier](FilterInfo const &existing) {
+    auto *existing_label_test = dynamic_cast<LabelsTest *>(existing.expression);
+    if (!existing_label_test) return false;
+
+    auto *exisiting_identifier = dynamic_cast<Identifier *>(existing_label_test->expression_);
+    if (!exisiting_identifier) return false;
+
+    // If are the same symbol position then they must be referring to the same identifer
+    return identifier->symbol_pos_ == exisiting_identifier->symbol_pos_;
+  };
+};
 
 }  // namespace
 
@@ -257,6 +258,8 @@ void Filters::EraseFilter(const FilterInfo &filter) {
                      all_filters_.end());
 }
 
+// Tries to erase the filter which contains a label of a symbol
+// Filtered label can refer to a node and its label, or an edge and its edge type
 void Filters::EraseLabelFilter(const Symbol &symbol, const LabelIx &label, std::vector<Expression *> *removed_filters) {
   for (auto filter_it = all_filters_.begin(); filter_it != all_filters_.end();) {
     if (filter_it->type != FilterInfo::Type::Label) {
@@ -366,10 +369,26 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
       labels.push_back(std::get<LabelIx>(label));
     }
     if (!labels.empty()) {
-      auto *labels_test = storage.Create<LabelsTest>(node->identifier_, labels);
-      auto label_filter = FilterInfo{FilterInfo::Type::Label, labels_test, std::unordered_set<Symbol>{node_symbol}};
-      label_filter.labels = labels;
-      all_filters_.emplace_back(label_filter);
+      // find existing LabelsTest that matched identifier
+      auto it = std::find_if(all_filters_.begin(), all_filters_.end(), MatchesIdentifier(node->identifier_));
+      if (it == all_filters_.end()) {
+        // No existing LabelTest for this identifier
+        auto *labels_test = storage.Create<LabelsTest>(node->identifier_, labels);
+        auto label_filter = FilterInfo{FilterInfo::Type::Label, labels_test, std::unordered_set<Symbol>{node_symbol}};
+        label_filter.labels = labels;
+        all_filters_.emplace_back(label_filter);
+      } else {
+        // Add these labels to existing LabelsTest
+        auto *existing_labels_test = dynamic_cast<LabelsTest *>(it->expression);
+        auto &existing_labels = existing_labels_test->labels_;
+        auto as_set = std::unordered_set(existing_labels.begin(), existing_labels.end());
+        auto before_count = as_set.size();
+        as_set.insert(labels.begin(), labels.end());
+        if (as_set.size() != before_count) {
+          existing_labels = std::vector(as_set.begin(), as_set.end());
+          it->labels = existing_labels;
+        }
+      }
     }
     add_properties(node);
   };
@@ -436,12 +455,71 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     }
     return false;
   };
+
+  auto get_point_distance_function = [&](Expression *expr, PropertyLookup *&propertyLookup, Identifier *&ident,
+                                         Identifier *&other) -> bool {
+    auto *func = utils::Downcast<Function>(expr);
+    auto isPointDistance = func && utils::ToUpperCase(func->function_name_) == "POINT.DISTANCE"sv;
+    if (!isPointDistance) return false;
+    // no need to check # of args as it will already be looked up and checked
+    // hence the existence of func->function_
+
+    auto extract_prop_lookup_and_identifers = [&](Expression *lhs, Expression *rhs) -> bool {
+      if (get_property_lookup(lhs, propertyLookup, ident)) {
+        other = utils::Downcast<Identifier>(rhs);
+        if (other == nullptr) return false;
+        // it would not make sense to hint to the Scan subsitution that we could replace with a Point index scan
+        // if the point.distance call had same identifer in both lhs and rhs
+        // eg. point.distance(x.prop, x) or point.distance(x.prop, x.thing)
+        // test to ensure they are different
+        if (other != ident) {
+          return true;
+        }
+        /* check for inplace point({...}) literal OR have another pass do a raise to force it to be identifier*/
+      }
+      return false;
+    };
+
+    auto commutative_apply = [](auto &&func, auto &&arg1, auto &&arg2) {
+      if (func(arg1, arg2)) return true;
+      if (func(arg2, arg1)) return true;
+      return false;
+    };
+
+    return commutative_apply(extract_prop_lookup_and_identifers, func->arguments_[0], func->arguments_[1]);
+  };
+
+  auto add_point_distance_filter = [&](auto *expr1, auto *expr2, PointDistanceCondition kind) {
+    PropertyLookup *prop_lookup = nullptr;
+    Identifier *ident = nullptr;
+    Identifier *other = nullptr;
+    if (get_point_distance_function(expr1, prop_lookup, ident, other)) {
+      // point.distance(n.prop, other) > expr2
+      auto symbol = symbol_table.at(*ident);
+      auto collector = UsedSymbolsCollector{symbol_table};
+      expr2->Accept(collector);
+      bool const uses_same_symbol = utils::Contains(collector.symbols_, symbol);
+      // if expr2 is also dependant on the same symbol then not possible to subsitute with a point index
+      if (!uses_same_symbol) {
+        auto filter = make_filter(FilterInfo::Type::Point);
+        filter.point_filter.emplace(std::move(symbol), prop_lookup->property_, other, kind, expr2);
+        all_filters_.emplace_back(filter);
+        return true;
+      }
+    }
+    return false;
+  };
+
   // Checks if either the expr1 and expr2 are property lookups, adds them as
   // PropertyFilter and returns true. Otherwise, returns false.
   auto add_prop_greater = [&](auto *expr1, auto *expr2, auto bound_type) -> bool {
     PropertyLookup *prop_lookup = nullptr;
     Identifier *ident = nullptr;
     bool is_prop_filter = false;
+
+    // We need to get both possible lookups `n.prop > thing` and `thing > n.prop`
+    // Only one can be used in the rewrite, so even when we add both into all_filters_ only one can be used
+    // example where two can be inserted `n0.propA > n1.propB`, the rewritten scan could be for n0 or n1
     if (get_property_lookup(expr1, prop_lookup, ident)) {
       // n.prop > value
       auto filter = make_filter(FilterInfo::Type::Property);
@@ -459,6 +537,11 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       is_prop_filter = true;
     }
     return is_prop_filter;
+  };
+  auto add_prop_range = [&](RangeOperator *range) {
+    auto filter = RangeOpToFilter(range, symbol_table);
+    all_filters_.emplace_back(filter);
+    return;
   };
   // Check if maybe_id_fun is ID invocation on an indentifier and add it as
   // IdFilter.
@@ -523,10 +606,25 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
   if (auto *labels_test = utils::Downcast<LabelsTest>(expr)) {
     // Since LabelsTest may contain any expression, we can only use the
     // simplest test on an identifier.
-    if (utils::Downcast<Identifier>(labels_test->expression_)) {
-      auto filter = make_filter(FilterInfo::Type::Label);
-      filter.labels = labels_test->labels_;
-      all_filters_.emplace_back(filter);
+    if (auto *identifier = utils::Downcast<Identifier>(labels_test->expression_)) {
+      auto it = std::find_if(all_filters_.begin(), all_filters_.end(), MatchesIdentifier(identifier));
+      if (it == all_filters_.end()) {
+        // No existing LabelTest for this identifier
+        auto filter = make_filter(FilterInfo::Type::Label);
+        filter.labels = labels_test->labels_;
+        all_filters_.emplace_back(filter);
+      } else {
+        // Add these labels to existing LabelsTest
+        auto *existing_labels_test = dynamic_cast<LabelsTest *>(it->expression);
+        auto &existing_labels = existing_labels_test->labels_;
+        auto as_set = std::unordered_set(existing_labels.begin(), existing_labels.end());
+        auto before_count = as_set.size();
+        as_set.insert(labels_test->labels_.begin(), labels_test->labels_.end());
+        if (as_set.size() != before_count) {
+          existing_labels = std::vector(as_set.begin(), as_set.end());
+          it->labels = existing_labels;
+        }
+      }
     } else {
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
     }
@@ -556,24 +654,43 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     if (!add_prop_regex_match(regex_match->string_expr_, regex_match->regex_)) {
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
     }
+  } else if (auto *range = utils::Downcast<RangeOperator>(expr)) {
+    // We only support property type ranges for now
+    add_prop_range(range);
   } else if (auto *gt = utils::Downcast<GreaterOperator>(expr)) {
-    if (!add_prop_greater(gt->expression1_, gt->expression2_, Bound::Type::EXCLUSIVE)) {
-      all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
-    }
+    // look for point.distance(n.prop, other) > expr2
+    if (!add_point_distance_filter(gt->expression1_, gt->expression2_, PointDistanceCondition::OUTSIDE))
+      // look for expr2 > point.distance(n.prop, other)
+      if (!add_point_distance_filter(gt->expression1_, gt->expression2_, PointDistanceCondition::INSIDE))
+        if (!add_prop_greater(gt->expression1_, gt->expression2_, Bound::Type::EXCLUSIVE)) {
+          all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
+        }
   } else if (auto *ge = utils::Downcast<GreaterEqualOperator>(expr)) {
-    if (!add_prop_greater(ge->expression1_, ge->expression2_, Bound::Type::INCLUSIVE)) {
-      all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
-    }
+    // look for point.distance(n.prop, other) >= expr2
+    if (!add_point_distance_filter(ge->expression1_, ge->expression2_, PointDistanceCondition::OUTSIDE_AND_BOUNDARY))
+      // look for expr2 >= point.distance(n.prop, other)
+      if (!add_point_distance_filter(ge->expression1_, ge->expression2_, PointDistanceCondition::INSIDE_AND_BOUNDARY))
+        if (!add_prop_greater(ge->expression1_, ge->expression2_, Bound::Type::INCLUSIVE)) {
+          all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
+        }
   } else if (auto *lt = utils::Downcast<LessOperator>(expr)) {
-    // Like greater, but in reverse.
-    if (!add_prop_greater(lt->expression2_, lt->expression1_, Bound::Type::EXCLUSIVE)) {
-      all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
-    }
+    // look for point.distance(n.prop, other) < expr2
+    if (!add_point_distance_filter(lt->expression1_, lt->expression2_, PointDistanceCondition::INSIDE))
+      // look for expr2 < point.distance(n.prop, other)
+      if (!add_point_distance_filter(lt->expression1_, lt->expression2_, PointDistanceCondition::OUTSIDE))
+        // Like greater, but in reverse.
+        if (!add_prop_greater(lt->expression2_, lt->expression1_, Bound::Type::EXCLUSIVE)) {
+          all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
+        }
   } else if (auto *le = utils::Downcast<LessEqualOperator>(expr)) {
-    // Like greater equal, but in reverse.
-    if (!add_prop_greater(le->expression2_, le->expression1_, Bound::Type::INCLUSIVE)) {
-      all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
-    }
+    // look for point.distance(n.prop, other) <= expr2
+    if (!add_point_distance_filter(le->expression1_, le->expression2_, PointDistanceCondition::INSIDE_AND_BOUNDARY))
+      // look for expr2 <= point.distance(n.prop, other)
+      if (!add_point_distance_filter(le->expression1_, le->expression2_, PointDistanceCondition::OUTSIDE_AND_BOUNDARY))
+        // Like greater equal, but in reverse.
+        if (!add_prop_greater(le->expression2_, le->expression1_, Bound::Type::INCLUSIVE)) {
+          all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
+        }
   } else if (auto *in = utils::Downcast<InListOperator>(expr)) {
     // IN isn't equivalent to Equal because IN isn't a symmetric operator. The
     // IN filter is captured here only if the property lookup occurs on the
@@ -728,7 +845,7 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(SymbolTable &symbol_table, 
         AddMatching({merge->pattern_}, nullptr, symbol_table, storage, query_part->merge_matching.back());
       } else if (auto *call_subquery = utils::Downcast<query::CallSubquery>(clause)) {
         query_part->subqueries.emplace_back(
-            std::make_shared<QueryParts>(CollectQueryParts(symbol_table, storage, call_subquery->cypher_query_)));
+            std::make_shared<QueryParts>(CollectQueryParts(symbol_table, storage, call_subquery->cypher_query_, true)));
       } else if (auto *foreach = utils::Downcast<query::Foreach>(clause)) {
         ParseForeach(*foreach, *query_part, storage, symbol_table);
       } else if (auto *with = utils::Downcast<With>(clause)) {
@@ -750,7 +867,7 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(SymbolTable &symbol_table, 
   return query_parts;
 }
 
-QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage, CypherQuery *query) {
+QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage, CypherQuery *query, bool is_subquery) {
   std::vector<QueryPart> query_parts;
 
   auto *single_query = query->single_query_;
@@ -767,7 +884,52 @@ QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage, Cyp
     MG_ASSERT(single_query, "Expected UNION to have a query");
     query_parts.push_back(QueryPart{CollectSingleQueryParts(symbol_table, storage, single_query), cypher_union});
   }
-  return QueryParts{query_parts, distinct};
+
+  return QueryParts{query_parts, distinct, query->pre_query_directives_.commit_frequency_, is_subquery};
+}
+
+std::vector<Expression *> SplitExpressionOnAnd(Expression *expression) {
+  // TODO: Think about converting all filtering expression into CNF to improve
+  // the granularity of filters which can be stand alone.
+  std::vector<Expression *> expressions;
+  std::stack<Expression *> pending_expressions;
+  pending_expressions.push(expression);
+  while (!pending_expressions.empty()) {
+    auto *current_expression = pending_expressions.top();
+    pending_expressions.pop();
+    if (auto *and_op = utils::Downcast<AndOperator>(current_expression)) {
+      pending_expressions.push(and_op->expression1_);
+      pending_expressions.push(and_op->expression2_);
+    } else {
+      expressions.push_back(current_expression);
+    }
+  }
+  return expressions;
+}
+
+Expression *SubstituteExpression(Expression *expression, Expression *old, Expression *in) {
+  if (expression == old) return in;
+
+  std::stack<Expression *> pending_expressions;
+  pending_expressions.push(expression);
+
+  while (!pending_expressions.empty()) {
+    auto *current_expression = pending_expressions.top();
+    pending_expressions.pop();
+    if (auto *and_op = utils::Downcast<AndOperator>(current_expression)) {
+      if (and_op->expression1_ == old) {
+        and_op->expression1_ = in;
+        break;
+      }
+      if (and_op->expression2_ == old) {
+        and_op->expression2_ = in;
+        break;
+      }
+      pending_expressions.push(and_op->expression1_);
+      pending_expressions.push(and_op->expression2_);
+    }
+  }
+  return expression;
 }
 
 FilterInfo::FilterInfo(Type type, Expression *expression, std::unordered_set<Symbol> used_symbols,

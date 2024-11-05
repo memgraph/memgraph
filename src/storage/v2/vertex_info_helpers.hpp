@@ -10,14 +10,17 @@
 // licenses/APL.txt.
 #pragma once
 
-#include "storage/v2/delta.hpp"
-#include "storage/v2/edge_direction.hpp"
-#include "storage/v2/vertex_info_cache.hpp"
-#include "utils/variant_helpers.hpp"
-
 #include <algorithm>
 #include <tuple>
 #include <vector>
+
+#include "storage/v2/delta.hpp"
+#include "storage/v2/edge_direction.hpp"
+#include "storage/v2/result.hpp"
+#include "storage/v2/vertex_info_cache.hpp"
+#include "utils/small_vector.hpp"
+#include "utils/variant_helpers.hpp"
+
 namespace memgraph::storage {
 
 template <Delta::Action>
@@ -91,7 +94,7 @@ inline auto HasLabel_ActionMethod(bool &has_label, LabelId label) {
   // clang-format on
 }
 
-inline auto Labels_ActionMethod(std::vector<LabelId> &labels) {
+inline auto Labels_ActionMethod(utils::small_vector<LabelId> &labels) {
   using enum Delta::Action;
   // clang-format off
   return utils::Overloaded{
@@ -144,7 +147,7 @@ inline auto Properties_ActionMethod(std::map<PropertyId, PropertyValue> &propert
 }
 
 template <EdgeDirection dir>
-inline auto Edges_ActionMethod(std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> &edges,
+inline auto Edges_ActionMethod(utils::small_vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> &edges,
                                std::vector<EdgeTypeId> const &edge_types, Vertex const *destination) {
   auto const predicate = [&, destination](Delta const &delta) {
     if (destination && delta.vertex_edge.vertex != destination) return false;

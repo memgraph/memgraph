@@ -19,21 +19,24 @@ options { tokenVocab=MemgraphCypherLexer; }
 
 import Cypher ;
 
+/* Also update src/query/frontend/stripped_lexer_constants.hpp */
 memgraphCypherKeyword : cypherKeyword
-                      | ADD
                       | ACTIVE
+                      | ADD
                       | AFTER
                       | ALTER
                       | ANALYZE
                       | ASYNC
+                      | AT
                       | AUTH
                       | BAD
                       | BATCH_INTERVAL
                       | BATCH_LIMIT
                       | BATCH_SIZE
                       | BEFORE
-                      | BUILD
+                      | BOOLEAN
                       | BOOTSTRAP_SERVERS
+                      | BUILD
                       | CALL
                       | CHECK
                       | CLEAR
@@ -47,21 +50,30 @@ memgraphCypherKeyword : cypherKeyword
                       | CREATE_DELETE
                       | CREDENTIALS
                       | CSV
+                      | CURRENT
                       | DATA
-                      | DO
-                      | DELIMITER
                       | DATABASE
                       | DATABASES
+                      | DATE
+                      | DELIMITER
                       | DEMOTE
                       | DENY
                       | DIRECTORY
+                      | DISABLE
+                      | DO
                       | DROP
                       | DUMP
                       | DURABILITY
+                      | DURATION
                       | EDGE
                       | EDGE_TYPES
+                      | ENABLE
+                      | ENUM
+                      | ENUMS
+                      | EVERY
                       | EXECUTE
                       | FAILOVER
+                      | FLOAT
                       | FOR
                       | FORCE
                       | FOREACH
@@ -70,24 +82,30 @@ memgraphCypherKeyword : cypherKeyword
                       | FROM
                       | GLOBAL
                       | GRANT
-                      | GRAPH
                       | GRANTS
+                      | GRAPH
                       | HEADER
                       | IDENTIFIED
+                      | IF
                       | IGNORE
                       | IMPORT
-                      | INACTIVE
                       | IN_MEMORY_ANALYTICAL
                       | IN_MEMORY_TRANSACTIONAL
+                      | INACTIVE
                       | INSTANCE
                       | INSTANCES
+                      | INTEGER
                       | ISOLATION
                       | KAFKA
                       | LABELS
                       | LEVEL
+                      | LIST
                       | LOAD
+                      | LOCALDATETIME
+                      | LOCALTIME
                       | LOCK
                       | MAIN
+                      | MAP
                       | MODE
                       | MODULE_READ
                       | MODULE_WRITE
@@ -97,15 +115,24 @@ memgraphCypherKeyword : cypherKeyword
                       | NO
                       | NODE_LABELS
                       | NOTHING
-                      | ON_DISK_TRANSACTIONAL
                       | NULLIF
+                      | OF_TOKEN
+                      | OFF
+                      | ON
+                      | ON_DISK_TRANSACTIONAL
+                      | ON_DISK_TRANSACTIONAL
                       | PASSWORD
+                      | PERIODIC
+                      | POINT
                       | PORT
                       | PRIVILEGES
                       | PULSAR
+                      | QUOTE
+                      | QUOTE
                       | READ
                       | READ_FILE
                       | REGISTER
+                      | REPLACE
                       | REPLICA
                       | REPLICAS
                       | REPLICATION
@@ -113,7 +140,8 @@ memgraphCypherKeyword : cypherKeyword
                       | REVOKE
                       | ROLE
                       | ROLES
-                      | QUOTE
+                      | ROWS
+                      | SCHEMA
                       | SERVER
                       | SERVICE_URL
                       | SESSION
@@ -130,17 +158,21 @@ memgraphCypherKeyword : cypherKeyword
                       | STORAGE_MODE
                       | STREAM
                       | STREAMS
+                      | STRING
                       | SYNC
                       | TERMINATE
+                      | TEXT
                       | TIMEOUT
                       | TO
                       | TOPICS
+                      | TRACE
                       | TRANSACTION
-                      | TRANSACTION_MANAGEMENT
                       | TRANSACTIONS
+                      | TRANSACTION_MANAGEMENT
                       | TRANSFORM
                       | TRIGGER
                       | TRIGGERS
+                      | TTL
                       | UNCOMMITTED
                       | UNLOCK
                       | UNREGISTER
@@ -149,8 +181,11 @@ memgraphCypherKeyword : cypherKeyword
                       | USER
                       | USERS
                       | USING
+                      | VALUE
+                      | VALUES
                       | VERSION
                       | WEBSOCKET
+                      | ZONEDDATETIME
                       ;
 
 symbolicName : UnescapedSymbolicName
@@ -161,6 +196,7 @@ symbolicName : UnescapedSymbolicName
 query : cypherQuery
       | indexQuery
       | edgeIndexQuery
+      | pointIndexQuery
       | textIndexQuery
       | explainQuery
       | profileQuery
@@ -187,16 +223,27 @@ query : cypherQuery
       | edgeImportModeQuery
       | coordinatorQuery
       | dropGraphQuery
+      | createEnumQuery
+      | showEnumsQuery
+      | alterEnumAddValueQuery
+      | alterEnumUpdateValueQuery
+      | alterEnumRemoveValueQuery
+      | dropEnumQuery
+      | showSchemaInfoQuery
+      | ttlQuery
+      | setSessionTraceQuery
       ;
 
-cypherQuery : ( indexHints )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
+cypherQuery : ( preQueryDirectives )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
 
 authQuery : createRole
           | dropRole
           | showRoles
           | createUser
           | setPassword
+          | changePassword
           | dropUser
+          | showCurrentUser
           | showUsers
           | setRole
           | clearRole
@@ -259,11 +306,21 @@ updateClause : set
 
 foreach :  FOREACH '(' variable IN expression '|' updateClause+  ')' ;
 
-indexHints: USING INDEX indexHint ( ',' indexHint )* ;
+preQueryDirectives: USING preQueryDirective ( ',' preQueryDirective )* ;
+
+preQueryDirective: hopsLimit | indexHints  | periodicCommit ;
+
+hopsLimit: HOPS LIMIT literal ;
+
+indexHints: INDEX indexHint ( ',' indexHint )* ;
 
 indexHint: ':' labelName ( '(' propertyKeyName ')' )? ;
 
-callSubquery : CALL '{' cypherQuery '}' ;
+periodicCommit : PERIODIC COMMIT periodicCommitNumber=literal ;
+
+periodicSubquery : IN TRANSACTIONS OF_TOKEN periodicCommitNumber=literal ROWS ;
+
+callSubquery : CALL '{' cypherQuery '}' ( periodicSubquery )? ;
 
 streamQuery : checkStream
             | createStream
@@ -311,18 +368,24 @@ rowVar : variable ;
 
 userOrRoleName : symbolicName ;
 
-createRole : CREATE ROLE role=userOrRoleName ;
+createRole : CREATE ROLE ifNotExists? role=userOrRoleName ;
 
 dropRole : DROP ROLE role=userOrRoleName ;
 
 showRoles : SHOW ROLES ;
 
-createUser : CREATE USER user=userOrRoleName
+createUser : CREATE USER ifNotExists? user=userOrRoleName
              ( IDENTIFIED BY password=literal )? ;
+
+ifNotExists : IF NOT EXISTS ;
 
 setPassword : SET PASSWORD FOR user=userOrRoleName TO password=literal;
 
+changePassword : SET PASSWORD TO newPassword=literal REPLACE oldPassword=literal;
+
 dropUser : DROP USER user=userOrRoleName ;
+
+showCurrentUser : SHOW CURRENT USER ;
 
 showUsers : SHOW USERS ;
 
@@ -345,6 +408,8 @@ revokeDatabaseFromUserOrRole : REVOKE DATABASE db=wildcardName FROM userOrRole=u
 showDatabasePrivileges : SHOW DATABASE PRIVILEGES FOR userOrRole=userOrRoleName ;
 
 setMainDatabase : SET MAIN DATABASE db=symbolicName FOR userOrRole=userOrRoleName ;
+
+setSessionTraceQuery : SET SESSION TRACE (ON | OFF) ;
 
 privilege : CREATE
           | DELETE
@@ -560,10 +625,66 @@ showDatabases : SHOW DATABASES ;
 
 edgeImportModeQuery : EDGE IMPORT MODE ( ACTIVE | INACTIVE ) ;
 
-createEdgeIndex : CREATE EDGE INDEX ON ':' labelName ;
+createEdgeIndex : CREATE EDGE INDEX ON ':' labelName ( '(' propertyKeyName ')' )?;
 
-dropEdgeIndex : DROP EDGE INDEX ON ':' labelName ;
+dropEdgeIndex : DROP EDGE INDEX ON ':' labelName ( '(' propertyKeyName ')' )?;
 
 edgeIndexQuery : createEdgeIndex | dropEdgeIndex ;
 
+indexName : symbolicName ;
+
+createTextIndex : CREATE TEXT INDEX indexName ON ':' labelName ;
+
+dropTextIndex : DROP TEXT INDEX indexName ;
+
+textIndexQuery : createTextIndex | dropTextIndex;
+
+createPointIndex : CREATE POINT INDEX ON ':' labelName '(' propertyKeyName ')';
+
+dropPointIndex : DROP POINT INDEX ON ':' labelName '(' propertyKeyName ')' ;
+
+pointIndexQuery : createPointIndex | dropPointIndex ;
+
 dropGraphQuery : DROP GRAPH ;
+
+enumName : symbolicName ;
+
+enumValue : symbolicName ;
+
+createEnumQuery : CREATE ENUM enumName VALUES '{' enumValue ( ',' enumValue )* '}' ;
+
+showEnumsQuery : SHOW ENUMS ;
+
+alterEnumAddValueQuery: ALTER ENUM enumName ADD VALUE enumValue ;
+
+alterEnumUpdateValueQuery: ALTER ENUM enumName UPDATE VALUE old_value=enumValue TO new_value=enumValue ;
+
+alterEnumRemoveValueQuery: ALTER ENUM enumName REMOVE VALUE removed_value=enumValue ;
+
+dropEnumQuery: DROP ENUM enumName ;
+
+showSchemaInfoQuery : SHOW SCHEMA INFO ;
+
+stopTtlQuery: ( DISABLE | STOP ) TTL ;
+
+startTtlQuery: ENABLE TTL ( ( EVERY period=literal ) ( AT time=literal )?
+                           | ( AT time=literal ) ( EVERY period=literal )? )? ;
+
+ttlQuery: stopTtlQuery
+        | startTtlQuery
+        ;
+
+typeConstraintType : BOOLEAN
+             | STRING
+             | INTEGER
+             | FLOAT
+             | LIST
+             | MAP
+             | DATE
+             | LOCALTIME
+             | LOCALDATETIME
+             | ZONEDDATETIME
+             | DURATION
+             | ENUM
+             | POINT
+             ;

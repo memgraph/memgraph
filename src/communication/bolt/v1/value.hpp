@@ -16,6 +16,7 @@
 #include <string>
 #include <vector>
 
+#include "storage/v2/point.hpp"
 #include "utils/cast.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/temporal.hpp"
@@ -24,6 +25,8 @@ namespace memgraph::communication::bolt {
 
 /** Forward declaration of Value class. */
 class Value;
+
+using map_t = std::map<std::string, Value, std::less<>>;
 
 /** Wraps int64_t to prevent dangerous implicit conversions. */
 class Id {
@@ -56,7 +59,7 @@ inline bool operator!=(const Id &id1, const Id &id2) { return !(id1 == id2); }
 struct Vertex {
   Id id;
   std::vector<std::string> labels;
-  std::map<std::string, Value> properties;
+  map_t properties;
   std::string element_id;
 };
 
@@ -69,7 +72,7 @@ struct Edge {
   Id from;
   Id to;
   std::string type;
-  std::map<std::string, Value> properties;
+  map_t properties;
   std::string element_id;
   std::string from_element_id;
   std::string to_element_id;
@@ -82,7 +85,7 @@ struct Edge {
 struct UnboundedEdge {
   Id id;
   std::string type;
-  std::map<std::string, Value> properties;
+  map_t properties;
   std::string element_id;
 };
 
@@ -130,6 +133,12 @@ struct Path {
   std::vector<int64_t> indices;
 };
 
+using storage::CrsToSrid;
+
+struct Point2d : storage::Point2d {};
+
+struct Point3d : storage::Point3d {};
+
 /** Value represents supported values in the Bolt protocol. */
 class Value {
  public:
@@ -153,7 +162,9 @@ class Value {
     LocalTime,
     LocalDateTime,
     ZonedDateTime,
-    Duration
+    Duration,
+    Point2d,
+    Point3d
   };
 
   // constructors for primitive types
@@ -165,10 +176,9 @@ class Value {
   // constructors for non-primitive types
   Value(const std::string &value) : type_(Type::String) { new (&string_v) std::string(value); }
   Value(const char *value) : Value(std::string(value)) {}
+  Value(std::string_view value) : Value(std::string(value)) {}
   Value(const std::vector<Value> &value) : type_(Type::List) { new (&list_v) std::vector<Value>(value); }
-  Value(const std::map<std::string, Value> &value) : type_(Type::Map) {
-    new (&map_v) std::map<std::string, Value>(value);
-  }
+  Value(const map_t &value) : type_(Type::Map) { new (&map_v) map_t(value); }
   Value(const Vertex &value) : type_(Type::Vertex) { new (&vertex_v) Vertex(value); }
   Value(const Edge &value) : type_(Type::Edge) { new (&edge_v) Edge(value); }
   Value(const UnboundedEdge &value) : type_(Type::UnboundedEdge) { new (&unbounded_edge_v) UnboundedEdge(value); }
@@ -182,12 +192,13 @@ class Value {
   Value(const utils::ZonedDateTime &zoned_date_time) : type_(Type::ZonedDateTime) {
     new (&zoned_date_time_v) utils::ZonedDateTime(zoned_date_time);
   }
+  Value(const storage::Point2d &point_2d) : type_(Type::Point2d) { new (&point_2d_v) storage::Point2d(point_2d); }
+  Value(const storage::Point3d &point_3d) : type_(Type::Point3d) { new (&point_3d_v) storage::Point3d(point_3d); }
+
   // move constructors for non-primitive values
   Value(std::string &&value) noexcept : type_(Type::String) { new (&string_v) std::string(std::move(value)); }
   Value(std::vector<Value> &&value) noexcept : type_(Type::List) { new (&list_v) std::vector<Value>(std::move(value)); }
-  Value(std::map<std::string, Value> &&value) noexcept : type_(Type::Map) {
-    new (&map_v) std::map<std::string, Value>(std::move(value));
-  }
+  Value(map_t &&value) noexcept : type_(Type::Map) { new (&map_v) map_t(std::move(value)); }
   Value(Vertex &&value) noexcept : type_(Type::Vertex) { new (&vertex_v) Vertex(std::move(value)); }
   Value(Edge &&value) noexcept : type_(Type::Edge) { new (&edge_v) Edge(std::move(value)); }
   Value(UnboundedEdge &&value) noexcept : type_(Type::UnboundedEdge) {
@@ -219,7 +230,6 @@ class Value {
 
   DECL_GETTER_BY_REFERENCE(String, std::string)
   DECL_GETTER_BY_REFERENCE(List, std::vector<Value>)
-  using map_t = std::map<std::string, Value>;
   DECL_GETTER_BY_REFERENCE(Map, map_t)
   DECL_GETTER_BY_REFERENCE(Vertex, Vertex)
   DECL_GETTER_BY_REFERENCE(Edge, Edge)
@@ -230,6 +240,8 @@ class Value {
   DECL_GETTER_BY_REFERENCE(LocalDateTime, utils::LocalDateTime)
   DECL_GETTER_BY_REFERENCE(Duration, utils::Duration)
   DECL_GETTER_BY_REFERENCE(ZonedDateTime, utils::ZonedDateTime)
+  DECL_GETTER_BY_REFERENCE(Point2d, Point2d);
+  DECL_GETTER_BY_REFERENCE(Point3d, Point3d);
 #undef DECL_GETTER_BY_REFERNCE
 
 #define TYPE_CHECKER(type) \
@@ -250,6 +262,8 @@ class Value {
   TYPE_CHECKER(LocalDateTime)
   TYPE_CHECKER(Duration)
   TYPE_CHECKER(ZonedDateTime)
+  TYPE_CHECKER(Point2d);
+  TYPE_CHECKER(Point3d);
 #undef TYPE_CHECKER
 
   friend std::ostream &operator<<(std::ostream &os, const Value &value);
@@ -264,7 +278,7 @@ class Value {
     double double_v;
     std::string string_v;
     std::vector<Value> list_v;
-    std::map<std::string, Value> map_v;
+    map_t map_v;
     Vertex vertex_v;
     Edge edge_v;
     UnboundedEdge unbounded_edge_v;
@@ -274,6 +288,8 @@ class Value {
     utils::LocalDateTime local_date_time_v;
     utils::Duration duration_v;
     utils::ZonedDateTime zoned_date_time_v;
+    Point2d point_2d_v;
+    Point3d point_3d_v;
   };
 };
 /**
@@ -293,6 +309,8 @@ std::ostream &operator<<(std::ostream &os, const Vertex &vertex);
 std::ostream &operator<<(std::ostream &os, const Edge &edge);
 std::ostream &operator<<(std::ostream &os, const UnboundedEdge &edge);
 std::ostream &operator<<(std::ostream &os, const Path &path);
+std::ostream &operator<<(std::ostream &os, const Point2d &point_2d);
+std::ostream &operator<<(std::ostream &os, const Point3d &point_3d);
 std::ostream &operator<<(std::ostream &os, const Value &value);
 std::ostream &operator<<(std::ostream &os, const Value::Type type);
 }  // namespace memgraph::communication::bolt

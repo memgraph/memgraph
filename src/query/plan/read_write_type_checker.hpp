@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -56,10 +56,17 @@ struct ReadWriteTypeChecker : public virtual HierarchicalLogicalOperatorVisitor 
 
   bool PreVisit(ScanAll &) override;
   bool PreVisit(ScanAllByLabel &) override;
+  bool PreVisit(ScanAllByLabelProperty &) override;
   bool PreVisit(ScanAllByLabelPropertyValue &) override;
   bool PreVisit(ScanAllByLabelPropertyRange &) override;
-  bool PreVisit(ScanAllByLabelProperty &) override;
   bool PreVisit(ScanAllById &) override;
+
+  bool PreVisit(ScanAllByEdge &) override;
+  bool PreVisit(ScanAllByEdgeType &) override;
+  bool PreVisit(ScanAllByEdgeTypeProperty &) override;
+  bool PreVisit(ScanAllByEdgeTypePropertyValue &) override;
+  bool PreVisit(ScanAllByEdgeTypePropertyRange &) override;
+  bool PreVisit(ScanAllByEdgeId &) override;
 
   bool PreVisit(Expand &) override;
   bool PreVisit(ExpandVariable &) override;
@@ -86,6 +93,13 @@ struct ReadWriteTypeChecker : public virtual HierarchicalLogicalOperatorVisitor 
   bool PreVisit(Unwind &) override;
   bool PreVisit(CallProcedure &) override;
   bool PreVisit(Foreach &) override;
+
+  bool PreVisit(Apply &) override;
+  bool PreVisit(IndexedJoin &) override;
+  bool PreVisit(HashJoin &) override;
+  bool PreVisit(RollUpApply &) override;
+  bool PreVisit(PeriodicSubquery &) override;
+  bool PreVisit(PeriodicCommit &) override;
 
   bool Visit(Once &) override;
 

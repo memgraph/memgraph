@@ -15,6 +15,7 @@
 #include "storage/v2/constraints/utils.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/transaction.hpp"
 #include "utils/counter.hpp"
 #include "utils/logging.hpp"
 #include "utils/skip_list.hpp"
@@ -99,15 +100,15 @@ bool LastCommittedVersionHasLabelProperty(const Vertex &vertex, LabelId label, c
         if (delta->label.value == label) {
           MG_ASSERT(!has_label, "Invalid database state!");
           has_label = true;
-          break;
         }
+        break;
       }
       case Delta::Action::REMOVE_LABEL: {
         if (delta->label.value == label) {
           MG_ASSERT(has_label, "Invalid database state!");
           has_label = false;
-          break;
         }
+        break;
       }
       case Delta::Action::ADD_IN_EDGE:
       case Delta::Action::ADD_OUT_EDGE:

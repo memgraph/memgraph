@@ -16,6 +16,8 @@
 #include "replication_handler/system_replication.hpp"
 #include "utils/functional.hpp"
 
+#include <spdlog/spdlog.h>
+
 namespace memgraph::replication {
 
 namespace {
@@ -104,19 +106,19 @@ void RecoverReplication(replication::ReplicationState &repl_state, dbms::DbmsHan
 }  // namespace
 
 inline std::optional<query::RegisterReplicaError> HandleRegisterReplicaStatus(
-    utils::BasicResult<replication::RegisterReplicaError, replication::ReplicationClient *> &instance_client) {
+    utils::BasicResult<replication::RegisterReplicaStatus, replication::ReplicationClient *> &instance_client) {
   if (instance_client.HasError()) {
     switch (instance_client.GetError()) {
-      case replication::RegisterReplicaError::NOT_MAIN:
+      case replication::RegisterReplicaStatus::NOT_MAIN:
         MG_ASSERT(false, "Only main instance can register a replica!");
         return {};
-      case replication::RegisterReplicaError::NAME_EXISTS:
+      case replication::RegisterReplicaStatus::NAME_EXISTS:
         return query::RegisterReplicaError::NAME_EXISTS;
-      case replication::RegisterReplicaError::ENDPOINT_EXISTS:
+      case replication::RegisterReplicaStatus::ENDPOINT_EXISTS:
         return query::RegisterReplicaError::ENDPOINT_EXISTS;
-      case replication::RegisterReplicaError::COULD_NOT_BE_PERSISTED:
+      case replication::RegisterReplicaStatus::COULD_NOT_BE_PERSISTED:
         return query::RegisterReplicaError::COULD_NOT_BE_PERSISTED;
-      case replication::RegisterReplicaError::SUCCESS:
+      case replication::RegisterReplicaStatus::SUCCESS:
         break;
     }
   }
@@ -132,7 +134,7 @@ void StartReplicaClient(replication::ReplicationClient &client, dbms::DbmsHandle
 #endif
   // No client error, start instance level client
   auto const &endpoint = client.rpc_client_.Endpoint();
-  spdlog::trace("Replication client started at: {}:{}", endpoint.address, endpoint.port);
+  spdlog::trace("Replication client started at: {}", endpoint.SocketAddress());  // non-resolved IP
   client.StartFrequentCheck([&, license = license::global_license_checker.IsEnterpriseValidFast(), main_uuid](
                                 bool reconnect, replication::ReplicationClient &client) mutable {
     if (client.try_set_uuid && replication_coordination_glue::SendSwapMainUUIDRpc(client.rpc_client_, main_uuid)) {
@@ -203,6 +205,12 @@ bool ReplicationHandler::TrySetReplicationRoleReplica(const memgraph::replicatio
 }
 
 bool ReplicationHandler::DoReplicaToMainPromotion(const utils::UUID &main_uuid) {
+  if (!repl_state_.TryLock()) {
+    return false;
+  }
+
+  auto unlock_repl_state = utils::OnScopeExit([this]() { repl_state_.Unlock(); });
+
   // STEP 1) bring down all REPLICA servers
   dbms_handler_.ForEach([](dbms::DatabaseAccess db_acc) {
     auto *storage = db_acc->storage();
@@ -222,6 +230,18 @@ bool ReplicationHandler::DoReplicaToMainPromotion(const utils::UUID &main_uuid) 
   dbms_handler_.ForEach([&](dbms::DatabaseAccess db_acc) {
     auto *storage = db_acc->storage();
     storage->repl_storage_state_.epoch_ = epoch;
+
+    // Durability is tracking last durable timestamp from MAIN, whereas timestamp_ is dependent on MVCC
+    // We need to take bigger timestamp not to lose durability ordering
+    storage->timestamp_ =
+        std::max(storage->timestamp_, storage->repl_storage_state_.last_durable_timestamp_.load() + 1);
+    spdlog::trace("New timestamp on the MAIN is {} for the database {}.", storage->timestamp_, db_acc->name());
+  });
+
+  // STEP 4) Resume TTL
+  dbms_handler_.ForEach([](dbms::DatabaseAccess db_acc) {
+    auto &ttl = db_acc->ttl();
+    ttl.Resume();
   });
 
   return true;
@@ -239,6 +259,12 @@ auto ReplicationHandler::RegisterReplica(const memgraph::replication::Replicatio
 }
 
 auto ReplicationHandler::UnregisterReplica(std::string_view name) -> query::UnregisterReplicaResult {
+  if (!repl_state_.TryLock()) {
+    return query::UnregisterReplicaResult::NO_ACCESS;
+  }
+
+  auto unlock_repl_state = utils::OnScopeExit([this]() { repl_state_.Unlock(); });
+
   auto const replica_handler = [](replication::RoleReplicaData const &) -> query::UnregisterReplicaResult {
     return query::UnregisterReplicaResult::NOT_MAIN;
   };
@@ -256,7 +282,7 @@ auto ReplicationHandler::UnregisterReplica(std::string_view name) -> query::Unre
     auto const n_unregistered =
         std::erase_if(mainData.registered_replicas_, [name](auto const &client) { return client.name_ == name; });
     return n_unregistered != 0 ? query::UnregisterReplicaResult::SUCCESS
-                               : query::UnregisterReplicaResult::CAN_NOT_UNREGISTER;
+                               : query::UnregisterReplicaResult::CANNOT_UNREGISTER;
   };
 
   return std::visit(utils::Overloaded{main_handler, replica_handler}, repl_state_.ReplicationData());
@@ -273,7 +299,8 @@ auto ReplicationHandler::GetDatabasesHistories() -> replication_coordination_glu
 
     std::vector<std::pair<std::string, uint64_t>> history = utils::fmap(repl_storage_state.history);
 
-    history.emplace_back(std::string(repl_storage_state.epoch_.id()), repl_storage_state.last_commit_timestamp_.load());
+    history.emplace_back(std::string(repl_storage_state.epoch_.id()),
+                         repl_storage_state.last_durable_timestamp_.load());
     replication_coordination_glue::DatabaseHistory repl{
         .db_uuid = utils::UUID{db_acc->storage()->uuid()}, .history = history, .name = std::string(db_acc->name())};
     results.emplace_back(repl);
@@ -282,8 +309,12 @@ auto ReplicationHandler::GetDatabasesHistories() -> replication_coordination_glu
   return results;
 }
 
+auto ReplicationHandler::GetMainUUID() -> utils::UUID {
+  return std::get<RoleMainData>(repl_state_.ReplicationData()).uuid_;
+}
+
+// Caller's job to check whether we are main or replica.
 auto ReplicationHandler::GetReplicaUUID() -> std::optional<utils::UUID> {
-  MG_ASSERT(repl_state_.IsReplica(), "Instance is not replica");
   return std::get<RoleReplicaData>(repl_state_.ReplicationData()).uuid_;
 }
 
@@ -309,7 +340,7 @@ auto ReplicationHandler::ShowReplicas() const -> utils::BasicResult<query::ShowR
         auto *storage = db_acc->storage();
         // ATM we only support IN_MEMORY_TRANSACTIONAL
         if (storage->storage_mode_ != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) return;
-        if (!full_info && storage->name() == dbms::kDefaultDB) return;
+        if (!full_info && storage->name() != dbms::kDefaultDB) return;
         [[maybe_unused]] auto ok =
             storage->repl_storage_state_.WithClient(replica.name_, [&](storage::ReplicationStorageClient &client) {
               auto ts_info = client.GetTimestampInfo(storage);

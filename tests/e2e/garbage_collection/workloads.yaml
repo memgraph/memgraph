@@ -1,19 +1,26 @@
-args: &args
-  - "--bolt-port"
-  - "7687"
-  - "--log-level=TRACE"
-  - "--storage-gc-cycle-sec=2"
-
 in_memory_cluster: &in_memory_cluster
   cluster:
     main:
-      args: *args
+      args: ["--bolt-port", "7687", "--log-level=TRACE", "--storage-gc-cycle-sec=2"]
       log_file: "garbage_collection-e2e.log"
+      setup_queries: []
+      validation_queries: []
+
+gc_on_obsolete_indexes_cluster: &gc_on_obsolete_indexes_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE", "--storage-gc-cycle-sec=240"]
+      log_file: "gc_on_obsolete_indexes-e2e.log"
       setup_queries: []
       validation_queries: []
 
 workloads:
   - name: "Garbage collection"
-    binary: "tests/e2e/pytest_runner.sh"
-    args: ["garbage_collection/gc_periodic.py"]
+    binary: "tests/e2e/garbage_collection/memgraph__e2e__garbage_collection"
+    args: []
     <<: *in_memory_cluster
+
+  - name: "Garbage collection on obsolete indexes"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["garbage_collection/gc_on_obsolete_indexes.py"]
+    <<: *gc_on_obsolete_indexes_cluster

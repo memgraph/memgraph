@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdlib>
 #include <string>
@@ -22,61 +23,88 @@
 #include <range/v3/range/conversion.hpp>
 #include <range/v3/view/drop_while.hpp>
 #include <range/v3/view/take_while.hpp>
+#include <range/v3/view/transform.hpp>
 
 namespace memgraph::flags {
 
-CoordinationSetup::CoordinationSetup(int management_port, int coordinator_port, uint32_t coordinator_id)
-    : management_port(management_port), coordinator_port(coordinator_port), coordinator_id(coordinator_id) {}
+CoordinationSetup::CoordinationSetup(int management_port, int coordinator_port, uint32_t coordinator_id,
+                                     std::string nuraft_log_file, bool ha_durability, std::string coordinator_hostname)
+    : management_port(management_port),  // data instance management port or coordinator instance management port
+      coordinator_port(coordinator_port),
+      coordinator_id(coordinator_id),
+      nuraft_log_file(std::move(nuraft_log_file)),
+      ha_durability(ha_durability),
+      coordinator_hostname(std::move(coordinator_hostname)) {}
 
 std::string CoordinationSetup::ToString() {
-  return fmt::format("management port: {}, coordinator port {}, coordinator id", management_port, coordinator_port,
-                     coordinator_id);
+  return fmt::format(
+      "management port: {}, coordinator port: {}, coordinator id: {}, nuraft_log_file: {} ha_durability: {}, "
+      "coordinator_hostname: {}",
+      management_port, coordinator_port, coordinator_id, nuraft_log_file, ha_durability, coordinator_hostname);
 }
 
-[[nodiscard]] auto CoordinationSetup::IsCoordinatorManaged() const -> bool { return management_port != 0; }
+[[nodiscard]] auto CoordinationSetup::IsDataInstanceManagedByCoordinator() const -> bool {
+  return management_port != 0 && coordinator_port == 0 && coordinator_id == 0;
+}
 
 auto CoordinationSetupInstance() -> CoordinationSetup & {
-  static auto instance = CoordinationSetup{0, 0, 0};
+  static auto instance = CoordinationSetup{};
   return instance;
 }
 
 void SetFinalCoordinationSetup() {
 #ifdef MG_ENTERPRISE
-  auto const *maybe_management_port = std::getenv(kMgManagementPort);
-  auto const *maybe_coordinator_port = std::getenv(kMgCoordinatorPort);
-  auto const *maybe_coordinator_id = std::getenv(kMgCoordinatorId);
 
-  bool const are_envs_set = maybe_management_port || maybe_coordinator_port || maybe_coordinator_id;
-  bool const are_flags_set = FLAGS_management_port || FLAGS_coordinator_port || FLAGS_coordinator_id;
+  std::vector<char const *> const maybe_coord_envs{std::getenv(kMgManagementPort), std::getenv(kMgCoordinatorPort),
+                                                   std::getenv(kMgCoordinatorId),  std::getenv(kMgNuRaftLogFile),
+                                                   std::getenv(kMgHaDurability),   std::getenv(kMgCoordinatorHostname)};
 
-  if (are_envs_set && are_flags_set) {
-    spdlog::trace(
-        "Ignoring coordinator setup(management_port, coordinator_port and coordinator_id) sent via flags as there is "
-        "input in environment variables");
+  bool const any_envs_set = std::ranges::any_of(maybe_coord_envs, [](char const *env) { return env != nullptr; });
+
+  auto const is_flag_set = []<typename T>(T const &flag) { return flag != T{}; };
+
+  bool const any_flags_set = is_flag_set(FLAGS_management_port) || is_flag_set(FLAGS_coordinator_port) ||
+                             is_flag_set(FLAGS_coordinator_id) || is_flag_set(FLAGS_nuraft_log_file) ||
+                             is_flag_set(FLAGS_coordinator_hostname);
+
+  if (any_flags_set && any_envs_set) {
+    spdlog::warn(
+        "Both environment variables and flags are set for coordinator setup. Using environment variables as priority. "
+        "Flags will be ignored.");
   }
 
-  auto const canonicalize_string = [](auto &&rng) {
-    auto const is_space = [](auto c) { return c == ' '; };
-
-    return rng | ranges::views::drop_while(is_space) | ranges::views::take_while(std::not_fn(is_space)) |
-           ranges::to<std::string>;
-  };
-
   CoordinationSetupInstance() = [&]() {
-    if (!are_envs_set && !are_flags_set) {
-      return CoordinationSetup{0, 0, 0};
+    if (!any_flags_set && !any_envs_set) {
+      return CoordinationSetup{};
     }
-    if (are_envs_set) {
-      spdlog::trace("Read coordinator setup from env variables: {}.", CoordinationSetupInstance().ToString());
-      return CoordinationSetup(
-          maybe_management_port ? std::stoi(canonicalize_string(std::string_view{maybe_management_port})) : 0,
-          maybe_coordinator_port ? std::stoi(canonicalize_string(std::string_view{maybe_coordinator_port})) : 0,
-          maybe_coordinator_id
-              ? static_cast<uint32_t>(std::stoul(canonicalize_string(std::string_view{maybe_coordinator_id})))
-              : 0);
+
+    auto const trim = [](char const *flag) -> std::optional<std::string> {
+      if (flag == nullptr) {
+        return std::nullopt;
+      }
+
+      auto const is_space = [](auto c) { return c == ' '; };
+
+      return std::string_view{flag} | ranges::views::drop_while(is_space) |
+             ranges::views::take_while(std::not_fn(is_space)) | ranges::to<std::string>;
+    };
+
+    auto const coord_envs =
+        maybe_coord_envs | ranges::views::transform(trim) | ranges::to<std::vector<std::optional<std::string>>>;
+
+    if (any_envs_set) {
+      spdlog::trace("Coordinator will be initialized using environment variables.");
+      return CoordinationSetup(coord_envs[0] ? std::stoi(coord_envs[0].value()) : 0,
+                               coord_envs[1] ? std::stoi(coord_envs[1].value()) : 0,
+                               coord_envs[2] ? static_cast<uint32_t>(std::stoul(coord_envs[2].value())) : 0,
+                               coord_envs[3] ? coord_envs[3].value() : "",
+                               coord_envs[4] ? static_cast<bool>(std::stoi(coord_envs[4].value())) : false,
+                               coord_envs[5] ? coord_envs[5].value() : "");
     }
-    spdlog::trace("Read coordinator setup from runtime flags {}.", CoordinationSetupInstance().ToString());
-    return CoordinationSetup{FLAGS_management_port, FLAGS_coordinator_port, FLAGS_coordinator_id};
+
+    spdlog::trace("Coordinator will be initilized using flags.");
+    return CoordinationSetup{FLAGS_management_port, FLAGS_coordinator_port, FLAGS_coordinator_id,
+                             FLAGS_nuraft_log_file, FLAGS_ha_durability,    FLAGS_coordinator_hostname};
   }();  // iile
 #endif
 }

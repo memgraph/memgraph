@@ -13,13 +13,15 @@
 
 #include <uuid/uuid.h>
 
+#include "fmt/format.h"
+
 #include <array>
 #include <json/json.hpp>
 #include <string>
 
 namespace memgraph::utils {
 struct UUID;
-}
+}  // namespace memgraph::utils
 
 namespace memgraph::slk {
 class Reader;
@@ -44,6 +46,16 @@ struct UUID {
     auto decoded = std::array<char, 37 /*UUID_STR_LEN*/>{};
     uuid_unparse(uuid.data(), decoded.data());
     return std::string{decoded.data(), 37 /*UUID_STR_LEN*/ - 1};
+  }
+
+  void set(std::string_view uuid_str) {
+    if (uuid_str.length() != 36) {
+      throw std::invalid_argument(
+          fmt::format("Invalid UUID argument length. Length is {} and expected to be 36.", uuid_str.length()));
+    }
+    if (uuid_parse(uuid_str.data(), uuid.data()) != 0) {
+      throw std::invalid_argument("Invalid UUID formatwhen setting new uuid string.");
+    }
   }
 
   explicit operator arr_t() const { return uuid; }

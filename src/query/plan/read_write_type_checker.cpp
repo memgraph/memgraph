@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -33,10 +33,17 @@ PRE_VISIT(RemoveLabels, RWType::W, true)
 
 PRE_VISIT(ScanAll, RWType::R, true)
 PRE_VISIT(ScanAllByLabel, RWType::R, true)
-PRE_VISIT(ScanAllByLabelPropertyRange, RWType::R, true)
-PRE_VISIT(ScanAllByLabelPropertyValue, RWType::R, true)
 PRE_VISIT(ScanAllByLabelProperty, RWType::R, true)
+PRE_VISIT(ScanAllByLabelPropertyValue, RWType::R, true)
+PRE_VISIT(ScanAllByLabelPropertyRange, RWType::R, true)
 PRE_VISIT(ScanAllById, RWType::R, true)
+
+PRE_VISIT(ScanAllByEdge, RWType::R, true)
+PRE_VISIT(ScanAllByEdgeType, RWType::R, true)
+PRE_VISIT(ScanAllByEdgeTypeProperty, RWType::R, true)
+PRE_VISIT(ScanAllByEdgeTypePropertyValue, RWType::R, true)
+PRE_VISIT(ScanAllByEdgeTypePropertyRange, RWType::R, true)
+PRE_VISIT(ScanAllByEdgeId, RWType::R, true)
 
 PRE_VISIT(Expand, RWType::R, true)
 PRE_VISIT(ExpandVariable, RWType::R, true)
@@ -63,6 +70,7 @@ PRE_VISIT(Skip, RWType::NONE, true)
 PRE_VISIT(Limit, RWType::NONE, true)
 PRE_VISIT(OrderBy, RWType::NONE, true)
 PRE_VISIT(Distinct, RWType::NONE, true)
+PRE_VISIT(PeriodicCommit, RWType::NONE, true)
 
 bool ReadWriteTypeChecker::PreVisit(Union &op) {
   op.left_op_->Accept(*this);
@@ -83,6 +91,36 @@ bool ReadWriteTypeChecker::PreVisit(CallProcedure &op) {
 
 bool ReadWriteTypeChecker::PreVisit([[maybe_unused]] Foreach &op) {
   UpdateType(RWType::RW);
+  return false;
+}
+
+bool ReadWriteTypeChecker::PreVisit(Apply &op) {
+  op.input_->Accept(*this);
+  op.subquery_->Accept(*this);
+  return false;
+}
+
+bool ReadWriteTypeChecker::PreVisit(IndexedJoin &op) {
+  op.main_branch_->Accept(*this);
+  op.sub_branch_->Accept(*this);
+  return false;
+}
+
+bool ReadWriteTypeChecker::PreVisit(HashJoin &op) {
+  op.left_op_->Accept(*this);
+  op.right_op_->Accept(*this);
+  return false;
+}
+
+bool ReadWriteTypeChecker::PreVisit(PeriodicSubquery &op) {
+  op.input_->Accept(*this);
+  op.subquery_->Accept(*this);
+  return false;
+}
+
+bool ReadWriteTypeChecker::PreVisit(RollUpApply &op) {
+  op.input_->Accept(*this);
+  op.list_collection_branch_->Accept(*this);
   return false;
 }
 

@@ -23,6 +23,7 @@
 #include "utils/async_timer.hpp"
 
 #include "query/frame_change.hpp"
+#include "query/hops_limit.hpp"
 
 namespace memgraph::query {
 
@@ -58,24 +59,9 @@ struct EvaluationContext {
   Scope scope{};
 };
 
-inline std::vector<storage::PropertyId> NamesToProperties(const std::vector<std::string> &property_names,
-                                                          DbAccessor *dba) {
-  std::vector<storage::PropertyId> properties;
-  properties.reserve(property_names.size());
-  for (const auto &name : property_names) {
-    properties.push_back(dba->NameToProperty(name));
-  }
-  return properties;
-}
+std::vector<storage::PropertyId> NamesToProperties(const std::vector<std::string> &property_names, DbAccessor *dba);
 
-inline std::vector<storage::LabelId> NamesToLabels(const std::vector<std::string> &label_names, DbAccessor *dba) {
-  std::vector<storage::LabelId> labels;
-  labels.reserve(label_names.size());
-  for (const auto &name : label_names) {
-    labels.push_back(dba->NameToLabel(name));
-  }
-  return labels;
-}
+std::vector<storage::LabelId> NamesToLabels(const std::vector<std::string> &label_names, DbAccessor *dba);
 
 struct ExecutionContext {
   DbAccessor *db_accessor{nullptr};
@@ -92,9 +78,13 @@ struct ExecutionContext {
   FrameChangeCollector *frame_change_collector{nullptr};
   std::shared_ptr<utils::AsyncTimer> timer;
   std::shared_ptr<QueryUserOrRole> user_or_role;
+  int64_t number_of_hops{0};
+  HopsLimit hops_limit;
+  std::optional<uint64_t> periodic_commit_frequency;
 #ifdef MG_ENTERPRISE
   std::unique_ptr<FineGrainedAuthChecker> auth_checker{nullptr};
 #endif
+  DatabaseAccessProtector db_acc;
 };
 
 static_assert(std::is_move_assignable_v<ExecutionContext>, "ExecutionContext must be move assignable!");

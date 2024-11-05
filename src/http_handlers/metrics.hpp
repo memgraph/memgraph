@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,6 +22,7 @@
 
 #include <utils/event_counter.hpp>
 #include <utils/event_gauge.hpp>
+#include "license/license_sender.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/event_histogram.hpp"
 
@@ -32,6 +33,8 @@ struct MetricsResponse {
   uint64_t edge_count;
   double average_degree;
   uint64_t memory_usage;
+  uint64_t peak_memory_usage;
+  uint64_t unreleased_delta_objects;
   uint64_t disk_usage;
 
   // Storage of all the counter values throughout the system
@@ -65,6 +68,8 @@ class MetricsService {
                            .edge_count = info.edge_count,
                            .average_degree = info.average_degree,
                            .memory_usage = info.memory_res,
+                           .peak_memory_usage = info.peak_memory_res,
+                           .unreleased_delta_objects = info.unreleased_delta_objects,
                            .disk_usage = info.disk_usage,
                            .event_counters = GetEventCounters(),
                            .event_gauges = GetEventGauges(),
@@ -79,6 +84,8 @@ class MetricsService {
     metrics_response[general_type]["edge_count"] = response.edge_count;
     metrics_response[general_type]["average_degree"] = response.average_degree;
     metrics_response[general_type]["memory_usage"] = response.memory_usage;
+    metrics_response[general_type]["peak_memory_usage"] = response.peak_memory_usage;
+    metrics_response[general_type]["unreleased_delta_objects"] = response.unreleased_delta_objects;
     metrics_response[general_type]["disk_usage"] = response.disk_usage;
 
     for (const auto &[name, type, value] : response.event_counters) {
@@ -115,7 +122,7 @@ class MetricsService {
     event_gauges.reserve(memgraph::metrics::GaugeEnd());
 
     for (auto i = 0; i < memgraph::metrics::GaugeEnd(); i++) {
-      event_gauges.emplace_back(memgraph::metrics::GetGaugeName(i), memgraph::metrics::GetGaugeType(i),
+      event_gauges.emplace_back(memgraph::metrics::GetGaugeName(i), memgraph::metrics::GetGaugeTypeString(i),
                                 memgraph::metrics::global_gauges[i].load(std::memory_order_acquire));
     }
 
@@ -145,9 +152,7 @@ class MetricsService {
 // Raw pointer could be dangerous
 class MetricsRequestHandler final {
  public:
-  explicit MetricsRequestHandler(storage::Storage *storage) : service_(storage) {
-    spdlog::info("Basic request handler started!");
-  }
+  explicit MetricsRequestHandler(storage::Storage *storage) : service_(storage) {}
 
   MetricsRequestHandler(const MetricsRequestHandler &) = delete;
   MetricsRequestHandler(MetricsRequestHandler &&) = delete;
@@ -174,6 +179,14 @@ class MetricsRequestHandler final {
       res.prepare_payload();
       return res;
     };
+
+#ifdef MG_ENTERPRISE
+    if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+      return send(bad_request("Memgraph must have an Enterprise License for providing metrics!"));
+    }
+#else
+    return send(bad_request("Memgraph must be built for Enterprise for providing metrics!"));
+#endif
 
     // Make sure we can handle the method
     if (req.method() != boost::beast::http::verb::get) {

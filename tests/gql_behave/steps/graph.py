@@ -11,8 +11,9 @@
 
 # -*- coding: utf-8 -*-
 
-import database
 import os
+
+import database
 from behave import given
 
 
@@ -21,14 +22,18 @@ def clear_graph(context):
     if context.exception is not None:
         context.exception = None
         database.query("MATCH (n) DETACH DELETE n", context)
+    database.query("DROP INDEX ON :Person", context)
+    context.exception = None
+    database.query("DROP INDEX ON :Node(name)", context)
+    context.exception = None
 
 
-@given('an empty graph')
+@given("an empty graph")
 def empty_graph_step(context):
     clear_graph(context)
 
 
-@given('any graph')
+@given("any graph")
 def any_graph_step(context):
     clear_graph(context)
 
@@ -46,20 +51,18 @@ def create_graph(name, context):
     and sets graph properties to beginning values.
     """
     clear_graph(context)
-    path = os.path.join(context.config.test_directory, "graphs",
-                        name + ".cypher")
+    path = os.path.join(context.config.test_directory, "graphs", name + ".cypher")
 
-    q_marks = ["'", '"', '`']
+    q_marks = ["'", '"', "`"]
 
-    with open(path, 'r') as f:
-        content = f.read().replace('\n', ' ')
-        single_query = ''
+    with open(path, "r") as f:
+        content = f.read().replace("\n", " ")
+        single_query = ""
         quote = None
         i = 0
         while i < len(content):
             ch = content[i]
-            if ch == '\\' and i != len(content) - 1 and \
-                    content[i + 1] in q_marks:
+            if ch == "\\" and i != len(content) - 1 and content[i + 1] in q_marks:
                 single_query += ch + content[i + 1]
                 i += 2
             else:
@@ -68,9 +71,9 @@ def create_graph(name, context):
                     quote = None
                 elif ch in q_marks and quote is None:
                     quote = ch
-                if ch == ';' and quote is None:
+                if ch == ";" and quote is None:
                     database.query(single_query, context)
-                    single_query = ''
+                    single_query = ""
                 i += 1
-        if single_query.strip() != '':
+        if single_query.strip() != "":
             database.query(single_query, context)

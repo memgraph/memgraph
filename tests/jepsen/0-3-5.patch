@@ -1,0 +1,20 @@
+diff --git a/docker/control/Dockerfile b/docker/control/Dockerfile
+index 4b95de3b..0e7788aa 100644
+--- a/docker/control/Dockerfile
++++ b/docker/control/Dockerfile
+@@ -7,13 +7,13 @@ ENV LEIN_ROOT true
+
+ # JDK21 only in Debian testing
+ RUN echo "deb http://deb.debian.org/debian testing main" >> /etc/apt/sources.list
+-ADD ./apt-preferences /etc/apt/preferences
++RUN echo "deb http://deb.debian.org/debian trixie main" >> /etc/apt/sources.list
+
+ #
+ # Jepsen dependencies
+ #
+ RUN apt-get -qy update && \
+-    apt-get -qy install \
++    apt-get -qy -o Dpkg::Options::="--force-confnew" install \
+         curl dos2unix emacs git gnuplot graphviz htop iputils-ping libjna-java openjdk-21-jdk-headless pssh screen vim wget
+
+ RUN wget https://raw.githubusercontent.com/technomancy/leiningen/stable/bin/lein && \

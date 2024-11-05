@@ -17,6 +17,7 @@
 
 #include "communication/bolt/v1/codes.hpp"
 #include "communication/bolt/v1/value.hpp"
+#include "storage/v2/point.hpp"
 #include "utils/cast.hpp"
 #include "utils/endian.hpp"
 #include "utils/logging.hpp"
@@ -143,6 +144,9 @@ class Decoder {
             if (major_v_ > 4) return false;
             return ReadLegacyDateTimeZoneId(data);
           }
+          case Signature::Point2d: {
+            return ReadPoint2d(data);
+          }
           default:
             return false;
         }
@@ -155,6 +159,9 @@ class Decoder {
         switch (static_cast<Signature>(signature)) {
           case Signature::Duration:
             return ReadDuration(data);
+          case Signature::Point3d: {
+            return ReadPoint3d(data);
+          }
           default:
             return false;
         }
@@ -382,7 +389,7 @@ class Decoder {
 
     Value dv_key, dv_val;
 
-    *data = Value(std::map<std::string, Value>());
+    *data = Value(map_t{});
     auto &ret = data->ValueMap();
     for (int64_t i = 0; i < size; ++i) {
       if (!ReadValue(&dv_key, Value::Type::String)) {
@@ -640,6 +647,45 @@ class Decoder {
     const auto nanos = chrono::nanoseconds(values[3]);
     const auto micros = months + days + secs + chrono::duration_cast<chrono::microseconds>(nanos);
     *data = Value(utils::Duration(micros.count()));
+    return true;
+  }
+
+  bool ReadPoint2d(Value *data) {
+    Value dv;
+    if (!ReadValue(&dv, Value::Type::Int)) return false;
+
+    auto crs = storage::SridToCrs(storage::Srid{dv.ValueInt()});
+    if (!crs) return false;
+    if (!storage::valid2d(*crs)) return false;
+
+    if (!ReadValue(&dv, Value::Type::Double)) return false;
+    double x = dv.ValueDouble();
+
+    if (!ReadValue(&dv, Value::Type::Double)) return false;
+    double y = dv.ValueDouble();
+
+    *data = Value(storage::Point2d(*crs, x, y));
+    return true;
+  }
+
+  bool ReadPoint3d(Value *data) {
+    Value dv;
+    if (!ReadValue(&dv, Value::Type::Int)) return false;
+
+    auto crs = storage::SridToCrs(storage::Srid{dv.ValueInt()});
+    if (!crs) return false;
+    if (!storage::valid3d(*crs)) return false;
+
+    if (!ReadValue(&dv, Value::Type::Double)) return false;
+    double x = dv.ValueDouble();
+
+    if (!ReadValue(&dv, Value::Type::Double)) return false;
+    double y = dv.ValueDouble();
+
+    if (!ReadValue(&dv, Value::Type::Double)) return false;
+    double z = dv.ValueDouble();
+
+    *data = Value(storage::Point3d(*crs, x, y, z));
     return true;
   }
 

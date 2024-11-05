@@ -26,8 +26,16 @@
   M(ScanAllByLabelPropertyValueOperator, Operator, "Number of times ScanAllByLabelPropertyValue operator was used.") \
   M(ScanAllByLabelPropertyOperator, Operator, "Number of times ScanAllByLabelProperty operator was used.")           \
   M(ScanAllByIdOperator, Operator, "Number of times ScanAllById operator was used.")                                 \
+  M(ScanAllByEdgeOperator, Operator, "Number of times ScanAllByEdgeOperator operator was used.")                     \
   M(ScanAllByEdgeTypeOperator, Operator, "Number of times ScanAllByEdgeTypeOperator operator was used.")             \
+  M(ScanAllByEdgeTypePropertyOperator, Operator,                                                                     \
+    "Number of times ScanAllByEdgeTypePropertyOperator operator was used.")                                          \
+  M(ScanAllByEdgeTypePropertyValueOperator, Operator,                                                                \
+    "Number of times ScanAllByEdgeTypePropertyValueOperator operator was used.")                                     \
+  M(ScanAllByEdgeTypePropertyRangeOperator, Operator,                                                                \
+    "Number of times ScanAllByEdgeTypePropertyRangeOperator operator was used.")                                     \
   M(ScanAllByEdgeIdOperator, Operator, "Number of times ScanAllByEdgeIdOperator operator was used.")                 \
+  M(ScanAllByPointDistanceOperator, Operator, "Number of times ScanAllByPointDistanceOperator operator was used.")   \
   M(ExpandOperator, Operator, "Number of times Expand operator was used.")                                           \
   M(ExpandVariableOperator, Operator, "Number of times ExpandVariable operator was used.")                           \
   M(ConstructNamedPathOperator, Operator, "Number of times ConstructNamedPath operator was used.")                   \
@@ -59,9 +67,12 @@
   M(IndexedJoinOperator, Operator, "Number of times IndexedJoin operator was used.")                                 \
   M(HashJoinOperator, Operator, "Number of times HashJoin operator was used.")                                       \
   M(RollUpApplyOperator, Operator, "Number of times RollUpApply operator was used.")                                 \
+  M(PeriodicCommitOperator, Operator, "Number of times PeriodicCommit operator was used.")                           \
+  M(PeriodicSubqueryOperator, Operator, "Number of times PeriodicSubquery operator was used.")                       \
                                                                                                                      \
   M(ActiveLabelIndices, Index, "Number of active label indices in the system.")                                      \
   M(ActiveLabelPropertyIndices, Index, "Number of active label property indices in the system.")                     \
+  M(ActivePointIndices, Index, "Number of active point indices in the system.")                                      \
   M(ActiveTextIndices, Index, "Number of active text indices in the system.")                                        \
                                                                                                                      \
   M(StreamsCreated, Stream, "Number of Streams created.")                                                            \
@@ -83,7 +94,13 @@
   M(FailedQuery, Transaction, "Number of times executing a query failed.")                                           \
   M(FailedPrepare, Transaction, "Number of times preparing a query failed.")                                         \
   M(FailedPull, Transaction, "Number of times executing a prepared query failed.")                                   \
-  M(SuccessfulQuery, Transaction, "Number of successful queries.")
+  M(SuccessfulQuery, Transaction, "Number of successful queries.")                                                   \
+  M(UnreleasedDeltaObjects, Memory, "Total number of unreleased delta objects in memory.")                           \
+                                                                                                                     \
+  M(DeletedNodes, TTL, "Number of nodes deleted via TTL")                                                            \
+  M(DeletedEdges, TTL, "Number of edges deleted via TTL")                                                            \
+                                                                                                                     \
+  M(ShowSchema, SchemaInfo, "Number of times the user called \"SHOW SCHEMA INFO\" query")
 
 namespace memgraph::metrics {
 // define every Event as an index in the array of counters
@@ -114,6 +131,7 @@ void EventCounters::Decrement(const Event event, Count amount) {
 
 void IncrementCounter(const Event event, Count amount) { global_counters.Increment(event, amount); }
 void DecrementCounter(const Event event, Count amount) { global_counters.Decrement(event, amount); }
+Count GetCounterValue(const Event event) { return global_counters.GetCount(event); }
 
 const char *GetCounterName(const Event event) {
   static const char *strings[] = {

@@ -270,6 +270,9 @@ target_link_libraries(${test_prefix}skip_list mg-utils)
 add_unit_test(small_vector.cpp)
 target_link_libraries(${test_prefix}small_vector mg-utils)
 
+add_unit_test(utils_mask_sensitive_information.cpp)
+target_link_libraries(${test_prefix}utils_mask_sensitive_information mg-utils fmt)
+
 add_unit_test(utils_file_locker.cpp)
 target_link_libraries(${test_prefix}utils_file_locker mg-utils fmt)
 
@@ -289,7 +292,7 @@ add_unit_test(utils_settings.cpp)
 target_link_libraries(${test_prefix}utils_settings mg-utils mg-settings)
 
 add_unit_test(utils_temporal utils_temporal.cpp)
-target_link_libraries(${test_prefix}utils_temporal mg-utils)
+target_link_libraries(${test_prefix}utils_temporal mg-utils mg-flags)
 
 add_unit_test(utils_java_string_formatter.cpp)
 target_link_libraries(${test_prefix}utils_java_string_formatter mg-utils)
@@ -300,8 +303,14 @@ target_link_libraries(${test_prefix}utils_resource_lock mg-utils)
 add_unit_test(lru_cache.cpp)
 target_link_libraries(${test_prefix}lru_cache mg-utils)
 
+add_unit_test(utils_static_vector.cpp)
+target_link_libraries(${test_prefix}utils_static_vector mg::utils)
+
 add_unit_test(exponential_backoff exponential_backoff.cpp)
 target_link_libraries(${test_prefix}exponential_backoff mg-utils lib::rangev3)
+
+add_unit_test(utils_compressor.cpp)
+target_link_libraries(${test_prefix}utils_compressor mg-utils)
 
 # Test mg-storage-v2
 add_unit_test(commit_log_v2.cpp)
@@ -312,6 +321,12 @@ target_link_libraries(${test_prefix}property_value_v2 mg-storage-v2 mg-utils)
 
 add_unit_test(storage_v2.cpp)
 target_link_libraries(${test_prefix}storage_v2 mg-storage-v2 storage_test_utils)
+
+add_unit_test(storage_v2_delta_container.cpp)
+target_link_libraries(${test_prefix}storage_v2_delta_container mg-storage-v2)
+
+add_unit_test(storage_v2_enum_store.cpp)
+target_link_libraries(${test_prefix}storage_v2_enum_store mg-storage-v2)
 
 add_unit_test(storage_v2_constraints.cpp)
 target_link_libraries(${test_prefix}storage_v2_constraints mg-storage-v2 mg-dbms)
@@ -346,7 +361,7 @@ target_link_libraries(${test_prefix}storage_v2_indices mg-storage-v2 mg-utils)
 add_unit_test(storage_v2_name_id_mapper.cpp)
 target_link_libraries(${test_prefix}storage_v2_name_id_mapper mg-storage-v2)
 
-add_unit_test(storage_v2_property_store.cpp)
+add_unit_test_with_custom_main(storage_v2_property_store.cpp)
 target_link_libraries(${test_prefix}storage_v2_property_store mg-storage-v2 fmt)
 
 add_unit_test(storage_v2_wal_file.cpp)
@@ -369,6 +384,9 @@ target_link_libraries(${test_prefix}database_get_info mg-storage-v2 mg-glue mg-d
 
 add_unit_test(storage_v2_storage_mode.cpp)
 target_link_libraries(${test_prefix}storage_v2_storage_mode mg-storage-v2 storage_test_utils mg-query mg-glue)
+
+add_unit_test(storage_v2_schema_info.cpp)
+target_link_libraries(${test_prefix}storage_v2_schema_info mg-storage-v2)
 
 add_unit_test(replication_persistence_helper.cpp)
 target_link_libraries(${test_prefix}replication_persistence_helper mg-storage-v2 mg-repl_coord_glue)
@@ -469,6 +487,12 @@ if(MG_ENTERPRISE)
   target_include_directories(${test_prefix}coordinator_state_manager PRIVATE ${CMAKE_SOURCE_DIR}/include)
 endif()
 
+if(MG_ENTERPRISE)
+  add_unit_test(coordinator_log_store.cpp)
+  target_link_libraries(${test_prefix}coordinator_log_store gflags mg-coordination mg-repl_coord_glue)
+  target_include_directories(${test_prefix}coordinator_log_store PRIVATE ${CMAKE_SOURCE_DIR}/include)
+endif()
+
 # Test RAFT state
 if(MG_ENTERPRISE)
 add_unit_test(coordinator_raft_state.cpp)
@@ -483,9 +507,16 @@ target_link_libraries(${test_prefix}coordinator_instance gflags mg-coordination 
 target_include_directories(${test_prefix}coordinator_instance PRIVATE ${CMAKE_SOURCE_DIR}/include)
 endif()
 
-# Test replication instance connector
+# Test coordinator env flag handler
 if(MG_ENTERPRISE)
-add_unit_test(replication_instance_connector.cpp)
-target_link_libraries(${test_prefix}replication_instance_connector gflags mg-coordination mg-repl_coord_glue)
-target_include_directories(${test_prefix}replication_instance_connector PRIVATE ${CMAKE_SOURCE_DIR}/include)
+add_unit_test(coordinator_env_flag_handler.cpp)
+target_link_libraries(${test_prefix}coordinator_env_flag_handler gflags mg-flags)
+target_include_directories(${test_prefix}coordinator_env_flag_handler PRIVATE ${CMAKE_SOURCE_DIR}/include)
+endif()
+
+# Test time to live
+if(MG_ENTERPRISE)
+add_unit_test(ttl.cpp)
+target_link_libraries(${test_prefix}ttl mg-query)
+target_include_directories(${test_prefix}ttl PRIVATE ${CMAKE_SOURCE_DIR}/include)
 endif()

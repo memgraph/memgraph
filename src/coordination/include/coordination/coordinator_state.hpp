@@ -18,7 +18,7 @@
 
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_instance.hpp"
-#include "coordination/coordinator_server.hpp"
+#include "coordination/data_instance_management_server.hpp"
 #include "coordination/instance_status.hpp"
 #include "coordination/register_main_replica_coordinator_status.hpp"
 
@@ -45,30 +45,30 @@ class CoordinatorState {
 
   [[nodiscard]] auto DemoteInstanceToReplica(std::string_view instance_name) -> DemoteInstanceCoordinatorStatus;
 
-  [[nodiscard]] auto ForceResetClusterState() -> ForceResetClusterStateStatus;
+  [[nodiscard]] auto ReconcileClusterState() -> ReconcileClusterStateStatus;
 
   [[nodiscard]] auto SetReplicationInstanceToMain(std::string_view instance_name) -> SetInstanceToMainCoordinatorStatus;
 
-  auto ShowInstances() const -> std::vector<InstanceStatus>;
+  [[nodiscard]] auto ShowInstances() const -> std::vector<InstanceStatus>;
 
   auto AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config)
       -> AddCoordinatorInstanceStatus;
 
-  auto GetLeaderCoordinatorData() const -> std::optional<coordination::CoordinatorToCoordinatorConfig>;
+  [[nodiscard]] auto GetLeaderCoordinatorData() const -> std::optional<coordination::CoordinatorToCoordinatorConfig>;
 
   // NOTE: The client code must check that the server exists before calling this method.
-  auto GetCoordinatorServer() const -> CoordinatorServer &;
+  auto GetDataInstanceManagementServer() const -> DataInstanceManagementServer &;
 
   auto GetRoutingTable() -> RoutingTable;
 
-  auto IsCoordinator() const -> bool;
-  auto IsDataInstance() const -> bool;
+  [[nodiscard]] auto IsCoordinator() const -> bool;
+  [[nodiscard]] auto IsDataInstance() const -> bool;
 
   void ShutDownCoordinator();
 
  private:
   struct CoordinatorMainReplicaData {
-    std::unique_ptr<CoordinatorServer> coordinator_server_;
+    std::unique_ptr<DataInstanceManagementServer> data_instance_management_server_;
   };
 
   std::variant<CoordinatorMainReplicaData, CoordinatorInstance> data_;

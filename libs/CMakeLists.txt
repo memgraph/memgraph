@@ -152,6 +152,7 @@ import_external_library(antlr4 STATIC
   -DCMAKE_SKIP_INSTALL_ALL_DEPENDENCY=true
   -DCMAKE_CXX_STANDARD=20
   -DANTLR_BUILD_CPP_TESTS=OFF
+  -DANTLR_BUILD_SHARED=OFF
   BUILD_COMMAND $(MAKE) antlr4_static
   INSTALL_COMMAND $(MAKE) install)
 
@@ -238,10 +239,7 @@ add_custom_target(mgconsole DEPENDS mgconsole-proj)
 
 # Setup spdlog
 set(SPDLOG_FMT_EXTERNAL ON)
-FetchContent_Declare(spdlog
-  SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/spdlog)
-
-FetchContent_MakeAvailable(spdlog)
+add_subdirectory(spdlog)
 
 # Setup librdkafka.
 import_external_library(librdkafka STATIC
@@ -254,10 +252,8 @@ import_external_library(librdkafka STATIC
   -DENABLE_LZ4_EXT=OFF
   -DCMAKE_INSTALL_LIBDIR=lib
   -DWITH_SSL=ON
-
-  # If we want SASL, we need to install it on build machines
-  -DWITH_SASL=OFF)
-target_link_libraries(librdkafka INTERFACE ${OPENSSL_LIBRARIES} ZLIB::ZLIB)
+  -DWITH_SASL=ON)
+target_link_libraries(librdkafka INTERFACE ${OPENSSL_LIBRARIES} ZLIB::ZLIB sasl2)
 
 import_library(librdkafka++ STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/librdkafka/lib/librdkafka++.a
@@ -338,3 +334,7 @@ add_external_project(mgcxx
 mark_as_advanced(MGCXX_INCLUDE_DIR TANTIVY_TEXT_SEARCH_LIBRARY MGCXX_TEXT_SEARCH_LIBRARY)
 import_library(tantivy_text_search STATIC ${TANTIVY_TEXT_SEARCH_LIBRARY} ${MGCXX_INCLUDE_DIR} mgcxx-proj)
 import_library(mgcxx_text_search STATIC ${MGCXX_TEXT_SEARCH_LIBRARY} ${MGCXX_INCLUDE_DIR} mgcxx-proj)
+
+
+# setup strong_type (cmake sub_directory tolerant)
+add_subdirectory(strong_type EXCLUDE_FROM_ALL)

@@ -1,0 +1,13 @@
+query_log: &query_log
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE", "--also-log-to-stderr", "--query-log-directory=something"]
+      log_file: "query_log.log"
+      setup_queries: []
+      validation_queries: []
+
+workloads:
+  - name: "Query log"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["query_log/query_log.py"]
+    <<: *query_log

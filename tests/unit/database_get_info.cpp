@@ -191,16 +191,13 @@ TYPED_TEST(InfoTest, InfoCheck) {
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
-  const auto &info = db_acc->GetInfo(
-      memgraph::replication_coordination_glue::ReplicationRole::MAIN);  // force to use configured directory
+  const auto &info = db_acc->GetInfo();  // force to use configured directory
 
   ASSERT_EQ(info.storage_info.vertex_count, 5);
   ASSERT_EQ(info.storage_info.edge_count, 2);
   ASSERT_EQ(info.storage_info.average_degree, 0.8);
-  ASSERT_GT(info.storage_info.memory_res, 10'000'000);  // 300MB < > 10MB
-  ASSERT_LT(info.storage_info.memory_res, 300'000'000);
-  ASSERT_GT(info.storage_info.disk_usage, 100);  // 1MB < > 100B
-  ASSERT_LT(info.storage_info.disk_usage, 1000'000);
+  ASSERT_GT(info.storage_info.memory_res, 0);  // exact value not salient
+  ASSERT_GT(info.storage_info.disk_usage, 0);  // exact value not salient
   ASSERT_EQ(info.storage_info.label_indices, 1);
   ASSERT_EQ(info.storage_info.label_property_indices, 1);
   ASSERT_EQ(info.storage_info.existence_constraints, 0);

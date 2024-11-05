@@ -16,8 +16,6 @@ on:
         default: 'debian-12'
         options:
           - all
-          - amzn-2
-          - centos-7
           - centos-9
           - debian-10
           - debian-11
@@ -35,6 +33,8 @@ on:
           - ubuntu-20.04
           - ubuntu-22.04
           - ubuntu-22.04-arm
+          - ubuntu-24.04
+          - ubuntu-24.04-arm
       toolchain:
         type: choice
         description: "Toolchain version with which memgraph will be packaged."
@@ -42,6 +42,10 @@ on:
         options:
           - v4
           - v5
+      push_to_github:
+        type: boolean
+        description: "Push final packages to GitHub?"
+        default: false
       push_to_s3:
         type: boolean
         description: "Push final packages to an S3 bucket?"
@@ -60,38 +64,10 @@ on:
           - eu-west-1
       s3_dest_dir:
         type: string
-        description: "Target dir path in S3 bucket. For official packages use format 'memgraph/vX.Y.Z'. For unofficial packages use format 'memgraph-unofficial/<SOMETHING>'"
+        description: "Target dir path in chosen S3 bucket, don't end the path with '/'. For bucket 'download.memgraph.io' use format 'memgraph/vX.Y.Z'."
         default: ''
 
 jobs:
-  AmazonLinux2:
-    if: ${{ github.event.inputs.os == 'amzn-2' || github.event.inputs.os == 'all' }}
-    uses: ./.github/workflows/reusable_package.yaml
-    with:
-      os: "amzn-2"
-      toolchain: ${{ github.event.inputs.toolchain }}
-      arch: "amd"
-      build_type: ${{ github.event.inputs.build_type }}
-      push_to_s3: ${{ github.event.inputs.push_to_s3 }}
-      s3_bucket: ${{ github.event.inputs.s3_bucket }}
-      s3_region: ${{ github.event.inputs.s3_region }}
-      s3_dest_dir: ${{ github.event.inputs.s3_dest_dir }}
-    secrets: inherit
-
-  CentOS7:
-    if: ${{ github.event.inputs.os == 'centos-7' || github.event.inputs.os == 'all' }}
-    uses: ./.github/workflows/reusable_package.yaml
-    with:
-      os: "centos-7"
-      toolchain: ${{ github.event.inputs.toolchain }}
-      arch: "amd"
-      build_type: ${{ github.event.inputs.build_type }}
-      push_to_s3: ${{ github.event.inputs.push_to_s3 }}
-      s3_bucket: ${{ github.event.inputs.s3_bucket }}
-      s3_region: ${{ github.event.inputs.s3_region }}
-      s3_dest_dir: ${{ github.event.inputs.s3_dest_dir }}
-    secrets: inherit
-
   CentOS9:
     if: ${{ github.event.inputs.os == 'centos-9' || github.event.inputs.os == 'all' }}
     uses: ./.github/workflows/reusable_package.yaml
@@ -100,6 +76,7 @@ jobs:
       toolchain: ${{ github.event.inputs.toolchain }}
       arch: "amd"
       build_type: ${{ github.event.inputs.build_type }}
+      push_to_github: ${{ github.event.inputs.push_to_github }}
       push_to_s3: ${{ github.event.inputs.push_to_s3 }}
       s3_bucket: ${{ github.event.inputs.s3_bucket }}
       s3_region: ${{ github.event.inputs.s3_region }}
@@ -114,6 +91,7 @@ jobs:
       toolchain: ${{ github.event.inputs.toolchain }}
       arch: "amd"
       build_type: ${{ github.event.inputs.build_type }}
+      push_to_github: ${{ github.event.inputs.push_to_github }}
       push_to_s3: ${{ github.event.inputs.push_to_s3 }}
       s3_bucket: ${{ github.event.inputs.s3_bucket }}
       s3_region: ${{ github.event.inputs.s3_region }}
@@ -128,6 +106,7 @@ jobs:
       toolchain: ${{ github.event.inputs.toolchain }}
       arch: "amd"
       build_type: ${{ github.event.inputs.build_type }}
+      push_to_github: ${{ github.event.inputs.push_to_github }}
       push_to_s3: ${{ github.event.inputs.push_to_s3 }}
       s3_bucket: ${{ github.event.inputs.s3_bucket }}
       s3_region: ${{ github.event.inputs.s3_region }}
@@ -142,8 +121,8 @@ jobs:
       toolchain: ${{ github.event.inputs.toolchain }}
       arch: "amd"
       build_type: ${{ github.event.inputs.build_type }}
+      push_to_github: ${{ github.event.inputs.push_to_github }}
       additional_build_args: "--for-platform"
-      artifact_name: "debian-11-platform"
       push_to_s3: ${{ github.event.inputs.push_to_s3 }}
       s3_bucket: ${{ github.event.inputs.s3_bucket }}
       s3_region: ${{ github.event.inputs.s3_region }}
@@ -158,6 +137,7 @@ jobs:
       toolchain: ${{ github.event.inputs.toolchain }}
       arch: "arm"
       build_type: ${{ github.event.inputs.build_type }}
+      push_to_github: ${{ github.event.inputs.push_to_github }}
       push_to_s3: ${{ github.event.inputs.push_to_s3 }}
       s3_bucket: ${{ github.event.inputs.s3_bucket }}
       s3_region: ${{ github.event.inputs.s3_region }}
@@ -172,6 +152,7 @@ jobs:
       toolchain: ${{ github.event.inputs.toolchain }}
       arch: "amd"
       build_type: ${{ github.event.inputs.build_type }}
+      push_to_github: ${{ github.event.inputs.push_to_github }}
       push_to_s3: ${{ github.event.inputs.push_to_s3 }}
       s3_bucket: ${{ github.event.inputs.s3_bucket }}
       s3_region: ${{ github.event.inputs.s3_region }}
@@ -186,6 +167,7 @@ jobs:
       toolchain: ${{ github.event.inputs.toolchain }}
       arch: "arm"
       build_type: ${{ github.event.inputs.build_type }}
+      push_to_github: ${{ github.event.inputs.push_to_github }}
       push_to_s3: ${{ github.event.inputs.push_to_s3 }}
       s3_bucket: ${{ github.event.inputs.s3_bucket }}
       s3_region: ${{ github.event.inputs.s3_region }}
@@ -200,6 +182,7 @@ jobs:
       toolchain: ${{ github.event.inputs.toolchain }}
       arch: "amd"
       build_type: ${{ github.event.inputs.build_type }}
+      push_to_github: ${{ github.event.inputs.push_to_github }}
       additional_build_args: "--for-docker"
       push_to_s3: ${{ github.event.inputs.push_to_s3 }}
       s3_bucket: ${{ github.event.inputs.s3_bucket }}
@@ -215,6 +198,7 @@ jobs:
       toolchain: ${{ github.event.inputs.toolchain }}
       arch: "amd"
       build_type: ${{ github.event.inputs.build_type }}
+      push_to_github: ${{ github.event.inputs.push_to_github }}
       additional_build_args: "--for-docker"
       push_to_s3: ${{ github.event.inputs.push_to_s3 }}
       s3_bucket: ${{ github.event.inputs.s3_bucket }}
@@ -230,6 +214,7 @@ jobs:
       toolchain: ${{ github.event.inputs.toolchain }}
       arch: "arm"
       build_type: ${{ github.event.inputs.build_type }}
+      push_to_github: ${{ github.event.inputs.push_to_github }}
       additional_build_args: "--for-docker"
       push_to_s3: ${{ github.event.inputs.push_to_s3 }}
       s3_bucket: ${{ github.event.inputs.s3_bucket }}
@@ -245,6 +230,7 @@ jobs:
       toolchain: ${{ github.event.inputs.toolchain }}
       arch: "arm"
       build_type: ${{ github.event.inputs.build_type }}
+      push_to_github: ${{ github.event.inputs.push_to_github }}
       additional_build_args: "--for-docker"
       push_to_s3: ${{ github.event.inputs.push_to_s3 }}
       s3_bucket: ${{ github.event.inputs.s3_bucket }}
@@ -260,6 +246,7 @@ jobs:
       toolchain: ${{ github.event.inputs.toolchain }}
       arch: "amd"
       build_type: ${{ github.event.inputs.build_type }}
+      push_to_github: ${{ github.event.inputs.push_to_github }}
       push_to_s3: ${{ github.event.inputs.push_to_s3 }}
       s3_bucket: ${{ github.event.inputs.s3_bucket }}
       s3_region: ${{ github.event.inputs.s3_region }}
@@ -274,6 +261,7 @@ jobs:
       toolchain: ${{ github.event.inputs.toolchain }}
       arch: "amd"
       build_type: ${{ github.event.inputs.build_type }}
+      push_to_github: ${{ github.event.inputs.push_to_github }}
       push_to_s3: ${{ github.event.inputs.push_to_s3 }}
       s3_bucket: ${{ github.event.inputs.s3_bucket }}
       s3_region: ${{ github.event.inputs.s3_region }}
@@ -288,6 +276,7 @@ jobs:
       toolchain: ${{ github.event.inputs.toolchain }}
       arch: "amd"
       build_type: ${{ github.event.inputs.build_type }}
+      push_to_github: ${{ github.event.inputs.push_to_github }}
       push_to_s3: ${{ github.event.inputs.push_to_s3 }}
       s3_bucket: ${{ github.event.inputs.s3_bucket }}
       s3_region: ${{ github.event.inputs.s3_region }}
@@ -302,6 +291,7 @@ jobs:
       toolchain: ${{ github.event.inputs.toolchain }}
       arch: "amd"
       build_type: ${{ github.event.inputs.build_type }}
+      push_to_github: ${{ github.event.inputs.push_to_github }}
       push_to_s3: ${{ github.event.inputs.push_to_s3 }}
       s3_bucket: ${{ github.event.inputs.s3_bucket }}
       s3_region: ${{ github.event.inputs.s3_region }}
@@ -316,6 +306,7 @@ jobs:
       toolchain: ${{ github.event.inputs.toolchain }}
       arch: "amd"
       build_type: ${{ github.event.inputs.build_type }}
+      push_to_github: ${{ github.event.inputs.push_to_github }}
       push_to_s3: ${{ github.event.inputs.push_to_s3 }}
       s3_bucket: ${{ github.event.inputs.s3_bucket }}
       s3_region: ${{ github.event.inputs.s3_region }}
@@ -330,6 +321,7 @@ jobs:
       toolchain: ${{ github.event.inputs.toolchain }}
       arch: "amd"
       build_type: ${{ github.event.inputs.build_type }}
+      push_to_github: ${{ github.event.inputs.push_to_github }}
       push_to_s3: ${{ github.event.inputs.push_to_s3 }}
       s3_bucket: ${{ github.event.inputs.s3_bucket }}
       s3_region: ${{ github.event.inputs.s3_region }}
@@ -344,6 +336,7 @@ jobs:
       toolchain: ${{ github.event.inputs.toolchain }}
       arch: "amd"
       build_type: ${{ github.event.inputs.build_type }}
+      push_to_github: ${{ github.event.inputs.push_to_github }}
       push_to_s3: ${{ github.event.inputs.push_to_s3 }}
       s3_bucket: ${{ github.event.inputs.s3_bucket }}
       s3_region: ${{ github.event.inputs.s3_region }}
@@ -358,6 +351,37 @@ jobs:
       toolchain: ${{ github.event.inputs.toolchain }}
       arch: "arm"
       build_type: ${{ github.event.inputs.build_type }}
+      push_to_github: ${{ github.event.inputs.push_to_github }}
+      push_to_s3: ${{ github.event.inputs.push_to_s3 }}
+      s3_bucket: ${{ github.event.inputs.s3_bucket }}
+      s3_region: ${{ github.event.inputs.s3_region }}
+      s3_dest_dir: ${{ github.event.inputs.s3_dest_dir }}
+    secrets: inherit
+
+  Ubuntu24_04:
+    if: ${{ github.event.inputs.os == 'ubuntu-24.04' || github.event.inputs.os == 'all' }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "ubuntu-24.04"
+      toolchain: ${{ github.event.inputs.toolchain }}
+      arch: "amd"
+      build_type: ${{ github.event.inputs.build_type }}
+      push_to_github: ${{ github.event.inputs.push_to_github }}
+      push_to_s3: ${{ github.event.inputs.push_to_s3 }}
+      s3_bucket: ${{ github.event.inputs.s3_bucket }}
+      s3_region: ${{ github.event.inputs.s3_region }}
+      s3_dest_dir: ${{ github.event.inputs.s3_dest_dir }}
+    secrets: inherit
+
+  Ubuntu24_04-arm:
+    if: ${{ github.event.inputs.os == 'ubuntu-24.04-arm' || github.event.inputs.os == 'all' }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "ubuntu-24.04"
+      toolchain: ${{ github.event.inputs.toolchain }}
+      arch: "arm"
+      build_type: ${{ github.event.inputs.build_type }}
+      push_to_github: ${{ github.event.inputs.push_to_github }}
       push_to_s3: ${{ github.event.inputs.push_to_s3 }}
       s3_bucket: ${{ github.event.inputs.s3_bucket }}
       s3_region: ${{ github.event.inputs.s3_region }}

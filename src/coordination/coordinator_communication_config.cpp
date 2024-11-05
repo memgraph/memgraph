@@ -24,14 +24,18 @@ void to_json(nlohmann::json &j, CoordinatorToCoordinatorConfig const &config) {
   j = nlohmann::json{{"coordinator_id", config.coordinator_id},
                      {"coordinator_server", config.coordinator_server},
                      {"bolt_server", config.bolt_server},
-                     {"instance_down_timeout_sec", config.instance_down_timeout_sec.count()}};
+                     {"management_server", config.management_server},
+                     {"instance_down_timeout_sec", config.instance_down_timeout_sec.count()},
+                     {"coordinator_hostname", config.coordinator_hostname}};
 }
 
 void from_json(nlohmann::json const &j, CoordinatorToCoordinatorConfig &config) {
   config.coordinator_id = j.at("coordinator_id").get<uint32_t>();
   config.coordinator_server = j.at("coordinator_server").get<io::network::Endpoint>();
+  config.management_server = j.at("management_server").get<io::network::Endpoint>();
   config.bolt_server = j.at("bolt_server").get<io::network::Endpoint>();
   config.instance_down_timeout_sec = std::chrono::seconds{j.at("instance_down_timeout_sec").get<int>()};
+  config.coordinator_hostname = j.at("coordinator_hostname").get<std::string>();
 }
 
 void to_json(nlohmann::json &j, ReplicationClientInfo const &config) {

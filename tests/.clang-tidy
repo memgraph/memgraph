@@ -38,6 +38,11 @@ Checks: '*,
          -hicpp-use-equals-default,
          -hicpp-vararg,
          -llvm-header-guard,
+         -llvm-include-order,
+         -llvmlibc-callee-namespace,
+         -llvmlibc-implementation-in-namespace,
+         -llvmlibc-restrict-system-libc-headers,
+         -llvmlibc-inline-function-decl,
          -misc-non-private-member-variables-in-classes,
          -modernize-avoid-c-arrays,
          -modernize-concat-nested-namespaces,
@@ -77,4 +82,3 @@ CheckOptions:
   - key:             modernize-use-nullptr.NullMacros
     value:           'NULL'
 ...
-

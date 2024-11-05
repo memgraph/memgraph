@@ -40,7 +40,7 @@ const static std::string kTopicName{"TrialTopic"};
 struct FakeUser : memgraph::query::QueryUserOrRole {
   FakeUser() : memgraph::query::QueryUserOrRole{std::nullopt, std::nullopt} {}
 
-  bool IsAuthorized(const std::vector<memgraph::query::AuthQuery::Privilege> &privileges, const std::string &db_name,
+  bool IsAuthorized(const std::vector<memgraph::query::AuthQuery::Privilege> &privileges, std::string_view db_name,
                     memgraph::query::UserPolicy *policy) const {
     return true;
   }
@@ -133,6 +133,7 @@ class StreamsTestFixture : public ::testing::Test {
   std::optional<StreamsTest> proxyStreams_;
 
   void TearDown() override {
+    db_->StopAllBackgroundTasks();
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
       disk_test_utils::RemoveRocksDbDirs(testSuite);
     }

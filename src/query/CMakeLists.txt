@@ -1,4 +1,30 @@
-set(mg_query_sources
+# cmake target for our C++ API
+add_library(mg-cpp-api INTERFACE)
+target_sources(mg-cpp-api
+    INTERFACE
+    FILE_SET HEADERS
+    BASE_DIRS ${CMAKE_SOURCE_DIR}/include
+    FILES
+    ${CMAKE_SOURCE_DIR}/include/mgp.hpp
+    ${CMAKE_SOURCE_DIR}/include/_mgp.hpp
+    ${CMAKE_SOURCE_DIR}/include/mg_exceptions.hpp
+    ${CMAKE_SOURCE_DIR}/include/mg_procedure.h
+)
+
+# shared library so that linking symbols for the C++ api works
+add_library(mg-module-support SHARED)
+target_sources(mg-module-support
+    PRIVATE
+    procedure/mpg_support.cpp
+)
+target_link_libraries(mg-module-support PRIVATE mg-cpp-api)
+set_target_properties(mg-module-support  PROPERTIES
+    OUTPUT_NAME "memgraph_module_support"
+)
+
+add_library(mg-query STATIC)
+target_sources(mg-query
+    PRIVATE
     frontend/ast/ast.cpp
     frontend/semantic/symbol.cpp
     plan/operator_type_info.cpp
@@ -22,12 +48,15 @@ set(mg_query_sources
     plan/profile.cpp
     plan/read_write_type_checker.cpp
     plan/rewrite/index_lookup.cpp
+    plan/rewrite/general.cpp
+    plan/rewrite/range.cpp
     plan/rule_based_planner.cpp
     plan/variable_start_planner.cpp
     procedure/mg_procedure_impl.cpp
     procedure/mg_procedure_helpers.cpp
     procedure/module.cpp
     procedure/py_module.cpp
+    procedure/cypher_types.cpp
     procedure/callable_alias_mapper.cpp
     serialization/property_value.cpp
     stream/streams.cpp
@@ -41,11 +70,28 @@ set(mg_query_sources
     auth_query_handler.cpp
     interpreter_context.cpp
     query_user.cpp
+    time_to_live/time_to_live.cpp
+    query_logger.cpp
+    vertex_accessor.cpp
+    context.cpp
+    edge_accessor.cpp
+
+    PUBLIC
+    FILE_SET HEADERS
+    FILES
+    plan/rewrite/enum.hpp
+    plan/point_distance_condition.hpp
+    string_helpers.hpp
+    path.hpp
+    edge_accessor.hpp
+    procedure/cypher_types.hpp
+    vertex_accessor.hpp
 )
 
-add_library(mg-query STATIC ${mg_query_sources})
-target_include_directories(mg-query PUBLIC ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(mg-query PUBLIC dl
+
+target_link_libraries(mg-query
+    PUBLIC
+    dl
     cppitertools
     rangev3
     Python3::Python
@@ -60,7 +106,11 @@ target_link_libraries(mg-query PUBLIC dl
     mg::system
     mg-flags
     mg-dbms
-    mg-events)
+    mg-events
+    PRIVATE
+    mg-module-support
+    mg-cpp-api
+)
 
 if(NOT "${MG_PYTHON_PATH}" STREQUAL "")
     set(Python3_ROOT_DIR "${MG_PYTHON_PATH}")
@@ -95,7 +145,7 @@ add_custom_command(
     OUTPUT ${antlr_opencypher_generated_src} ${antlr_opencypher_generated_include}
     COMMAND ${CMAKE_COMMAND} -E make_directory ${opencypher_generated}
     COMMAND
-    java -jar ${CMAKE_SOURCE_DIR}/libs/antlr-4.10.1-complete.jar
+    java -jar ${CMAKE_SOURCE_DIR}/libs/antlr-4.13.2-complete.jar
     -Dlanguage=Cpp -visitor -package antlropencypher
     -o ${opencypher_generated}
     ${opencypher_lexer_grammar} ${opencypher_parser_grammar}

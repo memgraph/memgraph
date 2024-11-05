@@ -38,5 +38,60 @@ def test_indexed_join_with_indices(memgraph):
     assert expected_explain == actual_explain
 
 
+def test_indexed_join_with_indices_and_filter(memgraph):
+    memgraph.execute("CREATE INDEX ON :Node;")
+    memgraph.execute("CREATE INDEX ON :Node(id);")
+
+    expected_explain = [
+        f" * Produce {{n1, n2}}",
+        f" * Filter Generic {{n1, n2}}",
+        f" * IndexedJoin",
+        f" |\\ ",
+        f" | * ScanAllByLabelPropertyValue (n1 :Node {{id}})",
+        f" | * Once",
+        f" * ScanAllByLabel (n2 :Node)",
+        f" * Once",
+    ]
+
+    results = list(
+        memgraph.execute_and_fetch("EXPLAIN MATCH (n1:Node), (n2:Node) where n1.id = n2.id and n1 <> n2 return *;")
+    )
+    actual_explain = [x[QUERY_PLAN] for x in results]
+
+    assert expected_explain == actual_explain
+
+
+def test_indexed_join_with_indices_split(memgraph):
+    memgraph.execute("CREATE INDEX ON :Label1(prop1);")
+
+    expected_explain = [
+        " * Produce {a0, n0, n1, n2, n3, n4, n5, r0, r1, r2}",
+        " * Expand (n5)-[r2]->(n4)",
+        " * Filter (n5 :Label0:Label1)",
+        " * ScanAll (n5)",
+        " * Unwind",
+        " * EdgeUniquenessFilter {r0 : r1}",
+        " * IndexedJoin",
+        " |\\ ",
+        " | * Expand (n0)<-[r0]-(n1)",
+        " | * ScanAllByLabelPropertyRange (n0 :Label1 {prop1})",
+        " | * Once",
+        " * Filter (n2 :Label1)",
+        " * Expand (n3)-[r1]->(n2)",
+        " * Filter (n3 :Label0)",
+        " * ScanAll (n3)",
+        " * Once",
+    ]
+
+    results = list(
+        memgraph.execute_and_fetch(
+            "EXPLAIN MATCH (n0 :Label1)<-[r0]-(n1), (n2 :Label1)<-[r1]-(n3 :Label0) UNWIND [1] AS a0 MATCH (n4)<-[r2]-(n5 :Label0 :Label1) WHERE (((n2.prop0) > (n0.prop1)))  RETURN *"
+        )
+    )
+    actual_explain = [x[QUERY_PLAN] for x in results]
+
+    assert expected_explain == actual_explain
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
