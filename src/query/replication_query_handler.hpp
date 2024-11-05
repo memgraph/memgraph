@@ -33,7 +33,8 @@ enum class RegisterReplicaError : uint8_t {
   ENDPOINT_EXISTS,
   CONNECTION_FAILED,
   COULD_NOT_BE_PERSISTED,
-  ERROR_ACCEPTING_MAIN
+  ERROR_ACCEPTING_MAIN,
+  NO_ACCESS
 };
 
 enum class UnregisterReplicaResult : uint8_t {
@@ -41,6 +42,7 @@ enum class UnregisterReplicaResult : uint8_t {
   COULD_NOT_BE_PERSISTED,
   CANNOT_UNREGISTER,
   SUCCESS,
+  NO_ACCESS
 };
 
 enum class ShowReplicaError : uint8_t {

@@ -47,6 +47,8 @@ std::string RegisterReplicaErrorToString(query::RegisterReplicaError error) {
       return "COULD_NOT_BE_PERSISTED";
     case ERROR_ACCEPTING_MAIN:
       return "ERROR_ACCEPTING_MAIN";
+    case NO_ACCESS:
+      return "NO_ACCESS";
   }
 }
 

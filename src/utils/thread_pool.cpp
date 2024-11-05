@@ -21,7 +21,9 @@ ThreadPool::ThreadPool(const size_t pool_size) {
 void ThreadPool::AddTask(std::function<void()> new_task) {
   {
     auto guard = std::unique_lock{pool_lock_};
-    if (pool_stop_source_.stop_requested()) return;
+    if (pool_stop_source_.stop_requested()) {
+      return;
+    }
     task_queue_.emplace(std::move(new_task));
   }
   unfinished_tasks_num_.fetch_add(1);

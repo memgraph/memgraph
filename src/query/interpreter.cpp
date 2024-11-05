@@ -403,6 +403,8 @@ class ReplQueryHandler {
     auto const result = handler_->UnregisterReplica(replica_name);
     switch (result) {
       using enum memgraph::query::UnregisterReplicaResult;
+      case NO_ACCESS:
+        throw QueryRuntimeException("Couldn't get unique access to replication state!");
       case NOT_MAIN:
         throw QueryRuntimeException("Replica can't unregister a replica!");
       case COULD_NOT_BE_PERSISTED:
@@ -5344,14 +5346,18 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
   // Handle transaction control queries.
   const auto upper_case_query = utils::ToUpperCase(query_string);
   const auto trimmed_query = utils::Trim(upper_case_query);
+  const bool is_begin = trimmed_query == "BEGIN";
 
-  if (trimmed_query == "BEGIN") {
-    ResetInterpreter();
-  }
-  // Reset before logging, as some transaction related information will get logged
-  spdlog::debug("{}", QueryLogWrapper{query_string, metadata_ ? &*metadata_ : &extras.metadata_pv, current_db_.name()});
+  // Explicit transactions define the metadata at the beginning and reuse it
+  spdlog::debug(
+      "{}", QueryLogWrapper{query_string,
+                            (in_explicit_transaction_ && metadata_ && !is_begin) ? &*metadata_ : &extras.metadata_pv,
+                            current_db_.name()});
 
-  if (trimmed_query == "BEGIN" || trimmed_query == "COMMIT" || trimmed_query == "ROLLBACK") {
+  if (is_begin || trimmed_query == "COMMIT" || trimmed_query == "ROLLBACK") {
+    if (is_begin) {
+      ResetInterpreter();
+    }
     auto &query_execution = query_executions_.emplace_back(QueryExecution::Create());
     query_execution->prepared_query = PrepareTransactionQuery(trimmed_query, extras);
     auto qid = in_explicit_transaction_ ? static_cast<int>(query_executions_.size() - 1) : std::optional<int>{};
@@ -5981,8 +5987,18 @@ void Interpreter::Commit() {
 
   auto commit_confirmed_by_all_sync_replicas = true;
 
-  bool is_main = interpreter_context_->repl_state->IsMain();
+  interpreter_context_->repl_state->Lock();
+  bool const is_main = interpreter_context_->repl_state->IsMain();
+  auto *curr_txn = current_db_.db_transactional_accessor_->GetTransaction();
+  // if I was main with write txn which became replica, abort.
+  if (!is_main && !curr_txn->deltas.empty()) {
+    Abort();
+    interpreter_context_->repl_state->Unlock();
+    return;
+  }
   auto maybe_commit_error = current_db_.db_transactional_accessor_->Commit({.is_main = is_main}, current_db_.db_acc_);
+  interpreter_context_->repl_state->Unlock();
+
   if (maybe_commit_error.HasError()) {
     const auto &error = maybe_commit_error.GetError();
 

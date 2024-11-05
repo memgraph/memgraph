@@ -104,6 +104,8 @@ struct ReplicationClient {
     }
   };
 
+  void Shutdown();
+
   std::string name_;
   communication::ClientContext rpc_context_;
   rpc::Client rpc_client_;

@@ -44,6 +44,11 @@ def session_run(session):
     assert check_md(result) == 1, "metadata info error!"
 
 
+def session_run2(session):
+    query = Query("SHOW STORAGE INFO", timeout=2, metadata={"ver": "session", "str": "info", "num": -1})
+    session.run(query).consume()
+
+
 def show_tx(driver, tx_md):
     with driver.session() as session:
         query = Query("SHOW TRANSACTIONS", timeout=2, metadata={"ver": "session", "str": "aha", "num": 123})
@@ -95,8 +100,12 @@ def check_logs(session):
         for line in log_file:
             match = metadata_pattern.search(line)
             if match:
-                metadata = parse_metadata_to_dict(match.group(1))
-                md_lines += int(check_md_logged(metadata))
+                if (
+                    line.find("""'SHOW TRANSACTIONS' - {num:123, str:"aha", ver:"session"}""") != -1
+                    or line.find("""'MATCH (n) RETURN n LIMIT 1' - {num:456, str:"oho", ver:"transaction"}""") != -1
+                    or line.find("""'SHOW STORAGE INFO' - {num:-1, str:"info", ver:"session"}""") != -1
+                ):
+                    md_lines += 1
     return md_lines
 
 
@@ -107,7 +116,8 @@ if __name__ == "__main__":
             old_log_level = trace_on(session)
             session_run(session)
             transaction_run(session, driver)
+            session_run2(session)
             md_lines = check_logs(session)
-            assert md_lines - old_md_lines == 3, f"Found {md_lines - old_md_lines} metadata lines instead of 3"
+            assert md_lines - old_md_lines == 4, f"Found {md_lines - old_md_lines} metadata lines instead of 4"
             trace_off(session, old_log_level)
     print("All ok!")

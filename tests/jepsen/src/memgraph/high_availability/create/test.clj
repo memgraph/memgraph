@@ -230,6 +230,20 @@
     first-elem
     default))
 
+(defn is-main?
+  "Tests if data instance is main. Returns bool true/false, catches all exceptions."
+  [bolt-conn]
+  (try
+    (utils/with-session bolt-conn session
+      (let [role-map (first (reduce conj [] (mgquery/show-replication-role session)))
+            role-vec (vec (apply concat role-map))
+            role (last role-vec)]
+        (info "Role:" role)
+        (info "is-main?" (= role "main"))
+        (= role "main")))
+    (catch Exception _
+      false)))
+
 (defrecord Client [nodes-config first-leader first-main license organization]
   jclient/Client
   ; Open Bolt connection to all nodes.
@@ -264,7 +278,7 @@
                          (assoc op :type :fail :value (str e))))
                      (assoc op :type :info :value "Not data instance."))
 
-        :add-nodes (if (hautils/data-instance? node)
+        :add-nodes (if (and (hautils/data-instance? node) (is-main? bolt-conn))
                      (try
                        (dbclient/with-transaction bolt-conn txn
                            ; If query failed because the instance got killed, we should catch TransientException -> this will be logged as
@@ -291,7 +305,7 @@
                                :else
                                (assoc op :type :fail :value (str e)))))
 
-                     (assoc op :type :info :value "Not data instance."))
+                     (assoc op :type :info :value "Not main data instance."))
 
 ; Show instances should be run only on coordinators/
         :show-instances-read (if (hautils/coord-instance? node)

@@ -298,19 +298,19 @@ bool ReplicationState::SetReplicationRoleReplica(const ReplicationServerConfig &
   return true;
 }
 
-utils::BasicResult<RegisterReplicaError, ReplicationClient *> ReplicationState::RegisterReplica(
+utils::BasicResult<RegisterReplicaStatus, ReplicationClient *> ReplicationState::RegisterReplica(
     const ReplicationClientConfig &config) {
-  auto const replica_handler = [](RoleReplicaData const &) { return RegisterReplicaError::NOT_MAIN; };
+  auto const replica_handler = [](RoleReplicaData const &) { return RegisterReplicaStatus::NOT_MAIN; };
 
   ReplicationClient *client{nullptr};
-  auto const main_handler = [&client, &config, this](RoleMainData &mainData) -> RegisterReplicaError {
+  auto const main_handler = [&client, &config, this](RoleMainData &mainData) -> RegisterReplicaStatus {
     // name check
     auto name_check = [&config](auto const &replicas) {
       auto name_matches = [&name = config.name](auto const &replica) { return replica.name_ == name; };
       return std::any_of(replicas.begin(), replicas.end(), name_matches);
     };
     if (name_check(mainData.registered_replicas_)) {
-      return RegisterReplicaError::NAME_EXISTS;
+      return RegisterReplicaStatus::NAME_EXISTS;
     }
 
     // endpoint check
@@ -322,21 +322,21 @@ utils::BasicResult<RegisterReplicaError, ReplicationClient *> ReplicationState::
       return std::any_of(replicas.begin(), replicas.end(), endpoint_matches);
     };
     if (endpoint_check(mainData.registered_replicas_)) {
-      return RegisterReplicaError::ENDPOINT_EXISTS;
+      return RegisterReplicaStatus::ENDPOINT_EXISTS;
     }
 
     // Durability
     if (!TryPersistRegisteredReplica(config, mainData.uuid_)) {
-      return RegisterReplicaError::COULD_NOT_BE_PERSISTED;
+      return RegisterReplicaStatus::COULD_NOT_BE_PERSISTED;
     }
 
     // set
     client = &mainData.registered_replicas_.emplace_back(config);
-    return RegisterReplicaError::SUCCESS;
+    return RegisterReplicaStatus::SUCCESS;
   };
 
   const auto &res = std::visit(utils::Overloaded{main_handler, replica_handler}, replication_data_);
-  if (res == RegisterReplicaError::SUCCESS) {
+  if (res == RegisterReplicaStatus::SUCCESS) {
     return client;
   }
   return res;
