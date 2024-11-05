@@ -118,7 +118,9 @@ class Scheduler {
         is_paused_ = false;
       }
       condition_variable_.notify_one();
-      if (thread_.joinable()) thread_.join();
+      if (thread_.joinable()) {
+        thread_.join();
+      }
     }
   }
 

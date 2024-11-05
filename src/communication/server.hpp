@@ -148,7 +148,8 @@ class Server final {
       // Connection is not available anymore or configuration failed.
       return;
     }
-    spdlog::info("Accepted a {} connection from {}", service_name_, s->endpoint());
+    auto const endpoint = s->endpoint();
+    spdlog::info("Accepted a {} connection from {}:{}.", service_name_, endpoint.GetAddress(), endpoint.GetPort());
     listener_.AddConnection(std::move(*s));
   }
 

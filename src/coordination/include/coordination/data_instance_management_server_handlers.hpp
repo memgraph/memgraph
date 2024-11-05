@@ -65,6 +65,12 @@ class DataInstanceManagementServerHandlers {
     if (instance_client.HasError()) {
       using memgraph::query::RegisterReplicaError;
       switch (instance_client.GetError()) {
+        case RegisterReplicaError::NO_ACCESS: {
+          spdlog::error(
+              "Error when registering instance {} as replica. Couldn't get unique access to ReplicationState.");
+          slk::Save(TResponse{false}, res_builder);
+          return false;
+        }
         case RegisterReplicaError::NOT_MAIN: {
           spdlog::error("Error when registering instance {} as replica. Instance not main anymore.",
                         config.instance_name);

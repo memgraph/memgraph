@@ -247,6 +247,10 @@ void DataInstanceManagementServerHandlers::UnregisterReplicaHandler(
       spdlog::error("Could not persist replica unregistration.");
       slk::Save(coordination::UnregisterReplicaRes{false}, res_builder);
       break;
+    case NO_ACCESS:
+      spdlog::error("Couldn't get unique access to ReplicationState when unregistering replica.");
+      slk::Save(coordination::UnregisterReplicaRes{false}, res_builder);
+      break;
   }
   spdlog::info("Replica {} successfully unregistered.", req.instance_name);
 }
