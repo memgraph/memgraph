@@ -88,7 +88,7 @@ unum::usearch::scalar_kind_t GetScalarKindFromConfig(const std::string &scalar_s
 /// TODO(@DavIvek): Check if this functions are correct
 static const std::unordered_map<unum::usearch::metric_kind_t, std::function<double(double)>> similarity_map = {
     {unum::usearch::metric_kind_t::ip_k, [](double distance) { return 1.0 - distance; }},
-    {unum::usearch::metric_kind_t::cos_k, [](double distance) { return std::abs(1.0 - distance); }},
+    {unum::usearch::metric_kind_t::cos_k, [](double distance) { return 1.0 - distance; }},
     {unum::usearch::metric_kind_t::l2sq_k, [](double distance) { return 1.0 / (1.0 + distance); }},
     {unum::usearch::metric_kind_t::pearson_k, [](double distance) { return 1.0 - distance; }},
     {unum::usearch::metric_kind_t::haversine_k, [](double distance) { return 1.0 / (1.0 + distance); }},
@@ -233,7 +233,7 @@ std::vector<std::tuple<Gid, double, double>> VectorIndex::Search(std::string_vie
   for (std::size_t i = 0; i < result_keys.size(); ++i) {
     const auto &vertex = static_cast<Vertex *>(result_keys[i].member.key);
     result.emplace_back(vertex->gid, static_cast<double>(result_keys[i].distance),
-                        similarity_map.at(index.metric().metric_kind())(result_keys[i].distance));
+                        std::abs(similarity_map.at(index.metric().metric_kind())(result_keys[i].distance)));
   }
 
   return result;
