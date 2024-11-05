@@ -18,18 +18,84 @@ QUERY_PLAN = "QUERY PLAN"
 
 
 def test_ScanAllByPointDistance_used(memgraph):
-    memgraph.execute("CREATE POINT INDEX ON :Node(id);")
+    memgraph.execute("CREATE POINT INDEX ON :Node(point);")
 
     expected_explain = [
         f" * Produce {{a}}",
-        f" * ScanAllByPointDistance (a :Node {{id}})",
+        f" * ScanAllByPointDistance (a :Node {{point}})",
         f" * Produce {{p}}",
         f" * Once",
     ]
 
     results = list(
         memgraph.execute_and_fetch(
-            "EXPLAIN WITH point({x:1, y:1}) as p MATCH (a:Node) WHERE point.distance(p, a.id) < 1 return a;"
+            "EXPLAIN WITH point({x:1, y:1}) as p MATCH (a:Node) WHERE point.distance(p, a.point) < 1 return a;"
+        )
+    )
+    actual_explain = [x[QUERY_PLAN] for x in results]
+
+    assert expected_explain == actual_explain
+
+    memgraph.execute("DROP POINT INDEX ON :Node(point);")
+
+
+def test_ScanAllByPointWithinbbox_used_equals(memgraph):
+    memgraph.execute("CREATE POINT INDEX ON :Node(point);")
+
+    expected_explain = [
+        f" * Produce {{a}}",
+        f" * ScanAllByPointWithinbbox (a :Node {{point}})",
+        f" * Produce {{lb, ub}}",
+        f" * Once",
+    ]
+
+    results = list(
+        memgraph.execute_and_fetch(
+            "EXPLAIN WITH point({x:1, y:1}) as lb, point({x:2, y:2}) as ub MATCH (a:Node) WHERE point.withinbbox(a.point, lb, ub) = true return a;"
+        )
+    )
+    actual_explain = [x[QUERY_PLAN] for x in results]
+
+    assert expected_explain == actual_explain
+
+    memgraph.execute("DROP POINT INDEX ON :Node(point);")
+
+
+def test_ScanAllByPointWithinbbox_used_implicit_true(memgraph):
+    memgraph.execute("CREATE POINT INDEX ON :Node(point);")
+
+    expected_explain = [
+        f" * Produce {{a}}",
+        f" * ScanAllByPointWithinbbox (a :Node {{point}})",
+        f" * Produce {{lb, ub}}",
+        f" * Once",
+    ]
+
+    results = list(
+        memgraph.execute_and_fetch(
+            "EXPLAIN WITH point({x:1, y:1}) as lb, point({x:2, y:2}) as ub MATCH (a:Node) WHERE point.withinbbox(a.point, lb, ub) return a;"
+        )
+    )
+    actual_explain = [x[QUERY_PLAN] for x in results]
+
+    assert expected_explain == actual_explain
+
+    memgraph.execute("DROP POINT INDEX ON :Node(id);")
+
+
+def test_ScanAllByPointWithinbbox_used_implicit_false(memgraph):
+    memgraph.execute("CREATE POINT INDEX ON :Node(point);")
+
+    expected_explain = [
+        f" * Produce {{a}}",
+        f" * ScanAllByPointWithinbbox (a :Node {{point}})",
+        f" * Produce {{lb, ub}}",
+        f" * Once",
+    ]
+
+    results = list(
+        memgraph.execute_and_fetch(
+            "EXPLAIN WITH point({x:1, y:1}) as lb, point({x:2, y:2}) as ub MATCH (a:Node) WHERE NOT point.withinbbox(a.point, lb, ub) return a;"
         )
     )
     actual_explain = [x[QUERY_PLAN] for x in results]
