@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 #include "storage/v2/indices/vector_index.hpp"
 #include <sys/types.h>
+#include <tuple>
 #include "gtest/gtest.h"
 #include "query/db_accessor.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -31,7 +32,7 @@ class VectorSearchTest : public testing::Test {
   static constexpr std::string_view testSuite = "vector_search";
   std::unique_ptr<Storage> storage = std::make_unique<InMemoryStorage>();
 
-  void CreateIndex(const auto dimension = 2, const auto limit = 10) {
+  void CreateIndex(std::size_t dimension = 2, std::size_t limit = 10) {
     // only requirement is that this is not empty at the moment since it is not used in the test but flag is checked
     // through the code
     FLAGS_experimental_vector_indexes = R"(test_index__test_label__test_property__{"dimension": 2, "limit": 10})";
@@ -89,7 +90,7 @@ TYPED_TEST(VectorSearchTest, SimpleSearchTest) {
 
   const auto result = acc->VectorIndexSearch(test_index.data(), 1, std::vector<float>{1.0, 1.0});
   EXPECT_EQ(result.size(), 1);
-  EXPECT_EQ(result[0].first, vertex.Gid());
+  EXPECT_EQ(std::get<0>(result[0]), vertex.Gid());
 }
 
 TYPED_TEST(VectorSearchTest, SearchWithMultipleNodes) {
@@ -110,7 +111,7 @@ TYPED_TEST(VectorSearchTest, SearchWithMultipleNodes) {
   // Perform search for one closest node
   const auto result = acc->VectorIndexSearch(test_index.data(), 1, query);
   EXPECT_EQ(result.size(), 1);
-  EXPECT_EQ(result[0].first, vertex2.Gid());  // Expect the closest match to be vertex2
+  EXPECT_EQ(std::get<0>(result[0]), vertex2.Gid());  // Expect the second vertex to be the closest
 
   // Perform search for two closest nodes
   const auto result2 = acc->VectorIndexSearch(test_index.data(), 2, query);
