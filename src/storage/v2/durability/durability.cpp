@@ -32,6 +32,7 @@
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/wal.hpp"
+#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
@@ -275,6 +276,15 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
                  name_id_mapper->IdToName(property.AsUint()));
   }
   spdlog::info("Point indices are recreated.");
+
+  // Recover vector index
+  if (!FLAGS_experimental_vector_indexes.empty()) {
+    auto acc = vertices->access();
+    for (auto &vertex : acc) {
+      indices->vector_index_.TryInsertVertex(&vertex);
+    }
+    spdlog::info("Vector indices are recreated.");
+  }
 
   spdlog::info("Indices are recreated.");
 }

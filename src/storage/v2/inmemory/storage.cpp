@@ -155,6 +155,45 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
               "process!",
               config_.durability.storage_directory);
   }
+
+  // This is temporary solution for vector index to accelerate the development
+  std::vector<memgraph::storage::VectorIndexSpec> vector_index_specs;
+  if (!FLAGS_experimental_vector_indexes.empty()) {
+    const auto specs = memgraph::utils::Split(FLAGS_experimental_vector_indexes, ";");
+    if (!specs.empty()) {
+      vector_index_specs.reserve(specs.size());
+      for (const auto &spec : specs) {
+        const auto an_index_split = memgraph::utils::Split(spec, "__");
+        if (an_index_split.size() != 3 && an_index_split.size() != 4) {
+          LOG_FATAL(
+              "--experimental-vector-indexes is not in the right format to use vector indexes. Use "
+              "Label__property__\{JSON\},... format instead.");
+        }
+        const auto &label_name = an_index_split[1];
+        const auto &property_name = an_index_split[2];
+        const auto label_id = LabelId::FromUint(name_id_mapper_->NameToId(label_name));
+        const auto property_id = PropertyId::FromUint(name_id_mapper_->NameToId(property_name));
+        if (an_index_split.size() == 3) {
+          vector_index_specs.emplace_back(memgraph::storage::VectorIndexSpec{
+              .index_name = an_index_split[0], .label = label_id, .property = property_id, .config = {}});
+        }
+        if (an_index_split.size() == 4) {
+          vector_index_specs.emplace_back(
+              memgraph::storage::VectorIndexSpec{.index_name = an_index_split[0],
+                                                 .label = label_id,
+                                                 .property = property_id,
+                                                 .config = nlohmann::json::parse(an_index_split[3])});
+        }
+      }
+      for (const auto &spec : vector_index_specs) {
+        spdlog::info("Having vector index named {} on :{}({}) with config: {}", spec.index_name,
+                     name_id_mapper_->IdToName(spec.label.AsUint()), name_id_mapper_->IdToName(spec.property.AsUint()),
+                     spec.config.dump());
+        indices_.vector_index_.CreateIndex(spec);
+      }
+    }
+  }
+
   if (config_.durability.recover_on_startup) {
     auto info =
         recovery_.RecoverData(uuid(), repl_storage_state_, &vertices_, &edges_, &edges_metadata_, &edge_count_,
@@ -2990,7 +3029,8 @@ void InMemoryStorage::Clear() {
   edge_types_to_auto_index_->clear();
 
   // Reset helper classes
-  name_id_mapper_ = std::make_unique<NameIdMapper>();
+  // name_id_mapper_ = std::make_unique<NameIdMapper>(); // this breaks current vector index implementation -> is this
+  // mandatory to reset?
   enum_store_.clear();
   schema_info_.Clear();
 
