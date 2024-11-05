@@ -149,6 +149,7 @@ class CoordinatorQueryHandler {
                                            std::chrono::seconds const &instance_health_check_frequency,
                                            std::chrono::seconds const &instance_down_timeout,
                                            std::chrono::seconds const &instance_get_uuid_frequency,
+                                           std::chrono::seconds const &rpc_connection_timeout_sec,
                                            std::string_view instance_name, CoordinatorQuery::SyncMode sync_mode) = 0;
 
   /// @throw QueryRuntimeException if an error occurred.
@@ -162,8 +163,9 @@ class CoordinatorQueryHandler {
 
   /// @throw QueryRuntimeException if an error occurred.
   virtual auto AddCoordinatorInstance(uint32_t coordinator_id, std::string_view bolt_server,
-                                      std::string_view coordinator_server, std::string_view management_server)
-      -> void = 0;
+                                      std::string_view coordinator_server, std::string_view management_server,
+                                      std::chrono::seconds const &instance_down_timeout_sec,
+                                      std::chrono::seconds const &rpc_connection_timeout_sec) -> void = 0;
 
   virtual void DemoteInstanceToReplica(std::string_view instance_name) = 0;
 

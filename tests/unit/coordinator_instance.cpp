@@ -72,7 +72,8 @@ TEST_F(CoordinatorInstanceTest, ShowInstancesEmptyTest) {
                                                          bolt_ports[0],
                                                          management_ports[0],
                                                          main_data_directory / "high_availability" / "coordinator",
-                                                         "localhost"};
+                                                         "localhost",
+                                                         std::chrono::seconds{10}};
 
   auto instance1 = CoordinatorInstance{init_config};
   auto const instances = instance1.ShowInstances();
@@ -90,7 +91,8 @@ TEST_F(CoordinatorInstanceTest, ConnectCoordinators) {
                                                           bolt_ports[0],
                                                           management_ports[0],
                                                           main_data_directory / "high_availability1" / "coordinator",
-                                                          "localhost"};
+                                                          "localhost",
+                                                          std::chrono::seconds{10}};
 
   auto instance1 = CoordinatorInstance{init_config1};
 
@@ -99,7 +101,8 @@ TEST_F(CoordinatorInstanceTest, ConnectCoordinators) {
                                                           bolt_ports[1],
                                                           management_ports[1],
                                                           main_data_directory / "high_availability2" / "coordinator",
-                                                          "localhost"};
+                                                          "localhost",
+                                                          std::chrono::seconds{10}};
 
   auto instance2 = CoordinatorInstance{init_config2};
 
@@ -108,7 +111,8 @@ TEST_F(CoordinatorInstanceTest, ConnectCoordinators) {
                                                           bolt_ports[2],
                                                           management_ports[2],
                                                           main_data_directory / "high_availability3" / "coordinator",
-                                                          "localhost"};
+                                                          "localhost",
+                                                          std::chrono::seconds{10}};
 
   auto instance3 = CoordinatorInstance{init_config3};
 
@@ -159,7 +163,8 @@ TEST_F(CoordinatorInstanceTest, GetConnectedCoordinatorsConfigs) {
                                                           bolt_ports[0],
                                                           management_ports[0],
                                                           main_data_directory / "high_availability1" / "coordinator",
-                                                          "localhost"};
+                                                          "localhost",
+                                                          std::chrono::seconds{10}};
 
   auto instance1 = CoordinatorInstance{init_config1};
 
@@ -168,7 +173,8 @@ TEST_F(CoordinatorInstanceTest, GetConnectedCoordinatorsConfigs) {
                                                           bolt_ports[1],
                                                           management_ports[1],
                                                           main_data_directory / "high_availability2" / "coordinator",
-                                                          "localhost"};
+                                                          "localhost",
+                                                          std::chrono::seconds{10}};
 
   auto instance2 = CoordinatorInstance{init_config2};
 
@@ -177,7 +183,8 @@ TEST_F(CoordinatorInstanceTest, GetConnectedCoordinatorsConfigs) {
                                                           bolt_ports[2],
                                                           management_ports[2],
                                                           main_data_directory / "high_availability3" / "coordinator",
-                                                          "localhost"};
+                                                          "localhost",
+                                                          std::chrono::seconds{10}};
 
   auto instance3 = CoordinatorInstance{init_config3};
 
@@ -239,7 +246,8 @@ TEST_F(CoordinatorInstanceTest, GetRoutingTable) {
                                                           bolt_ports[0],
                                                           management_ports[0],
                                                           main_data_directory / "high_availability1" / "coordinator",
-                                                          "localhost"};
+                                                          "localhost",
+                                                          std::chrono::seconds{10}};
 
   auto instance1 = CoordinatorInstance{init_config1};
 
@@ -248,7 +256,8 @@ TEST_F(CoordinatorInstanceTest, GetRoutingTable) {
                                                           bolt_ports[1],
                                                           management_ports[1],
                                                           main_data_directory / "high_availability2" / "coordinator",
-                                                          "localhost"};
+                                                          "localhost",
+                                                          std::chrono::seconds{10}};
 
   auto instance2 = CoordinatorInstance{init_config2};
 
@@ -257,7 +266,8 @@ TEST_F(CoordinatorInstanceTest, GetRoutingTable) {
                                                           bolt_ports[2],
                                                           management_ports[2],
                                                           main_data_directory / "high_availability3" / "coordinator",
-                                                          "localhost"};
+                                                          "localhost",
+                                                          std::chrono::seconds{10}};
 
   auto instance3 = CoordinatorInstance{init_config3};
 

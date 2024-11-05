@@ -13,7 +13,21 @@
 
 #include "coordination/coordinator_instance_client.hpp"
 
+#include "coordination/coordinator_communication_config.hpp"
+
+namespace {
+auto CreateClientContext(memgraph::coordination::ManagementServerConfig const &config)
+    -> memgraph::communication::ClientContext {
+  return (config.ssl) ? memgraph::communication::ClientContext{config.ssl->key_file, config.ssl->cert_file}
+                      : memgraph::communication::ClientContext{};
+}
+}  // namespace
+
 namespace memgraph::coordination {
+
+CoordinatorInstanceClient::CoordinatorInstanceClient(ManagementServerConfig const &config)
+    : rpc_context_{CreateClientContext(config)},
+      rpc_client_{config.endpoint, &rpc_context_, config.rpc_connection_timeout_sec} {}
 
 auto CoordinatorInstanceClient::RpcClient() -> rpc::Client & { return rpc_client_; }
 }  // namespace memgraph::coordination

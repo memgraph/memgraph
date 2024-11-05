@@ -542,6 +542,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
                                    std::chrono::seconds const &instance_check_frequency,
                                    std::chrono::seconds const &instance_down_timeout,
                                    std::chrono::seconds const &instance_get_uuid_frequency,
+                                   std::chrono::seconds const &rpc_connection_timeout_sec,
                                    std::string_view instance_name, CoordinatorQuery::SyncMode sync_mode) override {
     auto const maybe_bolt_server = io::network::Endpoint::ParseAndCreateSocketOrAddress(bolt_server);
     if (!maybe_bolt_server) {
@@ -571,6 +572,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
                                                  .instance_health_check_frequency_sec = instance_check_frequency,
                                                  .instance_down_timeout_sec = instance_down_timeout,
                                                  .instance_get_uuid_frequency_sec = instance_get_uuid_frequency,
+                                                 .rpc_connection_timeout_sec = rpc_connection_timeout_sec,
                                                  .ssl = std::nullopt};
 
     auto status = coordinator_handler_.RegisterReplicationInstance(coordinator_client_config);
@@ -618,7 +620,10 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
   }
 
   auto AddCoordinatorInstance(uint32_t coordinator_id, std::string_view bolt_server,
-                              std::string_view coordinator_server, std::string_view management_server)
+                              std::string_view coordinator_server, std::string_view management_server,
+                              std::chrono::seconds const &instance_down_timeout_sec,
+                              std::chrono::seconds const &rpc_connection_timeout_sec)
+
       -> void override {
     auto const maybe_coordinator_server = io::network::Endpoint::ParseAndCreateSocketOrAddress(coordinator_server);
     if (!maybe_coordinator_server) {
@@ -639,7 +644,9 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         coordination::CoordinatorToCoordinatorConfig{.coordinator_id = coordinator_id,
                                                      .bolt_server = *maybe_bolt_server,
                                                      .coordinator_server = *maybe_coordinator_server,
-                                                     .management_server = *maybe_management_server
+                                                     .management_server = *maybe_management_server,
+                                                     .instance_down_timeout_sec = instance_down_timeout_sec,
+                                                     .rpc_connection_timeout_sec = rpc_connection_timeout_sec
 
         };
 
@@ -1428,8 +1435,11 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
 
       callback.fn = [handler = CoordQueryHandler{*coordinator_state}, coord_server_id,
                      bolt_server = bolt_server_it->second, coordinator_server = coordinator_server_it->second,
-                     management_server = management_server_it->second]() mutable {
-        handler.AddCoordinatorInstance(coord_server_id, bolt_server, coordinator_server, management_server);
+                     management_server = management_server_it->second,
+                     instance_down_timeout_sec = config.instance_down_timeout_sec,
+                     rpc_connection_timeout_sec = config.rpc_connection_timeout_sec]() mutable {
+        handler.AddCoordinatorInstance(coord_server_id, bolt_server, coordinator_server, management_server,
+                                       instance_down_timeout_sec, rpc_connection_timeout_sec);
         return std::vector<std::vector<TypedValue>>();
       };
 
@@ -1479,10 +1489,12 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
                      instance_name = coordinator_query->instance_name_,
                      instance_down_timeout_sec = config.instance_down_timeout_sec,
                      instance_get_uuid_frequency_sec = config.instance_get_uuid_frequency_sec,
+                     rpc_connection_timeout_sec = config.rpc_connection_timeout_sec,
                      sync_mode = coordinator_query->sync_mode_]() mutable {
         handler.RegisterReplicationInstance(bolt_server, management_server, replication_server,
                                             instance_health_check_frequency_sec, instance_down_timeout_sec,
-                                            instance_get_uuid_frequency_sec, instance_name, sync_mode);
+                                            instance_get_uuid_frequency_sec, rpc_connection_timeout_sec, instance_name,
+                                            sync_mode);
         return std::vector<std::vector<TypedValue>>();
       };
 

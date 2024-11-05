@@ -34,7 +34,8 @@ namespace memgraph::rpc {
 /// Client is thread safe, but it is recommended to use thread_local clients.
 class Client {
  public:
-  Client(io::network::Endpoint endpoint, communication::ClientContext *context);
+  Client(io::network::Endpoint endpoint, communication::ClientContext *context,
+         std::optional<std::chrono::seconds> rpc_connection_timeout_sec = std::nullopt);
 
   /// Object used to handle streaming of request data to the RPC server.
   template <class TRequestResponse>
@@ -205,7 +206,7 @@ class Client {
 
     // Connect to the remote server.
     if (!client_) {
-      client_.emplace(context_);
+      client_.emplace(context_, rpc_connection_timeout_sec);
       if (!client_->Connect(endpoint_)) {
         spdlog::error("Couldn't connect to remote address {}", endpoint_);
         client_ = std::nullopt;
@@ -257,6 +258,7 @@ class Client {
   io::network::Endpoint endpoint_;
   communication::ClientContext *context_;
   std::optional<communication::Client> client_;
+  std::optional<std::chrono::seconds> rpc_connection_timeout_sec;
 
   std::mutex mutex_;
 };

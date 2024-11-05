@@ -36,6 +36,7 @@ inline constexpr auto *kDefaultManagementServerIp = "0.0.0.0";
 
 struct ReplicationInstanceInitConfig {
   int management_port{0};
+  std::chrono::seconds rpc_connection_timeout_sec{10};
 };
 
 struct CoordinatorInstanceInitConfig {
@@ -47,13 +48,14 @@ struct CoordinatorInstanceInitConfig {
   std::string coordinator_hostname;
   std::string nuraft_log_file;
   bool use_durability;
+  std::chrono::seconds rpc_connection_timeout_sec{10};
 
   // If nuraft_log_file isn't provided, spdlog::logger for NuRaft will still get created but without sinks effectively
   // then being a no-op logger.
   explicit CoordinatorInstanceInitConfig(uint32_t coordinator_id, int coordinator_port, int bolt_port,
                                          int management_port, std::filesystem::path durability_dir,
-                                         std::string coordinator_hostname, std::string nuraft_log_file = "",
-                                         bool use_durability = true)
+                                         std::string coordinator_hostname, std::chrono::seconds rpc_connection_timeout,
+                                         std::string nuraft_log_file = "", bool use_durability = true)
       : coordinator_id(coordinator_id),
         coordinator_port(coordinator_port),
         bolt_port(bolt_port),
@@ -61,7 +63,8 @@ struct CoordinatorInstanceInitConfig {
         durability_dir(std::move(durability_dir)),
         coordinator_hostname(std::move(coordinator_hostname)),
         nuraft_log_file(std::move(nuraft_log_file)),
-        use_durability(use_durability) {
+        use_durability(use_durability),
+        rpc_connection_timeout_sec(rpc_connection_timeout) {
     MG_ASSERT(!this->durability_dir.empty(), "Path empty");
     MG_ASSERT(!this->coordinator_hostname.empty(), "Hostname empty");
   }
@@ -121,6 +124,7 @@ struct CoordinatorToReplicaConfig {
   std::chrono::seconds instance_health_check_frequency_sec{1};
   std::chrono::seconds instance_down_timeout_sec{5};
   std::chrono::seconds instance_get_uuid_frequency_sec{10};
+  std::chrono::seconds rpc_connection_timeout_sec{10};
 
   struct SSL {
     std::string key_file;
@@ -142,6 +146,7 @@ struct CoordinatorToCoordinatorConfig {
   // and coordinator_server.
   std::string coordinator_hostname;
   std::chrono::seconds instance_down_timeout_sec{5};
+  std::chrono::seconds rpc_connection_timeout_sec{10};
 
   friend bool operator==(CoordinatorToCoordinatorConfig const &, CoordinatorToCoordinatorConfig const &) = default;
 };
@@ -155,10 +160,13 @@ struct ManagementServerConfig {
     friend bool operator==(SSL const &, SSL const &) = default;
   };
 
+  explicit ManagementServerConfig(io::network::Endpoint endpoint, std::chrono::seconds rpc_connection_timeout,
+                                  std::optional<SSL> ssl = std::nullopt)
+      : endpoint(std::move(endpoint)), ssl(std::move(ssl)), rpc_connection_timeout_sec(rpc_connection_timeout) {}
+
   io::network::Endpoint endpoint;
   std::optional<SSL> ssl;
-  explicit ManagementServerConfig(io::network::Endpoint endpoint, std::optional<SSL> ssl = std::nullopt)
-      : endpoint(std::move(endpoint)), ssl(std::move(ssl)) {}
+  std::chrono::seconds rpc_connection_timeout_sec{10};
   friend bool operator==(ManagementServerConfig const &, ManagementServerConfig const &) = default;
 };
 

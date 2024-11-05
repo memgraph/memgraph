@@ -26,6 +26,7 @@ void to_json(nlohmann::json &j, CoordinatorToCoordinatorConfig const &config) {
                      {"bolt_server", config.bolt_server},
                      {"management_server", config.management_server},
                      {"instance_down_timeout_sec", config.instance_down_timeout_sec.count()},
+                     {"rpc_connection_timeout_sec", config.rpc_connection_timeout_sec.count()},
                      {"coordinator_hostname", config.coordinator_hostname}};
 }
 
@@ -35,6 +36,7 @@ void from_json(nlohmann::json const &j, CoordinatorToCoordinatorConfig &config) 
   config.management_server = j.at("management_server").get<io::network::Endpoint>();
   config.bolt_server = j.at("bolt_server").get<io::network::Endpoint>();
   config.instance_down_timeout_sec = std::chrono::seconds{j.at("instance_down_timeout_sec").get<int>()};
+  config.rpc_connection_timeout_sec = std::chrono::seconds{j.at("rpc_connection_timeout_sec").get<int>()};
   config.coordinator_hostname = j.at("coordinator_hostname").get<std::string>();
 }
 
@@ -57,6 +59,7 @@ void to_json(nlohmann::json &j, CoordinatorToReplicaConfig const &config) {
                      {"instance_health_check_frequency_sec", config.instance_health_check_frequency_sec.count()},
                      {"instance_down_timeout_sec", config.instance_down_timeout_sec.count()},
                      {"instance_get_uuid_frequency_sec", config.instance_get_uuid_frequency_sec.count()},
+                     {"rpc_connection_timeout_sec", config.rpc_connection_timeout_sec.count()},
                      {"replication_client_info", config.replication_client_info}};
 }
 
@@ -68,6 +71,7 @@ void from_json(nlohmann::json const &j, CoordinatorToReplicaConfig &config) {
       std::chrono::seconds{j.at("instance_health_check_frequency_sec").get<int>()};
   config.instance_down_timeout_sec = std::chrono::seconds{j.at("instance_down_timeout_sec").get<int>()};
   config.instance_get_uuid_frequency_sec = std::chrono::seconds{j.at("instance_get_uuid_frequency_sec").get<int>()};
+  config.rpc_connection_timeout_sec = std::chrono::seconds{j.at("rpc_connection_timeout_sec").get<int>()};
   config.replication_client_info = j.at("replication_client_info").get<ReplicationClientInfo>();
 }
 
