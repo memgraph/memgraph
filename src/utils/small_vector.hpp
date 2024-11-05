@@ -465,16 +465,20 @@ struct small_vector {
 
   friend bool operator==(small_vector const &lhs, small_vector const &rhs) { return std::ranges::equal(lhs, rhs); }
 
+  // kSmallCapacity can be 0; in that case we disable the small buffer
   constexpr static std::uint32_t kSmallCapacity = sizeof(value_type *) / sizeof(value_type);
 
  private:
-  constexpr static bool usingSmallBuffer(uint32_t capacity) { return capacity == kSmallCapacity; }
+  constexpr static bool usingSmallBuffer(uint32_t capacity) {
+    return kSmallCapacity != 0 && capacity == kSmallCapacity;
+  }
 
   uint32_t size_{};                    // max 4 billion
   uint32_t capacity_{kSmallCapacity};  // max 4 billion
   union {
     value_type *buffer_;
-    uninitialised_storage<value_type> small_buffer_[kSmallCapacity];
+    uninitialised_storage<value_type, kSmallCapacity ? sizeof(value_type) : 1>
+        small_buffer_[kSmallCapacity ? kSmallCapacity : 1];
   };
 };
 
