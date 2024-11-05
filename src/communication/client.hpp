@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -37,7 +37,8 @@ namespace memgraph::communication {
  */
 class Client final {
  public:
-  explicit Client(ClientContext *context);
+  explicit Client(ClientContext *context,
+                  std::optional<std::chrono::seconds> rpc_connection_timeout_sec = std::nullopt);
 
   ~Client();
 

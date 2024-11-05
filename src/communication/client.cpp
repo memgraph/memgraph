@@ -17,7 +17,12 @@
 
 namespace memgraph::communication {
 
-Client::Client(ClientContext *context) : context_(context) {}
+Client::Client(ClientContext *context, std::optional<std::chrono::seconds> rpc_connection_timeout_sec)
+    : context_(context) {
+  if (rpc_connection_timeout_sec.has_value()) {
+    socket_.SetTimeout(rpc_connection_timeout_sec->count(), 0);
+  }
+}
 
 Client::~Client() {
   Close();

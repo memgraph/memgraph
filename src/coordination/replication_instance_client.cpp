@@ -36,7 +36,7 @@ auto CreateClientContext(memgraph::coordination::CoordinatorToReplicaConfig cons
 ReplicationInstanceClient::ReplicationInstanceClient(CoordinatorToReplicaConfig config,
                                                      CoordinatorInstance *coord_instance)
     : rpc_context_{CreateClientContext(config)},
-      rpc_client_{config.mgt_server, &rpc_context_},
+      rpc_client_{config.mgt_server, &rpc_context_, config.rpc_connection_timeout_sec},
       config_{std::move(config)},
       coord_instance_(coord_instance) {}
 

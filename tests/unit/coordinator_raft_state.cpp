@@ -63,6 +63,7 @@ TEST_F(RaftStateTest, RaftStateEmptyMetadata) {
                                     management_port,
                                     test_folder_ / "high_availability" / "coordinator" / "state_manager",
                                     "localhost",
+                                    std::chrono::seconds{10},
                                     "",
                                     false};
 
@@ -89,6 +90,7 @@ TEST_F(RaftStateTest, GetSingleRouterRoutingTable) {
                                                     management_port,
                                                     test_folder_ / "high_availability" / "coordinator",
                                                     "localhost",
+                                                    std::chrono::seconds{10},
                                                     "",
                                                     false};
 
@@ -114,6 +116,7 @@ TEST_F(RaftStateTest, GetMixedRoutingTable) {
                                                          management_port,
                                                          test_folder_ / "high_availability" / "coordinator",
                                                          "localhost",
+                                                         std::chrono::seconds{10},
                                                          "",
                                                          false};
 

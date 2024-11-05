@@ -449,6 +449,9 @@ int main(int argc, char **argv) {
       .instance_down_timeout_sec = std::chrono::seconds(FLAGS_instance_down_timeout_sec),
       .instance_health_check_frequency_sec = std::chrono::seconds(FLAGS_instance_health_check_frequency_sec),
       .instance_get_uuid_frequency_sec = std::chrono::seconds(FLAGS_instance_get_uuid_frequency_sec),
+      .rpc_connection_timeout_sec =
+          std::chrono::seconds(FLAGS_rpc_connection_timeout_sec),  // if will be used for replication also, remove
+                                                                   // from MG_ENTERPRISE
 #endif
       .default_kafka_bootstrap_servers = FLAGS_kafka_bootstrap_servers,
       .default_pulsar_service_url = FLAGS_pulsar_service_url,
@@ -514,7 +517,10 @@ int main(int argc, char **argv) {
       coordination_setup.management_port && !coordination_setup.coordinator_port && !coordination_setup.coordinator_id;
   auto const is_valid_coordinator_instance =
       coordination_setup.management_port && coordination_setup.coordinator_port && coordination_setup.coordinator_id;
+
+  auto const rpc_connection_timeout_sec = std::chrono::seconds{FLAGS_rpc_connection_timeout_sec};
   auto try_init_coord_state = [&coordinator_state, &extracted_bolt_port, &is_valid_data_instance,
+                               &rpc_connection_timeout_sec,
                                &is_valid_coordinator_instance](auto const &coordination_setup) {
     if (!(coordination_setup.management_port || coordination_setup.coordinator_port ||
           coordination_setup.coordinator_id)) {
@@ -536,9 +542,11 @@ int main(int argc, char **argv) {
       coordinator_state.emplace(CoordinatorInstanceInitConfig{
           coordination_setup.coordinator_id, coordination_setup.coordinator_port, extracted_bolt_port,
           coordination_setup.management_port, high_availability_data_dir, coordination_setup.coordinator_hostname,
-          coordination_setup.nuraft_log_file, coordination_setup.ha_durability});
+          rpc_connection_timeout_sec, coordination_setup.nuraft_log_file, coordination_setup.ha_durability});
     } else {
-      coordinator_state.emplace(ReplicationInstanceInitConfig{.management_port = coordination_setup.management_port});
+      coordinator_state.emplace(
+          ReplicationInstanceInitConfig{.management_port = coordination_setup.management_port,
+                                        .rpc_connection_timeout_sec = rpc_connection_timeout_sec});
     }
   };
 

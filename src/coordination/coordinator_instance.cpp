@@ -62,7 +62,10 @@ using nuraft::ptr;
 
 CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &config)
     : coordinator_management_server_{ManagementServerConfig{
-          io::network::Endpoint{kDefaultManagementServerIp, static_cast<uint16_t>(config.management_port)}}} {
+          io::network::Endpoint{kDefaultManagementServerIp, static_cast<uint16_t>(config.management_port)},
+          config.rpc_connection_timeout_sec
+
+      }} {
   CoordinatorInstanceManagementServerHandlers::Register(coordinator_management_server_, *this);
   MG_ASSERT(coordinator_management_server_.Start(), "Management server on coordinator couldn't be started.");
 
@@ -157,7 +160,8 @@ void CoordinatorInstance::AddOrUpdateClientConnectors(std::vector<CoordinatorToC
     }
     spdlog::trace("Creating new connector to coordinator with id {}, on endpoint:{}.", config.coordinator_id,
                   config.management_server.SocketAddress());
-    connectors->emplace(connectors->end(), config.coordinator_id, ManagementServerConfig{config.management_server});
+    connectors->emplace(connectors->end(), config.coordinator_id,
+                        ManagementServerConfig{config.management_server, config.rpc_connection_timeout_sec});
   }
 }
 
