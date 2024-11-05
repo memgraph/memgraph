@@ -389,7 +389,7 @@ struct PointIterable::impl {
                 PropertyValue const &bottom_left, PropertyValue const &top_right, WithinBBoxCondition condition)
       : storage_{storage},
         transaction_{transaction},
-        crs_{CoordinateReferenceSystem::WGS84_2d},
+        crs_{CoordinateReferenceSystem::WGS84_3d},
         using_distance_(false),
         bounding_box{bottom_left, top_right},
         wgs84_3d_{std::move(index)},
@@ -399,7 +399,7 @@ struct PointIterable::impl {
                 PropertyValue const &bottom_left, PropertyValue const &top_right, WithinBBoxCondition condition)
       : storage_{storage},
         transaction_{transaction},
-        crs_{CoordinateReferenceSystem::WGS84_2d},
+        crs_{CoordinateReferenceSystem::Cartesian_2d},
         using_distance_(false),
         bounding_box{bottom_left, top_right},
         cartesian_2d_{std::move(index)},
@@ -409,7 +409,7 @@ struct PointIterable::impl {
                 PropertyValue const &bottom_left, PropertyValue const &top_right, WithinBBoxCondition condition)
       : storage_{storage},
         transaction_{transaction},
-        crs_{CoordinateReferenceSystem::WGS84_2d},
+        crs_{CoordinateReferenceSystem::Cartesian_3d},
         using_distance_(false),
         bounding_box{bottom_left, top_right},
         cartesian_3d_{std::move(index)},
@@ -437,6 +437,12 @@ struct PointIterable::impl {
         std::destroy_at(&cartesian_3d_);
         break;
     }
+
+    if (using_distance_) {
+      std::destroy_at(&point_value_);
+    } else {
+      std::destroy_at(&bounding_box);
+    }
   }
 
  private:
@@ -446,7 +452,8 @@ struct PointIterable::impl {
   PropertyValue boundary_value_;
   bool using_distance_;
 
-  // TODO: destruction
+  // Don't need to destroy anything in this union because its PropertyValues hold
+  // primitive types (bool/int/point)
   union {
     PropertyValue point_value_;
 
@@ -699,18 +706,28 @@ auto get_index_iterator_withinbbox(Index &index, PropertyValue const &bottom_lef
   using point_type = Index::value_type::point_type;
   auto constexpr dimensions = bg::traits::dimension<point_type>::value;
 
-  auto convert_to_boost_point = [](PropertyValue const &point) -> point_type {
+  auto const lower_bound = std::invoke([&bottom_left]() -> point_type {
     if constexpr (dimensions == 2) {
-      auto tmp_point = point.ValuePoint2d();
+      auto tmp_point = bottom_left.ValuePoint2d();
       return {tmp_point.x(), tmp_point.y()};
     } else {
-      auto tmp_point = point.ValuePoint3d();
+      auto tmp_point = bottom_left.ValuePoint3d();
       return {tmp_point.x(), tmp_point.y(), tmp_point.z()};
     }
-  };
+  });
 
-  auto const lower_bound = convert_to_boost_point(bottom_left);
-  auto const upper_bound = convert_to_boost_point(top_right);
+  auto const upper_bound = std::invoke([&lower_bound, &top_right]() -> point_type {
+    if constexpr (dimensions == 2) {
+      auto const tmp_point = top_right.ValuePoint2d();
+      auto const longitude = tmp_point.x();
+      return {bg::get<0>(lower_bound) <= longitude ? longitude : longitude + 360.0, tmp_point.y()};
+    } else {
+      auto const tmp_point = top_right.ValuePoint3d();
+      auto const longitude = tmp_point.x();
+      return {bg::get<0>(lower_bound) <= longitude ? longitude : longitude + 360.0, tmp_point.y(), tmp_point.z()};
+    }
+  });
+
   auto const bounding_box = bg::model::box(lower_bound, upper_bound);
 
   switch (condition) {

@@ -1294,7 +1294,7 @@ Feature: Spatial related features
                 POINT({x: 180, y: 1, crs:"wgs-84"}),
                 POINT({x:-179, y: 0, crs:"wgs-84"}),
                 POINT({x:-180, y: 1, crs:"wgs-84"}),
-                POINT({x:-179, y: -1, crs:"wgs-84"}),
+                POINT({x:-179, y:-1, crs:"wgs-84"}),
                 POINT({x:-179, y: 2, crs:"wgs-84"}),
                 POINT({x:-178, y: 0, crs:"wgs-84"})
             ] AS point
@@ -1318,13 +1318,13 @@ Feature: Spatial related features
         And having executed
             """
             UNWIND [
-                POINT({x: 179, y: 0, z:0, crs:"wgs-84-3d"}),
-                POINT({x: 180, y: 1, z:1, crs:"wgs-84-3d"}),
+                POINT({x: 179, y: 0, z: 0, crs:"wgs-84-3d"}),
+                POINT({x: 180, y: 1, z: 1, crs:"wgs-84-3d"}),
                 POINT({x:-179, y: 0, z:-2, crs:"wgs-84-3d"}),
-                POINT({x:-180, y: 1, z:1, crs:"wgs-84-3d"}),
-                POINT({x:-179, y:-1, z:0, crs:"wgs-84-3d"}),
-                POINT({x:-179, y: 2, z:1, crs:"wgs-84-3d"}),
-                POINT({x:-178, y: 0, z:0, crs:"wgs-84-3d"})
+                POINT({x:-180, y: 1, z: 1, crs:"wgs-84-3d"}),
+                POINT({x:-179, y:-1, z: 0, crs:"wgs-84-3d"}),
+                POINT({x:-179, y: 2, z: 1, crs:"wgs-84-3d"}),
+                POINT({x:-178, y: 0, z: 0, crs:"wgs-84-3d"})
             ] AS point
             CREATE (:L1 {prop: point});
             """
@@ -1333,9 +1333,8 @@ Feature: Spatial related features
             WITH point({x:179, y:-1, z:-1, crs:"wgs-84-3d"}) AS lb, point({x:-179, y:1, z:1, crs:"wgs-84-3d"}) AS up MATCH (m:L1) WHERE point.withinbbox(m.prop, lb, up) RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
             """
         Then the result should be:
-            | m                                                                |
-            | (:L1{prop:POINT({longitude:-180.0,latitude: 1.0, height:1.0, srid:4326})})    |
-            | (:L1{prop:POINT({longitude:-179.0,latitude:-1.0, height:0.0, srid:4326})})    |
-            | (:L1{prop:POINT({longitude:-179.0,latitude: 0.0, height:0.0, srid:4326})})    |
-            | (:L1{prop:POINT({longitude: 179.0,latitude: 0.0, height:0.0, srid:4326})})    |
-            | (:L1{prop:POINT({longitude: 180.0,latitude: 1.0, height:1.0, srid:4326})})    |
+            | m                                                                             |
+            | (:L1{prop:POINT({longitude:-180.0,latitude: 1.0, height:1.0, srid:4979})})    |
+            | (:L1{prop:POINT({longitude:-179.0,latitude:-1.0, height:0.0, srid:4979})})    |
+            | (:L1{prop:POINT({longitude: 179.0,latitude: 0.0, height:0.0, srid:4979})})    |
+            | (:L1{prop:POINT({longitude: 180.0,latitude: 1.0, height:1.0, srid:4979})})    |

@@ -17,7 +17,6 @@
 #include <utility>
 #include <variant>
 
-#include "plan/point_distance_condition.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
