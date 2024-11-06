@@ -929,10 +929,8 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
             throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
           break;
         }
-        case WalDeltaData::Type::TEXT_INDEX_CREATE: {
-          // NOTE: Text search doesn’t have replication in scope yet (Phases 1 and 2)
-          break;
-        }
+        case WalDeltaData::Type::TEXT_INDEX_CREATE:
+          [[fallthrough]];
         case WalDeltaData::Type::TEXT_INDEX_DROP: {
           // NOTE: Text search doesn’t have replication in scope yet (Phases 1 and 2)
           break;
