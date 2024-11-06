@@ -216,6 +216,8 @@ bool Once::OnceCursor::Pull(Frame &, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("Once");
 
+  AbortCheck(context);
+
   if (!did_pull_) {
     did_pull_ = true;
     return true;
@@ -313,6 +315,9 @@ CreateNode::CreateNodeCursor::CreateNodeCursor(const CreateNode &self, utils::Me
 bool CreateNode::CreateNodeCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("CreateNode");
+
+  AbortCheck(context);
+
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                 storage::View::NEW);
 
@@ -424,6 +429,8 @@ EdgeAccessor CreateEdge(const EdgeCreationInfo &edge_info, DbAccessor *dba, Vert
 bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP_BY_REF(self_);
+
+  AbortCheck(context);
 
   if (!input_cursor_->Pull(frame, context)) return false;
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
@@ -1431,6 +1438,8 @@ class ExpandVariableCursor : public Cursor {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(self_);
 
+    AbortCheck(context);
+
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                   storage::View::OLD);
     while (true) {
@@ -1679,6 +1688,8 @@ class STShortestPathCursor : public query::plan::Cursor {
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("STShortestPath");
+
+    AbortCheck(context);
 
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                   storage::View::OLD);
@@ -2864,6 +2875,8 @@ class ConstructNamedPathCursor : public Cursor {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("ConstructNamedPath");
 
+    AbortCheck(context);
+
     if (!input_cursor_->Pull(frame, context)) return false;
 
     auto symbol_it = self_.path_elements_.begin();
@@ -3003,6 +3016,8 @@ bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP_BY_REF(self_);
 
+  AbortCheck(context);
+
   // Like all filters, newly set values should not affect filtering of old
   // nodes and edges.
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
@@ -3041,6 +3056,9 @@ std::vector<Symbol> EvaluatePatternFilter::ModifiedSymbols(const SymbolTable &ta
 
 bool EvaluatePatternFilter::EvaluatePatternFilterCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("EvaluatePatternFilter");
+
+  AbortCheck(context);
+
   std::function<void(TypedValue *)> function = [&frame, self = this->self_, input_cursor = this->input_cursor_.get(),
                                                 &context](TypedValue *return_value) {
     OOMExceptionEnabler oom_exception;
@@ -3084,6 +3102,8 @@ Produce::ProduceCursor::ProduceCursor(const Produce &self, utils::MemoryResource
 bool Produce::ProduceCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP_BY_REF(self_);
+
+  AbortCheck(context);
 
   if (input_cursor_->Pull(frame, context)) {
     // Produce should always yield the latest results.
@@ -3208,6 +3228,8 @@ bool Delete::DeleteCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("Delete");
 
+  AbortCheck(context);
+
   if (self_.buffer_size_ != nullptr && !buffer_size_.has_value()) [[unlikely]] {
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                   storage::View::OLD);
@@ -3290,6 +3312,8 @@ SetProperty::SetPropertyCursor::SetPropertyCursor(const SetProperty &self, utils
 bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("SetProperty");
+
+  AbortCheck(context);
 
   if (!input_cursor_->Pull(frame, context)) return false;
 
@@ -3515,6 +3539,8 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("SetProperties");
 
+  AbortCheck(context);
+
   if (!input_cursor_->Pull(frame, context)) return false;
 
   TypedValue &lhs = frame[self_.input_symbol_];
@@ -3582,6 +3608,9 @@ SetLabels::SetLabelsCursor::SetLabelsCursor(const SetLabels &self, utils::Memory
 bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("SetLabels");
+
+  AbortCheck(context);
+
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                 storage::View::NEW);
   if (!input_cursor_->Pull(frame, context)) return false;
@@ -3661,6 +3690,8 @@ RemoveProperty::RemovePropertyCursor::RemovePropertyCursor(const RemoveProperty 
 bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("RemoveProperty");
+
+  AbortCheck(context);
 
   if (!input_cursor_->Pull(frame, context)) return false;
 
@@ -3751,6 +3782,9 @@ RemoveLabels::RemoveLabelsCursor::RemoveLabelsCursor(const RemoveLabels &self, u
 bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("RemoveLabels");
+
+  AbortCheck(context);
+
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                 storage::View::NEW);
   if (!input_cursor_->Pull(frame, context)) return false;
@@ -3852,6 +3886,8 @@ bool ContainsSameEdge(const TypedValue &a, const TypedValue &b) {
 bool EdgeUniquenessFilter::EdgeUniquenessFilterCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("EdgeUniquenessFilter");
+
+  AbortCheck(context);
 
   auto expansion_ok = [&]() {
     const auto &expand_value = frame[self_.expand_symbol_];
@@ -4039,6 +4075,8 @@ class AggregateCursor : public Cursor {
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(self_);
+
+    AbortCheck(context);
 
     if (!pulled_all_input_) {
       if (!ProcessAll(&frame, &context) && !self_.group_by_.empty()) return false;
@@ -4430,6 +4468,8 @@ bool Skip::SkipCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("Skip");
 
+  AbortCheck(context);
+
   while (input_cursor_->Pull(frame, context)) {
     if (to_skip_ == -1) {
       // First successful pull from the input, evaluate the skip expression.
@@ -4483,6 +4523,8 @@ Limit::LimitCursor::LimitCursor(const Limit &self, utils::MemoryResource *mem)
 bool Limit::LimitCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("Limit");
+
+  AbortCheck(context);
 
   // We need to evaluate the limit expression before the first input Pull
   // because it might be 0 and thereby we shouldn't Pull from input at all.
@@ -4672,6 +4714,7 @@ bool Merge::MergeCursor::Pull(Frame &frame, ExecutionContext &context) {
   memgraph::utils::OnScopeExit merge_exit([&] { context.evaluation_context.scope.in_merge = false; });
 
   while (true) {
+    AbortCheck(context);
     if (pull_input_) {
       if (input_cursor_->Pull(frame, context)) {
         // after a successful input from the input
@@ -4750,6 +4793,7 @@ bool Optional::OptionalCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("Optional");
 
   while (true) {
+    AbortCheck(context);
     if (pull_input_) {
       if (input_cursor_->Pull(frame, context)) {
         // after a successful input from the input
@@ -4877,6 +4921,8 @@ class DistinctCursor : public Cursor {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("Distinct");
 
+    AbortCheck(context);
+
     while (true) {
       if (!input_cursor_->Pull(frame, context)) {
         // Nothing left to pull, we can dispose of seen_rows now
@@ -4970,6 +5016,8 @@ Union::UnionCursor::UnionCursor(const Union &self, utils::MemoryResource *mem)
 bool Union::UnionCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP_BY_REF(self_);
+
+  AbortCheck(context);
 
   utils::pmr::unordered_map<std::string, TypedValue> results(context.evaluation_context.memory);
   if (left_cursor_->Pull(frame, context)) {
@@ -5137,6 +5185,9 @@ class OutputTableCursor : public Cursor {
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
+
+    AbortCheck(context);
+
     if (!pulled_) {
       rows_ = self_.callback_(&frame, &context);
       for (const auto &row : rows_) {
@@ -5190,6 +5241,9 @@ class OutputTableStreamCursor : public Cursor {
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
+
+    AbortCheck(context);
+
     const auto row = self_->callback_(&frame, &context);
     if (row) {
       MG_ASSERT(row->size() == self_->output_symbols_.size(), "Wrong number of columns in row!");
@@ -5780,6 +5834,7 @@ class ForeachCursor : public Cursor {
     for (const auto &index : cache_) {
       frame[loop_variable_symbol_] = index;
       while (updates_->Pull(frame, context)) {
+        AbortCheck(context);
       }
       ResetUpdates();
     }
@@ -5869,6 +5924,7 @@ bool Apply::ApplyCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP("Apply");
 
   while (true) {
+    AbortCheck(context);
     if (pull_input_ && !input_->Pull(frame, context)) {
       return false;
     };
@@ -5934,6 +5990,7 @@ bool IndexedJoin::IndexedJoinCursor::Pull(Frame &frame, ExecutionContext &contex
   SCOPED_PROFILE_OP("IndexedJoin");
 
   while (true) {
+    AbortCheck(context);
     if (pull_input_ && !main_branch_->Pull(frame, context)) {
       return false;
     };
@@ -5994,6 +6051,8 @@ class HashJoinCursor : public Cursor {
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP("HashJoin");
+
+    AbortCheck(context);
 
     if (!hash_join_initialized_) {
       InitializeHashJoin(frame, context);
@@ -6141,6 +6200,8 @@ class RollUpApplyCursor : public Cursor {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP_BY_REF(self_);
 
+    AbortCheck(context);
+
     TypedValue result(std::vector<TypedValue>(), context.evaluation_context.memory);
     if (input_cursor_->Pull(frame, context)) {
       while (list_collection_cursor_->Pull(frame, context)) {
@@ -6216,6 +6277,8 @@ class PeriodicCommitCursor : public Cursor {
     OOMExceptionEnabler oom_exception;
     // NOLINTNEXTLINE(misc-const-correctness)
     SCOPED_PROFILE_OP_BY_REF(self_);
+
+    AbortCheck(context);
 
     if (!commit_frequency_.has_value()) [[unlikely]] {
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
@@ -6299,6 +6362,8 @@ class PeriodicSubqueryCursor : public Cursor {
     OOMExceptionEnabler oom_exception;
     // NOLINTNEXTLINE(misc-const-correctness)
     SCOPED_PROFILE_OP("PeriodicSubquery");
+
+    AbortCheck(context);
 
     if (!commit_frequency_.has_value()) [[unlikely]] {
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
