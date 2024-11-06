@@ -176,6 +176,7 @@ startup_config_dict = {
         "1",
         "The time duration between two replica checks/pings. If < 1, replicas will NOT be checked at all. NOTE: The MAIN instance allocates a new thread for each REPLICA.",
     ),
+    "rpc_connection_timeout_sec": ("10", "10", "Timeout for RPC messages."),
     "storage_delta_on_identical_property_update": (
         "true",
         "true",
