@@ -478,7 +478,10 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       if (ec) {
         spdlog::error("Session shutdown failed: {}", ec.what());
       }
-      lowest_layer.close();
+      lowest_layer.close(ec);
+      if (ec) {
+        spdlog::error("Session close failed: {}", ec.what());
+      }
     });
   }
 
@@ -575,7 +578,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   std::string_view service_name_;
   std::chrono::seconds timeout_seconds_;
   boost::asio::steady_timer timeout_timer_;
-  bool execution_active_{false};
-  bool has_received_msg_{false};
+  std::atomic_bool execution_active_{false};
+  std::atomic_bool has_received_msg_{false};
 };
 }  // namespace memgraph::communication::v2
