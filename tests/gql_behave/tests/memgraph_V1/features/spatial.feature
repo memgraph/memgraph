@@ -91,6 +91,48 @@ Feature: Spatial related features
             """
         Then an error should be raised
 
+    Scenario: Point creation failure 8:
+        When executing query:
+            """
+            RETURN point({longitude:1, latitude:2, crs:'cartesian-3d'}) as result;
+            """
+        Then an error should be raised
+
+    Scenario: Point creation failure 9:
+        When executing query:
+            """
+            RETURN point({longitude:1, latitude:2, crs:'wgs-84-3d'}) as result;
+            """
+        Then an error should be raised
+
+    Scenario: Point creation failure 10:
+        When executing query:
+            """
+            RETURN point({longitude:1, latitude:2, height:3, crs:'wgs-84'}) as result;
+            """
+        Then an error should be raised
+
+    Scenario: Point creation failure 11:
+        When executing query:
+            """
+            RETURN point({longitude:1, latitude:2, height:3, crs:'cartesian'}) as result;
+            """
+        Then an error should be raised
+
+    Scenario: Point creation failure 12:
+        When executing query:
+            """
+            RETURN point({x:1, y:2, z:3, crs:'cartesian'}) as result;
+            """
+        Then an error should be raised
+
+    Scenario: Point creation failure 13:
+        When executing query:
+            """
+            RETURN point({x:1, y:2, crs:'cartesian-3d'}) as result;
+            """
+        Then an error should be raised
+
     Scenario: Point2d-WGS48 lookup:
         Given an empty graph
         When executing query:
