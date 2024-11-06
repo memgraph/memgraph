@@ -17,7 +17,8 @@
 
 namespace memgraph::storage {
 class InMemoryStorage;
-}
+}  // namespace memgraph::storage
+
 namespace memgraph::dbms {
 
 class DbmsHandler;

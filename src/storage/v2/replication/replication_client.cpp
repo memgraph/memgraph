@@ -357,6 +357,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, memgraph:
                     transaction_guard.unlock();
                     spdlog::debug("Sending current wal file to {}", client_.name_);
                     replica_commit = ReplicateCurrentWal(main_uuid, mem_storage, rpcClient, *mem_storage->wal_file_);
+                    // TODO (andi): print happened. Return
                     spdlog::debug("Replica commit after replicating current wal: {}", replica_commit);
                   } else {
                     spdlog::debug("Cannot recover using current wal file {}", client_.name_);
@@ -384,11 +385,11 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, memgraph:
     // and we will go to recovery.
     // By adding this lock, we can avoid that, and go to RECOVERY immediately.
     const auto last_durable_timestamp = storage->repl_storage_state_.last_durable_timestamp_.load();
-    SPDLOG_INFO("Replica {} timestamp: {}, Last commit: {}", client_.name_, replica_commit, last_durable_timestamp);
+    spdlog::info("Replica {} timestamp: {}, Last commit: {}", client_.name_, replica_commit, last_durable_timestamp);
     // ldt can be larger on replica due to a snapshot
     if (last_durable_timestamp <= replica_commit) {
       replica_state_.WithLock([name = client_.name_](auto &val) {
-        spdlog::trace("Replica {} set to ready", name);
+        spdlog::info("Replica {} set to ready.", name);
         val = replication::ReplicaState::READY;
       });
       return;

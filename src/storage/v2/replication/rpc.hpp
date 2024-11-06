@@ -172,10 +172,8 @@ struct CurrentWalRes {
   static void Load(CurrentWalRes *self, memgraph::slk::Reader *reader);
   static void Save(const CurrentWalRes &self, memgraph::slk::Builder *builder);
   CurrentWalRes() = default;
-  CurrentWalRes(bool success, uint64_t current_commit_timestamp)
-      : success(success), current_commit_timestamp(current_commit_timestamp) {}
+  explicit CurrentWalRes(uint64_t current_commit_timestamp) : current_commit_timestamp(current_commit_timestamp) {}
 
-  bool success;
   uint64_t current_commit_timestamp;
 };
 
