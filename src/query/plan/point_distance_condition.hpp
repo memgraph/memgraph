@@ -11,8 +11,6 @@
 
 #pragma once
 
-#include <cstdint>
-
 #include "storage/v2/indices/point_index.hpp"
 
 namespace memgraph::query::plan {

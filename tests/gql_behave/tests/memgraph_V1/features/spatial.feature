@@ -1338,3 +1338,41 @@ Feature: Spatial related features
             | (:L1{prop:POINT({longitude:-179.0,latitude:-1.0, height:0.0, srid:4979})})    |
             | (:L1{prop:POINT({longitude: 179.0,latitude: 0.0, height:0.0, srid:4979})})    |
             | (:L1{prop:POINT({longitude: 180.0,latitude: 1.0, height:1.0, srid:4979})})    |
+
+    Scenario: Point index scan cartesian-2d withinbbox wrap fails:
+        Given an empty graph
+        And with new point index :L1(prop)
+        And having executed
+            """
+            UNWIND [
+                POINT({x: 0, y: 0, crs:"cartesian"}),
+                POINT({x: 1, y: 1, crs:"cartesian"}),
+                POINT({x: 2, y: 2, crs:"cartesian"})
+            ] AS point
+            CREATE (:L1 {prop: point});
+            """
+        When executing query:
+            """
+            WITH point({x:1, y:1, crs:"cartesian"}) AS lb, point({x:-1, y:-1, crs:"cartesian"}) AS up MATCH (m:L1) WHERE point.withinbbox(m.prop, lb, up) RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
+            """
+        Then the result should be:
+            | m                                                                |
+
+    Scenario: Point index scan cartesian-3d withinbbox wrap fails:
+        Given an empty graph
+        And with new point index :L1(prop)
+        And having executed
+            """
+            UNWIND [
+                POINT({x: 0, y: 0, z:0, crs:"cartesian-3d"}),
+                POINT({x: 1, y: 1, z:1, crs:"cartesian-3d"}),
+                POINT({x: 2, y: 2, z:2, crs:"cartesian-3d"})
+            ] AS point
+            CREATE (:L1 {prop: point});
+            """
+        When executing query:
+            """
+            WITH point({x:1, y:1, z:1, crs:"cartesian"}) AS lb, point({x:-1, y:-1, z:-1, crs:"cartesian"}) AS up MATCH (m:L1) WHERE point.withinbbox(m.prop, lb, up) RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
+            """
+        Then the result should be:
+            | m                                                                |

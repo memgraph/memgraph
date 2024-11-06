@@ -11,12 +11,10 @@
 
 #pragma once
 
-#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <utility>
 #include "storage/v2/indices/label_index_stats.hpp"
-#include "storage/v2/indices/point_index.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"

@@ -12,12 +12,10 @@
 #include "query/plan/operator.hpp"
 
 #include <algorithm>
-#include <cctype>
 #include <cstdint>
 #include <limits>
 #include <optional>
 #include <queue>
-#include <random>
 #include <string>
 #include <tuple>
 #include <type_traits>
@@ -28,7 +26,6 @@
 #include <cppitertools/chain.hpp>
 #include <cppitertools/imap.hpp>
 #include "memory/query_memory_control.hpp"
-#include "plan/point_distance_condition.hpp"
 #include "query/common.hpp"
 #include "query/procedure/module_fwd.hpp"
 #include "spdlog/spdlog.h"
@@ -46,11 +43,9 @@
 #include "query/interpret/eval.hpp"
 #include "query/path.hpp"
 #include "query/plan/scoped_profile.hpp"
-#include "query/procedure/cypher_types.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
 #include "query/typed_value.hpp"
-#include "range/v3/all.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
@@ -71,10 +66,8 @@
 #include "utils/pmr/unordered_set.hpp"
 #include "utils/pmr/vector.hpp"
 #include "utils/readable_size.hpp"
-#include "utils/string.hpp"
 #include "utils/tag.hpp"
 #include "utils/temporal.hpp"
-#include "utils/typeinfo.hpp"
 
 // macro for the default implementation of LogicalOperator::Accept
 // that accepts the visitor and visits it's input_ operator

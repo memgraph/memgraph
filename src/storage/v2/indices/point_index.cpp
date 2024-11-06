@@ -717,12 +717,18 @@ auto get_index_iterator_withinbbox(Index &index, PropertyValue const &bottom_lef
   });
 
   auto const upper_bound = std::invoke([&lower_bound, &top_right]() -> point_type {
+    using CoordinateSystem = typename bg::traits::coordinate_system<point_type>::type;
+    auto constexpr is_cartesian = std::is_same_v<CoordinateSystem, bg::cs::cartesian>;
     if constexpr (dimensions == 2) {
       auto const tmp_point = top_right.ValuePoint2d();
+      if constexpr (is_cartesian) return {tmp_point.x(), tmp_point.y()};
+
       auto const longitude = tmp_point.x();
       return {bg::get<0>(lower_bound) <= longitude ? longitude : longitude + 360.0, tmp_point.y()};
     } else {
       auto const tmp_point = top_right.ValuePoint3d();
+      if constexpr (is_cartesian) return {tmp_point.x(), tmp_point.y(), tmp_point.z()};
+
       auto const longitude = tmp_point.x();
       return {bg::get<0>(lower_bound) <= longitude ? longitude : longitude + 360.0, tmp_point.y(), tmp_point.z()};
     }
@@ -738,8 +744,6 @@ auto get_index_iterator_withinbbox(Index &index, PropertyValue const &bottom_lef
       return index.qbegin(bgi::covered_by(bounding_box));
     }
   }
-
-  return index.qend();
 }
 
 }  // namespace
@@ -764,29 +768,24 @@ auto PointIterable::begin() const -> PointIterator {
                              get_index_iterator_distance(*pimpl->cartesian_3d_, pimpl->point_value_,
                                                          pimpl->boundary_value_, pimpl->distance_condition_)};
     }
-  } else {
-    switch (pimpl->crs_) {
-      case CoordinateReferenceSystem::WGS84_2d:
-        return PointIterator{
-            pimpl->storage_, pimpl->transaction_, pimpl->crs_,
-            get_index_iterator_withinbbox(*pimpl->wgs84_2d_, pimpl->bounding_box.bottom_left,
-                                          pimpl->bounding_box.top_right, pimpl->withinbbox_condition_)};
-      case CoordinateReferenceSystem::WGS84_3d:
-        return PointIterator{
-            pimpl->storage_, pimpl->transaction_, pimpl->crs_,
-            get_index_iterator_withinbbox(*pimpl->wgs84_3d_, pimpl->bounding_box.bottom_left,
-                                          pimpl->bounding_box.top_right, pimpl->withinbbox_condition_)};
-      case CoordinateReferenceSystem::Cartesian_2d:
-        return PointIterator{
-            pimpl->storage_, pimpl->transaction_, pimpl->crs_,
-            get_index_iterator_withinbbox(*pimpl->cartesian_2d_, pimpl->bounding_box.bottom_left,
-                                          pimpl->bounding_box.top_right, pimpl->withinbbox_condition_)};
-      case CoordinateReferenceSystem::Cartesian_3d:
-        return PointIterator{
-            pimpl->storage_, pimpl->transaction_, pimpl->crs_,
-            get_index_iterator_withinbbox(*pimpl->cartesian_3d_, pimpl->bounding_box.bottom_left,
-                                          pimpl->bounding_box.top_right, pimpl->withinbbox_condition_)};
-    }
+  }
+  switch (pimpl->crs_) {
+    case CoordinateReferenceSystem::WGS84_2d:
+      return PointIterator{pimpl->storage_, pimpl->transaction_, pimpl->crs_,
+                           get_index_iterator_withinbbox(*pimpl->wgs84_2d_, pimpl->bounding_box.bottom_left,
+                                                         pimpl->bounding_box.top_right, pimpl->withinbbox_condition_)};
+    case CoordinateReferenceSystem::WGS84_3d:
+      return PointIterator{pimpl->storage_, pimpl->transaction_, pimpl->crs_,
+                           get_index_iterator_withinbbox(*pimpl->wgs84_3d_, pimpl->bounding_box.bottom_left,
+                                                         pimpl->bounding_box.top_right, pimpl->withinbbox_condition_)};
+    case CoordinateReferenceSystem::Cartesian_2d:
+      return PointIterator{pimpl->storage_, pimpl->transaction_, pimpl->crs_,
+                           get_index_iterator_withinbbox(*pimpl->cartesian_2d_, pimpl->bounding_box.bottom_left,
+                                                         pimpl->bounding_box.top_right, pimpl->withinbbox_condition_)};
+    case CoordinateReferenceSystem::Cartesian_3d:
+      return PointIterator{pimpl->storage_, pimpl->transaction_, pimpl->crs_,
+                           get_index_iterator_withinbbox(*pimpl->cartesian_3d_, pimpl->bounding_box.bottom_left,
+                                                         pimpl->bounding_box.top_right, pimpl->withinbbox_condition_)};
   }
 }
 auto PointIterable::end() const -> PointIterator {
