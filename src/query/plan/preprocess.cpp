@@ -549,9 +549,10 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       expr2->Accept(collector);
       bool const uses_same_symbol = utils::Contains(collector.symbols_, symbol);
       // if expr2 is also dependant on the same symbol then not possible to subsitute with a point index
+      // theoretically possible but in practice never
       if (!uses_same_symbol) {
         auto filter = make_filter(FilterInfo::Type::Point);
-        // expr2 is embedded in WithinBBoxCondition
+        // have to figure out WithinbboxCondition from expr2
         filter.point_filter.emplace(std::move(symbol), prop_lookup->property_, bottom_left, top_right, expr2);
         all_filters_.emplace_back(filter);
         return true;
@@ -569,14 +570,10 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       // point.withinbbox(n.prop, bottom_left, top_right)
       auto symbol = symbol_table.at(*ident);
       auto collector = UsedSymbolsCollector{symbol_table};
-      bool const uses_same_symbol = utils::Contains(collector.symbols_, symbol);
-      // if expr2 is also dependant on the same symbol then not possible to subsitute with a point index
-      if (!uses_same_symbol) {
-        auto filter = make_filter(FilterInfo::Type::Point);
-        filter.point_filter.emplace(std::move(symbol), prop_lookup->property_, bottom_left, top_right, condition);
-        all_filters_.emplace_back(filter);
-        return true;
-      }
+      auto filter = make_filter(FilterInfo::Type::Point);
+      filter.point_filter.emplace(std::move(symbol), prop_lookup->property_, bottom_left, top_right, condition);
+      all_filters_.emplace_back(filter);
+      return true;
     }
     return false;
   };

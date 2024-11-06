@@ -188,7 +188,7 @@ constexpr utils::TypeInfo query::plan::PeriodicSubquery::kType{utils::TypeId::PE
 constexpr utils::TypeInfo query::plan::ScanAllByPointDistance::kType{
     utils::TypeId::SCAN_ALL_BY_POINT_DISTANCE, "ScanAllByPointDistance", &query::plan::ScanAllByPointDistance::kType};
 
-constexpr utils::TypeInfo query::plan::ScanAllByPointWithinbbox::kType{utils::TypeId::SCAN_ALL_BY_POINT_DISTANCE,
+constexpr utils::TypeInfo query::plan::ScanAllByPointWithinbbox::kType{utils::TypeId::SCAN_ALL_BY_POINT_WITHINBBOX,
                                                                        "ScanAllByPointWithinbbox",
                                                                        &query::plan::ScanAllByPointWithinbbox::kType};
 }  // namespace memgraph

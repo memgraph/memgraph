@@ -1372,7 +1372,7 @@ Feature: Spatial related features
             """
         When executing query:
             """
-            WITH point({x:1, y:1, z:1, crs:"cartesian"}) AS lb, point({x:-1, y:-1, z:-1, crs:"cartesian"}) AS up MATCH (m:L1) WHERE point.withinbbox(m.prop, lb, up) RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
+            WITH point({x:1, y:1, z:1, crs:"cartesian-3d"}) AS lb, point({x:-1, y:-1, z:-1, crs:"cartesian-3d"}) AS up MATCH (m:L1) WHERE point.withinbbox(m.prop, lb, up) RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
             """
         Then the result should be:
             | m                                                                |

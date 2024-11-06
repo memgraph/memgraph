@@ -6504,8 +6504,6 @@ UniqueCursorPtr ScanAllByPointWithinbbox::MakeCursor(utils::MemoryResource *mem)
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
                                                                 view_, std::move(vertices), "ScanAllByPointWithinbbox");
-
-  return nullptr;
 }
 
 std::string ScanAllByPointWithinbbox::ToString() const {
