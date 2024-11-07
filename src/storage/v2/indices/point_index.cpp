@@ -288,7 +288,7 @@ auto PointIndexContext::PointVertices(LabelId label, PropertyId property, Coordi
   auto const &indexes = *current_indexes_;
   auto it = indexes.find(LabelPropKey{label, property});
   if (it == indexes.cend()) {
-    spdlog::warn("Failure why trying to locate a point index that should exist");
+    spdlog::warn("Failure: trying to locate a point index that should exist");
     return {};
   }
 
@@ -302,7 +302,7 @@ auto PointIndexContext::PointVertices(LabelId label, PropertyId property, Coordi
   auto const &indexes = *current_indexes_;
   auto it = indexes.find(LabelPropKey{label, property});
   if (it == indexes.cend()) {
-    spdlog::warn("Failure why trying to locate a point index that should exist");
+    spdlog::warn("Failure: trying to locate a point index that should exist");
     return {};
   }
 
@@ -437,12 +437,6 @@ struct PointIterable::impl {
         std::destroy_at(&cartesian_3d_);
         break;
     }
-
-    if (using_distance_) {
-      std::destroy_at(&point_value_);
-    } else {
-      std::destroy_at(&bounding_box);
-    }
   }
 
  private:
@@ -452,8 +446,8 @@ struct PointIterable::impl {
   PropertyValue boundary_value_;
   bool using_distance_;
 
-  // Don't need to destroy anything in this union because its PropertyValues hold
-  // primitive types (bool/int/point)
+  // Don't need to destroy_at anything in this union because its PropertyValues hold
+  // primitive types (bool/int/float/point)
   union {
     PropertyValue point_value_;
 
