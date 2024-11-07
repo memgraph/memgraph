@@ -126,6 +126,8 @@ class Client final {
   ClientContext *context_;
   SSL *ssl_{nullptr};
   BIO *bio_{nullptr};
+
+  std::optional<std::chrono::seconds> rpc_connection_timeout_sec_;
 };
 
 /**
