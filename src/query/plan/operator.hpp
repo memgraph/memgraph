@@ -1015,9 +1015,6 @@ class ScanAllByPointWithinbbox : public memgraph::query::plan::ScanAll {
   ScanAllByPointWithinbbox(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::LabelId label,
                            storage::PropertyId property, Identifier *bottom_left, Identifier *top_right,
                            Expression *boundary_value);
-  ScanAllByPointWithinbbox(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::LabelId label,
-                           storage::PropertyId property, Identifier *bottom_left, Identifier *top_right,
-                           WithinBBoxCondition condition);
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
@@ -1028,7 +1025,6 @@ class ScanAllByPointWithinbbox : public memgraph::query::plan::ScanAll {
   Identifier *bottom_left_ = nullptr;
   Identifier *top_right_ = nullptr;
   Expression *boundary_value_ = nullptr;
-  std::optional<WithinBBoxCondition> condition_ = std::nullopt;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
     auto object = std::make_unique<ScanAllByPointWithinbbox>();
@@ -1040,7 +1036,6 @@ class ScanAllByPointWithinbbox : public memgraph::query::plan::ScanAll {
     object->bottom_left_ = bottom_left_ ? bottom_left_->Clone(storage) : nullptr;
     object->top_right_ = top_right_ ? top_right_->Clone(storage) : nullptr;
     object->boundary_value_ = boundary_value_ ? boundary_value_->Clone(storage) : nullptr;
-    object->condition_ = condition_;
     return object;
   }
 };

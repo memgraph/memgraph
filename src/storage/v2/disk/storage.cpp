@@ -43,7 +43,6 @@
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/edges_iterable.hpp"
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/indices/point_index.hpp"
 #include "storage/v2/modified_edge.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_store.hpp"

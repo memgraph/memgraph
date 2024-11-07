@@ -814,4 +814,20 @@ TypedValue operator%(const TypedValue &a, const TypedValue &b);
 /** Output the TypedValue::Type value as a string */
 std::ostream &operator<<(std::ostream &os, const TypedValue::Type &type);
 
+/** Helper method for extract CRS from possible point types */
+inline auto GetCRS(TypedValue const &tv) -> std::optional<storage::CoordinateReferenceSystem> {
+  switch (tv.type()) {
+    using enum TypedValue::Type;
+    case Point2d: {
+      return tv.ValuePoint2d().crs();
+    }
+    case Point3d: {
+      return tv.ValuePoint3d().crs();
+    }
+    default: {
+      return std::nullopt;
+    }
+  }
+}
+
 }  // namespace memgraph::query

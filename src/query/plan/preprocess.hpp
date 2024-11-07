@@ -349,7 +349,7 @@ class PropertyFilter {
 
 /// Stores the symbols and expression used to filter a point.distance/withinbbox.
 struct PointFilter {
-  enum class Function : uint8_t { DISTANCE, WITHINBBOX_UNARY, WITHINBBOX_BINARY };
+  enum class Function : uint8_t { DISTANCE, WITHINBBOX };
 
   PointFilter(Symbol symbol, PropertyIx property, Identifier *cmp_value, PointDistanceCondition boundary_condition,
               Expression *boundary_value)
@@ -363,15 +363,15 @@ struct PointFilter {
               WithinBBoxCondition condition)
       : symbol_(std::move(symbol)),
         property_(std::move(property)),
-        function_(Function::WITHINBBOX_UNARY),
-        withinbbox_unary_{.bottom_left_ = bottom_left, .top_right_ = top_right, .condition = condition} {}
+        function_(Function::WITHINBBOX),
+        withinbbox_{.bottom_left_ = bottom_left, .top_right_ = top_right, .condition_ = condition} {}
 
   PointFilter(Symbol symbol, PropertyIx property, Identifier *bottom_left, Identifier *top_right,
               Expression *boundary_value)
       : symbol_(std::move(symbol)),
         property_(std::move(property)),
-        function_(Function::WITHINBBOX_BINARY),
-        withinbbox_binary_{.bottom_left_ = bottom_left, .top_right_ = top_right, .boundary_value_ = boundary_value} {}
+        function_(Function::WITHINBBOX),
+        withinbbox_{.bottom_left_ = bottom_left, .top_right_ = top_right, .boundary_value_ = boundary_value} {}
 
   /// Symbol whose property is looked up.
   Symbol symbol_;
@@ -386,13 +386,9 @@ struct PointFilter {
     struct {
       Identifier *bottom_left_ = nullptr;
       Identifier *top_right_ = nullptr;
-      WithinBBoxCondition condition;
-    } withinbbox_unary_;
-    struct {
-      Identifier *bottom_left_ = nullptr;
-      Identifier *top_right_ = nullptr;
       Expression *boundary_value_ = nullptr;
-    } withinbbox_binary_;
+      std::optional<WithinBBoxCondition> condition_;
+    } withinbbox_;
   };
 };
 

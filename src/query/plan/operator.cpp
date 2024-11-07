@@ -6384,28 +6384,15 @@ UniqueCursorPtr ScanAllByPointDistance::MakeCursor(utils::MemoryResource *mem) c
   auto vertices = [this](Frame &frame, ExecutionContext &context) -> std::optional<PointIterable> {
     auto *db = context.db_accessor;
 
+    // Using Reference because cmp_value_ ATM is identifiers
     auto evaluator = ReferenceExpressionEvaluator(&frame, &context.symbol_table, &context.evaluation_context);
-
-    // Is it possible to evaluate this while making cursor?
-    //  Yes - if constant, this would mean we can specialise
-    //  No - in general, this could be a property from another object (bound to variable during evaluation)
     auto *value = evaluator.Visit(*cmp_value_);
 
-    auto crs = std::invoke([&]() -> std::optional<storage::CoordinateReferenceSystem> {
-      switch (value->type()) {
-        using enum TypedValue::Type;
-        case TypedValue::Type::Point2d: {
-          return value->ValuePoint2d().crs();
-        }
-        case TypedValue::Type::Point3d: {
-          return value->ValuePoint3d().crs();
-        }
-        default: {
-          return std::nullopt;
-        }
-      }
-    });
+    if (value == nullptr) {
+      throw QueryRuntimeException("point.distance unable to evaluate its comparison value.");
+    }
 
+    auto crs = GetCRS(*value);
     if (!crs) return std::nullopt;
 
     ExpressionEvaluator boundary_evaluator(&frame, context.symbol_table, context.evaluation_context,
@@ -6421,10 +6408,10 @@ UniqueCursorPtr ScanAllByPointDistance::MakeCursor(utils::MemoryResource *mem) c
 }
 
 std::string ScanAllByPointDistance::ToString() const {
-  auto name = output_symbol_.name();
-  auto string = dba_->LabelToName(label_);
-  auto basicString = dba_->PropertyToName(property_);
-  return fmt::format("ScanAllByPointDistance ({0} :{1} {{{2}}})", name, string, basicString);
+  auto const &name = output_symbol_.name();
+  auto const &label = dba_->LabelToName(label_);
+  auto const &property = dba_->PropertyToName(property_);
+  return fmt::format("ScanAllByPointDistance ({0} :{1} {{{2}}})", name, label, property);
 }
 
 ScanAllByPointWithinbbox::ScanAllByPointWithinbbox(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
@@ -6438,17 +6425,6 @@ ScanAllByPointWithinbbox::ScanAllByPointWithinbbox(const std::shared_ptr<Logical
       top_right_{top_right},
       boundary_value_{boundary_value} {}
 
-ScanAllByPointWithinbbox::ScanAllByPointWithinbbox(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
-                                                   storage::LabelId label, storage::PropertyId property,
-                                                   Identifier *bottom_left, Identifier *top_right,
-                                                   WithinBBoxCondition condition)
-    : ScanAll(input, output_symbol, storage::View::OLD),
-      label_(label),
-      property_(property),
-      bottom_left_{bottom_left},
-      top_right_{top_right},
-      condition_{condition} {}
-
 ACCEPT_WITH_INPUT(ScanAllByPointWithinbbox)
 
 UniqueCursorPtr ScanAllByPointWithinbbox::MakeCursor(utils::MemoryResource *mem) const {
@@ -6457,38 +6433,21 @@ UniqueCursorPtr ScanAllByPointWithinbbox::MakeCursor(utils::MemoryResource *mem)
   auto vertices = [this](Frame &frame, ExecutionContext &context) -> std::optional<PointIterable> {
     auto *db = context.db_accessor;
 
+    // Using Reference because bottom_left_ + top_right_ ATM are identifiers
     auto evaluator = ReferenceExpressionEvaluator(&frame, &context.symbol_table, &context.evaluation_context);
     auto *bottom_left_value = evaluator.Visit(*bottom_left_);
     auto *top_right_value = evaluator.Visit(*top_right_);
 
-    auto get_crs = [](auto const *point) -> std::optional<storage::CoordinateReferenceSystem> {
-      switch (point->type()) {
-        using enum TypedValue::Type;
-        case TypedValue::Type::Point2d: {
-          return point->ValuePoint2d().crs();
-        }
-        case TypedValue::Type::Point3d: {
-          return point->ValuePoint3d().crs();
-        }
-        default: {
-          return std::nullopt;
-        }
-      }
-    };
+    // Here only to ensure code is still safe if above usage of ReferenceExpressionEvaluator become invalidated
+    if (bottom_left_value == nullptr || top_right_value == nullptr) {
+      throw QueryRuntimeException("point.withinbbox unable to evaluate its bounding box.");
+    }
 
-    auto const crs1 = get_crs(bottom_left_value);
-    auto const crs2 = get_crs(top_right_value);
+    auto const crs1 = GetCRS(*bottom_left_value);
+    auto const crs2 = GetCRS(*top_right_value);
 
     if (!crs1 || !crs2 || crs1 != crs2) return std::nullopt;
 
-    // Expression: where point.withinbbox() / where not point.withinbbox()
-    // Condition was already figured out at preprocessing
-    if (condition_) {
-      return std::make_optional(
-          db->PointVertices(label_, property_, *crs1, *bottom_left_value, *top_right_value, *condition_));
-    }
-
-    // Expression: where point.withinbbox() = true/false
     // Have to evaluate condition
     ExpressionEvaluator boundary_evaluator(&frame, context.symbol_table, context.evaluation_context,
                                            context.db_accessor, view_);
@@ -6507,10 +6466,10 @@ UniqueCursorPtr ScanAllByPointWithinbbox::MakeCursor(utils::MemoryResource *mem)
 }
 
 std::string ScanAllByPointWithinbbox::ToString() const {
-  auto name = output_symbol_.name();
-  auto string = dba_->LabelToName(label_);
-  auto basicString = dba_->PropertyToName(property_);
-  return fmt::format("ScanAllByPointWithinbbox ({0} :{1} {{{2}}})", name, string, basicString);
+  auto const &name = output_symbol_.name();
+  auto const &label = dba_->LabelToName(label_);
+  auto const &property = dba_->PropertyToName(property_);
+  return fmt::format("ScanAllByPointWithinbbox ({0} :{1} {{{2}}})", name, label, property);
 }
 
 }  // namespace memgraph::query::plan

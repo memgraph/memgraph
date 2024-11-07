@@ -456,6 +456,13 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     return false;
   };
 
+  // Helper
+  auto commutative_apply = [](auto &&func, auto &&arg1, auto &&arg2) {
+    if (func(arg1, arg2)) return true;
+    if (func(arg2, arg1)) return true;
+    return false;
+  };
+
   auto get_point_distance_function = [&](Expression *expr, PropertyLookup *&propertyLookup, Identifier *&ident,
                                          Identifier *&other) -> bool {
     auto *func = utils::Downcast<Function>(expr);
@@ -477,12 +484,6 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
         }
         /* check for inplace point({...}) literal OR have another pass do a raise to force it to be identifier*/
       }
-      return false;
-    };
-
-    auto commutative_apply = [](auto &&func, auto &&arg1, auto &&arg2) {
-      if (func(arg1, arg2)) return true;
-      if (func(arg2, arg1)) return true;
       return false;
     };
 
@@ -715,8 +716,8 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     bool is_id_filter = add_id_equal(eq->expression1_, eq->expression2_);
     is_id_filter |= add_id_equal(eq->expression2_, eq->expression1_);
 
-    // WHERE point.withinbbox() = true/false
-    if (add_point_withinbbox_filter_binary(eq->expression1_, eq->expression2_)) {
+    // WHERE point.withinbbox() = true/
+    if (commutative_apply(add_point_withinbbox_filter_binary, eq->expression1_, eq->expression2_)) {
       return;
     }
 
@@ -732,39 +733,47 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     // We only support property type ranges for now
     add_prop_range(range);
   } else if (auto *gt = utils::Downcast<GreaterOperator>(expr)) {
-    // look for point.distance(n.prop, other) > expr2
-    if (!add_point_distance_filter(gt->expression1_, gt->expression2_, PointDistanceCondition::OUTSIDE))
-      // look for expr2 > point.distance(n.prop, other)
-      if (!add_point_distance_filter(gt->expression1_, gt->expression2_, PointDistanceCondition::INSIDE))
-        if (!add_prop_greater(gt->expression1_, gt->expression2_, Bound::Type::EXCLUSIVE)) {
-          all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
-        }
+    if (
+        // look for point.distance(n.prop, other) > expr2
+        !add_point_distance_filter(gt->expression1_, gt->expression2_, PointDistanceCondition::OUTSIDE) &&
+        // look for expr2 > point.distance(n.prop, other)
+        !add_point_distance_filter(gt->expression1_, gt->expression2_, PointDistanceCondition::INSIDE) &&
+        !add_prop_greater(gt->expression1_, gt->expression2_, Bound::Type::EXCLUSIVE)) {
+      // fallback generic
+      all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
+    }
   } else if (auto *ge = utils::Downcast<GreaterEqualOperator>(expr)) {
-    // look for point.distance(n.prop, other) >= expr2
-    if (!add_point_distance_filter(ge->expression1_, ge->expression2_, PointDistanceCondition::OUTSIDE_AND_BOUNDARY))
-      // look for expr2 >= point.distance(n.prop, other)
-      if (!add_point_distance_filter(ge->expression1_, ge->expression2_, PointDistanceCondition::INSIDE_AND_BOUNDARY))
-        if (!add_prop_greater(ge->expression1_, ge->expression2_, Bound::Type::INCLUSIVE)) {
-          all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
-        }
+    if (
+        // look for point.distance(n.prop, other) >= expr2
+        !add_point_distance_filter(ge->expression1_, ge->expression2_, PointDistanceCondition::OUTSIDE_AND_BOUNDARY) &&
+        // look for expr2 >= point.distance(n.prop, other)
+        !add_point_distance_filter(ge->expression1_, ge->expression2_, PointDistanceCondition::INSIDE_AND_BOUNDARY) &&
+        !add_prop_greater(ge->expression1_, ge->expression2_, Bound::Type::INCLUSIVE)) {
+      // fallback generic
+      all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
+    }
   } else if (auto *lt = utils::Downcast<LessOperator>(expr)) {
-    // look for point.distance(n.prop, other) < expr2
-    if (!add_point_distance_filter(lt->expression1_, lt->expression2_, PointDistanceCondition::INSIDE))
-      // look for expr2 < point.distance(n.prop, other)
-      if (!add_point_distance_filter(lt->expression1_, lt->expression2_, PointDistanceCondition::OUTSIDE))
+    if (
+        // look for point.distance(n.prop, other) < expr2
+        !add_point_distance_filter(lt->expression1_, lt->expression2_, PointDistanceCondition::INSIDE) &&
+        // look for expr2 < point.distance(n.prop, other)
+        !add_point_distance_filter(lt->expression1_, lt->expression2_, PointDistanceCondition::OUTSIDE) &&
         // Like greater, but in reverse.
-        if (!add_prop_greater(lt->expression2_, lt->expression1_, Bound::Type::EXCLUSIVE)) {
-          all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
-        }
+        !add_prop_greater(lt->expression2_, lt->expression1_, Bound::Type::EXCLUSIVE)) {
+      // fallback generic
+      all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
+    }
   } else if (auto *le = utils::Downcast<LessEqualOperator>(expr)) {
-    // look for point.distance(n.prop, other) <= expr2
-    if (!add_point_distance_filter(le->expression1_, le->expression2_, PointDistanceCondition::INSIDE_AND_BOUNDARY))
-      // look for expr2 <= point.distance(n.prop, other)
-      if (!add_point_distance_filter(le->expression1_, le->expression2_, PointDistanceCondition::OUTSIDE_AND_BOUNDARY))
+    if (
+        // look for point.distance(n.prop, other) <= expr2
+        !add_point_distance_filter(le->expression1_, le->expression2_, PointDistanceCondition::INSIDE_AND_BOUNDARY) &&
+        // look for expr2 <= point.distance(n.prop, other)
+        !add_point_distance_filter(le->expression1_, le->expression2_, PointDistanceCondition::OUTSIDE_AND_BOUNDARY) &&
         // Like greater equal, but in reverse.
-        if (!add_prop_greater(le->expression2_, le->expression1_, Bound::Type::INCLUSIVE)) {
-          all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
-        }
+        !add_prop_greater(le->expression2_, le->expression1_, Bound::Type::INCLUSIVE)) {
+      // fallback generic
+      all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
+    }
   } else if (auto *in = utils::Downcast<InListOperator>(expr)) {
     // IN isn't equivalent to Equal because IN isn't a symmetric operator. The
     // IN filter is captured here only if the property lookup occurs on the
