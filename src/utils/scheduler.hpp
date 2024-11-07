@@ -68,12 +68,7 @@ class Scheduler {
 
     thread_ = std::jthread([this, f = f, service_name = service_name,
                             find_next_execution = std::move(find_next_execution)](std::stop_token token) mutable {
-      ThreadRun(
-          std::move(service_name), std::move(f),
-          [find_next_execution = std::move(find_next_execution)](const auto &now) mutable {
-            return find_next_execution(now);
-          },
-          token);
+      ThreadRun(std::move(service_name), std::move(f), std::move(find_next_execution), token);
     });
   };
 
@@ -87,6 +82,14 @@ class Scheduler {
   void Stop();
 
   bool IsRunning();
+
+  void SpinOne() {
+    {
+      auto lk = std::unique_lock{mutex_};
+      spin_ = true;
+    }
+    condition_variable_.notify_one();
+  }
 
   ~Scheduler() { Stop(); }
 
@@ -107,7 +110,7 @@ class Scheduler {
       const auto next = get_next(now);
       if (next > now) {
         auto lk = std::unique_lock{mutex_};
-        condition_variable_.wait_until(lk, next, [&] { return token.stop_requested(); });
+        condition_variable_.wait_until(lk, next, [&] { return token.stop_requested() || spin_; });
       }
 
       if (is_paused_) {
@@ -116,10 +119,16 @@ class Scheduler {
       }
 
       if (token.stop_requested()) break;
+      if (spin_) {
+        spin_ = false;
+        continue;
+      }
 
       f();
     }
   }
+
+  std::atomic<bool> spin_{false};
 
   /**
    * Variable is true when thread is paused.

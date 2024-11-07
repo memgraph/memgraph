@@ -12,26 +12,61 @@
 #include "utils/scheduler.hpp"
 
 #include <ctime>
+#include <memory>
 
 #include "croncpp.h"
+#include "flags/run_time_configurable.hpp"
+#include "utils/observer.hpp"
+#include "utils/rw_spin_lock.hpp"
+#include "utils/synchronized.hpp"
 #include "utils/temporal.hpp"
 
 namespace memgraph::utils {
+
+namespace {
+class CronObserver : public Observer<std::optional<std::string>> {
+ public:
+  CronObserver(Scheduler *scheduler, cron::cronexpr cron_expr)
+      : scheduler_{scheduler}, cron_expr_{std::move(cron_expr)} {}
+
+  // String HAS to be a valid cron expr
+  void Update(const std::optional<std::string> &in) override {
+    if (!in) {
+      scheduler_->Stop();
+    }
+    *cron_expr_.Lock() = cron::make_cron(*in);
+    scheduler_->SpinOne();
+  }
+
+  auto get() const { return *cron_expr_.ReadLock(); }
+
+  auto next(const auto &now) {
+    const auto cron_locked = cron_expr_.ReadLock();
+    return cron::cron_next(*cron_locked, now);
+  }
+
+ private:
+  Scheduler *scheduler_;
+  Synchronized<cron::cronexpr, RWSpinLock> cron_expr_;
+};
+}  // namespace
 
 void Scheduler::Run(const std::string &service_name, const std::function<void()> &f, std::string_view cron_expr) {
   DMG_ASSERT(!IsRunning(), "Thread already running.");
 
   thread_ = std::jthread(
       [this, f = f, service_name = service_name, cron = cron::make_cron(cron_expr)](std::stop_token token) mutable {
+        auto cron_observer = std::make_shared<CronObserver>(this, std::move(cron));
+        memgraph::flags::run_time::SnapshotCronAttach(cron_observer);
         ThreadRun(
             std::move(service_name), std::move(f),
-            [cron = std::move(cron)](const auto &now) {
+            [cron_observer = std::move(cron_observer)](const auto &now) {
               auto tm_now = LocalDateTime{now}.tm();
               // Hack to force the mktime to reinterpret the time as is in the system tz
               tm_now.tm_gmtoff = 0;
               tm_now.tm_isdst = -1;
               tm_now.tm_zone = nullptr;
-              const auto tm_next = cron::cron_next(cron, tm_now);
+              const auto tm_next = cron_observer->next(tm_now);
               // LocalDateTime reads only the date and time values, ignoring the system tz
               return LocalDateTime{tm_next}.us_since_epoch_;
             },

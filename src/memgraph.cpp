@@ -65,6 +65,7 @@
 #include "utils/event_gauge.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
+#include "utils/scheduler.hpp"
 #include "utils/signals.hpp"
 #include "utils/sysinfo/memory.hpp"
 #include "utils/system_info.hpp"
@@ -448,6 +449,11 @@ int main(int argc, char **argv) {
   }
 
 #endif
+
+  // TODO: REMOVE
+  memgraph::utils::Scheduler cron_test;
+  cron_test.Run(
+      "cron_test", []() { std::cout << "run" << std::endl; }, "* * * * * *");
 
   // Default interpreter configuration
   memgraph::query::InterpreterConfig interp_config{

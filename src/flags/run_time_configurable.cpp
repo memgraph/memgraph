@@ -22,6 +22,7 @@
 #include "spdlog/spdlog.h"
 #include "utils/exceptions.hpp"
 #include "utils/flag_validation.hpp"
+#include "utils/observer.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/rw_spin_lock.hpp"
 #include "utils/settings.hpp"
@@ -112,7 +113,27 @@ std::atomic<double> execution_timeout_sec_;
 std::atomic<bool> hops_limit_partial_results{true};
 std::atomic<bool> cartesian_product_enabled_{true};
 std::atomic<const std::chrono::time_zone *> timezone_{nullptr};
-memgraph::utils::Synchronized<std::optional<cron::cronexpr>, memgraph::utils::RWSpinLock> snapshot_cron_{};
+
+class CronObservable : public memgraph::utils::Observable<std::optional<std::string>> {
+ public:
+  void Accept(std::shared_ptr<memgraph::utils::Observer<std::optional<std::string>>> observer) {
+    const auto cron_locked = cron_str_.ReadLock();
+    observer->Update(*cron_locked);
+  }
+
+  void Modify(std::string_view in) {
+    {
+      auto cron_locked = cron_str_.Lock();
+      if (in.empty()) cron_locked->reset();
+      cron_locked->emplace(in);
+    }
+    Notify();
+  }
+
+ private:
+  memgraph::utils::Synchronized<std::optional<std::string>, memgraph::utils::RWSpinLock> cron_str_;
+} snapshot_cron_;
+
 // NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
 
 auto ToLLEnum(std::string_view val) {
@@ -263,9 +284,7 @@ void Initialize() {
    */
   register_flag(
       kSnapshotCronGFlagsKey, kSnapshotCronSettingKey, !kRestore,
-      [](const std::string &val) {
-        *snapshot_cron_.Lock() = val.empty() ? std::nullopt : std::optional(cron::make_cron(val));
-      },
+      [](const std::string_view val) { snapshot_cron_.Modify(val); },
       [](const std::string_view val) {
         // Empty str means nullopt
         if (val.empty()) return true;
@@ -300,12 +319,8 @@ std::string GetQueryLogDirectory() {
   return s;
 }
 
-std::optional<std::string> GetSnapshotCron() {
-  const auto cron_locked = snapshot_cron_.ReadLock();
-  if (cron_locked->has_value()) {
-    return cron::to_cronstr(cron_locked->value());
-  }
-  return std::nullopt;
+void SnapshotCronAttach(std::shared_ptr<utils::Observer<std::optional<std::string>>> observer) {
+  snapshot_cron_.Attach(std::move(observer));
 }
 
 }  // namespace memgraph::flags::run_time

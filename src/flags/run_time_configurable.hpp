@@ -12,6 +12,7 @@
 
 #include <chrono>
 #include <string>
+#include "utils/observer.hpp"
 
 namespace memgraph::flags::run_time {
 
@@ -64,10 +65,8 @@ const std::chrono::time_zone *GetTimezone();
 std::string GetQueryLogDirectory();
 
 /**
- * @brief Get the periodic snapshot interval as defined via cron.
- *
- * @return std::optional<std::string>
+ * @brief
  */
-std::optional<std::string> GetSnapshotCron();
+void SnapshotCronAttach(std::shared_ptr<utils::Observer<std::optional<std::string>>> observer);
 
 }  // namespace memgraph::flags::run_time
