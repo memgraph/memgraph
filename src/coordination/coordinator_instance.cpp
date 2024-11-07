@@ -105,7 +105,6 @@ auto CoordinatorInstance::GetBecomeLeaderCallback() -> std::function<void()> {
   };
 }
 
-// TODO: (andi) refactor reconcile cluster state and the way how we create checkers.
 auto CoordinatorInstance::GetBecomeFollowerCallback() -> std::function<void()> {
   return [this]() {
     status.store(CoordinatorStatus::FOLLOWER, std::memory_order_release);

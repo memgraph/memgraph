@@ -53,7 +53,7 @@ class InMemoryReplicationHandlers {
                                        const std::optional<utils::UUID> &current_main_uuid, slk::Reader *req_reader,
                                        slk::Builder *res_builder);
 
-  static void LoadWal(storage::InMemoryStorage *storage, storage::replication::Decoder *decoder);
+  static bool LoadWal(storage::InMemoryStorage *storage, storage::replication::Decoder *decoder);
 
   static uint64_t ReadAndApplyDeltas(storage::InMemoryStorage *storage, storage::durability::BaseDecoder *decoder,
                                      uint64_t version);
