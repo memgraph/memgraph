@@ -463,8 +463,14 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     return false;
   };
 
+  auto is_independant = [&symbol_table](Symbol const &sym, Expression *expression) {
+    UsedSymbolsCollector collector{symbol_table};
+    expression->Accept(collector);
+    return !collector.symbols_.contains(sym);
+  };
+
   auto get_point_distance_function = [&](Expression *expr, PropertyLookup *&propertyLookup, Identifier *&ident,
-                                         Identifier *&other) -> bool {
+                                         Expression *&other) -> bool {
     auto *func = utils::Downcast<Function>(expr);
     auto isPointDistance = func && utils::ToUpperCase(func->function_name_) == "POINT.DISTANCE"sv;
     if (!isPointDistance) return false;
@@ -473,16 +479,10 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
 
     auto extract_prop_lookup_and_identifers = [&](Expression *lhs, Expression *rhs) -> bool {
       if (get_property_lookup(lhs, propertyLookup, ident)) {
-        other = utils::Downcast<Identifier>(rhs);
-        if (other == nullptr) return false;
-        // it would not make sense to hint to the Scan subsitution that we could replace with a Point index scan
-        // if the point.distance call had same identifer in both lhs and rhs
-        // eg. point.distance(x.prop, x) or point.distance(x.prop, x.thing)
-        // test to ensure they are different
-        if (other != ident) {
-          return true;
-        }
-        /* check for inplace point({...}) literal OR have another pass do a raise to force it to be identifier*/
+        auto const &sym = symbol_table.at(*ident);
+        if (!is_independant(sym, rhs)) return false;
+        other = rhs;
+        return true;
       }
       return false;
     };
@@ -493,26 +493,22 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
   auto add_point_distance_filter = [&](auto *expr1, auto *expr2, PointDistanceCondition kind) {
     PropertyLookup *prop_lookup = nullptr;
     Identifier *ident = nullptr;
-    Identifier *other = nullptr;
+    Expression *other = nullptr;
     if (get_point_distance_function(expr1, prop_lookup, ident, other)) {
       // point.distance(n.prop, other) > expr2
-      auto symbol = symbol_table.at(*ident);
-      auto collector = UsedSymbolsCollector{symbol_table};
-      expr2->Accept(collector);
-      bool const uses_same_symbol = utils::Contains(collector.symbols_, symbol);
+      auto const &sym = symbol_table.at(*ident);
       // if expr2 is also dependant on the same symbol then not possible to subsitute with a point index
-      if (!uses_same_symbol) {
-        auto filter = make_filter(FilterInfo::Type::Point);
-        filter.point_filter.emplace(std::move(symbol), prop_lookup->property_, other, kind, expr2);
-        all_filters_.emplace_back(filter);
-        return true;
-      }
+      if (!is_independant(sym, expr2)) return false;
+      auto filter = make_filter(FilterInfo::Type::Point);
+      filter.point_filter.emplace(sym, prop_lookup->property_, other, kind, expr2);
+      all_filters_.emplace_back(filter);
+      return true;
     }
     return false;
   };
 
   auto get_point_withinbbox_function = [&](Expression *expr, PropertyLookup *&propertyLookup, Identifier *&ident,
-                                           Identifier *&bottom_left, Identifier *&top_right) -> bool {
+                                           Expression *&bottom_left, Expression *&top_right) -> bool {
     auto *func = utils::Downcast<Function>(expr);
     auto isPointWithinbbox = func && utils::ToUpperCase(func->function_name_) == "POINT.WITHINBBOX"sv;
     if (!isPointWithinbbox) return false;
@@ -522,15 +518,12 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     auto extract_prop_lookup_and_identifers = [&](Expression *point, Expression *bottom_left_expr,
                                                   Expression *top_right_expr) -> bool {
       if (get_property_lookup(point, propertyLookup, ident)) {
-        bottom_left = utils::Downcast<Identifier>(bottom_left_expr);
-        if (bottom_left == nullptr) return false;
-        top_right = utils::Downcast<Identifier>(top_right_expr);
-        if (top_right == nullptr) return false;
-        // it would not make sense to hint to the Scan subsitution that we could replace with a Point index scan
-        // if the point.withinbbox call had same identifer in the searched point as in its boundaries
-        if (ident != bottom_left && ident != top_right) {
-          return true;
-        }
+        auto const &scan_symbol = symbol_table.at(*ident);
+        if (!is_independant(scan_symbol, bottom_left_expr)) return false;
+        if (!is_independant(scan_symbol, top_right_expr)) return false;
+        bottom_left = bottom_left_expr;
+        top_right = top_right_expr;
+        return true;
       }
       return false;
     };
@@ -541,23 +534,19 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
   auto add_point_withinbbox_filter_binary = [&](auto *expr1, auto *expr2) {
     PropertyLookup *prop_lookup = nullptr;
     Identifier *ident = nullptr;
-    Identifier *bottom_left = nullptr;
-    Identifier *top_right = nullptr;
+    Expression *bottom_left = nullptr;
+    Expression *top_right = nullptr;
     if (get_point_withinbbox_function(expr1, prop_lookup, ident, bottom_left, top_right)) {
       // point.withinbbox(n.prop, bottom_left, top_right) = expr (true/false)
-      auto symbol = symbol_table.at(*ident);
-      auto collector = UsedSymbolsCollector{symbol_table};
-      expr2->Accept(collector);
-      bool const uses_same_symbol = utils::Contains(collector.symbols_, symbol);
+      auto const &sym = symbol_table.at(*ident);
       // if expr2 is also dependant on the same symbol then not possible to subsitute with a point index
       // theoretically possible but in practice never
-      if (!uses_same_symbol) {
-        auto filter = make_filter(FilterInfo::Type::Point);
-        // have to figure out WithinbboxCondition from expr2
-        filter.point_filter.emplace(std::move(symbol), prop_lookup->property_, bottom_left, top_right, expr2);
-        all_filters_.emplace_back(filter);
-        return true;
-      }
+      auto filter = make_filter(FilterInfo::Type::Point);
+      if (!is_independant(sym, expr2)) return false;
+      // have to figure out WithinbboxCondition from expr2
+      filter.point_filter.emplace(sym, prop_lookup->property_, bottom_left, top_right, expr2);
+      all_filters_.emplace_back(filter);
+      return true;
     }
     return false;
   };
@@ -565,14 +554,12 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
   auto add_point_withinbbox_filter_unary = [&](auto *expr1, WithinBBoxCondition condition) {
     PropertyLookup *prop_lookup = nullptr;
     Identifier *ident = nullptr;
-    Identifier *bottom_left = nullptr;
-    Identifier *top_right = nullptr;
+    Expression *bottom_left = nullptr;
+    Expression *top_right = nullptr;
     if (get_point_withinbbox_function(expr1, prop_lookup, ident, bottom_left, top_right)) {
       // point.withinbbox(n.prop, bottom_left, top_right)
-      auto symbol = symbol_table.at(*ident);
-      auto collector = UsedSymbolsCollector{symbol_table};
       auto filter = make_filter(FilterInfo::Type::Point);
-      filter.point_filter.emplace(std::move(symbol), prop_lookup->property_, bottom_left, top_right, condition);
+      filter.point_filter.emplace(symbol_table.at(*ident), prop_lookup->property_, bottom_left, top_right, condition);
       all_filters_.emplace_back(filter);
       return true;
     }

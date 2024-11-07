@@ -978,7 +978,7 @@ class ScanAllByPointDistance : public memgraph::query::plan::ScanAll {
 
   ScanAllByPointDistance() = default;
   ScanAllByPointDistance(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::LabelId label,
-                         storage::PropertyId property, Identifier *cmp_value, Expression *boundary_value,
+                         storage::PropertyId property, Expression *cmp_value, Expression *boundary_value,
                          PointDistanceCondition boundary_condition);
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
@@ -987,7 +987,7 @@ class ScanAllByPointDistance : public memgraph::query::plan::ScanAll {
 
   storage::LabelId label_;
   storage::PropertyId property_;
-  Identifier *cmp_value_ = nullptr;
+  Expression *cmp_value_ = nullptr;
   Expression *boundary_value_ = nullptr;
   PointDistanceCondition boundary_condition_;
 
@@ -1013,7 +1013,7 @@ class ScanAllByPointWithinbbox : public memgraph::query::plan::ScanAll {
 
   ScanAllByPointWithinbbox() = default;
   ScanAllByPointWithinbbox(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::LabelId label,
-                           storage::PropertyId property, Identifier *bottom_left, Identifier *top_right,
+                           storage::PropertyId property, Expression *bottom_left, Expression *top_right,
                            Expression *boundary_value);
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
@@ -1022,8 +1022,8 @@ class ScanAllByPointWithinbbox : public memgraph::query::plan::ScanAll {
 
   storage::LabelId label_;
   storage::PropertyId property_;
-  Identifier *bottom_left_ = nullptr;
-  Identifier *top_right_ = nullptr;
+  Expression *bottom_left_ = nullptr;
+  Expression *top_right_ = nullptr;
   Expression *boundary_value_ = nullptr;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {

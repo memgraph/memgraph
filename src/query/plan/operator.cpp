@@ -6367,7 +6367,7 @@ UniqueCursorPtr PeriodicSubquery::MakeCursor(utils::MemoryResource *mem) const {
 
 ScanAllByPointDistance::ScanAllByPointDistance(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
                                                storage::LabelId label, storage::PropertyId property,
-                                               Identifier *cmp_value, Expression *boundary_value,
+                                               Expression *cmp_value, Expression *boundary_value,
                                                PointDistanceCondition boundary_condition)
     : ScanAll(input, output_symbol, storage::View::OLD),
       label_(label),
@@ -6382,29 +6382,19 @@ UniqueCursorPtr ScanAllByPointDistance::MakeCursor(utils::MemoryResource *mem) c
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByPointDistanceOperator);
 
   auto vertices = [this](Frame &frame, ExecutionContext &context) -> std::optional<PointIterable> {
-    auto *db = context.db_accessor;
+    auto evaluator =
+        ExpressionEvaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_);
+    auto value = cmp_value_->Accept(evaluator);
 
-    // Using Reference because cmp_value_ ATM is identifiers
-    auto evaluator = ReferenceExpressionEvaluator(&frame, &context.symbol_table, &context.evaluation_context);
-    auto *value = evaluator.Visit(*cmp_value_);
-
-    if (value == nullptr) {
-      throw QueryRuntimeException("point.distance unable to evaluate its comparison value.");
-    }
-
-    auto crs = GetCRS(*value);
+    auto crs = GetCRS(value);
     if (!crs) return std::nullopt;
 
-    ExpressionEvaluator boundary_evaluator(&frame, context.symbol_table, context.evaluation_context,
-                                           context.db_accessor, view_);
-    auto boundary_value = boundary_value_->Accept(boundary_evaluator);
-
-    return std::make_optional(db->PointVertices(label_, property_, *crs, *value, boundary_value, boundary_condition_));
+    auto boundary_value = boundary_value_->Accept(evaluator);
+    return std::make_optional(
+        context.db_accessor->PointVertices(label_, property_, *crs, value, boundary_value, boundary_condition_));
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
                                                                 view_, std::move(vertices), "ScanAllByPointDistance");
-
-  return nullptr;
 }
 
 std::string ScanAllByPointDistance::ToString() const {
@@ -6416,7 +6406,7 @@ std::string ScanAllByPointDistance::ToString() const {
 
 ScanAllByPointWithinbbox::ScanAllByPointWithinbbox(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
                                                    storage::LabelId label, storage::PropertyId property,
-                                                   Identifier *bottom_left, Identifier *top_right,
+                                                   Expression *bottom_left, Expression *top_right,
                                                    Expression *boundary_value)
     : ScanAll(input, output_symbol, storage::View::OLD),
       label_(label),
@@ -6431,35 +6421,24 @@ UniqueCursorPtr ScanAllByPointWithinbbox::MakeCursor(utils::MemoryResource *mem)
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByPointWithinbboxOperator);
 
   auto vertices = [this](Frame &frame, ExecutionContext &context) -> std::optional<PointIterable> {
-    auto *db = context.db_accessor;
+    auto evaluator =
+        ExpressionEvaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_);
+    auto bottom_left_value = bottom_left_->Accept(evaluator);
+    auto top_right_value = top_right_->Accept(evaluator);
 
-    // Using Reference because bottom_left_ + top_right_ ATM are identifiers
-    auto evaluator = ReferenceExpressionEvaluator(&frame, &context.symbol_table, &context.evaluation_context);
-    auto *bottom_left_value = evaluator.Visit(*bottom_left_);
-    auto *top_right_value = evaluator.Visit(*top_right_);
-
-    // Here only to ensure code is still safe if above usage of ReferenceExpressionEvaluator become invalidated
-    if (bottom_left_value == nullptr || top_right_value == nullptr) {
-      throw QueryRuntimeException("point.withinbbox unable to evaluate its bounding box.");
-    }
-
-    auto const crs1 = GetCRS(*bottom_left_value);
-    auto const crs2 = GetCRS(*top_right_value);
-
+    auto const crs1 = GetCRS(bottom_left_value);
+    auto const crs2 = GetCRS(top_right_value);
     if (!crs1 || !crs2 || crs1 != crs2) return std::nullopt;
 
-    // Have to evaluate condition
-    ExpressionEvaluator boundary_evaluator(&frame, context.symbol_table, context.evaluation_context,
-                                           context.db_accessor, view_);
-    auto boundary_value = boundary_value_->Accept(boundary_evaluator);
+    auto boundary_value = boundary_value_->Accept(evaluator);
 
     if (!boundary_value.IsBool()) {
       throw QueryRuntimeException("point.withinbbox returns a boolean and therefore can only be compared with one.");
     }
     auto boundary_condition = boundary_value.ValueBool() ? WithinBBoxCondition::INSIDE : WithinBBoxCondition::OUTSIDE;
 
-    return std::make_optional(
-        db->PointVertices(label_, property_, *crs1, *bottom_left_value, *top_right_value, boundary_condition));
+    return std::make_optional(context.db_accessor->PointVertices(label_, property_, *crs1, bottom_left_value,
+                                                                 top_right_value, boundary_condition));
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
                                                                 view_, std::move(vertices), "ScanAllByPointWithinbbox");

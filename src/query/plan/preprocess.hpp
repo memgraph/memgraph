@@ -351,7 +351,7 @@ class PropertyFilter {
 struct PointFilter {
   enum class Function : uint8_t { DISTANCE, WITHINBBOX };
 
-  PointFilter(Symbol symbol, PropertyIx property, Identifier *cmp_value, PointDistanceCondition boundary_condition,
+  PointFilter(Symbol symbol, PropertyIx property, Expression *cmp_value, PointDistanceCondition boundary_condition,
               Expression *boundary_value)
       : symbol_(std::move(symbol)),
         property_(std::move(property)),
@@ -359,14 +359,14 @@ struct PointFilter {
         distance_{
             .cmp_value_ = cmp_value, .boundary_value_ = boundary_value, .boundary_condition_ = boundary_condition} {}
 
-  PointFilter(Symbol symbol, PropertyIx property, Identifier *bottom_left, Identifier *top_right,
+  PointFilter(Symbol symbol, PropertyIx property, Expression *bottom_left, Expression *top_right,
               WithinBBoxCondition condition)
       : symbol_(std::move(symbol)),
         property_(std::move(property)),
         function_(Function::WITHINBBOX),
         withinbbox_{.bottom_left_ = bottom_left, .top_right_ = top_right, .condition_ = condition} {}
 
-  PointFilter(Symbol symbol, PropertyIx property, Identifier *bottom_left, Identifier *top_right,
+  PointFilter(Symbol symbol, PropertyIx property, Expression *bottom_left, Expression *top_right,
               Expression *boundary_value)
       : symbol_(std::move(symbol)),
         property_(std::move(property)),
@@ -379,13 +379,13 @@ struct PointFilter {
   Function function_;
   union {
     struct {
-      Identifier *cmp_value_ = nullptr;
+      Expression *cmp_value_ = nullptr;
       Expression *boundary_value_ = nullptr;
       PointDistanceCondition boundary_condition_;
     } distance_;
     struct {
-      Identifier *bottom_left_ = nullptr;
-      Identifier *top_right_ = nullptr;
+      Expression *bottom_left_ = nullptr;
+      Expression *top_right_ = nullptr;
       Expression *boundary_value_ = nullptr;
       std::optional<WithinBBoxCondition> condition_;
     } withinbbox_;
