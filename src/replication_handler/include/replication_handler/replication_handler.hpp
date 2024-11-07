@@ -319,7 +319,7 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
       client.Shutdown();
     }
 
-    // spdlog::trace("Instance-level clients stopped, trying to destroy replication storage clients.");
+    spdlog::trace("Instance-level clients stopped, trying to destroy replication storage clients.");
 
     // TODO StorageState needs to be synched. Could have a dangling reference if someone adds a database as we are
     //      deleting the replica.
