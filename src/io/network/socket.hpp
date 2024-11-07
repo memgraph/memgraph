@@ -121,6 +121,8 @@ class Socket {
    */
   void SetTimeout(int64_t sec, int64_t usec);
 
+  void HandleErrno(int err_code);
+
   /**
    * Checks if there are any errors on a socket. Returns 0 if there are none.
    */

@@ -175,15 +175,60 @@ void Socket::SetNoDelay() {
   MG_ASSERT(!setsockopt(socket_, SOL_TCP, TCP_NODELAY, (void *)&optval, sizeof(optval)), "Can't set socket no delay");
 }
 
+void Socket::HandleErrno(int err_code) {
+  switch (err_code) {
+    case EBADF:
+      spdlog::error("The socket argument is not a valid file descriptor.");
+      break;
+    case EDOM:
+      spdlog::error(
+          "The send and receive timeout values are too big to fit into the timeout fields in the socket structure.");
+      break;
+    case EINVAL:
+      spdlog::error("The specified option is invalid at the specified socket level or the socket has been shut down.");
+      break;
+    case EISCONN:
+      spdlog::error(
+          "The socket is already connected, and a specified option cannot be set while the socket is connected.");
+      break;
+    case ENOPROTOOPT:
+      spdlog::error("The option is not supported by the protocol.");
+      break;
+    case ENOTSOCK:
+      spdlog::error("The socket argument does not refer to a socket.");
+      break;
+    case ENOMEM:
+      spdlog::error("There was insufficient memory available for the operation to complete.");
+      break;
+    case ENOBUFS:
+      spdlog::error("Insufficient resources are available in the system to complete the call.");
+      break;
+    default:
+      spdlog::error("Unknown error code.");
+      break;
+  }
+  MG_ASSERT(false);
+}
+
 // NOLINTNEXTLINE(readability-make-member-function-const)
 void Socket::SetTimeout(int64_t sec, int64_t usec) {
   struct timeval tv;
   tv.tv_sec = sec;
   tv.tv_usec = usec;
 
-  MG_ASSERT(!setsockopt(socket_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)), "Can't set socket timeout");
+  spdlog::trace("Trying to set timeouts.");
 
-  MG_ASSERT(!setsockopt(socket_, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)), "Can't set socket timeout");
+  if (setsockopt(socket_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) == -1) {
+    int err_code = errno;
+    HandleErrno(err_code);
+  }
+  spdlog::trace("Set rcv timeout.");
+
+  if (setsockopt(socket_, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)) == -1) {
+    int err_code = errno;
+    HandleErrno(err_code);
+  }
+  spdlog::trace("Set snd timeout.");
 }
 
 int Socket::ErrorStatus() const {

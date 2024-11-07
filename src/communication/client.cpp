@@ -18,11 +18,7 @@
 namespace memgraph::communication {
 
 Client::Client(ClientContext *context, std::optional<std::chrono::seconds> rpc_connection_timeout_sec)
-    : context_(context) {
-  if (rpc_connection_timeout_sec.has_value()) {
-    socket_.SetTimeout(rpc_connection_timeout_sec->count(), 0);
-  }
-}
+    : context_(context), rpc_connection_timeout_sec_(rpc_connection_timeout_sec) {}
 
 Client::~Client() {
   Close();
@@ -43,6 +39,10 @@ bool Client::Connect(const io::network::Endpoint &endpoint) {
   // suffer.
   socket_.SetKeepAlive();
   socket_.SetNoDelay();
+
+  if (rpc_connection_timeout_sec_.has_value()) {
+    socket_.SetTimeout(rpc_connection_timeout_sec_->count(), 0);
+  }
 
   if (context_->use_ssl()) {
     // Release leftover SSL objects.
