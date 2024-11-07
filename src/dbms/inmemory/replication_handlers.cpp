@@ -467,11 +467,16 @@ void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_hand
 
   // Even if loading wal file failed, we return last_durable_timestamp which is used on MAIN's side to figure out
   // whether the replication ended successfully or not.
-  LoadWal(storage, &decoder);
+  if (!LoadWal(storage, &decoder)) {
+    spdlog::debug(
+        "Replication recovery from current WAL didn't end successfully. Non-fatal error, main should try to recover "
+        "the replica.");
+  } else {
+    spdlog::debug("Replication recovery from current WAL ended successfully, replica is now up to date!");
+  }
 
   const storage::replication::CurrentWalRes res{storage->repl_storage_state_.last_durable_timestamp_.load()};
   slk::Save(res, res_builder);
-  spdlog::debug("Replication recovery from current WAL ended successfully, replica is now up to date!");
 }
 
 bool InMemoryReplicationHandlers::LoadWal(storage::InMemoryStorage *storage, storage::replication::Decoder *decoder) {
