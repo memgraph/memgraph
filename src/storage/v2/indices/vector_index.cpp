@@ -135,6 +135,8 @@ void VectorIndex::CreateIndex(const VectorIndexSpec &spec) {
   unum::usearch::scalar_kind_t scalar_kind = GetScalarKindFromConfig(scalar_kind_str);
 
   unum::usearch::metric_punned_t metric(vector_dimension, metric_kind, scalar_kind);
+
+  // use the number of workers as the number of possible concurrent index operations
   unum::usearch::index_limits_t limits(index_size, FLAGS_bolt_num_workers);
 
   const auto label_prop = LabelPropKey{spec.label, spec.property};
@@ -173,7 +175,7 @@ void VectorIndex::UpdateVectorIndex(Vertex *vertex, const LabelPropKey &label_pr
     }
     throw std::invalid_argument("Vector index property must be a list of floats or integers.");
   });
-  index.add(vertex, vector.data());  // TODO(@DavIvek): check force vector copy
+  index.add(vertex, vector.data(), mg_vector_index_t::any_thread(), false);
 }
 
 void VectorIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update) const {
