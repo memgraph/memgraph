@@ -15,6 +15,7 @@
 #include <stop_token>
 
 #include "absl/container/flat_hash_map.h"
+#include "flags/bolt.hpp"
 #include "query/exceptions.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/vector_index.hpp"
@@ -134,11 +135,12 @@ void VectorIndex::CreateIndex(const VectorIndexSpec &spec) {
   unum::usearch::scalar_kind_t scalar_kind = GetScalarKindFromConfig(scalar_kind_str);
 
   unum::usearch::metric_punned_t metric(vector_dimension, metric_kind, scalar_kind);
+  unum::usearch::index_limits_t limits(index_size, FLAGS_bolt_num_workers);
 
   const auto label_prop = LabelPropKey{spec.label, spec.property};
   pimpl->index_name_to_label_prop_.emplace(spec.index_name, label_prop);
   pimpl->index_.emplace(label_prop, mg_vector_index_t::make(metric));
-  pimpl->index_[label_prop].reserve(index_size);
+  pimpl->index_[label_prop].reserve(limits);
 
   spdlog::trace("Created vector index " + spec.index_name);
 }
