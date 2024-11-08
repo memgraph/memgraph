@@ -63,7 +63,7 @@ class VectorIndex {
     std::map<PropertyId, std::vector<LabelId>> p2l;
   };
 
-  VectorIndex();
+  explicit VectorIndex(Storage *storage);
   ~VectorIndex();
   VectorIndex(const VectorIndex &) = delete;
   VectorIndex &operator=(const VectorIndex &) = delete;
@@ -132,6 +132,7 @@ class VectorIndex {
   void UpdateVectorIndex(Vertex *vertex, const LabelPropKey &label_prop, const PropertyValue *value = nullptr) const;
 
   struct Impl;
+  Storage *storage;
   std::unique_ptr<Impl> pimpl;
 };
 

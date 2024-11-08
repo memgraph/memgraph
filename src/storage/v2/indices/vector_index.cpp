@@ -115,7 +115,7 @@ struct VectorIndex::Impl {
   absl::flat_hash_map<std::string, LabelPropKey> index_name_to_label_prop_;
 };
 
-VectorIndex::VectorIndex() : pimpl(std::make_unique<Impl>()) {}
+VectorIndex::VectorIndex(Storage *storage) : storage(storage), pimpl(std::make_unique<Impl>()) {}
 VectorIndex::~VectorIndex() {}
 
 void VectorIndex::CreateIndex(const VectorIndexSpec &spec) {
@@ -230,8 +230,10 @@ std::vector<std::tuple<Gid, double, double>> VectorIndex::Search(std::string_vie
   std::vector<std::tuple<Gid, double, double>> result;
   result.reserve(result_set_size);
 
+  const auto acc = storage->vertices_.access();  // Protect undelying storage
   const auto result_keys = index.filtered_search(query_vector.data(), result_set_size,
                                                  [](const Vertex *vertex) { return !vertex->deleted; });
+  // remove acc
   for (std::size_t i = 0; i < result_keys.size(); ++i) {
     const auto &vertex = static_cast<Vertex *>(result_keys[i].member.key);
     result.emplace_back(vertex->gid, static_cast<double>(result_keys[i].distance),
@@ -262,6 +264,7 @@ void VectorIndex::RemoveObsoleteEntries(std::stop_token token) const {
     std::vector<Vertex *> vertices_to_remove(index.size());
     index.export_keys(vertices_to_remove.data(), 0, index.size());
 
+    // TODO: Expand to check if the vertex still has the vector in question
     auto deleted = vertices_to_remove | std::views::filter([](const Vertex *vertex) { return vertex->deleted; });
     std::ranges::for_each(deleted, [&](Vertex *vertex) { index.remove(vertex); });
   }
