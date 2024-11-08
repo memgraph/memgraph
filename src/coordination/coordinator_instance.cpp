@@ -194,7 +194,7 @@ auto CoordinatorInstance::GetCoordinatorsInstanceStatus() const -> std::vector<I
 }
 
 auto CoordinatorInstance::ShowInstancesStatusAsFollower() const -> std::vector<InstanceStatus> {
-  spdlog::trace("Processing show instances as follower.");
+  spdlog::trace("Processing show instances request as follower.");
   auto instances_status = GetCoordinatorsInstanceStatus();
   auto const stringify_inst_status = [raft_state_ptr = raft_state_.get()](auto &&instance) -> std::string {
     if (raft_state_ptr->IsCurrentMain(instance.config.instance_name)) {
@@ -216,12 +216,14 @@ auto CoordinatorInstance::ShowInstancesStatusAsFollower() const -> std::vector<I
 
   std::ranges::transform(raft_state_->GetDataInstances(), std::back_inserter(instances_status),
                          process_repl_instance_as_follower);
+  spdlog::trace("Returning set of instances as follower.");
   return instances_status;
 }
 
 auto CoordinatorInstance::ShowInstancesAsLeader() const -> std::optional<std::vector<InstanceStatus>> {
-  spdlog::trace("Processing show instances as leader");
+  spdlog::trace("Processing show instances request as leader.");
   if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
+    spdlog::trace("Leader is not ready, returning empty response.");
     return std::nullopt;
   }
   auto instances_status = GetCoordinatorsInstanceStatus();
@@ -245,10 +247,13 @@ auto CoordinatorInstance::ShowInstancesAsLeader() const -> std::optional<std::ve
   };
 
   {
+    spdlog::trace("Trying to take shared lock on coord_instance_lock_.");
     auto lock = std::shared_lock{coord_instance_lock_};
+    spdlog::trace("Shared lock taken on coord_instance_lock_.");
     std::ranges::transform(repl_instances_, std::back_inserter(instances_status), process_repl_instance_as_leader);
   }
 
+  spdlog::trace("Returning set of instances as leader.");
   return instances_status;
 }
 
@@ -272,7 +277,9 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
 
   CoordinatorInstanceConnector *leader{nullptr};
   {
+    spdlog::trace("Trying to take lock on coordinator instance connectors.");
     auto connectors = coordinator_connectors_.Lock();
+    spdlog::trace("Lock taken on coordinator instance connectors.");
 
     auto connector =
         std::ranges::find_if(*connectors, [&leader_id](auto &&connector) { return connector.first == leader_id; });
@@ -726,7 +733,10 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
     return;
   }
 
+  spdlog::trace("Trying to take lock on coord_instance_lock_in InstanceSuccessCallback for instance {}", instance_name);
   auto lock = std::unique_lock{coord_instance_lock_};
+  spdlog::trace("Lock taken on coord_instance_lock_ in InstanceSuccessCallback for instance {}", instance_name);
+
   auto &instance = FindReplicationInstance(instance_name);
 
   spdlog::trace("Instance {} performing success callback in thread {}.", instance_name, std::this_thread::get_id());
@@ -801,7 +811,10 @@ void CoordinatorInstance::InstanceFailCallback(std::string_view instance_name,
     return;
   }
 
+  spdlog::trace("Trying to take lock on coord_instance_lock_in InstanceFailCallback for instance {}", instance_name);
   auto lock = std::unique_lock{coord_instance_lock_};
+  spdlog::trace("Lock taken on coord_instance_lock_ in InstanceFailCallback for instance {}", instance_name);
+
   auto &instance = FindReplicationInstance(instance_name);
 
   spdlog::trace("Instance {} performing fail callback in thread {}.", instance_name, std::this_thread::get_id());
