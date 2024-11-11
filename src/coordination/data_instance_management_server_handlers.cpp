@@ -108,16 +108,14 @@ void DataInstanceManagementServerHandlers::GetDatabaseHistoriesHandler(
 
 void DataInstanceManagementServerHandlers::SwapMainUUIDHandler(replication::ReplicationHandler &replication_handler,
                                                                slk::Reader *req_reader, slk::Builder *res_builder) {
-  if (!replication_handler.IsReplica()) {
-    spdlog::error("Setting uuid must be performed on replica.");
-    slk::Save(replication_coordination_glue::SwapMainUUIDRes{false}, res_builder);
-    return;
-  }
-
   replication_coordination_glue::SwapMainUUIDReq req;
   slk::Load(&req, req_reader);
-  std::get<memgraph::replication::RoleReplicaData>(replication_handler.GetReplState().ReplicationData()).uuid_ =
-      req.uuid;
+
+  if (replication_handler.IsReplica()) {
+    std::get<replication::RoleReplicaData>(replication_handler.GetReplState().ReplicationData()).uuid_ = req.uuid;
+  } else {
+    std::get<replication::RoleMainData>(replication_handler.GetReplState().ReplicationData()).uuid_ = req.uuid;
+  }
 
   slk::Save(replication_coordination_glue::SwapMainUUIDRes{true}, res_builder);
   spdlog::info("UUID successfully set to {}.", std::string(req.uuid));
