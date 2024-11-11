@@ -115,7 +115,7 @@ struct VectorIndex::Impl {
   absl::flat_hash_map<std::string, LabelPropKey> index_name_to_label_prop_;
 };
 
-VectorIndex::VectorIndex(Storage *storage) : storage(storage), pimpl(std::make_unique<Impl>()) {}
+VectorIndex::VectorIndex() : pimpl(std::make_unique<Impl>()) {}
 VectorIndex::~VectorIndex() {}
 
 void VectorIndex::CreateIndex(const VectorIndexSpec &spec) {
@@ -232,7 +232,7 @@ std::vector<std::tuple<Gid, double, double>> VectorIndex::Search(std::string_vie
   std::vector<std::tuple<Gid, double, double>> result;
   result.reserve(result_set_size);
 
-  const auto acc = storage->vertices_.access();  // Protect undelying storage
+  // const auto acc = storage->vertices_.access();  // Protect undelying storage
   const auto result_keys = index.filtered_search(query_vector.data(), result_set_size,
                                                  [](const Vertex *vertex) { return !vertex->deleted; });
   // remove acc

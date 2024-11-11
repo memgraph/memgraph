@@ -315,16 +315,6 @@ class Storage {
 
     virtual bool PointIndexExists(LabelId label, PropertyId property) const = 0;
 
-    std::vector<std::tuple<Gid, double, double>> VectorIndexSearch(const std::string &index_name,
-                                                                   uint64_t number_of_results,
-                                                                   const std::vector<float> &vector) const {
-      return storage_->indices_.vector_index_.Search(index_name, number_of_results, vector);
-    }
-
-    std::vector<VectorIndexInfo> ListAllVectorIndices() const {
-      return storage_->indices_.vector_index_.ListAllIndices();
-    }
-
     virtual IndicesInfo ListAllIndices() const = 0;
 
     virtual ConstraintsInfo ListAllConstraints() const = 0;
@@ -471,6 +461,12 @@ class Storage {
     virtual auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
                                PropertyValue const &point_value, PropertyValue const &boundary_value,
                                PointDistanceCondition condition) -> PointIterable = 0;
+
+    virtual std::vector<std::tuple<Gid, double, double>> VectorIndexSearch(const std::string &index_name,
+                                                                           uint64_t number_of_results,
+                                                                           const std::vector<float> &vector) const = 0;
+
+    virtual std::vector<VectorIndexInfo> ListAllVectorIndices() const = 0;
 
    protected:
     Storage *storage_;

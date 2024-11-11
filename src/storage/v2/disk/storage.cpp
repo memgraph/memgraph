@@ -2173,6 +2173,15 @@ auto DiskStorage::DiskAccessor::PointVertices(LabelId /*label*/, PropertyId /*pr
                                               PropertyValue const & /*boundary_value*/,
                                               PointDistanceCondition /*condition*/) -> PointIterable {
   throw utils::NotYetImplemented("Point Vertices is not yet implemented for on-disk storage");
+}
+
+std::vector<std::tuple<Gid, double, double>> DiskStorage::DiskAccessor::VectorIndexSearch(
+    const std::string & /*index_name*/, uint64_t /*number_of_results*/, const std::vector<float> & /*vector*/) const {
+  throw utils::NotYetImplemented("Vector index is not yet implemented for on-disk storage");
+}
+
+std::vector<VectorIndexInfo> DiskStorage::DiskAccessor::ListAllVectorIndices() const {
+  throw utils::NotYetImplemented("Vector index is not yet implemented for on-disk storage");
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)

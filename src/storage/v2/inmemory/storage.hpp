@@ -447,6 +447,12 @@ class InMemoryStorage final : public Storage {
                        PropertyValue const &point_value, PropertyValue const &boundary_value,
                        PointDistanceCondition condition) -> PointIterable override;
 
+    std::vector<std::tuple<Gid, double, double>> VectorIndexSearch(const std::string &index_name,
+                                                                   uint64_t number_of_results,
+                                                                   const std::vector<float> &vector) const override;
+
+    std::vector<VectorIndexInfo> ListAllVectorIndices() const override;
+
    protected:
     // TODO Better naming
     /// @throw std::bad_alloc

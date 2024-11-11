@@ -3054,6 +3054,7 @@ IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
       static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
   auto &text_index = storage_->indices_.text_index_;
   auto &point_index = storage_->indices_.point_index_;
+  // TODO (@DavIvek): Add vector index to the list
 
   return {mem_label_index->ListIndices(),     mem_label_property_index->ListIndices(),
           mem_edge_type_index->ListIndices(), mem_edge_type_property_index->ListIndices(),
@@ -3121,6 +3122,19 @@ auto InMemoryStorage::InMemoryAccessor::PointVertices(LabelId label, PropertyId 
                                                       PointDistanceCondition condition) -> PointIterable {
   return transaction_.point_index_ctx_.PointVertices(label, property, crs, storage_, &transaction_, point_value,
                                                      boundary_value, condition);
+}
+
+std::vector<std::tuple<Gid, double, double>> InMemoryStorage::InMemoryAccessor::VectorIndexSearch(
+    const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) const {
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+
+  // we have to take vertices accessor to be sure no vertex is deleted while we are searching
+  auto acc = mem_storage->vertices_.access();
+  return storage_->indices_.vector_index_.Search(index_name, number_of_results, vector);
+}
+
+std::vector<VectorIndexInfo> InMemoryStorage::InMemoryAccessor::ListAllVectorIndices() const {
+  return storage_->indices_.vector_index_.ListAllIndices();
 };
 
 }  // namespace memgraph::storage
