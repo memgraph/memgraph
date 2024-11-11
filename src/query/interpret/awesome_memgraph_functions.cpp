@@ -1530,7 +1530,14 @@ TypedValue Point(const TypedValue *args, int64_t nargs, const FunctionContext &c
   }
 
   if (!z_opt.has_value()) {
+    if (!storage::valid2d(*mg_crs)) {
+      throw QueryRuntimeException("Concluded point type is 2D but CRS/SRID says it is 3D.");
+    }
     return TypedValue(storage::Point2d{*mg_crs, x, y}, ctx.memory);
+  }
+
+  if (!storage::valid3d(*mg_crs)) {
+    throw QueryRuntimeException("Concluded point type is 3D but CRS/SRID says it is 2D.");
   }
   return TypedValue(storage::Point3d{*mg_crs, x, y, z_opt->first}, ctx.memory);
 }
