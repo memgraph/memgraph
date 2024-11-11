@@ -137,17 +137,19 @@ class CronObserver : public memgraph::utils::Observer<std::optional<std::string>
   memgraph::utils::Scheduler *scheduler_;
 };
 
-class PeriodicObserver : public memgraph::utils::Observer<memgraph::flags::run_time::Periodic> {
+class PeriodicSnapshotObserver : public memgraph::utils::Observer<memgraph::flags::run_time::PeriodicSnapshotSetup> {
  public:
-  explicit PeriodicObserver(memgraph::utils::Scheduler *scheduler) : scheduler_{scheduler} {}
+  explicit PeriodicSnapshotObserver(memgraph::utils::Scheduler *scheduler) : scheduler_{scheduler} {}
 
   // String HAS to be a valid cron expr
-  void Update(const memgraph::flags::run_time::Periodic &in) override {
-    if (in.pause == std::chrono::seconds(0)) {
+  void Update(const memgraph::flags::run_time::PeriodicSnapshotSetup &in) override {
+    if (!in) {
       scheduler_->Pause();
       return;
     }
-    scheduler_->Setup(in.pause, in.start_time);
+    in.Execute(utils::Overloaded{
+        [scheduler = scheduler_](std::chrono::seconds s) { scheduler->Setup(s); },
+        [scheduler = scheduler_](const std::optional<std::string> &cron) { scheduler->Setup(*cron); }});
     scheduler_->SpinOne();
     scheduler_->Resume();
   }
@@ -165,8 +167,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       recovery_{config.durability.storage_directory / durability::kSnapshotDirectory,
                 config.durability.storage_directory / durability::kWalDirectory},
       lock_file_path_(config.durability.storage_directory / durability::kLockFile),
-      snapshot_cron_observer_(new CronObserver(&snapshot_runner_)),
-      snapshot_periodic_observer_(new PeriodicObserver(&snapshot_runner_)),
+      snapshot_periodic_observer_(new PeriodicSnapshotObserver(&snapshot_runner_)),
       global_locker_(file_retainer_.AddLocker()) {
   MG_ASSERT(config.salient.storage_mode != StorageMode::ON_DISK_TRANSACTIONAL,
             "Invalid storage mode sent to InMemoryStorage constructor!");
@@ -280,7 +281,6 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     commit_log_.emplace(timestamp_);
   }
 
-  flags::run_time::SnapshotCronAttach(snapshot_cron_observer_);
   flags::run_time::SnapshotPeriodicAttach(snapshot_periodic_observer_);
 }
 

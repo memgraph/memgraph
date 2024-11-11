@@ -123,44 +123,31 @@ std::atomic<bool> hops_limit_partial_results{true};
 std::atomic<bool> cartesian_product_enabled_{true};
 std::atomic<const std::chrono::time_zone *> timezone_{nullptr};
 
-class CronObservable : public memgraph::utils::Observable<std::optional<std::string>> {
+class PeriodicObservable : public memgraph::utils::Observable<memgraph::flags::run_time::PeriodicSnapshotSetup> {
  public:
-  void Accept(std::shared_ptr<memgraph::utils::Observer<std::optional<std::string>>> observer) override {
-    const auto cron_locked = cron_str_.ReadLock();
-    observer->Update(*cron_locked);
-  }
-
-  void Modify(std::string_view in) {
-    {
-      auto cron_locked = cron_str_.Lock();
-      if (in.empty()) cron_locked->reset();
-      cron_locked->emplace(in);
-    }
-    Notify();
-  }
-
- private:
-  memgraph::utils::Synchronized<std::optional<std::string>, memgraph::utils::RWSpinLock> cron_str_;
-} snapshot_cron_;
-
-class PeriodicObservable : public memgraph::utils::Observable<memgraph::flags::run_time::Periodic> {
- public:
-  void Accept(std::shared_ptr<memgraph::utils::Observer<memgraph::flags::run_time::Periodic>> observer) override {
+  void Accept(
+      std::shared_ptr<memgraph::utils::Observer<memgraph::flags::run_time::PeriodicSnapshotSetup>> observer) override {
     const auto periodic_locked = periodic_.ReadLock();
     observer->Update(*periodic_locked);
   }
 
-  void Modify(std::chrono::seconds pause, std::optional<std::chrono::system_clock::time_point> start_time = {}) {
+  void Modify(std::chrono::seconds pause) {
+    periodic_->period_or_cron = pause;
+    Notify();
+  }
+
+  void Modify(std::string_view in) {
     {
-      auto periodic_locked = periodic_.Lock();
-      periodic_locked->pause = pause;
-      periodic_locked->start_time = start_time;
+      auto cron_locked = periodic_.Lock();
+      if (in.empty()) cron_locked->period_or_cron = std::nullopt;
+      cron_locked->period_or_cron = std::optional<std::string>{in};
     }
     Notify();
   }
 
  private:
-  memgraph::utils::Synchronized<memgraph::flags::run_time::Periodic, memgraph::utils::RWSpinLock> periodic_;
+  memgraph::utils::Synchronized<memgraph::flags::run_time::PeriodicSnapshotSetup, memgraph::utils::RWSpinLock>
+      periodic_;
 } snapshot_periodic_;
 
 // NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
@@ -313,7 +300,7 @@ void Initialize() {
    */
   register_flag(
       kSnapshotCronGFlagsKey, kSnapshotCronSettingKey, !kRestore,
-      [](const std::string_view val) { snapshot_cron_.Modify(val); },
+      [](const std::string_view val) { snapshot_periodic_.Modify(val); },
       [](const std::string_view val) {
         // Empty str means nullopt
         if (val.empty()) return true;
@@ -366,11 +353,7 @@ std::string GetQueryLogDirectory() {
   return s;
 }
 
-void SnapshotCronAttach(std::shared_ptr<utils::Observer<std::optional<std::string>>> observer) {
-  snapshot_cron_.Attach(observer);
-}
-
-void SnapshotPeriodicAttach(std::shared_ptr<utils::Observer<Periodic>> observer) {
+void SnapshotPeriodicAttach(std::shared_ptr<utils::Observer<PeriodicSnapshotSetup>> observer) {
   snapshot_periodic_.Attach(observer);
 }
 
