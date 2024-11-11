@@ -286,7 +286,7 @@ VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertex() {
   return {&*it, storage_, &transaction_};
 }
 
-VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertexEx(storage::Gid gid) {
+std::optional<VertexAccessor> InMemoryStorage::InMemoryAccessor::CreateVertexEx(storage::Gid gid) {
   // NOTE: When we update the next `vertex_id_` here we perform a RMW
   // (read-modify-write) operation that ISN'T atomic! But, that isn't an issue
   // because this function is only called from the replication delta applier
@@ -301,7 +301,9 @@ VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertexEx(storage::Gid gi
   auto *delta = CreateDeleteObjectDelta(&transaction_);
   auto schema_acc = SchemaInfoAccessor(storage_, &transaction_);
   auto [it, inserted] = acc.insert(Vertex{gid, delta});
-  MG_ASSERT(inserted, "The vertex must be inserted here!");
+  if (!inserted) {
+    return std::nullopt;
+  }
   MG_ASSERT(it != acc.end(), "Invalid Vertex accessor!");
   if (delta) {
     delta->prev.Set(&*it);
@@ -311,7 +313,7 @@ VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertexEx(storage::Gid gi
                                  [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
                *schema_acc);
   }
-  return {&*it, storage_, &transaction_};
+  return VertexAccessor{&*it, storage_, &transaction_};
 }
 
 std::optional<VertexAccessor> InMemoryStorage::InMemoryAccessor::FindVertex(Gid gid, View view) {

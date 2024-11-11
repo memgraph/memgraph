@@ -78,8 +78,7 @@ class Client {
       // Finalize the request.
       req_builder_.Finalize();
 
-      spdlog::trace("[RpcClient] sent {} to {}:{}", req_type.name, self_->client_->endpoint().GetAddress(),
-                    self_->client_->endpoint().GetPort());
+      spdlog::trace("[RpcClient] sent {} to {}", req_type.name, self_->client_->endpoint().SocketAddress());
 
       // Receive the response.
       uint64_t response_data_size = 0;
