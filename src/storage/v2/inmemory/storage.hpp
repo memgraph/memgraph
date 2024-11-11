@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <memory>
 #include <utility>
+#include "flags/run_time_configurable.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
@@ -33,6 +34,7 @@
 #include "storage/v2/replication/serialization.hpp"
 #include "storage/v2/transaction.hpp"
 #include "utils/memory.hpp"
+#include "utils/observer.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/synchronized.hpp"
 
@@ -580,6 +582,8 @@ class InMemoryStorage final : public Storage {
 
   utils::Scheduler snapshot_runner_;
   utils::SpinLock snapshot_lock_;
+  std::shared_ptr<utils::Observer<std::optional<std::string>>> snapshot_cron_observer_;
+  std::shared_ptr<utils::Observer<flags::run_time::Periodic>> snapshot_periodic_observer_;
 
   // Sequence number used to keep track of the chain of WALs.
   uint64_t wal_seq_num_{0};

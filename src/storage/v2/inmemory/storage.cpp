@@ -118,6 +118,44 @@ auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from
                                                                  : to_vertex->InEdges(view, {edge_type}, from_vertex);
 }
 
+class CronObserver : public memgraph::utils::Observer<std::optional<std::string>> {
+ public:
+  explicit CronObserver(memgraph::utils::Scheduler *scheduler) : scheduler_{scheduler} {}
+
+  // String HAS to be a valid cron expr
+  void Update(const std::optional<std::string> &in) override {
+    if (!in) {
+      scheduler_->Pause();
+      return;
+    }
+    scheduler_->Setup(*in);
+    scheduler_->SpinOne();
+    scheduler_->Resume();
+  }
+
+ private:
+  memgraph::utils::Scheduler *scheduler_;
+};
+
+class PeriodicObserver : public memgraph::utils::Observer<memgraph::flags::run_time::Periodic> {
+ public:
+  explicit PeriodicObserver(memgraph::utils::Scheduler *scheduler) : scheduler_{scheduler} {}
+
+  // String HAS to be a valid cron expr
+  void Update(const memgraph::flags::run_time::Periodic &in) override {
+    if (in.pause == std::chrono::seconds(0)) {
+      scheduler_->Pause();
+      return;
+    }
+    scheduler_->Setup(in.pause, in.start_time);
+    scheduler_->SpinOne();
+    scheduler_->Resume();
+  }
+
+ private:
+  memgraph::utils::Scheduler *scheduler_;
+};
+
 };  // namespace
 
 using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
@@ -127,6 +165,8 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       recovery_{config.durability.storage_directory / durability::kSnapshotDirectory,
                 config.durability.storage_directory / durability::kWalDirectory},
       lock_file_path_(config.durability.storage_directory / durability::kLockFile),
+      snapshot_cron_observer_(new CronObserver(&snapshot_runner_)),
+      snapshot_periodic_observer_(new PeriodicObserver(&snapshot_runner_)),
       global_locker_(file_retainer_.AddLocker()) {
   MG_ASSERT(config.salient.storage_mode != StorageMode::ON_DISK_TRANSACTIONAL,
             "Invalid storage mode sent to InMemoryStorage constructor!");
@@ -231,13 +271,17 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
 
   if (config_.gc.type == Config::Gc::Type::PERIODIC) {
     // TODO: move out of storage have one global gc_runner_
-    gc_runner_.Run("Storage GC", config_.gc.interval, [this] { this->FreeMemory({}, true); });
+    gc_runner_.Setup(config_.gc.interval);
+    gc_runner_.Run("Storage GC", [this] { this->FreeMemory({}, true); });
   }
   if (timestamp_ == kTimestampInitialId) {
     commit_log_.emplace();
   } else {
     commit_log_.emplace(timestamp_);
   }
+
+  flags::run_time::SnapshotCronAttach(snapshot_cron_observer_);
+  flags::run_time::SnapshotPeriodicAttach(snapshot_periodic_observer_);
 }
 
 InMemoryStorage::~InMemoryStorage() {
@@ -2027,8 +2071,9 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
     if (new_storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
       snapshot_runner_.Stop();
     } else if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED) {
-      snapshot_runner_.Run("Snapshot", config_.durability.snapshot_interval,
-                           [this]() { this->create_snapshot_handler(); });
+      // TODO: Have setup specific to what the user defined
+      snapshot_runner_.Setup(config_.durability.snapshot_interval);
+      snapshot_runner_.Run("Snapshot", [this]() { this->create_snapshot_handler(); });
     }
 
     storage_mode_ = new_storage_mode;
@@ -2888,6 +2933,7 @@ std::unique_ptr<Storage::Accessor> InMemoryStorage::UniqueAccess(
 void InMemoryStorage::CreateSnapshotHandler(
     std::function<utils::BasicResult<InMemoryStorage::CreateSnapshotError>()> cb) {
   create_snapshot_handler = [cb]() {
+    std::cout << "snapshot" << std::endl;
     if (auto maybe_error = cb(); maybe_error.HasError()) {
       switch (maybe_error.GetError()) {
         case CreateSnapshotError::DisabledForReplica:
@@ -2902,7 +2948,8 @@ void InMemoryStorage::CreateSnapshotHandler(
 
   // Run the snapshot thread (if enabled)
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED) {
-    snapshot_runner_.Run("Snapshot", config_.durability.snapshot_interval, [this, token = stop_source.get_token()]() {
+    snapshot_runner_.Setup(config_.durability.snapshot_interval);
+    snapshot_runner_.Run("Snapshot", [this, token = stop_source.get_token()]() {
       if (!token.stop_requested()) {
         this->create_snapshot_handler();
       }

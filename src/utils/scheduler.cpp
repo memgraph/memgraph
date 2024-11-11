@@ -12,67 +12,47 @@
 #include "utils/scheduler.hpp"
 
 #include <ctime>
-#include <memory>
 
 #include "croncpp.h"
-#include "flags/run_time_configurable.hpp"
+#include "utils/logging.hpp"
 #include "utils/observer.hpp"
-#include "utils/rw_spin_lock.hpp"
 #include "utils/synchronized.hpp"
 #include "utils/temporal.hpp"
 
 namespace memgraph::utils {
 
-namespace {
-class CronObserver : public Observer<std::optional<std::string>> {
- public:
-  CronObserver(Scheduler *scheduler, cron::cronexpr cron_expr)
-      : scheduler_{scheduler}, cron_expr_{std::move(cron_expr)} {}
-
-  // String HAS to be a valid cron expr
-  void Update(const std::optional<std::string> &in) override {
-    if (!in) {
-      scheduler_->Stop();
-    }
-    *cron_expr_.Lock() = cron::make_cron(*in);
-    scheduler_->SpinOne();
-  }
-
-  auto get() const { return *cron_expr_.ReadLock(); }
-
-  auto next(const auto &now) {
-    const auto cron_locked = cron_expr_.ReadLock();
-    return cron::cron_next(*cron_locked, now);
-  }
-
- private:
-  Scheduler *scheduler_;
-  Synchronized<cron::cronexpr, RWSpinLock> cron_expr_;
-};
-}  // namespace
-
-void Scheduler::Run(const std::string &service_name, const std::function<void()> &f, std::string_view cron_expr) {
+/**
+ * @param pause - Duration between two function executions. If function is
+ * still running when it should be ran again, it will run right after it
+ * finishes its previous run.
+ * @param f - Function
+ * @Tparam TRep underlying arithmetic type in duration
+ * @Tparam TPeriod duration in seconds between two ticks
+ * @throw std::system_error if thread could not be started.
+ * @throw std::bad_alloc
+ */
+void Scheduler::Run(const std::string &service_name, const std::function<void()> &f) {
   DMG_ASSERT(!IsRunning(), "Thread already running.");
-
-  thread_ = std::jthread(
-      [this, f = f, service_name = service_name, cron = cron::make_cron(cron_expr)](std::stop_token token) mutable {
-        auto cron_observer = std::make_shared<CronObserver>(this, std::move(cron));
-        memgraph::flags::run_time::SnapshotCronAttach(cron_observer);
-        ThreadRun(
-            std::move(service_name), std::move(f),
-            [cron_observer = std::move(cron_observer)](const auto &now) {
-              auto tm_now = LocalDateTime{now}.tm();
-              // Hack to force the mktime to reinterpret the time as is in the system tz
-              tm_now.tm_gmtoff = 0;
-              tm_now.tm_isdst = -1;
-              tm_now.tm_zone = nullptr;
-              const auto tm_next = cron_observer->next(tm_now);
-              // LocalDateTime reads only the date and time values, ignoring the system tz
-              return LocalDateTime{tm_next}.us_since_epoch_;
-            },
-            token);
-      });
+  DMG_ASSERT(*find_next_.Lock(), "Running a scheduler that was not setup");
+  // Thread setup
+  thread_ = std::jthread([this, f = f, service_name = service_name](std::stop_token token) mutable {
+    ThreadRun(std::move(service_name), std::move(f), token);
+  });
 }
+
+void Scheduler::Setup(std::string_view cron_expr) {
+  *find_next_.Lock() = [cron = cron::make_cron(cron_expr)](const auto &now) {
+    auto tm_now = LocalDateTime{now}.tm();
+    // Hack to force the mktime to reinterpret the time as is in the system tz
+    tm_now.tm_gmtoff = 0;
+    tm_now.tm_isdst = -1;
+    tm_now.tm_zone = nullptr;
+    const auto tm_next = cron::cron_next(cron, tm_now);
+    // LocalDateTime reads only the date and time values, ignoring the system tz
+    return LocalDateTime{tm_next}.us_since_epoch_;
+  };
+}
+
 }  // namespace memgraph::utils
 
 // Checking stop_possible() is necessary because otherwise calling IsRunning
@@ -80,6 +60,52 @@ void Scheduler::Run(const std::string &service_name, const std::function<void()>
 bool memgraph::utils::Scheduler::IsRunning() {
   std::stop_token token = thread_.get_stop_token();
   return token.stop_possible() && !token.stop_requested();
+}
+
+void memgraph::utils::Scheduler::SpinOne() {
+  {
+    auto lk = std::unique_lock{mutex_};
+    spin_ = true;
+  }
+  condition_variable_.notify_one();
+}
+
+void memgraph::utils::Scheduler::ThreadRun(std::string service_name, std::function<void()> f, std::stop_token token) {
+  utils::ThreadSetName(service_name);
+
+  while (true) {
+    // First wait then execute the function. We do that in that order
+    // because most of the schedulers are started at the beginning of the
+    // program and there is probably no work to do in scheduled function at
+    // the start of the program. Since Server will log some messages on
+    // the program start we let him log first and we make sure by first
+    // waiting that function f will not log before it.
+    // Check for pause also.
+    const auto now = std::chrono::system_clock::now();
+    time_point next{};
+    {
+      auto find_locked = find_next_.Lock();
+      DMG_ASSERT(*find_locked, "Scheduler not setup properly");
+      next = find_locked->operator()(now);
+    }
+    if (next > now) {
+      auto lk = std::unique_lock{mutex_};
+      condition_variable_.wait_until(lk, next, [&] { return token.stop_requested() || spin_; });
+    }
+
+    if (is_paused_) {
+      auto lk = std::unique_lock{mutex_};
+      pause_cv_.wait(lk, [&] { return !is_paused_.load(std::memory_order_acquire) || token.stop_requested(); });
+    }
+
+    if (token.stop_requested()) break;
+    if (spin_) {
+      spin_ = false;
+      continue;
+    }
+
+    f();
+  }
 }
 
 // Concurrent threads may request stopping the scheduler. In that case only one of them will

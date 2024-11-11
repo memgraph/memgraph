@@ -43,24 +43,23 @@ struct ReplicationClient {
   void StartFrequentCheck(F &&callback) {
     // Help the user to get the most accurate replica state possible.
     if (replica_check_frequency_ > std::chrono::seconds(0)) {
-      replica_checker_.Run(
-          "Replica Checker", replica_check_frequency_,
-          [this, cb = std::forward<F>(callback), reconnect = false]() mutable {
-            try {
-              {
-                auto stream{rpc_client_.Stream<memgraph::replication_coordination_glue::FrequentHeartbeatRpc>()};
-                stream.AwaitResponse();
-              }
-              cb(reconnect, *this);
-              reconnect = false;
-            } catch (const rpc::RpcFailedException &) {
-              // Nothing to do...wait for a reconnect
-              // NOTE: Here we are communicating with the instance connection.
-              //       We don't have access to the underlying client; so the only thing we can do it
-              //       tell the callback that this is a reconnection and to check the state
-              reconnect = true;
-            }
-          });
+      replica_checker_.Setup(replica_check_frequency_);
+      replica_checker_.Run("Replica Checker", [this, cb = std::forward<F>(callback), reconnect = false]() mutable {
+        try {
+          {
+            auto stream{rpc_client_.Stream<memgraph::replication_coordination_glue::FrequentHeartbeatRpc>()};
+            stream.AwaitResponse();
+          }
+          cb(reconnect, *this);
+          reconnect = false;
+        } catch (const rpc::RpcFailedException &) {
+          // Nothing to do...wait for a reconnect
+          // NOTE: Here we are communicating with the instance connection.
+          //       We don't have access to the underlying client; so the only thing we can do it
+          //       tell the callback that this is a reconnection and to check the state
+          reconnect = true;
+        }
+      });
     }
   }
 

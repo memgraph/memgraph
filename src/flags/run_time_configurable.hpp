@@ -69,4 +69,14 @@ std::string GetQueryLogDirectory();
  */
 void SnapshotCronAttach(std::shared_ptr<utils::Observer<std::optional<std::string>>> observer);
 
+struct Periodic {
+  std::optional<std::chrono::system_clock::time_point> start_time;
+  std::chrono::seconds pause;
+};
+
+/**
+ * @brief
+ */
+void SnapshotPeriodicAttach(std::shared_ptr<utils::Observer<Periodic>> observer);
+
 }  // namespace memgraph::flags::run_time

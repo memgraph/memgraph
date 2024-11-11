@@ -11,10 +11,9 @@
 
 #pragma once
 
-#include <iostream>
 #include <memory>
 #include <mutex>
-#include <vector>
+#include <set>
 
 namespace memgraph::utils {
 
@@ -33,7 +32,7 @@ class Observable {
 
   void Attach(const std::shared_ptr<Observer<T>> &observer) {
     auto l = std::unique_lock{mtx_};
-    observers.push_back(observer);
+    observers.insert(observer);
   }
 
   void Detach(const std::shared_ptr<Observer<T>> &observer) {
@@ -51,7 +50,7 @@ class Observable {
 
   virtual void Accept(std::shared_ptr<Observer<T>>) = 0;
 
-  std::vector<std::shared_ptr<Observer<T>>> observers;
+  std::set<std::shared_ptr<Observer<T>>> observers;
   mutable std::mutex mtx_;
 };
 

@@ -19,6 +19,7 @@
 #include <thread>
 
 #include "utils/logging.hpp"
+#include "utils/synchronized.hpp"
 #include "utils/temporal.hpp"
 #include "utils/thread.hpp"
 
@@ -30,20 +31,11 @@ namespace memgraph::utils {
 class Scheduler {
  public:
   Scheduler() = default;
-  /**
-   * @param pause - Duration between two function executions. If function is
-   * still running when it should be ran again, it will run right after it
-   * finishes its previous run.
-   * @param f - Function
-   * @Tparam TRep underlying arithmetic type in duration
-   * @Tparam TPeriod duration in seconds between two ticks
-   * @throw std::system_error if thread could not be started.
-   * @throw std::bad_alloc
-   */
+  void Run(const std::string &service_name, const std::function<void()> &f);
+
   template <typename TRep, typename TPeriod>
-  void Run(const std::string &service_name, const std::chrono::duration<TRep, TPeriod> &pause,
-           const std::function<void()> &f, std::optional<std::chrono::system_clock::time_point> start_time = {}) {
-    DMG_ASSERT(!IsRunning(), "Thread already running.");
+  void Setup(const std::chrono::duration<TRep, TPeriod> &pause,
+             std::optional<std::chrono::system_clock::time_point> start_time = {}) {
     DMG_ASSERT(pause > std::chrono::seconds(0), "Pause is invalid. Expected > 0, got {}.", pause.count());
 
     // Setup
@@ -55,7 +47,7 @@ class Scheduler {
     }
 
     // Function to calculate next
-    auto find_next_execution = [=](const auto &now) mutable {
+    *find_next_.Lock() = [=](const auto &now) mutable {
       next_execution += pause;
       if (next_execution > now) return next_execution;
       if (start_time) {                                  // Custom start time
@@ -65,15 +57,9 @@ class Scheduler {
       }
       return now;
     };
+  }
 
-    thread_ = std::jthread([this, f = f, service_name = service_name,
-                            find_next_execution = std::move(find_next_execution)](std::stop_token token) mutable {
-      ThreadRun(std::move(service_name), std::move(f), std::move(find_next_execution), token);
-    });
-  };
-
-  // Can throw if cron expression is incorrect
-  void Run(const std::string &service_name, const std::function<void()> &f, std::string_view cron_expr);
+  void Setup(std::string_view cron_expr);
 
   void Resume();
 
@@ -83,50 +69,15 @@ class Scheduler {
 
   bool IsRunning();
 
-  void SpinOne() {
-    {
-      auto lk = std::unique_lock{mutex_};
-      spin_ = true;
-    }
-    condition_variable_.notify_one();
-  }
+  void SpinOne();
 
   ~Scheduler() { Stop(); }
 
  private:
-  template <typename F>
-  void ThreadRun(std::string service_name, std::function<void()> f, F &&get_next, std::stop_token token) {
-    utils::ThreadSetName(service_name);
+  void ThreadRun(std::string service_name, std::function<void()> f, std::stop_token token);
 
-    while (true) {
-      // First wait then execute the function. We do that in that order
-      // because most of the schedulers are started at the beginning of the
-      // program and there is probably no work to do in scheduled function at
-      // the start of the program. Since Server will log some messages on
-      // the program start we let him log first and we make sure by first
-      // waiting that function f will not log before it.
-      // Check for pause also.
-      const auto now = std::chrono::system_clock::now();
-      const auto next = get_next(now);
-      if (next > now) {
-        auto lk = std::unique_lock{mutex_};
-        condition_variable_.wait_until(lk, next, [&] { return token.stop_requested() || spin_; });
-      }
-
-      if (is_paused_) {
-        auto lk = std::unique_lock{mutex_};
-        pause_cv_.wait(lk, [&] { return !is_paused_.load(std::memory_order_acquire) || token.stop_requested(); });
-      }
-
-      if (token.stop_requested()) break;
-      if (spin_) {
-        spin_ = false;
-        continue;
-      }
-
-      f();
-    }
-  }
+  using time_point = std::chrono::system_clock::time_point;
+  Synchronized<std::function<time_point(const time_point &)>> find_next_{};
 
   std::atomic<bool> spin_{false};
 

@@ -252,7 +252,8 @@ LicenseCheckResult LicenseChecker::IsEnterpriseValid(const utils::Settings &sett
 
 void LicenseChecker::StartBackgroundLicenseChecker(const utils::Settings &settings) {
   RevalidateLicense(settings);
-  scheduler_.Run("licensechecker", std::chrono::minutes{5}, [&, this] { RevalidateLicense(settings); });
+  scheduler_.Setup(std::chrono::minutes{5});
+  scheduler_.Run("licensechecker", [&, this] { RevalidateLicense(settings); });
 }
 
 utils::Synchronized<std::optional<LicenseInfo>, utils::SpinLock> &LicenseChecker::GetLicenseInfo() {

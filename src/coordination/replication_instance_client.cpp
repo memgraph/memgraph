@@ -67,17 +67,17 @@ void ReplicationInstanceClient::StartStateCheck() {
   MG_ASSERT(config_.instance_health_check_frequency_sec > std::chrono::seconds(0),
             "Health check frequency must be greater than 0");
 
-  instance_checker_.Run(config_.instance_name, config_.instance_health_check_frequency_sec,
-                        [this, instance_name = config_.instance_name] {
-                          spdlog::trace("Sending state check message to instance {} on {}.", instance_name,
-                                        config_.ManagementSocketAddress());
-                          auto const res = SendStateCheckRpc();
-                          if (res) {
-                            coord_instance_->InstanceSuccessCallback(instance_name, res);
-                          } else {
-                            coord_instance_->InstanceFailCallback(instance_name, res);
-                          }
-                        });
+  instance_checker_.Setup(config_.instance_health_check_frequency_sec);
+  instance_checker_.Run(config_.instance_name, [this, instance_name = config_.instance_name] {
+    spdlog::trace("Sending state check message to instance {} on {}.", instance_name,
+                  config_.ManagementSocketAddress());
+    auto const res = SendStateCheckRpc();
+    if (res) {
+      coord_instance_->InstanceSuccessCallback(instance_name, res);
+    } else {
+      coord_instance_->InstanceFailCallback(instance_name, res);
+    }
+  });
 }
 
 void ReplicationInstanceClient::StopStateCheck() { instance_checker_.Stop(); }
