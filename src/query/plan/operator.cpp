@@ -293,12 +293,6 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
     context.db_accessor->TextIndexAddVertex(new_node);
   }
 
-  // if (!flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
-  //   // save the new node to the vector index entries and later add it on commit
-  //   // node is added to the vector index on commit because we need to know the commit timestamp
-  //   context.db_accessor->AddNewVectorIndexEntry(new_node);
-  // }
-
   (*frame)[node_info.symbol] = new_node;
   return (*frame)[node_info.symbol].ValueVertex();
 }
