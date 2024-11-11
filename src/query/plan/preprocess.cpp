@@ -724,7 +724,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
         // look for point.distance(n.prop, other) > expr2
         !add_point_distance_filter(gt->expression1_, gt->expression2_, PointDistanceCondition::OUTSIDE) &&
         // look for expr2 > point.distance(n.prop, other)
-        !add_point_distance_filter(gt->expression1_, gt->expression2_, PointDistanceCondition::INSIDE) &&
+        !add_point_distance_filter(gt->expression2_, gt->expression1_, PointDistanceCondition::INSIDE) &&
         !add_prop_greater(gt->expression1_, gt->expression2_, Bound::Type::EXCLUSIVE)) {
       // fallback generic
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
@@ -734,7 +734,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
         // look for point.distance(n.prop, other) >= expr2
         !add_point_distance_filter(ge->expression1_, ge->expression2_, PointDistanceCondition::OUTSIDE_AND_BOUNDARY) &&
         // look for expr2 >= point.distance(n.prop, other)
-        !add_point_distance_filter(ge->expression1_, ge->expression2_, PointDistanceCondition::INSIDE_AND_BOUNDARY) &&
+        !add_point_distance_filter(ge->expression2_, ge->expression1_, PointDistanceCondition::INSIDE_AND_BOUNDARY) &&
         !add_prop_greater(ge->expression1_, ge->expression2_, Bound::Type::INCLUSIVE)) {
       // fallback generic
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
@@ -744,7 +744,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
         // look for point.distance(n.prop, other) < expr2
         !add_point_distance_filter(lt->expression1_, lt->expression2_, PointDistanceCondition::INSIDE) &&
         // look for expr2 < point.distance(n.prop, other)
-        !add_point_distance_filter(lt->expression1_, lt->expression2_, PointDistanceCondition::OUTSIDE) &&
+        !add_point_distance_filter(lt->expression2_, lt->expression1_, PointDistanceCondition::OUTSIDE) &&
         // Like greater, but in reverse.
         !add_prop_greater(lt->expression2_, lt->expression1_, Bound::Type::EXCLUSIVE)) {
       // fallback generic
@@ -755,7 +755,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
         // look for point.distance(n.prop, other) <= expr2
         !add_point_distance_filter(le->expression1_, le->expression2_, PointDistanceCondition::INSIDE_AND_BOUNDARY) &&
         // look for expr2 <= point.distance(n.prop, other)
-        !add_point_distance_filter(le->expression1_, le->expression2_, PointDistanceCondition::OUTSIDE_AND_BOUNDARY) &&
+        !add_point_distance_filter(le->expression2_, le->expression1_, PointDistanceCondition::OUTSIDE_AND_BOUNDARY) &&
         // Like greater equal, but in reverse.
         !add_prop_greater(le->expression2_, le->expression1_, Bound::Type::INCLUSIVE)) {
       // fallback generic
