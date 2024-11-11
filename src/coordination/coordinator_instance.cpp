@@ -247,9 +247,7 @@ auto CoordinatorInstance::ShowInstancesAsLeader() const -> std::optional<std::ve
   };
 
   {
-    spdlog::trace("Trying to take shared lock on coord_instance_lock_.");
     auto lock = std::shared_lock{coord_instance_lock_};
-    spdlog::trace("Shared lock taken on coord_instance_lock_.");
     std::ranges::transform(repl_instances_, std::back_inserter(instances_status), process_repl_instance_as_leader);
   }
 
@@ -277,9 +275,7 @@ auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
 
   CoordinatorInstanceConnector *leader{nullptr};
   {
-    spdlog::trace("Trying to take lock on coordinator instance connectors.");
     auto connectors = coordinator_connectors_.Lock();
-    spdlog::trace("Lock taken on coordinator instance connectors.");
 
     auto connector =
         std::ranges::find_if(*connectors, [&leader_id](auto &&connector) { return connector.first == leader_id; });

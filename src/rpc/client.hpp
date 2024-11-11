@@ -195,11 +195,7 @@ class Client {
     typename TRequestResponse::Request request(std::forward<Args>(args)...);
     auto req_type = TRequestResponse::Request::kType;
 
-    spdlog::trace("Trying to take lock on rpc client when sending {} request to {}", req_type.name,
-                  endpoint_.SocketAddress());
     auto guard = std::unique_lock{mutex_};
-
-    spdlog::trace("Lock taken on rpc client when sending {} request to {}", req_type.name, endpoint_.SocketAddress());
 
     // Check if the connection is broken (if we haven't used the client for a
     // long time the server could have died).
