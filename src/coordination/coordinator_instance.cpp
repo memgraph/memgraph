@@ -776,6 +776,14 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
           spdlog::error("Failed to enable writing on main instance {}.", instance_name);
         }
       }
+
+      if (!instance_state->uuid || *instance_state->uuid != curr_main_uuid) {
+        if (!instance.SendSwapAndUpdateUUID(curr_main_uuid)) {
+          spdlog::error("Failed to set new uuid for main instance {} to {}.", instance_name,
+                        std::string{curr_main_uuid});
+          return;
+        }
+      }
     }
   } else {
     // The instance should be replica.
