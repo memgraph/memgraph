@@ -278,7 +278,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
   spdlog::info("Point indices are recreated.");
 
   // Recover vector index
-  if (!FLAGS_experimental_vector_indexes.empty()) {
+  if (!flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
     auto acc = vertices->access();
     for (auto &vertex : acc) {
       indices->vector_index_.TryInsertVertex(&vertex);

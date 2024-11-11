@@ -16,6 +16,7 @@
 
 #include "absl/container/flat_hash_map.h"
 #include "flags/bolt.hpp"
+#include "flags/experimental.hpp"
 #include "query/exceptions.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/vector_index.hpp"
@@ -205,7 +206,7 @@ void VectorIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &
 }
 
 std::vector<VectorIndexInfo> VectorIndex::ListAllIndices() const {
-  if (FLAGS_experimental_vector_indexes.empty()) {
+  if (!flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
     throw query::VectorSearchDisabledException();
   }
   std::vector<VectorIndexInfo> result;
@@ -222,7 +223,7 @@ std::vector<VectorIndexInfo> VectorIndex::ListAllIndices() const {
 
 std::vector<std::tuple<Gid, double, double>> VectorIndex::Search(std::string_view index_name, uint64_t result_set_size,
                                                                  const std::vector<float> &query_vector) const {
-  if (FLAGS_experimental_vector_indexes.empty()) {
+  if (!flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
     throw query::VectorSearchDisabledException();
   }
   const auto &label_prop = pimpl->index_name_to_label_prop_.at(index_name);

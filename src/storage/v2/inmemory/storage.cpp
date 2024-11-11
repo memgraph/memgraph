@@ -158,7 +158,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
 
   // This is temporary solution for vector index to accelerate the development
   std::vector<memgraph::storage::VectorIndexSpec> vector_index_specs;
-  if (!FLAGS_experimental_vector_indexes.empty()) {
+  if (!flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
     const auto specs = memgraph::utils::Split(FLAGS_experimental_vector_indexes, ";");
     if (!specs.empty()) {
       vector_index_specs.reserve(specs.size());
@@ -1390,7 +1390,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                   }
                 }
 
-                if (!FLAGS_experimental_vector_indexes.empty()) {
+                if (!flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
                   // we have to remove the vertex from the vector index if it this label is indexed and vertex has
                   // needed property
                   const auto &properties = index_stats.vector.l2p.find(current->label.value);
@@ -1414,7 +1414,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 MG_ASSERT(it == vertex->labels.end(), "Invalid database state!");
                 vertex->labels.push_back(current->label.value);
 
-                if (!FLAGS_experimental_vector_indexes.empty()) {
+                if (!flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
                   // we have to add the vertex to the vector index if it this label is indexed and vertex has needed
                   // property
                   const auto &properties = index_stats.vector.l2p.find(current->label.value);
@@ -1439,7 +1439,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 //  check if we care about the property, this will return all the labels and then get current property
                 //  value
                 const auto &labels = index_stats.property_label.p2l.find(current->property.key);
-                const auto &vector_index_labels = FLAGS_experimental_vector_indexes.empty()
+                const auto &vector_index_labels = !flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)
                                                       ? index_stats.vector.p2l.end()
                                                       : index_stats.vector.p2l.find(current->property.key);
                 const auto has_property_index = labels != index_stats.property_label.p2l.end();
@@ -1668,7 +1668,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       for (auto const &[edge_type_property, edge] : edge_property_cleanup) {
         storage_->indices_.AbortEntries(edge_type_property, edge, transaction_.start_timestamp);
       }
-      if (!FLAGS_experimental_vector_indexes.empty()) {
+      if (!flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
         for (auto const &[label_prop, vertices] : vector_label_property_cleanup) {
           storage_->indices_.vector_index_.AbortEntries(label_prop, vertices);
         }

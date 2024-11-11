@@ -601,7 +601,7 @@ int main(int argc, char **argv) {
   memgraph::query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();
   memgraph::query::procedure::gCallableAliasMapper.LoadMapping(FLAGS_query_callable_mappings_path);
 
-  if (!FLAGS_experimental_vector_indexes.empty() &&
+  if (!memgraph::flags::AreExperimentsEnabled(memgraph::flags::Experiments::VECTOR_SEARCH) &&
       db_config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL) {
     LOG_FATAL("Vector indexes are not supported in ON_DISK_TRANSACTIONAL storage mode.");
   }

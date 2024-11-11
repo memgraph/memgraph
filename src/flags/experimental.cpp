@@ -14,11 +14,10 @@
 #include <string_view>
 #include <type_traits>
 
+#include <json/json.hpp>
 #include "flags/experimental.hpp"
 #include "range/v3/all.hpp"
-#include "utils/enum.hpp"
 #include "utils/flag_validation.hpp"
-#include "utils/string.hpp"
 
 #include <spdlog/spdlog.h>
 #include <range/v3/view/split.hpp>
@@ -26,9 +25,10 @@
 
 // Bolt server flags.
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_VALIDATED_string(experimental_enabled, "",
-                        "Experimental features to be used, comma-separated. Options [text-search, high-availability]",
-                        { return memgraph::flags::ValidExperimentalFlag(value); });
+DEFINE_VALIDATED_string(
+    experimental_enabled, "",
+    "Experimental features to be used, comma-separated. Options [text-search, high-availability, vector-search]",
+    { return memgraph::flags::ValidExperimentalFlag(value); });
 
 using namespace std::string_view_literals;
 namespace rv = ranges::views;
@@ -48,7 +48,8 @@ auto const canonicalize_string = [](auto &&rng) {
 namespace memgraph::flags {
 
 auto const mapping = std::map{std::pair{"text-search"sv, Experiments::TEXT_SEARCH},
-                              std::pair{"high-availability"sv, Experiments::HIGH_AVAILABILITY}};
+                              std::pair{"high-availability"sv, Experiments::HIGH_AVAILABILITY},
+                              std::pair{"vector-search"sv, Experiments::VECTOR_SEARCH}};
 
 auto ExperimentsInstance() -> Experiments & {
   static auto instance = Experiments{};
@@ -99,6 +100,31 @@ auto ValidExperimentalFlag(std::string_view value) -> bool {
   auto const mapping_end = mapping.cend();
   return !ranges::any_of(value | rv::split(',') | rv::transform(canonicalize_string),
                          [&mapping_end](auto &&experiment) { return mapping.find(experiment) == mapping_end; });
+}
+
+auto ValidExperimentalConfig(std::string_view json_config) -> bool {
+  if (json_config.empty()) {
+    return true;
+  }
+
+  try {
+    auto json_flags = nlohmann::json::parse(json_config);
+    if (!json_flags.is_object()) {
+      return false;
+    }
+
+    auto const mapping_end = mapping.cend();
+    for (auto const &[key, _] : json_flags.items()) {
+      auto const canonical_key = canonicalize_string(key);
+      if (mapping.find(canonical_key) == mapping_end) {
+        return false;
+      }
+    }
+  } catch (nlohmann::json::parse_error const &e) {
+    return false;
+  }
+
+  return true;
 }
 
 }  // namespace memgraph::flags

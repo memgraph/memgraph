@@ -18,6 +18,7 @@
 // Short help flag.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(experimental_enabled);
+DECLARE_string(experimental_config);
 
 namespace memgraph::flags {
 
@@ -26,6 +27,7 @@ namespace memgraph::flags {
 enum class Experiments : uint8_t {
   TEXT_SEARCH = 1 << 0,
   HIGH_AVAILABILITY = 1 << 1,
+  VECTOR_SEARCH = 1 << 2,
 };
 
 bool AreExperimentsEnabled(Experiments experiments);
@@ -34,5 +36,6 @@ auto ReadExperimental(std::string const &) -> Experiments;
 void SetExperimental(Experiments const &);
 void AppendExperimental(Experiments const &);
 auto ValidExperimentalFlag(std::string_view value) -> bool;
+auto ValidExperimentalConfig(std::string_view json_config) -> bool;
 
 }  // namespace memgraph::flags
