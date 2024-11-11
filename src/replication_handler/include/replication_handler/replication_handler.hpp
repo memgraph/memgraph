@@ -196,9 +196,7 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
 
 #ifdef MG_ENTERPRISE
     // Update system before enabling individual storage <-> replica clients
-    spdlog::trace("Starting system restore for {}", config.repl_server_endpoint.SocketAddress());
     SystemRestore(*maybe_client.GetValue(), system_, dbms_handler_, main_uuid, auth_);
-    spdlog::trace("Finished system restore for {}", config.repl_server_endpoint.SocketAddress());
 #endif
 
     const auto dbms_error = HandleRegisterReplicaStatus(maybe_client);
@@ -278,13 +276,11 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
     }
 
     // No client error, start instance level client
-    spdlog::trace("Starting replica client.");
 #ifdef MG_ENTERPRISE
     StartReplicaClient(*instance_client_ptr, system_, dbms_handler_, main_uuid, auth_);
 #else
     StartReplicaClient(*instance_client_ptr, dbms_handler_, main_uuid);
 #endif
-    spdlog::trace("Finished replica client.");
     return {};
   }
 

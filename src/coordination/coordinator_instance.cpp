@@ -729,9 +729,7 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
     return;
   }
 
-  spdlog::trace("Trying to take lock on coord_instance_lock_in InstanceSuccessCallback for instance {}", instance_name);
   auto lock = std::unique_lock{coord_instance_lock_};
-  spdlog::trace("Lock taken on coord_instance_lock_ in InstanceSuccessCallback for instance {}", instance_name);
 
   auto &instance = FindReplicationInstance(instance_name);
 
@@ -807,9 +805,7 @@ void CoordinatorInstance::InstanceFailCallback(std::string_view instance_name,
     return;
   }
 
-  spdlog::trace("Trying to take lock on coord_instance_lock_in InstanceFailCallback for instance {}", instance_name);
   auto lock = std::unique_lock{coord_instance_lock_};
-  spdlog::trace("Lock taken on coord_instance_lock_ in InstanceFailCallback for instance {}", instance_name);
 
   auto &instance = FindReplicationInstance(instance_name);
 
