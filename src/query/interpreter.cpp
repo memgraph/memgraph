@@ -5992,9 +5992,8 @@ void Interpreter::Commit() {
   auto *curr_txn = current_db_.db_transactional_accessor_->GetTransaction();
   // if I was main with write txn which became replica, abort.
   if (!is_main && !curr_txn->deltas.empty()) {
-    Abort();
     interpreter_context_->repl_state->Unlock();
-    return;
+    throw QueryException("Cannot commit because instance is not main anymore.");
   }
   auto maybe_commit_error = current_db_.db_transactional_accessor_->Commit({.is_main = is_main}, current_db_.db_acc_);
   interpreter_context_->repl_state->Unlock();

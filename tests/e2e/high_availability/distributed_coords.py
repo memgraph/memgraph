@@ -963,13 +963,15 @@ def test_old_main_comes_back_on_new_leader_as_main(test_name):
         return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCES;"))))
 
     interactive_mg_runner.start(inner_memgraph_instances, "instance_3")
+    interactive_mg_runner.start(inner_memgraph_instances, "instance_1")
+    interactive_mg_runner.start(inner_memgraph_instances, "instance_2")
 
     coord1_leader_data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "down", "follower"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "down", "unknown"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "down", "unknown"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
+        ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
 
@@ -977,8 +979,8 @@ def test_old_main_comes_back_on_new_leader_as_main(test_name):
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "leader"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "down", "follower"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "down", "unknown"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "down", "unknown"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
+        ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
 
@@ -988,9 +990,6 @@ def test_old_main_comes_back_on_new_leader_as_main(test_name):
     mg_sleep_and_assert_multiple(
         [coord1_leader_data, coord2_leader_data], [show_instances_coord1, show_instances_coord2]
     )
-
-    interactive_mg_runner.start(inner_memgraph_instances, "instance_1")
-    interactive_mg_runner.start(inner_memgraph_instances, "instance_2")
 
     new_main_cursor = connect(host="localhost", port=7689).cursor()
 

@@ -146,12 +146,10 @@ void Load(memgraph::storage::replication::TimestampReq *self, memgraph::slk::Rea
 // Serialize code for CurrentWalRes
 
 void Save(const memgraph::storage::replication::CurrentWalRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self.success, builder);
   memgraph::slk::Save(self.current_commit_timestamp, builder);
 }
 
 void Load(memgraph::storage::replication::CurrentWalRes *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(&self->success, reader);
   memgraph::slk::Load(&self->current_commit_timestamp, reader);
 }
 

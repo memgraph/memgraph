@@ -456,11 +456,11 @@ class InMemoryStorage final : public Storage {
    protected:
     // TODO Better naming
     /// @throw std::bad_alloc
-    VertexAccessor CreateVertexEx(storage::Gid gid);
+    std::optional<VertexAccessor> CreateVertexEx(storage::Gid gid);
     /// @throw std::bad_alloc
     Result<EdgeAccessor> CreateEdgeEx(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type, storage::Gid gid);
 
-    /// Duiring commit, in some cases you do not need to hand over deltas to GC
+    /// During commit, in some cases you do not need to hand over deltas to GC
     /// in those cases this method is a light weight way to unlink and discard our deltas
     void FastDiscardOfDeltas(std::unique_lock<std::mutex> gc_guard);
     void GCRapidDeltaCleanup(std::list<Gid> &current_deleted_edges, std::list<Gid> &current_deleted_vertices,
@@ -473,7 +473,7 @@ class InMemoryStorage final : public Storage {
     explicit ReplicationAccessor(InMemoryAccessor &&inmem) : InMemoryAccessor(std::move(inmem)) {}
 
     /// @throw std::bad_alloc
-    VertexAccessor CreateVertexEx(storage::Gid gid) { return InMemoryAccessor::CreateVertexEx(gid); }
+    std::optional<VertexAccessor> CreateVertexEx(storage::Gid gid) { return InMemoryAccessor::CreateVertexEx(gid); }
 
     /// @throw std::bad_alloc
     Result<EdgeAccessor> CreateEdgeEx(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type,
