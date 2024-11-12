@@ -462,6 +462,10 @@ class Storage {
                                PropertyValue const &point_value, PropertyValue const &boundary_value,
                                PointDistanceCondition condition) -> PointIterable = 0;
 
+    virtual auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
+                               PropertyValue const &bottom_left, PropertyValue const &top_right,
+                               WithinBBoxCondition condition) -> PointIterable = 0;
+
     virtual std::vector<std::tuple<Gid, double, double>> VectorIndexSearch(const std::string &index_name,
                                                                            uint64_t number_of_results,
                                                                            const std::vector<float> &vector) const = 0;

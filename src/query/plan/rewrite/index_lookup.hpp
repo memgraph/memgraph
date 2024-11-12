@@ -1096,8 +1096,21 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                 point_filter.distance_.boundary_value_, point_filter.distance_.boundary_condition_);
           }
           case WITHINBBOX: {
-            throw utils::NotYetImplemented("Withinbbox not yet implemented");
-            break;
+            auto *expr = std::invoke([&]() -> Expression * {
+              // if condition known at plan time, use PrimitiveLiteral
+              if (point_filter.withinbbox_.condition_) {
+                auto is_inside = point_filter.withinbbox_.condition_ == WithinBBoxCondition::INSIDE;
+
+                auto *new_expr = ast_storage_->Create<PrimitiveLiteral>();
+                new_expr->value_ = storage::PropertyValue{is_inside};
+                return new_expr;
+              }
+              // else use provided evaluation time expression
+              return point_filter.withinbbox_.boundary_value_;
+            });
+            return std::make_unique<ScanAllByPointWithinbbox>(
+                input, node_symbol, GetLabel(found_index->label), GetProperty(point_filter.property_),
+                point_filter.withinbbox_.bottom_left_, point_filter.withinbbox_.top_right_, expr);
           }
         }
       }

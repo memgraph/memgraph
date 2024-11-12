@@ -821,7 +821,36 @@ Feature: Spatial related features
 
         When executing query:
             """
+            MATCH (m:L1) WHERE point.distance(m.prop, point({x:0,y:0})) < 1 RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
+            """
+        Then the result should be:
+            | m                                                                       |
+            | (:L1{prop:POINT({x:0.0, y:0.0, srid: 7203})})                           |
+            | (:L1{prop:POINT({x: 0.25, y:0.25, srid: 7203})})                        |
+
+        When executing query:
+            """
+            MATCH (m:L1) WHERE 1 > point.distance(point({x:0,y:0}), m.prop) RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
+            """
+        Then the result should be:
+            | m                                                                       |
+            | (:L1{prop:POINT({x:0.0, y:0.0, srid: 7203})})                           |
+            | (:L1{prop:POINT({x: 0.25, y:0.25, srid: 7203})})                        |
+
+        When executing query:
+            """
             WITH point({x:0,y:0}) AS a MATCH (m:L1) WHERE point.distance(m.prop, a) <= 1 RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
+            """
+        Then the result should be:
+            | m                                                 |
+            | (:L1{prop:POINT({x:0.0, y:0.0, srid: 7203})})     |
+            | (:L1{prop:POINT({x:0.0, y:1.0, srid:7203})})      |
+            | (:L1{prop:POINT({x: 0.25, y:0.25, srid:7203})})   |
+            | (:L1{prop:POINT({x: 1.0, y:0.0, srid:7203})})     |
+
+        When executing query:
+            """
+            MATCH (m:L1) WHERE 1 >= point.distance(m.prop, point({x:0,y:0})) RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
             """
         Then the result should be:
             | m                                                 |
@@ -843,7 +872,38 @@ Feature: Spatial related features
 
         When executing query:
             """
+            MATCH (m:L1) WHERE point.distance(m.prop, point({x:0,y:0})) >= 1 RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
+            """
+        Then the result should be:
+            | m                                               |
+            | (:L1{prop:POINT({x: 0.0, y:1.0, srid:7203})})   |
+            | (:L1{prop:POINT({x: 1.0, y:0.0, srid:7203})})   |
+            | (:L1{prop:POINT({x: 1.0, y:1.0, srid:7203})})   |
+            | (:L1{prop:POINT({x: 2.0, y:2.0, srid:7203})})   |
+
+        When executing query:
+            """
+            MATCH (m:L1) WHERE 1 <= point.distance(m.prop, point({x:0,y:0})) RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
+            """
+        Then the result should be:
+            | m                                               |
+            | (:L1{prop:POINT({x: 0.0, y:1.0, srid:7203})})   |
+            | (:L1{prop:POINT({x: 1.0, y:0.0, srid:7203})})   |
+            | (:L1{prop:POINT({x: 1.0, y:1.0, srid:7203})})   |
+            | (:L1{prop:POINT({x: 2.0, y:2.0, srid:7203})})   |
+
+        When executing query:
+            """
             WITH point({x:0,y:0}) AS a MATCH (m:L1) WHERE point.distance(m.prop, a) > 1 RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
+            """
+        Then the result should be:
+            | m                                               |
+            | (:L1{prop:POINT({x: 1.0, y:1.0, srid:7203})})   |
+            | (:L1{prop:POINT({x: 2.0, y:2.0, srid:7203})})   |
+
+        When executing query:
+            """
+            MATCH (m:L1) WHERE 1 < point.distance(m.prop, point({x:0,y:0})) RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
             """
         Then the result should be:
             | m                                               |
@@ -905,6 +965,15 @@ Feature: Spatial related features
             | (:L1{prop:POINT({x:1.0, y:1.0, z:1.0, srid: 9157})})     |
             | (:L1{prop:POINT({x:2.0, y:2.0, z:2.0, srid:9157})})      |
 
+        When executing query:
+            """
+            MATCH (m:L1) WHERE point.distance(m.prop, point({x:0,y:0,z:0})) > 1 RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC, m.prop.z ASC;
+            """
+        Then the result should be:
+            | m                                                        |
+            | (:L1{prop:POINT({x:1.0, y:1.0, z:1.0, srid: 9157})})     |
+            | (:L1{prop:POINT({x:2.0, y:2.0, z:2.0, srid:9157})})      |
+
 
     Scenario: Point index scan wgs84 at 0deg boundary:
         Given an empty graph
@@ -923,6 +992,16 @@ Feature: Spatial related features
         When executing query:
             """
             WITH point({x:0, y:0, crs:"wgs-84"}) AS a MATCH (m:L1) WHERE point.distance(m.prop, a) <= 111320 RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
+            """
+        Then the result should be:
+            | m                                                          |
+            | (:L1{prop:POINT({longitude:-1.0,latitude:0.0,srid:4326})}) |
+            | (:L1{prop:POINT({longitude:0.0,latitude:0.0,srid:4326})})  |
+            | (:L1{prop:POINT({longitude:1.0,latitude:0.0,srid:4326})})  |
+
+        When executing query:
+            """
+            MATCH (m:L1) WHERE point.distance(m.prop, point({x:0, y:0, crs:"wgs-84"})) <= 111320 RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
             """
         Then the result should be:
             | m                                                          |
@@ -963,6 +1042,20 @@ Feature: Spatial related features
             | (:L1{prop:POINT({longitude:179.0,latitude:0.0,srid:4326})})   |
             | (:L1{prop:POINT({longitude:180.0,latitude:0.0,srid:4326})})   |
             | (:L1{prop:POINT({longitude:180.0,latitude:1.0,srid:4326})})   |
+
+        When executing query:
+            """
+            MATCH (m:L1) WHERE point.distance(m.prop, point({x:180, y:0, crs:"wgs-84"})) <= 111320 RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
+            """
+        Then the result should be:
+            | m                                                             |
+            | (:L1{prop:POINT({longitude:-180.0,latitude:0.0,srid:4326})})  |
+            | (:L1{prop:POINT({longitude:-180.0,latitude:1.0,srid:4326})})  |
+            | (:L1{prop:POINT({longitude:-179.0,latitude:0.0,srid:4326})})  |
+            | (:L1{prop:POINT({longitude:179.0,latitude:0.0,srid:4326})})   |
+            | (:L1{prop:POINT({longitude:180.0,latitude:0.0,srid:4326})})   |
+            | (:L1{prop:POINT({longitude:180.0,latitude:1.0,srid:4326})})   |
+
 
     Scenario: Point index scan wgs84-3d at 0deg boundary:
         Given an empty graph
@@ -1022,6 +1115,48 @@ Feature: Spatial related features
             | (:L1{prop:POINT({longitude: 1.0,latitude:0.0,height:1000.0,srid:4979})})     |
             | (:L1{prop:POINT({longitude: 2.0,latitude:0.0,height:0.0,srid:4979})})        |
 
+        When executing query:
+            """
+            MATCH (m:L1) WHERE point.distance(m.prop, point({x:0, y:0, z:0, crs:"wgs-84-3d"})) <= 111320 RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC, m.prop.z ASC;
+            """
+        Then the result should be:
+            | m                                                                         |
+            | (:L1{prop:POINT({longitude:-1.0, latitude:0.0, height:0.0, srid:4979})})  |
+            | (:L1{prop:POINT({longitude: 0.0, latitude:0.0, height:0.0, srid:4979})})  |
+            | (:L1{prop:POINT({longitude: 1.0, latitude:0.0, height:0.0, srid:4979})})  |
+
+        When executing query:
+            """
+            MATCH (m:L1) WHERE point.distance(m.prop, point({x:0, y:0, z:0, crs:"wgs-84-3d"})) < 111320 RETURN m ORDER BY m.prop.x ASC, m.prop.y, m.prop.z ASC;
+            """
+        Then the result should be:
+            | m                                                                         |
+            | (:L1{prop:POINT({longitude:-1.0, latitude:0.0, height:0.0, srid:4979})})  |
+            | (:L1{prop:POINT({longitude: 0.0, latitude:0.0, height:0.0, srid:4979})})  |
+            | (:L1{prop:POINT({longitude: 1.0, latitude:0.0, height:0.0, srid:4979})})  |
+
+        When executing query:
+            """
+            WITH point({x:0, y:0, z:0, crs:"wgs-84-3d"}) AS a MATCH (m:L1) WHERE point.distance(m.prop, point({x:0, y:0, z:0, crs:"wgs-84-3d"})) > 111320 RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC, m.prop.z ASC;
+            """
+        Then the result should be:
+            | m                                                                            |
+            | (:L1{prop:POINT({longitude:-2.0,latitude:0.0,height:0.0,srid:4979})})        |
+            | (:L1{prop:POINT({longitude:-1.0,latitude:0.0,height:-1000.0,srid:4979})})    |
+            | (:L1{prop:POINT({longitude: 1.0, latitude:0.0, height:1000.0, srid:4979})})  |
+            | (:L1{prop:POINT({longitude:2.0,latitude:0.0,height:0.0,srid:4979})})         |
+
+        When executing query:
+            """
+            MATCH (m:L1) WHERE point.distance(m.prop, point({x:0, y:0, z:0, crs:"wgs-84-3d"})) >= 111320 RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC, m.prop.z ASC;
+            """
+        Then the result should be:
+            | m                                                                            |
+            | (:L1{prop:POINT({longitude:-2.0,latitude:0.0,height:0.0,srid:4979})})        |
+            | (:L1{prop:POINT({longitude:-1.0,latitude:0.0,height:-1000.0,srid:4979})})    |
+            | (:L1{prop:POINT({longitude: 1.0,latitude:0.0,height:1000.0,srid:4979})})     |
+            | (:L1{prop:POINT({longitude: 2.0,latitude:0.0,height:0.0,srid:4979})})        |
+
     Scenario: Point index scan wgs84-3d at 180deg boundary:
         Given an empty graph
         And with new point index :L1(prop)
@@ -1062,8 +1197,510 @@ Feature: Spatial related features
             | (:L1{prop:POINT({longitude:-179.0,latitude:0.0,height:-100.0,srid:4979})}) |
             | (:L1{prop:POINT({longitude:-179.0,latitude:0.0,height:0.0,srid:4979})})    |
             | (:L1{prop:POINT({longitude:-179.0,latitude:0.0,height:100.0,srid:4979})})  |
-            | (:L1{prop:POINT({longitude:179.0,latitude:0.0,height:-100.0,srid:4979})})    |
-            | (:L1{prop:POINT({longitude:179.0,latitude:0.0,height:0.0,srid:4979})})       |
+            | (:L1{prop:POINT({longitude:179.0,latitude:0.0,height:-100.0,srid:4979})})  |
+            | (:L1{prop:POINT({longitude:179.0,latitude:0.0,height:0.0,srid:4979})})     |
             | (:L1{prop:POINT({longitude:179.0,latitude:0.0,height:100.0,srid:4979})})   |
             | (:L1{prop:POINT({longitude:180.0,latitude:0.0,height:0.0,srid:4979})})     |
             | (:L1{prop:POINT({longitude:180.0,latitude:1.0,height:0.0,srid:4979})})     |
+
+        When executing query:
+            """
+            MATCH (m:L1) WHERE point.distance(m.prop, point({x:180, y:0, z:0, crs:"wgs-84-3d"})) <= 111320 RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC, m.prop.z ASC;
+            """
+        Then the result should be:
+            | m                                                                          |
+            | (:L1{prop:POINT({longitude:-180.0,latitude:0.0,height:0.0,srid:4979})})    |
+            | (:L1{prop:POINT({longitude:-180.0,latitude:1.0,height:0.0,srid:4979})})    |
+            | (:L1{prop:POINT({longitude:-179.0,latitude:0.0,height:-100.0,srid:4979})}) |
+            | (:L1{prop:POINT({longitude:-179.0,latitude:0.0,height:0.0,srid:4979})})    |
+            | (:L1{prop:POINT({longitude:-179.0,latitude:0.0,height:100.0,srid:4979})})  |
+            | (:L1{prop:POINT({longitude:179.0,latitude:0.0,height:-100.0,srid:4979})})  |
+            | (:L1{prop:POINT({longitude:179.0,latitude:0.0,height:0.0,srid:4979})})     |
+            | (:L1{prop:POINT({longitude:179.0,latitude:0.0,height:100.0,srid:4979})})   |
+            | (:L1{prop:POINT({longitude:180.0,latitude:0.0,height:0.0,srid:4979})})     |
+            | (:L1{prop:POINT({longitude:180.0,latitude:1.0,height:0.0,srid:4979})})     |
+
+    Scenario: Point index scan wgs84-2d withinbbox:
+        Given an empty graph
+        And with new point index :L1(prop)
+        And having executed
+            """
+            UNWIND [
+                POINT({x: 0, y: 0, crs:"wgs-84"}),
+                POINT({x: 0, y: 1, crs:"wgs-84"}),
+                POINT({x: 1, y: 0, crs:"wgs-84"}),
+                POINT({x: 1, y: 1, crs:"wgs-84"}),
+                POINT({x:-1, y:-1, crs:"wgs-84"}),
+                POINT({x: 2, y: 2, crs:"wgs-84"}),
+                POINT({x:-2, y:-2, crs:"wgs-84"})
+            ] AS point
+            CREATE (:L1 {prop: point});
+            """
+        When executing query:
+            """
+            WITH point({x:-1, y:-1, crs:"wgs-84"}) AS lb, point({x:1, y:1, crs:"wgs-84"}) AS up MATCH (m:L1) WHERE point.withinbbox(m.prop, lb, up) RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
+            """
+        Then the result should be:
+            | m                                                              |
+            | (:L1{prop:POINT({longitude:-1.0,latitude:-1.0,srid:4326})})    |
+            | (:L1{prop:POINT({longitude: 0.0,latitude: 0.0,srid:4326})})    |
+            | (:L1{prop:POINT({longitude: 0.0,latitude: 1.0,srid:4326})})    |
+            | (:L1{prop:POINT({longitude: 1.0,latitude: 0.0,srid:4326})})    |
+            | (:L1{prop:POINT({longitude: 1.0,latitude: 1.0,srid:4326})})    |
+
+        When executing query:
+            """
+            MATCH (m:L1) WHERE point.withinbbox(m.prop, point({x:-1, y:-1, crs:"wgs-84"}), point({x:1, y:1, crs:"wgs-84"})) RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
+            """
+        Then the result should be:
+            | m                                                              |
+            | (:L1{prop:POINT({longitude:-1.0,latitude:-1.0,srid:4326})})    |
+            | (:L1{prop:POINT({longitude: 0.0,latitude: 0.0,srid:4326})})    |
+            | (:L1{prop:POINT({longitude: 0.0,latitude: 1.0,srid:4326})})    |
+            | (:L1{prop:POINT({longitude: 1.0,latitude: 0.0,srid:4326})})    |
+            | (:L1{prop:POINT({longitude: 1.0,latitude: 1.0,srid:4326})})    |
+
+    Scenario: Point index scan wgs84-3d withinbbox:
+        Given an empty graph
+        And with new point index :L1(prop)
+        And having executed
+            """
+            UNWIND [
+                POINT({x: 0, y: 0, z: 0, crs:"wgs-84-3d"}),
+                POINT({x: 0, y: 1, z: 2, crs:"wgs-84-3d"}),
+                POINT({x: 1, y: 0, z: 0, crs:"wgs-84-3d"}),
+                POINT({x: 1, y: 1, z: 1, crs:"wgs-84-3d"}),
+                POINT({x:-1, y:-1, z:-1, crs:"wgs-84-3d"}),
+                POINT({x: 2, y: 2, z: 0, crs:"wgs-84-3d"}),
+                POINT({x:-2, y:-2, z: 0, crs:"wgs-84-3d"})
+            ] AS point
+            CREATE (:L1 {prop: point});
+            """
+        When executing query:
+            """
+            WITH point({x:-1, y:-1, z:-1, crs:"wgs-84-3d"}) AS lb, point({x:1, y:1, z:1, crs:"wgs-84-3d"}) AS up MATCH (m:L1) WHERE point.withinbbox(m.prop, lb, up) RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC, m.prop.z ASC;
+            """
+        Then the result should be:
+            | m                                                                           |
+            | (:L1{prop:POINT({longitude:-1.0,latitude:-1.0, height:-1.0, srid:4979})})   |
+            | (:L1{prop:POINT({longitude: 0.0,latitude: 0.0, height:0.0, srid:4979})})    |
+            | (:L1{prop:POINT({longitude: 1.0,latitude: 0.0, height:0.0, srid:4979})})    |
+            | (:L1{prop:POINT({longitude: 1.0,latitude: 1.0, height: 1.0, srid:4979})})   |
+
+        When executing query:
+            """
+            MATCH (m:L1) WHERE point.withinbbox(m.prop, point({x:-1, y:-1, z:-1, crs:"wgs-84-3d"}), point({x:1, y:1, z:1, crs:"wgs-84-3d"})) RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC, m.prop.z ASC;
+            """
+        Then the result should be:
+            | m                                                                           |
+            | (:L1{prop:POINT({longitude:-1.0,latitude:-1.0, height:-1.0, srid:4979})})   |
+            | (:L1{prop:POINT({longitude: 0.0,latitude: 0.0, height:0.0, srid:4979})})    |
+            | (:L1{prop:POINT({longitude: 1.0,latitude: 0.0, height:0.0, srid:4979})})    |
+            | (:L1{prop:POINT({longitude: 1.0,latitude: 1.0, height: 1.0, srid:4979})})   |
+
+    Scenario: Point index scan cartesian-2d withinbbox:
+        Given an empty graph
+        And with new point index :L1(prop)
+        And having executed
+            """
+            UNWIND [
+                POINT({x: 0, y: 0, crs:"cartesian"}),
+                POINT({x: 0, y: 1, crs:"cartesian"}),
+                POINT({x: 1, y: 0, crs:"cartesian"}),
+                POINT({x: 1, y: 1, crs:"cartesian"}),
+                POINT({x:-1, y:-1, crs:"cartesian"}),
+                POINT({x: 2, y: 2, crs:"cartesian"}),
+                POINT({x:-2, y:-2, crs:"cartesian"})
+            ] AS point
+            CREATE (:L1 {prop: point});
+            """
+        When executing query:
+            """
+            WITH point({x:-1, y:-1, crs:"cartesian"}) AS lb, point({x:1, y:1, crs:"cartesian"}) AS up MATCH (m:L1) WHERE point.withinbbox(m.prop, lb, up) RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
+            """
+        Then the result should be:
+            | m                                               |
+            | (:L1{prop:POINT({x:-1.0,y:-1.0,srid:7203})})    |
+            | (:L1{prop:POINT({x: 0.0,y: 0.0,srid:7203})})    |
+            | (:L1{prop:POINT({x: 0.0,y: 1.0,srid:7203})})    |
+            | (:L1{prop:POINT({x: 1.0,y: 0.0,srid:7203})})    |
+            | (:L1{prop:POINT({x: 1.0,y: 1.0,srid:7203})})    |
+
+        When executing query:
+            """
+            MATCH (m:L1) WHERE point.withinbbox(m.prop, point({x:-1, y:-1, crs:"cartesian"}), point({x:1, y:1, crs:"cartesian"})) RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
+            """
+        Then the result should be:
+            | m                                               |
+            | (:L1{prop:POINT({x:-1.0,y:-1.0,srid:7203})})    |
+            | (:L1{prop:POINT({x: 0.0,y: 0.0,srid:7203})})    |
+            | (:L1{prop:POINT({x: 0.0,y: 1.0,srid:7203})})    |
+            | (:L1{prop:POINT({x: 1.0,y: 0.0,srid:7203})})    |
+            | (:L1{prop:POINT({x: 1.0,y: 1.0,srid:7203})})    |
+
+    Scenario: Point index scan cartesian-3d withinbbox:
+        Given an empty graph
+        And with new point index :L1(prop)
+        And having executed
+            """
+            UNWIND [
+                POINT({x: 0, y: 0, z: 0, crs:"cartesian-3d"}),
+                POINT({x: 0, y: 1, z: 2, crs:"cartesian-3d"}),
+                POINT({x: 1, y: 0, z: 0, crs:"cartesian-3d"}),
+                POINT({x: 1, y: 1, z: 1, crs:"cartesian-3d"}),
+                POINT({x:-1, y:-1, z:-1, crs:"cartesian-3d"}),
+                POINT({x: 2, y: 2, z: 0, crs:"cartesian-3d"}),
+                POINT({x:-2, y:-2, z: 0, crs:"cartesian-3d"})
+            ] AS point
+            CREATE (:L1 {prop: point});
+            """
+        When executing query:
+            """
+            WITH point({x:-1, y:-1, z:-1, crs:"cartesian-3d"}) AS lb, point({x:1, y:1, z:1, crs:"cartesian-3d"}) AS up MATCH (m:L1) WHERE point.withinbbox(m.prop, lb, up) RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC, m.prop.z ASC;
+            """
+        Then the result should be:
+            | m                                                        |
+            | (:L1{prop:POINT({x:-1.0,y:-1.0, z:-1.0, srid:9157})})    |
+            | (:L1{prop:POINT({x: 0.0,y: 0.0, z: 0.0, srid:9157})})    |
+            | (:L1{prop:POINT({x: 1.0,y: 0.0, z: 0.0, srid:9157})})    |
+            | (:L1{prop:POINT({x: 1.0,y: 1.0, z: 1.0, srid:9157})})    |
+
+        When executing query:
+            """
+            MATCH (m:L1) WHERE point.withinbbox(m.prop, point({x:-1, y:-1, z:-1, crs:"cartesian-3d"}), point({x:1, y:1, z:1, crs:"cartesian-3d"})) RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC, m.prop.z ASC;
+            """
+        Then the result should be:
+            | m                                                        |
+            | (:L1{prop:POINT({x:-1.0,y:-1.0, z:-1.0, srid:9157})})    |
+            | (:L1{prop:POINT({x: 0.0,y: 0.0, z: 0.0, srid:9157})})    |
+            | (:L1{prop:POINT({x: 1.0,y: 0.0, z: 0.0, srid:9157})})    |
+            | (:L1{prop:POINT({x: 1.0,y: 1.0, z: 1.0, srid:9157})})    |
+
+    Scenario: Point index scan withinbbox implied true:
+        Given an empty graph
+        And with new point index :L1(prop)
+        And having executed
+            """
+            UNWIND [
+                POINT({x: 0, y: 0, crs:"cartesian"}),
+                POINT({x: 0, y: 1, crs:"cartesian"}),
+                POINT({x: 1, y: 0, crs:"cartesian"}),
+                POINT({x: 1, y: 1, crs:"cartesian"}),
+                POINT({x:-1, y:-1, crs:"cartesian"}),
+                POINT({x: 2, y: 2, crs:"cartesian"}),
+                POINT({x:-2, y:-2, crs:"cartesian"})
+            ] AS point
+            CREATE (:L1 {prop: point});
+            """
+        When executing query:
+            """
+            WITH point({x:-1, y:-1, crs:"cartesian"}) AS lb, point({x:1, y:1, crs:"cartesian"}) AS up MATCH (m:L1) WHERE point.withinbbox(m.prop, lb, up) RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
+            """
+        Then the result should be:
+            | m                                               |
+            | (:L1{prop:POINT({x:-1.0,y:-1.0,srid:7203})})    |
+            | (:L1{prop:POINT({x: 0.0,y: 0.0,srid:7203})})    |
+            | (:L1{prop:POINT({x: 0.0,y: 1.0,srid:7203})})    |
+            | (:L1{prop:POINT({x: 1.0,y: 0.0,srid:7203})})    |
+            | (:L1{prop:POINT({x: 1.0,y: 1.0,srid:7203})})    |
+
+        When executing query:
+            """
+            MATCH (m:L1) WHERE point.withinbbox(m.prop, point({x:-1, y:-1, crs:"cartesian"}), point({x:1, y:1, crs:"cartesian"})) RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
+            """
+        Then the result should be:
+            | m                                               |
+            | (:L1{prop:POINT({x:-1.0,y:-1.0,srid:7203})})    |
+            | (:L1{prop:POINT({x: 0.0,y: 0.0,srid:7203})})    |
+            | (:L1{prop:POINT({x: 0.0,y: 1.0,srid:7203})})    |
+            | (:L1{prop:POINT({x: 1.0,y: 0.0,srid:7203})})    |
+            | (:L1{prop:POINT({x: 1.0,y: 1.0,srid:7203})})    |
+
+    Scenario: Point index scan withinbbox implied false:
+        Given an empty graph
+        And with new point index :L1(prop)
+        And having executed
+            """
+            UNWIND [
+                POINT({x: 0, y: 0, crs:"cartesian"}),
+                POINT({x: 0, y: 1, crs:"cartesian"}),
+                POINT({x: 1, y: 0, crs:"cartesian"}),
+                POINT({x: 1, y: 1, crs:"cartesian"}),
+                POINT({x:-1, y:-1, crs:"cartesian"}),
+                POINT({x: 2, y: 2, crs:"cartesian"}),
+                POINT({x:-2, y:-2, crs:"cartesian"})
+            ] AS point
+            CREATE (:L1 {prop: point});
+            """
+        When executing query:
+            """
+            WITH point({x:-1, y:-1, crs:"cartesian"}) AS lb, point({x:1, y:1, crs:"cartesian"}) AS up MATCH (m:L1) WHERE NOT point.withinbbox(m.prop, lb, up) RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
+            """
+        Then the result should be:
+            | m                                               |
+            | (:L1{prop:POINT({x:-2.0,y:-2.0,srid:7203})})    |
+            | (:L1{prop:POINT({x: 2.0,y: 2.0,srid:7203})})    |
+
+        When executing query:
+            """
+            MATCH (m:L1) WHERE NOT point.withinbbox(m.prop, point({x:-1, y:-1, crs:"cartesian"}), point({x:1, y:1, crs:"cartesian"})) RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
+            """
+        Then the result should be:
+            | m                                               |
+            | (:L1{prop:POINT({x:-2.0,y:-2.0,srid:7203})})    |
+            | (:L1{prop:POINT({x: 2.0,y: 2.0,srid:7203})})    |
+
+    Scenario: Point index scan withinbbox equals true:
+        Given an empty graph
+        And with new point index :L1(prop)
+        And having executed
+            """
+            UNWIND [
+                POINT({x: 0, y: 0, crs:"cartesian"}),
+                POINT({x: 0, y: 1, crs:"cartesian"}),
+                POINT({x: 1, y: 0, crs:"cartesian"}),
+                POINT({x: 1, y: 1, crs:"cartesian"}),
+                POINT({x:-1, y:-1, crs:"cartesian"}),
+                POINT({x: 2, y: 2, crs:"cartesian"}),
+                POINT({x:-2, y:-2, crs:"cartesian"})
+            ] AS point
+            CREATE (:L1 {prop: point});
+            """
+        When executing query:
+            """
+            WITH point({x:-1, y:-1, crs:"cartesian"}) AS lb, point({x:1, y:1, crs:"cartesian"}) AS up MATCH (m:L1) WHERE point.withinbbox(m.prop, lb, up) = true RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
+            """
+        Then the result should be:
+            | m                                               |
+            | (:L1{prop:POINT({x:-1.0,y:-1.0,srid:7203})})    |
+            | (:L1{prop:POINT({x: 0.0,y: 0.0,srid:7203})})    |
+            | (:L1{prop:POINT({x: 0.0,y: 1.0,srid:7203})})    |
+            | (:L1{prop:POINT({x: 1.0,y: 0.0,srid:7203})})    |
+            | (:L1{prop:POINT({x: 1.0,y: 1.0,srid:7203})})    |
+
+        When executing query:
+            """
+            MATCH (m:L1) WHERE point.withinbbox(m.prop, point({x:-1, y:-1, crs:"cartesian"}), point({x:1, y:1, crs:"cartesian"})) = true RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
+            """
+        Then the result should be:
+            | m                                               |
+            | (:L1{prop:POINT({x:-1.0,y:-1.0,srid:7203})})    |
+            | (:L1{prop:POINT({x: 0.0,y: 0.0,srid:7203})})    |
+            | (:L1{prop:POINT({x: 0.0,y: 1.0,srid:7203})})    |
+            | (:L1{prop:POINT({x: 1.0,y: 0.0,srid:7203})})    |
+            | (:L1{prop:POINT({x: 1.0,y: 1.0,srid:7203})})    |
+
+    Scenario: Point index scan withinbbox equals false:
+        Given an empty graph
+        And with new point index :L1(prop)
+        And having executed
+            """
+            UNWIND [
+                POINT({x: 0, y: 0, crs:"cartesian"}),
+                POINT({x: 0, y: 1, crs:"cartesian"}),
+                POINT({x: 1, y: 0, crs:"cartesian"}),
+                POINT({x: 1, y: 1, crs:"cartesian"}),
+                POINT({x:-1, y:-1, crs:"cartesian"}),
+                POINT({x: 2, y: 2, crs:"cartesian"}),
+                POINT({x:-2, y:-2, crs:"cartesian"})
+            ] AS point
+            CREATE (:L1 {prop: point});
+            """
+        When executing query:
+            """
+            WITH point({x:-1, y:-1, crs:"cartesian"}) AS lb, point({x:1, y:1, crs:"cartesian"}) AS up MATCH (m:L1) WHERE point.withinbbox(m.prop, lb, up) = false RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
+            """
+        Then the result should be:
+            | m                                               |
+            | (:L1{prop:POINT({x:-2.0,y:-2.0,srid:7203})})    |
+            | (:L1{prop:POINT({x: 2.0,y: 2.0,srid:7203})})    |
+
+        When executing query:
+            """
+            MATCH (m:L1) WHERE false = point.withinbbox(m.prop, point({x:-1, y:-1, crs:"cartesian"}), point({x:1, y:1, crs:"cartesian"})) RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
+            """
+        Then the result should be:
+            | m                                               |
+            | (:L1{prop:POINT({x:-2.0,y:-2.0,srid:7203})})    |
+            | (:L1{prop:POINT({x: 2.0,y: 2.0,srid:7203})})    |
+
+        When executing query:
+            """
+            MATCH (m:L1) WHERE point.withinbbox(m.prop, point({x:-1, y:-1, crs:"cartesian"}), point({x:1, y:1, crs:"cartesian"})) = false RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
+            """
+        Then the result should be:
+            | m                                               |
+            | (:L1{prop:POINT({x:-2.0,y:-2.0,srid:7203})})    |
+            | (:L1{prop:POINT({x: 2.0,y: 2.0,srid:7203})})    |
+
+    Scenario: Point index scan wgs84-2d withinbbox dateline:
+        Given an empty graph
+        And with new point index :L1(prop)
+        And having executed
+            """
+            UNWIND [
+                POINT({x: 179, y: 0, crs:"wgs-84"}),
+                POINT({x: 180, y: 1, crs:"wgs-84"}),
+                POINT({x:-179, y: 0, crs:"wgs-84"}),
+                POINT({x:-180, y: 1, crs:"wgs-84"}),
+                POINT({x:-179, y:-1, crs:"wgs-84"}),
+                POINT({x:-179, y: 2, crs:"wgs-84"}),
+                POINT({x:-178, y: 0, crs:"wgs-84"})
+            ] AS point
+            CREATE (:L1 {prop: point});
+            """
+        When executing query:
+            """
+            WITH point({x:179, y:-1, crs:"wgs-84"}) AS lb, point({x:-179, y:1, crs:"wgs-84"}) AS up MATCH (m:L1) WHERE point.withinbbox(m.prop, lb, up) RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
+            """
+        Then the result should be:
+            | m                                                                |
+            | (:L1{prop:POINT({longitude:-180.0,latitude: 1.0,srid:4326})})    |
+            | (:L1{prop:POINT({longitude:-179.0,latitude:-1.0,srid:4326})})    |
+            | (:L1{prop:POINT({longitude:-179.0,latitude: 0.0,srid:4326})})    |
+            | (:L1{prop:POINT({longitude: 179.0,latitude: 0.0,srid:4326})})    |
+            | (:L1{prop:POINT({longitude: 180.0,latitude: 1.0,srid:4326})})    |
+
+        When executing query:
+            """
+            MATCH (m:L1) WHERE point.withinbbox(m.prop, point({x:179, y:-1, crs:"wgs-84"}), point({x:-179, y:1, crs:"wgs-84"})) RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
+            """
+        Then the result should be:
+            | m                                                                |
+            | (:L1{prop:POINT({longitude:-180.0,latitude: 1.0,srid:4326})})    |
+            | (:L1{prop:POINT({longitude:-179.0,latitude:-1.0,srid:4326})})    |
+            | (:L1{prop:POINT({longitude:-179.0,latitude: 0.0,srid:4326})})    |
+            | (:L1{prop:POINT({longitude: 179.0,latitude: 0.0,srid:4326})})    |
+            | (:L1{prop:POINT({longitude: 180.0,latitude: 1.0,srid:4326})})    |
+
+    Scenario: Point index scan wgs84-3d withinbbox dateline:
+        Given an empty graph
+        And with new point index :L1(prop)
+        And having executed
+            """
+            UNWIND [
+                POINT({x: 179, y: 0, z: 0, crs:"wgs-84-3d"}),
+                POINT({x: 180, y: 1, z: 1, crs:"wgs-84-3d"}),
+                POINT({x:-179, y: 0, z:-2, crs:"wgs-84-3d"}),
+                POINT({x:-180, y: 1, z: 1, crs:"wgs-84-3d"}),
+                POINT({x:-179, y:-1, z: 0, crs:"wgs-84-3d"}),
+                POINT({x:-179, y: 2, z: 1, crs:"wgs-84-3d"}),
+                POINT({x:-178, y: 0, z: 0, crs:"wgs-84-3d"})
+            ] AS point
+            CREATE (:L1 {prop: point});
+            """
+        When executing query:
+            """
+            WITH point({x:179, y:-1, z:-1, crs:"wgs-84-3d"}) AS lb, point({x:-179, y:1, z:1, crs:"wgs-84-3d"}) AS up MATCH (m:L1) WHERE point.withinbbox(m.prop, lb, up) RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
+            """
+        Then the result should be:
+            | m                                                                             |
+            | (:L1{prop:POINT({longitude:-180.0,latitude: 1.0, height:1.0, srid:4979})})    |
+            | (:L1{prop:POINT({longitude:-179.0,latitude:-1.0, height:0.0, srid:4979})})    |
+            | (:L1{prop:POINT({longitude: 179.0,latitude: 0.0, height:0.0, srid:4979})})    |
+            | (:L1{prop:POINT({longitude: 180.0,latitude: 1.0, height:1.0, srid:4979})})    |
+
+        When executing query:
+            """
+            MATCH (m:L1) WHERE point.withinbbox(m.prop, point({x:179, y:-1, z:-1, crs:"wgs-84-3d"}), point({x:-179, y:1, z:1, crs:"wgs-84-3d"})) RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
+            """
+        Then the result should be:
+            | m                                                                             |
+            | (:L1{prop:POINT({longitude:-180.0,latitude: 1.0, height:1.0, srid:4979})})    |
+            | (:L1{prop:POINT({longitude:-179.0,latitude:-1.0, height:0.0, srid:4979})})    |
+            | (:L1{prop:POINT({longitude: 179.0,latitude: 0.0, height:0.0, srid:4979})})    |
+            | (:L1{prop:POINT({longitude: 180.0,latitude: 1.0, height:1.0, srid:4979})})    |
+
+    Scenario: Point index scan cartesian-2d withinbbox wrap fails:
+        Given an empty graph
+        And with new point index :L1(prop)
+        And having executed
+            """
+            UNWIND [
+                POINT({x: 0, y: 0, crs:"cartesian"}),
+                POINT({x: 1, y: 1, crs:"cartesian"}),
+                POINT({x: 2, y: 2, crs:"cartesian"})
+            ] AS point
+            CREATE (:L1 {prop: point});
+            """
+        When executing query:
+            """
+            WITH point({x:1, y:1, crs:"cartesian"}) AS lb, point({x:-1, y:-1, crs:"cartesian"}) AS up MATCH (m:L1) WHERE point.withinbbox(m.prop, lb, up) RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
+            """
+        Then the result should be:
+            | m                                                                |
+
+        When executing query:
+            """
+            MATCH (m:L1) WHERE point.withinbbox(m.prop, point({x:1, y:1, crs:"cartesian"}), point({x:-1, y:-1, crs:"cartesian"})) RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
+            """
+        Then the result should be:
+            | m                                                                |
+
+    Scenario: Point index scan cartesian-3d withinbbox wrap fails:
+        Given an empty graph
+        And with new point index :L1(prop)
+        And having executed
+            """
+            UNWIND [
+                POINT({x: 0, y: 0, z:0, crs:"cartesian-3d"}),
+                POINT({x: 1, y: 1, z:1, crs:"cartesian-3d"}),
+                POINT({x: 2, y: 2, z:2, crs:"cartesian-3d"})
+            ] AS point
+            CREATE (:L1 {prop: point});
+            """
+        When executing query:
+            """
+            WITH point({x:1, y:1, z:1, crs:"cartesian-3d"}) AS lb, point({x:-1, y:-1, z:-1, crs:"cartesian-3d"}) AS up MATCH (m:L1) WHERE point.withinbbox(m.prop, lb, up) RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
+            """
+        Then the result should be:
+            | m                                                                |
+
+        When executing query:
+            """
+            MATCH (m:L1) WHERE point.withinbbox(m.prop, point({x:1, y:1, z:1, crs:"cartesian-3d"}), point({x:-1, y:-1, z:-1, crs:"cartesian-3d"})) RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
+            """
+        Then the result should be:
+            | m                                                                |
+
+    Scenario: Point index scan withinbbox commutation:
+        Given an empty graph
+        And with new point index :L1(prop)
+        And having executed
+            """
+            UNWIND [
+                POINT({x: 0, y: 0, crs:"cartesian"}),
+                POINT({x: 0, y: 1, crs:"cartesian"}),
+                POINT({x: 1, y: 0, crs:"cartesian"}),
+                POINT({x: 1, y: 1, crs:"cartesian"}),
+                POINT({x:-1, y:-1, crs:"cartesian"}),
+                POINT({x: 2, y: 2, crs:"cartesian"}),
+                POINT({x:-2, y:-2, crs:"cartesian"})
+            ] AS point
+            CREATE (:L1 {prop: point});
+            """
+        When executing query:
+            """
+            WITH point({x:-1, y:-1, crs:"cartesian"}) AS lb, point({x:1, y:1, crs:"cartesian"}) AS up MATCH (m:L1) WHERE true = point.withinbbox(m.prop, lb, up) RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
+            """
+        Then the result should be:
+            | m                                               |
+            | (:L1{prop:POINT({x:-1.0,y:-1.0,srid:7203})})    |
+            | (:L1{prop:POINT({x: 0.0,y: 0.0,srid:7203})})    |
+            | (:L1{prop:POINT({x: 0.0,y: 1.0,srid:7203})})    |
+            | (:L1{prop:POINT({x: 1.0,y: 0.0,srid:7203})})    |
+            | (:L1{prop:POINT({x: 1.0,y: 1.0,srid:7203})})    |
+
+    Scenario: Point index with distance wrong arguments:
+        When executing query:
+            """
+            MATCH (m:L1) WHERE point.distance(point({x:0,y:0}, m.prop)) < 1 RETURN m;
+            """
+        Then an error should be raised
+
+    Scenario: Point index with withinbbox wrong arguments:
+        When executing query:
+            """
+            MATCH (m:L1) WHERE point.withinbbox(point({x:0,y:0}, m.prop), point({x:0, y:0})) RETURN m;
+            """
+        Then an error should be raised

@@ -247,6 +247,10 @@ class DiskStorage final : public Storage {
                        PropertyValue const &point_value, PropertyValue const &boundary_value,
                        PointDistanceCondition condition) -> PointIterable override;
 
+    auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
+                       PropertyValue const &bottom_left, PropertyValue const &top_right, WithinBBoxCondition condition)
+        -> PointIterable override;
+
     std::vector<std::tuple<Gid, double, double>> VectorIndexSearch(const std::string &index_name,
                                                                    uint64_t number_of_results,
                                                                    const std::vector<float> &vector) const override;
