@@ -850,6 +850,17 @@ Feature: Spatial related features
 
         When executing query:
             """
+            MATCH (m:L1) WHERE 1 >= point.distance(m.prop, point({x:0,y:0})) RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
+            """
+        Then the result should be:
+            | m                                                 |
+            | (:L1{prop:POINT({x:0.0, y:0.0, srid: 7203})})     |
+            | (:L1{prop:POINT({x:0.0, y:1.0, srid:7203})})      |
+            | (:L1{prop:POINT({x: 0.25, y:0.25, srid:7203})})   |
+            | (:L1{prop:POINT({x: 1.0, y:0.0, srid:7203})})     |
+
+        When executing query:
+            """
             WITH point({x:0,y:0}) AS a MATCH (m:L1) WHERE point.distance(m.prop, a) >= 1 RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
             """
         Then the result should be:
@@ -872,7 +883,27 @@ Feature: Spatial related features
 
         When executing query:
             """
+            MATCH (m:L1) WHERE 1 <= point.distance(m.prop, point({x:0,y:0})) RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
+            """
+        Then the result should be:
+            | m                                               |
+            | (:L1{prop:POINT({x: 0.0, y:1.0, srid:7203})})   |
+            | (:L1{prop:POINT({x: 1.0, y:0.0, srid:7203})})   |
+            | (:L1{prop:POINT({x: 1.0, y:1.0, srid:7203})})   |
+            | (:L1{prop:POINT({x: 2.0, y:2.0, srid:7203})})   |
+
+        When executing query:
+            """
             WITH point({x:0,y:0}) AS a MATCH (m:L1) WHERE point.distance(m.prop, a) > 1 RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
+            """
+        Then the result should be:
+            | m                                               |
+            | (:L1{prop:POINT({x: 1.0, y:1.0, srid:7203})})   |
+            | (:L1{prop:POINT({x: 2.0, y:2.0, srid:7203})})   |
+
+        When executing query:
+            """
+            MATCH (m:L1) WHERE 1 < point.distance(m.prop, point({x:0,y:0})) RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
             """
         Then the result should be:
             | m                                               |
@@ -1478,6 +1509,15 @@ Feature: Spatial related features
         When executing query:
             """
             WITH point({x:-1, y:-1, crs:"cartesian"}) AS lb, point({x:1, y:1, crs:"cartesian"}) AS up MATCH (m:L1) WHERE point.withinbbox(m.prop, lb, up) = false RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
+            """
+        Then the result should be:
+            | m                                               |
+            | (:L1{prop:POINT({x:-2.0,y:-2.0,srid:7203})})    |
+            | (:L1{prop:POINT({x: 2.0,y: 2.0,srid:7203})})    |
+
+        When executing query:
+            """
+            MATCH (m:L1) WHERE false = point.withinbbox(m.prop, point({x:-1, y:-1, crs:"cartesian"}), point({x:1, y:1, crs:"cartesian"})) RETURN m ORDER BY m.prop.x ASC, m.prop.y ASC;
             """
         Then the result should be:
             | m                                               |
