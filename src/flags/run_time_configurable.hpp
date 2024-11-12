@@ -13,7 +13,7 @@
 #include <chrono>
 #include <string>
 #include "utils/observer.hpp"
-#include "utils/variant_helpers.hpp"
+#include "utils/scheduler.hpp"
 
 namespace memgraph::flags::run_time {
 
@@ -65,21 +65,9 @@ const std::chrono::time_zone *GetTimezone();
  */
 std::string GetQueryLogDirectory();
 
-struct PeriodicSnapshotSetup {
-  std::variant<std::chrono::seconds, std::optional<std::string>> period_or_cron;
-
-  explicit operator bool() const {
-    return std::visit(utils::Overloaded{[](std::chrono::seconds s) { return s != std::chrono::seconds(0); },
-                                        [](const std::optional<std::string> &cron) { return cron.has_value(); }},
-                      period_or_cron);
-  }
-
-  void Execute(auto &&overloaded) const { std::visit(overloaded, period_or_cron); }
-};
-
 /**
  * @brief
  */
-void SnapshotPeriodicAttach(std::shared_ptr<utils::Observer<PeriodicSnapshotSetup>> observer);
+void SnapshotPeriodicAttach(std::shared_ptr<utils::Observer<utils::SchedulerSetup>> observer);
 
 }  // namespace memgraph::flags::run_time

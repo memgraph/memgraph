@@ -14,16 +14,32 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
-#include <ctime>
 #include <functional>
 #include <thread>
 
 #include "utils/logging.hpp"
 #include "utils/synchronized.hpp"
-#include "utils/temporal.hpp"
-#include "utils/thread.hpp"
+#include "utils/variant_helpers.hpp"
 
 namespace memgraph::utils {
+
+struct SchedulerSetup {
+  SchedulerSetup() = default;
+  explicit SchedulerSetup(std::chrono::seconds s) : period_or_cron{s} {}
+  explicit SchedulerSetup(const std::string &str);
+
+  friend bool operator==(const SchedulerSetup &lrh, const SchedulerSetup &rhs) = default;
+
+  std::variant<std::chrono::seconds, std::string> period_or_cron{};
+
+  explicit operator bool() const {
+    return std::visit(utils::Overloaded{[](std::chrono::seconds s) { return s != std::chrono::seconds(0); },
+                                        [](const std::string &cron) { return !cron.empty(); }},
+                      period_or_cron);
+  }
+
+  void Execute(auto &&overloaded) const { std::visit(overloaded, period_or_cron); }
+};
 
 /**
  * Class used to run scheduled function execution.
@@ -61,6 +77,14 @@ class Scheduler {
 
   void Setup(std::string_view cron_expr);
 
+  void Setup(const SchedulerSetup &setup) {
+    if (!setup) {  // Un-setup; let the scheduler wait till infinity
+      *find_next_.Lock() = [](auto && /* unused */) { return time_point::max(); };
+      return;
+    }
+    setup.Execute(utils::Overloaded{[this](auto &in) { Setup(in); }});
+  }
+
   void Resume();
 
   void Pause();
@@ -77,7 +101,8 @@ class Scheduler {
   void ThreadRun(std::string service_name, std::function<void()> f, std::stop_token token);
 
   using time_point = std::chrono::system_clock::time_point;
-  Synchronized<std::function<time_point(const time_point &)>> find_next_{};
+  Synchronized<std::function<time_point(const time_point &)>> find_next_{
+      [](auto && /* unused */) { return time_point::max(); }};  // default to infinity
 
   std::atomic<bool> spin_{false};
 

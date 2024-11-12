@@ -413,9 +413,9 @@ int main(int argc, char **argv) {
   using enum memgraph::storage::StorageMode;
   using enum memgraph::storage::Config::Durability::SnapshotWalMode;
 
+  db_config.durability.snapshot_setup = memgraph::utils::SchedulerSetup(FLAGS_storage_periodic_snapshot_config);
   if (db_config.salient.storage_mode == IN_MEMORY_TRANSACTIONAL) {
-    db_config.durability.snapshot_interval = std::chrono::seconds(FLAGS_storage_snapshot_interval_sec);
-    if (db_config.durability.snapshot_interval == 0s) {
+    if (!db_config.durability.snapshot_setup) {
       if (FLAGS_storage_wal_enabled) {
         LOG_FATAL(
             "In order to use write-ahead-logging you must enable "
@@ -433,7 +433,6 @@ int main(int argc, char **argv) {
   } else {
     // IN_MEMORY_ANALYTICAL and ON_DISK_TRANSACTIONAL do not support periodic snapshots
     db_config.durability.snapshot_wal_mode = DISABLED;
-    db_config.durability.snapshot_interval = 0s;
   }
 
   if (memgraph::flags::AreExperimentsEnabled(memgraph::flags::Experiments::VECTOR_SEARCH) &&

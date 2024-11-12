@@ -22,7 +22,7 @@
 #include "storage/v2/storage_mode.hpp"
 #include "utils/compressor.hpp"
 #include "utils/exceptions.hpp"
-#include "utils/logging.hpp"
+#include "utils/scheduler.hpp"
 #include "utils/uuid.hpp"
 
 namespace memgraph::storage {
@@ -110,10 +110,13 @@ struct Config {
 
     bool recover_on_startup{false};  // PER INSTANCE SYSTEM FLAG
 
-    SnapshotWalMode snapshot_wal_mode{SnapshotWalMode::DISABLED};  // PER DATABASE
+    SnapshotWalMode snapshot_wal_mode{
+        SnapshotWalMode::DISABLED};  // PER DATABASE - as at time of initialization; can be changed by
+                                     // enabling/disabling the periodic snapshot
 
-    std::chrono::milliseconds snapshot_interval{std::chrono::minutes(2)};  // PER DATABASE
-    uint64_t snapshot_retention_count{3};                                  // PER DATABASE
+    memgraph::utils::SchedulerSetup snapshot_setup{
+        std::chrono::minutes(2)};          // PER DATABASE - as at time of initialization; can be changed by user
+    uint64_t snapshot_retention_count{3};  // PER DATABASE
 
     uint64_t wal_file_size_kibibytes{20 * 1024};  // PER DATABASE
     uint64_t wal_file_flush_every_n_tx{100000};   // PER DATABASE

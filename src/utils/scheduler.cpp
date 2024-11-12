@@ -15,9 +15,9 @@
 
 #include "croncpp.h"
 #include "utils/logging.hpp"
-#include "utils/observer.hpp"
 #include "utils/synchronized.hpp"
 #include "utils/temporal.hpp"
+#include "utils/thread.hpp"
 
 namespace memgraph::utils {
 
@@ -33,7 +33,6 @@ namespace memgraph::utils {
  */
 void Scheduler::Run(const std::string &service_name, const std::function<void()> &f) {
   DMG_ASSERT(!IsRunning(), "Thread already running.");
-  DMG_ASSERT(*find_next_.Lock(), "Running a scheduler that was not setup");
   // Thread setup
   thread_ = std::jthread([this, f = f, service_name = service_name](std::stop_token token) mutable {
     ThreadRun(std::move(service_name), std::move(f), token);
@@ -53,16 +52,30 @@ void Scheduler::Setup(std::string_view cron_expr) {
   };
 }
 
-}  // namespace memgraph::utils
+SchedulerSetup::SchedulerSetup(const std::string &str) : period_or_cron{str} {
+  if (str.empty()) return;
+  try {
+    // Try period
+    const auto period = std::chrono::seconds(std::stol(str));
+    period_or_cron = period;
+  } catch (std::invalid_argument /* unused */) {
+    // Try cron
+    try {
+      cron::make_cron(str);
+    } catch (cron::bad_cronexpr & /* unused */) {
+      LOG_FATAL("Scheduler setup not an interval or cron expression");
+    }
+  }
+}
 
 // Checking stop_possible() is necessary because otherwise calling IsRunning
 // on a non-started Scheduler would return true.
-bool memgraph::utils::Scheduler::IsRunning() {
+bool Scheduler::IsRunning() {
   std::stop_token token = thread_.get_stop_token();
   return token.stop_possible() && !token.stop_requested();
 }
 
-void memgraph::utils::Scheduler::SpinOne() {
+void Scheduler::SpinOne() {
   {
     auto lk = std::unique_lock{mutex_};
     spin_ = true;
@@ -70,7 +83,7 @@ void memgraph::utils::Scheduler::SpinOne() {
   condition_variable_.notify_one();
 }
 
-void memgraph::utils::Scheduler::ThreadRun(std::string service_name, std::function<void()> f, std::stop_token token) {
+void Scheduler::ThreadRun(std::string service_name, std::function<void()> f, std::stop_token token) {
   utils::ThreadSetName(service_name);
 
   while (true) {
@@ -111,7 +124,7 @@ void memgraph::utils::Scheduler::ThreadRun(std::string service_name, std::functi
 // Concurrent threads may request stopping the scheduler. In that case only one of them will
 // actually stop the scheduler, the other one won't. We need to know which one is the successful
 // one so that we don't try to join thread concurrently since this could cause undefined behavior.
-void memgraph::utils::Scheduler::Stop() {
+void Scheduler::Stop() {
   if (thread_.request_stop()) {
     {
       // Lock needs to be held when modifying cv even if atomic
@@ -125,14 +138,14 @@ void memgraph::utils::Scheduler::Stop() {
 }
 
 // Sets atomic is_paused_ to true.
-void memgraph::utils::Scheduler::Pause() {
+void Scheduler::Pause() {
   // Lock needs to be held when modifying cv even if atomic
   auto lk = std::unique_lock{mutex_};
   is_paused_.store(true, std::memory_order_release);
 }
 
 // Sets atomic is_paused_ to false and notifies thread
-void memgraph::utils::Scheduler::Resume() {
+void Scheduler::Resume() {
   {
     // Lock needs to be held when modifying cv even if atomic
     auto lk = std::unique_lock{mutex_};
@@ -140,3 +153,5 @@ void memgraph::utils::Scheduler::Resume() {
   }
   pause_cv_.notify_one();
 }
+
+}  // namespace memgraph::utils

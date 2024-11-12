@@ -41,12 +41,13 @@
 #include "storage/v2/inmemory/unique_constraints.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/schema_info.hpp"
-#include "storage/v2/transaction.hpp"
-#include "storage/v2/vertex.hpp"
+#include "storage/v2/storage.hpp"
+#include "storage/v2/storage_mode.hpp"
 #include "utils/atomic_memory_block.hpp"
 #include "utils/event_gauge.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/resource_lock.hpp"
+#include "utils/scheduler.hpp"
 #include "utils/stat.hpp"
 #include "utils/variant_helpers.hpp"
 
@@ -118,43 +119,24 @@ auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from
                                                                  : to_vertex->InEdges(view, {edge_type}, from_vertex);
 }
 
-class CronObserver : public memgraph::utils::Observer<std::optional<std::string>> {
+class PeriodicSnapshotObserver : public memgraph::utils::Observer<memgraph::utils::SchedulerSetup> {
  public:
-  explicit CronObserver(memgraph::utils::Scheduler *scheduler) : scheduler_{scheduler} {}
+  explicit PeriodicSnapshotObserver(memgraph::storage::InMemoryStorage &storage, memgraph::utils::Scheduler &scheduler)
+      : storage_{&storage}, scheduler_{&scheduler} {}
 
   // String HAS to be a valid cron expr
-  void Update(const std::optional<std::string> &in) override {
-    if (!in) {
-      scheduler_->Pause();
-      return;
-    }
-    scheduler_->Setup(*in);
+  void Update(const memgraph::utils::SchedulerSetup &in) override {
+    scheduler_->Setup(in);
     scheduler_->SpinOne();
-    scheduler_->Resume();
+    if (storage_->GetStorageMode() == StorageMode::IN_MEMORY_ANALYTICAL) {
+      scheduler_->Pause();
+    } else {
+      scheduler_->Resume();
+    }
   }
 
  private:
-  memgraph::utils::Scheduler *scheduler_;
-};
-
-class PeriodicSnapshotObserver : public memgraph::utils::Observer<memgraph::flags::run_time::PeriodicSnapshotSetup> {
- public:
-  explicit PeriodicSnapshotObserver(memgraph::utils::Scheduler *scheduler) : scheduler_{scheduler} {}
-
-  // String HAS to be a valid cron expr
-  void Update(const memgraph::flags::run_time::PeriodicSnapshotSetup &in) override {
-    if (!in) {
-      scheduler_->Pause();
-      return;
-    }
-    in.Execute(utils::Overloaded{
-        [scheduler = scheduler_](std::chrono::seconds s) { scheduler->Setup(s); },
-        [scheduler = scheduler_](const std::optional<std::string> &cron) { scheduler->Setup(*cron); }});
-    scheduler_->SpinOne();
-    scheduler_->Resume();
-  }
-
- private:
+  memgraph::storage::InMemoryStorage *storage_;
   memgraph::utils::Scheduler *scheduler_;
 };
 
@@ -167,7 +149,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       recovery_{config.durability.storage_directory / durability::kSnapshotDirectory,
                 config.durability.storage_directory / durability::kWalDirectory},
       lock_file_path_(config.durability.storage_directory / durability::kLockFile),
-      snapshot_periodic_observer_(new PeriodicSnapshotObserver(&snapshot_runner_)),
+      snapshot_periodic_observer_(new PeriodicSnapshotObserver(*this, snapshot_runner_)),
       global_locker_(file_retainer_.AddLocker()) {
   MG_ASSERT(config.salient.storage_mode != StorageMode::ON_DISK_TRANSACTIONAL,
             "Invalid storage mode sent to InMemoryStorage constructor!");
@@ -298,9 +280,7 @@ InMemoryStorage::~InMemoryStorage() {
     wal_file_->FinalizeWal();
     wal_file_.reset();
   }
-  if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED) {
-    snapshot_runner_.Stop();
-  }
+  snapshot_runner_.Stop();
   if (config_.durability.snapshot_on_exit && this->create_snapshot_handler) {
     create_snapshot_handler();
   }
@@ -2068,14 +2048,12 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
       (new_storage_mode == StorageMode::IN_MEMORY_ANALYTICAL ||
        new_storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL));
   if (storage_mode_ != new_storage_mode) {
+    // Snapshot thread is already running, but setup periodic execution only if enabled
     if (new_storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
-      snapshot_runner_.Stop();
-    } else if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED) {
-      // TODO: Have setup specific to what the user defined
-      snapshot_runner_.Setup(config_.durability.snapshot_interval);
-      snapshot_runner_.Run("Snapshot", [this]() { this->create_snapshot_handler(); });
+      snapshot_runner_.Pause();
+    } else {
+      snapshot_runner_.Resume();
     }
-
     storage_mode_ = new_storage_mode;
     FreeMemory(std::move(main_guard), false);
   }
@@ -2516,6 +2494,7 @@ StorageInfo InMemoryStorage::GetInfo() {
   info.isolation_level = isolation_level_;
   info.durability_snapshot_enabled =
       config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
+      // TODO check snapshot_runner_ for the actual state
       config_.durability.snapshot_on_exit;
   info.durability_wal_enabled =
       config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
@@ -2933,7 +2912,6 @@ std::unique_ptr<Storage::Accessor> InMemoryStorage::UniqueAccess(
 void InMemoryStorage::CreateSnapshotHandler(
     std::function<utils::BasicResult<InMemoryStorage::CreateSnapshotError>()> cb) {
   create_snapshot_handler = [cb]() {
-    std::cout << "snapshot" << std::endl;
     if (auto maybe_error = cb(); maybe_error.HasError()) {
       switch (maybe_error.GetError()) {
         case CreateSnapshotError::DisabledForReplica:
@@ -2946,15 +2924,16 @@ void InMemoryStorage::CreateSnapshotHandler(
     }
   };
 
-  // Run the snapshot thread (if enabled)
-  if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED) {
-    snapshot_runner_.Setup(config_.durability.snapshot_interval);
-    snapshot_runner_.Run("Snapshot", [this, token = stop_source.get_token()]() {
-      if (!token.stop_requested()) {
-        this->create_snapshot_handler();
-      }
-    });
+  // Start the snapshot thread in any case, paused if not disabled (analytical mode or actually disabled)
+  if (config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::DISABLED) {
+    snapshot_runner_.Pause();
   }
+  snapshot_runner_.Setup(config_.durability.snapshot_setup);
+  snapshot_runner_.Run("Snapshot", [this, token = stop_source.get_token()]() {
+    if (!token.stop_requested()) {
+      this->create_snapshot_handler();
+    }
+  });
 }
 
 std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>> InMemoryStorage::FindEdge(Gid gid) {
