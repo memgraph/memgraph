@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <ranges>
+#include <shared_mutex>
 #include <stop_token>
 #include <string_view>
 
@@ -185,7 +186,6 @@ void VectorIndex::UpdateVectorIndex(Vertex *vertex, const LabelPropKey &label_pr
   auto &index = pimpl->index_.at(label_prop);
 
   // first, try to remove entry (if it exists) and then add new one
-  // TODO(@DavIvek): check if vertex has lock and if that is needed for current implementation
   index.remove(vertex);
   const auto &property = (value != nullptr ? *value : vertex->properties.GetProperty(label_prop.property()));
   if (property.IsNull()) {
@@ -254,8 +254,9 @@ std::vector<VectorIndexInfo> VectorIndex::ListAllIndices() const {
   return result;
 }
 
-std::vector<std::tuple<Gid, double, double>> VectorIndex::Search(std::string_view index_name, uint64_t result_set_size,
-                                                                 const std::vector<float> &query_vector) const {
+std::vector<std::tuple<Vertex *, double, double>> VectorIndex::Search(std::string_view index_name,
+                                                                      uint64_t result_set_size,
+                                                                      const std::vector<float> &query_vector) const {
   if (!flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
     throw query::VectorSearchDisabledException();
   }
@@ -263,18 +264,19 @@ std::vector<std::tuple<Gid, double, double>> VectorIndex::Search(std::string_vie
   const auto &index = pimpl->index_.at(label_prop);
 
   // The result vector will contain pairs of vertices and their score.
-  std::vector<std::tuple<Gid, double, double>> result;
+  std::vector<std::tuple<Vertex *, double, double>> result;
   result.reserve(result_set_size);
 
-  // TODO (@DavIvek): take shared lock on vertex
-  const auto result_keys = index.filtered_search(query_vector.data(), result_set_size,
-                                                 [](const Vertex *vertex) { return !vertex->deleted; });
+  const auto result_keys = index.filtered_search(query_vector.data(), result_set_size, [](const Vertex *vertex) {
+    auto guard = std::shared_lock{vertex->lock};
+    return !vertex->deleted;
+  });
   for (std::size_t i = 0; i < result_keys.size(); ++i) {
     const auto &vertex = static_cast<Vertex *>(result_keys[i].member.key);
-    result.emplace_back(vertex->gid, static_cast<double>(result_keys[i].distance),
+    result.emplace_back(vertex, static_cast<double>(result_keys[i].distance),
                         std::abs(similarity_map.at(index.metric().metric_kind())(result_keys[i].distance)));
   }
-  // TODO (@DavIvek): return accessor instead of gid
+
   return result;
 }
 
@@ -285,8 +287,8 @@ void VectorIndex::AbortEntries(const LabelPropKey &label_prop, std::span<Vertex 
 
 void VectorIndex::RestoreEntries(const LabelPropKey &label_prop,
                                  std::span<std::pair<PropertyValue, Vertex *> const> prop_vertices) const {
-  std::ranges::for_each(prop_vertices, [&](const auto &vertex_property_value_pair) {
-    UpdateVectorIndex(vertex_property_value_pair.second, label_prop, &vertex_property_value_pair.first);
+  std::ranges::for_each(prop_vertices, [&](const auto &property_value_vertex) {
+    UpdateVectorIndex(property_value_vertex.second, label_prop, &property_value_vertex.first);
   });
 }
 
@@ -300,7 +302,10 @@ void VectorIndex::RemoveObsoleteEntries(std::stop_token token) const {
     index.export_keys(vertices_to_remove.data(), 0, index.size());
 
     // TODO: Expand to check if the vertex still has the vector in question
-    auto deleted = vertices_to_remove | std::views::filter([](const Vertex *vertex) { return vertex->deleted; });
+    auto deleted = vertices_to_remove | std::views::filter([](const Vertex *vertex) {
+                     auto guard = std::shared_lock{vertex->lock};
+                     return !vertex->deleted;
+                   });
     std::ranges::for_each(deleted, [&](Vertex *vertex) { index.remove(vertex); });
   }
 }
@@ -317,6 +322,7 @@ VectorIndex::IndexStats VectorIndex::Analysis() const {
 }
 
 void VectorIndex::TryInsertVertex(Vertex *vertex) const {
+  auto guard = std::shared_lock{vertex->lock};
   auto has_property = [&](const auto &label_prop) { return vertex->properties.HasProperty(label_prop.property()); };
   auto has_label = [&](const auto &label_prop) { return utils::Contains(vertex->labels, label_prop.label()); };
   for (const auto &[label_prop, _] : pimpl->index_) {

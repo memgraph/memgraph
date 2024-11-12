@@ -3099,13 +3099,20 @@ auto InMemoryStorage::InMemoryAccessor::PointVertices(LabelId label, PropertyId 
                                                      boundary_value, condition);
 }
 
-std::vector<std::tuple<Gid, double, double>> InMemoryStorage::InMemoryAccessor::VectorIndexSearch(
-    const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) const {
+std::vector<std::tuple<VertexAccessor, double, double>> InMemoryStorage::InMemoryAccessor::VectorIndexSearch(
+    const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  std::vector<std::tuple<VertexAccessor, double, double>> result;
 
   // we have to take vertices accessor to be sure no vertex is deleted while we are searching
   auto acc = mem_storage->vertices_.access();
-  return storage_->indices_.vector_index_.Search(index_name, number_of_results, vector);
+  const auto search_results = storage_->indices_.vector_index_.Search(index_name, number_of_results, vector);
+  std::transform(search_results.begin(), search_results.end(), std::back_inserter(result), [&](const auto &item) {
+    auto &[vertex, distance, score] = item;
+    return std::make_tuple(VertexAccessor{vertex, storage_, &transaction_}, distance, score);
+  });
+
+  return result;
 }
 
 std::vector<VectorIndexInfo> InMemoryStorage::InMemoryAccessor::ListAllVectorIndices() const {

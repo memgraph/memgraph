@@ -466,9 +466,8 @@ class Storage {
                                PropertyValue const &bottom_left, PropertyValue const &top_right,
                                WithinBBoxCondition condition) -> PointIterable = 0;
 
-    virtual std::vector<std::tuple<Gid, double, double>> VectorIndexSearch(const std::string &index_name,
-                                                                           uint64_t number_of_results,
-                                                                           const std::vector<float> &vector) const = 0;
+    virtual std::vector<std::tuple<VertexAccessor, double, double>> VectorIndexSearch(
+        const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) = 0;
 
     virtual std::vector<VectorIndexInfo> ListAllVectorIndices() const = 0;
 

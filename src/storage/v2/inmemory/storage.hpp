@@ -452,9 +452,8 @@ class InMemoryStorage final : public Storage {
                        PropertyValue const &bottom_left, PropertyValue const &top_right, WithinBBoxCondition condition)
         -> PointIterable override;
 
-    std::vector<std::tuple<Gid, double, double>> VectorIndexSearch(const std::string &index_name,
-                                                                   uint64_t number_of_results,
-                                                                   const std::vector<float> &vector) const override;
+    std::vector<std::tuple<VertexAccessor, double, double>> VectorIndexSearch(
+        const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) override;
 
     std::vector<VectorIndexInfo> ListAllVectorIndices() const override;
 

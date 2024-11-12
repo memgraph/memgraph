@@ -18,20 +18,20 @@
 #include <mgp.hpp>
 
 namespace VectorSearch {
-constexpr std::string_view kProcedureSearch = "search";
-constexpr std::string_view kParameterIndexName = "index_name";
-constexpr std::string_view kParameterResultSetSize = "result_set_size";
-constexpr std::string_view kParameterQueryVector = "query_vector";
-constexpr std::string_view kReturnNode = "node";
-constexpr std::string_view kReturnDistance = "distance";
-constexpr std::string_view kReturnSimilarity = "similarity";
+static constexpr std::string_view kProcedureSearch = "search";
+static constexpr std::string_view kParameterIndexName = "index_name";
+static constexpr std::string_view kParameterResultSetSize = "result_set_size";
+static constexpr std::string_view kParameterQueryVector = "query_vector";
+static constexpr std::string_view kReturnNode = "node";
+static constexpr std::string_view kReturnDistance = "distance";
+static constexpr std::string_view kReturnSimilarity = "similarity";
 
-constexpr std::string_view kProcedureShowIndexInfo = "show_index_info";
-constexpr std::string_view kReturnIndexName = "index_name";
-constexpr std::string_view kReturnLabel = "label";
-constexpr std::string_view kReturnProperty = "property";
-constexpr std::string_view kReturnDimension = "dimension";
-constexpr std::string_view kReturnSize = "size";
+static constexpr std::string_view kProcedureShowIndexInfo = "show_index_info";
+static constexpr std::string_view kReturnIndexName = "index_name";
+static constexpr std::string_view kReturnLabel = "label";
+static constexpr std::string_view kReturnProperty = "property";
+static constexpr std::string_view kReturnDimension = "dimension";
+static constexpr std::string_view kReturnSize = "size";
 
 void Search(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
 void ShowIndexInfo(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);

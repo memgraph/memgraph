@@ -536,9 +536,9 @@ class DbAccessor final {
     return accessor_->PointIndexExists(label, prop);
   }
 
-  std::vector<std::tuple<storage::Gid, double, double>> VectorIndexSearch(const std::string &index_name,
-                                                                          uint64_t number_of_results,
-                                                                          const std::vector<float> &vector) const {
+  std::vector<std::tuple<storage::VertexAccessor, double, double>> VectorIndexSearch(const std::string &index_name,
+                                                                                     uint64_t number_of_results,
+                                                                                     const std::vector<float> &vector) {
     return accessor_->VectorIndexSearch(index_name, number_of_results, vector);
   }
 
