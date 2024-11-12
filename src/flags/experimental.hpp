@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <json/json.hpp>
 #include <string>
 
 #include "gflags/gflags.h"
@@ -18,6 +19,8 @@
 // Short help flag.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(experimental_enabled);
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(experimental_config);
 
 namespace memgraph::flags {
@@ -37,5 +40,6 @@ void SetExperimental(Experiments const &);
 void AppendExperimental(Experiments const &);
 auto ValidExperimentalFlag(std::string_view value) -> bool;
 auto ValidExperimentalConfig(std::string_view json_config) -> bool;
+auto ParseExperimentalConfig(Experiments experiments) -> nlohmann::json;
 
 }  // namespace memgraph::flags

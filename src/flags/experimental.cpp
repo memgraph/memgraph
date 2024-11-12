@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <exception>
 #include <map>
 #include <string>
 #include <string_view>
@@ -30,6 +31,12 @@ DEFINE_VALIDATED_string(
     "Experimental features to be used, comma-separated. Options [text-search, high-availability, vector-search]",
     { return memgraph::flags::ValidExperimentalFlag(value); });
 
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_VALIDATED_string(experimental_config, "",
+                        "Experimental features to be used, JSON object. Options [text-search, "
+                        "high-availability, vector-search]",
+                        { return memgraph::flags::ValidExperimentalConfig(value); });
+
 using namespace std::string_view_literals;
 namespace rv = ranges::views;
 
@@ -50,6 +57,10 @@ namespace memgraph::flags {
 auto const mapping = std::map{std::pair{"text-search"sv, Experiments::TEXT_SEARCH},
                               std::pair{"high-availability"sv, Experiments::HIGH_AVAILABILITY},
                               std::pair{"vector-search"sv, Experiments::VECTOR_SEARCH}};
+
+auto const reverse_mapping = std::map{std::pair{Experiments::TEXT_SEARCH, "text-search"sv},
+                                      std::pair{Experiments::HIGH_AVAILABILITY, "high-availability"sv},
+                                      std::pair{Experiments::VECTOR_SEARCH, "vector-search"sv}};
 
 auto ExperimentsInstance() -> Experiments & {
   static auto instance = Experiments{};
@@ -125,6 +136,36 @@ auto ValidExperimentalConfig(std::string_view json_config) -> bool {
   }
 
   return true;
+}
+
+auto ParseExperimentalConfig(Experiments experiment) -> nlohmann::json {
+  const auto &json_config = FLAGS_experimental_config;
+
+  if (json_config.empty()) {
+    return nlohmann::json::object();
+  }
+
+  try {
+    auto json_flags = nlohmann::json::parse(json_config);
+    if (!json_flags.is_object()) {
+      throw std::invalid_argument("Experimental config must be a JSON object.");
+    }
+
+    auto mapping_it = reverse_mapping.find(experiment);
+    if (mapping_it == reverse_mapping.end()) {
+      throw std::invalid_argument("Unknown experimental feature in experimental config.");
+    }
+
+    auto experiment_json_config = json_flags.find(mapping_it->second);
+    if (experiment_json_config == json_flags.end()) {
+      throw std::invalid_argument("Experimental feature configuration missing in JSON.");
+    }
+
+    return *experiment_json_config;
+
+  } catch (const nlohmann::json::parse_error &e) {
+    throw std::invalid_argument("Invalid experimental config: " + std::string(e.what()));
+  }
 }
 
 }  // namespace memgraph::flags

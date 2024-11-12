@@ -157,40 +157,13 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
   }
 
   // This is temporary solution for vector index to accelerate the development
-  std::vector<memgraph::storage::VectorIndexSpec> vector_index_specs;
-  if (!flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
-    const auto specs = memgraph::utils::Split(FLAGS_experimental_vector_indexes, ";");
-    if (!specs.empty()) {
-      vector_index_specs.reserve(specs.size());
-      for (const auto &spec : specs) {
-        const auto an_index_split = memgraph::utils::Split(spec, "__");
-        if (an_index_split.size() != 3 && an_index_split.size() != 4) {
-          LOG_FATAL(
-              "--experimental-vector-indexes is not in the right format to use vector indexes. Use "
-              "Label__property__\{JSON\},... format instead.");
-        }
-        const auto &label_name = an_index_split[1];
-        const auto &property_name = an_index_split[2];
-        const auto label_id = LabelId::FromUint(name_id_mapper_->NameToId(label_name));
-        const auto property_id = PropertyId::FromUint(name_id_mapper_->NameToId(property_name));
-        if (an_index_split.size() == 3) {
-          vector_index_specs.emplace_back(memgraph::storage::VectorIndexSpec{
-              .index_name = an_index_split[0], .label = label_id, .property = property_id, .config = {}});
-        }
-        if (an_index_split.size() == 4) {
-          vector_index_specs.emplace_back(
-              memgraph::storage::VectorIndexSpec{.index_name = an_index_split[0],
-                                                 .label = label_id,
-                                                 .property = property_id,
-                                                 .config = nlohmann::json::parse(an_index_split[3])});
-        }
-      }
-      for (const auto &spec : vector_index_specs) {
-        spdlog::info("Having vector index named {} on :{}({}) with config: {}", spec.index_name,
-                     name_id_mapper_->IdToName(spec.label.AsUint()), name_id_mapper_->IdToName(spec.property.AsUint()),
-                     spec.config.dump());
-        indices_.vector_index_.CreateIndex(spec);
-      }
+  if (flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
+    const auto specs = flags::ParseExperimentalConfig(flags::Experiments::VECTOR_SEARCH);
+    const auto vector_index_specs = memgraph::storage::VectorIndex::ParseIndexSpec(specs, name_id_mapper_.get());
+    for (const auto &spec : vector_index_specs) {
+      spdlog::info("Having vector index named {} on :{}({})", spec.index_name,
+                   name_id_mapper_->IdToName(spec.label.AsUint()), name_id_mapper_->IdToName(spec.property.AsUint()));
+      indices_.vector_index_.CreateIndex(spec);
     }
   }
 
@@ -1392,7 +1365,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                   }
                 }
 
-                if (!flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
+                if (flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
                   // we have to remove the vertex from the vector index if it this label is indexed and vertex has
                   // needed property
                   const auto &properties = index_stats.vector.l2p.find(current->label.value);
@@ -1416,7 +1389,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 MG_ASSERT(it == vertex->labels.end(), "Invalid database state!");
                 vertex->labels.push_back(current->label.value);
 
-                if (!flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
+                if (flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
                   // we have to add the vertex to the vector index if it this label is indexed and vertex has needed
                   // property
                   const auto &properties = index_stats.vector.l2p.find(current->label.value);
@@ -1441,7 +1414,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 //  check if we care about the property, this will return all the labels and then get current property
                 //  value
                 const auto &labels = index_stats.property_label.p2l.find(current->property.key);
-                const auto &vector_index_labels = !flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)
+                const auto &vector_index_labels = flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)
                                                       ? index_stats.vector.p2l.end()
                                                       : index_stats.vector.p2l.find(current->property.key);
                 const auto has_property_index = labels != index_stats.property_label.p2l.end();
@@ -1670,7 +1643,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       for (auto const &[edge_type_property, edge] : edge_property_cleanup) {
         storage_->indices_.AbortEntries(edge_type_property, edge, transaction_.start_timestamp);
       }
-      if (!flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
+      if (flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
         for (auto const &[label_prop, vertices] : vector_label_property_cleanup) {
           storage_->indices_.vector_index_.AbortEntries(label_prop, vertices);
         }

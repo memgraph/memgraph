@@ -57,7 +57,7 @@ void Indices::RemoveObsoleteVertexEntries(uint64_t oldest_active_start_timestamp
   static_cast<InMemoryLabelIndex *>(label_index_.get())->RemoveObsoleteEntries(oldest_active_start_timestamp, token);
   static_cast<InMemoryLabelPropertyIndex *>(label_property_index_.get())
       ->RemoveObsoleteEntries(oldest_active_start_timestamp, token);
-  if (!flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
+  if (flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
     vector_index_.RemoveObsoleteEntries(token);
   }
 }
@@ -80,7 +80,7 @@ void Indices::DropGraphClearIndices() {
 void Indices::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) const {
   label_index_->UpdateOnAddLabel(label, vertex, tx);
   label_property_index_->UpdateOnAddLabel(label, vertex, tx);
-  if (!flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
+  if (flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
     vector_index_.UpdateOnAddLabel(label, vertex);
   }
 }
@@ -88,7 +88,7 @@ void Indices::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction 
 void Indices::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, const Transaction &tx) const {
   label_index_->UpdateOnRemoveLabel(label, vertex, tx);
   label_property_index_->UpdateOnRemoveLabel(label, vertex, tx);
-  if (!flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
+  if (flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
     vector_index_.UpdateOnRemoveLabel(label, vertex);
   }
 }
@@ -96,7 +96,7 @@ void Indices::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, const Transacti
 void Indices::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
                                   const Transaction &tx) const {
   label_property_index_->UpdateOnSetProperty(property, value, vertex, tx);
-  if (!flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
+  if (flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
     vector_index_.UpdateOnSetProperty(property, value, vertex);
   }
 }

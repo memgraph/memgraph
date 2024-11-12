@@ -16,12 +16,10 @@
 #include <json/json.hpp>
 #include <string>
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
-#include "storage/v2/vertex_accessor.hpp"
 
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DECLARE_string(experimental_vector_indexes);
 namespace memgraph::storage {
 
 /// @struct VectorIndexInfo
@@ -46,7 +44,10 @@ struct VectorIndexSpec {
   std::string index_name;
   LabelId label;
   PropertyId property;
-  nlohmann::json config;
+  std::string metric;
+  std::string scalar;
+  std::uint64_t dimension;
+  std::uint64_t size_limit;
 };
 
 /// @class VectorIndex
@@ -69,6 +70,13 @@ class VectorIndex {
   VectorIndex &operator=(const VectorIndex &) = delete;
   VectorIndex(VectorIndex &&) noexcept;
   VectorIndex &operator=(VectorIndex &&) noexcept;
+
+  /// @brief Parses a string representation of an index specification.
+  /// @param index_spec The nlohmann::json object representing the index specification.
+  /// @param name_id_mapper The NameIdMapper instance used to map label and property names to IDs.
+  /// @throws std::invalid_argument if the index specification is invalid.
+  /// @return A vector of VectorIndexSpec objects representing the parsed index specifications.
+  static std::vector<VectorIndexSpec> ParseIndexSpec(const nlohmann::json &index_spec, NameIdMapper *name_id_mapper);
 
   /// @brief Creates a new index based on the specified configuration.
   /// @param spec The specification for the index to be created.
