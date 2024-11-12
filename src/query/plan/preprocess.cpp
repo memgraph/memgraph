@@ -474,8 +474,9 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     auto *func = utils::Downcast<Function>(expr);
     auto isPointDistance = func && utils::ToUpperCase(func->function_name_) == "POINT.DISTANCE"sv;
     if (!isPointDistance) return false;
-    // no need to check # of args as it will already be looked up and checked
-    // hence the existence of func->function_
+    if (func->arguments_.size() != 2) {
+      throw SemanticException("point.distance function requires 2 arguments");
+    }
 
     auto extract_prop_lookup_and_identifers = [&](Expression *lhs, Expression *rhs) -> bool {
       if (get_property_lookup(lhs, propertyLookup, ident)) {
@@ -512,8 +513,9 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     auto *func = utils::Downcast<Function>(expr);
     auto isPointWithinbbox = func && utils::ToUpperCase(func->function_name_) == "POINT.WITHINBBOX"sv;
     if (!isPointWithinbbox) return false;
-    // no need to check # of args as it will already be looked up and checked
-    // hence the existence of func->function_
+    if (func->arguments_.size() != 3) {
+      throw SemanticException("point.withinbbox function requires 3 arguments");
+    }
 
     auto extract_prop_lookup_and_identifers = [&](Expression *point, Expression *bottom_left_expr,
                                                   Expression *top_right_expr) -> bool {
