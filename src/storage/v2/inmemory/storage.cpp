@@ -3017,4 +3017,11 @@ auto InMemoryStorage::InMemoryAccessor::PointVertices(LabelId label, PropertyId 
                                                      boundary_value, condition);
 };
 
+auto InMemoryStorage::InMemoryAccessor::PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
+                                                      PropertyValue const &bottom_left, PropertyValue const &top_right,
+                                                      WithinBBoxCondition condition) -> PointIterable {
+  return transaction_.point_index_ctx_.PointVertices(label, property, crs, storage_, &transaction_, bottom_left,
+                                                     top_right, condition);
+};
+
 }  // namespace memgraph::storage

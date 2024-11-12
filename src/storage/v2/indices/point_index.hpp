@@ -33,8 +33,11 @@ struct PointIterable {
   using iterator = PointIterator;
 
   PointIterable(Storage *storage, Transaction *transaction, PointIndex const &index,
-                storage::CoordinateReferenceSystem crs, PropertyValue point_value, PropertyValue boundary_value,
-                PointDistanceCondition condition);
+                storage::CoordinateReferenceSystem crs, PropertyValue const &point_value,
+                PropertyValue const &boundary_value, PointDistanceCondition condition);
+  PointIterable(Storage *storage, Transaction *transaction, PointIndex const &index,
+                storage::CoordinateReferenceSystem crs, PropertyValue const &bottom_left,
+                PropertyValue const &top_right, WithinBBoxCondition condition);
   ~PointIterable();
 
   PointIterable();
@@ -61,6 +64,10 @@ struct PointIndexContext {
   auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs, Storage *storage,
                      Transaction *transaction, PropertyValue const &point_value, PropertyValue const &boundary_value,
                      PointDistanceCondition condition) -> PointIterable;
+
+  auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs, Storage *storage,
+                     Transaction *transaction, PropertyValue const &bottom_left, PropertyValue const &top_right,
+                     WithinBBoxCondition condition) -> PointIterable;
 
  private:
   // Only PointIndexStorage can make these

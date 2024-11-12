@@ -90,6 +90,8 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     static constexpr double MakeScanAllByLabelPropertyValue{1.1};
     static constexpr double MakeScanAllByLabelPropertyRange{1.1};
     static constexpr double MakeScanAllByLabelProperty{1.1};
+    static constexpr double MakeScanAllByPointDistance{1.1};
+    static constexpr double MakeScanAllByPointWithinbbox{1.1};
     static constexpr double kScanAllByEdgeType{1.1};
     static constexpr double MakeScanAllByEdgeTypePropertyValue{1.1};
     static constexpr double MakeScanAllByEdgeTypePropertyRange{1.1};
@@ -225,6 +227,32 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     }
 
     IncrementCost(CostParam::MakeScanAllByLabelProperty);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByPointDistance &logical_op) override {
+    // FYI, no stats for point types
+
+    const auto factor = db_accessor_->VerticesPointCount(logical_op.label_, logical_op.property_);
+    cardinality_ *= factor.value_or(1);
+    if (index_hints_.HasPointIndex(db_accessor_, logical_op.label_, logical_op.property_)) {
+      use_index_hints_ = true;
+    }
+
+    IncrementCost(CostParam::MakeScanAllByPointDistance);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByPointWithinbbox &logical_op) override {
+    // FYI, no stats for point types
+
+    const auto factor = db_accessor_->VerticesPointCount(logical_op.label_, logical_op.property_);
+    cardinality_ *= factor.value_or(1);
+    if (index_hints_.HasPointIndex(db_accessor_, logical_op.label_, logical_op.property_)) {
+      use_index_hints_ = true;
+    }
+
+    IncrementCost(CostParam::MakeScanAllByPointWithinbbox);
     return true;
   }
 

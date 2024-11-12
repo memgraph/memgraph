@@ -2175,6 +2175,13 @@ auto DiskStorage::DiskAccessor::PointVertices(LabelId /*label*/, PropertyId /*pr
   throw utils::NotYetImplemented("Point Vertices is not yet implemented for on-disk storage");
 };
 
+auto DiskStorage::DiskAccessor::PointVertices(LabelId /*label*/, PropertyId /*property*/,
+                                              CoordinateReferenceSystem /*crs*/, PropertyValue const & /*bottom_left*/,
+                                              PropertyValue const & /*top_right*/, WithinBBoxCondition /*condition*/)
+    -> PointIterable {
+  throw utils::NotYetImplemented("Point Vertices is not yet implemented for on-disk storage");
+};
+
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 PointIndexStorage DiskStorage::empty_point_index_ = PointIndexStorage{};
 

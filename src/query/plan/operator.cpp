@@ -12,12 +12,10 @@
 #include "query/plan/operator.hpp"
 
 #include <algorithm>
-#include <cctype>
 #include <cstdint>
 #include <limits>
 #include <optional>
 #include <queue>
-#include <random>
 #include <string>
 #include <tuple>
 #include <type_traits>
@@ -45,11 +43,9 @@
 #include "query/interpret/eval.hpp"
 #include "query/path.hpp"
 #include "query/plan/scoped_profile.hpp"
-#include "query/procedure/cypher_types.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
 #include "query/typed_value.hpp"
-#include "range/v3/all.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
@@ -70,10 +66,8 @@
 #include "utils/pmr/unordered_set.hpp"
 #include "utils/pmr/vector.hpp"
 #include "utils/readable_size.hpp"
-#include "utils/string.hpp"
 #include "utils/tag.hpp"
 #include "utils/temporal.hpp"
-#include "utils/typeinfo.hpp"
 
 // macro for the default implementation of LogicalOperator::Accept
 // that accepts the visitor and visits it's input_ operator
@@ -117,6 +111,7 @@ extern const Event ScanAllByEdgeTypePropertyValueOperator;
 extern const Event ScanAllByEdgeTypePropertyRangeOperator;
 extern const Event ScanAllByEdgeIdOperator;
 extern const Event ScanAllByPointDistanceOperator;
+extern const Event ScanAllByPointWithinbboxOperator;
 extern const Event ExpandOperator;
 extern const Event ExpandVariableOperator;
 extern const Event ConstructNamedPathOperator;
@@ -6372,9 +6367,9 @@ UniqueCursorPtr PeriodicSubquery::MakeCursor(utils::MemoryResource *mem) const {
 
 ScanAllByPointDistance::ScanAllByPointDistance(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
                                                storage::LabelId label, storage::PropertyId property,
-                                               Identifier *cmp_value, Expression *boundary_value,
+                                               Expression *cmp_value, Expression *boundary_value,
                                                PointDistanceCondition boundary_condition)
-    : ScanAll(input, output_symbol, storage::View::OLD /*TODO what to do when NEW*/),
+    : ScanAll(input, output_symbol, storage::View::OLD),
       label_(label),
       property_(property),
       cmp_value_{cmp_value},
@@ -6387,49 +6382,73 @@ UniqueCursorPtr ScanAllByPointDistance::MakeCursor(utils::MemoryResource *mem) c
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByPointDistanceOperator);
 
   auto vertices = [this](Frame &frame, ExecutionContext &context) -> std::optional<PointIterable> {
-    auto *db = context.db_accessor;
+    auto evaluator =
+        ExpressionEvaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_);
+    auto value = cmp_value_->Accept(evaluator);
 
-    auto evaluator = ReferenceExpressionEvaluator(&frame, &context.symbol_table, &context.evaluation_context);
-
-    // Is it possible to evaluate this while making cursor?
-    //  Yes - if constant, this would mean we can specialise
-    //  No - in general, this could be a property from another object (bound to variable during evaluation)
-    auto *value = evaluator.Visit(*cmp_value_);
-
-    auto crs = std::invoke([&]() -> std::optional<storage::CoordinateReferenceSystem> {
-      switch (value->type()) {
-        using enum TypedValue::Type;
-        case TypedValue::Type::Point2d: {
-          return value->ValuePoint2d().crs();
-        }
-        case TypedValue::Type::Point3d: {
-          return value->ValuePoint3d().crs();
-        }
-        default: {
-          return std::nullopt;
-        }
-      }
-    });
-
+    auto crs = GetCRS(value);
     if (!crs) return std::nullopt;
 
-    ExpressionEvaluator boundary_evaluator(&frame, context.symbol_table, context.evaluation_context,
-                                           context.db_accessor, view_);
-    auto boundary_value = boundary_value_->Accept(boundary_evaluator);
-
-    return std::make_optional(db->PointVertices(label_, property_, *crs, *value, boundary_value, boundary_condition_));
+    auto boundary_value = boundary_value_->Accept(evaluator);
+    return std::make_optional(
+        context.db_accessor->PointVertices(label_, property_, *crs, value, boundary_value, boundary_condition_));
   };
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
                                                                 view_, std::move(vertices), "ScanAllByPointDistance");
-
-  return nullptr;
 }
 
 std::string ScanAllByPointDistance::ToString() const {
-  auto name = output_symbol_.name();
-  auto string = dba_->LabelToName(label_);
-  auto basicString = dba_->PropertyToName(property_);
-  return fmt::format("ScanAllByPointDistance ({0} :{1} {{{2}}})", name, string, basicString);
+  auto const &name = output_symbol_.name();
+  auto const &label = dba_->LabelToName(label_);
+  auto const &property = dba_->PropertyToName(property_);
+  return fmt::format("ScanAllByPointDistance ({0} :{1} {{{2}}})", name, label, property);
+}
+
+ScanAllByPointWithinbbox::ScanAllByPointWithinbbox(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
+                                                   storage::LabelId label, storage::PropertyId property,
+                                                   Expression *bottom_left, Expression *top_right,
+                                                   Expression *boundary_value)
+    : ScanAll(input, output_symbol, storage::View::OLD),
+      label_(label),
+      property_(property),
+      bottom_left_{bottom_left},
+      top_right_{top_right},
+      boundary_value_{boundary_value} {}
+
+ACCEPT_WITH_INPUT(ScanAllByPointWithinbbox)
+
+UniqueCursorPtr ScanAllByPointWithinbbox::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByPointWithinbboxOperator);
+
+  auto vertices = [this](Frame &frame, ExecutionContext &context) -> std::optional<PointIterable> {
+    auto evaluator =
+        ExpressionEvaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_);
+    auto bottom_left_value = bottom_left_->Accept(evaluator);
+    auto top_right_value = top_right_->Accept(evaluator);
+
+    auto const crs1 = GetCRS(bottom_left_value);
+    auto const crs2 = GetCRS(top_right_value);
+    if (!crs1 || !crs2 || crs1 != crs2) return std::nullopt;
+
+    auto boundary_value = boundary_value_->Accept(evaluator);
+
+    if (!boundary_value.IsBool()) {
+      throw QueryRuntimeException("point.withinbbox returns a boolean and therefore can only be compared with one.");
+    }
+    auto boundary_condition = boundary_value.ValueBool() ? WithinBBoxCondition::INSIDE : WithinBBoxCondition::OUTSIDE;
+
+    return std::make_optional(context.db_accessor->PointVertices(label_, property_, *crs1, bottom_left_value,
+                                                                 top_right_value, boundary_condition));
+  };
+  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
+                                                                view_, std::move(vertices), "ScanAllByPointWithinbbox");
+}
+
+std::string ScanAllByPointWithinbbox::ToString() const {
+  auto const &name = output_symbol_.name();
+  auto const &label = dba_->LabelToName(label_);
+  auto const &property = dba_->PropertyToName(property_);
+  return fmt::format("ScanAllByPointWithinbbox ({0} :{1} {{{2}}})", name, label, property);
 }
 
 }  // namespace memgraph::query::plan
