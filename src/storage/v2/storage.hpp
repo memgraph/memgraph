@@ -454,6 +454,10 @@ class Storage {
                                PropertyValue const &point_value, PropertyValue const &boundary_value,
                                PointDistanceCondition condition) -> PointIterable = 0;
 
+    virtual auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
+                               PropertyValue const &bottom_left, PropertyValue const &top_right,
+                               WithinBBoxCondition condition) -> PointIterable = 0;
+
    protected:
     Storage *storage_;
     std::shared_lock<utils::ResourceLock> storage_guard_;

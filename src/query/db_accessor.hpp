@@ -317,6 +317,14 @@ class DbAccessor final {
                                                   static_cast<storage::PropertyValue>(boundary_value), condition));
   }
 
+  auto PointVertices(storage::LabelId label, storage::PropertyId property, storage::CoordinateReferenceSystem crs,
+                     TypedValue const &bottom_left, TypedValue const &top_right, plan::WithinBBoxCondition condition)
+      -> PointIterable {
+    return PointIterable(accessor_->PointVertices(label, property, crs,
+                                                  static_cast<storage::PropertyValue>(bottom_left),
+                                                  static_cast<storage::PropertyValue>(top_right), condition));
+  }
+
   EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type) {
     return EdgesIterable(accessor_->Edges(edge_type, view));
   }
