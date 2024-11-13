@@ -1089,6 +1089,12 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
         switch (point_filter.function_) {
           using enum PointFilter::Function;
+          case EXACT_MATCH: {
+            return std::make_unique<ScanAllByPoint>(input, node_symbol, GetLabel(found_index->label),
+                                                    GetProperty(point_filter.property_),
+                                                    point_filter.match_);  // uses the CRS from here
+          }
+
           case DISTANCE: {
             return std::make_unique<ScanAllByPointDistance>(
                 input, node_symbol, GetLabel(found_index->label), GetProperty(point_filter.property_),

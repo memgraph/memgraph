@@ -3280,6 +3280,11 @@ void InMemoryStorage::InMemoryAccessor::DropGraph() {
 }
 
 auto InMemoryStorage::InMemoryAccessor::PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
+                                                      PropertyValue const &match) -> PointIterable {
+  return transaction_.point_index_ctx_.PointVertices(label, property, crs, storage_, &transaction_, match);
+};
+
+auto InMemoryStorage::InMemoryAccessor::PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
                                                       PropertyValue const &point_value,
                                                       PropertyValue const &boundary_value,
                                                       PointDistanceCondition condition) -> PointIterable {

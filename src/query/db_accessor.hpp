@@ -14,11 +14,8 @@
 #include "memory/query_memory_control.hpp"
 #include "plan/point_distance_condition.hpp"
 #include "query/edge_accessor.hpp"
-#include "query/exceptions.hpp"
-#include "query/hops_limit.hpp"
 #include "query/typed_value.hpp"
 #include "query/vertex_accessor.hpp"
-#include "storage/v2/constraints/type_constraints.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/point_index.hpp"
@@ -30,8 +27,6 @@
 #include "storage/v2/vertices_iterable.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/bound.hpp"
-#include "utils/exceptions.hpp"
-#include "utils/pmr/unordered_set.hpp"
 #include "utils/result.hpp"
 #include "utils/variant_helpers.hpp"
 
@@ -308,6 +303,11 @@ class DbAccessor final {
                             const std::optional<utils::Bound<storage::PropertyValue>> &lower,
                             const std::optional<utils::Bound<storage::PropertyValue>> &upper) {
     return VerticesIterable(accessor_->Vertices(label, property, lower, upper, view));
+  }
+
+  auto PointVertices(storage::LabelId label, storage::PropertyId property, storage::CoordinateReferenceSystem crs,
+                     TypedValue const &match) -> PointIterable {
+    return PointIterable(accessor_->PointVertices(label, property, crs, static_cast<storage::PropertyValue>(match)));
   }
 
   auto PointVertices(storage::LabelId label, storage::PropertyId property, storage::CoordinateReferenceSystem crs,

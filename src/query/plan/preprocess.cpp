@@ -428,16 +428,32 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     return (prop_lookup = utils::Downcast<PropertyLookup>(maybe_lookup)) &&
            (ident = utils::Downcast<Identifier>(prop_lookup->expression_));
   };
+  auto is_independant = [&symbol_table](Symbol const &sym, Expression *expression) {
+    UsedSymbolsCollector collector{symbol_table};
+    expression->Accept(collector);
+    return !collector.symbols_.contains(sym);
+  };
+
   // Checks if maybe_lookup is a property lookup, stores it as a
   // PropertyFilter and returns true. If it isn't, returns false.
   auto add_prop_equal = [&](auto *maybe_lookup, auto *val_expr) -> bool {
     PropertyLookup *prop_lookup = nullptr;
     Identifier *ident = nullptr;
     if (get_property_lookup(maybe_lookup, prop_lookup, ident)) {
-      auto filter = make_filter(FilterInfo::Type::Property);
-      filter.property_filter = PropertyFilter(symbol_table, symbol_table.at(*ident), prop_lookup->property_, val_expr,
-                                              PropertyFilter::Type::EQUAL);
-      all_filters_.emplace_back(filter);
+      auto symbol = symbol_table.at(*ident);
+      {
+        auto filter = make_filter(FilterInfo::Type::Property);
+        filter.property_filter =
+            PropertyFilter(symbol_table, symbol, prop_lookup->property_, val_expr, PropertyFilter::Type::EQUAL);
+        all_filters_.emplace_back(filter);
+      }
+      {
+        if (is_independant(symbol, val_expr)) {
+          auto filter = make_filter(FilterInfo::Type::Point);
+          filter.point_filter.emplace(symbol, prop_lookup->property_, val_expr);
+          all_filters_.emplace_back(filter);
+        }
+      }
       return true;
     }
     return false;
@@ -461,12 +477,6 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     if (func(arg1, arg2)) return true;
     if (func(arg2, arg1)) return true;
     return false;
-  };
-
-  auto is_independant = [&symbol_table](Symbol const &sym, Expression *expression) {
-    UsedSymbolsCollector collector{symbol_table};
-    expression->Accept(collector);
-    return !collector.symbols_.contains(sym);
   };
 
   auto get_point_distance_function = [&](Expression *expr, PropertyLookup *&propertyLookup, Identifier *&ident,
