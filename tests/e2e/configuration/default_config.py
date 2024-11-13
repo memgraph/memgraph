@@ -271,7 +271,12 @@ startup_config_dict = {
     "experimental_enabled": (
         "",
         "",
-        "Experimental features to be used, comma-separated. Options [text-search, high-availability]",
+        "Experimental features to be used, comma-separated. Options [text-search, high-availability, vector-search]",
+    ),
+    "experimental_config": (
+        "",
+        "",
+        "Experimental features to be used, JSON object. Options [vector-search]",
     ),
     "query_log_directory": ("", "", "Path to directory where the query logs should be stored."),
     "schema_info_enabled": ("false", "false", "Set to true to enable run-time schema info tracking."),

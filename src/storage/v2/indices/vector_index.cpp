@@ -95,7 +95,7 @@ unum::usearch::scalar_kind_t GetScalarKindFromConfig(const std::string_view scal
 }
 
 /// Map from usearch metric kind to similarity function
-/// TODO(@DavIvek): Check if this functions are correct
+/// TODO(@DavIvek): Check if this functions are correct -> l2sq and cosine are correct and they are most critical atm
 static const std::unordered_map<unum::usearch::metric_kind_t, std::function<double(double)>> similarity_map = {
     {unum::usearch::metric_kind_t::ip_k, [](double distance) { return 1.0 - distance; }},
     {unum::usearch::metric_kind_t::cos_k, [](double distance) { return 1.0 - distance; }},
@@ -304,7 +304,6 @@ void VectorIndex::RemoveObsoleteEntries(std::stop_token token) const {
     std::vector<Vertex *> vertices_to_remove(index.size());
     index.export_keys(vertices_to_remove.data(), 0, index.size());
 
-    // TODO: Expand to check if the vertex still has the vector in question
     auto deleted = vertices_to_remove | std::views::filter([](const Vertex *vertex) {
                      auto guard = std::shared_lock{vertex->lock};
                      return !vertex->deleted;

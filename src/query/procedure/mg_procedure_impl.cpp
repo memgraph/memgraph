@@ -3759,10 +3759,6 @@ mgp_error mgp_graph_aggregate_over_text_index(mgp_graph *graph, const char *inde
   });
 }
 
-mgp_error mgp_graph_has_vector_index(mgp_graph *graph, const char *index_name, int *result) {
-  return mgp_error::MGP_ERROR_NOT_YET_IMPLEMENTED;
-}
-
 mgp_error mgp_graph_search_vector_index(mgp_graph *graph, const char *index_name, mgp_list *search_query,
                                         int result_size, mgp_memory *memory, mgp_map **result) {
   return WrapExceptions([graph, memory, index_name, search_query, result, result_size]() {

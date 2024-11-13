@@ -33,8 +33,7 @@ DEFINE_VALIDATED_string(
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_string(experimental_config, "",
-                        "Experimental features to be used, JSON object. Options [text-search, "
-                        "high-availability, vector-search]",
+                        "Experimental features to be used, JSON object. Options [vector-search]",
                         { return memgraph::flags::ValidExperimentalConfig(value); });
 
 using namespace std::string_view_literals;

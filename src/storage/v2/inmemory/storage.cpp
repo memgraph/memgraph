@@ -1414,7 +1414,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 //  check if we care about the property, this will return all the labels and then get current property
                 //  value
                 const auto &labels = index_stats.property_label.p2l.find(current->property.key);
-                const auto &vector_index_labels = flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)
+                const auto &vector_index_labels = !flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)
                                                       ? index_stats.vector.p2l.end()
                                                       : index_stats.vector.p2l.find(current->property.key);
                 const auto has_property_index = labels != index_stats.property_label.p2l.end();
@@ -3004,8 +3004,6 @@ void InMemoryStorage::Clear() {
   edge_types_to_auto_index_->clear();
 
   // Reset helper classes
-  // name_id_mapper_ = std::make_unique<NameIdMapper>(); // this breaks current vector index implementation -> is this
-  // mandatory to reset?
   enum_store_.clear();
   schema_info_.Clear();
 
@@ -3029,7 +3027,6 @@ IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
       static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
   auto &text_index = storage_->indices_.text_index_;
   auto &point_index = storage_->indices_.point_index_;
-  // TODO (@DavIvek): Add vector index to the list
 
   return {mem_label_index->ListIndices(),     mem_label_property_index->ListIndices(),
           mem_edge_type_index->ListIndices(), mem_edge_type_property_index->ListIndices(),

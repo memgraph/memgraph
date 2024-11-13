@@ -922,10 +922,6 @@ enum mgp_error mgp_graph_aggregate_over_text_index(struct mgp_graph *graph, cons
                                                    const char *search_query, const char *aggregation_query,
                                                    struct mgp_memory *memory, struct mgp_map **result);
 
-/// Result is non-zero if the index with the given name exists.
-/// The current implementation always returns without errors.
-enum mgp_error mgp_graph_has_vector_index(struct mgp_graph *graph, const char *index_name, int *result);
-
 enum mgp_error mgp_graph_search_vector_index(struct mgp_graph *graph, const char *index_name, struct mgp_list *query,
                                              int result_size, struct mgp_memory *memory, struct mgp_map **result);
 

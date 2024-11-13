@@ -10,7 +10,8 @@
 // licenses/APL.txt.
 #include "storage/v2/indices/vector_index.hpp"
 #include <sys/types.h>
-#include <tuple>
+#include <thread>
+#include "flags/experimental.hpp"
 #include "gtest/gtest.h"
 #include "query/db_accessor.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -33,26 +34,20 @@ class VectorSearchTest : public testing::Test {
   std::unique_ptr<Storage> storage = std::make_unique<InMemoryStorage>();
 
   void CreateIndex(std::size_t dimension = 2, std::size_t limit = 10) {
-    // only requirement is that this is not empty at the moment since it is not used in the test but flag is checked
-    // through the code
-    FLAGS_experimental_vector_indexes = R"(test_index__test_label__test_property__{"dimension": 2, "limit": 10})";
+    // Enable the vector search feature -> this is checked through the code where the index is used
+    FLAGS_experimental_enabled = "vector-search";
+    FLAGS_experimental_config =
+        (R"({"vector-search": { "test_index": {"label": "test_label", "property": "test_property", "dimension": 2, "limit": 10 }}})");
+
+    memgraph::flags::SetExperimental(memgraph::flags::Experiments::VECTOR_SEARCH);
+
     auto storage_dba = storage->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     const auto label = dba.NameToLabel(test_label.data());
     const auto property = dba.NameToProperty(test_property.data());
 
-    // Build JSON object dynamically
-    nlohmann::json config;
-    config["dimension"] = dimension;
-    config["limit"] = limit;
-
-    VectorIndexSpec spec{
-        .index_name = test_index.data(),
-        .label = label,
-        .property = property,
-        .config = config,  // Pass the dynamically created config
-    };
-
+    // Create a specification for the index
+    const auto spec = VectorIndexSpec{test_index.data(), label, property, "l2sq", "f32", dimension, limit};
     storage_dba->CreateVectorIndex(spec);
   }
 
@@ -90,7 +85,7 @@ TYPED_TEST(VectorSearchTest, SimpleSearchTest) {
 
   const auto result = acc->VectorIndexSearch(test_index.data(), 1, std::vector<float>{1.0, 1.0});
   EXPECT_EQ(result.size(), 1);
-  EXPECT_EQ(std::get<0>(result[0]), vertex.Gid());
+  EXPECT_EQ(std::get<0>(result[0]).vertex_->gid, vertex.Gid());
 }
 
 TYPED_TEST(VectorSearchTest, SearchWithMultipleNodes) {
@@ -111,7 +106,7 @@ TYPED_TEST(VectorSearchTest, SearchWithMultipleNodes) {
   // Perform search for one closest node
   const auto result = acc->VectorIndexSearch(test_index.data(), 1, query);
   EXPECT_EQ(result.size(), 1);
-  EXPECT_EQ(std::get<0>(result[0]), vertex2.Gid());  // Expect the second vertex to be the closest
+  EXPECT_EQ(std::get<0>(result[0]).vertex_->gid, vertex2.Gid());  // Expect the second vertex to be the closest
 
   // Perform search for two closest nodes
   const auto result2 = acc->VectorIndexSearch(test_index.data(), 2, query);
@@ -122,7 +117,7 @@ TYPED_TEST(VectorSearchTest, ConcurrencyTest) {
   this->CreateIndex();
   auto acc = this->storage->Access();
 
-  constexpr auto index_size = 10;
+  const auto index_size = std::thread::hardware_concurrency();  // default value for the number of threads in the pool
 
   // Create 1k threads to add 1k nodes
   std::vector<std::thread> threads;
@@ -153,7 +148,7 @@ TYPED_TEST(VectorSearchTest, ConcurrencyTest) {
 TYPED_TEST(VectorSearchTest, SimpleAbortTest) {
   this->CreateIndex();
   auto acc = this->storage->Access();
-  constexpr auto index_size = 10;
+  static constexpr auto index_size = 10;
 
   // Create multiple nodes within a transaction that will be aborted
   for (int i = 0; i < index_size; i++) {

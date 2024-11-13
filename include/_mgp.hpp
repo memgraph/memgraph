@@ -351,10 +351,6 @@ inline mgp_vertices_iterator *graph_iter_vertices(mgp_graph *g, mgp_memory *memo
 
 // vector index
 
-inline bool graph_has_vector_index(mgp_graph *graph, const char *index_name) {
-  return MgInvoke<int>(mgp_graph_has_vector_index, graph, index_name);
-}
-
 inline mgp_map *graph_search_vector_index(mgp_graph *graph, const char *index_name, mgp_list *search_vector,
                                           size_t result_size, mgp_memory *memory) {
   return MgInvoke<mgp_map *>(mgp_graph_search_vector_index, graph, index_name, search_vector, result_size, memory);

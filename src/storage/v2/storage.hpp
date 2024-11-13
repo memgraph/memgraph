@@ -12,17 +12,12 @@
 #pragma once
 
 #include <sys/types.h>
-#include <chrono>
 #include <cstdint>
-#include <functional>
 #include <optional>
-#include <semaphore>
 #include <span>
-#include <thread>
 
 #include "io/network/endpoint.hpp"
 #include "kvstore/kvstore.hpp"
-#include "mg_exceptions.hpp"
 #include "mg_procedure.h"
 #include "query/exceptions.hpp"
 #include "replication/config.hpp"
@@ -49,7 +44,6 @@
 #include "storage/v2/storage_error.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/transaction.hpp"
-#include "storage/v2/vertex_accessor.hpp"
 #include "storage/v2/vertices_iterable.hpp"
 #include "utils/compressor.hpp"
 #include "utils/event_counter.hpp"
