@@ -221,11 +221,6 @@ auto CoordinatorInstance::ShowInstancesStatusAsFollower() const -> std::vector<I
 }
 
 auto CoordinatorInstance::ShowInstancesAsLeader() const -> std::optional<std::vector<InstanceStatus>> {
-  spdlog::trace("Processing show instances request as leader.");
-  if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
-    spdlog::trace("Leader is not ready, returning empty response.");
-    return std::nullopt;
-  }
   auto instances_status = GetCoordinatorsInstanceStatus();
 
   auto const stringify_repl_role = [this](auto &&instance) -> std::string {
@@ -246,10 +241,16 @@ auto CoordinatorInstance::ShowInstancesAsLeader() const -> std::optional<std::ve
             .last_succ_resp_ms = instance.LastSuccRespMs().count()};
   };
 
-  {
-    auto lock = std::shared_lock{coord_instance_lock_};
-    std::ranges::transform(repl_instances_, std::back_inserter(instances_status), process_repl_instance_as_leader);
+  auto lock = std::shared_lock{coord_instance_lock_};
+
+  spdlog::trace("Processing show instances request as leader.");
+
+  if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
+    spdlog::trace("Leader is not ready, returning empty response.");
+    return std::nullopt;
   }
+
+  std::ranges::transform(repl_instances_, std::back_inserter(instances_status), process_repl_instance_as_leader);
 
   spdlog::trace("Returning set of instances as leader.");
   return instances_status;
@@ -833,7 +834,7 @@ void CoordinatorInstance::InstanceFailCallback(std::string_view instance_name,
         break;
       };
       case FailoverStatus::RAFT_FAILURE: {
-        spdlog::trace("Writin to Raft failed during failover.");
+        spdlog::trace("Writing to Raft failed during failover.");
         break;
       };
     };
