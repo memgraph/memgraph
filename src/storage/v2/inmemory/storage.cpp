@@ -26,6 +26,7 @@
 #include "memory/global_memory_control.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/durability/durability.hpp"
+#include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/edge_direction.hpp"
 #include "storage/v2/id_types.hpp"
@@ -35,6 +36,7 @@
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
 #include "storage/v2/metadata_delta.hpp"
+#include "storage/v2/mvcc.hpp"
 #include "storage/v2/schema_info_glue.hpp"
 #include "utils/async_timer.hpp"
 
@@ -55,6 +57,7 @@
 #include "utils/scheduler.hpp"
 #include "utils/stat.hpp"
 #include "utils/temporal.hpp"
+#include "utils/timer.hpp"
 #include "utils/variant_helpers.hpp"
 
 namespace memgraph::metrics {
