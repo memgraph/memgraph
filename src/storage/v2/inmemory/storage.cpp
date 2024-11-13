@@ -16,7 +16,6 @@
 #include <functional>
 #include <mutex>
 #include <optional>
-#include <ranges>
 
 #include "dbms/constants.hpp"
 #include "flags/experimental.hpp"
@@ -24,6 +23,7 @@
 #include "memory/global_memory_control.hpp"
 #include "mg_exceptions.hpp"
 #include "storage/v2/durability/durability.hpp"
+#include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/edge_direction.hpp"
 #include "storage/v2/id_types.hpp"
@@ -33,6 +33,7 @@
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
 #include "storage/v2/metadata_delta.hpp"
+#include "storage/v2/mvcc.hpp"
 #include "storage/v2/schema_info_glue.hpp"
 
 /// REPLICATION ///
@@ -48,6 +49,7 @@
 #include "utils/exceptions.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/stat.hpp"
+#include "utils/timer.hpp"
 #include "utils/variant_helpers.hpp"
 
 namespace memgraph::metrics {
