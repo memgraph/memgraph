@@ -570,6 +570,10 @@ class List {
   /// @brief returns the string representation
   std::string ToString() const;
 
+  /// @brief returns the mgp_list pointer
+  mgp_list *GetPtr() const;
+
+ private:
   mgp_list *ptr_;
 };
 
@@ -2602,6 +2606,8 @@ inline std::string List::ToString() const {
   return return_str;
 }
 
+inline mgp_list *List::GetPtr() const { return ptr_; }
+
 // MapItem:
 
 inline bool MapItem::operator==(MapItem &other) const { return key == other.key && value == other.value; }
@@ -4548,7 +4554,7 @@ inline std::string_view AggregateOverTextIndex(mgp_graph *memgraph_graph, std::s
 inline List SearchVectorIndex(mgp_graph *memgraph_graph, std::string_view index_name, List &query_vector,
                               size_t result_size) {
   auto results_or_error = Map(mgp::MemHandlerCallback(graph_search_vector_index, memgraph_graph, index_name.data(),
-                                                      query_vector.ptr_, result_size));
+                                                      query_vector.GetPtr(), result_size));
   if (results_or_error.KeyExists(kErrorMsgKey)) {
     if (!results_or_error.At(kErrorMsgKey).IsString()) {
       throw VectorSearchException{"The error message is not a string!"};
