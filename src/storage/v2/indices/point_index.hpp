@@ -33,6 +33,8 @@ struct PointIterable {
   using iterator = PointIterator;
 
   PointIterable(Storage *storage, Transaction *transaction, PointIndex const &index,
+                storage::CoordinateReferenceSystem crs, PropertyValue const &match);
+  PointIterable(Storage *storage, Transaction *transaction, PointIndex const &index,
                 storage::CoordinateReferenceSystem crs, PropertyValue const &point_value,
                 PropertyValue const &boundary_value, PointDistanceCondition condition);
   PointIterable(Storage *storage, Transaction *transaction, PointIndex const &index,
@@ -60,6 +62,9 @@ struct PointIndexContext {
   bool UsingLocalIndex() const { return orig_indexes_ != current_indexes_; }
 
   void AdvanceCommand(PointIndexChangeCollector &collector) { update_current(collector); }
+
+  auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs, Storage *storage,
+                     Transaction *transaction, PropertyValue const &match) -> PointIterable;
 
   auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs, Storage *storage,
                      Transaction *transaction, PropertyValue const &point_value, PropertyValue const &boundary_value,

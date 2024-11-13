@@ -454,6 +454,11 @@ class InMemoryStorage final : public Storage {
 
     /// View is not needed because a new rtree gets created for each transaction and it is always
     /// using the latest version
+    auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs, PropertyValue const &match)
+        -> PointIterable override;
+
+    /// View is not needed because a new rtree gets created for each transaction and it is always
+    /// using the latest version
     auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
                        PropertyValue const &point_value, PropertyValue const &boundary_value,
                        PointDistanceCondition condition) -> PointIterable override;

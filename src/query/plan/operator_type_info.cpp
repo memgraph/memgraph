@@ -185,6 +185,9 @@ constexpr utils::TypeInfo query::plan::PeriodicCommit::kType{utils::TypeId::PERI
 constexpr utils::TypeInfo query::plan::PeriodicSubquery::kType{utils::TypeId::PERIODIC_SUBQUERY, "PeriodicSubquery",
                                                                &query::plan::LogicalOperator::kType};
 
+constexpr utils::TypeInfo query::plan::ScanAllByPoint::kType{utils::TypeId::SCAN_ALL_BY_POINT, "ScanAllByPoint",
+                                                             &query::plan::ScanAllByPoint::kType};
+
 constexpr utils::TypeInfo query::plan::ScanAllByPointDistance::kType{
     utils::TypeId::SCAN_ALL_BY_POINT_DISTANCE, "ScanAllByPointDistance", &query::plan::ScanAllByPointDistance::kType};
 

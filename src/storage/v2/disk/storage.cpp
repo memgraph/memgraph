@@ -2166,6 +2166,12 @@ void DiskStorage::DiskAccessor::DropGraph() {
 }
 
 auto DiskStorage::DiskAccessor::PointVertices(LabelId /*label*/, PropertyId /*property*/,
+                                              CoordinateReferenceSystem /*crs*/, PropertyValue const & /*match*/)
+    -> PointIterable {
+  throw utils::NotYetImplemented("Point Vertices is not yet implemented for on-disk storage");
+};
+
+auto DiskStorage::DiskAccessor::PointVertices(LabelId /*label*/, PropertyId /*property*/,
                                               CoordinateReferenceSystem /*crs*/, PropertyValue const & /*point_value*/,
                                               PropertyValue const & /*boundary_value*/,
                                               PointDistanceCondition /*condition*/) -> PointIterable {

@@ -19,10 +19,8 @@
 #include "storage/v2/indices/point_index_change_collector.hpp"
 #include "storage/v2/indices/point_index_expensive_header.hpp"
 #include "storage/v2/indices/point_iterator.hpp"
-#include "storage/v2/point_functions.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
-#include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::storage {
@@ -282,6 +280,20 @@ void PointIndexContext::update_current(PointIndexChangeCollector &collector) {
 }
 
 auto PointIndexContext::PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
+                                      Storage *storage, Transaction *transaction, PropertyValue const &match)
+    -> PointIterable {
+  auto const &indexes = *current_indexes_;
+  auto it = indexes.find(LabelPropKey{label, property});
+  if (it == indexes.cend()) {
+    spdlog::warn("Failure: trying to locate a point index that should exist");
+    return {};
+  }
+
+  auto const &point_index = *it->second;
+  return {storage, transaction, point_index, crs, match};
+}
+
+auto PointIndexContext::PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
                                       Storage *storage, Transaction *transaction, PropertyValue const &point_value,
                                       PropertyValue const &boundary_value, PointDistanceCondition condition)
     -> PointIterable {
@@ -332,11 +344,47 @@ PointIndex::PointIndex(std::shared_ptr<index_t<IndexPointWGS2d>> points2dWGS,
 
 struct PointIterable::impl {
   explicit impl(Storage *storage, Transaction *transaction, std::shared_ptr<index_t<IndexPointWGS2d>> index,
+                PropertyValue matched_value)
+      : storage_{storage},
+        transaction_{transaction},
+        crs_{CoordinateReferenceSystem::WGS84_2d},
+        iterator_type_(IteratorType::EXACT_MATCH),
+        matched_value_{std::move(matched_value)},
+        wgs84_2d_{std::move(index)} {}
+
+  explicit impl(Storage *storage, Transaction *transaction, std::shared_ptr<index_t<IndexPointWGS3d>> index,
+                PropertyValue matched_value)
+      : storage_{storage},
+        transaction_{transaction},
+        crs_{CoordinateReferenceSystem::WGS84_3d},
+        iterator_type_(IteratorType::EXACT_MATCH),
+        matched_value_{std::move(matched_value)},
+        wgs84_3d_{std::move(index)} {}
+
+  explicit impl(Storage *storage, Transaction *transaction, std::shared_ptr<index_t<IndexPointCartesian2d>> index,
+                PropertyValue matched_value)
+      : storage_{storage},
+        transaction_{transaction},
+        crs_{CoordinateReferenceSystem::Cartesian_2d},
+        iterator_type_(IteratorType::EXACT_MATCH),
+        matched_value_{std::move(matched_value)},
+        cartesian_2d_{std::move(index)} {}
+
+  explicit impl(Storage *storage, Transaction *transaction, std::shared_ptr<index_t<IndexPointCartesian3d>> index,
+                PropertyValue matched_value)
+      : storage_{storage},
+        transaction_{transaction},
+        crs_{CoordinateReferenceSystem::Cartesian_3d},
+        iterator_type_(IteratorType::EXACT_MATCH),
+        matched_value_{std::move(matched_value)},
+        cartesian_3d_{std::move(index)} {}
+
+  explicit impl(Storage *storage, Transaction *transaction, std::shared_ptr<index_t<IndexPointWGS2d>> index,
                 PropertyValue point_value, PropertyValue boundary_value, PointDistanceCondition condition)
       : storage_{storage},
         transaction_{transaction},
         crs_{CoordinateReferenceSystem::WGS84_2d},
-        using_distance_(true),
+        iterator_type_(IteratorType::DISTANCE),
         point_value_{std::move(point_value)},
         boundary_value_{std::move(boundary_value)},
         distance_condition_{condition},
@@ -347,7 +395,7 @@ struct PointIterable::impl {
       : storage_{storage},
         transaction_{transaction},
         crs_{CoordinateReferenceSystem::WGS84_3d},
-        using_distance_(true),
+        iterator_type_(IteratorType::DISTANCE),
         point_value_{std::move(point_value)},
         boundary_value_{std::move(boundary_value)},
         distance_condition_{condition},
@@ -358,7 +406,7 @@ struct PointIterable::impl {
       : storage_{storage},
         transaction_{transaction},
         crs_{CoordinateReferenceSystem::Cartesian_2d},
-        using_distance_(true),
+        iterator_type_(IteratorType::DISTANCE),
         point_value_{std::move(point_value)},
         boundary_value_{std::move(boundary_value)},
         distance_condition_{condition},
@@ -369,7 +417,7 @@ struct PointIterable::impl {
       : storage_{storage},
         transaction_{transaction},
         crs_{CoordinateReferenceSystem::Cartesian_3d},
-        using_distance_(true),
+        iterator_type_(IteratorType::DISTANCE),
         point_value_{std::move(point_value)},
         boundary_value_{std::move(boundary_value)},
         distance_condition_{condition},
@@ -380,7 +428,7 @@ struct PointIterable::impl {
       : storage_{storage},
         transaction_{transaction},
         crs_{CoordinateReferenceSystem::WGS84_2d},
-        using_distance_(false),
+        iterator_type_(IteratorType::WITHINBBOX),
         bottom_left_{std::move(bottom_left)},
         top_right_{std::move(top_right)},
         withinbbox_condition_{condition},
@@ -391,7 +439,7 @@ struct PointIterable::impl {
       : storage_{storage},
         transaction_{transaction},
         crs_{CoordinateReferenceSystem::WGS84_3d},
-        using_distance_(false),
+        iterator_type_(IteratorType::WITHINBBOX),
         bottom_left_{std::move(bottom_left)},
         top_right_{std::move(top_right)},
         withinbbox_condition_{condition},
@@ -402,7 +450,7 @@ struct PointIterable::impl {
       : storage_{storage},
         transaction_{transaction},
         crs_{CoordinateReferenceSystem::Cartesian_2d},
-        using_distance_(false),
+        iterator_type_(IteratorType::WITHINBBOX),
         bottom_left_{std::move(bottom_left)},
         top_right_{std::move(top_right)},
         withinbbox_condition_{condition},
@@ -413,7 +461,7 @@ struct PointIterable::impl {
       : storage_{storage},
         transaction_{transaction},
         crs_{CoordinateReferenceSystem::Cartesian_3d},
-        using_distance_(false),
+        iterator_type_(IteratorType::WITHINBBOX),
         bottom_left_{std::move(bottom_left)},
         top_right_{std::move(top_right)},
         withinbbox_condition_{condition},
@@ -441,21 +489,35 @@ struct PointIterable::impl {
         std::destroy_at(&cartesian_3d_);
         break;
     }
-    if (using_distance_) {
-      std::destroy_at(&point_value_);
-    } else {
-      std::destroy_at(&bottom_left_);
-      std::destroy_at(&top_right_);
+
+    switch (iterator_type_) {
+      case IteratorType::EXACT_MATCH: {
+        std::destroy_at(&matched_value_);
+        break;
+      }
+      case IteratorType::DISTANCE: {
+        std::destroy_at(&point_value_);
+        break;
+      }
+      case IteratorType::WITHINBBOX: {
+        std::destroy_at(&bottom_left_);
+        std::destroy_at(&top_right_);
+        break;
+      }
     }
   }
+
+  enum class IteratorType { EXACT_MATCH = 0, DISTANCE = 1, WITHINBBOX = 2 };
 
  private:
   Storage *storage_;
   Transaction *transaction_;
   CoordinateReferenceSystem crs_;
-  bool using_distance_;
+  IteratorType iterator_type_;
 
   union {
+    PropertyValue matched_value_;
+
     struct {
       PropertyValue point_value_;
       PropertyValue boundary_value_;
@@ -500,6 +562,12 @@ auto make_pimpl(PointIndex const &index, storage::CoordinateReferenceSystem crs,
   }
 };
 }  // namespace
+
+PointIterable::PointIterable(Storage *storage, Transaction *transaction, PointIndex const &index,
+                             storage::CoordinateReferenceSystem crs, PropertyValue const &match)
+    : pimpl{make_pimpl(index, crs, [&](auto specific_index) {
+        return std::make_unique<impl>(storage, transaction, std::move(specific_index), match);
+      })} {}
 
 PointIterable::PointIterable(Storage *storage, Transaction *transaction, PointIndex const &index,
                              storage::CoordinateReferenceSystem crs, PropertyValue const &point_value,
@@ -731,6 +799,26 @@ auto get_index_iterator_withinbbox(Index &index, PropertyValue const &bottom_lef
   }
 }
 
+template <typename Index>
+auto get_index_iterator_exact_match(Index &index, PropertyValue const &matched_value) -> Index::const_query_iterator {
+  using point_type = Index::value_type::point_type;
+  auto constexpr dimensions = bg::traits::dimension<point_type>::value;
+
+  auto const match = std::invoke([&matched_value]() -> point_type {
+    if constexpr (dimensions == 2) {
+      auto tmp_point = matched_value.ValuePoint2d();
+      return {tmp_point.x(), tmp_point.y()};
+    } else {
+      auto tmp_point = matched_value.ValuePoint3d();
+      return {tmp_point.x(), tmp_point.y(), tmp_point.z()};
+    }
+  });
+
+  // At the moment boost rtree doesn't support querying exact match
+  // So instead we query the box which only contains the given point
+  return index.qbegin(bgi::covered_by(bg::model::box(match, match)));
+}
+
 }  // namespace
 
 auto PointIterable::begin() const -> PointIterator {
@@ -747,22 +835,33 @@ auto PointIterable::begin() const -> PointIterator {
     }
   };
 
-  if (pimpl->using_distance_) {
-    auto make_distance_iter = [&](auto const &index) {
-      return PointIterator{
-          pimpl->storage_, pimpl->transaction_, pimpl->crs_,
-          get_index_iterator_distance(index, pimpl->point_value_, pimpl->boundary_value_, pimpl->distance_condition_)};
-    };
-    return apply_index(pimpl->crs_, make_distance_iter);
+  switch (pimpl->iterator_type_) {
+    case impl::IteratorType::EXACT_MATCH: {
+      auto make_exact_match_iter = [&](auto const &index) {
+        return PointIterator{pimpl->storage_, pimpl->transaction_, pimpl->crs_,
+                             get_index_iterator_exact_match(index, pimpl->matched_value_)};
+      };
+      return apply_index(pimpl->crs_, make_exact_match_iter);
+    }
+    case impl::IteratorType::DISTANCE: {
+      auto make_distance_iter = [&](auto const &index) {
+        return PointIterator{pimpl->storage_, pimpl->transaction_, pimpl->crs_,
+                             get_index_iterator_distance(index, pimpl->point_value_, pimpl->boundary_value_,
+                                                         pimpl->distance_condition_)};
+      };
+      return apply_index(pimpl->crs_, make_distance_iter);
+    }
+    case impl::IteratorType::WITHINBBOX: {
+      auto make_withinbbox_iter = [&](auto const &index) {
+        return PointIterator{
+            pimpl->storage_, pimpl->transaction_, pimpl->crs_,
+            get_index_iterator_withinbbox(index, pimpl->bottom_left_, pimpl->top_right_, pimpl->withinbbox_condition_)};
+      };
+      return apply_index(pimpl->crs_, make_withinbbox_iter);
+    }
   }
-
-  auto make_withinbbox_iter = [&](auto const &index) {
-    return PointIterator{
-        pimpl->storage_, pimpl->transaction_, pimpl->crs_,
-        get_index_iterator_withinbbox(index, pimpl->bottom_left_, pimpl->top_right_, pimpl->withinbbox_condition_)};
-  };
-  return apply_index(pimpl->crs_, make_withinbbox_iter);
 }
+
 auto PointIterable::end() const -> PointIterator {
   switch (pimpl->crs_) {
     case CoordinateReferenceSystem::WGS84_2d:

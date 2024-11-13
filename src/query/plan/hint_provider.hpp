@@ -15,7 +15,6 @@
 
 #pragma once
 
-#include <algorithm>
 #include <vector>
 
 #include <boost/algorithm/string.hpp>
@@ -24,7 +23,6 @@
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 #include "utils/logging.hpp"
-#include "utils/string.hpp"
 
 namespace memgraph::query::plan {
 
@@ -131,6 +129,9 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(ScanAllByEdgeId & /*unused*/) override { return true; }
   bool PostVisit(ScanAllByEdgeId & /*unused*/) override { return true; }
+
+  bool PreVisit(ScanAllByPoint & /*unused*/) override { return true; }
+  bool PostVisit(ScanAllByPoint & /*unused*/) override { return true; }
 
   bool PreVisit(ScanAllByPointDistance & /*unused*/) override { return true; }
   bool PostVisit(ScanAllByPointDistance & /*unused*/) override { return true; }
