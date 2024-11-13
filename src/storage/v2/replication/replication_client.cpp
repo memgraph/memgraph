@@ -36,8 +36,6 @@ ReplicationStorageClient::ReplicationStorageClient(::memgraph::replication::Repl
     : client_{client}, main_uuid_(main_uuid) {}
 
 void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAccessProtector db_acc) {
-  uint64_t current_commit_timestamp{kTimestampInitialId};
-
   auto &replStorageState = storage->repl_storage_state_;
 
   auto hb_stream{client_.rpc_client_.Stream<replication::HeartbeatRpc>(main_uuid_, storage->uuid(),
@@ -121,22 +119,24 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
     return;
   }
 
-  current_commit_timestamp = replica.current_commit_timestamp;
-  spdlog::trace("Current timestamp on replica {}: {}.", client_.name_, current_commit_timestamp);
+  // Lock engine lock in order to read storage timestamp and synchronize with any active commits
+  auto engine_lock = std::unique_lock{storage->engine_lock_};
+  spdlog::trace("Current timestamp on replica {}: {}.", client_.name_, replica.current_commit_timestamp);
   spdlog::trace("Current timestamp on main: {}. Current durable timestamp on main: {}", storage->timestamp_,
                 replStorageState.last_durable_timestamp_.load());
 
   replica_state_.WithLock([&](auto &state) {
+    // Recovered and state didn't change in the meantime
     // ldt can be larger on replica due to snapshots
-    if (current_commit_timestamp >= replStorageState.last_durable_timestamp_.load(std::memory_order_acquire)) {
+    if (replica.current_commit_timestamp >= replStorageState.last_durable_timestamp_.load(std::memory_order_acquire)) {
       spdlog::debug("Replica '{}' up to date.", client_.name_);
       state = replication::ReplicaState::READY;
     } else {
       spdlog::debug("Replica '{}' is behind.", client_.name_);
       state = replication::ReplicaState::RECOVERY;
-      client_.thread_pool_.AddTask([storage, current_commit_timestamp, gk = std::move(db_acc), this] {
-        this->RecoverReplica(current_commit_timestamp, storage);
-      });
+      client_.thread_pool_.AddTask([storage, current_commit_timestamp = replica.current_commit_timestamp,
+                                    gk = std::move(db_acc),
+                                    this] { this->RecoverReplica(current_commit_timestamp, storage); });
     }
   });
 }
