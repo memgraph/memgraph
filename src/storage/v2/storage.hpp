@@ -451,6 +451,9 @@ class Storage {
     }
 
     virtual auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
+                               PropertyValue const &match) -> PointIterable = 0;
+
+    virtual auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
                                PropertyValue const &point_value, PropertyValue const &boundary_value,
                                PointDistanceCondition condition) -> PointIterable = 0;
 
