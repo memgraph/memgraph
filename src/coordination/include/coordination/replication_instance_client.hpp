@@ -52,8 +52,8 @@ class ReplicationInstanceClient {
 
   virtual auto SendDemoteToReplicaRpc() const -> bool;
 
-  virtual auto SendPromoteReplicaToMainRpc(utils::UUID const &uuid,
-                                           ReplicationClientsInfo replication_clients_info) const -> bool;
+  virtual auto SendPromoteToMainRpc(utils::UUID const &uuid, ReplicationClientsInfo replication_clients_info) const
+      -> bool;
 
   virtual auto SendUnregisterReplicaRpc(std::string_view instance_name) const -> bool;
 

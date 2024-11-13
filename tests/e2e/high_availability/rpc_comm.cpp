@@ -47,8 +47,8 @@ bool SendPromoteToMain(const char *address, int port, const char *uuid) {
         .instance_name = "instance_2",
         .replication_mode = memgraph::replication_coordination_glue::ReplicationMode::SYNC,
         .replication_server = {"127.0.0.1", 10002}});
-    auto stream{rpc_client.Stream<memgraph::coordination::PromoteReplicaToMainRpc>(
-        new_uuid, std::move(replication_clients_info))};
+    auto stream{
+        rpc_client.Stream<memgraph::coordination::PromoteToMainRpc>(new_uuid, std::move(replication_clients_info))};
     return stream.AwaitResponse().success;
   } catch (...) {
     return false;

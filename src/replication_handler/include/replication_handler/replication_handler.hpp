@@ -138,7 +138,7 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
   // as MAIN, remove a REPLICA connection
   auto UnregisterReplica(std::string_view name) -> memgraph::query::UnregisterReplicaResult override;
 
-  bool DoReplicaToMainPromotion(const utils::UUID &main_uuid);
+  bool DoToMainPromotion(const utils::UUID &main_uuid);
 
   // Helper pass-through (TODO: remove)
   auto GetRole() const -> memgraph::replication_coordination_glue::ReplicationRole override;

@@ -3210,7 +3210,7 @@ def test_main_reselected_to_become_main(test_name):
     # 1. Start all instances.
     # 2. Kill replica instances
     # 3. Write to main
-    # 4. Kill main
+    # 4. Inject new main UUID
     # 5. Restart all data instances
 
     inner_instances_description = get_instances_description_no_setup(test_name=test_name)
