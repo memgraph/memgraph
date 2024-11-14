@@ -11,6 +11,7 @@
 
 import concurrent.futures
 import os
+import subprocess
 import sys
 import time
 
@@ -3203,6 +3204,123 @@ def test_first_coord_restarts(test_name):
 
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
     mg_sleep_and_assert(leader_data, show_instances_coord1)
+
+
+def test_main_reselected_to_become_main(test_name):
+    # 1. Start all instances.
+    # 2. Kill replica instances
+    # 3. Write to main
+    # 4. Inject new main UUID
+    # 5. Restart all data instances
+
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
+
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+
+    coord_cursor_3 = connect(host="localhost", port=7692).cursor()
+    for query in get_default_setup_queries():
+        execute_and_fetch_all(coord_cursor_3, query)
+
+    def show_instances():
+        return ignore_elapsed_time_from_results(sorted(list(execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCES;"))))
+
+    # check cluster state
+    leader_data = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
+        ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
+    ]
+
+    mg_sleep_and_assert(leader_data, show_instances)
+
+    # kill replica instances
+    interactive_mg_runner.kill(inner_instances_description, "instance_1")
+    interactive_mg_runner.kill(inner_instances_description, "instance_2")
+
+    # Wait until failover happens
+    leader_data = update_tuple_value(leader_data, "instance_1", 0, -2, "down")
+    leader_data = update_tuple_value(leader_data, "instance_1", 0, -1, "unknown")
+    leader_data = update_tuple_value(leader_data, "instance_2", 0, -2, "down")
+    leader_data = update_tuple_value(leader_data, "instance_2", 0, -1, "unknown")
+    mg_sleep_and_assert(leader_data, show_instances)
+
+    # write to main
+    main_cursor = connect(host="localhost", port=7689).cursor()
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(main_cursor, "CREATE (n:Node {name: 'node'})")
+    assert "At least one SYNC replica has not confirmed committing last transaction." in str(e.value)
+
+    # check it was written
+    def check_data():
+        return sorted(list(execute_and_fetch_all(main_cursor, "MATCH(n) RETURN count(*);")))
+
+    mg_sleep_and_assert_collection([(1,)], check_data)
+
+    # inject promote to main with a random uuid
+    script_path = os.path.realpath(__file__)
+    result = subprocess.run(
+        [
+            f"{os.path.dirname(script_path)}/memgraph__e2e__high_availability_rpc_comm",
+            "127.0.0.1",
+            "10013",
+            "c260a0a9-1aed-415d-aa1e-73f9e64faa33",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+
+    # Bring back all data instances
+    interactive_mg_runner.start(inner_instances_description, "instance_2")
+    interactive_mg_runner.start(inner_instances_description, "instance_1")
+    main_cursor = connect(host="localhost", port=7689).cursor()
+
+    # Wait for state check loop <- should see that main has the wrong UUID and re-promote it
+    time.sleep(5)
+    leader_data = update_tuple_value(leader_data, "instance_1", 0, -2, "up")
+    leader_data = update_tuple_value(leader_data, "instance_1", 0, -1, "replica")
+    leader_data = update_tuple_value(leader_data, "instance_2", 0, -2, "up")
+    leader_data = update_tuple_value(leader_data, "instance_2", 0, -1, "replica")
+    leader_data = update_tuple_value(leader_data, "instance_3", 0, -2, "up")
+    leader_data = update_tuple_value(leader_data, "instance_3", 0, -1, "main")
+    mg_sleep_and_assert(leader_data, show_instances)
+
+    # check that i1/2 are recovered
+    def show_replicas():
+        return sorted(list(execute_and_fetch_all(main_cursor, "SHOW REPLICAS;")))
+
+    replicas = [
+        (
+            "instance_1",
+            "localhost:10001",
+            "sync",
+            {"behind": None, "status": "ready", "ts": 0},
+            {"memgraph": {"behind": 0, "status": "ready", "ts": 2}},
+        ),
+        (
+            "instance_2",
+            "localhost:10002",
+            "sync",
+            {"behind": None, "status": "ready", "ts": 0},
+            {"memgraph": {"behind": 0, "status": "ready", "ts": 2}},
+        ),
+    ]
+    mg_sleep_and_assert_collection(replicas, show_replicas)
+    cursor = connect(host="localhost", port=7687).cursor()
+
+    def check_data():
+        return sorted(list(execute_and_fetch_all(cursor, "MATCH(n) RETURN count(*);")))
+
+    mg_sleep_and_assert_collection([(1,)], check_data)
+    cursor = connect(host="localhost", port=7688).cursor()
+
+    def check_data():
+        return sorted(list(execute_and_fetch_all(cursor, "MATCH(n) RETURN count(*);")))
+
+    mg_sleep_and_assert_collection([(1,)], check_data)
 
 
 if __name__ == "__main__":

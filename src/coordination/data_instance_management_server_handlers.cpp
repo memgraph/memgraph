@@ -27,11 +27,10 @@ void DataInstanceManagementServerHandlers::Register(memgraph::coordination::Data
     DataInstanceManagementServerHandlers::StateCheckHandler(replication_handler, req_reader, res_builder);
   });
 
-  server.Register<coordination::PromoteReplicaToMainRpc>(
-      [&](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
-        spdlog::info("Received PromoteReplicaToMainRpc");
-        DataInstanceManagementServerHandlers::PromoteReplicaToMainHandler(replication_handler, req_reader, res_builder);
-      });
+  server.Register<coordination::PromoteToMainRpc>([&](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
+    spdlog::info("Received PromoteToMainRpc");
+    DataInstanceManagementServerHandlers::PromoteToMainHandler(replication_handler, req_reader, res_builder);
+  });
 
   server.Register<coordination::DemoteMainToReplicaRpc>(
       [&replication_handler](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
@@ -111,11 +110,16 @@ void DataInstanceManagementServerHandlers::SwapMainUUIDHandler(replication::Repl
   replication_coordination_glue::SwapMainUUIDReq req;
   slk::Load(&req, req_reader);
 
-  if (replication_handler.IsReplica()) {
-    std::get<replication::RoleReplicaData>(replication_handler.GetReplState().ReplicationData()).uuid_ = req.uuid;
-  } else {
-    std::get<replication::RoleMainData>(replication_handler.GetReplState().ReplicationData()).uuid_ = req.uuid;
+  if (!replication_handler.IsReplica()) {
+    spdlog::error("Setting uuid must be performed on replica.");
+    slk::Save(replication_coordination_glue::SwapMainUUIDRes{false}, res_builder);
+    return;
   }
+
+  auto &repl_data = std::get<replication::RoleReplicaData>(replication_handler.GetReplState().ReplicationData());
+  spdlog::info("Set replica data UUID to main uuid {}", std::string(req.uuid));
+  replication_handler.GetReplState().TryPersistRoleReplica(repl_data.config, req.uuid);
+  repl_data.uuid_ = req.uuid;
 
   slk::Save(replication_coordination_glue::SwapMainUUIDRes{true}, res_builder);
   spdlog::info("UUID successfully set to {}.", std::string(req.uuid));
@@ -156,17 +160,21 @@ void DataInstanceManagementServerHandlers::GetInstanceUUIDHandler(replication::R
   spdlog::info("Replica's UUID returned successfully: {}.", replica_uuid ? std::string{*replica_uuid} : "");
 }
 
-void DataInstanceManagementServerHandlers::PromoteReplicaToMainHandler(
-    replication::ReplicationHandler &replication_handler, slk::Reader *req_reader, slk::Builder *res_builder) {
-  coordination::PromoteReplicaToMainReq req;
+void DataInstanceManagementServerHandlers::PromoteToMainHandler(replication::ReplicationHandler &replication_handler,
+                                                                slk::Reader *req_reader, slk::Builder *res_builder) {
+  coordination::PromoteToMainReq req;
   slk::Load(&req, req_reader);
+
+  // Shutdown any remaining client
+  // Main can be promoted while being MAIN; we do this in order to update the uuid and epoch
+  if (replication_handler.IsMain()) replication_handler.ClientsShutdown();
 
   // This can fail because of disk. If it does, the cluster state could get inconsistent.
   // We don't handle disk issues. If I receive request to promote myself to main when I am already main
   // I will do it again, the action is idempotent.
-  if (const bool success = replication_handler.DoReplicaToMainPromotion(req.main_uuid); !success) {
+  if (const bool success = replication_handler.DoToMainPromotion(req.main_uuid); !success) {
     spdlog::error("Promoting replica to main failed.");
-    slk::Save(coordination::PromoteReplicaToMainRes{false}, res_builder);
+    slk::Save(coordination::PromoteToMainRes{false}, res_builder);
     return;
   }
 
@@ -175,14 +183,14 @@ void DataInstanceManagementServerHandlers::PromoteReplicaToMainHandler(
   // If I receive request to promote myself while I am already main, I could have some instances already registered.
   // In that case ignore failures.
   for (auto const &config : req.replication_clients_info) {
-    if (!DoRegisterReplica<coordination::PromoteReplicaToMainRes>(replication_handler, config, res_builder)) {
+    if (!DoRegisterReplica<coordination::PromoteToMainRes>(replication_handler, config, res_builder)) {
       continue;
     }
   }
 
   replication_handler.GetReplState().GetMainRole().writing_enabled_ = true;
 
-  slk::Save(coordination::PromoteReplicaToMainRes{true}, res_builder);
+  slk::Save(coordination::PromoteToMainRes{true}, res_builder);
   spdlog::info("Promoting replica to main finished successfully. New MAIN's uuid: {}", std::string(req.main_uuid));
 }
 

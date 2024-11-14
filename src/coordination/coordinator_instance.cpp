@@ -740,54 +740,43 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
 
   auto const curr_main_uuid = raft_state_->GetCurrentMainUUID();
 
-  // if I am main and based on Raft log I am the current main I cannot have different UUID and writing is enabled.
-  // Therefore, only the situation where I am replica is handled
   if (raft_state_->IsCurrentMain(instance_name)) {
-    if (instance_state->is_replica) {
-      auto const is_not_main = [instance_name](auto &&instance) { return instance.InstanceName() != instance_name; };
-      auto repl_clients_info = repl_instances_ | ranges::views::filter(is_not_main) |
-                               ranges::views::transform(&ReplicationInstanceConnector::GetReplicationClientInfo) |
-                               ranges::to<ReplicationClientsInfo>();
+    // According to raft, this is the current MAIN
+    // Check if a promotion is needed:
+    //  - instance is actually a replica
+    //  - instance is main, but has stale state (missed a failover)
+    if (!instance_state->is_replica && instance_state->is_writing_enabled && instance_state->uuid &&
+        *instance_state->uuid == curr_main_uuid) {
+      // Promotion not needed
+      return;
+    }
+    auto const is_not_main = [instance_name](auto &&instance) { return instance.InstanceName() != instance_name; };
+    auto repl_clients_info = repl_instances_ | ranges::views::filter(is_not_main) |
+                             ranges::views::transform(&ReplicationInstanceConnector::GetReplicationClientInfo) |
+                             ranges::to<ReplicationClientsInfo>();
 
-      if (!instance.SendPromoteToMainRpc(curr_main_uuid, std::move(repl_clients_info))) {
-        spdlog::error("Failed to promote instance to main with new uuid {}. Trying to do failover again.",
-                      std::string{curr_main_uuid});
-        auto const failover_res = TryFailover();
-        switch (failover_res) {
-          case FailoverStatus::SUCCESS: {
-            spdlog::trace("Failover successful after failing to promote main instance.");
-            break;
-          };
-          case FailoverStatus::NO_INSTANCE_ALIVE: {
-            spdlog::trace("Failover failed because no instance is alive.");
-            break;
-          };
-          case FailoverStatus::RAFT_FAILURE: {
-            spdlog::trace("Writing to Raft failed during failover.");
-            break;
-          };
+    if (!instance.SendPromoteToMainRpc(curr_main_uuid, std::move(repl_clients_info))) {
+      spdlog::error("Failed to promote instance to main with new uuid {}. Trying to do failover again.",
+                    std::string{curr_main_uuid});
+      auto const failover_res = TryFailover();
+      switch (failover_res) {
+        case FailoverStatus::SUCCESS: {
+          spdlog::trace("Failover successful after failing to promote main instance.");
+          break;
         };
-        return;
-      }
-    } else {
-      // I should be main and I am main. I could've died and came back up before triggering failover. In that case
-      // writing is disabled.
-      if (!instance_state->is_writing_enabled) {
-        if (!instance.SendEnableWritingOnMainRpc()) {
-          spdlog::error("Failed to enable writing on main instance {}.", instance_name);
-        }
-      }
-
-      if (!instance_state->uuid || *instance_state->uuid != curr_main_uuid) {
-        if (!instance.SendSwapAndUpdateUUID(curr_main_uuid)) {
-          spdlog::error("Failed to set new uuid for main instance {} to {}.", instance_name,
-                        std::string{curr_main_uuid});
-          return;
-        }
-      }
+        case FailoverStatus::NO_INSTANCE_ALIVE: {
+          spdlog::trace("Failover failed because no instance is alive.");
+          break;
+        };
+        case FailoverStatus::RAFT_FAILURE: {
+          spdlog::trace("Writing to Raft failed during failover.");
+          break;
+        };
+      };
+      return;
     }
   } else {
-    // The instance should be replica.
+    // According to raft, the instance should be replica
     if (!instance_state->is_replica) {
       // If instance is not replica, demote it to become replica. If request for demotion failed, return
       // and you will simply retry on the next ping.

@@ -22,36 +22,36 @@
 
 namespace memgraph::coordination {
 
-struct PromoteReplicaToMainReq {
+struct PromoteToMainReq {
   static const utils::TypeInfo kType;
   static const utils::TypeInfo &GetTypeInfo() { return kType; }
 
-  static void Load(PromoteReplicaToMainReq *self, memgraph::slk::Reader *reader);
-  static void Save(const PromoteReplicaToMainReq &self, memgraph::slk::Builder *builder);
+  static void Load(PromoteToMainReq *self, memgraph::slk::Reader *reader);
+  static void Save(const PromoteToMainReq &self, memgraph::slk::Builder *builder);
 
-  explicit PromoteReplicaToMainReq(const utils::UUID &uuid, std::vector<ReplicationClientInfo> replication_clients_info)
+  explicit PromoteToMainReq(const utils::UUID &uuid, std::vector<ReplicationClientInfo> replication_clients_info)
       : main_uuid(uuid), replication_clients_info(std::move(replication_clients_info)) {}
-  PromoteReplicaToMainReq() = default;
+  PromoteToMainReq() = default;
 
   // get uuid here
   utils::UUID main_uuid;
   std::vector<ReplicationClientInfo> replication_clients_info;
 };
 
-struct PromoteReplicaToMainRes {
+struct PromoteToMainRes {
   static const utils::TypeInfo kType;
   static const utils::TypeInfo &GetTypeInfo() { return kType; }
 
-  static void Load(PromoteReplicaToMainRes *self, memgraph::slk::Reader *reader);
-  static void Save(const PromoteReplicaToMainRes &self, memgraph::slk::Builder *builder);
+  static void Load(PromoteToMainRes *self, memgraph::slk::Reader *reader);
+  static void Save(const PromoteToMainRes &self, memgraph::slk::Builder *builder);
 
-  explicit PromoteReplicaToMainRes(bool success) : success(success) {}
-  PromoteReplicaToMainRes() = default;
+  explicit PromoteToMainRes(bool success) : success(success) {}
+  PromoteToMainRes() = default;
 
   bool success;
 };
 
-using PromoteReplicaToMainRpc = rpc::RequestResponse<PromoteReplicaToMainReq, PromoteReplicaToMainRes>;
+using PromoteToMainRpc = rpc::RequestResponse<PromoteToMainReq, PromoteToMainRes>;
 
 struct RegisterReplicaOnMainReq {
   static const utils::TypeInfo kType;
@@ -275,11 +275,11 @@ using StateCheckRpc = rpc::RequestResponse<StateCheckReq, StateCheckRes>;
 // SLK serialization declarations
 namespace memgraph::slk {
 
-// PromoteReplicaToMainRpc
-void Save(const memgraph::coordination::PromoteReplicaToMainRes &self, memgraph::slk::Builder *builder);
-void Load(memgraph::coordination::PromoteReplicaToMainRes *self, memgraph::slk::Reader *reader);
-void Save(const memgraph::coordination::PromoteReplicaToMainReq &self, memgraph::slk::Builder *builder);
-void Load(memgraph::coordination::PromoteReplicaToMainReq *self, memgraph::slk::Reader *reader);
+// PromoteToMainRpc
+void Save(const memgraph::coordination::PromoteToMainRes &self, memgraph::slk::Builder *builder);
+void Load(memgraph::coordination::PromoteToMainRes *self, memgraph::slk::Reader *reader);
+void Save(const memgraph::coordination::PromoteToMainReq &self, memgraph::slk::Builder *builder);
+void Load(memgraph::coordination::PromoteToMainReq *self, memgraph::slk::Reader *reader);
 
 // RegisterReplicaOnMainRpc
 void Save(const memgraph::coordination::RegisterReplicaOnMainReq &self, memgraph::slk::Builder *builder);

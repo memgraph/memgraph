@@ -138,7 +138,7 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
   // as MAIN, remove a REPLICA connection
   auto UnregisterReplica(std::string_view name) -> memgraph::query::UnregisterReplicaResult override;
 
-  bool DoReplicaToMainPromotion(const utils::UUID &main_uuid);
+  bool DoToMainPromotion(const utils::UUID &main_uuid);
 
   // Helper pass-through (TODO: remove)
   auto GetRole() const -> memgraph::replication_coordination_glue::ReplicationRole override;
@@ -155,6 +155,27 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
   auto GetMainUUID() -> utils::UUID;
 
   auto GetDatabasesHistories() -> replication_coordination_glue::DatabaseHistories;
+
+  void ClientsShutdown() {
+    spdlog::trace("Shutting down instance level clients.");
+
+    auto &repl_clients = std::get<RoleMainData>(repl_state_.ReplicationData()).registered_replicas_;
+    for (auto &client : repl_clients) {
+      client.Shutdown();
+    }
+
+    spdlog::trace("Instance-level clients stopped, trying to destroy replication storage clients.");
+
+    // TODO StorageState needs to be synched. Could have a dangling reference if someone adds a database as we are
+    //      deleting the replica.
+    // Remove database specific clients
+    dbms_handler_.ForEach([&](memgraph::dbms::DatabaseAccess db_acc) {
+      auto *storage = db_acc->storage();
+      storage->repl_storage_state_.replication_clients_.WithLock([](auto &clients) { clients.clear(); });
+    });
+
+    spdlog::trace("Replication storage clients destroyed.");
+  }
 
  private:
   template <bool SendSwapUUID>
@@ -312,26 +333,8 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
 #endif
     }
 
-    spdlog::trace("Shutting down instance level clients when demoting replica.");
-
-    auto &repl_clients = std::get<RoleMainData>(repl_state_.ReplicationData()).registered_replicas_;
-    for (auto &client : repl_clients) {
-      client.Shutdown();
-    }
-
-    spdlog::trace("Instance-level clients stopped, trying to destroy replication storage clients.");
-
-    // TODO StorageState needs to be synched. Could have a dangling reference if someone adds a database as we are
-    //      deleting the replica.
-    // Remove database specific clients
-    dbms_handler_.ForEach([&](memgraph::dbms::DatabaseAccess db_acc) {
-      auto *storage = db_acc->storage();
-      storage->repl_storage_state_.replication_clients_.WithLock([](auto &clients) { clients.clear(); });
-    });
-
-    spdlog::trace(
-        "Replication storage clients destroyed during demote, setting role to replica and destroying instance level "
-        "clients.");
+    // Shutdown any clients we might have had
+    ClientsShutdown();
     // Creates the server
     repl_state_.SetReplicationRoleReplica(config, main_uuid);
     spdlog::trace("Role set to replica, instance-level clients destroyed.");
