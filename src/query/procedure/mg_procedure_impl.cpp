@@ -11,8 +11,6 @@
 
 #include "query/procedure/mg_procedure_impl.hpp"
 
-#include <math.h>
-
 #include <algorithm>
 #include <cstddef>
 #include <cstring>
@@ -3571,12 +3569,13 @@ void WrapVectorIndexInfoResult(mgp_memory *memory, mgp_map **result,
       throw std::logic_error("Retrieving vector search results failed during creation of a string mgp_value");
     }
 
-    if (const auto err = mgp_value_make_int(dimension, memory, &dimension_value);
+    if (const auto err = mgp_value_make_int(static_cast<int64_t>(dimension), memory, &dimension_value);
         err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error("Retrieving vector search results failed during creation of a int mgp_value");
     }
 
-    if (const auto err = mgp_value_make_int(size, memory, &size_value); err != mgp_error::MGP_ERROR_NO_ERROR) {
+    if (const auto err = mgp_value_make_int(static_cast<int64_t>(size), memory, &size_value);
+        err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error("Retrieving vector search results failed during creation of a int mgp_value");
     }
 

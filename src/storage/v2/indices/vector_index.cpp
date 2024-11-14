@@ -166,13 +166,13 @@ std::vector<VectorIndexSpec> VectorIndex::ParseIndexSpec(const nlohmann::json &i
 }
 
 void VectorIndex::CreateIndex(const VectorIndexSpec &spec) {
-  unum::usearch::metric_kind_t metric_kind = GetMetricKindFromConfig(spec.metric);
-  unum::usearch::scalar_kind_t scalar_kind = GetScalarKindFromConfig(spec.scalar);
+  const unum::usearch::metric_kind_t metric_kind = GetMetricKindFromConfig(spec.metric);
+  const unum::usearch::scalar_kind_t scalar_kind = GetScalarKindFromConfig(spec.scalar);
 
-  unum::usearch::metric_punned_t metric(spec.dimension, metric_kind, scalar_kind);
+  const unum::usearch::metric_punned_t metric(spec.dimension, metric_kind, scalar_kind);
 
   // use the number of workers as the number of possible concurrent index operations
-  unum::usearch::index_limits_t limits(spec.size_limit, FLAGS_bolt_num_workers);
+  const unum::usearch::index_limits_t limits(spec.size_limit, FLAGS_bolt_num_workers);
 
   const auto label_prop = LabelPropKey{spec.label, spec.property};
   pimpl->index_name_to_label_prop_.emplace(spec.index_name, label_prop);
@@ -300,7 +300,7 @@ void VectorIndex::RestoreEntries(const LabelPropKey &label_prop,
 void VectorIndex::RemoveObsoleteEntries(std::stop_token token) const {
   auto maybe_stop = utils::ResettableCounter<2048>();
   for (auto &[_, index] : pimpl->index_) {
-    if (token.stop_requested() || maybe_stop()) {
+    if (maybe_stop() && token.stop_requested()) {
       return;
     }
     std::vector<Vertex *> vertices_to_remove(index.size());
@@ -310,7 +310,9 @@ void VectorIndex::RemoveObsoleteEntries(std::stop_token token) const {
                      auto guard = std::shared_lock{vertex->lock};
                      return !vertex->deleted;
                    });
-    std::ranges::for_each(deleted, [&](Vertex *vertex) { index.remove(vertex); });
+    for (const auto &vertex : deleted) {
+      index.remove(vertex);
+    }
   }
 }
 
