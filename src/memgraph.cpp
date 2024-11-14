@@ -413,7 +413,7 @@ int main(int argc, char **argv) {
   using enum memgraph::storage::StorageMode;
   using enum memgraph::storage::Config::Durability::SnapshotWalMode;
 
-  db_config.durability.snapshot_setup = memgraph::utils::SchedulerSetup(FLAGS_storage_periodic_snapshot_config);
+  db_config.durability.snapshot_setup = memgraph::utils::SchedulerSetup(FLAGS_storage_snapshot_interval);
   if (db_config.salient.storage_mode == IN_MEMORY_TRANSACTIONAL) {
     if (!db_config.durability.snapshot_setup) {
       if (FLAGS_storage_wal_enabled) {

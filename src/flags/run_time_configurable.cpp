@@ -20,6 +20,7 @@
 #include "gflags/gflags.h"
 
 #include "flags/log_level.hpp"
+#include "license/license.hpp"
 #include "spdlog/spdlog.h"
 #include "utils/exceptions.hpp"
 #include "utils/flag_validation.hpp"
@@ -34,6 +35,8 @@
 
 namespace {
 bool ValidTimezone(std::string_view tz);
+
+template <bool FATAL>
 bool ValidPeriodicSnapshot(std::string_view def);
 }  // namespace
 
@@ -76,9 +79,9 @@ DEFINE_VALIDATED_string(timezone, "UTC", "Define instance's timezone (IANA forma
 DEFINE_string(query_log_directory, "", "Path to directory where the query logs should be stored.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
-DEFINE_VALIDATED_string(storage_periodic_snapshot_config, "",
+DEFINE_VALIDATED_string(storage_snapshot_interval, "",
                         "Define periodic snapshot schedule via cron format or as a period in seconds.",
-                        { return ValidPeriodicSnapshot(value); });
+                        { return ValidPeriodicSnapshot<true>(value); });
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_uint64(storage_snapshot_interval_sec, 0,
@@ -116,8 +119,8 @@ constexpr auto kQueryLogDirectoryGFlagsKey = "query-log-directory";
 constexpr auto kTimezoneSettingKey = "timezone";
 constexpr auto kTimezoneGFlagsKey = kTimezoneSettingKey;
 
-constexpr auto kSnapshotPeriodicSettingKey = "storage.periodic_snapshot.config";
-constexpr auto kSnapshotPeriodicGFlagsKey = "storage-periodic-snapshot-config";
+constexpr auto kSnapshotPeriodicSettingKey = "storage.snapshot.interval";
+constexpr auto kSnapshotPeriodicGFlagsKey = "storage-snapshot-interval";
 
 // NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
 // Local cache-like thing
@@ -182,6 +185,7 @@ auto GetTimezone(std::string_view tz) -> const std::chrono::time_zone * {
 
 bool ValidTimezone(std::string_view tz) { return GetTimezone(tz) != nullptr; }
 
+template <bool FATAL>
 bool ValidPeriodicSnapshot(const std::string_view def) {
   // Empty string = disabled
   if (def.empty()) return true;
@@ -192,7 +196,16 @@ bool ValidPeriodicSnapshot(const std::string_view def) {
   } catch (std::invalid_argument & /* unused */) {
     try {
       // String not a period, try to parse as a cron expression
+      // NOTE: Cron is an enterprise feature
       const auto cron = cron::make_cron(def);
+      if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+        constexpr std::string_view msg = "Defining snapshot schedule via cron expressions is an enterprise feature.";
+        if constexpr (FATAL) {
+          LOG_FATAL(msg);
+        }
+        spdlog::error(msg);
+        return false;
+      }
     } catch (cron::bad_cronexpr & /* unused */) {
       return false;
     }
@@ -313,14 +326,14 @@ void Initialize() {
    * Register periodic snapshot setting
    */
   // Periodic snapshot setup is exclusive between interval_sec and config
-  if (FLAGS_storage_snapshot_interval_sec != 0) {           // Not default
-    if (!FLAGS_storage_periodic_snapshot_config.empty()) {  // Not default
-      std::cout << "Periodic snapshot schedule define via both --storage-snapshot-interval-sec and "
-                   "--storage-periodic-snapshot-config. Please use a single flag to define the schedule!";
-      std::terminate();
+  if (FLAGS_storage_snapshot_interval_sec != 0) {    // Not default
+    if (!FLAGS_storage_snapshot_interval.empty()) {  // Not default
+      LOG_FATAL(
+          "Periodic snapshot schedule define via both --storage-snapshot-interval-sec and "
+          "--storage-snapshot-interval. Please use a single flag to define the schedule!");
     }
     // Update the combined flag to reflect the interval defined via FLAGS_storage_snapshot_interval_sec
-    FLAGS_storage_periodic_snapshot_config = std::to_string(FLAGS_storage_snapshot_interval_sec);
+    FLAGS_storage_snapshot_interval = std::to_string(FLAGS_storage_snapshot_interval_sec);
   }
   register_flag(
       kSnapshotPeriodicGFlagsKey, kSnapshotPeriodicSettingKey, !kRestore,
@@ -334,7 +347,7 @@ void Initialize() {
           snapshot_periodic_.Modify(val);
         }
       },
-      ValidPeriodicSnapshot);
+      ValidPeriodicSnapshot<false>);
 }
 
 std::string GetServerName() {
