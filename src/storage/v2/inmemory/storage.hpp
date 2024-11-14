@@ -582,7 +582,7 @@ class InMemoryStorage final : public Storage {
 
   utils::Scheduler snapshot_runner_;
   utils::SpinLock snapshot_lock_;
-  std::shared_ptr<utils::Observer<utils::SchedulerSetup>> snapshot_periodic_observer_;
+  std::shared_ptr<utils::Observer<utils::SchedulerInterval>> snapshot_periodic_observer_;
 
   // Sequence number used to keep track of the chain of WALs.
   uint64_t wal_seq_num_{0};

@@ -12,6 +12,8 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <memory>
+
 #include "utils/observer.hpp"
 
 namespace {
@@ -48,9 +50,9 @@ class TestObserver : public memgraph::utils::Observer<TestObservable> {
 TEST(Observer, BasicFunctionality) {
   TestObservable observable;
 
-  auto observer1 = std::shared_ptr<TestObserver>(new TestObserver());
-  auto observer2 = std::shared_ptr<TestObserver>(new TestObserver());
-  auto observer3 = std::shared_ptr<TestObserver>(new TestObserver());
+  auto observer1 = std::make_shared<TestObserver>();
+  auto observer2 = std::make_shared<TestObserver>();
+  auto observer3 = std::make_shared<TestObserver>();
 
   // No observers
   observable.Modify("abc");

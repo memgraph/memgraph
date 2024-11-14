@@ -26,7 +26,6 @@
 #include "utils/flag_validation.hpp"
 #include "utils/logging.hpp"
 #include "utils/observer.hpp"
-#include "utils/rw_lock.hpp"
 #include "utils/rw_spin_lock.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/settings.hpp"
@@ -38,6 +37,8 @@ bool ValidTimezone(std::string_view tz);
 
 template <bool FATAL>
 bool ValidPeriodicSnapshot(std::string_view def);
+template bool ValidPeriodicSnapshot<false>(std::string_view def);
+template bool ValidPeriodicSnapshot<true>(std::string_view def);
 }  // namespace
 
 /*
@@ -129,9 +130,9 @@ std::atomic<bool> hops_limit_partial_results{true};
 std::atomic<bool> cartesian_product_enabled_{true};
 std::atomic<const std::chrono::time_zone *> timezone_{nullptr};
 
-class PeriodicObservable : public memgraph::utils::Observable<memgraph::utils::SchedulerSetup> {
+class PeriodicObservable : public memgraph::utils::Observable<memgraph::utils::SchedulerInterval> {
  public:
-  void Accept(std::shared_ptr<memgraph::utils::Observer<memgraph::utils::SchedulerSetup>> observer) override {
+  void Accept(std::shared_ptr<memgraph::utils::Observer<memgraph::utils::SchedulerInterval>> observer) override {
     const auto periodic_locked = periodic_.ReadLock();
     observer->Update(*periodic_locked);
   }
@@ -147,7 +148,7 @@ class PeriodicObservable : public memgraph::utils::Observable<memgraph::utils::S
   }
 
  private:
-  memgraph::utils::Synchronized<memgraph::utils::SchedulerSetup, memgraph::utils::RWSpinLock> periodic_;
+  memgraph::utils::Synchronized<memgraph::utils::SchedulerInterval, memgraph::utils::RWSpinLock> periodic_;
 } snapshot_periodic_;
 
 // NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
@@ -372,7 +373,7 @@ std::string GetQueryLogDirectory() {
   return s;
 }
 
-void SnapshotPeriodicAttach(std::shared_ptr<utils::Observer<utils::SchedulerSetup>> observer) {
+void SnapshotPeriodicAttach(std::shared_ptr<utils::Observer<utils::SchedulerInterval>> observer) {
   snapshot_periodic_.Attach(observer);
 }
 

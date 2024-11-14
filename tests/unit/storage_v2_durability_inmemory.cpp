@@ -1376,7 +1376,7 @@ TEST_P(DurabilityTest, SnapshotRetention) {
 
         .durability = {.storage_directory = storage_directory,
                        .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
-                       .snapshot_interval = std::chrono::milliseconds(2000),
+                       .snapshot_interval = std::chrono::seconds(2000),
                        .snapshot_retention_count = 3},
         .salient = {.items = {.properties_on_edges = GetParam().w_edge_prop,
                               .enable_schema_info = GetParam().w_schema_info}},

@@ -23,12 +23,15 @@
 
 namespace memgraph::utils {
 
-struct SchedulerSetup {
-  SchedulerSetup() = default;
-  explicit SchedulerSetup(std::chrono::seconds s) : period_or_cron{s} {}
-  explicit SchedulerSetup(const std::string &str);
+struct SchedulerInterval {
+  SchedulerInterval() = default;
 
-  friend bool operator==(const SchedulerSetup &lrh, const SchedulerSetup &rhs) = default;
+  template <typename TRep, typename TPeriod>
+  SchedulerInterval(const std::chrono::duration<TRep, TPeriod> &period)
+      : period_or_cron{std::chrono::duration_cast<std::chrono::seconds>(period)} {}
+  explicit SchedulerInterval(const std::string &str);
+
+  friend bool operator==(const SchedulerInterval &lrh, const SchedulerInterval &rhs) = default;
 
   std::variant<std::chrono::seconds, std::string> period_or_cron{};
 
@@ -77,7 +80,7 @@ class Scheduler {
 
   void Setup(std::string_view cron_expr);
 
-  void Setup(const SchedulerSetup &setup) {
+  void Setup(const SchedulerInterval &setup) {
     if (!setup) {  // Un-setup; let the scheduler wait till infinity
       *find_next_.Lock() = [](auto && /* unused */) { return time_point::max(); };
       return;

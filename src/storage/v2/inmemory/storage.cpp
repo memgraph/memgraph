@@ -119,13 +119,13 @@ auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from
                                                                  : to_vertex->InEdges(view, {edge_type}, from_vertex);
 }
 
-class PeriodicSnapshotObserver : public memgraph::utils::Observer<memgraph::utils::SchedulerSetup> {
+class PeriodicSnapshotObserver : public memgraph::utils::Observer<memgraph::utils::SchedulerInterval> {
  public:
   explicit PeriodicSnapshotObserver(memgraph::storage::InMemoryStorage &storage, memgraph::utils::Scheduler &scheduler)
       : storage_{&storage}, scheduler_{&scheduler} {}
 
   // String HAS to be a valid cron expr
-  void Update(const memgraph::utils::SchedulerSetup &in) override {
+  void Update(const memgraph::utils::SchedulerInterval &in) override {
     scheduler_->Setup(in);
     scheduler_->SpinOne();
     if (storage_->GetStorageMode() == StorageMode::IN_MEMORY_ANALYTICAL) {
@@ -2928,7 +2928,7 @@ void InMemoryStorage::CreateSnapshotHandler(
   if (config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::DISABLED) {
     snapshot_runner_.Pause();
   }
-  snapshot_runner_.Setup(config_.durability.snapshot_setup);
+  snapshot_runner_.Setup(config_.durability.snapshot_interval);
   snapshot_runner_.Run("Snapshot", [this, token = stop_source.get_token()]() {
     if (!token.stop_requested()) {
       this->create_snapshot_handler();

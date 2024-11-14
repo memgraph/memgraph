@@ -68,6 +68,6 @@ std::string GetQueryLogDirectory();
 /**
  * @brief
  */
-void SnapshotPeriodicAttach(std::shared_ptr<utils::Observer<utils::SchedulerSetup>> observer);
+void SnapshotPeriodicAttach(std::shared_ptr<utils::Observer<utils::SchedulerInterval>> observer);
 
 }  // namespace memgraph::flags::run_time

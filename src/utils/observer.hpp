@@ -30,14 +30,14 @@ class Observable {
  public:
   virtual ~Observable() = default;
 
-  void Attach(const std::shared_ptr<Observer<T>> &observer) {
+  void Attach(std::shared_ptr<Observer<T>> observer) {
     auto l = std::unique_lock{mtx_};
-    observers.insert(observer);
+    observers.insert(std::move(observer));
   }
 
   void Detach(const std::shared_ptr<Observer<T>> &observer) {
     auto l = std::unique_lock{mtx_};
-    observers.erase(std::remove(observers.begin(), observers.end(), observer), observers.end());
+    observers.erase(observer);
   }
 
  protected:

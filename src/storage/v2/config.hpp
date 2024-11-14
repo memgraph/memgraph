@@ -114,7 +114,7 @@ struct Config {
         SnapshotWalMode::DISABLED};  // PER DATABASE - as at time of initialization; can be changed by
                                      // enabling/disabling the periodic snapshot
 
-    memgraph::utils::SchedulerSetup snapshot_setup{
+    memgraph::utils::SchedulerInterval snapshot_interval{
         std::chrono::minutes(2)};          // PER DATABASE - as at time of initialization; can be changed by user
     uint64_t snapshot_retention_count{3};  // PER DATABASE
 

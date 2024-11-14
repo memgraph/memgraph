@@ -27,7 +27,8 @@ TEST(Scheduler, TestFunctionExecuting) {
   std::atomic<int> x{0};
   std::function<void()> func{[&x]() { ++x; }};
   memgraph::utils::Scheduler scheduler;
-  scheduler.Run("Test", std::chrono::seconds(1), func);
+  scheduler.Setup(std::chrono::seconds(1));
+  scheduler.Run("Test", func);
 
   EXPECT_EQ(x, 0);
   std::this_thread::sleep_for(std::chrono::milliseconds(900));
@@ -57,7 +58,8 @@ TEST(Scheduler, StartTime) {
   const auto timeout2 = now + std::chrono::seconds(8);
 
   // start_time in the past
-  scheduler.Run("Test", std::chrono::seconds(3), func, now + std::chrono::seconds(3));
+  scheduler.Setup(std::chrono::seconds(3), now + std::chrono::seconds(3));
+  scheduler.Run("Test", func);
 
   // Should execute only after start time
   while (x == 0 && std::chrono::system_clock::now() < timeout1) {
@@ -85,7 +87,8 @@ TEST(Scheduler, StartTimeRestart) {
   const auto timeout2 = now + std::chrono::seconds(4);
 
   // start_time in the past
-  scheduler.Run("Test", std::chrono::seconds(6), func, now - std::chrono::seconds(3));
+  scheduler.Setup(std::chrono::seconds(6), now - std::chrono::seconds(3));
+  scheduler.Run("Test", func);
 
   // Should execute immediately and then exactly 6s from the start time
   while (x == 0 && std::chrono::system_clock::now() < timeout1) {
@@ -119,7 +122,8 @@ TEST(Scheduler, RunStop) {
   std::atomic<int> x{0};
   std::function<void()> func{[&x]() { ++x; }};
   memgraph::utils::Scheduler scheduler;
-  scheduler.Run("Test", std::chrono::milliseconds(100), func);
+  scheduler.Setup(std::chrono::milliseconds(100));
+  scheduler.Run("Test", func);
   EXPECT_TRUE(scheduler.IsRunning());
   scheduler.Stop();
   EXPECT_FALSE(scheduler.IsRunning());
@@ -129,7 +133,8 @@ TEST(Scheduler, StopStoppedScheduler) {
   std::atomic<int> x{0};
   std::function<void()> func{[&x]() { ++x; }};
   memgraph::utils::Scheduler scheduler;
-  scheduler.Run("Test", std::chrono::milliseconds(100), func);
+  scheduler.Setup(std::chrono::milliseconds(100));
+  scheduler.Run("Test", func);
   ASSERT_NO_THROW({
     scheduler.Stop();
     scheduler.Stop();
@@ -140,7 +145,8 @@ TEST(Scheduler, PauseStoppedScheduler) {
   std::atomic<int> x{0};
   std::function<void()> func{[&x]() { ++x; }};
   memgraph::utils::Scheduler scheduler;
-  scheduler.Run("Test", std::chrono::milliseconds(100), func);
+  scheduler.Setup(std::chrono::milliseconds(100));
+  scheduler.Run("Test", func);
   EXPECT_TRUE(scheduler.IsRunning());
   scheduler.Stop();
   EXPECT_FALSE(scheduler.IsRunning());
@@ -152,7 +158,8 @@ TEST(Scheduler, StopPausedScheduler) {
   std::atomic<int> x{0};
   std::function<void()> func{[&x]() { ++x; }};
   memgraph::utils::Scheduler scheduler;
-  scheduler.Run("Test", std::chrono::milliseconds(100), func);
+  scheduler.Setup(std::chrono::milliseconds(100));
+  scheduler.Run("Test", func);
   EXPECT_TRUE(scheduler.IsRunning());
   scheduler.Pause();
   EXPECT_TRUE(scheduler.IsRunning());  // note pausing the scheduler doesn't cause
@@ -165,7 +172,8 @@ TEST(Scheduler, ConcurrentStops) {
   std::atomic<int> x{0};
   std::function<void()> func{[&x]() { ++x; }};
   memgraph::utils::Scheduler scheduler;
-  scheduler.Run("Test", std::chrono::milliseconds(100), func);
+  scheduler.Setup(std::chrono::milliseconds(100));
+  scheduler.Run("Test", func);
 
   std::jthread stopper1([&scheduler]() { scheduler.Stop(); });
 
@@ -181,7 +189,8 @@ TEST(Scheduler, CronAny) {
   const auto timeout1 = now + std::chrono::seconds(3);
 
   // Execute every second
-  scheduler.Run("Test", func, "* * * * * *");
+  scheduler.Setup("* * * * * *");
+  scheduler.Run("Test", func);
 
   while (x == 0 && std::chrono::system_clock::now() < timeout1) {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -198,7 +207,8 @@ TEST(Scheduler, CronEveryNs) {
   const auto timeout1 = now + std::chrono::seconds(6);
 
   // Execute every second
-  scheduler.Run("Test", func, "*/2 * * * * *");
+  scheduler.Setup("*/2 * * * * *");
+  scheduler.Run("Test", func);
 
   while (x < 2 && std::chrono::system_clock::now() < timeout1) {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -217,7 +227,8 @@ TEST(Scheduler, CronSpecificTime) {
   const auto timeout1 = now + std::chrono::seconds(3);
 
   // Execute at specific time
-  scheduler.Run("Test", func, fmt::format("{} {} {} * * *", local_time.second, local_time.minute, local_time.hour));
+  scheduler.Setup(fmt::format("{} {} {} * * *", local_time.second, local_time.minute, local_time.hour));
+  scheduler.Run("Test", func);
 
   std::this_thread::sleep_for(std::chrono::milliseconds(1000));
   ASSERT_EQ(x, 0);
@@ -241,7 +252,8 @@ TEST(Scheduler, CronSpecificTimeWTZ) {
     const auto timeout1 = now + std::chrono::seconds(3);
 
     // Execute at specific time
-    scheduler.Run("Test", func, fmt::format("{} {} {} * * *", local_time.second, local_time.minute, local_time.hour));
+    scheduler.Setup(fmt::format("{} {} {} * * *", local_time.second, local_time.minute, local_time.hour));
+    scheduler.Run("Test", func);
 
     std::this_thread::sleep_for(std::chrono::milliseconds(1000));
     ASSERT_EQ(x, 0);
@@ -269,7 +281,8 @@ TEST(Scheduler, CronSpecificDate) {
   const auto local_date = memgraph::utils::LocalDateTime{now}.date();
 
   // Execute every second
-  scheduler.Run("Test", func, fmt::format("* * * {} {} *", local_date.day, local_date.month));
+  scheduler.Setup(fmt::format("* * * {} {} *", local_date.day, local_date.month));
+  scheduler.Run("Test", func);
 
   std::this_thread::sleep_for(std::chrono::milliseconds(1500));
   ASSERT_GT(x, 0);
@@ -287,7 +300,8 @@ TEST(Scheduler, CronSpecificDateWTZ) {
     const auto local_date = memgraph::utils::LocalDateTime{now}.date();
 
     // Execute every second
-    scheduler.Run("Test", func, fmt::format("* * * {} {} *", local_date.day, local_date.month));
+    scheduler.Setup(fmt::format("* * * {} {} *", local_date.day, local_date.month));
+    scheduler.Run("Test", func);
 
     std::this_thread::sleep_for(std::chrono::milliseconds(1500));
     ASSERT_GT(x, 0);
@@ -313,9 +327,9 @@ TEST(Scheduler, CronSpecificDateTime) {
   const auto local_time = next.local_time();
 
   // Execute every second
-  scheduler.Run("Test", func,
-                fmt::format("{} {} {} {} {} *", local_time.second, local_time.minute, local_time.hour, local_date.day,
-                            local_date.month));
+  scheduler.Setup(fmt::format("{} {} {} {} {} *", local_time.second, local_time.minute, local_time.hour, local_date.day,
+                              local_date.month));
+  scheduler.Run("Test", func);
 
   std::this_thread::sleep_for(std::chrono::milliseconds(1000));
   ASSERT_EQ(x, 0);
@@ -341,9 +355,9 @@ TEST(Scheduler, CronSpecificDateTimeWTZ) {
     const auto local_time = next.local_time();
 
     // Execute every second
-    scheduler.Run("Test", func,
-                  fmt::format("{} {} {} {} {} *", local_time.second, local_time.minute, local_time.hour, local_date.day,
-                              local_date.month));
+    scheduler.Setup(fmt::format("{} {} {} {} {} *", local_time.second, local_time.minute, local_time.hour,
+                                local_date.day, local_date.month));
+    scheduler.Run("Test", func);
 
     std::this_thread::sleep_for(std::chrono::milliseconds(1000));
     ASSERT_EQ(x, 0);

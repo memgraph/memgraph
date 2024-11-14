@@ -52,7 +52,7 @@ void Scheduler::Setup(std::string_view cron_expr) {
   };
 }
 
-SchedulerSetup::SchedulerSetup(const std::string &str) : period_or_cron{str} {
+SchedulerInterval::SchedulerInterval(const std::string &str) : period_or_cron{str} {
   if (str.empty()) return;
   try {
     // Try period
