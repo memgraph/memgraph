@@ -28,7 +28,6 @@ file = "manual_setting_replicas"
 MEMGRAPH_INSTANCES_DESCRIPTION = {
     "instance_3": {
         "args": [
-            "--experimental-enabled=high-availability",
             "--bolt-port",
             "7687",
             "--log-level",

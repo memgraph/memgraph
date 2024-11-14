@@ -42,7 +42,6 @@ def get_memgraph_instances_description(test_name: str):
     return {
         "instance_1": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7688",
                 "--log-level",
@@ -58,7 +57,6 @@ def get_memgraph_instances_description(test_name: str):
         },
         "instance_2": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7689",
                 "--log-level",
@@ -74,7 +72,6 @@ def get_memgraph_instances_description(test_name: str):
         },
         "instance_3": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7687",
                 "--log-level",
@@ -90,7 +87,6 @@ def get_memgraph_instances_description(test_name: str):
         },
         "coordinator_1": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7690",
                 "--log-level=TRACE",

@@ -54,7 +54,6 @@ def get_instances_description_no_setup(test_name: str, use_durability: bool = Tr
     return {
         "instance_1": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7687",
                 "--log-level",
@@ -68,7 +67,6 @@ def get_instances_description_no_setup(test_name: str, use_durability: bool = Tr
         },
         "instance_2": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7688",
                 "--log-level",
@@ -82,7 +80,6 @@ def get_instances_description_no_setup(test_name: str, use_durability: bool = Tr
         },
         "instance_3": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7689",
                 "--log-level",
@@ -96,7 +93,6 @@ def get_instances_description_no_setup(test_name: str, use_durability: bool = Tr
         },
         "coordinator_1": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7690",
                 "--log-level=TRACE",
@@ -113,7 +109,6 @@ def get_instances_description_no_setup(test_name: str, use_durability: bool = Tr
         },
         "coordinator_2": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7691",
                 "--log-level=TRACE",
@@ -130,7 +125,6 @@ def get_instances_description_no_setup(test_name: str, use_durability: bool = Tr
         },
         "coordinator_3": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7692",
                 "--log-level=TRACE",
@@ -164,7 +158,6 @@ def get_instances_description_no_setup_4_coords(test_name: str, use_durability: 
     return {
         "instance_1": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7687",
                 "--log-level",
@@ -178,7 +171,6 @@ def get_instances_description_no_setup_4_coords(test_name: str, use_durability: 
         },
         "instance_2": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7688",
                 "--log-level",
@@ -192,7 +184,6 @@ def get_instances_description_no_setup_4_coords(test_name: str, use_durability: 
         },
         "instance_3": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7689",
                 "--log-level",
@@ -206,7 +197,6 @@ def get_instances_description_no_setup_4_coords(test_name: str, use_durability: 
         },
         "coordinator_1": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7690",
                 "--log-level=TRACE",
@@ -223,7 +213,6 @@ def get_instances_description_no_setup_4_coords(test_name: str, use_durability: 
         },
         "coordinator_2": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7691",
                 "--log-level=TRACE",
@@ -240,7 +229,6 @@ def get_instances_description_no_setup_4_coords(test_name: str, use_durability: 
         },
         "coordinator_3": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7692",
                 "--log-level=TRACE",
@@ -257,7 +245,6 @@ def get_instances_description_no_setup_4_coords(test_name: str, use_durability: 
         },
         "coordinator_4": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7693",
                 "--log-level=TRACE",
@@ -1031,7 +1018,6 @@ def test_registering_4_coords(test_name):
     INSTANCES_DESCRIPTION = {
         "instance_1": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7687",
                 "--log-level",
@@ -1045,7 +1031,6 @@ def test_registering_4_coords(test_name):
         },
         "instance_2": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7688",
                 "--log-level",
@@ -1059,7 +1044,6 @@ def test_registering_4_coords(test_name):
         },
         "instance_3": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7689",
                 "--log-level",
@@ -1073,7 +1057,6 @@ def test_registering_4_coords(test_name):
         },
         "coordinator_1": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7690",
                 "--log-level=TRACE",
@@ -1088,7 +1071,6 @@ def test_registering_4_coords(test_name):
         },
         "coordinator_2": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7691",
                 "--log-level=TRACE",
@@ -1103,7 +1085,6 @@ def test_registering_4_coords(test_name):
         },
         "coordinator_3": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7692",
                 "--log-level=TRACE",
@@ -1118,7 +1099,6 @@ def test_registering_4_coords(test_name):
         },
         "coordinator_4": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7693",
                 "--log-level=TRACE",
@@ -1177,7 +1157,6 @@ def test_registering_coord_log_store(test_name):
     INSTANCES_DESCRIPTION = {
         "instance_1": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7687",
                 "--log-level",
@@ -1191,7 +1170,6 @@ def test_registering_coord_log_store(test_name):
         },
         "instance_2": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7688",
                 "--log-level",
@@ -1205,7 +1183,6 @@ def test_registering_coord_log_store(test_name):
         },
         "instance_3": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7689",
                 "--log-level",
@@ -1219,7 +1196,6 @@ def test_registering_coord_log_store(test_name):
         },
         "coordinator_1": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7690",
                 "--log-level=TRACE",
@@ -1235,7 +1211,6 @@ def test_registering_coord_log_store(test_name):
         },
         "coordinator_2": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7691",
                 "--log-level=TRACE",
@@ -1251,7 +1226,6 @@ def test_registering_coord_log_store(test_name):
         },
         "coordinator_3": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7692",
                 "--log-level=TRACE",
@@ -1267,7 +1241,6 @@ def test_registering_coord_log_store(test_name):
         },
         "coordinator_4": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7693",
                 "--log-level=TRACE",
@@ -1328,7 +1301,6 @@ def test_registering_coord_log_store(test_name):
     for i in range(4, 7):
         instance_name = f"instance_{i}"
         args_desc = [
-            "--experimental-enabled=high-availability",
             "--log-level=TRACE",
         ]
 
@@ -2381,7 +2353,6 @@ def test_coordinator_gets_info_on_other_coordinators(test_name):
     other_instances = {
         "coordinator_4": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7693",
                 "--log-level=TRACE",
