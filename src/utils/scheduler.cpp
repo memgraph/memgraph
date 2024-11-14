@@ -103,14 +103,14 @@ void Scheduler::ThreadRun(std::string service_name, std::function<void()> f, std
     }
     if (next > now) {
       auto lk = std::unique_lock{mutex_};
-      condition_variable_.wait_until(lk, next, [&] { return token.stop_requested() || spin_; });
+      condition_variable_.wait_until(lk, token, next, [&] { return spin_.load(); });
     }
 
-    if (is_paused_) {
+    // wait for unpause or stop_requested
+    {
       auto lk = std::unique_lock{mutex_};
-      pause_cv_.wait(lk, [&] { return !is_paused_.load(std::memory_order_acquire) || token.stop_requested(); });
+      condition_variable_.wait(lk, token, [&] { return !is_paused_ || spin_.load(); });
     }
-
     if (token.stop_requested()) break;
     if (spin_) {
       spin_ = false;
@@ -129,9 +129,8 @@ void Scheduler::Stop() {
     {
       // Lock needs to be held when modifying cv even if atomic
       auto lk = std::unique_lock{mutex_};
-      is_paused_.store(false, std::memory_order_release);
+      is_paused_ = false;
     }
-    pause_cv_.notify_one();
     condition_variable_.notify_one();
     if (thread_.joinable()) thread_.join();
   }
@@ -141,7 +140,7 @@ void Scheduler::Stop() {
 void Scheduler::Pause() {
   // Lock needs to be held when modifying cv even if atomic
   auto lk = std::unique_lock{mutex_};
-  is_paused_.store(true, std::memory_order_release);
+  is_paused_ = true;
 }
 
 // Sets atomic is_paused_ to false and notifies thread
@@ -149,9 +148,10 @@ void Scheduler::Resume() {
   {
     // Lock needs to be held when modifying cv even if atomic
     auto lk = std::unique_lock{mutex_};
-    is_paused_.store(false, std::memory_order_release);
+    if (!is_paused_) return;
+    is_paused_ = false;
   }
-  pause_cv_.notify_one();
+  condition_variable_.notify_one();
 }
 
 }  // namespace memgraph::utils

@@ -104,7 +104,10 @@ class Scheduler {
   Synchronized<std::function<time_point(const time_point &)>> find_next_{
       [](auto && /* unused */) { return time_point::max(); }};  // default to infinity
 
-  std::atomic<bool> spin_{false};
+  /**
+   * Variable is true for a single cycle when we spin without executing anything.
+   */
+  std::atomic_bool spin_ = false;
 
   /**
    * Variable is true when thread is paused.
