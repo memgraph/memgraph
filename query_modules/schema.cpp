@@ -672,7 +672,6 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
          mgp::Return(Schema::kReturnUnique, mgp::Type::Bool), mgp::Return(Schema::kReturnAction, mgp::Type::String)},
         module, memory);
   } catch (const std::exception &e) {
-    // std::cerr << "Error while initializing query module: " << e.what() << std::endl;
     spdlog::error("Error while initializing query module: {}", e.what());
     return 1;
   }
