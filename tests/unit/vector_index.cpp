@@ -195,6 +195,7 @@ TYPED_TEST(VectorSearchTest, UpdatePropertyValueTest) {
 
   // Update property value
   acc = this->storage->Access();
+  vertex = acc->FindVertex(vertex.Gid(), View::OLD).value();
   PropertyValue updated_value(std::vector<PropertyValue>{PropertyValue(2.0), PropertyValue(2.0)});
   MG_ASSERT(!vertex.SetProperty(acc->NameToProperty(test_property), updated_value).HasError());  // NOLINT
   ASSERT_NO_ERROR(acc->Commit());
