@@ -13,5 +13,7 @@ copy_e2e_python_files_from_parent_folder(high_availability ".." memgraph.py)
 copy_e2e_python_files_from_parent_folder(high_availability ".." interactive_mg_runner.py)
 copy_e2e_python_files_from_parent_folder(high_availability ".." mg_utils.py)
 
+if (MG_ENTERPRISE)
 add_executable(memgraph__e2e__high_availability_rpc_comm rpc_comm.cpp)
 target_link_libraries(memgraph__e2e__high_availability_rpc_comm mg-coordination mg-repl_coord_glue)
+endif()
