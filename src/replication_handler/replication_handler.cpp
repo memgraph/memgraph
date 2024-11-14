@@ -187,7 +187,7 @@ bool ReplicationHandler::SetReplicationRoleMain() {
   };
 
   auto const replica_handler = [this](replication::RoleReplicaData const &) {
-    return DoReplicaToMainPromotion(utils::UUID{});
+    return DoToMainPromotion(utils::UUID{});
   };
 
   // TODO: under lock
@@ -204,7 +204,7 @@ bool ReplicationHandler::TrySetReplicationRoleReplica(const memgraph::replicatio
   return SetReplicationRoleReplica_<false>(config, main_uuid);
 }
 
-bool ReplicationHandler::DoReplicaToMainPromotion(const utils::UUID &main_uuid) {
+bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid) {
   if (!repl_state_.TryLock()) {
     return false;
   }
