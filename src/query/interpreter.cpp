@@ -1387,12 +1387,6 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
     throw QueryRuntimeException("High availability is only available in Memgraph Enterprise.");
   }
 
-  if (!flags::AreExperimentsEnabled(HIGH_AVAILABILITY)) {
-    throw QueryRuntimeException(
-        "High availability is experimental feature. If you want to use it, add high-availability option to the "
-        "--experimental-enabled flag.");
-  }
-
   Callback callback;
   switch (coordinator_query->action_) {
     case CoordinatorQuery::Action::ADD_COORDINATOR_INSTANCE: {

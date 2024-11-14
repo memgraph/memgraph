@@ -45,7 +45,6 @@ def get_memgraph_instances_description(test_name: str, data_recovery_on_startup:
     return {
         "instance_1": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7688",
                 "--log-level",
@@ -61,7 +60,6 @@ def get_memgraph_instances_description(test_name: str, data_recovery_on_startup:
         },
         "instance_2": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7689",
                 "--log-level",
@@ -77,7 +75,6 @@ def get_memgraph_instances_description(test_name: str, data_recovery_on_startup:
         },
         "instance_3": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7687",
                 "--log-level",
@@ -93,7 +90,6 @@ def get_memgraph_instances_description(test_name: str, data_recovery_on_startup:
         },
         "coordinator": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7690",
                 "--log-level=TRACE",
@@ -118,7 +114,6 @@ def get_memgraph_instances_description_4_instances(test_name: str, data_recovery
     return {
         "instance_1": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7688",
                 "--log-level",
@@ -135,7 +130,6 @@ def get_memgraph_instances_description_4_instances(test_name: str, data_recovery
         },
         "instance_2": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7689",
                 "--log-level",
@@ -152,7 +146,6 @@ def get_memgraph_instances_description_4_instances(test_name: str, data_recovery
         },
         "instance_3": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7687",
                 "--log-level",
@@ -170,7 +163,6 @@ def get_memgraph_instances_description_4_instances(test_name: str, data_recovery
         },
         "instance_4": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7691",
                 "--log-level",
@@ -188,7 +180,6 @@ def get_memgraph_instances_description_4_instances(test_name: str, data_recovery
         },
         "coordinator": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7690",
                 "--log-level=TRACE",
