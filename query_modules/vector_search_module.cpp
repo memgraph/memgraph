@@ -9,13 +9,10 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-// TODO(gitbuda): Try to use logging under xyz_search modules.
-#include <iostream>
-#include <string_view>
-
 #include <fmt/format.h>
-
+#include <spdlog/spdlog.h>
 #include <mgp.hpp>
+#include <string_view>
 
 namespace VectorSearch {
 static constexpr std::string_view kProcedureSearch = "search";
@@ -112,7 +109,7 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
                  },
                  module, memory);
   } catch (const std::exception &e) {
-    std::cerr << "Error while initializing query module: " << e.what() << "\n";
+    spdlog::error("Error while initializing query module: {}", e.what());
     return 1;
   }
 

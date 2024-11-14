@@ -342,7 +342,6 @@ repo_clone_try_double "${primary_urls[strong_type]}" "${secondary_urls[strong_ty
 
 usearch_ref="v2.15.3"
 repo_clone_try_double "${primary_urls[usearch]}" "${secondary_urls[usearch]}" "usearch" "$usearch_ref"
-# TODO(gitbuda): Move below under the repo_clone_try_double
 pushd usearch
 git submodule update --init --recursive
 popd

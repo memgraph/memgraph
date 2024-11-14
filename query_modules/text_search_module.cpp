@@ -9,14 +9,11 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-// TODO(gitbuda): Try to use logging under xyz_search modules.
-#include <iostream>
+#include <fmt/format.h>
+#include <spdlog/spdlog.h>
+#include <mgp.hpp>
 #include <string>
 #include <string_view>
-
-#include <fmt/format.h>
-
-#include <mgp.hpp>
 
 namespace TextSearch {
 constexpr std::string_view kProcedureSearch = "search";
@@ -141,7 +138,7 @@ extern "C" int mgp_init_module(struct mgp_module *query_module, struct mgp_memor
                  },
                  {mgp::Return(TextSearch::kReturnAggregation, mgp::Type::String)}, query_module, memory);
   } catch (const std::exception &e) {
-    std::cerr << "Error while initializing query module: " << e.what() << std::endl;
+    spdlog::error("Error while initializing query module: {}", e.what());
     return 1;
   }
 

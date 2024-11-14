@@ -339,7 +339,6 @@ import_library(mgcxx_text_search STATIC ${MGCXX_TEXT_SEARCH_LIBRARY} ${MGCXX_INC
 add_subdirectory(strong_type EXCLUDE_FROM_ALL)
 
 import_header_library(usearch ${CMAKE_CURRENT_SOURCE_DIR}/usearch/include)
-# TODO(gitbuda): Move these additional includes under import_header_library
 set_property(TARGET usearch PROPERTY INTERFACE_INCLUDE_DIRECTORIES
     ${CMAKE_CURRENT_SOURCE_DIR}/usearch/include
     ${CMAKE_CURRENT_SOURCE_DIR}/usearch/fp16/include
