@@ -43,7 +43,6 @@ def get_instances_description(test_name: str):
     return {
         "instance_1": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7687",
                 "--log-level",
@@ -57,7 +56,6 @@ def get_instances_description(test_name: str):
         },
         "instance_2": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7688",
                 "--log-level",
@@ -71,7 +69,6 @@ def get_instances_description(test_name: str):
         },
         "instance_3": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7689",
                 "--log-level",
@@ -85,7 +82,6 @@ def get_instances_description(test_name: str):
         },
         "coordinator_1": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7690",
                 "--log-level=TRACE",
@@ -100,7 +96,6 @@ def get_instances_description(test_name: str):
         },
         "coordinator_2": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7691",
                 "--log-level=TRACE",
@@ -115,7 +110,6 @@ def get_instances_description(test_name: str):
         },
         "coordinator_3": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7692",
                 "--log-level=TRACE",
@@ -135,7 +129,6 @@ def get_instances_description_no_coord(test_name: str):
     return {
         "instance_1": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7687",
                 "--log-level",
@@ -151,7 +144,6 @@ def get_instances_description_no_coord(test_name: str):
         },
         "instance_2": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7688",
                 "--log-level",
@@ -167,7 +159,6 @@ def get_instances_description_no_coord(test_name: str):
         },
         "instance_3": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7689",
                 "--log-level",
@@ -183,7 +174,6 @@ def get_instances_description_no_coord(test_name: str):
         },
         "coordinator_1": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7690",
                 "--log-level=TRACE",
@@ -198,7 +188,6 @@ def get_instances_description_no_coord(test_name: str):
         },
         "coordinator_2": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7691",
                 "--log-level=TRACE",
@@ -697,7 +686,6 @@ def test_register_one_coord_with_env_vars(test_name):
     memgraph_instances_desc = get_instances_description_no_coord(test_name=test_name)
     interactive_mg_runner.start_all(memgraph_instances_desc, keep_directories=False)
 
-    os.environ["MEMGRAPH_EXPERIMENTAL_ENABLED"] = "high-availability"
     os.environ["MEMGRAPH_COORDINATOR_PORT"] = "10113"
     os.environ["MEMGRAPH_BOLT_PORT"] = "7692"
     os.environ["MEMGRAPH_COORDINATOR_ID"] = "3"
@@ -837,7 +825,6 @@ def test_register_one_data_with_env_vars(test_name):
     MEMGRAPH_INSTANCES_DESCRIPTION = {
         "instance_1": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7687",
                 "--log-level",
@@ -853,7 +840,6 @@ def test_register_one_data_with_env_vars(test_name):
         },
         "instance_2": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7688",
                 "--log-level",
@@ -869,7 +855,6 @@ def test_register_one_data_with_env_vars(test_name):
         },
         "coordinator_1": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7690",
                 "--log-level=TRACE",
@@ -885,7 +870,6 @@ def test_register_one_data_with_env_vars(test_name):
         },
         "coordinator_2": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7691",
                 "--log-level=TRACE",
@@ -901,7 +885,6 @@ def test_register_one_data_with_env_vars(test_name):
         },
         "coordinator_3": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7692",
                 "--log-level=TRACE",
@@ -918,7 +901,6 @@ def test_register_one_data_with_env_vars(test_name):
     }
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
 
-    os.environ["MEMGRAPH_EXPERIMENTAL_ENABLED"] = "high-availability"
     os.environ["MEMGRAPH_BOLT_PORT"] = "7689"
     os.environ["MEMGRAPH_MANAGEMENT_PORT"] = "10013"
 
@@ -1018,7 +1000,6 @@ def test_register_one_coord_with_env_vars_no_instances_alive_on_start(test_name)
 
     memgraph_instances_desc = get_instances_description_no_coord(test_name=test_name)
 
-    os.environ["MEMGRAPH_EXPERIMENTAL_ENABLED"] = "high-availability"
     os.environ["MEMGRAPH_COORDINATOR_PORT"] = "10113"
     os.environ["MEMGRAPH_BOLT_PORT"] = "7692"
     os.environ["MEMGRAPH_COORDINATOR_ID"] = "3"
@@ -1077,7 +1058,6 @@ def test_register_one_coord_with_env_vars_no_instances_alive_on_start(test_name)
     coordinator1_cursor = connect(host="localhost", port=7690).cursor()
     coordinator2_cursor = connect(host="localhost", port=7691).cursor()
 
-    os.environ["MEMGRAPH_EXPERIMENTAL_ENABLED"] = "high-availability"
     os.environ["MEMGRAPH_COORDINATOR_PORT"] = "10113"
     os.environ["MEMGRAPH_BOLT_PORT"] = "7692"
     os.environ["MEMGRAPH_COORDINATOR_ID"] = "3"

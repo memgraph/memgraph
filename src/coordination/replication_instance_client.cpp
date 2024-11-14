@@ -87,21 +87,20 @@ auto ReplicationInstanceClient::GetReplicationClientInfo() const -> coordination
   return config_.replication_client_info;
 }
 
-auto ReplicationInstanceClient::SendPromoteReplicaToMainRpc(const utils::UUID &uuid,
-                                                            ReplicationClientsInfo replication_clients_info) const
-    -> bool {
+auto ReplicationInstanceClient::SendPromoteToMainRpc(const utils::UUID &uuid,
+                                                     ReplicationClientsInfo replication_clients_info) const -> bool {
   try {
-    spdlog::trace("Sending PromoteReplicaToMainRpc");
-    auto stream{rpc_client_.Stream<PromoteReplicaToMainRpc>(uuid, std::move(replication_clients_info))};
-    spdlog::trace("Awaiting response after sending PromoteReplicaToMainRpc");
+    spdlog::trace("Sending PromoteToMainRpc");
+    auto stream{rpc_client_.Stream<PromoteToMainRpc>(uuid, std::move(replication_clients_info))};
+    spdlog::trace("Awaiting response after sending PromoteToMainRpc");
     if (!stream.AwaitResponse().success) {
-      spdlog::error("Failed to receive successful PromoteReplicaToMainRpc response!");
+      spdlog::error("Failed to receive successful PromoteToMainRpc response!");
       return false;
     }
-    spdlog::trace("Received successful response to PromoteReplicaToMainRPC");
+    spdlog::trace("Received successful response to PromoteToMainRPC");
     return true;
   } catch (rpc::RpcFailedException const &) {
-    spdlog::error("RPC error occurred while sending PromoteReplicaToMainRpc!");
+    spdlog::error("RPC error occurred while sending PromoteToMainRpc!");
   }
   return false;
 }

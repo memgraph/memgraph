@@ -30,8 +30,7 @@ namespace memgraph::flags {
 enum class Experiments : uint8_t {
   NONE = 0,
   TEXT_SEARCH = 1 << 0,
-  HIGH_AVAILABILITY = 1 << 1,
-  VECTOR_SEARCH = 1 << 2,
+  VECTOR_SEARCH = 1 << 1,
 };
 
 bool AreExperimentsEnabled(Experiments experiments);
