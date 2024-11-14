@@ -197,7 +197,9 @@ void VectorIndex::UpdateVectorIndex(Vertex *vertex, const LabelPropKey &label_pr
   if (index.capacity() == index.size()) {
     throw std::runtime_error("Vector index is full.");
   }
-  if (index.dimensions() != property.ValueList().size()) {
+  auto dimensions = index.dimensions();
+  auto list_size = property.ValueList().size();
+  if (dimensions != list_size) {
     throw std::invalid_argument("Vector index property must have the same number of dimensions as the index.");
   }
   const auto &vector_property = property.ValueList();

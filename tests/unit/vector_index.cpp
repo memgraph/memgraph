@@ -8,14 +8,18 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
-#include "storage/v2/indices/vector_index.hpp"
 #include <sys/types.h>
+#include <stdexcept>
+#include <string_view>
 #include <thread>
+
 #include "flags/experimental.hpp"
 #include "gtest/gtest.h"
 #include "query/db_accessor.hpp"
+#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/view.hpp"
 
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace memgraph::storage;
@@ -31,14 +35,16 @@ template <typename StorageType>
 class VectorSearchTest : public testing::Test {
  public:
   static constexpr std::string_view testSuite = "vector_search";
-  std::unique_ptr<Storage> storage = std::make_unique<InMemoryStorage>();
+  std::unique_ptr<Storage> storage;
 
-  void CreateIndex(std::size_t dimension = 2, std::size_t limit = 10) {
-    // Enable the vector search feature -> this is checked through the code where the index is used
-    FLAGS_experimental_enabled = "vector-search";
-    FLAGS_experimental_config =
-        (R"({"vector-search": { "test_index": {"label": "test_label", "property": "test_property", "dimension": 2, "limit": 10 }}})");
+  void SetUp() override { storage = std::make_unique<InMemoryStorage>(); }
 
+  void TearDown() override {
+    storage.reset();
+    memgraph::flags::SetExperimental(memgraph::flags::Experiments::NONE);
+  }
+
+  void CreateIndex(std::size_t dimension, std::size_t limit) {
     memgraph::flags::SetExperimental(memgraph::flags::Experiments::VECTOR_SEARCH);
 
     auto storage_dba = storage->Access();
@@ -51,11 +57,12 @@ class VectorSearchTest : public testing::Test {
     storage_dba->CreateVectorIndex(spec);
   }
 
-  VertexAccessor CreateVertex(Storage::Accessor *accessor, const PropertyValue &property, const LabelId &label) {
+  VertexAccessor CreateVertex(Storage::Accessor *accessor, std::string_view property,
+                              const PropertyValue &property_value, std::string_view label) {
     VertexAccessor vertex = accessor->CreateVertex();
     // NOLINTBEGIN
-    MG_ASSERT(!vertex.AddLabel(label).HasError());
-    MG_ASSERT(!vertex.SetProperty(accessor->NameToProperty(test_property), property).HasError());
+    MG_ASSERT(!vertex.AddLabel(accessor->NameToLabel(label)).HasError());
+    MG_ASSERT(!vertex.SetProperty(accessor->NameToProperty(property), property_value).HasError());
     // NOLINTEND
 
     return vertex;
@@ -65,22 +72,31 @@ class VectorSearchTest : public testing::Test {
 TYPED_TEST_SUITE(VectorSearchTest, InMemoryStorage);
 
 TYPED_TEST(VectorSearchTest, SimpleAddNodeTest) {
-  this->CreateIndex();
+  this->CreateIndex(2, 10);
   auto acc = this->storage->Access();
 
   PropertyValue property_value(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
-  this->CreateVertex(acc.get(), property_value, acc->NameToLabel(test_label));
+
+  // should end up in the index
+  this->CreateVertex(acc.get(), test_property, property_value, test_label);
+
+  // should not end up in the index
+  this->CreateVertex(acc.get(), "wrong_property", property_value, test_label);
+
+  // should not end up in the index
+  this->CreateVertex(acc.get(), test_property, property_value, "wrong_label");
+
   ASSERT_NO_ERROR(acc->Commit());
   const auto vector_index_info = acc->ListAllVectorIndices();
   EXPECT_EQ(vector_index_info[0].size, 1);
 }
 
 TYPED_TEST(VectorSearchTest, SimpleSearchTest) {
-  this->CreateIndex();
+  this->CreateIndex(2, 10);
   auto acc = this->storage->Access();
 
   PropertyValue property_value(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
-  const auto vertex = this->CreateVertex(acc.get(), property_value, acc->NameToLabel(test_label));
+  const auto vertex = this->CreateVertex(acc.get(), test_property, property_value, test_label);
   ASSERT_NO_ERROR(acc->Commit());
 
   const auto result = acc->VectorIndexSearch(test_index.data(), 1, std::vector<float>{1.0, 1.0});
@@ -88,15 +104,42 @@ TYPED_TEST(VectorSearchTest, SimpleSearchTest) {
   EXPECT_EQ(std::get<0>(result[0]).vertex_->gid, vertex.Gid());
 }
 
+TYPED_TEST(VectorSearchTest, HighDimensionalSearchTest) {
+  // Create index with high dimension
+  this->CreateIndex(1000, 2);
+  auto acc = this->storage->Access();
+
+  std::vector<PropertyValue> high_dim_vector(1000, PropertyValue(1.0));
+  PropertyValue property_value(high_dim_vector);
+  const auto vertex = this->CreateVertex(acc.get(), test_property, property_value, test_label);
+  ASSERT_NO_ERROR(acc->Commit());
+
+  std::vector<float> query_vector(1000, 1.0);
+  const auto result = acc->VectorIndexSearch(test_index.data(), 1, query_vector);
+  EXPECT_EQ(result.size(), 1);
+  EXPECT_EQ(std::get<0>(result[0]).vertex_->gid, vertex.Gid());
+}
+
+TYPED_TEST(VectorSearchTest, InvalidDimensionTest) {
+  this->CreateIndex(2, 10);
+  auto acc = this->storage->Access();
+
+  // Create a node with a property that has a different dimension than the index
+  std::vector<PropertyValue> properties(3, PropertyValue(1.0));
+  PropertyValue property_value(properties);
+
+  EXPECT_THROW(this->CreateVertex(acc.get(), test_property, property_value, test_label), std::invalid_argument);
+}
+
 TYPED_TEST(VectorSearchTest, SearchWithMultipleNodes) {
-  this->CreateIndex();
+  this->CreateIndex(2, 10);
   auto acc = this->storage->Access();
 
   PropertyValue properties1(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
-  [[maybe_unused]] const auto vertex1 = this->CreateVertex(acc.get(), properties1, acc->NameToLabel(test_label));
+  [[maybe_unused]] const auto vertex1 = this->CreateVertex(acc.get(), test_property, properties1, test_label);
 
   PropertyValue properties2(std::vector<PropertyValue>{PropertyValue(10.0), PropertyValue(10.0)});
-  const auto vertex2 = this->CreateVertex(acc.get(), properties2, acc->NameToLabel(test_label));
+  const auto vertex2 = this->CreateVertex(acc.get(), test_property, properties2, test_label);
   ASSERT_NO_ERROR(acc->Commit());
 
   EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 2);
@@ -114,53 +157,165 @@ TYPED_TEST(VectorSearchTest, SearchWithMultipleNodes) {
 }
 
 TYPED_TEST(VectorSearchTest, ConcurrencyTest) {
-  this->CreateIndex();
+  this->CreateIndex(2, 10);
   auto acc = this->storage->Access();
 
   const auto index_size = std::thread::hardware_concurrency();  // default value for the number of threads in the pool
 
-  // Create 1k threads to add 1k nodes
   std::vector<std::thread> threads;
   threads.reserve(index_size);
   for (int i = 0; i < index_size; i++) {
     threads.emplace_back(std::thread([this, &acc, i]() {
-      // Properties start from i and end at i + 1 (2-dimensional vector)
       PropertyValue properties(
           std::vector<PropertyValue>{PropertyValue(static_cast<double>(i)), PropertyValue(static_cast<double>(i + 1))});
 
       // Each thread adds a node to the index
-      [[maybe_unused]] const auto vertex = this->CreateVertex(acc.get(), properties, acc->NameToLabel(test_label));
+      [[maybe_unused]] const auto vertex = this->CreateVertex(acc.get(), test_property, properties, test_label);
     }));
   }
 
-  // Join all threads to ensure all nodes are added
   for (auto &thread : threads) {
     thread.join();
   }
-
-  // Commit the changes made by each thread
   ASSERT_NO_ERROR(acc->Commit());
 
   // Check that the index has the expected number of entries
   EXPECT_EQ(acc->ListAllVectorIndices()[0].size, index_size);
 }
 
-TYPED_TEST(VectorSearchTest, SimpleAbortTest) {
-  this->CreateIndex();
+TYPED_TEST(VectorSearchTest, UpdatePropertyValueTest) {
+  this->CreateIndex(2, 10);
   auto acc = this->storage->Access();
-  static constexpr auto index_size = 10;
+
+  // Create initial vertex
+  PropertyValue initial_value(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
+  auto vertex = this->CreateVertex(acc.get(), test_property, initial_value, test_label);
+  ASSERT_NO_ERROR(acc->Commit());
+
+  // Update property value
+  acc = this->storage->Access();
+  PropertyValue updated_value(std::vector<PropertyValue>{PropertyValue(2.0), PropertyValue(2.0)});
+  MG_ASSERT(!vertex.SetProperty(acc->NameToProperty(test_property), updated_value).HasError());  // NOLINT
+  ASSERT_NO_ERROR(acc->Commit());
+
+  // Verify update with search
+  const auto search_result = acc->VectorIndexSearch(test_index.data(), 1, std::vector<float>{2.0, 2.0});
+  EXPECT_EQ(search_result.size(), 1);
+  EXPECT_EQ(std::get<0>(search_result[0]).vertex_->properties.GetProperty(acc->NameToProperty(test_property)),
+            updated_value);
+}
+
+TYPED_TEST(VectorSearchTest, DeleteVertexTest) {
+  this->CreateIndex(2, 10);
+  auto acc = this->storage->Access();
+
+  PropertyValue properties(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
+  auto vertex = this->CreateVertex(acc.get(), test_property, properties, test_label);
+
+  // Delete the vertex
+  auto maybe_deleted_vertex = acc->DeleteVertex(&vertex);
+  EXPECT_EQ(maybe_deleted_vertex.HasValue(), true);
+  ASSERT_NO_ERROR(acc->Commit());
+
+  // Verify that the vertex was deleted
+  std::vector<float> query = {1.0, 1.0};
+  const auto result = acc->VectorIndexSearch(test_index.data(), 1, query);
+  EXPECT_EQ(result.size(), 0);
+}
+
+TYPED_TEST(VectorSearchTest, SimpleAbortTest) {
+  this->CreateIndex(2, 10);
+  auto acc = this->storage->Access();
+  static constexpr auto index_size = 10;  // has to be equal or less than the limit of the index
 
   // Create multiple nodes within a transaction that will be aborted
   for (int i = 0; i < index_size; i++) {
     PropertyValue properties(
         std::vector<PropertyValue>{PropertyValue(static_cast<double>(i)), PropertyValue(static_cast<double>(i + 1))});
-
     // Add each node to the index
-    [[maybe_unused]] const auto vertex = this->CreateVertex(acc.get(), properties, acc->NameToLabel(test_label));
+    [[maybe_unused]] const auto vertex = this->CreateVertex(acc.get(), test_property, properties, test_label);
   }
-  EXPECT_EQ(acc->ListAllVectorIndices()[0].size, index_size);
 
-  // Abort the transaction
+  EXPECT_EQ(acc->ListAllVectorIndices()[0].size, index_size);
+  acc->Abort();
+
+  // Expect the index to have 0 entries, as the transaction was aborted
+  EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 0);
+}
+
+TYPED_TEST(VectorSearchTest, MultipleAbortsAndUpdatesTest) {
+  this->CreateIndex(2, 10);
+  auto acc = this->storage->Access();
+
+  PropertyValue properties(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
+  auto vertex = this->CreateVertex(acc.get(), test_property, properties, test_label);
+  ASSERT_NO_ERROR(acc->Commit());
+
+  // Remove label and then abort
+  acc = this->storage->Access();
+  vertex = acc->FindVertex(vertex.Gid(), View::OLD).value();
+  MG_ASSERT(!vertex.RemoveLabel(acc->NameToLabel(test_label)).HasError());  // NOLINT
+  acc->Abort();
+
+  // Expect the index to have 1 entry, as the transaction was aborted
+  EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 1);
+
+  // Remove property and then abort
+  acc = this->storage->Access();
+  vertex = acc->FindVertex(vertex.Gid(), View::OLD).value();
+  PropertyValue null_value;
+  MG_ASSERT(!vertex.SetProperty(acc->NameToProperty(test_property), null_value).HasError());  // NOLINT
+  acc->Abort();
+
+  // Expect the index to have 1 entry, as the transaction was aborted
+  EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 1);
+
+  // Remove label and then commit
+  acc = this->storage->Access();
+  vertex = acc->FindVertex(vertex.Gid(), View::OLD).value();
+  MG_ASSERT(!vertex.RemoveLabel(acc->NameToLabel(test_label)).HasError());  // NOLINT
+  ASSERT_NO_ERROR(acc->Commit());
+
+  // Expect the index to have 0 entries, as the transaction was committed
+  EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 0);
+
+  // At this point, the vertex has no label but has a property
+
+  // Add label and then abort
+  acc = this->storage->Access();
+  vertex = acc->FindVertex(vertex.Gid(), View::OLD).value();
+  MG_ASSERT(!vertex.AddLabel(acc->NameToLabel(test_label)).HasError());  // NOLINT
+  acc->Abort();
+
+  // Expect the index to have 0 entries, as the transaction was aborted
+  EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 0);
+
+  // Add label and then commit
+  acc = this->storage->Access();
+  vertex = acc->FindVertex(vertex.Gid(), View::OLD).value();
+  MG_ASSERT(!vertex.AddLabel(acc->NameToLabel(test_label)).HasError());  // NOLINT
+  ASSERT_NO_ERROR(acc->Commit());
+
+  // Expect the index to have 1 entry, as the transaction was committed
+  EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 1);
+
+  // At this point, the vertex has a label and a property
+
+  // Remove property and then commit
+  acc = this->storage->Access();
+  vertex = acc->FindVertex(vertex.Gid(), View::OLD).value();
+  MG_ASSERT(!vertex.SetProperty(acc->NameToProperty(test_property), null_value).HasError());  // NOLINT
+  ASSERT_NO_ERROR(acc->Commit());
+
+  // Expect the index to have 0 entries, as the transaction was committed
+  EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 0);
+
+  // At this point, the vertex has a label but no property
+
+  // Add property and then abort
+  acc = this->storage->Access();
+  vertex = acc->FindVertex(vertex.Gid(), View::OLD).value();
+  MG_ASSERT(!vertex.SetProperty(acc->NameToProperty(test_property), properties).HasError());  // NOLINT
   acc->Abort();
 
   // Expect the index to have 0 entries, as the transaction was aborted
