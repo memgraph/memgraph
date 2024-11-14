@@ -40,7 +40,6 @@
     :chdir   mgdir}
    (:local-binary test)
    :--log-level "TRACE"
-   :--experimental-enabled "high-availability"
    :--also-log-to-stderr
    :--data-recovery-on-startup
    :--storage-wal-enabled
@@ -61,7 +60,6 @@
     :chdir   mgdir}
    (:local-binary test)
    :--log-level "TRACE"
-   :--experimental-enabled "high-availability"
    :--also-log-to-stderr
    :--data-recovery-on-startup
    :--storage-wal-enabled

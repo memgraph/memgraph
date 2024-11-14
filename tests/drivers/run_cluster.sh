@@ -57,7 +57,6 @@ $binary_dir/memgraph \
     --log-file=$tmpdir/logs/instance1.log \
     --also-log-to-stderr \
     --management-port=10011 \
-    --experimental-enabled=high-availability \
     --telemetry-enabled=false \
     --log-level TRACE &
 
@@ -74,7 +73,6 @@ $binary_dir/memgraph \
     --log-file=$tmpdir/logs/instance2.log \
     --also-log-to-stderr \
     --management-port=10012 \
-    --experimental-enabled=high-availability \
     --telemetry-enabled=false \
     --log-level TRACE &
 
@@ -91,7 +89,6 @@ $binary_dir/memgraph \
     --log-file=$tmpdir/logs/instance3.log \
     --also-log-to-stderr \
     --management-port=10013 \
-    --experimental-enabled=high-availability \
     --telemetry-enabled=false \
     --log-level TRACE &
 
@@ -112,7 +109,6 @@ $binary_dir/memgraph \
     --coordinator-port=10111 \
     --coordinator-hostname="localhost" \
     --management-port=10121 \
-    --experimental-enabled=high-availability \
     --telemetry-enabled=false \
     --log-level TRACE &
 
@@ -132,7 +128,6 @@ $binary_dir/memgraph \
     --coordinator-port=10112 \
     --coordinator-hostname="localhost" \
     --management-port=10122 \
-    --experimental-enabled=high-availability \
     --telemetry-enabled=false \
     --log-level TRACE &
 
@@ -152,7 +147,6 @@ $binary_dir/memgraph \
     --coordinator-port=10113 \
     --management-port=10123 \
     --coordinator-hostname="localhost" \
-    --experimental-enabled=high-availability \
     --telemetry-enabled=false \
     --log-level TRACE &
 
