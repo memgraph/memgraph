@@ -185,7 +185,12 @@ struct small_vector {
   using reverse_iterator = std::reverse_iterator<iterator>;
   using const_reverse_iterator = std::reverse_iterator<const_iterator>;
 
-  small_vector() = default;
+  small_vector() {
+    // Small buffer optimization is turned off; define buffer_ as nullptr
+    if constexpr (!usingSmallBuffer(kSmallCapacity)) {
+      buffer_ = nullptr;
+    }
+  }
 
   small_vector(const small_vector &other) : size_{other.size_}, capacity_{std::max(other.size_, kSmallCapacity)} {
     // NOTE 1: smallest capacity is kSmallCapacity
@@ -275,18 +280,13 @@ struct small_vector {
         size_ = other.size_;
       }
     } else {
-      if (usingSmallBuffer(capacity_)) {
-        std::destroy(begin(), end());
-        size_ = std::exchange(other.size_, 0);
-        capacity_ = std::exchange(other.capacity_, kSmallCapacity);
-        buffer_ = other.buffer_;
-      } else {
-        std::destroy(begin(), end());
-        size_ = std::exchange(other.size_, 0);
-        capacity_ = std::exchange(other.capacity_, kSmallCapacity);
-        auto old_buffer = std::exchange(buffer_, other.buffer_);
-        operator delete (old_buffer, std::align_val_t{alignof(T)});
+      std::destroy(begin(), end());
+      if (!usingSmallBuffer(capacity_)) {
+        operator delete (buffer_, std::align_val_t{alignof(T)});
       }
+      size_ = std::exchange(other.size_, 0);
+      capacity_ = std::exchange(other.capacity_, kSmallCapacity);
+      buffer_ = std::exchange(other.buffer_, nullptr);
     }
     return *this;
   }
@@ -478,7 +478,7 @@ struct small_vector {
   union {
     value_type *buffer_;
     uninitialised_storage<value_type, kSmallCapacity ? sizeof(value_type) : 1>
-        small_buffer_[kSmallCapacity ? kSmallCapacity : 1];
+        small_buffer_[kSmallCapacity ? kSmallCapacity : 1];  // This mess is to avoid array with 0 length (ub in c++)
   };
 };
 
