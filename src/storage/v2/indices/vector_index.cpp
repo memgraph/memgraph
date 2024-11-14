@@ -320,14 +320,16 @@ std::vector<std::tuple<Vertex *, double, double>> VectorIndex::Search(std::strin
 void VectorIndex::AbortEntries(const LabelPropKey &label_prop, std::span<Vertex *const> vertices) const {
   auto &[index, _, lock] = pimpl->index_.at(label_prop);
   auto guard = std::shared_lock{lock};
-  std::ranges::for_each(vertices, [&](Vertex *vertex) { index.remove(vertex); });
+  for (const auto &vertex : vertices) {
+    index.remove(vertex);
+  }
 }
 
 void VectorIndex::RestoreEntries(const LabelPropKey &label_prop,
                                  std::span<std::pair<PropertyValue, Vertex *> const> prop_vertices) const {
-  std::ranges::for_each(prop_vertices, [&](const auto &property_value_vertex) {
+  for (const auto &property_value_vertex : prop_vertices) {
     UpdateVectorIndex(property_value_vertex.second, label_prop, &property_value_vertex.first);
-  });
+  }
 }
 
 void VectorIndex::RemoveObsoleteEntries(std::stop_token token) const {
