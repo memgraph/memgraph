@@ -27,9 +27,12 @@ using namespace memgraph::storage;
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define ASSERT_NO_ERROR(result) ASSERT_FALSE((result).HasError())
 
-constexpr std::string_view test_index = "test_index";
-constexpr std::string_view test_label = "test_label";
-constexpr std::string_view test_property = "test_property";
+static constexpr std::string_view test_index = "test_index";
+static constexpr std::string_view test_label = "test_label";
+static constexpr std::string_view test_property = "test_property";
+static constexpr std::string_view metric = "l2sq";
+static constexpr std::string_view scalar = "f32";
+static constexpr std::size_t resize_coefficient = 2;
 
 template <typename StorageType>
 class VectorSearchTest : public testing::Test {
@@ -53,7 +56,8 @@ class VectorSearchTest : public testing::Test {
     const auto property = dba.NameToProperty(test_property.data());
 
     // Create a specification for the index
-    const auto spec = VectorIndexSpec{test_index.data(), label, property, "l2sq", "f32", dimension, limit};
+    const auto spec = VectorIndexSpec{test_index.data(), label,     property, metric.data(),
+                                      scalar.data(),     dimension, limit,    resize_coefficient};
     storage_dba->CreateVectorIndex(spec);
   }
 
@@ -322,4 +326,49 @@ TYPED_TEST(VectorSearchTest, MultipleAbortsAndUpdatesTest) {
 
   // Expect the index to have 0 entries, as the transaction was aborted
   EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 0);
+}
+
+TYPED_TEST(VectorSearchTest, RemoveObsoleteEntriesTest) {
+  this->CreateIndex(2, 10);
+  auto acc = this->storage->Access();
+
+  PropertyValue properties(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
+  auto vertex = this->CreateVertex(acc.get(), test_property, properties, test_label);
+  ASSERT_NO_ERROR(acc->Commit());
+
+  // Delete the vertex
+  acc = this->storage->Access();
+  vertex = acc->FindVertex(vertex.Gid(), View::OLD).value();
+  auto maybe_deleted_vertex = acc->DeleteVertex(&vertex);
+  EXPECT_EQ(maybe_deleted_vertex.HasValue(), true);
+  ASSERT_NO_ERROR(acc->Commit());
+
+  auto *mem_storage = static_cast<InMemoryStorage *>(this->storage.get());
+  EXPECT_EQ(mem_storage->indices_.vector_index_.ListAllIndices()[0].size, 1);
+
+  // Expect the index to have 0 entries, as the vertex was deleted
+  mem_storage->indices_.vector_index_.RemoveObsoleteEntries(std::stop_token());
+  EXPECT_EQ(mem_storage->indices_.vector_index_.ListAllIndices()[0].size, 0);
+}
+
+TYPED_TEST(VectorSearchTest, IndexResizeTest) {
+  this->CreateIndex(2, 1);
+  auto size = 0;
+  auto acc = this->storage->Access();
+  auto capacity = acc->ListAllVectorIndices()[0].capacity;
+
+  PropertyValue properties(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
+  while (size <= capacity) {
+    acc = this->storage->Access();
+    [[maybe_unused]] const auto vertex = this->CreateVertex(acc.get(), test_property, properties, test_label);
+    ASSERT_NO_ERROR(acc->Commit());
+    size++;
+  }
+
+  // Expect the index to have increased its capacity
+  acc = this->storage->Access();
+  const auto vector_index_info = acc->ListAllVectorIndices();
+  size = vector_index_info[0].size;
+  capacity = vector_index_info[0].capacity;
+  EXPECT_GT(capacity, size);
 }

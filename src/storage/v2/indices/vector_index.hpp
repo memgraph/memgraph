@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <json/json.hpp>
 #include <string>
+
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
@@ -32,6 +33,7 @@ struct VectorIndexInfo {
   LabelId label;
   PropertyId property;
   std::size_t dimension;
+  std::size_t capacity;
   std::size_t size;
 };
 
@@ -48,6 +50,7 @@ struct VectorIndexSpec {
   std::string scalar;
   std::uint64_t dimension;
   std::uint64_t size_limit;
+  std::uint64_t resize_coefficient;
 };
 
 /// @class VectorIndex
