@@ -38,7 +38,7 @@ class Listener : public std::enable_shared_from_this<Listener> {
   // Start accepting incoming connections
   void Run();
   void WriteToAll(std::shared_ptr<std::string> message);
-  tcp::endpoint GetEndpoint() const;
+  std::optional<boost::asio::ip::tcp::endpoint> GetEndpoint() const;
 
   bool HasErrorHappened() const { return error_happened_; }
 

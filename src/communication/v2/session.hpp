@@ -18,6 +18,7 @@
 #include <exception>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -174,7 +175,14 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
         },
         session_context_{session_context},
         endpoint_{endpoint},
-        remote_endpoint_{ws_.next_layer().socket().remote_endpoint()},
+        remote_endpoint_{std::invoke([&]() -> std::optional<tcp::endpoint> {
+          try {
+            return ws_.next_layer().socket().remote_endpoint();
+          } catch (const boost::system::system_error &e) {
+            spdlog::error("Failed to get remote endpoint for {}.", service_name);
+            return std::nullopt;
+          }
+        })},
         service_name_{service_name} {
   }
 
@@ -258,7 +266,7 @@ class WebsocketSession : public std::enable_shared_from_this<WebsocketSession<TS
   TSession session_;
   TSessionContext *session_context_;
   tcp::endpoint endpoint_;
-  tcp::endpoint remote_endpoint_;
+  std::optional<tcp::endpoint> remote_endpoint_{};
   std::string_view service_name_;
   bool execution_active_{false};
 };
@@ -470,7 +478,10 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       if (ec) {
         spdlog::error("Session shutdown failed: {}", ec.what());
       }
-      lowest_layer.close();
+      lowest_layer.close(ec);
+      if (ec) {
+        spdlog::error("Session close failed: {}", ec.what());
+      }
     });
   }
 
@@ -539,7 +550,13 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   }
 
   auto GetRemoteEndpoint() const {
-    return std::visit(utils::Overloaded{[](const auto &socket) { return socket.lowest_layer().remote_endpoint(); }},
+    return std::visit(utils::Overloaded{[](const auto &socket) -> std::optional<tcp::endpoint> {
+                        try {
+                          return socket.lowest_layer().remote_endpoint();
+                        } catch (const boost::system::system_error &e) {
+                          return std::nullopt;
+                        }
+                      }},
                       socket_);
   }
 
@@ -557,11 +574,11 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   TSession session_;
   TSessionContext *session_context_;
   tcp::endpoint endpoint_;
-  tcp::endpoint remote_endpoint_;
+  std::optional<tcp::endpoint> remote_endpoint_;
   std::string_view service_name_;
   std::chrono::seconds timeout_seconds_;
   boost::asio::steady_timer timeout_timer_;
-  bool execution_active_{false};
-  bool has_received_msg_{false};
+  std::atomic_bool execution_active_{false};
+  std::atomic_bool has_received_msg_{false};
 };
 }  // namespace memgraph::communication::v2
