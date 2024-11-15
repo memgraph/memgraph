@@ -54,7 +54,7 @@ class Server final {
     }
   }
   bool IsRunning() const { return !listener_->HasErrorHappened() && background_thread_ && !ioc_.stopped(); }
-  tcp::endpoint GetEndpoint() const;
+  std::optional<tcp::endpoint> GetEndpoint() const;
 
  private:
   boost::asio::io_context ioc_;
@@ -81,7 +81,7 @@ void Server<TRequestHandler, TSessionContext>::Start() {
 }
 
 template <class TRequestHandler, typename TSessionContext>
-boost::asio::ip::tcp::endpoint Server<TRequestHandler, TSessionContext>::GetEndpoint() const {
+std::optional<boost::asio::ip::tcp::endpoint> Server<TRequestHandler, TSessionContext>::GetEndpoint() const {
   return listener_->GetEndpoint();
 }
 }  // namespace memgraph::communication::http

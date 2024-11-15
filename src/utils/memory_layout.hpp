@@ -16,9 +16,9 @@
 namespace memgraph::utils {
 
 // a utility type to have correctly aligned and sized storage for a given type
-template <typename T>
+template <typename T, size_t Size = sizeof(T)>
 struct uninitialised_storage {
-  alignas(T) std::byte buf[sizeof(T)];
+  alignas(T) std::byte buf[Size];
   auto as() -> T * { return reinterpret_cast<T *>(buf); }
   auto as() const -> T const * { return reinterpret_cast<T const *>(buf); }
 };

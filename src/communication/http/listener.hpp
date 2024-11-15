@@ -53,7 +53,14 @@ class Listener final : public std::enable_shared_from_this<Listener<TRequestHand
   // Start accepting incoming connections
   void Run() { DoAccept(); }
   bool HasErrorHappened() const { return error_happened_; }
-  tcp::endpoint GetEndpoint() const { return acceptor_.local_endpoint(); }
+  std::optional<tcp::endpoint> GetEndpoint() const {
+    try {
+      return acceptor_.local_endpoint();
+    } catch (const boost::system::system_error &e) {
+      spdlog::error("Failed to get remote endpoint for listener.");
+      return std::nullopt;
+    }
+  }
 
  private:
   Listener(boost::asio::io_context &ioc, TSessionContext *session_context, ServerContext *context,

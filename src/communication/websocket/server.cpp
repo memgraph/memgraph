@@ -49,7 +49,7 @@ bool Server::IsRunning() const { return !listener_->HasErrorHappened() && backgr
 
 bool Server::HasErrorHappened() const { return listener_->HasErrorHappened(); }
 
-boost::asio::ip::tcp::endpoint Server::GetEndpoint() const { return listener_->GetEndpoint(); };
+std::optional<boost::asio::ip::tcp::endpoint> Server::GetEndpoint() const { return listener_->GetEndpoint(); };
 
 namespace {
 class QuoteEscapeFormatter : public spdlog::custom_flag_formatter {
