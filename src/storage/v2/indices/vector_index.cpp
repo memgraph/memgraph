@@ -49,6 +49,7 @@ static constexpr std::string_view kDefaultScalar = "f32";
 
 using mg_vector_index_t = unum::usearch::index_dense_gt<Vertex *, unum::usearch::uint40_t>;
 
+// NOLINTNEXTLINE(bugprone-exception-escape)
 struct IndexItem {
   mg_vector_index_t mg_index;
   VectorIndexSpec spec;
