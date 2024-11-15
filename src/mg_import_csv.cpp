@@ -13,7 +13,6 @@
 
 #include <algorithm>
 #include <cstdio>
-#include <filesystem>
 #include <fstream>
 #include <optional>
 #include <regex>
@@ -24,15 +23,12 @@
 #include "replication/state.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/edge_accessor.hpp"
-#include "storage/v2/inmemory/storage.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/message.hpp"
 #include "utils/string.hpp"
 #include "utils/timer.hpp"
 #include "version.hpp"
-
-using memgraph::replication_coordination_glue::ReplicationRole;
 
 bool ValidateControlCharacter(const char *flagname, const std::string &value) {
   if (value.empty()) {

@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdlib>
 #include <exception>
@@ -56,7 +57,9 @@
 #include "requests/requests.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/durability/durability.hpp"
+#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/storage_mode.hpp"
+#include "storage/v2/view.hpp"
 #include "system/system.hpp"
 #include "telemetry/telemetry.hpp"
 #include "utils/event_gauge.hpp"
@@ -429,6 +432,11 @@ int main(int argc, char **argv) {
     // IN_MEMORY_ANALYTICAL and ON_DISK_TRANSACTIONAL do not support periodic snapshots
     db_config.durability.snapshot_wal_mode = DISABLED;
     db_config.durability.snapshot_interval = 0s;
+  }
+
+  if (memgraph::flags::AreExperimentsEnabled(memgraph::flags::Experiments::VECTOR_SEARCH) &&
+      db_config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL) {
+    LOG_FATAL("Vector indexes are not supported in ON_DISK_TRANSACTIONAL storage mode.");
   }
 
 #ifdef MG_ENTERPRISE

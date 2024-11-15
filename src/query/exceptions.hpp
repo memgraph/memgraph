@@ -482,6 +482,15 @@ class TextSearchDisabledException : public TextSearchException {
   SPECIALIZE_GET_EXCEPTION_NAME(TextSearchDisabledException)
 };
 
+class VectorSearchDisabledException : public QueryException {
+ public:
+  VectorSearchDisabledException()
+      : QueryException(
+            "To use vector indices and vector search, start Memgraph with the experimental vector search feature "
+            "flag.") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(VectorSearchDisabledException)
+};
+
 class EnumModificationInMulticommandTxException : public QueryException {
  public:
   EnumModificationInMulticommandTxException()

@@ -35,6 +35,7 @@
 #include "utils/result.hpp"
 #include "utils/variant_helpers.hpp"
 
+#include <cstdint>
 #include <optional>
 #include <ranges>
 
@@ -535,6 +536,14 @@ class DbAccessor final {
     return accessor_->PointIndexExists(label, prop);
   }
 
+  std::vector<std::tuple<storage::VertexAccessor, double, double>> VectorIndexSearch(const std::string &index_name,
+                                                                                     uint64_t number_of_results,
+                                                                                     const std::vector<float> &vector) {
+    return accessor_->VectorIndexSearch(index_name, number_of_results, vector);
+  }
+
+  std::vector<storage::VectorIndexInfo> ListAllVectorIndices() const { return accessor_->ListAllVectorIndices(); }
+
   std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const {
     return accessor_->GetIndexStats(label);
   }
@@ -664,6 +673,9 @@ class DbAccessor final {
   }
 
   void DropTextIndex(const std::string &index_name) { accessor_->DropTextIndex(index_name); }
+
+  // not used at the moment since we are creating vector index directly via storage accessor
+  void CreateVectorIndex(const storage::VectorIndexSpec &spec) { accessor_->CreateVectorIndex(spec); }
 
   utils::BasicResult<storage::StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
       storage::LabelId label, storage::PropertyId property) {

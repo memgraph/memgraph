@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <json/json.hpp>
 #include <string>
 
 #include "gflags/gflags.h"
@@ -19,12 +20,17 @@
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(experimental_enabled);
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_string(experimental_config);
+
 namespace memgraph::flags {
 
 // Each bit is an enabled experiment
 // old experiments can be reused once code cleanup has happened
 enum class Experiments : uint8_t {
+  NONE = 0,
   TEXT_SEARCH = 1 << 0,
+  VECTOR_SEARCH = 1 << 1,
 };
 
 bool AreExperimentsEnabled(Experiments experiments);
@@ -33,5 +39,7 @@ auto ReadExperimental(std::string const &) -> Experiments;
 void SetExperimental(Experiments const &);
 void AppendExperimental(Experiments const &);
 auto ValidExperimentalFlag(std::string_view value) -> bool;
+auto ValidExperimentalConfig(std::string_view json_config) -> bool;
+auto ParseExperimentalConfig(Experiments experiments) -> nlohmann::json;
 
 }  // namespace memgraph::flags

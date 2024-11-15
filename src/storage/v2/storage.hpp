@@ -11,12 +11,8 @@
 
 #pragma once
 
-#include <chrono>
-#include <functional>
 #include <optional>
-#include <semaphore>
 #include <span>
-#include <thread>
 
 #include "io/network/endpoint.hpp"
 #include "kvstore/kvstore.hpp"
@@ -36,6 +32,7 @@
 #include "storage/v2/enum_store.hpp"
 #include "storage/v2/indices/indices.hpp"
 #include "storage/v2/indices/point_index.hpp"
+#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/replication/enums.hpp"
@@ -51,7 +48,6 @@
 #include "utils/event_gauge.hpp"
 #include "utils/event_histogram.hpp"
 #include "utils/resource_lock.hpp"
-#include "utils/scheduler.hpp"
 #include "utils/synchronized_metadata_store.hpp"
 #include "utils/timer.hpp"
 #include "utils/uuid.hpp"
@@ -385,6 +381,10 @@ class Storage {
 
     void DropTextIndex(const std::string &index_name);
 
+    void CreateVectorIndex(const VectorIndexSpec &spec);
+
+    void TryInsertVertexIntoVectorIndex(const VertexAccessor &vertex);
+
     virtual utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
         LabelId label, PropertyId property) = 0;
 
@@ -457,6 +457,11 @@ class Storage {
     virtual auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
                                PropertyValue const &bottom_left, PropertyValue const &top_right,
                                WithinBBoxCondition condition) -> PointIterable = 0;
+
+    virtual std::vector<std::tuple<VertexAccessor, double, double>> VectorIndexSearch(
+        const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) = 0;
+
+    virtual std::vector<VectorIndexInfo> ListAllVectorIndices() const = 0;
 
    protected:
     Storage *storage_;

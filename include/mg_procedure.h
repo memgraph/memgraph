@@ -50,6 +50,7 @@ MGP_ENUM_CLASS MGP_NODISCARD mgp_error{
     MGP_ERROR_VALUE_CONVERSION,
     MGP_ERROR_SERIALIZATION_ERROR,
     MGP_ERROR_AUTHORIZATION_ERROR,
+    MGP_ERROR_NOT_YET_IMPLEMENTED,
 };
 ///@}
 
@@ -920,6 +921,11 @@ enum mgp_error mgp_graph_search_text_index(struct mgp_graph *graph, const char *
 enum mgp_error mgp_graph_aggregate_over_text_index(struct mgp_graph *graph, const char *index_name,
                                                    const char *search_query, const char *aggregation_query,
                                                    struct mgp_memory *memory, struct mgp_map **result);
+
+enum mgp_error mgp_graph_search_vector_index(struct mgp_graph *graph, const char *index_name, struct mgp_list *query,
+                                             int result_size, struct mgp_memory *memory, struct mgp_map **result);
+
+enum mgp_error mgp_graph_show_index_info(struct mgp_graph *graph, struct mgp_memory *memory, struct mgp_map **result);
 
 /// Creates label index for given label.
 /// mgp_error::MGP_ERROR_NO_ERROR is always returned.

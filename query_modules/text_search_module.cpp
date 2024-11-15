@@ -9,13 +9,11 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <string>
-#include <string_view>
-
 #include <fmt/format.h>
-
 #include <iostream>
 #include <mgp.hpp>
+#include <string>
+#include <string_view>
 
 namespace TextSearch {
 constexpr std::string_view kProcedureSearch = "search";
@@ -140,7 +138,7 @@ extern "C" int mgp_init_module(struct mgp_module *query_module, struct mgp_memor
                  },
                  {mgp::Return(TextSearch::kReturnAggregation, mgp::Type::String)}, query_module, memory);
   } catch (const std::exception &e) {
-    std::cerr << "Error while initializing query module: " << e.what() << std::endl;
+    std::cerr << "Error while initializing query module: " << e.what() << '\n';
     return 1;
   }
 
