@@ -1372,8 +1372,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                   if (properties != index_stats.vector.l2p.end()) {
                     // label is in the vector index
                     for (const auto &property : properties->second) {
-                      auto current_value = vertex->properties.GetProperty(property);
-                      if (!current_value.IsNull()) {
+                      if (vertex->properties.HasProperty(property)) {
                         // it has to be removed from the index
                         vector_label_property_cleanup[LabelPropKey{current->label.value, property}].emplace_back(
                             vertex);

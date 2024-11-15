@@ -151,10 +151,10 @@ std::vector<VectorIndexSpec> VectorIndex::ParseIndexSpec(const nlohmann::json &i
   try {
     for (const auto &[index_name, index_spec] : index_spec.items()) {
       // Check mandatory fields
-      MG_ASSERT(index_spec.contains(kLabel.data()), "Vector index spec must have a 'label' field.");
-      MG_ASSERT(index_spec.contains(kProperty.data()), "Vector index spec must have a 'property' field.");
-      MG_ASSERT(index_spec.contains(kDimension.data()), "Vector index spec must have a 'dimension' field.");
-      MG_ASSERT(index_spec.contains(kCapacity.data()), "Vector index spec must have a 'capacity' field.");
+      MG_ASSERT(index_spec.contains(kLabel), "Vector index spec must have a 'label' field.");
+      MG_ASSERT(index_spec.contains(kProperty), "Vector index spec must have a 'property' field.");
+      MG_ASSERT(index_spec.contains(kDimension), "Vector index spec must have a 'dimension' field.");
+      MG_ASSERT(index_spec.contains(kCapacity), "Vector index spec must have a 'capacity' field.");
 
       const auto label_name = index_spec[kLabel.data()].get<std::string>();
       const auto property_name = index_spec[kProperty.data()].get<std::string>();
@@ -216,6 +216,11 @@ void VectorIndex::UpdateVectorIndex(Vertex *vertex, const LabelPropKey &label_pr
   if (!property.IsList()) {
     throw std::invalid_argument("Vector index property must be a list.");
   }
+  const auto &vector_property = property.ValueList();
+  if (index.dimensions() != vector_property.size()) {
+    throw std::invalid_argument("Vector index property must have the same number of dimensions as the index.");
+  }
+
   if (index.capacity() == index.size()) {
     spdlog::warn("Vector index is full, resizing...");
     auto guard = std::unique_lock{lock};
@@ -225,12 +230,7 @@ void VectorIndex::UpdateVectorIndex(Vertex *vertex, const LabelPropKey &label_pr
       throw std::invalid_argument("Vector index is full and can't be resized");
     }
   }
-  auto dimensions = index.dimensions();
-  auto list_size = property.ValueList().size();
-  if (dimensions != list_size) {
-    throw std::invalid_argument("Vector index property must have the same number of dimensions as the index.");
-  }
-  const auto &vector_property = property.ValueList();
+
   std::vector<float> vector;
   vector.reserve(vector_property.size());
   std::transform(vector_property.begin(), vector_property.end(), std::back_inserter(vector), [](const auto &value) {
