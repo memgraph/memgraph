@@ -101,6 +101,14 @@ class InMemoryStorage final : public Storage {
  public:
   using free_mem_fn = std::function<void(std::unique_lock<utils::ResourceLock>, bool)>;
   enum class CreateSnapshotError : uint8_t { DisabledForReplica, ReachedMaxNumTries };
+  enum class RecoverSnapshotError : uint8_t {
+    DisabledForReplica,
+    DisabledForMainWithReplicas,
+    NonEmptyStorage,
+    MissingFile,
+    CopyFailure,
+    BackupFailure,
+  };
 
   /// @throw std::system_error
   /// @throw std::bad_alloc
@@ -503,6 +511,10 @@ class InMemoryStorage final : public Storage {
   utils::FileRetainer::FileLockerAccessor::ret_type UnlockPath();
 
   utils::BasicResult<InMemoryStorage::CreateSnapshotError> CreateSnapshot(
+      memgraph::replication_coordination_glue::ReplicationRole replication_role);
+
+  utils::BasicResult<InMemoryStorage::RecoverSnapshotError> RecoverSnapshot(
+      std::filesystem::path path, bool force,
       memgraph::replication_coordination_glue::ReplicationRole replication_role);
 
   void CreateSnapshotHandler(std::function<utils::BasicResult<InMemoryStorage::CreateSnapshotError>()> cb);

@@ -282,6 +282,9 @@ constexpr utils::TypeInfo query::StorageModeQuery::kType{utils::TypeId::AST_STOR
 constexpr utils::TypeInfo query::CreateSnapshotQuery::kType{utils::TypeId::AST_CREATE_SNAPSHOT_QUERY,
                                                             "CreateSnapshotQuery", &query::Query::kType};
 
+constexpr utils::TypeInfo query::RecoverSnapshotQuery::kType{utils::TypeId::AST_RECOVER_SNAPSHOT_QUERY,
+                                                             "RecoverSnapshotQuery", &query::Query::kType};
+
 constexpr utils::TypeInfo query::StreamQuery::kType{utils::TypeId::AST_STREAM_QUERY, "StreamQuery",
                                                     &query::Query::kType};
 

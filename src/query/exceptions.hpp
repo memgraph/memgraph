@@ -385,6 +385,19 @@ class CreateSnapshotDisabledOnDiskStorage final : public QueryException {
   SPECIALIZE_GET_EXCEPTION_NAME(CreateSnapshotDisabledOnDiskStorage)
 };
 
+class RecoverSnapshotInMulticommandTxException final : public QueryException {
+ public:
+  RecoverSnapshotInMulticommandTxException()
+      : QueryException("Snapshot cannot be recovered in multicommand transactions.") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(RecoverSnapshotInMulticommandTxException)
+};
+
+class RecoverSnapshotDisabledOnDiskStorage final : public QueryException {
+ public:
+  RecoverSnapshotDisabledOnDiskStorage() : QueryException("Snapshot recovery is not supported for on-disk") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(RecoverSnapshotDisabledOnDiskStorage)
+};
+
 class EdgeImportModeQueryDisabledOnDiskStorage final : public QueryException {
  public:
   EdgeImportModeQueryDisabledOnDiskStorage()

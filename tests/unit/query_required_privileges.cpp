@@ -184,6 +184,11 @@ TEST_F(TestPrivilegeExtractor, CreateSnapshotQuery) {
   EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::DURABILITY));
 }
 
+TEST_F(TestPrivilegeExtractor, RecoverSnapshotQuery) {
+  auto *query = storage.Create<RecoverSnapshotQuery>();
+  EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::DURABILITY));
+}
+
 TEST_F(TestPrivilegeExtractor, StreamQuery) {
   auto *query = storage.Create<StreamQuery>();
   EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::STREAM));

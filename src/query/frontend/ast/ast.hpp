@@ -3555,6 +3555,24 @@ class CreateSnapshotQuery : public memgraph::query::Query {
   }
 };
 
+class RecoverSnapshotQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  RecoverSnapshotQuery *Clone(AstStorage *storage) const override {
+    RecoverSnapshotQuery *object = storage->Create<RecoverSnapshotQuery>();
+    object->snapshot_ = snapshot_ ? snapshot_->Clone(storage) : nullptr;
+    object->force_ = force_;
+    return object;
+  }
+
+  Expression *snapshot_;
+  bool force_;
+};
+
 class StreamQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;

@@ -17,12 +17,13 @@
 #include <mutex>
 #include <optional>
 #include <ranges>
+#include <system_error>
 
 #include "dbms/constants.hpp"
 #include "flags/experimental.hpp"
 #include "flags/general.hpp"
 #include "memory/global_memory_control.hpp"
-#include "mg_exceptions.hpp"
+#include "spdlog/spdlog.h"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/edge_direction.hpp"
@@ -46,6 +47,7 @@
 #include "utils/atomic_memory_block.hpp"
 #include "utils/event_gauge.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/file.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/stat.hpp"
@@ -2859,6 +2861,116 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
   return {};
 }
 
+// NOTE: Make sure this function is called while exclusively holding on to the main lock
+utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::RecoverSnapshot(
+    std::filesystem::path path, bool force, memgraph::replication_coordination_glue::ReplicationRole replication_role) {
+  using memgraph::replication_coordination_glue::ReplicationRole;
+  if (replication_role == ReplicationRole::REPLICA) {
+    return InMemoryStorage::RecoverSnapshotError::DisabledForReplica;
+  }
+  if (!repl_storage_state_.replication_clients_->empty()) {
+    // MAIN would need to reset its storage handler and force update the replicas to this snapshot. ATM not supported!
+    return InMemoryStorage::RecoverSnapshotError::DisabledForMainWithReplicas;
+  }
+  if (!std::filesystem::exists(path) || std::filesystem::is_directory(path)) {
+    return InMemoryStorage::RecoverSnapshotError::MissingFile;
+  }
+
+  // Copy to local snapshot dir
+  std::error_code ec{};
+  const auto local_path = recovery_.snapshot_directory_ / path.filename();
+  if (local_path != path) {
+    std::filesystem::copy_file(path, local_path, ec);
+    if (ec) {
+      spdlog::warn("Failed to copy snapshot into local snapshots directory.");
+      return InMemoryStorage::RecoverSnapshotError::CopyFailure;
+    }
+  }
+
+  auto handler_error = [&]() {
+    // If file was copied over, delete...
+    if (local_path != path) file_retainer_.DeleteFile(local_path);
+  };
+
+  auto file_locker = file_retainer_.AddLocker();
+  (void)file_locker.Access().AddPath(local_path);
+
+  if (force) {
+    Clear();
+  } else {
+    if (repl_storage_state_.last_durable_timestamp_ != storage::kTimestampInitialId) {
+      handler_error();
+      return InMemoryStorage::RecoverSnapshotError::NonEmptyStorage;
+    }
+  }
+
+  // When creating a snapshot, we first lock the snapshot, then create the accessor
+  // GC could be running without the main lock
+  // Engine lock is needed because of PrepareForNewEpoch
+  auto gc_lock = std::unique_lock{gc_lock_};
+  auto engine_lock = std::unique_lock{engine_lock_};
+
+  try {
+    spdlog::debug("Recovering from a snapshot {}", local_path);
+    auto recovered_snapshot = storage::durability::LoadSnapshot(
+        local_path, &vertices_, &edges_, &edges_metadata_, &repl_storage_state_.history, name_id_mapper_.get(),
+        &edge_count_, config_, &enum_store_, config_.salient.items.enable_schema_info ? &schema_info_.Get() : nullptr);
+    spdlog::debug("Snapshot recovered successfully");
+    uuid().set(recovered_snapshot.snapshot_info.uuid);
+    repl_storage_state_.epoch_.SetEpoch(std::move(recovered_snapshot.snapshot_info.epoch_id));
+    const auto &recovery_info = recovered_snapshot.recovery_info;
+    vertex_id_ = recovery_info.next_vertex_id;
+    edge_id_ = recovery_info.next_edge_id;
+    timestamp_ = std::max(timestamp_, recovery_info.next_timestamp);
+    repl_storage_state_.last_durable_timestamp_ = recovery_info.next_timestamp - 1;
+
+    spdlog::trace("Recovering indices and constraints from snapshot.");
+    durability::RecoverIndicesAndStats(recovered_snapshot.indices_constraints.indices, &indices_, &vertices_,
+                                       name_id_mapper_.get(), config_.salient.items.properties_on_edges);
+    durability::RecoverConstraints(recovered_snapshot.indices_constraints.constraints, &constraints_, &vertices_,
+                                   name_id_mapper_.get());
+
+    spdlog::trace("Successfully recovered from snapshot {}", local_path);
+
+    // Destroying current wal file
+    wal_file_.reset();
+
+    std::string old_dir = ".old_" + std::to_string(std::chrono::system_clock::now().time_since_epoch().count());
+    spdlog::trace("Moving old snapshots and WALs to {}", old_dir);
+    std::error_code ec{};
+    std::filesystem::create_directory(recovery_.snapshot_directory_ / old_dir, ec);
+    if (ec) {
+      spdlog::warn("Failed to create backup snapshot directory; snapshots directory should be cleaned manually.");
+      return InMemoryStorage::RecoverSnapshotError::BackupFailure;
+    }
+    std::filesystem::create_directory(recovery_.wal_directory_ / old_dir, ec);
+    if (ec) {
+      spdlog::warn("Failed to create backup WAL directory; WAL directory should be cleaned manually.");
+      return InMemoryStorage::RecoverSnapshotError::BackupFailure;
+    }
+
+    auto snapshot_files = durability::GetSnapshotFiles(recovery_.snapshot_directory_);
+    for (const auto &[snapshot_path, _1, _2] : snapshot_files) {
+      if (local_path != snapshot_path) {
+        spdlog::trace("Moving snapshot file {}", snapshot_path);
+        file_retainer_.RenameFile(snapshot_path, recovery_.snapshot_directory_ / old_dir / snapshot_path.filename());
+      }
+    }
+    auto wal_files = storage::durability::GetWalFiles(recovery_.wal_directory_);
+    if (wal_files) {
+      for (const auto &wal_file : *wal_files) {
+        spdlog::trace("Moving WAL file {}", wal_file.path);
+        file_retainer_.RenameFile(wal_file.path, recovery_.wal_directory_ / old_dir / wal_file.path.filename());
+      }
+    }
+  } catch (const storage::durability::RecoveryFailure &e) {
+    handler_error();
+    throw utils::BasicException("Couldn't recover from the snapshot because of: {}", e.what());
+  }
+
+  return {};
+}
+
 void InMemoryStorage::FreeMemory(std::unique_lock<utils::ResourceLock> main_guard, bool periodic) {
   std::invoke(free_memory_func_, std::move(main_guard), periodic);
 }
@@ -2984,7 +3096,7 @@ std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>> InMemoryStora
 
 void InMemoryStorage::Clear() {
   // NOTE: Make sure this function is called while exclusively holding on to the main lock
-  // When creating a snapshot, we first lock the snapshot, then create and accessor
+  // When creating a snapshot, we first lock the snapshot, then create the accessor
   // GC could be running without the main lock
   // Engine lock is needed because of PrepareForNewEpoch
   auto gc_lock = std::unique_lock{gc_lock_};

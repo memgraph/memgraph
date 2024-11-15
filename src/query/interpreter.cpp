@@ -4016,6 +4016,54 @@ PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_expli
       RWType::NONE};
 }
 
+PreparedQuery PrepareRecoverSnapshotQuery(ParsedQuery parsed_query, bool in_explicit_transaction, CurrentDB &current_db,
+                                          replication_coordination_glue::ReplicationRole replication_role) {
+  if (in_explicit_transaction) {
+    throw RecoverSnapshotInMulticommandTxException();
+  }
+
+  MG_ASSERT(current_db.db_acc_, "Recover Snapshot query expects a current DB");
+  storage::Storage *storage = current_db.db_acc_->get()->storage();
+
+  if (storage->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
+    throw RecoverSnapshotDisabledOnDiskStorage();
+  }
+
+  auto *recover_query = utils::Downcast<RecoverSnapshotQuery>(parsed_query.query);
+  auto evaluation_context = EvaluationContext{.timestamp = QueryTimestamp(), .parameters = parsed_query.parameters};
+  auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
+
+  return PreparedQuery{
+      {},
+      std::move(parsed_query.required_privileges),
+      [storage, replication_role, path = recover_query->snapshot_->Accept(evaluator).ValueString(),
+       force = recover_query->force_](AnyStream * /*stream*/,
+                                      std::optional<int> /*n*/) -> std::optional<QueryHandlerResult> {
+        auto *mem_storage = static_cast<storage::InMemoryStorage *>(storage);
+        if (auto maybe_error = mem_storage->RecoverSnapshot(path, force, replication_role); maybe_error.HasError()) {
+          switch (maybe_error.GetError()) {
+            case storage::InMemoryStorage::RecoverSnapshotError::DisabledForReplica:
+              throw utils::BasicException(
+                  "Failed to recover a snapshot. Replica instances are not allowed to create them.");
+            case storage::InMemoryStorage::RecoverSnapshotError::DisabledForMainWithReplicas:
+              throw utils::BasicException(
+                  "Failed to recover a snapshot. Cannot recover if instance has registered replicas.");
+            case storage::InMemoryStorage::RecoverSnapshotError::NonEmptyStorage:
+              throw utils::BasicException("Failed to recover a snapshot. Storage is not clean. Try using FORCE.");
+            case storage::InMemoryStorage::RecoverSnapshotError::MissingFile:
+              throw utils::BasicException("Failed to find the defined snapshot file.");
+            case storage::InMemoryStorage::RecoverSnapshotError::CopyFailure:
+              throw utils::BasicException("Failed to copy snapshot over to local snapshots directory.");
+            case storage::InMemoryStorage::RecoverSnapshotError::BackupFailure:
+              throw utils::BasicException(
+                  "Failed to clear local wal and snapshots directories. Please clean them manually.");
+          }
+        }
+        return QueryHandlerResult::COMMIT;
+      },
+      RWType::NONE};
+}
+
 PreparedQuery PrepareSettingQuery(ParsedQuery parsed_query, bool in_explicit_transaction) {
   if (in_explicit_transaction) {
     throw SettingConfigInMulticommandTxException{};
@@ -5444,7 +5492,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         utils::Downcast<ConstraintQuery>(parsed_query.query) || utils::Downcast<DropGraphQuery>(parsed_query.query) ||
         utils::Downcast<CreateEnumQuery>(parsed_query.query) ||
         utils::Downcast<AlterEnumAddValueQuery>(parsed_query.query) ||
-        utils::Downcast<AlterEnumUpdateValueQuery>(parsed_query.query) || utils::Downcast<TtlQuery>(parsed_query.query);
+        utils::Downcast<AlterEnumUpdateValueQuery>(parsed_query.query) ||
+        utils::Downcast<TtlQuery>(parsed_query.query) || utils::Downcast<RecoverSnapshotQuery>(parsed_query.query);
 
     bool const requires_db_transaction =
         unique_db_transaction || utils::Downcast<CypherQuery>(parsed_query.query) ||
@@ -5575,6 +5624,10 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       auto const replication_role = interpreter_context_->repl_state->GetRole();
       prepared_query =
           PrepareCreateSnapshotQuery(std::move(parsed_query), in_explicit_transaction_, current_db_, replication_role);
+    } else if (utils::Downcast<RecoverSnapshotQuery>(parsed_query.query)) {
+      auto const replication_role = interpreter_context_->repl_state->GetRole();
+      prepared_query =
+          PrepareRecoverSnapshotQuery(std::move(parsed_query), in_explicit_transaction_, current_db_, replication_role);
     } else if (utils::Downcast<SettingQuery>(parsed_query.query)) {
       /// SYSTEM PURE
       prepared_query = PrepareSettingQuery(std::move(parsed_query), in_explicit_transaction_);

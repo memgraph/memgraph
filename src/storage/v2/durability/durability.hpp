@@ -12,10 +12,12 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <system_error>
 #include <variant>
 
 #include "replication/epoch.hpp"

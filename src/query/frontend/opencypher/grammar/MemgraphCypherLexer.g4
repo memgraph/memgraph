@@ -132,6 +132,7 @@ PULSAR                  : P U L S A R ;
 QUOTE                   : Q U O T E ;
 READ                    : R E A D ;
 READ_FILE               : R E A D UNDERSCORE F I L E ;
+RECOVER                 : R E C O V E R ;
 REGISTER                : R E G I S T E R ;
 REPLACE                 : R E P L A C E ;
 REPLICA                 : R E P L I C A ;
