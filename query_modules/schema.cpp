@@ -9,12 +9,11 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <algorithm>
 #include <boost/functional/hash.hpp>
-#include <mgp.hpp>
-
-#include "utils/string.hpp"
-
 #include <iostream>
+#include <mgp.hpp>
+#include <set>
 #include <unordered_set>
 
 namespace Schema {
@@ -673,7 +672,7 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
          mgp::Return(Schema::kReturnUnique, mgp::Type::Bool), mgp::Return(Schema::kReturnAction, mgp::Type::String)},
         module, memory);
   } catch (const std::exception &e) {
-    std::cerr << "Error while initializing query module: " << e.what() << std::endl;
+    std::cerr << "Error while initializing query module: " << e.what() << '\n';
     return 1;
   }
 

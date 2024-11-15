@@ -12,7 +12,6 @@
 #pragma once
 
 #include <atomic>
-#include <limits>
 #include <memory>
 #include <unordered_map>
 
@@ -35,7 +34,6 @@
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_info_cache.hpp"
-#include "storage/v2/view.hpp"
 #include "utils/pmr/list.hpp"
 
 #include <rocksdb/utilities/transaction.h>

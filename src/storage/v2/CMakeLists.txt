@@ -29,6 +29,7 @@ target_sources(mg-storage-v2
         indices/point_index.cpp
         indices/point_index_change_collector.cpp
         indices/text_index.cpp
+        indices/vector_index.cpp
         inmemory/edge_type_index.cpp
         inmemory/edge_type_property_index.cpp
         inmemory/label_index.cpp
@@ -98,6 +99,7 @@ target_link_libraries(mg-storage-v2
     lib::rangev3
     mgcxx_text_search
     tantivy_text_search
+    usearch
     strong_type::strong_type
     rangev3
 )

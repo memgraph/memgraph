@@ -21,6 +21,7 @@
 #include "storage/v2/indices/label_property_index.hpp"
 #include "storage/v2/indices/point_index.hpp"
 #include "storage/v2/indices/text_index.hpp"
+#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/storage_mode.hpp"
 
 namespace memgraph::storage {
@@ -64,6 +65,7 @@ struct Indices {
     LabelPropertyIndex::IndexStats property_label;
     std::vector<EdgeTypeId> edge_type;
     EdgeTypePropertyIndex::IndexStats property_edge_type;
+    VectorIndex::IndexStats vector;
   };
   IndexStats Analysis() const;
 
@@ -96,6 +98,7 @@ struct Indices {
   std::unique_ptr<EdgeTypePropertyIndex> edge_type_property_index_;
   mutable TextIndex text_index_;
   PointIndexStorage point_index_;
+  VectorIndex vector_index_;
 };
 
 }  // namespace memgraph::storage

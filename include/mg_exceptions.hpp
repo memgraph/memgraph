@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <exception>
 #include <iosfwd>
 #include <sstream>
@@ -103,6 +104,10 @@ struct ValueConversionException : public std::exception {
 
 struct SerializationException : public std::exception {
   const char *what() const noexcept override { return "Error in serialization!"; }
+};
+
+struct NotYetImplementedException : public std::exception {
+  const char *what() const noexcept override { return "Not yet implemented!"; }
 };
 
 }  // namespace mg_exception

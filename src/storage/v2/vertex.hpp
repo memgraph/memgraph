@@ -17,7 +17,6 @@
 #include <iterator>
 #include <limits>
 #include <tuple>
-#include <vector>
 
 #include "storage/v2/delta.hpp"
 #include "storage/v2/edge_ref.hpp"
