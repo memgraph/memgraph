@@ -3431,6 +3431,10 @@ void WrapVectorSearchResults(
         err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error("Retrieving vector search results failed during creation of a string mgp_value");
     }
+    if (const auto err = mgp_map_insert(*result, "error_msg", error_value); err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::logic_error("Retrieving vector search error failed during insertion into mgp_map");
+    }
+    return;
   }
 
   mgp_list *search_results = nullptr;
@@ -3503,13 +3507,6 @@ void WrapVectorSearchResults(
     mgp_list_destroy(vertex_distance_similarity);
   }
 
-  if (error_msg.has_value()) {
-    if (const auto err = mgp_map_insert(*result, "error_msg", error_value); err != mgp_error::MGP_ERROR_NO_ERROR) {
-      throw std::logic_error("Retrieving vector search error failed during insertion into mgp_map");
-    }
-    return;
-  }
-
   mgp_value *search_results_value = nullptr;
   if (const auto err = mgp_value_make_list(search_results, &search_results_value);
       err != mgp_error::MGP_ERROR_NO_ERROR) {
@@ -3540,6 +3537,10 @@ void WrapVectorIndexInfoResult(mgp_memory *memory, mgp_map **result,
         err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error("Retrieving vector search results failed during creation of a string mgp_value");
     }
+    if (const auto err = mgp_map_insert(*result, "error_msg", error_value); err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::logic_error("Retrieving vector search error failed during insertion into mgp_map");
+    }
+    return;
   }
 
   mgp_list *search_results = nullptr;
@@ -3638,13 +3639,6 @@ void WrapVectorIndexInfoResult(mgp_memory *memory, mgp_map **result,
     mgp_value_destroy(capacity_value);
     mgp_value_destroy(size_value);
     mgp_list_destroy(index_info);
-  }
-
-  if (error_msg.has_value()) {
-    if (const auto err = mgp_map_insert(*result, "error_msg", error_value); err != mgp_error::MGP_ERROR_NO_ERROR) {
-      throw std::logic_error("Retrieving vector search error failed during insertion into mgp_map");
-    }
-    return;
   }
 
   mgp_value *search_results_value = nullptr;

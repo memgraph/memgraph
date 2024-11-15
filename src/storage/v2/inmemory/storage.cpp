@@ -1366,7 +1366,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 }
 
                 if (flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
-                  // we have to remove the vertex from the vector index if it this label is indexed and vertex has
+                  // we have to remove the vertex from the vector index if this label is indexed and vertex has
                   // needed property
                   const auto &properties = index_stats.vector.l2p.find(current->label.value);
                   if (properties != index_stats.vector.l2p.end()) {
@@ -1389,7 +1389,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 vertex->labels.push_back(current->label.value);
 
                 if (flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
-                  // we have to add the vertex to the vector index if it this label is indexed and vertex has needed
+                  // we have to add the vertex to the vector index if this label is indexed and vertex has needed
                   // property
                   const auto &properties = index_stats.vector.l2p.find(current->label.value);
                   if (properties != index_stats.vector.l2p.end()) {

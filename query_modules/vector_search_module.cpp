@@ -9,8 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <fmt/format.h>
-#include <spdlog/spdlog.h>
+#include <iostream>
 #include <mgp.hpp>
 #include <string_view>
 
@@ -112,7 +111,7 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
                  },
                  module, memory);
   } catch (const std::exception &e) {
-    spdlog::error("Error while initializing query module: {}", e.what());
+    std::cerr << "Error while initializing query module: " << e.what() << '\n';
     return 1;
   }
 

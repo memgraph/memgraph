@@ -9,9 +9,9 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <spdlog/spdlog.h>
 #include <algorithm>
 #include <boost/functional/hash.hpp>
+#include <iostream>
 #include <mgp.hpp>
 #include <set>
 #include <unordered_set>
@@ -672,7 +672,7 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
          mgp::Return(Schema::kReturnUnique, mgp::Type::Bool), mgp::Return(Schema::kReturnAction, mgp::Type::String)},
         module, memory);
   } catch (const std::exception &e) {
-    spdlog::error("Error while initializing query module: {}", e.what());
+    std::cerr << "Error while initializing query module: " << e.what() << '\n';
     return 1;
   }
 

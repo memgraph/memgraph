@@ -10,7 +10,7 @@
 // licenses/APL.txt.
 
 #include <fmt/format.h>
-#include <spdlog/spdlog.h>
+#include <iostream>
 #include <mgp.hpp>
 #include <string>
 #include <string_view>
@@ -138,7 +138,7 @@ extern "C" int mgp_init_module(struct mgp_module *query_module, struct mgp_memor
                  },
                  {mgp::Return(TextSearch::kReturnAggregation, mgp::Type::String)}, query_module, memory);
   } catch (const std::exception &e) {
-    spdlog::error("Error while initializing query module: {}", e.what());
+    std::cerr << "Error while initializing query module: " << e.what() << '\n';
     return 1;
   }
 

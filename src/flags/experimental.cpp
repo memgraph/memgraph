@@ -57,6 +57,8 @@ auto const mapping = std::map{std::pair{"text-search"sv, Experiments::TEXT_SEARC
 auto const reverse_mapping = std::map{std::pair{Experiments::TEXT_SEARCH, "text-search"sv},
                                       std::pair{Experiments::VECTOR_SEARCH, "vector-search"sv}};
 
+auto const config_mapping = std::map{std::pair{"vector-search"sv, Experiments::VECTOR_SEARCH}};
+
 auto ExperimentsInstance() -> Experiments & {
   static auto instance = Experiments{};
   return instance;
@@ -119,10 +121,10 @@ auto ValidExperimentalConfig(std::string_view json_config) -> bool {
       return false;
     }
 
-    auto const mapping_end = mapping.cend();
+    auto const config_mapping_end = config_mapping.cend();
     for (auto const &[key, _] : json_flags.items()) {
       auto const canonical_key = canonicalize_string(key);
-      if (mapping.find(canonical_key) == mapping_end) {
+      if (config_mapping.find(canonical_key) == config_mapping_end) {
         return false;
       }
     }
