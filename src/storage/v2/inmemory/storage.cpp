@@ -2497,10 +2497,8 @@ StorageInfo InMemoryStorage::GetInfo() {
   }
   info.storage_mode = storage_mode_;
   info.isolation_level = isolation_level_;
-  info.durability_snapshot_enabled =
-      config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
-      // TODO check snapshot_runner_ for the actual state
-      config_.durability.snapshot_on_exit;
+  info.durability_snapshot_enabled = snapshot_runner_.NextExecution() != std::chrono::system_clock::time_point::max() ||
+                                     config_.durability.snapshot_on_exit;
   info.durability_wal_enabled =
       config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
   info.property_store_compression_enabled = config_.salient.items.property_store_compression_enabled;
