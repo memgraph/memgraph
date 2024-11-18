@@ -150,6 +150,7 @@ SESSION                 : S E S S I O N ;
 SETTING                 : S E T T I N G ;
 SETTINGS                : S E T T I N G S ;
 SNAPSHOT                : S N A P S H O T ;
+SNAPSHOTS               : S N A P S H O T S ;
 START                   : S T A R T ;
 STATE                   : S T A T E ;
 STATISTICS              : S T A T I S T I C S ;

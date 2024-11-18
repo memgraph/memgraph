@@ -59,22 +59,19 @@ class Scheduler {
 
     // Setup
     std::chrono::system_clock::time_point next_execution;
-    if (start_time) {                        // Custom start time; execute as soon as possible
-      next_execution = *start_time - pause;  // -= simplifies the logic later on
+    const auto now = std::chrono::system_clock::now();
+    if (start_time) {
+      while (*start_time < now) *start_time += pause;
+      next_execution = *start_time;
     } else {
-      next_execution = std::chrono::system_clock::now();
+      next_execution = now;
     }
 
     // Function to calculate next
-    *find_next_.Lock() = [=](const auto &now) mutable {
-      next_execution += pause;
+    *find_next_.Lock() = [=](const auto &now, bool incr) mutable {
       if (next_execution > now) return next_execution;
-      if (start_time) {                                  // Custom start time
-        while (*start_time < now) *start_time += pause;  // Find first start in the future
-        *start_time -= pause;                            // -= simplifies the logic later on
-        return *start_time;
-      }
-      return now;
+      if (incr) next_execution += pause;
+      return std::max(now, next_execution);
     };
   }
 
@@ -82,10 +79,10 @@ class Scheduler {
 
   void Setup(const SchedulerInterval &setup) {
     if (!setup) {  // Un-setup; let the scheduler wait till infinity
-      *find_next_.Lock() = [](auto && /* unused */) { return time_point::max(); };
+      *find_next_.Lock() = [](auto && /* unused */, bool /* unused */) { return time_point::max(); };
       return;
     }
-    setup.Execute(utils::Overloaded{[this](auto &in) { Setup(in); }});
+    setup.Execute([this](auto &in) { Setup(in); });
   }
 
   void Resume();
@@ -98,14 +95,19 @@ class Scheduler {
 
   void SpinOne();
 
+  auto NextExecution() {
+    if (is_paused_) return time_point::max();
+    return find_next_.WithLock([](auto &f) { return f(std::chrono::system_clock::now(), false); });
+  }
+
   ~Scheduler() { Stop(); }
 
  private:
   void ThreadRun(std::string service_name, std::function<void()> f, std::stop_token token);
 
   using time_point = std::chrono::system_clock::time_point;
-  Synchronized<std::function<time_point(const time_point &)>> find_next_{
-      [](auto && /* unused */) { return time_point::max(); }};  // default to infinity
+  Synchronized<std::function<time_point(const time_point &, bool)>> find_next_{
+      [](auto && /* unused */, bool /* unused */) { return time_point::max(); }};  // default to infinity
 
   /**
    * Variable is true for a single cycle when we spin without executing anything.

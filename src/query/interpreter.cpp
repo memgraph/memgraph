@@ -4064,6 +4064,88 @@ PreparedQuery PrepareRecoverSnapshotQuery(ParsedQuery parsed_query, bool in_expl
       RWType::NONE};
 }
 
+PreparedQuery PrepareShowSnapshotsQuery(ParsedQuery parsed_query, bool in_explicit_transaction, CurrentDB &current_db) {
+  if (in_explicit_transaction) {
+    throw ShowSchemaInfoInMulticommandTxException();
+  }
+
+  MG_ASSERT(current_db.db_acc_, "Show Snapshots query expects a current DB");
+  storage::Storage *storage = current_db.db_acc_->get()->storage();
+
+  if (storage->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
+    throw ShowSnapshotsDisabledOnDiskStorage();
+  }
+
+  Callback callback;
+  callback.header = {"path", "timestamp", "creation_time", "size"};
+  callback.fn = [storage]() mutable -> std::vector<std::vector<TypedValue>> {
+    std::vector<std::vector<TypedValue>> infos;
+    const auto res = static_cast<storage::InMemoryStorage *>(storage)->ShowSnapshots();
+    infos.reserve(res.size());
+
+    auto readable_size = [](size_t size) {
+      double size_d = size;
+      uint8_t level = 0;
+      while (size_d > 1000.0) {
+        size_d /= 1024.0;
+        ++level;
+      }
+      std::ostringstream oss;
+      oss << std::fixed << std::setprecision(2);
+      if (level == 0) oss << std::setprecision(0) << std::noshowpoint;
+      oss << size_d;
+      std::string res = oss.str();
+      switch (level) {
+        case 0:
+          break;
+        case 1:
+          res += "Ki";
+          break;
+        case 2:
+          res += "Mi";
+          break;
+        case 3:
+          res += "Gi";
+          break;
+        case 4:
+          res += "Ti";
+          break;
+        case 5:
+          res += "Pi";
+          break;
+        case 6:
+          res += "Ei";
+          break;
+        default:
+          throw QueryRuntimeException("Unable to determine human-readable file size.");
+      }
+      res += "B";
+      return res;
+    };
+
+    for (const auto &info : res) {
+      infos.push_back({TypedValue{info.path.string()}, TypedValue{static_cast<int64_t>(info.start_timestamp)},
+                       TypedValue{info.creation_time.ToString()}, TypedValue{readable_size(info.size)}});
+    }
+    return infos;
+  };
+
+  return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
+                       [handler = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+                         if (!pull_plan) {
+                           auto results = handler();
+                           pull_plan = std::make_shared<PullPlanVector>(std::move(results));
+                         }
+
+                         if (pull_plan->Pull(stream, n)) {
+                           return QueryHandlerResult::NOTHING;
+                         }
+                         return std::nullopt;
+                       },
+                       RWType::NONE};
+}
+
 PreparedQuery PrepareSettingQuery(ParsedQuery parsed_query, bool in_explicit_transaction) {
   if (in_explicit_transaction) {
     throw SettingConfigInMulticommandTxException{};
@@ -5628,6 +5710,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       auto const replication_role = interpreter_context_->repl_state->GetRole();
       prepared_query =
           PrepareRecoverSnapshotQuery(std::move(parsed_query), in_explicit_transaction_, current_db_, replication_role);
+    } else if (utils::Downcast<ShowSnapshotsQuery>(parsed_query.query)) {
+      prepared_query = PrepareShowSnapshotsQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
     } else if (utils::Downcast<SettingQuery>(parsed_query.query)) {
       /// SYSTEM PURE
       prepared_query = PrepareSettingQuery(std::move(parsed_query), in_explicit_transaction_);

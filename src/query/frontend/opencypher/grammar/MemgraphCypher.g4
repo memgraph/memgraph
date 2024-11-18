@@ -215,6 +215,7 @@ query : cypherQuery
       | storageModeQuery
       | createSnapshotQuery
       | recoverSnapshotQuery
+      | showSnapshotsQuery
       | streamQuery
       | settingQuery
       | versionQuery
@@ -543,6 +544,8 @@ storageModeQuery : STORAGE MODE storageMode ;
 createSnapshotQuery : CREATE SNAPSHOT ;
 
 recoverSnapshotQuery : RECOVER SNAPSHOT path=literal ( FORCE )? ;
+
+showSnapshotsQuery : SHOW SNAPSHOTS ;
 
 streamName : symbolicName ;
 

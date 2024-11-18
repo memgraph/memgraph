@@ -3997,6 +3997,11 @@ TEST_P(CypherMainVisitorTest, RecoverSnapshotQuery) {
   ASSERT_TRUE(dynamic_cast<RecoverSnapshotQuery *>(ast_generator.ParseQuery(R"(RECOVER SNAPSHOT "a/b/c" FORCE)")));
 }
 
+TEST_P(CypherMainVisitorTest, ShowSnapshotsQuery) {
+  auto &ast_generator = *GetParam();
+  ASSERT_TRUE(dynamic_cast<ShowSnapshotsQuery *>(ast_generator.ParseQuery("SHOW SNAPSHOTS")));
+}
+
 void CheckOptionalExpression(Base &ast_generator, Expression *expression, const std::optional<TypedValue> &expected) {
   EXPECT_EQ(expression != nullptr, expected.has_value());
   if (expected.has_value()) {

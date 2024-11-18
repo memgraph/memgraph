@@ -12,6 +12,7 @@
 #include "storage/v2/inmemory/storage.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <filesystem>
 #include <functional>
 #include <mutex>
@@ -48,9 +49,11 @@
 #include "utils/event_gauge.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/file.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/stat.hpp"
+#include "utils/temporal.hpp"
 #include "utils/variant_helpers.hpp"
 
 namespace memgraph::metrics {
@@ -2904,8 +2907,8 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
     }
   }
 
-  // When creating a snapshot, we first lock the snapshot, then create the accessor
-  // GC could be running without the main lock
+  // When creating a snapshot, we first lock the snapshot, then create the accessor, so no need for the snapshot lock
+  // GC could be running without the main lock, so lock it
   // Engine lock is needed because of PrepareForNewEpoch
   auto gc_lock = std::unique_lock{gc_lock_};
   auto engine_lock = std::unique_lock{engine_lock_};
@@ -2956,6 +2959,7 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
         file_retainer_.RenameFile(snapshot_path, recovery_.snapshot_directory_ / old_dir / snapshot_path.filename());
       }
     }
+    std::filesystem::remove(recovery_.snapshot_directory_ / old_dir, ec);  // remove dir if empty
     auto wal_files = storage::durability::GetWalFiles(recovery_.wal_directory_);
     if (wal_files) {
       for (const auto &wal_file : *wal_files) {
@@ -2963,12 +2967,55 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
         file_retainer_.RenameFile(wal_file.path, recovery_.wal_directory_ / old_dir / wal_file.path.filename());
       }
     }
+    std::filesystem::remove(recovery_.wal_directory_ / old_dir, ec);  // remove dir if empty
   } catch (const storage::durability::RecoveryFailure &e) {
     handler_error();
     throw utils::BasicException("Couldn't recover from the snapshot because of: {}", e.what());
   }
 
   return {};
+}
+
+// Note:
+std::vector<InMemoryStorage::SnapshotInfo> InMemoryStorage::ShowSnapshots() {
+  auto lock = std::unique_lock{snapshot_lock_};
+
+  std::vector<InMemoryStorage::SnapshotInfo> res;
+  auto file_locker = file_retainer_.AddLocker();
+  auto locker_acc = file_locker.Access();
+  (void)locker_acc.AddPath(recovery_.snapshot_directory_);
+  auto dir_cleanup = utils::OnScopeExit{[&] { (void)locker_acc.RemovePath(recovery_.snapshot_directory_); }};
+
+  // Add currently available snapshots
+  auto snapshot_files = durability::GetSnapshotFiles(recovery_.snapshot_directory_ /*, std::string(uuid())*/);
+  std::error_code ec;
+  for (const auto &[snapshot_path, _, start_timestamp] : snapshot_files) {
+    // Hacky solution to covert between different clocks
+    utils::LocalDateTime write_time_ldt{std::filesystem::last_write_time(snapshot_path, ec) -
+                                        std::filesystem::file_time_type::clock::now() +
+                                        std::chrono::system_clock::now()};
+    if (ec) {
+      spdlog::warn("Failed to read write time for {}", snapshot_path);
+      write_time_ldt = utils::LocalDateTime{0};
+    }
+    size_t size = std::filesystem::file_size(snapshot_path, ec);
+    if (ec) {
+      spdlog::warn("Failed to read file size for {}", snapshot_path);
+      size = 0;
+    }
+    res.emplace_back(snapshot_path, start_timestamp, write_time_ldt, size);
+  }
+
+  // Add next
+  auto next = snapshot_runner_.NextExecution();
+  if (next != std::chrono::system_clock::time_point::max()) {
+    res.emplace_back(recovery_.snapshot_directory_, 0, utils::LocalDateTime{next}, 0);
+  }
+
+  std::sort(res.begin(), res.end(),
+            [](const auto &lhs, const auto &rhs) { return lhs.creation_time < rhs.creation_time; });
+
+  return res;
 }
 
 void InMemoryStorage::FreeMemory(std::unique_lock<utils::ResourceLock> main_guard, bool periodic) {

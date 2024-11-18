@@ -37,6 +37,7 @@
 #include "utils/observer.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/synchronized.hpp"
+#include "utils/temporal.hpp"
 
 namespace memgraph::dbms {
 class InMemoryReplicationHandlers;
@@ -108,6 +109,14 @@ class InMemoryStorage final : public Storage {
     MissingFile,
     CopyFailure,
     BackupFailure,
+  };
+
+  // TODO better place for this
+  struct SnapshotInfo {
+    std::filesystem::path path;
+    uint64_t start_timestamp;
+    utils::LocalDateTime creation_time;
+    uint64_t size;
   };
 
   /// @throw std::system_error
@@ -516,6 +525,8 @@ class InMemoryStorage final : public Storage {
   utils::BasicResult<InMemoryStorage::RecoverSnapshotError> RecoverSnapshot(
       std::filesystem::path path, bool force,
       memgraph::replication_coordination_glue::ReplicationRole replication_role);
+
+  std::vector<SnapshotInfo> ShowSnapshots();
 
   void CreateSnapshotHandler(std::function<utils::BasicResult<InMemoryStorage::CreateSnapshotError>()> cb);
 

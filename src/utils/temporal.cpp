@@ -554,7 +554,13 @@ int64_t LocalDateTime::SubSecondsAsNanoseconds() const {
       .count();
 }
 
-std::string LocalDateTime::ToString() const { return std::format("{:%Y-%m-%dT%H:%M:%S}", zoned_time()); }
+std::string LocalDateTime::ToString() const {
+  const auto ztime = zoned_time();
+  const auto info = ztime.get_time_zone()->get_info(us_since_epoch_);
+  const auto off = info.offset.count();
+  std::string off_str = off < 0 ? std::to_string(off) : "+" + std::to_string(off);
+  return std::format("{:%Y-%m-%dT%H:%M:%S%z}", ztime);
+}
 
 Date LocalDateTime::date() const {
   // Date does not support timezones; use calendar time offset

@@ -40,7 +40,7 @@ void Scheduler::Run(const std::string &service_name, const std::function<void()>
 }
 
 void Scheduler::Setup(std::string_view cron_expr) {
-  *find_next_.Lock() = [cron = cron::make_cron(cron_expr)](const auto &now) {
+  *find_next_.Lock() = [cron = cron::make_cron(cron_expr)](const auto &now, bool /* unused */) {
     auto tm_now = LocalDateTime{now}.tm();
     // Hack to force the mktime to reinterpret the time as is in the system tz
     tm_now.tm_gmtoff = 0;
@@ -94,23 +94,21 @@ void Scheduler::ThreadRun(std::string service_name, std::function<void()> f, std
     // the program start we let him log first and we make sure by first
     // waiting that function f will not log before it.
     // Check for pause also.
+    auto lk = std::unique_lock{mutex_};
     const auto now = std::chrono::system_clock::now();
     time_point next{};
     {
       auto find_locked = find_next_.Lock();
       DMG_ASSERT(*find_locked, "Scheduler not setup properly");
-      next = find_locked->operator()(now);
+      next = find_locked->operator()(now, true);
     }
     if (next > now) {
-      auto lk = std::unique_lock{mutex_};
       condition_variable_.wait_until(lk, token, next, [&] { return spin_.load(); });
     }
-
-    // wait for unpause or stop_requested
-    {
-      auto lk = std::unique_lock{mutex_};
+    if (is_paused_) {
       condition_variable_.wait(lk, token, [&] { return !is_paused_ || spin_.load(); });
     }
+
     if (token.stop_requested()) break;
     if (spin_) {
       spin_ = false;

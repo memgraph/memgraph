@@ -100,6 +100,7 @@ class IsolationLevelQuery;
 class StorageModeQuery;
 class CreateSnapshotQuery;
 class RecoverSnapshotQuery;
+class ShowSnapshotsQuery;
 class StreamQuery;
 class SettingQuery;
 class VersionQuery;
@@ -159,13 +160,14 @@ class ExpressionVisitor
 
 template <class TResult>
 class QueryVisitor
-    : public utils::Visitor<
-          TResult, CypherQuery, ExplainQuery, ProfileQuery, IndexQuery, EdgeIndexQuery, PointIndexQuery, TextIndexQuery,
-          AuthQuery, DatabaseInfoQuery, SystemInfoQuery, ConstraintQuery, DumpQuery, ReplicationQuery, LockPathQuery,
-          FreeMemoryQuery, TriggerQuery, IsolationLevelQuery, CreateSnapshotQuery, RecoverSnapshotQuery, StreamQuery,
-          SettingQuery, VersionQuery, ShowConfigQuery, TransactionQueueQuery, StorageModeQuery, AnalyzeGraphQuery,
-          MultiDatabaseQuery, ShowDatabasesQuery, EdgeImportModeQuery, CoordinatorQuery, DropGraphQuery,
-          CreateEnumQuery, ShowEnumsQuery, AlterEnumAddValueQuery, AlterEnumUpdateValueQuery, AlterEnumRemoveValueQuery,
-          DropEnumQuery, ShowSchemaInfoQuery, TtlQuery, SessionTraceQuery> {};
+    : public utils::Visitor<TResult, CypherQuery, ExplainQuery, ProfileQuery, IndexQuery, EdgeIndexQuery,
+                            PointIndexQuery, TextIndexQuery, AuthQuery, DatabaseInfoQuery, SystemInfoQuery,
+                            ConstraintQuery, DumpQuery, ReplicationQuery, LockPathQuery, FreeMemoryQuery, TriggerQuery,
+                            IsolationLevelQuery, CreateSnapshotQuery, RecoverSnapshotQuery, ShowSnapshotsQuery,
+                            StreamQuery, SettingQuery, VersionQuery, ShowConfigQuery, TransactionQueueQuery,
+                            StorageModeQuery, AnalyzeGraphQuery, MultiDatabaseQuery, ShowDatabasesQuery,
+                            EdgeImportModeQuery, CoordinatorQuery, DropGraphQuery, CreateEnumQuery, ShowEnumsQuery,
+                            AlterEnumAddValueQuery, AlterEnumUpdateValueQuery, AlterEnumRemoveValueQuery, DropEnumQuery,
+                            ShowSchemaInfoQuery, TtlQuery, SessionTraceQuery> {};
 
 }  // namespace memgraph::query
