@@ -95,9 +95,11 @@ class Scheduler {
 
   void SpinOne();
 
-  auto NextExecution() {
-    if (is_paused_) return time_point::max();
-    return find_next_.WithLock([](auto &f) { return f(std::chrono::system_clock::now(), false); });
+  using time_point = std::chrono::system_clock::time_point;
+  std::optional<time_point> NextExecution() {
+    if (is_paused_) return {};
+    const auto next = find_next_.WithLock([](auto &f) { return f(std::chrono::system_clock::now(), false); });
+    return next != time_point::max() ? std::make_optional(next) : std::nullopt;
   }
 
   ~Scheduler() { Stop(); }
@@ -105,7 +107,6 @@ class Scheduler {
  private:
   void ThreadRun(std::string service_name, std::function<void()> f, std::stop_token token);
 
-  using time_point = std::chrono::system_clock::time_point;
   Synchronized<std::function<time_point(const time_point &, bool)>> find_next_{
       [](auto && /* unused */, bool /* unused */) { return time_point::max(); }};  // default to infinity
 
