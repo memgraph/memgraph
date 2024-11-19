@@ -219,13 +219,13 @@ void Socket::SetTimeout(int64_t sec, int64_t usec) {
   spdlog::trace("Trying to set timeouts.");
 
   if (setsockopt(socket_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) == -1) {
-    int err_code = errno;
+    int const err_code = errno;
     HandleErrno(err_code);
   }
   spdlog::trace("Set rcv timeout.");
 
   if (setsockopt(socket_, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)) == -1) {
-    int err_code = errno;
+    int const err_code = errno;
     HandleErrno(err_code);
   }
   spdlog::trace("Set snd timeout.");
