@@ -189,7 +189,7 @@ def mt_setup():
 def mt_data_dir(data_directory, database):
     if database != "memgraph":
         for entry in os.listdir(data_directory + "/databases"):
-            if entry != "memgraph" and os.path.isdir(data_directory + "/databases/" + entry):
+            if entry != "memgraph" and entry[0] != "." and os.path.isdir(data_directory + "/databases/" + entry):
                 print(data_directory + "/databases/" + entry)
                 return data_directory + "/databases/" + entry
     else:
@@ -214,6 +214,19 @@ def test_empty(global_snapshot, database):
     interactive_mg_runner.kill_all()
     interactive_mg_runner.start(memgraph_instances(data_directory.name), "recover_on_startup")
     main_test_reboot(database)
+    interactive_mg_runner.kill_all()
+
+
+def test_empty_with_local_snapshot(global_snapshot):
+    assert global_snapshot != None, "To snapshot to recover from"
+    data_directory = tempfile.TemporaryDirectory()
+    interactive_mg_runner.start(memgraph_instances(data_directory.name), "default")
+    local_snapshot = data_directory.name + "/snapshots/" + os.path.basename(global_snapshot)
+    shutil.copyfile(global_snapshot, local_snapshot)
+    main_test(mt_data_dir(data_directory.name, "memgraph"), local_snapshot, "memgraph", True)
+    interactive_mg_runner.kill_all()
+    interactive_mg_runner.start(memgraph_instances(data_directory.name), "recover_on_startup")
+    main_test_reboot("memgraph")
     interactive_mg_runner.kill_all()
 
 
