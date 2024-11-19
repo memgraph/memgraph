@@ -550,7 +550,7 @@ void InMemoryReplicationHandlers::TimestampHandler(dbms::DbmsHandler *dbms_handl
 
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::TimestampReq::kType.name);
-    const storage::replication::CurrentWalRes res{0};
+    const storage::replication::TimestampRes res{false, 0};
     slk::Save(res, res_builder);
     return;
   }
