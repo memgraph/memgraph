@@ -165,10 +165,6 @@ void DataInstanceManagementServerHandlers::PromoteToMainHandler(replication::Rep
   coordination::PromoteToMainReq req;
   slk::Load(&req, req_reader);
 
-  // Shutdown any remaining client
-  // Main can be promoted while being MAIN; we do this in order to update the uuid and epoch
-  if (replication_handler.IsMain()) replication_handler.ClientsShutdown();
-
   // This can fail because of disk. If it does, the cluster state could get inconsistent.
   // We don't handle disk issues. If I receive request to promote myself to main when I am already main
   // I will do it again, the action is idempotent.

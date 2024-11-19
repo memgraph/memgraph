@@ -156,6 +156,7 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
 
   auto GetDatabasesHistories() -> replication_coordination_glue::DatabaseHistories;
 
+ private:
   void ClientsShutdown() {
     spdlog::trace("Shutting down instance level clients.");
 
@@ -177,7 +178,6 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
     spdlog::trace("Replication storage clients destroyed.");
   }
 
- private:
   template <bool SendSwapUUID>
   auto RegisterReplica_(const memgraph::replication::ReplicationClientConfig &config)
       -> memgraph::utils::BasicResult<memgraph::query::RegisterReplicaError> {
