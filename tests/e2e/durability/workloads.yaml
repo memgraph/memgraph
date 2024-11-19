@@ -5,3 +5,6 @@ workloads:
   - name: "Recover snapshot"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["durability/snapshot_recovery.py"]
+  - name: "Periodic snapshot"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["durability/periodic_snapshot.py"]
