@@ -45,6 +45,43 @@ TEST(Scheduler, TestFunctionExecuting) {
   EXPECT_EQ(x, 3);
 }
 
+TEST(Scheduler, SetupAndSpinOnce) {
+  std::atomic<int> x{0};
+  std::function<void()> func{[&x]() { ++x; }};
+  memgraph::utils::Scheduler scheduler;
+  scheduler.Setup(std::chrono::seconds(100));
+  scheduler.Run("Test", func);
+
+  // No execution
+  std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+  EXPECT_EQ(x, 0);
+
+  // Setup short period, but we are stuck in the old wait
+  scheduler.Setup(std::chrono::seconds(1));
+  std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+  EXPECT_EQ(x, 0);
+
+  // SpinOne to unblock, but still don't execute
+  scheduler.SpinOne();
+  EXPECT_EQ(x, 0);
+  std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+  EXPECT_GT(x, 0);
+
+  // Spin shouldn't execute, but should spin even under pause
+  scheduler.Pause();
+  std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+  const auto x_now = x.load();
+  scheduler.SpinOne();
+  EXPECT_EQ(x, x_now);
+
+  // Re-setup for long period and spin to update
+  scheduler.Setup(std::chrono::seconds(100));
+  scheduler.SpinOne();
+  scheduler.Resume();
+  std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+  EXPECT_EQ(x, x_now);
+}
+
 /**
  * Test scheduler's start time feature.
  */
