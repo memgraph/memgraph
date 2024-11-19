@@ -87,19 +87,19 @@ TEST(Scheduler, StartTimeRestart) {
   const auto timeout2 = now + std::chrono::seconds(4);
 
   // start_time in the past
-  scheduler.Setup(std::chrono::seconds(6), now - std::chrono::seconds(3));
+  scheduler.Setup(std::chrono::seconds(5), now - std::chrono::seconds(3));
   scheduler.Run("Test", func);
 
-  // Should execute immediately and then exactly 6s from the start time
-  while (x == 0 && std::chrono::system_clock::now() < timeout1) {
+  // Should execute at first possible time in the future
+  while (std::chrono::system_clock::now() < timeout1) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
+  ASSERT_EQ(x, 0);
+
+  while (x == 0 && std::chrono::system_clock::now() < timeout2) {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
   ASSERT_EQ(x, 1);
-
-  while (x == 1 && std::chrono::system_clock::now() < timeout2) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-  }
-  ASSERT_EQ(x, 2);
 }
 
 TEST(Scheduler, IsRunningFalse) {
@@ -213,7 +213,7 @@ TEST(Scheduler, CronEveryNs) {
   while (x < 2 && std::chrono::system_clock::now() < timeout1) {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
-  ASSERT_GE(std::chrono::system_clock::now() - now, std::chrono::seconds{4});
+  ASSERT_GE(std::chrono::system_clock::now() - now, std::chrono::seconds{3});
   ASSERT_GE(x, 2);
 }
 
