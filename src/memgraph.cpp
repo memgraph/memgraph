@@ -520,8 +520,9 @@ int main(int argc, char **argv) {
   std::optional<CoordinatorState> coordinator_state{std::nullopt};
   auto const is_valid_data_instance =
       coordination_setup.management_port && !coordination_setup.coordinator_port && !coordination_setup.coordinator_id;
-  auto const is_valid_coordinator_instance =
-      coordination_setup.management_port && coordination_setup.coordinator_port && coordination_setup.coordinator_id;
+  auto const is_valid_coordinator_instance = coordination_setup.management_port &&
+                                             coordination_setup.coordinator_port && coordination_setup.coordinator_id &&
+                                             !coordination_setup.coordinator_hostname.empty();
   auto try_init_coord_state = [&coordinator_state, &extracted_bolt_port, &is_valid_data_instance,
                                &is_valid_coordinator_instance](auto const &coordination_setup) {
     if (!(coordination_setup.management_port || coordination_setup.coordinator_port ||
@@ -534,8 +535,9 @@ int main(int argc, char **argv) {
     if (!(is_valid_coordinator_instance || is_valid_data_instance)) {
       throw std::runtime_error(
           "You specified invalid combination of HA flags to start coordinator instance or data instance."
-          "Coordinator must be started with coordinator_id, port and management_port. Data instance must be "
-          "started with only management port.");
+          "Coordinator must be started with coordinator_id, coordinator_hostname, coordinator_port and "
+          "management_port. Data instance must be "
+          "started only with management port.");
     }
 
     if (is_valid_coordinator_instance) {
