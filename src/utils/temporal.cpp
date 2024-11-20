@@ -213,7 +213,7 @@ std::string Date::ToString() const {
 }
 
 size_t DateHash::operator()(const Date &date) const {
-  utils::HashCombine<uint64_t, uint64_t> hasher;
+  const utils::HashCombine<uint64_t, uint64_t> hasher;
   size_t result = hasher(0, date.year);
   result = hasher(result, date.month);
   result = hasher(result, date.day);
@@ -424,7 +424,7 @@ std::string LocalTime::ToString() const {
 }
 
 size_t LocalTimeHash::operator()(const LocalTime &local_time) const {
-  utils::HashCombine<uint64_t, uint64_t> hasher;
+  const utils::HashCombine<uint64_t, uint64_t> hasher;
   size_t result = hasher(0, local_time.hour);
   result = hasher(result, local_time.minute);
   result = hasher(result, local_time.second);
@@ -554,13 +554,7 @@ int64_t LocalDateTime::SubSecondsAsNanoseconds() const {
       .count();
 }
 
-std::string LocalDateTime::ToString() const {
-  const auto ztime = zoned_time();
-  const auto info = ztime.get_time_zone()->get_info(us_since_epoch_);
-  const auto off = info.offset.count();
-  std::string off_str = off < 0 ? std::to_string(off) : "+" + std::to_string(off);
-  return std::format("{:%Y-%m-%dT%H:%M:%S%z}", ztime);
-}
+std::string LocalDateTime::ToString() const { return std::format("{:%Y-%m-%dT%H:%M:%S%z}", zoned_time()); }
 
 Date LocalDateTime::date() const {
   // Date does not support timezones; use calendar time offset
@@ -600,10 +594,10 @@ std::tm LocalDateTime::tm() const {
 
   const auto ztime = zoned_time();
   const auto days = std::chrono::local_days{time_point_cast<std::chrono::days>(ztime.get_local_time())};
-  out.tm_wday = std::chrono::weekday{days}.c_encoding();
-  out.tm_yday =
+  out.tm_wday = static_cast<int>(std::chrono::weekday{days}.c_encoding());
+  out.tm_yday = static_cast<int>(
       std::chrono::duration_cast<std::chrono::days>((days - DaysSinceEpoch(this_date.year, 1, 1)).time_since_epoch())
-          .count();
+          .count());
   const auto info = ztime.get_time_zone()->get_info(us_since_epoch_);
   out.tm_isdst = info.save != 0s;
   out.tm_gmtoff = info.offset.count();
@@ -614,7 +608,7 @@ std::tm LocalDateTime::tm() const {
 
 size_t LocalDateTimeHash::operator()(const LocalDateTime &local_date_time) const {
   // Use system time since it is in a fixed timezone
-  utils::HashCombine<uint64_t, uint64_t> hasher;
+  const utils::HashCombine<uint64_t, uint64_t> hasher;
   return hasher(0, local_date_time.SysMicrosecondsSinceEpoch());
 }
 

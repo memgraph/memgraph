@@ -88,7 +88,7 @@ SchedulerInterval::SchedulerInterval(const std::string &str) {
     // Try period
     const auto period = std::chrono::seconds(std::stol(str));
     period_or_cron = PeriodStartTime{period, std::nullopt};
-  } catch (std::invalid_argument /* unused */) {
+  } catch (const std::invalid_argument & /* unused */) {
     // Try cron
     try {
       (void)cron::make_cron(str);
@@ -102,7 +102,7 @@ SchedulerInterval::SchedulerInterval(const std::string &str) {
 // Checking stop_possible() is necessary because otherwise calling IsRunning
 // on a non-started Scheduler would return true.
 bool Scheduler::IsRunning() {
-  std::stop_token token = thread_.get_stop_token();
+  const auto token = thread_.get_stop_token();
   return token.stop_possible() && !token.stop_requested();
 }
 

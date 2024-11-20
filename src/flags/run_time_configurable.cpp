@@ -88,7 +88,7 @@ DEFINE_VALIDATED_string(storage_snapshot_interval, "",
 DEFINE_VALIDATED_uint64(storage_snapshot_interval_sec, 0,
                         "Storage snapshot creation interval (in seconds). Set "
                         "to 0 to disable periodic snapshot creation.",
-                        FLAG_IN_RANGE(0, 7 * 24 * 3600));
+                        FLAG_IN_RANGE(0, 7LU * 24 * 3600));
 
 namespace {
 // Bolt server name
@@ -342,7 +342,7 @@ void Initialize() {
         try {
           const auto period = std::chrono::seconds(std::stol(val));
           snapshot_periodic_.Modify(period);
-        } catch (std::invalid_argument /* unused */) {
+        } catch (const std::invalid_argument & /* unused */) {
           // String is not a period; pass in as a cron expression
           // Expression is guaranteed to be valid
           snapshot_periodic_.Modify(val);

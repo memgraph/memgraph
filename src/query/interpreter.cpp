@@ -4084,7 +4084,8 @@ PreparedQuery PrepareShowSnapshotsQuery(ParsedQuery parsed_query, bool in_explic
     infos.reserve(res.size());
     for (const auto &info : res) {
       infos.push_back({TypedValue{info.path.string()}, TypedValue{static_cast<int64_t>(info.start_timestamp)},
-                       TypedValue{info.creation_time.ToString()}, TypedValue{utils::GetReadableSize(info.size)}});
+                       TypedValue{info.creation_time.ToString()},
+                       TypedValue{utils::GetReadableSize(static_cast<double>(info.size))}});
     }
     return infos;
   };
