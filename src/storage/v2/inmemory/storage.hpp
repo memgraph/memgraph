@@ -20,6 +20,7 @@
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/inmemory/replication/recovery.hpp"
+#include "storage/v2/inmemory/snapshot_info.hpp"
 #include "storage/v2/replication/replication_client.hpp"
 #include "storage/v2/schema_info.hpp"
 #include "storage/v2/storage.hpp"
@@ -109,14 +110,6 @@ class InMemoryStorage final : public Storage {
     MissingFile,
     CopyFailure,
     BackupFailure,
-  };
-
-  // TODO better place for this
-  struct SnapshotInfo {
-    std::filesystem::path path;
-    uint64_t start_timestamp;
-    utils::LocalDateTime creation_time;
-    uint64_t size;
   };
 
   /// @throw std::system_error
@@ -526,7 +519,7 @@ class InMemoryStorage final : public Storage {
       std::filesystem::path path, bool force,
       memgraph::replication_coordination_glue::ReplicationRole replication_role);
 
-  std::vector<SnapshotInfo> ShowSnapshots();
+  std::vector<SnapshotFileInfo> ShowSnapshots();
 
   void CreateSnapshotHandler(std::function<utils::BasicResult<InMemoryStorage::CreateSnapshotError>()> cb);
 

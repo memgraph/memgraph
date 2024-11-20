@@ -2967,10 +2967,10 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
 }
 
 // Note:
-std::vector<InMemoryStorage::SnapshotInfo> InMemoryStorage::ShowSnapshots() {
+std::vector<SnapshotFileInfo> InMemoryStorage::ShowSnapshots() {
   auto lock = std::unique_lock{snapshot_lock_};
 
-  std::vector<InMemoryStorage::SnapshotInfo> res;
+  std::vector<SnapshotFileInfo> res;
   auto file_locker = file_retainer_.AddLocker();
   auto locker_acc = file_locker.Access();
   (void)locker_acc.AddPath(recovery_.snapshot_directory_);
