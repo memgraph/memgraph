@@ -1771,6 +1771,30 @@ TYPED_TEST(FunctionTest, StartNode) {
   ASSERT_THROW(this->EvaluateFunction("STARTNODE", 2), QueryRuntimeException);
 }
 
+TYPED_TEST(FunctionTest, IsEmpty) {
+  ASSERT_THROW(this->EvaluateFunction("ISEMPTY"), QueryRuntimeException);
+
+  auto null = TypedValue{};
+
+  ASSERT_TRUE(this->EvaluateFunction("ISEMPTY", null).IsNull());
+
+  auto empty_list = TypedValue(std::vector<TypedValue>{});
+  auto empty_map = TypedValue(std::map<std::string, TypedValue>{});
+  auto empty_string = TypedValue("");
+
+  ASSERT_TRUE(this->EvaluateFunction("ISEMPTY", empty_list).ValueBool());
+  ASSERT_TRUE(this->EvaluateFunction("ISEMPTY", empty_map).ValueBool());
+  ASSERT_TRUE(this->EvaluateFunction("ISEMPTY", empty_string).ValueBool());
+
+  auto non_empty_list = TypedValue(std::vector{null});
+  auto non_empty_map = TypedValue(std::map{std::pair<std::string, TypedValue>{"key", null}});
+  auto non_empty_string = TypedValue("nonempty");
+
+  ASSERT_FALSE(this->EvaluateFunction("ISEMPTY", non_empty_list).ValueBool());
+  ASSERT_FALSE(this->EvaluateFunction("ISEMPTY", non_empty_map).ValueBool());
+  ASSERT_FALSE(this->EvaluateFunction("ISEMPTY", non_empty_string).ValueBool());
+}
+
 TYPED_TEST(FunctionTest, Degree) {
   ASSERT_THROW(this->EvaluateFunction("DEGREE"), QueryRuntimeException);
   ASSERT_TRUE(this->EvaluateFunction("DEGREE", TypedValue()).IsNull());
