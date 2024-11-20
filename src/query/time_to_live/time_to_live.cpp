@@ -135,7 +135,7 @@ void TTL::Setup_(TDbAccess db_acc, InterpreterContext *interpreter_context) {
   };
 
   DMG_ASSERT(info_.period, "Period has to be defined for TTL");
-  ttl_.Setup(*info_.period, info_.start_time);
+  ttl_.SetInterval(*info_.period, info_.start_time);
   ttl_.Run(db_acc->name() + "-ttl", std::move(TTL));
   Persist_();
 }

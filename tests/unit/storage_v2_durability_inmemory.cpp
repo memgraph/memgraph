@@ -48,6 +48,7 @@
 #include "storage_test_utils.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
+#include "utils/scheduler.hpp"
 #include "utils/timer.hpp"
 #include "utils/uuid.hpp"
 
@@ -56,6 +57,17 @@ using testing::Contains;
 using testing::UnorderedElementsAre;
 
 using namespace std::string_literals;
+
+namespace {
+
+template <typename TRep, typename TPeriod>
+std::chrono::seconds operator+(const memgraph::utils::SchedulerInterval &si,
+                               const std::chrono::duration<TRep, TPeriod> &dur) {
+  const auto &pst = std::get<memgraph::utils::SchedulerInterval::PeriodStartTime>(si.period_or_cron);
+  return pst.period + std::chrono::duration_cast<std::chrono::seconds>(dur);
+}
+
+}  // namespace
 
 struct TestSetup {
   bool w_edge_prop;
@@ -1140,7 +1152,7 @@ TEST_P(DurabilityTest, SnapshotPeriodic) {
 
         .durability = {.storage_directory = storage_directory,
                        .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
-                       .snapshot_interval = std::chrono::milliseconds(2000)},
+                       .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::milliseconds(2000)}},
         .salient = {.items = {.properties_on_edges = GetParam().w_edge_prop,
                               .enable_schema_info = GetParam().w_schema_info}},
     };
@@ -1182,7 +1194,7 @@ TEST_P(DurabilityTest, SnapshotFallback) {
   {
     // DEVNOTE_1: assumes that snapshot disk write takes less than this
     auto const expected_write_time = std::chrono::milliseconds(750);
-    auto const snapshot_interval = std::chrono::milliseconds(3000);
+    auto const snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::milliseconds(3000)};
 
     memgraph::storage::Config config{
 
@@ -1288,10 +1300,9 @@ TEST_P(DurabilityTest, SnapshotEverythingCorrupt) {
   // Create snapshot.
   {
     memgraph::storage::Config config{
-
         .durability = {.storage_directory = storage_directory,
                        .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
-                       .snapshot_interval = std::chrono::milliseconds(2000)},
+                       .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::milliseconds(2000)}},
         .salient = {.items = {.properties_on_edges = GetParam().w_edge_prop,
                               .enable_schema_info = GetParam().w_schema_info}},
     };
@@ -1376,7 +1387,7 @@ TEST_P(DurabilityTest, SnapshotRetention) {
 
         .durability = {.storage_directory = storage_directory,
                        .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
-                       .snapshot_interval = std::chrono::seconds(2000),
+                       .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::milliseconds(2000)},
                        .snapshot_retention_count = 3},
         .salient = {.items = {.properties_on_edges = GetParam().w_edge_prop,
                               .enable_schema_info = GetParam().w_schema_info}},
@@ -1540,10 +1551,9 @@ TEST_P(DurabilityTest, SnapshotBackup) {
   // Start storage without recovery.
   {
     memgraph::storage::Config config{
-
         .durability = {.storage_directory = storage_directory,
                        .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
-                       .snapshot_interval = std::chrono::minutes(20)},
+                       .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)}},
         .salient = {.items = {.properties_on_edges = GetParam().w_edge_prop,
                               .enable_schema_info = GetParam().w_schema_info}},
     };
@@ -1710,7 +1720,7 @@ TEST_P(DurabilityTest, WalBasic) {
         .durability = {.storage_directory = storage_directory,
                        .snapshot_wal_mode =
                            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-                       .snapshot_interval = std::chrono::minutes(20),
+                       .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
         .salient = {.items = {.properties_on_edges = GetParam().w_edge_prop,
                               .enable_schema_info = GetParam().w_schema_info}},
@@ -1755,7 +1765,7 @@ TEST_P(DurabilityTest, WalBackup) {
         .durability = {.storage_directory = storage_directory,
                        .snapshot_wal_mode =
                            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-                       .snapshot_interval = std::chrono::minutes(20),
+                       .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
                        .wal_file_size_kibibytes = 1,
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
         .salient = {.items = {.properties_on_edges = GetParam().w_edge_prop,
@@ -1779,11 +1789,10 @@ TEST_P(DurabilityTest, WalBackup) {
   // Start storage without recovery.
   {
     memgraph::storage::Config config{
-
         .durability = {.storage_directory = storage_directory,
                        .snapshot_wal_mode =
                            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-                       .snapshot_interval = std::chrono::minutes(20)},
+                       .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)}},
         .salient = {.items = {.properties_on_edges = GetParam().w_edge_prop,
                               .enable_schema_info = GetParam().w_schema_info}},
     };
@@ -1806,7 +1815,7 @@ TEST_P(DurabilityTest, WalAppendToExisting) {
         .durability = {.storage_directory = storage_directory,
                        .snapshot_wal_mode =
                            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-                       .snapshot_interval = std::chrono::minutes(20),
+                       .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
         .salient = {.items = {.properties_on_edges = GetParam().w_edge_prop,
                               .enable_schema_info = GetParam().w_schema_info}},
@@ -1842,7 +1851,7 @@ TEST_P(DurabilityTest, WalAppendToExisting) {
                        .recover_on_startup = true,
                        .snapshot_wal_mode =
                            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-                       .snapshot_interval = std::chrono::minutes(20),
+                       .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
         .salient = {.items = {.properties_on_edges = GetParam().w_edge_prop,
                               .enable_schema_info = GetParam().w_schema_info}},
@@ -1889,7 +1898,7 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
         .durability = {.storage_directory = storage_directory,
                        .snapshot_wal_mode =
                            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-                       .snapshot_interval = std::chrono::minutes(20),
+                       .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
         .salient = {.items = {.properties_on_edges = GetParam().w_edge_prop,
                               .enable_schema_info = GetParam().w_schema_info}},
@@ -2035,7 +2044,7 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
         .durability = {.storage_directory = storage_directory,
                        .snapshot_wal_mode =
                            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-                       .snapshot_interval = std::chrono::minutes(20),
+                       .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
         .salient = {.items = {.properties_on_edges = GetParam().w_edge_prop,
                               .enable_schema_info = GetParam().w_schema_info}},
@@ -2136,7 +2145,7 @@ TEST_P(DurabilityTest, WalTransactionOrdering) {
             {
                 .storage_directory = storage_directory,
                 .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-                .snapshot_interval = std::chrono::minutes(20),
+                .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
                 .wal_file_size_kibibytes = 100000,
                 .wal_file_flush_every_n_tx = kFlushWalEvery,
             },
@@ -2275,7 +2284,7 @@ TEST_P(DurabilityTest, WalCreateAndRemoveOnlyBaseDataset) {
         .durability = {.storage_directory = storage_directory,
                        .snapshot_wal_mode =
                            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-                       .snapshot_interval = std::chrono::minutes(20),
+                       .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
         .salient = {.items = {.properties_on_edges = GetParam().w_edge_prop,
                               .enable_schema_info = GetParam().w_schema_info}},
@@ -2334,7 +2343,7 @@ TEST_P(DurabilityTest, WalDeathResilience) {
           .durability = {.storage_directory = storage_directory,
                          .snapshot_wal_mode =
                              memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-                         .snapshot_interval = std::chrono::minutes(20),
+                         .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
                          .wal_file_flush_every_n_tx = kFlushWalEvery},
           .salient = {.items = {.properties_on_edges = GetParam().w_edge_prop,
                                 .enable_schema_info = GetParam().w_schema_info}},
@@ -2376,7 +2385,7 @@ TEST_P(DurabilityTest, WalDeathResilience) {
                 .storage_directory = storage_directory,
                 .recover_on_startup = true,
                 .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-                .snapshot_interval = std::chrono::minutes(20),
+                .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
                 .wal_file_flush_every_n_tx = kFlushWalEvery,
             },
         .salient = {.items = {.properties_on_edges = GetParam().w_edge_prop,
@@ -2444,7 +2453,7 @@ TEST_P(DurabilityTest, WalMissingSecond) {
         .durability = {.storage_directory = storage_directory,
                        .snapshot_wal_mode =
                            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-                       .snapshot_interval = std::chrono::minutes(20),
+                       .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
                        .wal_file_size_kibibytes = 1,
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
         .salient = {.items = {.properties_on_edges = GetParam().w_edge_prop,
@@ -2473,7 +2482,7 @@ TEST_P(DurabilityTest, WalMissingSecond) {
         .durability = {.storage_directory = storage_directory,
                        .snapshot_wal_mode =
                            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-                       .snapshot_interval = std::chrono::minutes(20),
+                       .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
                        .wal_file_size_kibibytes = 1,
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
         .salient = {.items = {.properties_on_edges = GetParam().w_edge_prop,
@@ -2548,7 +2557,7 @@ TEST_P(DurabilityTest, WalCorruptSecond) {
         .durability = {.storage_directory = storage_directory,
                        .snapshot_wal_mode =
                            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-                       .snapshot_interval = std::chrono::minutes(20),
+                       .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
                        .wal_file_size_kibibytes = 1,
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
         .salient = {.items = {.properties_on_edges = GetParam().w_edge_prop,
@@ -2577,7 +2586,7 @@ TEST_P(DurabilityTest, WalCorruptSecond) {
         .durability = {.storage_directory = storage_directory,
                        .snapshot_wal_mode =
                            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-                       .snapshot_interval = std::chrono::minutes(20),
+                       .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
                        .wal_file_size_kibibytes = 1,
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
         .salient = {.items = {.properties_on_edges = GetParam().w_edge_prop,
@@ -2651,7 +2660,7 @@ TEST_P(DurabilityTest, WalCorruptLastTransaction) {
         .durability = {.storage_directory = storage_directory,
                        .snapshot_wal_mode =
                            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-                       .snapshot_interval = std::chrono::minutes(20),
+                       .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
                        .wal_file_size_kibibytes = 1,
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
         .salient = {.items = {.properties_on_edges = GetParam().w_edge_prop,
@@ -2708,7 +2717,7 @@ TEST_P(DurabilityTest, WalAllOperationsInSingleTransaction) {
         .durability = {.storage_directory = storage_directory,
                        .snapshot_wal_mode =
                            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-                       .snapshot_interval = std::chrono::minutes(20),
+                       .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
                        .wal_file_size_kibibytes = 1,
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
         .salient = {.items = {.properties_on_edges = GetParam().w_edge_prop,
@@ -2793,7 +2802,7 @@ TEST_P(DurabilityTest, WalAndSnapshot) {
         .durability = {.storage_directory = storage_directory,
                        .snapshot_wal_mode =
                            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-                       .snapshot_interval = std::chrono::milliseconds(2000),
+                       .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::milliseconds(2000)},
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
         .salient = {.items = {.properties_on_edges = GetParam().w_edge_prop,
                               .enable_schema_info = GetParam().w_schema_info}},
@@ -2870,7 +2879,7 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshot) {
                        .recover_on_startup = true,
                        .snapshot_wal_mode =
                            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-                       .snapshot_interval = std::chrono::minutes(20),
+                       .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
         .salient = {.items = {.properties_on_edges = GetParam().w_edge_prop,
                               .enable_schema_info = GetParam().w_schema_info}},
@@ -2945,7 +2954,7 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
                        .recover_on_startup = true,
                        .snapshot_wal_mode =
                            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-                       .snapshot_interval = std::chrono::minutes(20),
+                       .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
         .salient = {.items = {.properties_on_edges = GetParam().w_edge_prop,
                               .enable_schema_info = GetParam().w_schema_info}},
@@ -2969,7 +2978,7 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
                        .recover_on_startup = true,
                        .snapshot_wal_mode =
                            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-                       .snapshot_interval = std::chrono::minutes(20),
+                       .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
         .salient = {.items = {.properties_on_edges = GetParam().w_edge_prop,
                               .enable_schema_info = GetParam().w_schema_info}},
@@ -3039,7 +3048,7 @@ TEST_P(DurabilityTest, WalAndSnapshotWalRetention) {
         .durability = {.storage_directory = storage_directory,
                        .snapshot_wal_mode =
                            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-                       .snapshot_interval = std::chrono::minutes(20),
+                       .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
                        .wal_file_size_kibibytes = 1,
                        .wal_file_flush_every_n_tx = kFlushWalEvery},
         .salient = {.items = {.properties_on_edges = GetParam().w_edge_prop,
@@ -3070,7 +3079,7 @@ TEST_P(DurabilityTest, WalAndSnapshotWalRetention) {
         .durability = {.storage_directory = storage_directory,
                        .snapshot_wal_mode =
                            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-                       .snapshot_interval = std::chrono::seconds(2),
+                       .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::seconds(2)},
                        .wal_file_size_kibibytes = 1,
                        .wal_file_flush_every_n_tx = 1},
         .salient = {.items = {.properties_on_edges = GetParam().w_edge_prop,
@@ -3144,11 +3153,10 @@ TEST_P(DurabilityTest, SnapshotAndWalMixedUUID) {
   // Create unrelated snapshot and WALs.
   {
     memgraph::storage::Config config{
-
         .durability = {.storage_directory = storage_directory,
                        .snapshot_wal_mode =
                            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-                       .snapshot_interval = std::chrono::seconds(2)},
+                       .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::seconds(2)}},
         .salient = {.items = {.properties_on_edges = GetParam().w_edge_prop,
                               .enable_schema_info = GetParam().w_schema_info}},
     };
@@ -3170,11 +3178,10 @@ TEST_P(DurabilityTest, SnapshotAndWalMixedUUID) {
   // Create snapshot and WALs.
   {
     memgraph::storage::Config config{
-
         .durability = {.storage_directory = storage_directory,
                        .snapshot_wal_mode =
                            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-                       .snapshot_interval = std::chrono::seconds(2)},
+                       .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::seconds(2)}},
         .salient = {.items = {.properties_on_edges = GetParam().w_edge_prop,
                               .enable_schema_info = GetParam().w_schema_info}},
     };

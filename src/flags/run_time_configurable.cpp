@@ -138,12 +138,12 @@ class PeriodicObservable : public memgraph::utils::Observable<memgraph::utils::S
   }
 
   void Modify(std::chrono::seconds pause) {
-    periodic_->period_or_cron = pause;
+    *periodic_.Lock() = memgraph::utils::SchedulerInterval(pause, std::nullopt);
     Notify();
   }
 
   void Modify(std::string in) {
-    periodic_->period_or_cron = std::move(in);
+    *periodic_.Lock() = memgraph::utils::SchedulerInterval(in);
     Notify();
   }
 

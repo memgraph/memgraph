@@ -241,7 +241,7 @@ int main(int argc, char **argv) {
   }
 
   memgraph::utils::Scheduler python_gc_scheduler;
-  python_gc_scheduler.Setup(std::chrono::seconds(FLAGS_storage_python_gc_cycle_sec));
+  python_gc_scheduler.SetInterval(std::chrono::seconds(FLAGS_storage_python_gc_cycle_sec));
   python_gc_scheduler.Run("Python GC", [] { memgraph::query::procedure::PyCollectGarbage(); });
 
   // Initialize the communication library.
@@ -255,7 +255,7 @@ int main(int argc, char **argv) {
   if (FLAGS_memory_warning_threshold > 0) {
     auto free_ram = memgraph::utils::sysinfo::AvailableMemory();
     if (free_ram) {
-      mem_log_scheduler.Setup(std::chrono::seconds(3));
+      mem_log_scheduler.SetInterval(std::chrono::seconds(3));
       mem_log_scheduler.Run("Memory check", [] {
         auto free_ram = memgraph::utils::sysinfo::AvailableMemory();
         if (free_ram && *free_ram / 1024 < FLAGS_memory_warning_threshold)
@@ -406,7 +406,7 @@ int main(int argc, char **argv) {
   spdlog::info("config recover on startup {}, flags {}", db_config.durability.recover_on_startup,
                FLAGS_data_recovery_on_startup);
   memgraph::utils::Scheduler jemalloc_purge_scheduler;
-  jemalloc_purge_scheduler.Setup(std::chrono::seconds(FLAGS_storage_gc_cycle_sec));
+  jemalloc_purge_scheduler.SetInterval(std::chrono::seconds(FLAGS_storage_gc_cycle_sec));
   jemalloc_purge_scheduler.Run("Jemalloc purge", [] { memgraph::memory::PurgeUnusedMemory(); });
 
   using namespace std::chrono_literals;

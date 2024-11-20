@@ -4082,50 +4082,9 @@ PreparedQuery PrepareShowSnapshotsQuery(ParsedQuery parsed_query, bool in_explic
     std::vector<std::vector<TypedValue>> infos;
     const auto res = static_cast<storage::InMemoryStorage *>(storage)->ShowSnapshots();
     infos.reserve(res.size());
-
-    auto readable_size = [](size_t size) {
-      double size_d = size;
-      uint8_t level = 0;
-      while (size_d > 1000.0) {
-        size_d /= 1024.0;
-        ++level;
-      }
-      std::ostringstream oss;
-      oss << std::fixed << std::setprecision(2);
-      if (level == 0) oss << std::setprecision(0) << std::noshowpoint;
-      oss << size_d;
-      std::string res = oss.str();
-      switch (level) {
-        case 0:
-          break;
-        case 1:
-          res += "Ki";
-          break;
-        case 2:
-          res += "Mi";
-          break;
-        case 3:
-          res += "Gi";
-          break;
-        case 4:
-          res += "Ti";
-          break;
-        case 5:
-          res += "Pi";
-          break;
-        case 6:
-          res += "Ei";
-          break;
-        default:
-          throw QueryRuntimeException("Unable to determine human-readable file size.");
-      }
-      res += "B";
-      return res;
-    };
-
     for (const auto &info : res) {
       infos.push_back({TypedValue{info.path.string()}, TypedValue{static_cast<int64_t>(info.start_timestamp)},
-                       TypedValue{info.creation_time.ToString()}, TypedValue{readable_size(info.size)}});
+                       TypedValue{info.creation_time.ToString()}, TypedValue{utils::GetReadableSize(info.size)}});
     }
     return infos;
   };

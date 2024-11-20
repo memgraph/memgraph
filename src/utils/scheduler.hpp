@@ -27,21 +27,35 @@ struct SchedulerInterval {
   SchedulerInterval() = default;
 
   template <typename TRep, typename TPeriod>
-  SchedulerInterval(const std::chrono::duration<TRep, TPeriod> &period)
-      : period_or_cron{std::chrono::duration_cast<std::chrono::seconds>(period)} {}
+  explicit SchedulerInterval(std::chrono::duration<TRep, TPeriod> period,
+                             std::optional<std::chrono::system_clock::time_point> start_time = {})
+      : period_or_cron{PeriodStartTime{std::chrono::duration_cast<std::chrono::seconds>(period), start_time}} {}
   explicit SchedulerInterval(const std::string &str);
 
   friend bool operator==(const SchedulerInterval &lrh, const SchedulerInterval &rhs) = default;
 
-  std::variant<std::chrono::seconds, std::string> period_or_cron{};
+  struct PeriodStartTime {
+    PeriodStartTime() {}
+    PeriodStartTime(std::chrono::seconds period, std::optional<std::chrono::system_clock::time_point> start_time)
+        : period{period}, start_time{start_time} {}
+
+    std::chrono::seconds period{};
+    std::optional<std::chrono::system_clock::time_point> start_time{};
+  };
+
+  std::variant<PeriodStartTime, std::string> period_or_cron{};
 
   explicit operator bool() const {
-    return std::visit(utils::Overloaded{[](std::chrono::seconds s) { return s != std::chrono::seconds(0); },
+    return std::visit(utils::Overloaded{[](PeriodStartTime pst) { return pst.period != std::chrono::seconds(0); },
                                         [](const std::string &cron) { return !cron.empty(); }},
                       period_or_cron);
   }
 
-  void Execute(auto &&overloaded) const { std::visit(overloaded, period_or_cron); }
+  void Execute(auto &&overloaded) const {
+    std::visit(utils::Overloaded([&overloaded](PeriodStartTime pst) { overloaded(pst.period, pst.start_time); },
+                                 [&overloaded](std::string_view cron) { overloaded(cron); }),
+               period_or_cron);
+  }
 };
 
 /**
@@ -52,38 +66,15 @@ class Scheduler {
   Scheduler() = default;
   void Run(const std::string &service_name, const std::function<void()> &f);
 
+  void SetInterval(const SchedulerInterval &setup);
+
   template <typename TRep, typename TPeriod>
-  void Setup(const std::chrono::duration<TRep, TPeriod> &pause,
-             std::optional<std::chrono::system_clock::time_point> start_time = {}) {
-    DMG_ASSERT(pause > std::chrono::seconds(0), "Pause is invalid. Expected > 0, got {}.", pause.count());
-
-    // Setup
-    std::chrono::system_clock::time_point next_execution;
-    const auto now = std::chrono::system_clock::now();
-    if (start_time) {
-      while (*start_time < now) *start_time += pause;
-      next_execution = *start_time;
-    } else {
-      next_execution = now;
-    }
-
-    // Function to calculate next
-    *find_next_.Lock() = [=](const auto &now, bool incr) mutable {
-      if (next_execution > now) return next_execution;
-      if (incr) next_execution += pause;
-      return std::max(now, next_execution);
-    };
+  void SetInterval(const std::chrono::duration<TRep, TPeriod> &period,
+                   std::optional<std::chrono::system_clock::time_point> start_time = {}) {
+    SetInterval(SchedulerInterval{period, start_time});
   }
 
-  void Setup(std::string_view cron_expr);
-
-  void Setup(const SchedulerInterval &setup) {
-    if (!setup) {  // Un-setup; let the scheduler wait till infinity
-      *find_next_.Lock() = [](auto && /* unused */, bool /* unused */) { return time_point::max(); };
-      return;
-    }
-    setup.Execute([this](auto &in) { Setup(in); });
-  }
+  void SetInterval(std::string cron_expr) { SetInterval(SchedulerInterval{cron_expr}); }
 
   void Resume();
 
@@ -93,7 +84,7 @@ class Scheduler {
 
   bool IsRunning();
 
-  void SpinOne();
+  void SpinOnce();
 
   using time_point = std::chrono::system_clock::time_point;
   std::optional<time_point> NextExecution() {
@@ -105,6 +96,10 @@ class Scheduler {
   ~Scheduler() { Stop(); }
 
  private:
+  void SetInterval_(std::chrono::seconds pause, std::optional<std::chrono::system_clock::time_point> start_time = {});
+
+  void SetInterval_(std::string_view cron_expr);
+
   void ThreadRun(std::string service_name, std::function<void()> f, std::stop_token token);
 
   Synchronized<std::function<time_point(const time_point &, bool)>> find_next_{
@@ -113,7 +108,7 @@ class Scheduler {
   /**
    * Variable is true for a single cycle when we spin without executing anything.
    */
-  std::atomic_bool spin_ = false;
+  bool spin_once_ = false;
 
   /**
    * Variable is true when thread is paused.

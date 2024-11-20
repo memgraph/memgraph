@@ -56,7 +56,7 @@ Telemetry::Telemetry(std::string url, std::filesystem::path storage_directory, s
          metrics::global_one_shot_events[metrics::OneShotEvents::kFirstSuccessfulQueryTs].load()},
         {"first_failed_query", metrics::global_one_shot_events[metrics::OneShotEvents::kFirstFailedQueryTs].load()}};
   });
-  scheduler_.Setup(refresh_interval);
+  scheduler_.SetInterval(refresh_interval);
   scheduler_.Run("Telemetry", [&] { CollectData(); });
 }
 

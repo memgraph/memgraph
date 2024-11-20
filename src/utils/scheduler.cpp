@@ -39,7 +39,37 @@ void Scheduler::Run(const std::string &service_name, const std::function<void()>
   });
 }
 
-void Scheduler::Setup(std::string_view cron_expr) {
+void Scheduler::SetInterval(const SchedulerInterval &setup) {
+  if (!setup) {  // Un-setup; let the scheduler wait till infinity
+    *find_next_.Lock() = [](auto && /* unused */, bool /* unused */) { return time_point::max(); };
+    return;
+  }
+  setup.Execute([this](auto... in) { SetInterval_(in...); });
+}
+
+void Scheduler::SetInterval_(std::chrono::seconds pause,
+                             std::optional<std::chrono::system_clock::time_point> start_time) {
+  DMG_ASSERT(pause > std::chrono::seconds(0), "Pause is invalid. Expected > 0, got {}.", pause.count());
+
+  // Setup
+  std::chrono::system_clock::time_point next_execution;
+  const auto now = std::chrono::system_clock::now();
+  if (start_time) {
+    while (*start_time < now) *start_time += pause;
+    next_execution = *start_time;
+  } else {
+    next_execution = now;
+  }
+
+  // Function to calculate next
+  *find_next_.Lock() = [=](const auto &now, bool incr) mutable {
+    if (next_execution > now) return next_execution;
+    if (incr) next_execution += pause;
+    return std::max(now, next_execution);
+  };
+}
+
+void Scheduler::SetInterval_(std::string_view cron_expr) {
   *find_next_.Lock() = [cron = cron::make_cron(cron_expr)](const auto &now, bool /* unused */) {
     auto tm_now = LocalDateTime{now}.tm();
     // Hack to force the mktime to reinterpret the time as is in the system tz
@@ -52,16 +82,17 @@ void Scheduler::Setup(std::string_view cron_expr) {
   };
 }
 
-SchedulerInterval::SchedulerInterval(const std::string &str) : period_or_cron{str} {
+SchedulerInterval::SchedulerInterval(const std::string &str) {
   if (str.empty()) return;
   try {
     // Try period
     const auto period = std::chrono::seconds(std::stol(str));
-    period_or_cron = period;
+    period_or_cron = PeriodStartTime{period, std::nullopt};
   } catch (std::invalid_argument /* unused */) {
     // Try cron
     try {
-      cron::make_cron(str);
+      (void)cron::make_cron(str);
+      period_or_cron = str;
     } catch (cron::bad_cronexpr & /* unused */) {
       LOG_FATAL("Scheduler setup not an interval or cron expression");
     }
@@ -75,10 +106,10 @@ bool Scheduler::IsRunning() {
   return token.stop_possible() && !token.stop_requested();
 }
 
-void Scheduler::SpinOne() {
+void Scheduler::SpinOnce() {
   {
     auto lk = std::unique_lock{mutex_};
-    spin_ = true;
+    spin_once_ = true;
   }
   condition_variable_.notify_one();
 }
@@ -103,15 +134,15 @@ void Scheduler::ThreadRun(std::string service_name, std::function<void()> f, std
       next = find_locked->operator()(now, true);
     }
     if (next > now) {
-      condition_variable_.wait_until(lk, token, next, [&] { return spin_.load(); });
+      condition_variable_.wait_until(lk, token, next, [&] { return spin_once_; });
     }
     if (is_paused_) {
-      condition_variable_.wait(lk, token, [&] { return !is_paused_ || spin_.load(); });
+      condition_variable_.wait(lk, token, [&] { return !is_paused_ || spin_once_; });
     }
 
     if (token.stop_requested()) break;
-    if (spin_) {
-      spin_ = false;
+    if (spin_once_) {
+      spin_once_ = false;
       continue;
     }
 

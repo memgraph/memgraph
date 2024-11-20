@@ -126,22 +126,15 @@ auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from
 
 class PeriodicSnapshotObserver : public memgraph::utils::Observer<memgraph::utils::SchedulerInterval> {
  public:
-  explicit PeriodicSnapshotObserver(memgraph::storage::InMemoryStorage &storage, memgraph::utils::Scheduler &scheduler)
-      : storage_{&storage}, scheduler_{&scheduler} {}
+  explicit PeriodicSnapshotObserver(memgraph::utils::Scheduler &scheduler) : scheduler_{&scheduler} {}
 
   // String HAS to be a valid cron expr
   void Update(const memgraph::utils::SchedulerInterval &in) override {
-    scheduler_->Setup(in);
-    scheduler_->SpinOne();
-    if (storage_->GetStorageMode() == StorageMode::IN_MEMORY_ANALYTICAL) {
-      scheduler_->Pause();
-    } else {
-      scheduler_->Resume();
-    }
+    scheduler_->SetInterval(in);
+    scheduler_->SpinOnce();
   }
 
  private:
-  memgraph::storage::InMemoryStorage *storage_;
   memgraph::utils::Scheduler *scheduler_;
 };
 
@@ -154,7 +147,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       recovery_{config.durability.storage_directory / durability::kSnapshotDirectory,
                 config.durability.storage_directory / durability::kWalDirectory},
       lock_file_path_(config.durability.storage_directory / durability::kLockFile),
-      snapshot_periodic_observer_(new PeriodicSnapshotObserver(*this, snapshot_runner_)),
+      snapshot_periodic_observer_(new PeriodicSnapshotObserver(snapshot_runner_)),
       global_locker_(file_retainer_.AddLocker()) {
   MG_ASSERT(config.salient.storage_mode != StorageMode::ON_DISK_TRANSACTIONAL,
             "Invalid storage mode sent to InMemoryStorage constructor!");
@@ -259,7 +252,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
 
   if (config_.gc.type == Config::Gc::Type::PERIODIC) {
     // TODO: move out of storage have one global gc_runner_
-    gc_runner_.Setup(config_.gc.interval);
+    gc_runner_.SetInterval(config_.gc.interval);
     gc_runner_.Run("Storage GC", [this] { this->FreeMemory({}, true); });
   }
   if (timestamp_ == kTimestampInitialId) {
@@ -3080,11 +3073,11 @@ void InMemoryStorage::CreateSnapshotHandler(
     }
   };
 
-  // Start the snapshot thread in any case, paused if not disabled (analytical mode or actually disabled)
-  if (config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::DISABLED) {
+  // Start the snapshot thread in any case, paused if in analytical mode
+  if (config_.salient.storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
     snapshot_runner_.Pause();
   }
-  snapshot_runner_.Setup(config_.durability.snapshot_interval);
+  snapshot_runner_.SetInterval(config_.durability.snapshot_interval);
   snapshot_runner_.Run("Snapshot", [this, token = stop_source.get_token()]() {
     if (!token.stop_requested()) {
       this->create_snapshot_handler();

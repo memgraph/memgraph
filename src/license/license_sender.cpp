@@ -31,7 +31,7 @@ LicenseInfoSender::LicenseInfoSender(std::string url, std::string uuid, std::str
       machine_id_{std::move(machine_id)},
       memory_limit_{memory_limit},
       license_info_{license_info} {
-  scheduler_.Setup(request_frequency);
+  scheduler_.SetInterval(request_frequency);
   scheduler_.Run("LicenseCheck", [&] { SendData(); });
 }
 

@@ -43,7 +43,7 @@ struct ReplicationClient {
   void StartFrequentCheck(F &&callback) {
     // Help the user to get the most accurate replica state possible.
     if (replica_check_frequency_ > std::chrono::seconds(0)) {
-      replica_checker_.Setup(replica_check_frequency_);
+      replica_checker_.SetInterval(replica_check_frequency_);
       replica_checker_.Run("Replica Checker", [this, cb = std::forward<F>(callback), reconnect = false]() mutable {
         try {
           {

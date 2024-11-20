@@ -12,16 +12,11 @@
 #pragma once
 
 #include <atomic>
-#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <optional>
 #include <string>
-#include <system_error>
-#include <variant>
 
-#include "replication/epoch.hpp"
-#include "replication/state.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/durability/metadata.hpp"

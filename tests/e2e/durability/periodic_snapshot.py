@@ -28,7 +28,8 @@ interactive_mg_runner.BUILD_DIR = os.path.normpath(os.path.join(interactive_mg_r
 interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactive_mg_runner.BUILD_DIR, "memgraph"))
 
 
-def memgraph_instances(dir):
+def memgraph_instances(dir, mode="IN_MEMORY_TRANSACTIONAL"):
+    assert mode == "IN_MEMORY_TRANSACTIONAL" or mode == "IN_MEMORY_ANALYTICAL"
     return {
         "no_flags": {
             "args": [
@@ -38,6 +39,8 @@ def memgraph_instances(dir):
                 "--storage-wal-enabled=false",
                 "--storage-snapshot-interval-sec=0",
                 "--storage-snapshot-retention-count=20",
+                "--storage-mode",
+                mode,
             ],
             "log_file": "periodic_snapshot_no_flags.log",
             "data_directory": dir,
@@ -47,8 +50,10 @@ def memgraph_instances(dir):
                 "--log-level=TRACE",
                 "--also-log-to-stderr",
                 "--data-recovery-on-startup=false",
-                "--storage-snapshot-interval-sec=3",
+                "--storage-snapshot-interval-sec=1",
                 "--storage-snapshot-retention-count=20",
+                "--storage-mode",
+                mode,
             ],
             "log_file": "periodic_snapshot_sec_flag.log",
             "data_directory": dir,
@@ -60,8 +65,10 @@ def memgraph_instances(dir):
                 "--data-recovery-on-startup=false",
                 "--storage-snapshot-interval-sec=0",
                 "--storage-snapshot-interval",
-                "3",
+                "1",
                 "--storage-snapshot-retention-count=20",
+                "--storage-mode",
+                mode,
             ],
             "log_file": "periodic_snapshot_interval_flag.log",
             "data_directory": dir,
@@ -71,9 +78,12 @@ def memgraph_instances(dir):
                 "--log-level=TRACE",
                 "--also-log-to-stderr",
                 "--data-recovery-on-startup=false",
-                "--storage-snapshot-interval-sec=3",
-                '--storage-snapshot-interval="3"',
+                "--storage-snapshot-interval-sec=1",
+                "--storage-snapshot-interval",
+                "1",
                 "--storage-snapshot-retention-count=20",
+                "--storage-mode",
+                mode,
             ],
             "log_file": "periodic_snapshot_both_flags.log",
             "data_directory": dir,
@@ -135,6 +145,43 @@ def main_test(snapshots_dir):
     assert len(execute_and_fetch_all(cursor, "SHOW SNAPSHOTS;")) == n_snapshots3  # no next
 
 
+def main_test_analytical(snapshots_dir, set):
+    # 1 (optional) set interval to 1s
+    # 2 check number of snapshots under analytical
+    # 3 set to transactional
+    # 4 check number of snapshots under tranasctional
+    # 5 set to analytical
+    # 6 check number of snapshots under analytical
+
+    connection = connect(host="localhost", port=7687)
+    cursor = connection.cursor()
+
+    n_snapshots1 = number_of_snapshots(snapshots_dir)
+
+    # 1
+    if set:
+        execute_and_fetch_all(cursor, "SET DATABASE SETTING 'storage.snapshot.interval' TO '1';")
+
+    # 2
+    time.sleep(2)
+    assert number_of_snapshots(snapshots_dir) == n_snapshots1, "Got new snapshots even though in analytical"
+
+    # 3
+    execute_and_fetch_all(cursor, "STORAGE MODE IN_MEMORY_TRANSACTIONAL;")
+
+    # 4
+    time.sleep(2)
+    assert number_of_snapshots(snapshots_dir) > n_snapshots1, "Didn't get new snapshots even though in transactional"
+
+    # 5
+    execute_and_fetch_all(cursor, "STORAGE MODE IN_MEMORY_ANALYTICAL;")
+
+    # 6
+    n_snapshots2 = number_of_snapshots(snapshots_dir)
+    time.sleep(2)
+    assert number_of_snapshots(snapshots_dir) == n_snapshots2, "Got new snapshots even though in analytical"
+
+
 def test_no_flags():
     data_directory = tempfile.TemporaryDirectory()
     interactive_mg_runner.start(memgraph_instances(data_directory.name), "no_flags")
@@ -153,6 +200,29 @@ def test_interval_flag():
     data_directory = tempfile.TemporaryDirectory()
     interactive_mg_runner.start(memgraph_instances(data_directory.name), "interval_flag")
     main_test(data_directory.name + "/snapshots")
+    interactive_mg_runner.kill_all()
+
+
+def test_no_flags_analytical():
+    data_directory = tempfile.TemporaryDirectory()
+    interactive_mg_runner.start(memgraph_instances(data_directory.name, "IN_MEMORY_ANALYTICAL"), "no_flags")
+    main_test_analytical(data_directory.name + "/snapshots", True)
+    interactive_mg_runner.kill_all()
+
+
+@pytest.mark.parametrize("set", [True, False])
+def test_sec_flag_analytical(set):
+    data_directory = tempfile.TemporaryDirectory()
+    interactive_mg_runner.start(memgraph_instances(data_directory.name, "IN_MEMORY_ANALYTICAL"), "sec_flag")
+    main_test_analytical(data_directory.name + "/snapshots", set)
+    interactive_mg_runner.kill_all()
+
+
+@pytest.mark.parametrize("set", [True, False])
+def test_interval_flag_analytical(set):
+    data_directory = tempfile.TemporaryDirectory()
+    interactive_mg_runner.start(memgraph_instances(data_directory.name, "IN_MEMORY_ANALYTICAL"), "interval_flag")
+    main_test_analytical(data_directory.name + "/snapshots", set)
     interactive_mg_runner.kill_all()
 
 
