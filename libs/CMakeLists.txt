@@ -9,7 +9,7 @@ if(NPROC EQUAL 0)
   set(NPROC 1)
 endif()
 
-find_package(Boost 1.78 REQUIRED)
+find_package(Boost 1.78 REQUIRED CONFIG)
 find_package(BZip2 1.0.6 REQUIRED)
 find_package(Threads REQUIRED)
 set(GFLAGS_NOTHREADS OFF)
