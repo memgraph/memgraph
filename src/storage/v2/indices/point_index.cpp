@@ -592,19 +592,18 @@ double toRadians(double degrees) { return degrees * M_PI / 180.0; }
 double toDegrees(double radians) { return radians * 180.0 / M_PI; }
 
 template <typename point_type>
-requires std::is_same_v<typename bg::traits::coordinate_system<point_type>::type, bg::cs::cartesian>
+  requires std::is_same_v<typename bg::traits::coordinate_system<point_type>::type, bg::cs::cartesian>
 auto create_bounding_box(const point_type &center_point, double boundary) -> bg::model::box<point_type> {
   constexpr auto n_dimensions = bg::traits::dimension<point_type>::value;
   return [&]<auto... I>(std::index_sequence<I...>) {
     auto const min_corner = point_type{(bg::get<I>(center_point) - boundary)...};
     auto const max_corner = point_type{(bg::get<I>(center_point) + boundary)...};
     return bg::model::box{min_corner, max_corner};
-  }
-  (std::make_index_sequence<n_dimensions>{});
+  }(std::make_index_sequence<n_dimensions>{});
 }
 
 template <typename point_type>
-requires std::is_same_v<typename bg::traits::coordinate_system<point_type>::type, bg::cs::geographic<bg::degree>>
+  requires std::is_same_v<typename bg::traits::coordinate_system<point_type>::type, bg::cs::geographic<bg::degree>>
 auto create_bounding_box(const point_type &center_point, double boundary) -> bg::model::box<point_type> {
   // Our approximation for earth radius
   constexpr double MEAN_EARTH_RADIUS = 6'371'009;

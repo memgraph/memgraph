@@ -15,7 +15,6 @@
 #include "query/parameters.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/rewrite/index_lookup.hpp"
-#include "query/typed_value.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/math.hpp"
 
@@ -90,6 +89,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     static constexpr double MakeScanAllByLabelPropertyValue{1.1};
     static constexpr double MakeScanAllByLabelPropertyRange{1.1};
     static constexpr double MakeScanAllByLabelProperty{1.1};
+    static constexpr double MakeScanAllByPoint{1.1};
     static constexpr double MakeScanAllByPointDistance{1.1};
     static constexpr double MakeScanAllByPointWithinbbox{1.1};
     static constexpr double kScanAllByEdgeType{1.1};
@@ -227,6 +227,19 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     }
 
     IncrementCost(CostParam::MakeScanAllByLabelProperty);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByPoint &logical_op) override {
+    // FYI, no stats for point types
+
+    const auto factor = db_accessor_->VerticesPointCount(logical_op.label_, logical_op.property_);
+    cardinality_ *= factor.value_or(1);
+    if (index_hints_.HasPointIndex(db_accessor_, logical_op.label_, logical_op.property_)) {
+      use_index_hints_ = true;
+    }
+
+    IncrementCost(CostParam::MakeScanAllByPoint);
     return true;
   }
 
