@@ -23,6 +23,7 @@
 #include "dbms/constants.hpp"
 #include "flags/experimental.hpp"
 #include "flags/general.hpp"
+#include "flags/run_time_configurable.hpp"
 #include "memory/global_memory_control.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/durability/durability.hpp"
@@ -1854,6 +1855,22 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
     storage::LabelId label, storage::PropertyId property) {
   MG_ASSERT(unique_guard_.owns_lock(), "Creating point index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+
+  auto status = CreateTypeConstraint(label, property, TypeConstraintKind::POINT);
+
+  auto point_constraint_exists = [](auto &&error) -> bool {
+    return std::visit(utils::Overloaded{[](TypeConstraintAlreadyUsedError &) { return false; },
+                                        [](ConstraintViolation) { return false; },
+                                        [](TypeConstraintAlreadyExistsError &) { return true; }},
+                      error);
+  };
+
+  // Don't create point index if point type constraint can't be created
+  // and doesn't already exist
+  if (status.HasError() && !point_constraint_exists(status.GetError())) {
+    return StorageIndexDefinitionError{IndexDefinitionError{}};
+  }
+
   auto &point_index = in_memory->indices_.point_index_;
   if (!point_index.CreatePointIndex(label, property, in_memory->vertices_.access())) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
@@ -1875,6 +1892,8 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   transaction_.md_deltas.emplace_back(MetadataDelta::point_index_drop, label, property);
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActivePointIndices);
+
+  [[maybe_unused]] auto status = DropTypeConstraint(label, property, TypeConstraintKind::POINT);
   return {};
 }
 
@@ -1939,14 +1958,21 @@ UniqueConstraints::DeletionStatus InMemoryStorage::InMemoryAccessor::DropUniqueC
   return UniqueConstraints::DeletionStatus::SUCCESS;
 }
 
-utils::BasicResult<StorageExistenceConstraintDefinitionError, void>
-InMemoryStorage::InMemoryAccessor::CreateTypeConstraint(LabelId label, PropertyId property, TypeConstraintKind type) {
+utils::BasicResult<StorageTypeConstraintDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateTypeConstraint(
+    LabelId label, PropertyId property, TypeConstraintKind type) {
   MG_ASSERT(unique_guard_.owns_lock(), "Creating IS TYPED constraint requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *type_constraints = in_memory->constraints_.type_constraints_.get();
-  if (type_constraints->ConstraintExists(label, property)) {
-    return StorageTypeConstraintDefinitionError{ConstraintDefinitionError{}};
+
+  auto status = type_constraints->ConstraintExists(label, property, type);
+  using Status = TypeConstraints::ExistanceStatus;
+  if (status == Status::EXISTS_SAME) {
+    return StorageTypeConstraintDefinitionError{TypeConstraintAlreadyExistsError{}};
   }
+  if (status == Status::EXISTS_DIFFERENT) {
+    return StorageTypeConstraintDefinitionError{TypeConstraintAlreadyUsedError{}};
+  }
+
   if (auto violation =
           TypeConstraints::ValidateVerticesOnConstraint(in_memory->vertices_.access(), label, property, type);
       violation.has_value()) {

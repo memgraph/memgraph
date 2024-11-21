@@ -12,8 +12,6 @@
 #pragma once
 
 #include <atomic>
-#include <cstdlib>
-#include <memory>
 
 namespace memgraph::metrics {
 using Event = uint64_t;

@@ -148,12 +148,20 @@ inline TypeConstraintKind PropertyValueToTypeConstraintKind(const PropertyValue 
 
 bool TypeConstraints::empty() const { return constraints_.empty(); }
 
-bool TypeConstraints::ConstraintExists(LabelId label, PropertyId property) const {
-  return constraints_.contains({label, property});
+TypeConstraints::ExistanceStatus TypeConstraints::ConstraintExists(LabelId label, PropertyId property,
+                                                                   TypeConstraintKind type) const {
+  auto it = constraints_.find({label, property});
+  if (it == constraints_.end()) {
+    return ExistanceStatus::EMPTY;
+  }
+  if (it->second == type) {
+    return ExistanceStatus::EXISTS_SAME;
+  }
+  return ExistanceStatus::EXISTS_DIFFERENT;
 }
 
 bool TypeConstraints::InsertConstraint(LabelId label, PropertyId property, TypeConstraintKind type) {
-  if (ConstraintExists(label, property)) {
+  if (ConstraintExists(label, property, type) != ExistanceStatus::EMPTY) {
     return false;
   }
   constraints_.emplace(std::make_pair(label, property), type);
