@@ -2,3 +2,9 @@ workloads:
   - name: "Durability with property compression used"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["durability/durability_with_property_compression_used.py"]
+  - name: "Recover snapshot"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["durability/snapshot_recovery.py"]
+  - name: "Periodic snapshot"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["durability/periodic_snapshot.py"]

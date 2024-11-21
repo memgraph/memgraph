@@ -14,10 +14,12 @@
 #include <filesystem>
 
 #include "dbms/constants.hpp"
+#include "dbms/inmemory/storage_helper.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/storage.hpp"
+#include "utils/scheduler.hpp"
 
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace memgraph::storage;
@@ -32,9 +34,14 @@ class InfoTest : public testing::Test {
     std::filesystem::remove_all(storage_directory);
     config_.salient.name = memgraph::dbms::kDefaultDB;
     memgraph::storage::UpdatePaths(config_, storage_directory);
+    config_.durability.snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::seconds{1}};
     config_.durability.snapshot_wal_mode =
         memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
-    this->storage = std::make_unique<StorageType>(config_);
+    if (std::is_same_v<StorageType, InMemoryStorage>) {
+      this->storage = memgraph::dbms::CreateInMemoryStorage(config_, repl_state_);
+    } else {
+      this->storage = std::make_unique<StorageType>(config_);
+    }
   }
 
   void TearDown() override {
@@ -43,6 +50,7 @@ class InfoTest : public testing::Test {
   }
 
   memgraph::storage::Config config_;
+  memgraph::replication::ReplicationState repl_state_{storage_directory};
   std::unique_ptr<memgraph::storage::Storage> storage;
   StorageMode mode{std::is_same_v<StorageType, DiskStorage> ? StorageMode::ON_DISK_TRANSACTIONAL
                                                             : StorageMode::IN_MEMORY_TRANSACTIONAL};

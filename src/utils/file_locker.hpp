@@ -158,6 +158,8 @@ class FileRetainer {
    */
   void DeleteFile(const std::filesystem::path &path);
 
+  void RenameFile(const std::filesystem::path &orig, const std::filesystem::path &dest);
+
   /**
    * Create and return a new locker.
    */

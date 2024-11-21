@@ -63,6 +63,24 @@ inline constexpr std::array test_local_times{TestLocalTimeParameters{{.hour = 24
                                              TestLocalTimeParameters{{.microsecond = 1000}, true},
                                              TestLocalTimeParameters{{23, 59, 59, 999, 999}, false},
                                              TestLocalTimeParameters{{0, 0, 0, 0, 0}, false}};
+
+inline bool operator==(const std::tm &lhs, const std::tm &rhs) {
+  bool res = true;
+
+  res &= lhs.tm_sec == rhs.tm_sec;
+  res &= lhs.tm_min == rhs.tm_min;
+  res &= lhs.tm_hour == rhs.tm_hour;
+  res &= lhs.tm_mday == rhs.tm_mday;
+  res &= lhs.tm_mon == rhs.tm_mon;
+  res &= lhs.tm_year == rhs.tm_year;
+  res &= lhs.tm_wday == rhs.tm_wday;
+  res &= lhs.tm_yday == rhs.tm_yday;
+  res &= lhs.tm_isdst == rhs.tm_isdst;
+  res &= lhs.tm_gmtoff == rhs.tm_gmtoff;
+
+  return res;
+}
+
 }  // namespace
 
 TEST(TemporalTest, DateConstruction) {
@@ -214,6 +232,46 @@ TEST(TemporalTest, LocalDateTimeMicrosecondsSinceEpochConversionTZ) {
   test_LocalDateTimeMicrosecondsSinceEpochConversion(htz.GetOffset_us());
   htz.Set("America/Los_Angeles");
   test_LocalDateTimeMicrosecondsSinceEpochConversion(htz.GetOffset_us());
+}
+
+TEST(TemporalTest, LocalDateTimeToTM) {
+  auto gen_tm = [](const std::string &tz, const auto &ldt) {
+    const auto *env = getenv("TZ");
+    const auto prev_tz = env ? std::string{env} : std::string{};
+    setenv("TZ", ("/usr/share/zoneinfo/" + tz).c_str(), 1);  // POSIX-specific
+    std::tm std_tm{};
+    std::istringstream{ldt.ToString()} >> std::get_time(&std_tm, "%Y-%m-%dT%H:%M:%S.000000");
+    std_tm.tm_isdst = -1;  // Let the mktime determine daylight saving
+    (void)std::mktime(&std_tm);
+    if (env) {
+      setenv("TZ", prev_tz.c_str(), 1);
+    } else {
+      unsetenv("TZ");
+    }
+    return std_tm;
+  };
+
+  HandleTimezone htz;
+  htz.Set("UTC");
+  const auto ldt1 =
+      memgraph::utils::LocalDateTime(memgraph::utils::DateParameters{.year = 2024, .month = 8, .day = 16},
+                                     memgraph::utils::LocalTimeParameters{.hour = 21, .minute = 56, .second = 13});
+  EXPECT_TRUE(ldt1.tm() == gen_tm("UTC", ldt1));
+
+  htz.Set("Europe/Rome");
+  const auto ldt2 =
+      memgraph::utils::LocalDateTime(memgraph::utils::DateParameters{.year = 2000, .month = 1, .day = 1},
+                                     memgraph::utils::LocalTimeParameters{.hour = 0, .minute = 0, .second = 0});
+  EXPECT_TRUE(ldt1.tm() == gen_tm("Europe/Rome", ldt1));
+  EXPECT_TRUE(ldt2.tm() == gen_tm("Europe/Rome", ldt2));
+
+  htz.Set("America/Los_Angeles");
+  const auto ldt3 =
+      memgraph::utils::LocalDateTime(memgraph::utils::DateParameters{.year = 2050, .month = 12, .day = 31},
+                                     memgraph::utils::LocalTimeParameters{.hour = 23, .minute = 59, .second = 59});
+  EXPECT_TRUE(ldt1.tm() == gen_tm("America/Los_Angeles", ldt1));
+  EXPECT_TRUE(ldt2.tm() == gen_tm("America/Los_Angeles", ldt2));
+  EXPECT_TRUE(ldt3.tm() == gen_tm("America/Los_Angeles", ldt3));
 }
 
 TEST(TemporalTest, ZonedDateTimeMicrosecondsSinceEpochConversion) {

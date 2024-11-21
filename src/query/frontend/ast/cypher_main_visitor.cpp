@@ -822,6 +822,23 @@ antlrcpp::Any CypherMainVisitor::visitCreateSnapshotQuery(MemgraphCypher::Create
   return query_;
 }
 
+antlrcpp::Any CypherMainVisitor::visitRecoverSnapshotQuery(MemgraphCypher::RecoverSnapshotQueryContext *ctx) {
+  auto *recover_snapshot = storage_->Create<RecoverSnapshotQuery>();
+  if (!ctx->path || !ctx->path->StringLiteral()) {
+    throw SemanticException("Snapshot path must be a string literal.");
+  }
+  recover_snapshot->snapshot_ = std::any_cast<Expression *>(ctx->path->accept(this));
+
+  recover_snapshot->force_ = ctx->FORCE();
+  query_ = recover_snapshot;
+  return query_;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowSnapshotsQuery(MemgraphCypher::ShowSnapshotsQueryContext * /*ctx*/) {
+  query_ = storage_->Create<ShowSnapshotsQuery>();
+  return query_;
+}
+
 antlrcpp::Any CypherMainVisitor::visitStreamQuery(MemgraphCypher::StreamQueryContext *ctx) {
   MG_ASSERT(ctx->children.size() == 1, "StreamQuery should have exactly one child!");
   auto *stream_query = std::any_cast<StreamQuery *>(ctx->children[0]->accept(this));
