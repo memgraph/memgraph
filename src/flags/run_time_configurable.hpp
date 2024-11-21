@@ -12,6 +12,8 @@
 
 #include <chrono>
 #include <string>
+#include "utils/observer.hpp"
+#include "utils/scheduler.hpp"
 
 namespace memgraph::flags::run_time {
 
@@ -62,5 +64,15 @@ const std::chrono::time_zone *GetTimezone();
  * @return std::string
  */
 std::string GetQueryLogDirectory();
+
+/**
+ * @brief Attach observer to the global snapshor period variable
+ */
+void SnapshotPeriodicAttach(std::shared_ptr<utils::Observer<utils::SchedulerInterval>> observer);
+
+/**
+ * @brief Detach observer from the global snapshor period variable
+ */
+void SnapshotPeriodicDetach(std::shared_ptr<utils::Observer<utils::SchedulerInterval>> observer);
 
 }  // namespace memgraph::flags::run_time

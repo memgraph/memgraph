@@ -131,6 +131,7 @@ memgraphCypherKeyword : cypherKeyword
                       | QUOTE
                       | READ
                       | READ_FILE
+                      | RECOVER
                       | REGISTER
                       | REPLACE
                       | REPLICA
@@ -213,6 +214,8 @@ query : cypherQuery
       | isolationLevelQuery
       | storageModeQuery
       | createSnapshotQuery
+      | recoverSnapshotQuery
+      | showSnapshotsQuery
       | streamQuery
       | settingQuery
       | versionQuery
@@ -539,6 +542,10 @@ storageMode : IN_MEMORY_ANALYTICAL | IN_MEMORY_TRANSACTIONAL | ON_DISK_TRANSACTI
 storageModeQuery : STORAGE MODE storageMode ;
 
 createSnapshotQuery : CREATE SNAPSHOT ;
+
+recoverSnapshotQuery : RECOVER SNAPSHOT path=literal ( FORCE )? ;
+
+showSnapshotsQuery : SHOW SNAPSHOTS ;
 
 streamName : symbolicName ;
 

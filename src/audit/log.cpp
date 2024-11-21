@@ -137,7 +137,8 @@ void Log::Start() {
   started_ = true;
 
   ReopenLog();
-  scheduler_.Run("Audit", std::chrono::milliseconds(buffer_flush_interval_millis_), [&] { Flush(); });
+  scheduler_.SetInterval(std::chrono::milliseconds(buffer_flush_interval_millis_));
+  scheduler_.Run("Audit", [&] { Flush(); });
 }
 
 Log::~Log() {

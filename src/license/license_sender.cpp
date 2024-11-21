@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -31,7 +31,8 @@ LicenseInfoSender::LicenseInfoSender(std::string url, std::string uuid, std::str
       machine_id_{std::move(machine_id)},
       memory_limit_{memory_limit},
       license_info_{license_info} {
-  scheduler_.Run("LicenseCheck", request_frequency, [&] { SendData(); });
+  scheduler_.SetInterval(request_frequency);
+  scheduler_.Run("LicenseCheck", [&] { SendData(); });
 }
 
 LicenseInfoSender::~LicenseInfoSender() { scheduler_.Stop(); }

@@ -195,6 +195,11 @@ startup_config_dict = {
         "300",
         "Storage snapshot creation interval (in seconds). Set to 0 to disable periodic snapshot creation.",
     ),
+    "storage_snapshot_interval": (
+        "",
+        "300",
+        "Define periodic snapshot schedule via cron format or as a period in seconds.",
+    ),
     "storage_snapshot_on_exit": ("false", "false", "Controls whether the storage creates another snapshot on exit."),
     "storage_snapshot_retention_count": ("3", "3", "The number of snapshots that should always be kept."),
     "storage_wal_enabled": (
