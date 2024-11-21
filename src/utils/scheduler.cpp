@@ -91,7 +91,7 @@ void Scheduler::SetInterval_(std::string_view cron_expr) {
 SchedulerInterval::SchedulerInterval(std::string str) {
   str = utils::Trim(str);
   if (str.empty()) return;  // Default period_or_cron -> evaluates to false
-
+  bool failure = false;
 #ifdef MG_ENTERPRISE
   // Try cron
   try {
@@ -99,10 +99,10 @@ SchedulerInterval::SchedulerInterval(std::string str) {
     period_or_cron = str;
     return;
   } catch (cron::bad_cronexpr & /* unused */) {
-    // Try to extract period
+    // Handled later on
+    failure = true;
   }
 #endif
-
   try {
     // Try period
     size_t n_processed = 0;
@@ -114,7 +114,9 @@ SchedulerInterval::SchedulerInterval(std::string str) {
     return;
   } catch (const std::invalid_argument & /* unused */) {
     // Handled later on
+    failure = true;
   }
+  MG_ASSERT(failure, "Failure not handled correctly.");
   LOG_FATAL("Scheduler setup not an interval or cron expression");
 }
 

@@ -200,6 +200,7 @@ bool ValidTimezone(std::string_view tz) { return GetTimezone(tz) != nullptr; }
 
 template <bool FATAL>
 bool ValidPeriodicSnapshot(const std::string_view def) {
+  bool failure = false;
   // Empty string = disabled
   if (def.empty()) return true;
   try {
@@ -208,6 +209,7 @@ bool ValidPeriodicSnapshot(const std::string_view def) {
     return period >= 0L && period <= 7L * 24 * 3600;
   } catch (const std::invalid_argument & /* unused */) {
     // Handled later on
+    failure = true;
   }
 #ifdef MG_ENTERPRISE
   try {
@@ -224,8 +226,10 @@ bool ValidPeriodicSnapshot(const std::string_view def) {
     return true;
   } catch (const cron::bad_cronexpr & /* unused */) {
     // Handled later on
+    failure = true;
   }
 #endif
+  MG_ASSERT(failure, "Failure not handled correctly.");
   if constexpr (FATAL) {
     LOG_FATAL("Defined snapshot interval not a valid expression.");
   }
