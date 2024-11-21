@@ -15,9 +15,11 @@
 
 #include "croncpp.h"
 #include "utils/logging.hpp"
+#include "utils/string.hpp"
 #include "utils/synchronized.hpp"
 #include "utils/temporal.hpp"
 #include "utils/thread.hpp"
+#include "utils/variant_helpers.hpp"
 
 namespace memgraph::utils {
 
@@ -44,7 +46,11 @@ void Scheduler::SetInterval(const SchedulerInterval &setup) {
     *find_next_.Lock() = [](auto && /* unused */, bool /* unused */) { return time_point::max(); };
     return;
   }
-  setup.Execute([this](auto... in) { SetInterval_(in...); });
+  setup.Execute(utils::Overloaded{
+      [this](std::chrono::seconds pause, std::optional<std::chrono::system_clock::time_point> start_time) {
+        SetInterval_(pause, start_time);
+      },
+      [this](std::string_view cron) { SetInterval_(cron); }});
 }
 
 void Scheduler::SetInterval_(std::chrono::seconds pause,
@@ -82,21 +88,34 @@ void Scheduler::SetInterval_(std::string_view cron_expr) {
   };
 }
 
-SchedulerInterval::SchedulerInterval(const std::string &str) {
-  if (str.empty()) return;
+SchedulerInterval::SchedulerInterval(std::string str) {
+  str = utils::Trim(str);
+  if (str.empty()) return;  // Default period_or_cron -> evaluates to false
+
+#ifdef MG_ENTERPRISE
+  // Try cron
+  try {
+    (void)cron::make_cron(str);
+    period_or_cron = str;
+    return;
+  } catch (cron::bad_cronexpr & /* unused */) {
+    // Try to extract period
+  }
+#endif
+
   try {
     // Try period
-    const auto period = std::chrono::seconds(std::stol(str));
-    period_or_cron = PeriodStartTime{period, std::nullopt};
-  } catch (const std::invalid_argument & /* unused */) {
-    // Try cron
-    try {
-      (void)cron::make_cron(str);
-      period_or_cron = str;
-    } catch (cron::bad_cronexpr & /* unused */) {
-      LOG_FATAL("Scheduler setup not an interval or cron expression");
+    size_t n_processed = 0;
+    const auto period = std::chrono::seconds(std::stol(str, &n_processed));
+    if (n_processed != str.size()) {
+      throw std::invalid_argument{"String contains non numerical characteres."};
     }
+    period_or_cron = PeriodStartTime{period, std::nullopt};
+    return;
+  } catch (const std::invalid_argument & /* unused */) {
+    // Handled later on
   }
+  LOG_FATAL("Scheduler setup not an interval or cron expression");
 }
 
 // Checking stop_possible() is necessary because otherwise calling IsRunning

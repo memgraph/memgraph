@@ -11,13 +11,11 @@
 
 #pragma once
 
-#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <functional>
 #include <thread>
 
-#include "utils/logging.hpp"
 #include "utils/synchronized.hpp"
 #include "utils/variant_helpers.hpp"
 
@@ -30,7 +28,7 @@ struct SchedulerInterval {
   explicit SchedulerInterval(std::chrono::duration<TRep, TPeriod> period,
                              std::optional<std::chrono::system_clock::time_point> start_time = {})
       : period_or_cron{PeriodStartTime{std::chrono::duration_cast<std::chrono::seconds>(period), start_time}} {}
-  explicit SchedulerInterval(const std::string &str);
+  explicit SchedulerInterval(std::string str);
 
   friend bool operator==(const SchedulerInterval &lrh, const SchedulerInterval &rhs) = default;
 
@@ -39,16 +37,19 @@ struct SchedulerInterval {
     PeriodStartTime(std::chrono::seconds period, std::optional<std::chrono::system_clock::time_point> start_time)
         : period{period}, start_time{start_time} {}
 
-    std::chrono::seconds period{};
+    std::chrono::seconds period{0};
     std::optional<std::chrono::system_clock::time_point> start_time{};
+
+    friend bool operator==(const PeriodStartTime &lrh, const PeriodStartTime &rhs) = default;
   };
 
   std::variant<PeriodStartTime, std::string> period_or_cron{};
 
   explicit operator bool() const {
-    return std::visit(utils::Overloaded{[](PeriodStartTime pst) { return pst.period != std::chrono::seconds(0); },
-                                        [](const std::string &cron) { return !cron.empty(); }},
-                      period_or_cron);
+    return std::visit(
+        utils::Overloaded{[](const PeriodStartTime &pst) { return pst.period != std::chrono::seconds(0); },
+                          [](const std::string &cron) { return !cron.empty(); }},
+        period_or_cron);
   }
 
   void Execute(auto &&overloaded) const {

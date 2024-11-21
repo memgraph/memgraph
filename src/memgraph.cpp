@@ -319,15 +319,15 @@ int main(int argc, char **argv) {
                                              memgraph::utils::global_settings);
   memgraph::utils::OnScopeExit global_license_finalizer([] { memgraph::license::global_license_checker.Finalize(); });
 
-  // Has to be initialized after the storage
-  memgraph::flags::run_time::Initialize();
-
   memgraph::license::global_license_checker.CheckEnvLicense();
   if (!FLAGS_organization_name.empty() && !FLAGS_license_key.empty()) {
     memgraph::license::global_license_checker.SetLicenseInfoOverride(FLAGS_license_key, FLAGS_organization_name);
   }
 
   memgraph::license::global_license_checker.StartBackgroundLicenseChecker(memgraph::utils::global_settings);
+
+  // Has to be initialized after the storage and license startup
+  memgraph::flags::run_time::Initialize();
 
   // All enterprise features should be constructed before the main database
   // storage. This will cause them to be destructed *after* the main database

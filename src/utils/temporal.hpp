@@ -331,6 +331,7 @@ struct LocalDateTime {
    * @return std::string
    */
   std::string ToString() const;
+  std::string ToStringWTZ() const;
 
   /**
    * @brief Return calendar date (local/user timezone)

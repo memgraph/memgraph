@@ -265,6 +265,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
 }
 
 InMemoryStorage::~InMemoryStorage() {
+  flags::run_time::SnapshotPeriodicDetach(snapshot_periodic_observer_);
   stop_source.request_stop();
 
   if (config_.gc.type == Config::Gc::Type::PERIODIC) {
@@ -3003,7 +3004,7 @@ std::vector<SnapshotFileInfo> InMemoryStorage::ShowSnapshots() {
   }
 
   std::sort(res.begin(), res.end(),
-            [](const auto &lhs, const auto &rhs) { return lhs.creation_time < rhs.creation_time; });
+            [](const auto &lhs, const auto &rhs) { return lhs.creation_time > rhs.creation_time; });
 
   return res;
 }

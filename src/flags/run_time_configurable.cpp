@@ -80,9 +80,8 @@ DEFINE_VALIDATED_string(timezone, "UTC", "Define instance's timezone (IANA forma
 DEFINE_string(query_log_directory, "", "Path to directory where the query logs should be stored.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
-DEFINE_VALIDATED_string(storage_snapshot_interval, "",
-                        "Define periodic snapshot schedule via cron format or as a period in seconds.",
-                        { return ValidPeriodicSnapshot<true>(value); });
+DEFINE_string(storage_snapshot_interval, "",
+              "Define periodic snapshot schedule via cron format or as a period in seconds.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_uint64(storage_snapshot_interval_sec, 0,
@@ -143,7 +142,7 @@ class PeriodicObservable : public memgraph::utils::Observable<memgraph::utils::S
   }
 
   void Modify(std::string in) {
-    *periodic_.Lock() = memgraph::utils::SchedulerInterval(in);
+    *periodic_.Lock() = memgraph::utils::SchedulerInterval(std::move(in));
     Notify();
   }
 
@@ -184,6 +183,19 @@ auto GetTimezone(std::string_view tz) -> const std::chrono::time_zone * {
   }
 }
 
+int64_t ValidPeriod(std::string_view str) {
+  try {
+    // str = memgraph::utils::Trim(str);
+    size_t n_processed = 0;
+    const auto period = std::stol(str.data(), &n_processed);
+    if (n_processed != str.size()) throw std::invalid_argument{"string contains more than just an integer"};
+    return static_cast<int64_t>(period);
+  } catch (const std::out_of_range & /* unused */) {
+    // convert to invalid arg
+    throw std::invalid_argument{"out of range"};
+  }
+}
+
 bool ValidTimezone(std::string_view tz) { return GetTimezone(tz) != nullptr; }
 
 template <bool FATAL>
@@ -192,26 +204,32 @@ bool ValidPeriodicSnapshot(const std::string_view def) {
   if (def.empty()) return true;
   try {
     // Try to get a period in seconds
-    const auto period = std::stol(std::string{def});
+    const auto period = ValidPeriod(def);
     return period >= 0L && period <= 7L * 24 * 3600;
-  } catch (std::invalid_argument & /* unused */) {
-    try {
-      // String not a period, try to parse as a cron expression
-      // NOTE: Cron is an enterprise feature
-      const auto cron = cron::make_cron(def);
-      if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-        constexpr std::string_view msg = "Defining snapshot schedule via cron expressions is an enterprise feature.";
-        if constexpr (FATAL) {
-          LOG_FATAL(msg);
-        }
-        spdlog::error(msg);
-        return false;
+  } catch (const std::invalid_argument & /* unused */) {
+    // Handled later on
+  }
+#ifdef MG_ENTERPRISE
+  try {
+    // NOTE: Cron is an enterprise feature
+    const auto cron = cron::make_cron(def);
+    if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+      constexpr std::string_view msg = "Defining snapshot schedule via cron expressions is an enterprise feature.";
+      if constexpr (FATAL) {
+        LOG_FATAL(msg);
       }
-    } catch (cron::bad_cronexpr & /* unused */) {
+      spdlog::error(msg);
       return false;
     }
+    return true;
+  } catch (const cron::bad_cronexpr & /* unused */) {
+    // Handled later on
   }
-  return true;
+#endif
+  if constexpr (FATAL) {
+    LOG_FATAL("Defined snapshot interval not a valid expression.");
+  }
+  return false;
 }
 }  // namespace
 
@@ -336,16 +354,18 @@ void Initialize() {
     // Update the combined flag to reflect the interval defined via FLAGS_storage_snapshot_interval_sec
     FLAGS_storage_snapshot_interval = std::to_string(FLAGS_storage_snapshot_interval_sec);
   }
+  // FATAL validation at startup; can't be part of the flag defintion, since we need to check for license
+  ValidPeriodicSnapshot<true>(FLAGS_storage_snapshot_interval);
   register_flag(
       kSnapshotPeriodicGFlagsKey, kSnapshotPeriodicSettingKey, !kRestore,
-      [](const std::string &val) {
+      [](std::string_view val) {
         try {
-          const auto period = std::chrono::seconds(std::stol(val));
-          snapshot_periodic_.Modify(period);
+          const auto period = ValidPeriod(val);
+          snapshot_periodic_.Modify(std::chrono::seconds{period});
         } catch (const std::invalid_argument & /* unused */) {
           // String is not a period; pass in as a cron expression
           // Expression is guaranteed to be valid
-          snapshot_periodic_.Modify(val);
+          snapshot_periodic_.Modify(std::string{val});
         }
       },
       ValidPeriodicSnapshot<false>);
@@ -375,6 +395,10 @@ std::string GetQueryLogDirectory() {
 
 void SnapshotPeriodicAttach(std::shared_ptr<utils::Observer<utils::SchedulerInterval>> observer) {
   snapshot_periodic_.Attach(observer);
+}
+
+void SnapshotPeriodicDetach(std::shared_ptr<utils::Observer<utils::SchedulerInterval>> observer) {
+  snapshot_periodic_.Detach(observer);
 }
 
 }  // namespace memgraph::flags::run_time
