@@ -766,6 +766,15 @@ Feature: Spatial related features
         Then the result should be:
             | index type | label | property | count |
             | 'point'    | 'L1'  | 'prop1'  | 1     |
+
+        When executing query:
+            """
+            SHOW CONSTRAINT INFO;
+            """
+        Then the result should be:
+            | constraint type       | label | properties  | data_type   |
+            | 'data_type'           | 'L1'  | 'prop1'     | 'POINT'     |
+
         And having executed
             """
             MATCH (n:L1 {prop1: POINT({x:1, y:1})}) DELETE n;
@@ -1858,3 +1867,34 @@ Feature: Spatial related features
         Then the result should be:
             | index type             | label | property | count |
 
+    Scenario: Point index creation type constraint already exists:
+        Given an empty graph
+        And having executed
+            """
+            CREATE CONSTRAINT ON (n:L1) ASSERT n.prop IS TYPED POINT;
+            """
+        And having executed
+            """
+            CREATE POINT INDEX ON :L1(prop);
+            """
+
+        When executing query:
+            """
+            SHOW INDEX INFO;
+            """
+        Then the result should be:
+            | index type | label | property | count |
+            | 'point'    | 'L1'  | 'prop'   | 0     |
+
+        When executing query:
+            """
+            SHOW CONSTRAINT INFO;
+            """
+        Then the result should be:
+            | constraint type       | label | properties | data_type |
+            | 'data_type'           | 'L1'  | 'prop'     | 'POINT'     |
+
+        When executing query:
+            """
+            DROP POINT INDEX ON :L1(prop);
+            """

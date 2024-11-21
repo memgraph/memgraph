@@ -169,14 +169,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       ASSERT_FALSE(unique_acc->CreateUniqueConstraint(label_unindexed, {property_id, property_extra}).HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
-    {
-      // Create type constraint.
-      auto unique_acc = store->UniqueAccess();
-      ASSERT_FALSE(
-          unique_acc->CreateTypeConstraint(label_indexed, property_point, memgraph::storage::TypeConstraintKind::POINT)
-              .HasError());
-      ASSERT_FALSE(unique_acc->Commit().HasError());
-    }
+    // Type constraint will be created by the point index
 
     // Create vertices.
     auto enum_val = *store->enum_store_.ToEnum("enum1", "v2");
