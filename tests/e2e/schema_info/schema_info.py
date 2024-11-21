@@ -59,7 +59,7 @@ def test_spec(connect):
     edges = schema_json["edges"]
     assert len(edges) == 5  # Tested via unit tests
     node_constraints = schema_json["node_constraints"]
-    assert len(node_constraints) == 3
+    assert len(node_constraints) == 4 # point index creates one extra constraint
     for constraint in node_constraints:
         if constraint["type"] == "unique":
             assert constraint["labels"] == ["School"]
@@ -69,9 +69,15 @@ def test_spec(connect):
             assert constraint["properties"] == ["name"]
         else:
             assert constraint["type"] == "data_type"
-            assert constraint["labels"] == ["Person"]
-            assert constraint["properties"] == ["age"]
-            assert constraint["data_type"] == "INTEGER"
+            if constraint["data_type"] == "INTEGER":
+                assert constraint["labels"] == ["Person"]
+                assert constraint["properties"] == ["age"]
+            elif constraint["data_type"] == "POINT":
+                assert constraint["labels"] == ["School"]
+                assert constraint["properties"] == ["location"]
+            else:
+                assert False
+
     node_indexes = schema_json["node_indexes"]
     assert len(node_indexes) == 4
     for index in node_indexes:
