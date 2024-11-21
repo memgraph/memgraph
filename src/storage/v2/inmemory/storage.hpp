@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <memory>
 #include <utility>
+#include "storage/v2/commit_log.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
@@ -24,15 +25,10 @@
 #include "storage/v2/storage.hpp"
 
 /// REPLICATION ///
-#include "replication/config.hpp"
 #include "storage/v2/delta_container.hpp"
 #include "storage/v2/inmemory/replication/recovery.hpp"
-#include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/replication_storage_state.hpp"
-#include "storage/v2/replication/rpc.hpp"
-#include "storage/v2/replication/serialization.hpp"
 #include "storage/v2/transaction.hpp"
-#include "utils/memory.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/synchronized.hpp"
 
@@ -430,15 +426,20 @@ class InMemoryStorage final : public Storage {
 
     /// Create type constraint,
     /// Returns error result if already exists, or if constraint is already violated
-    utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateTypeConstraint(
+    utils::BasicResult<StorageTypeConstraintDefinitionError, void> CreateTypeConstraint(
         LabelId label, PropertyId property, TypeConstraintKind type) override;
 
     /// Drop type constraint,
     /// Returns error result if constraint does not exist.
-    utils::BasicResult<StorageExistenceConstraintDroppingError, void> DropTypeConstraint(
-        LabelId label, PropertyId property, TypeConstraintKind type) override;
+    utils::BasicResult<StorageTypeConstraintDroppingError, void> DropTypeConstraint(LabelId label, PropertyId property,
+                                                                                    TypeConstraintKind type) override;
 
     void DropGraph() override;
+
+    /// View is not needed because a new rtree gets created for each transaction and it is always
+    /// using the latest version
+    auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs, PropertyValue const &match)
+        -> PointIterable override;
 
     /// View is not needed because a new rtree gets created for each transaction and it is always
     /// using the latest version
