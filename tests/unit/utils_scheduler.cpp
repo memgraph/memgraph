@@ -217,6 +217,7 @@ TEST(Scheduler, ConcurrentStops) {
   std::jthread stopper2([&scheduler]() { scheduler.Stop(); });
 }
 
+#ifdef MG_ENTERPRISE
 TEST(Scheduler, CronAny) {
   std::atomic<int> x{0};
   std::function<void()> func{[&x]() { ++x; }};
@@ -412,3 +413,4 @@ TEST(Scheduler, CronSpecificDateTimeWTZ) {
   htz.Set("America/Los_Angeles");
   test();
 }
+#endif
