@@ -61,10 +61,10 @@ using namespace std::string_literals;
 namespace {
 
 template <typename TRep, typename TPeriod>
-std::chrono::seconds operator+(const memgraph::utils::SchedulerInterval &si,
-                               const std::chrono::duration<TRep, TPeriod> &dur) {
+std::chrono::milliseconds operator+(const memgraph::utils::SchedulerInterval &si,
+                                    const std::chrono::duration<TRep, TPeriod> &dur) {
   const auto &pst = std::get<memgraph::utils::SchedulerInterval::PeriodStartTime>(si.period_or_cron);
-  return pst.period + std::chrono::duration_cast<std::chrono::seconds>(dur);
+  return pst.period + dur;
 }
 
 }  // namespace

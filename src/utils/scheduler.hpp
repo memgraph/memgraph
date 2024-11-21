@@ -27,17 +27,19 @@ struct SchedulerInterval {
   template <typename TRep, typename TPeriod>
   explicit SchedulerInterval(std::chrono::duration<TRep, TPeriod> period,
                              std::optional<std::chrono::system_clock::time_point> start_time = {})
-      : period_or_cron{PeriodStartTime{std::chrono::duration_cast<std::chrono::seconds>(period), start_time}} {}
+      : period_or_cron{PeriodStartTime{period, start_time}} {}
   explicit SchedulerInterval(std::string str);
 
   friend bool operator==(const SchedulerInterval &lrh, const SchedulerInterval &rhs) = default;
 
   struct PeriodStartTime {
     PeriodStartTime() {}
-    PeriodStartTime(std::chrono::seconds period, std::optional<std::chrono::system_clock::time_point> start_time)
-        : period{period}, start_time{start_time} {}
+    template <typename TRep, typename TPeriod>
+    PeriodStartTime(std::chrono::duration<TRep, TPeriod> period,
+                    std::optional<std::chrono::system_clock::time_point> start_time)
+        : period{std::chrono::duration_cast<std::chrono::milliseconds>(period)}, start_time{start_time} {}
 
-    std::chrono::seconds period{0};
+    std::chrono::milliseconds period{0};
     std::optional<std::chrono::system_clock::time_point> start_time{};
 
     friend bool operator==(const PeriodStartTime &lrh, const PeriodStartTime &rhs) = default;
@@ -47,7 +49,7 @@ struct SchedulerInterval {
 
   explicit operator bool() const {
     return std::visit(
-        utils::Overloaded{[](const PeriodStartTime &pst) { return pst.period != std::chrono::seconds(0); },
+        utils::Overloaded{[](const PeriodStartTime &pst) { return pst.period != std::chrono::milliseconds(0); },
                           [](const std::string &cron) { return !cron.empty(); }},
         period_or_cron);
   }
@@ -97,7 +99,8 @@ class Scheduler {
   ~Scheduler() { Stop(); }
 
  private:
-  void SetInterval_(std::chrono::seconds pause, std::optional<std::chrono::system_clock::time_point> start_time = {});
+  void SetInterval_(std::chrono::milliseconds pause,
+                    std::optional<std::chrono::system_clock::time_point> start_time = {});
 
   void SetInterval_(std::string_view cron_expr);
 

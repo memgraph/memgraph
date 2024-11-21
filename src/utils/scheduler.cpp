@@ -47,15 +47,15 @@ void Scheduler::SetInterval(const SchedulerInterval &setup) {
     return;
   }
   setup.Execute(utils::Overloaded{
-      [this](std::chrono::seconds pause, std::optional<std::chrono::system_clock::time_point> start_time) {
+      [this](std::chrono::milliseconds pause, std::optional<std::chrono::system_clock::time_point> start_time) {
         SetInterval_(pause, start_time);
       },
       [this](std::string_view cron) { SetInterval_(cron); }});
 }
 
-void Scheduler::SetInterval_(std::chrono::seconds pause,
+void Scheduler::SetInterval_(std::chrono::milliseconds pause,
                              std::optional<std::chrono::system_clock::time_point> start_time) {
-  DMG_ASSERT(pause > std::chrono::seconds(0), "Pause is invalid. Expected > 0, got {}.", pause.count());
+  DMG_ASSERT(pause > std::chrono::milliseconds(0), "Pause is invalid. Expected > 0, got {}.", pause.count());
 
   // Setup
   std::chrono::system_clock::time_point next_execution;
