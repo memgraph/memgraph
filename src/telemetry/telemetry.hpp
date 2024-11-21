@@ -15,7 +15,6 @@
 #include <string>
 
 #include <json/json.hpp>
-
 #include "dbms/dbms_handler.hpp"
 #include "kvstore/kvstore.hpp"
 #include "utils/scheduler.hpp"
@@ -68,6 +67,7 @@ class Telemetry final {
  private:
   void StoreData(const nlohmann::json &event, const nlohmann::json &data);
   void SendData();
+  /// Iterates over all collectors and calls associated functions synchronously.
   void CollectData(const std::string &event = "");
 
   const nlohmann::json GetUptime();
