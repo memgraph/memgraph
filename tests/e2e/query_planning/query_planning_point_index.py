@@ -42,6 +42,11 @@ EXPECTED_PLAN_WITHINBBOX_NO_WITH = [
     f" * Once",
 ]
 
+EXPECTED_PLAN_EXACT_MATCH = [
+    f" * Produce {{a}}",
+    f" * ScanAllByPoint (a :Node {{point}})",
+    f" * Once",
+]
 
 def test_ScanAllByPointDistance_used(memgraph):
     memgraph.execute("CREATE POINT INDEX ON :Node(point);")
@@ -207,6 +212,28 @@ def test_ScanAllByPointWithinbboxNoWith4(memgraph):
 
     memgraph.execute("DROP POINT INDEX ON :Node(id);")
 
+def test_ScanAllByPoint(memgraph):
+    memgraph.execute("CREATE POINT INDEX ON :Node(point);")
+
+    results = list(
+        memgraph.execute_and_fetch(
+            "EXPLAIN MATCH (a:Node) WHERE a.point = point({x:1, y:1}) return a;"
+        )
+    )
+    actual_explain = [x[QUERY_PLAN] for x in results]
+
+    assert EXPECTED_PLAN_EXACT_MATCH == actual_explain
+
+    results = list(
+        memgraph.execute_and_fetch(
+            "EXPLAIN MATCH (a:Node {point:point({x:1, y:1})}) return a;"
+        )
+    )
+    actual_explain = [x[QUERY_PLAN] for x in results]
+
+    assert EXPECTED_PLAN_EXACT_MATCH == actual_explain
+
+    memgraph.execute("DROP POINT INDEX ON :Node(id);")
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

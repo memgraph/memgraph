@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <storage/v2/constraints/type_constraints_kind.hpp>
 #include <utility>
 #include "absl/container/flat_hash_map.h"
@@ -35,6 +36,8 @@ class TypeConstraints {
                                                   const LabelId &label, const PropertyId &property);
   };
 
+  enum class ExistanceStatus : uint8_t { EMPTY = 0, EXISTS_SAME = 1, EXISTS_DIFFERENT = 2 };
+
   [[nodiscard]] static std::optional<ConstraintViolation> ValidateVerticesOnConstraint(
       utils::SkipList<Vertex>::Accessor vertices, LabelId label, PropertyId property, TypeConstraintKind type);
 
@@ -45,7 +48,7 @@ class TypeConstraints {
   [[nodiscard]] std::optional<ConstraintViolation> ValidateVertices(utils::SkipList<Vertex>::Accessor vertices) const;
 
   bool empty() const;
-  bool ConstraintExists(LabelId label, PropertyId property) const;
+  ExistanceStatus ConstraintExists(LabelId label, PropertyId property, TypeConstraintKind type) const;
   bool InsertConstraint(LabelId label, PropertyId property, TypeConstraintKind type);
   bool DropConstraint(LabelId label, PropertyId property, TypeConstraintKind type);
 
@@ -54,7 +57,7 @@ class TypeConstraints {
 
  private:
   absl::flat_hash_map<std::pair<LabelId, PropertyId>, TypeConstraintKind> constraints_;
-  absl::flat_hash_map<LabelId, absl::flat_hash_map<PropertyId, TypeConstraintKind>> l2p_constraints_;  // TODO: maintain
+  absl::flat_hash_map<LabelId, absl::flat_hash_map<PropertyId, TypeConstraintKind>> l2p_constraints_;
 };
 
 }  // namespace memgraph::storage

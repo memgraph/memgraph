@@ -36,13 +36,19 @@ using StorageIndexDefinitionError = IndexDefinitionError;
 
 struct ConstraintDefinitionError {};
 
+// Exact same type constraint already exists on
+struct TypeConstraintAlreadyExistsError {};
+// Different type constraint already exists on prop-label pair
+struct TypeConstraintAlreadyUsedError {};
+
 using StorageExistenceConstraintDefinitionError = std::variant<ConstraintViolation, ConstraintDefinitionError>;
 
 using StorageExistenceConstraintDroppingError = ConstraintDefinitionError;
 
 using StorageUniqueConstraintDefinitionError = std::variant<ConstraintViolation, ConstraintDefinitionError>;
 
-using StorageTypeConstraintDefinitionError = std::variant<ConstraintViolation, ConstraintDefinitionError>;
+using StorageTypeConstraintDefinitionError =
+    std::variant<ConstraintViolation, TypeConstraintAlreadyExistsError, TypeConstraintAlreadyUsedError>;
 
 using StorageTypeConstraintDroppingError = ConstraintDefinitionError;
 

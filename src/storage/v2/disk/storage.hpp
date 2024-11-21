@@ -235,11 +235,11 @@ class DiskStorage final : public Storage {
     UniqueConstraints::DeletionStatus DropUniqueConstraint(LabelId label,
                                                            const std::set<PropertyId> &properties) override;
 
-    utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateTypeConstraint(
+    utils::BasicResult<StorageTypeConstraintDefinitionError, void> CreateTypeConstraint(
         LabelId label, PropertyId property, TypeConstraintKind type) override;
 
-    utils::BasicResult<StorageExistenceConstraintDroppingError, void> DropTypeConstraint(
-        LabelId label, PropertyId property, TypeConstraintKind type) override;
+    utils::BasicResult<StorageTypeConstraintDroppingError, void> DropTypeConstraint(LabelId label, PropertyId property,
+                                                                                    TypeConstraintKind type) override;
 
     void DropGraph() override;
 

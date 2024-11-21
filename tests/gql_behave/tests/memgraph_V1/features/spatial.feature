@@ -1704,3 +1704,157 @@ Feature: Spatial related features
             MATCH (m:L1) WHERE point.withinbbox(point({x:0,y:0}, m.prop), point({x:0, y:0})) RETURN m;
             """
         Then an error should be raised
+
+    Scenario: Point index exact match cartesian 2d:
+        Given an empty graph
+        And with new point index :L1(prop)
+        And having executed
+            """
+            UNWIND [
+                POINT({x: 0, y: 0, crs:"cartesian"}),
+                POINT({x: 0, y: 1, crs:"cartesian"}),
+                POINT({x: 1, y: 0, crs:"cartesian"}),
+                POINT({x: 1, y: 1, crs:"cartesian"}),
+                POINT({x:-1, y:-1, crs:"cartesian"}),
+                POINT({x: 2, y: 2, crs:"cartesian"}),
+                POINT({x:-2, y:-2, crs:"cartesian"})
+            ] AS point
+            CREATE (:L1 {prop: point});
+            """
+        When executing query:
+            """
+            MATCH (m:L1) WHERE m.prop = POINT({x: 1, y: 0, crs:"cartesian"}) RETURN m;
+            """
+        Then the result should be:
+            | m                                               |
+            | (:L1{prop:POINT({x: 1.0,y: 0.0,srid:7203})})    |
+
+        When executing query:
+            """
+            MATCH (m:L1{prop:POINT({x: 1, y: 0, crs:"cartesian"})}) RETURN m;
+            """
+        Then the result should be:
+            | m                                               |
+            | (:L1{prop:POINT({x: 1.0,y: 0.0,srid:7203})})    |
+
+    Scenario: Point index exact match cartesian 3d:
+        Given an empty graph
+        And with new point index :L1(prop)
+        And having executed
+            """
+            UNWIND [
+                POINT({x: 0, y: 0, z:0, crs:"cartesian-3d"}),
+                POINT({x: 0, y: 1, z:1, crs:"cartesian-3d"}),
+                POINT({x: 1, y: 0, z:0, crs:"cartesian-3d"}),
+                POINT({x: 1, y: 1, z:0, crs:"cartesian-3d"}),
+                POINT({x:-1, y:-1, z:0, crs:"cartesian-3d"}),
+                POINT({x: 2, y: 2, z:0, crs:"cartesian-3d"}),
+                POINT({x:-2, y:-2, z:0, crs:"cartesian-3d"})
+            ] AS point
+            CREATE (:L1 {prop: point});
+            """
+        When executing query:
+            """
+            MATCH (m:L1) WHERE m.prop = POINT({x: 1, y: 0, z:0, crs:"cartesian-3d"}) RETURN m;
+            """
+        Then the result should be:
+            | m                                                       |
+            | (:L1{prop:POINT({x: 1.0,y: 0.0, z:0.0, srid:9157})})    |
+
+        When executing query:
+            """
+            MATCH (m:L1{prop:POINT({x: 1, y: 0, z:0, crs:"cartesian-3d"})}) RETURN m;
+            """
+        Then the result should be:
+            | m                                                       |
+            | (:L1{prop:POINT({x: 1.0,y: 0.0, z:0.0, srid:9157})})    |
+
+        Scenario: Point index exact match wgs-84 2d:
+        Given an empty graph
+        And with new point index :L1(prop)
+        And having executed
+            """
+            UNWIND [
+                POINT({x: 0, y: 0, crs:"wgs-84"}),
+                POINT({x: 0, y: 1, crs:"wgs-84"}),
+                POINT({x: 1, y: 0, crs:"wgs-84"}),
+                POINT({x: 1, y: 1, crs:"wgs-84"}),
+                POINT({x:-1, y:-1, crs:"wgs-84"}),
+                POINT({x: 2, y: 2, crs:"wgs-84"}),
+                POINT({x:-2, y:-2, crs:"wgs-84"})
+            ] AS point
+            CREATE (:L1 {prop: point});
+            """
+        When executing query:
+            """
+            MATCH (m:L1) WHERE m.prop = POINT({longitude: 1, latitude: 0, crs:"wgs-84"}) RETURN m;
+            """
+        Then the result should be:
+            | m                                                              |
+            | (:L1{prop:POINT({longitude: 1.0,latitude: 0.0,srid:4326})})    |
+
+        When executing query:
+            """
+            MATCH (m:L1{prop:POINT({longitude: 1, latitude: 0, crs:"wgs-84"})}) RETURN m;
+            """
+        Then the result should be:
+            | m                                                              |
+            | (:L1{prop:POINT({longitude: 1.0,latitude: 0.0,srid:4326})})    |
+
+    Scenario: Point index exact match wgs-84 3d:
+        Given an empty graph
+        And with new point index :L1(prop)
+        And having executed
+            """
+            UNWIND [
+                POINT({x: 0, y: 0, z:0, crs:"wgs-84-3d"}),
+                POINT({x: 0, y: 1, z:1, crs:"wgs-84-3d"}),
+                POINT({x: 1, y: 0, z:0, crs:"wgs-84-3d"}),
+                POINT({x: 1, y: 1, z:0, crs:"wgs-84-3d"}),
+                POINT({x:-1, y:-1, z:0, crs:"wgs-84-3d"}),
+                POINT({x: 2, y: 2, z:0, crs:"wgs-84-3d"}),
+                POINT({x:-2, y:-2, z:0, crs:"wgs-84-3d"})
+            ] AS point
+            CREATE (:L1 {prop: point});
+            """
+        When executing query:
+            """
+            MATCH (m:L1) WHERE m.prop = POINT({longitude: 1, latitude: 0, height:0, crs:"wgs-84-3d"}) RETURN m;
+            """
+        Then the result should be:
+            | m                                                                           |
+            | (:L1{prop:POINT({longitude: 1.0,latitude: 0.0, height:0.0, srid:4979})})    |
+
+        When executing query:
+            """
+            MATCH (m:L1 {prop:POINT({longitude: 1, latitude: 0, height:0, crs:"wgs-84-3d"})}) RETURN m;
+            """
+        Then the result should be:
+            | m                                                                           |
+            | (:L1{prop:POINT({longitude: 1.0,latitude: 0.0, height:0.0, srid:4979})})    |
+
+    Scenario: Point index creation type constraint failure:
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:L1{prop:0});
+            """
+        And having executed
+            """
+            CREATE (:L1{prop:0});
+            """
+
+        When executing query:
+            """
+            SHOW CONSTRAINT INFO;
+            """
+        Then the result should be:
+            | constraint type             | label | properties | data_type |
+
+        When executing query:
+            """
+            SHOW INDEX INFO;
+            """
+        Then the result should be:
+            | index type             | label | property | count |
+

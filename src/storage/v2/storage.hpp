@@ -387,10 +387,10 @@ class Storage {
     virtual UniqueConstraints::DeletionStatus DropUniqueConstraint(LabelId label,
                                                                    const std::set<PropertyId> &properties) = 0;
 
-    virtual utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateTypeConstraint(
+    virtual utils::BasicResult<StorageTypeConstraintDefinitionError, void> CreateTypeConstraint(
         LabelId label, PropertyId property, TypeConstraintKind type) = 0;
 
-    virtual utils::BasicResult<StorageExistenceConstraintDroppingError, void> DropTypeConstraint(
+    virtual utils::BasicResult<StorageTypeConstraintDroppingError, void> DropTypeConstraint(
         LabelId label, PropertyId property, TypeConstraintKind type) = 0;
 
     virtual void DropGraph() = 0;
