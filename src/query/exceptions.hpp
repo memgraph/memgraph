@@ -19,6 +19,12 @@
 
 namespace memgraph::query {
 
+template <class... Args>
+inline auto MessageWithDocsLink(fmt::format_string<Args...> fmt, Args &&...args) {
+  return fmt::format("{} For more details, visit https://memgraph.com/docs",
+                     fmt::format(fmt, std::forward<Args>(args)...));
+}
+
 /**
  * @brief Base class of all query language related exceptions. All exceptions
  * derived from this one will be interpreted as ClientError-s, i. e. if client
@@ -99,22 +105,21 @@ class UnprovidedParameterError : public QueryException {
 class MulticommandTxException : public QueryException {
  public:
   explicit MulticommandTxException(std::string_view query)
-      : QueryException(memgraph::utils::MessageWithLink(
+      : QueryException(MessageWithDocsLink(
             "{} is not allowed in multicommand transactions. A multicommand transaction, also known as an "
             "explicit transaction, groups multiple commands into a single atomic operation. Instead, please use an "
             "implicit transaction, also knwon as an auto committing transaction, in order to execute this particular "
             "query.",
-            query, "https://memgraph.com/docs")) {}
+            query)) {}
   SPECIALIZE_GET_EXCEPTION_NAME(MulticommandTxException)
 };
 
 class DisabledForOnDisk : public QueryException {
  public:
   explicit DisabledForOnDisk(std::string_view query)
-      : QueryException(
-            fmt::format("{} is not supported for the OnDisk storage mode. The query in question can be "
-                        "executed only while in one of the InMemory storage modes.",  // Link to storage modes?
-                        query)) {}
+      : QueryException(fmt::format("{} is not supported for the OnDisk storage mode. The query in question can be "
+                                   "executed only while in the InMemory storage mode.",  // Link to storage modes?
+                                   query)) {}
   SPECIALIZE_GET_EXCEPTION_NAME(DisabledForOnDisk)
 };
 
@@ -133,7 +138,9 @@ class IndexInMulticommandTxException : public MulticommandTxException {
 class EdgeIndexDisabledPropertiesOnEdgesException : public QueryException {
  public:
   EdgeIndexDisabledPropertiesOnEdgesException()
-      : QueryException("Edge indices are allowed only if properties are allowed on edges.") {}
+      : QueryException(
+            MessageWithDocsLink("Edge index query forbidden. In order to use the edge indices please set the "
+                                "--storage-properties-on-edges flag to true.")) {}
   SPECIALIZE_GET_EXCEPTION_NAME(EdgeIndexDisabledPropertiesOnEdgesException)
 };
 
@@ -233,7 +240,9 @@ class ConcurrentSystemQueriesException : public QueryRuntimeException {
 class WriteVertexOperationInEdgeImportModeException : public QueryException {
  public:
   WriteVertexOperationInEdgeImportModeException()
-      : QueryException("Write operations on vertices are forbidden while the edge import mode is active.") {}
+      : QueryException(
+            "Write operations on nodes are forbidden while the edge import mode is active. To disable the edge import "
+            "mode, run the EDGE IMPORT MODE INACTIVE; query.") {}
   SPECIALIZE_GET_EXCEPTION_NAME(WriteVertexOperationInEdgeImportModeException)
 };
 
@@ -243,18 +252,15 @@ class WriteVertexOperationInEdgeImportModeException : public QueryException {
 class TransactionSerializationException : public RetryBasicException {
  public:
   TransactionSerializationException()
-      : RetryBasicException(
-            "Cannot resolve conflicting transactions. You can retry this transaction when the conflicting transaction "
-            "is finished") {}
+      : RetryBasicException(MessageWithDocsLink("Cannot resolve conflicting transactions. Retry this transaction when "
+                                                "the conflicting transaction is finished.")) {}
   SPECIALIZE_GET_EXCEPTION_NAME(TransactionSerializationException)
 };
 
 class ReconstructionException : public QueryException {
  public:
   ReconstructionException()
-      : QueryException(
-            "Record invalid after WITH clause. Most likely deleted by a "
-            "preceeding DELETE.") {}
+      : QueryException("Record invalid after WITH clause. Most likely deleted by a preceeding DELETE.") {}
   SPECIALIZE_GET_EXCEPTION_NAME(ReconstructionException)
 };
 
@@ -262,8 +268,7 @@ class RemoveAttachedVertexException : public QueryRuntimeException {
  public:
   RemoveAttachedVertexException()
       : QueryRuntimeException(
-            "Failed to remove node because of it's existing "
-            "connections. Consider using DETACH DELETE.") {}
+            "Failed to remove node because of it's existing connections. Consider using DETACH DELETE.") {}
   SPECIALIZE_GET_EXCEPTION_NAME(RemoveAttachedVertexException)
 };
 
@@ -445,7 +450,10 @@ class ReplicationException : public utils::BasicException {
 
 class WriteQueryOnReplicaException : public QueryException {
  public:
-  WriteQueryOnReplicaException() : QueryException("Write query forbidden on the replica!") {}
+  WriteQueryOnReplicaException()
+      : QueryException(
+            "Write queries are forbidden on the replica instance. Replica instances accept only read queries, while "
+            "the main instance accepts read and write queries. Please retry your query on the main instance.") {}
   SPECIALIZE_GET_EXCEPTION_NAME(WriteQueryOnReplicaException)
 };
 
@@ -453,7 +461,8 @@ class WriteQueryOnMainException : public QueryException {
  public:
   WriteQueryOnMainException()
       : QueryException(
-            "Write query forbidden on the main! Coordinator needs to enable writing on main by sending RPC message.") {}
+            "Write queries currently forbidden on the main instance. The cluster is in the process of setting up a new "
+            "main instance, please retry the query later on.") {}
   SPECIALIZE_GET_EXCEPTION_NAME(WriteQueryOnMainException)
 };
 
@@ -484,8 +493,8 @@ class TextSearchException : public QueryException {
 class TextSearchDisabledException : public TextSearchException {
  public:
   TextSearchDisabledException()
-      : TextSearchException(
-            "To use text indices and text search, start Memgraph with the experimental text search feature enabled.") {}
+      : TextSearchException(MessageWithDocsLink(" To use text indices and text search, start Memgraph with the "
+                                                "--experimental-enabled='text-search' flag.")) {}
   SPECIALIZE_GET_EXCEPTION_NAME(TextSearchDisabledException)
 };
 
