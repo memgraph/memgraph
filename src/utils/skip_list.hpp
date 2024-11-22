@@ -118,13 +118,13 @@ struct SkipListNode {
   // The items here are carefully placed to minimize padding gaps.
 
   TObj obj;
-  SpinLock lock;
-  std::atomic<bool> marked;
-  std::atomic<bool> fully_linked;
+  SpinLock lock{};
+  std::atomic<bool> marked{false};
+  std::atomic<bool> fully_linked{false};
   static_assert(std::numeric_limits<uint8_t>::max() >= kSkipListMaxHeight, "Maximum height doesn't fit in uint8_t");
   uint8_t height;
   // uint8_t PAD;
-  std::atomic<SkipListNode<TObj> *> nexts[0];
+  std::atomic<SkipListNode *> nexts[0];
 };
 
 /// Maximum size of a single SkipListNode instance.
@@ -1070,8 +1070,6 @@ class SkipList final : detail::SkipListNode_base {
 
         MemoryResource *memoryResource = GetMemoryResource();
         void *ptr = memoryResource->Allocate(node_bytes, SkipListNodeAlign<TObj>());
-        // `calloc` would be faster, but the API has no such call.
-        memset(ptr, 0, node_bytes);
         new_node = static_cast<TNode *>(ptr);
 
         // Construct through allocator so it propagates if needed.
@@ -1082,6 +1080,8 @@ class SkipList final : detail::SkipListNode_base {
         // `top_layer` which is wrong.
         for (int layer = 0; layer < top_layer; ++layer) {
           new_node->nexts[layer].store(succs[layer], std::memory_order_release);
+        }
+        for (int layer = 0; layer < top_layer; ++layer) {
           preds[layer]->nexts[layer].store(new_node, std::memory_order_release);
         }
       }
