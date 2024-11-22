@@ -1036,17 +1036,27 @@ class SkipList final : detail::SkipListNode_base {
 
       TNode *new_node;
       {
-        TNode *prev_pred = nullptr;
+        TNode *previous_locked = nullptr;
         bool valid = true;
-        std::unique_lock<SpinLock> guards[kSkipListMaxHeight];
+
+        auto locked_count = 0;
+        TNode *locked[kSkipListMaxHeight];
+        auto guard = OnScopeExit{[&] {
+          for (auto i = 0; i != locked_count; ++i) {
+            locked[i]->lock.unlock();
+          }
+        }};
+
         // The paper has a wrong condition here. In the paper it states that this
         // loop should have `(layer <= top_layer)`, but that isn't correct.
         for (int layer = 0; valid && (layer < top_layer); ++layer) {
           TNode *pred = preds[layer];
           TNode *succ = succs[layer];
-          if (pred != prev_pred) {
-            guards[layer] = std::unique_lock{pred->lock};
-            prev_pred = pred;
+          if (pred != previous_locked) {
+            pred->lock.lock();
+            locked[locked_count] = pred;
+            ++locked_count;
+            previous_locked = pred;
           }
           // Existence test is missing in the paper.
           valid = !pred->marked.load(std::memory_order_acquire) &&
