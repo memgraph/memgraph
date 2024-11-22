@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,6 +11,7 @@
 
 #include "utils/file_locker.hpp"
 #include <filesystem>
+#include "utils/file.hpp"
 
 namespace memgraph::utils {
 
@@ -34,8 +35,36 @@ void FileRetainer::DeleteFile(const std::filesystem::path &path) {
     files_for_deletion_.WithLock([&](auto &files) { files.emplace(std::move(absolute_path)); });
     return;
   }
-  std::unique_lock guard(main_lock_);
+  auto guard = std::unique_lock{main_lock_};
   DeleteOrAddToQueue(absolute_path);
+}
+
+void FileRetainer::RenameFile(const std::filesystem::path &orig, const std::filesystem::path &dest) {
+  if (!std::filesystem::exists(orig)) {
+    spdlog::info("Origin file {} doesn't exist.", orig);
+    return;
+  }
+  if (std::filesystem::exists(dest)) {
+    spdlog::info("Destination file {} exist.", dest);
+    return;
+  }
+
+  auto absolute_orig = std::filesystem::absolute(orig);
+  auto absolute_dest = std::filesystem::absolute(dest);
+
+  if (active_accessors_.load()) {
+    utils::CopyFile(absolute_orig, absolute_dest);
+    files_for_deletion_.WithLock([&](auto &files) { files.emplace(std::move(absolute_orig)); });
+    return;
+  }
+
+  auto guard = std::unique_lock{main_lock_};
+  if (FileLocked(absolute_orig)) {
+    utils::CopyFile(absolute_orig, absolute_dest);
+    files_for_deletion_.WithLock([&](auto &files) { files.emplace(std::move(absolute_orig)); });
+  } else {
+    utils::RenamePath(absolute_orig, absolute_dest);
+  }
 }
 
 FileRetainer::FileLocker FileRetainer::AddLocker() {
@@ -66,7 +95,7 @@ void FileRetainer::DeleteOrAddToQueue(const std::filesystem::path &path) {
 }
 
 void FileRetainer::CleanQueue() {
-  std::unique_lock guard(main_lock_);
+  auto guard = std::unique_lock{main_lock_};
   files_for_deletion_.WithLock([&](auto &files) {
     for (auto it = files.cbegin(); it != files.cend();) {
       if (!FileLocked(*it)) {

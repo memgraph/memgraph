@@ -14,11 +14,13 @@
 #include <cstdint>
 #include <memory>
 #include <utility>
+#include "flags/run_time_configurable.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/inmemory/replication/recovery.hpp"
+#include "storage/v2/inmemory/snapshot_info.hpp"
 #include "storage/v2/replication/replication_client.hpp"
 #include "storage/v2/schema_info.hpp"
 #include "storage/v2/storage.hpp"
@@ -33,8 +35,10 @@
 #include "storage/v2/replication/serialization.hpp"
 #include "storage/v2/transaction.hpp"
 #include "utils/memory.hpp"
+#include "utils/observer.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/synchronized.hpp"
+#include "utils/temporal.hpp"
 
 namespace memgraph::dbms {
 class InMemoryReplicationHandlers;
@@ -99,6 +103,14 @@ class InMemoryStorage final : public Storage {
  public:
   using free_mem_fn = std::function<void(std::unique_lock<utils::ResourceLock>, bool)>;
   enum class CreateSnapshotError : uint8_t { DisabledForReplica, ReachedMaxNumTries };
+  enum class RecoverSnapshotError : uint8_t {
+    DisabledForReplica,
+    DisabledForMainWithReplicas,
+    NonEmptyStorage,
+    MissingFile,
+    CopyFailure,
+    BackupFailure,
+  };
 
   /// @throw std::system_error
   /// @throw std::bad_alloc
@@ -503,6 +515,12 @@ class InMemoryStorage final : public Storage {
   utils::BasicResult<InMemoryStorage::CreateSnapshotError> CreateSnapshot(
       memgraph::replication_coordination_glue::ReplicationRole replication_role);
 
+  utils::BasicResult<InMemoryStorage::RecoverSnapshotError> RecoverSnapshot(
+      std::filesystem::path path, bool force,
+      memgraph::replication_coordination_glue::ReplicationRole replication_role);
+
+  std::vector<SnapshotFileInfo> ShowSnapshots();
+
   void CreateSnapshotHandler(std::function<utils::BasicResult<InMemoryStorage::CreateSnapshotError>()> cb);
 
   Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) override;
@@ -580,6 +598,7 @@ class InMemoryStorage final : public Storage {
 
   utils::Scheduler snapshot_runner_;
   utils::SpinLock snapshot_lock_;
+  std::shared_ptr<utils::Observer<utils::SchedulerInterval>> snapshot_periodic_observer_;
 
   // Sequence number used to keep track of the chain of WALs.
   uint64_t wal_seq_num_{0};

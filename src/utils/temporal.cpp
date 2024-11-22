@@ -57,6 +57,18 @@ std::optional<T> ParseNumber(const std::string_view string, const size_t size) {
   return value;
 }
 
+auto Params2Time(const DateParameters &date_parameters, const LocalTimeParameters &local_time_parameters) {
+  auto us_since_epoch_local = std::chrono::microseconds{Date{date_parameters}.MicrosecondsSinceEpoch() +
+                                                        LocalTime{local_time_parameters}.MicrosecondsSinceEpoch()};
+  if (const auto *tz = flags::run_time::GetTimezone(); tz) {
+    // APPLY TIMEZONE (local to UTC)
+    return tz->to_sys(
+        std::chrono::local_time<std::chrono::microseconds>(std::chrono::microseconds(us_since_epoch_local)));
+  }
+  // Fallback to UTC
+  return std::chrono::sys_time<std::chrono::microseconds>(std::chrono::microseconds(us_since_epoch_local));
+}
+
 }  // namespace
 
 Date::Date(const int64_t microseconds) {
@@ -201,7 +213,7 @@ std::string Date::ToString() const {
 }
 
 size_t DateHash::operator()(const Date &date) const {
-  utils::HashCombine<uint64_t, uint64_t> hasher;
+  const utils::HashCombine<uint64_t, uint64_t> hasher;
   size_t result = hasher(0, date.year);
   result = hasher(result, date.month);
   result = hasher(result, date.day);
@@ -412,7 +424,7 @@ std::string LocalTime::ToString() const {
 }
 
 size_t LocalTimeHash::operator()(const LocalTime &local_time) const {
-  utils::HashCombine<uint64_t, uint64_t> hasher;
+  const utils::HashCombine<uint64_t, uint64_t> hasher;
   size_t result = hasher(0, local_time.hour);
   result = hasher(result, local_time.minute);
   result = hasher(result, local_time.second);
@@ -496,19 +508,12 @@ LocalDateTime::LocalDateTime(const int64_t offset_epoch_us)
   // Already UTC
 }
 
-LocalDateTime::LocalDateTime(const DateParameters &date_parameters, const LocalTimeParameters &local_time_parameters) {
-  auto us_since_epoch_local = std::chrono::microseconds{Date{date_parameters}.MicrosecondsSinceEpoch() +
-                                                        LocalTime{local_time_parameters}.MicrosecondsSinceEpoch()};
-  const auto *tz = flags::run_time::GetTimezone();
-  if (tz) {
-    // APPLY TIMEZONE (local to UTC)
-    us_since_epoch_ =
-        tz->to_sys(std::chrono::local_time<std::chrono::microseconds>(std::chrono::microseconds(us_since_epoch_local)));
-  } else {
-    // Fallback to UTC
-    us_since_epoch_ = std::chrono::sys_time<std::chrono::microseconds>(std::chrono::microseconds(us_since_epoch_local));
-  }
-}
+LocalDateTime::LocalDateTime(const DateParameters &date_parameters, const LocalTimeParameters &local_time_parameters)
+    : us_since_epoch_(Params2Time(date_parameters, local_time_parameters)) {}
+
+LocalDateTime::LocalDateTime(std::tm tm)
+    : us_since_epoch_{Params2Time(DateParameters{.year = tm.tm_year + 1900, .month = tm.tm_mon + 1, .day = tm.tm_mday},
+                                  LocalTimeParameters{.hour = tm.tm_hour, .minute = tm.tm_min, .second = tm.tm_sec})} {}
 
 LocalDateTime::LocalDateTime(const Date &date, const LocalTime &local_time) {
   auto us_since_epoch_local =
@@ -549,15 +554,9 @@ int64_t LocalDateTime::SubSecondsAsNanoseconds() const {
       .count();
 }
 
-std::string LocalDateTime::ToString() const {
-  auto zt = std::chrono::zoned_time(us_since_epoch_);  // Default to UTC
-  const auto *tz = flags::run_time::GetTimezone();
-  if (tz) {
-    // APPLY TIMEZONE (UTC to local)
-    zt = std::chrono::zoned_time(tz, us_since_epoch_);
-  }
-  return std::format("{:%Y-%m-%dT%H:%M:%S}", zt);
-}
+// NOTE: Should be removed, but too many tests relly on it
+std::string LocalDateTime::ToString() const { return std::format("{:%Y-%m-%dT%H:%M:%S}", zoned_time()); }
+std::string LocalDateTime::ToStringWTZ() const { return std::format("{:%Y-%m-%dT%H:%M:%S%z}", zoned_time()); }
 
 Date LocalDateTime::date() const {
   // Date does not support timezones; use calendar time offset
@@ -572,9 +571,46 @@ LocalTime LocalDateTime::local_time() const {
   return LocalTime{local_datetime.count()};
 }
 
+std::chrono::zoned_time<std::chrono::microseconds> LocalDateTime::zoned_time() const {
+  const auto *tz = flags::run_time::GetTimezone();
+  if (tz) {
+    // APPLY TIMEZONE (UTC to local)
+    return {tz, us_since_epoch_};
+  }
+  return {"UTC", us_since_epoch_};  // Default to UTC
+}
+
+std::tm LocalDateTime::tm() const {
+  using namespace std::chrono_literals;
+  std::tm out;
+
+  const auto this_date = date();
+  out.tm_mday = this_date.day;
+  out.tm_mon = this_date.month - 1;     // 0 based
+  out.tm_year = this_date.year - 1900;  // Counts from 1900
+
+  const auto this_time = local_time();
+  out.tm_sec = this_time.second;
+  out.tm_min = this_time.minute;
+  out.tm_hour = this_time.hour;
+
+  const auto ztime = zoned_time();
+  const auto days = std::chrono::local_days{time_point_cast<std::chrono::days>(ztime.get_local_time())};
+  out.tm_wday = static_cast<int>(std::chrono::weekday{days}.c_encoding());
+  out.tm_yday = static_cast<int>(
+      std::chrono::duration_cast<std::chrono::days>((days - DaysSinceEpoch(this_date.year, 1, 1)).time_since_epoch())
+          .count());
+  const auto info = ztime.get_time_zone()->get_info(us_since_epoch_);
+  out.tm_isdst = info.save != 0s;
+  out.tm_gmtoff = info.offset.count();
+  out.tm_zone = ztime.get_time_zone()->name().data();
+
+  return out;
+}
+
 size_t LocalDateTimeHash::operator()(const LocalDateTime &local_date_time) const {
   // Use system time since it is in a fixed timezone
-  utils::HashCombine<uint64_t, uint64_t> hasher;
+  const utils::HashCombine<uint64_t, uint64_t> hasher;
   return hasher(0, local_date_time.SysMicrosecondsSinceEpoch());
 }
 
