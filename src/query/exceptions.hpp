@@ -108,6 +108,16 @@ class MulticommandTxException : public QueryException {
   SPECIALIZE_GET_EXCEPTION_NAME(MulticommandTxException)
 };
 
+class DisabledForOnDisk : public QueryException {
+ public:
+  explicit DisabledForOnDisk(std::string_view query)
+      : QueryException(
+            fmt::format("{} is not supported for the OnDisk storage mode. The query in question can be "
+                        "executed only while in one of the InMemory storage modes.",  // Link to storage modes?
+                        query)) {}
+  SPECIALIZE_GET_EXCEPTION_NAME(DisabledForOnDisk)
+};
+
 class ProfileInMulticommandTxException : public MulticommandTxException {
  public:
   ProfileInMulticommandTxException() : MulticommandTxException("Query profiling") {}
@@ -282,9 +292,9 @@ class CoordinatorModificationInMulticommandTxException : public MulticommandTxEx
   SPECIALIZE_GET_EXCEPTION_NAME(CoordinatorModificationInMulticommandTxException)
 };
 
-class ReplicationDisabledOnDiskStorage : public QueryException {
+class ReplicationDisabledOnDiskStorage : public DisabledForOnDisk {
  public:
-  ReplicationDisabledOnDiskStorage() : QueryException("Replication is not supported while in on-disk storage mode.") {}
+  ReplicationDisabledOnDiskStorage() : DisabledForOnDisk("Replication") {}
   SPECIALIZE_GET_EXCEPTION_NAME(ReplicationDisabledOnDiskStorage)
 };
 
@@ -294,10 +304,9 @@ class LockPathModificationInMulticommandTxException : public MulticommandTxExcep
   SPECIALIZE_GET_EXCEPTION_NAME(LockPathModificationInMulticommandTxException)
 };
 
-class LockPathDisabledOnDiskStorage : public QueryException {
+class LockPathDisabledOnDiskStorage : public DisabledForOnDisk {
  public:
-  LockPathDisabledOnDiskStorage()
-      : QueryException("Lock path disabled on disk storage since all data is already persisted. ") {}
+  LockPathDisabledOnDiskStorage() : DisabledForOnDisk("Locking paths") {}
   SPECIALIZE_GET_EXCEPTION_NAME(LockPathDisabledOnDiskStorage)
 };
 
@@ -307,9 +316,9 @@ class FreeMemoryModificationInMulticommandTxException : public MulticommandTxExc
   SPECIALIZE_GET_EXCEPTION_NAME(FreeMemoryModificationInMulticommandTxException)
 };
 
-class FreeMemoryDisabledOnDiskStorage : public QueryException {
+class FreeMemoryDisabledOnDiskStorage : public DisabledForOnDisk {
  public:
-  FreeMemoryDisabledOnDiskStorage() : QueryException("Free memory does nothing when using disk storage. ") {}
+  FreeMemoryDisabledOnDiskStorage() : DisabledForOnDisk("Free memory query") {}
   SPECIALIZE_GET_EXCEPTION_NAME(FreeMemoryDisabledOnDiskStorage)
 };
 
@@ -347,10 +356,10 @@ class IsolationLevelModificationInAnalyticsException : public QueryException {
   SPECIALIZE_GET_EXCEPTION_NAME(IsolationLevelModificationInAnalyticsException)
 };
 
-class IsolationLevelModificationInDiskTransactionalException : public QueryException {
+class IsolationLevelModificationInDiskTransactionalException : public DisabledForOnDisk {
  public:
-  IsolationLevelModificationInDiskTransactionalException()
-      : QueryException("Snapshot isolation level is the only supported isolation level for disk storage.") {}
+  IsolationLevelModificationInDiskTransactionalException() : DisabledForOnDisk("Modifying snapshot isolation levels") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(IsolationLevelModificationInDiskTransactionalException)
 };
 
 class StorageModeModificationInMulticommandTxException : public MulticommandTxException {
@@ -371,9 +380,9 @@ class CreateSnapshotInMulticommandTxException final : public MulticommandTxExcep
   SPECIALIZE_GET_EXCEPTION_NAME(CreateSnapshotInMulticommandTxException)
 };
 
-class CreateSnapshotDisabledOnDiskStorage final : public QueryException {
+class CreateSnapshotDisabledOnDiskStorage final : public DisabledForOnDisk {
  public:
-  CreateSnapshotDisabledOnDiskStorage() : QueryException("In the on-disk storage mode data is already persistent.") {}
+  CreateSnapshotDisabledOnDiskStorage() : DisabledForOnDisk("Creating snapshots") {}
   SPECIALIZE_GET_EXCEPTION_NAME(CreateSnapshotDisabledOnDiskStorage)
 };
 
@@ -383,9 +392,9 @@ class RecoverSnapshotInMulticommandTxException final : public MulticommandTxExce
   SPECIALIZE_GET_EXCEPTION_NAME(RecoverSnapshotInMulticommandTxException)
 };
 
-class RecoverSnapshotDisabledOnDiskStorage final : public QueryException {
+class RecoverSnapshotDisabledOnDiskStorage final : public DisabledForOnDisk {
  public:
-  RecoverSnapshotDisabledOnDiskStorage() : QueryException("Snapshot recovery is not supported for on-disk") {}
+  RecoverSnapshotDisabledOnDiskStorage() : DisabledForOnDisk("Recoverying from snapshot") {}
   SPECIALIZE_GET_EXCEPTION_NAME(RecoverSnapshotDisabledOnDiskStorage)
 };
 
@@ -395,16 +404,15 @@ class ShowSnapshotsInMulticommandTxException final : public MulticommandTxExcept
   SPECIALIZE_GET_EXCEPTION_NAME(ShowSnapshotsInMulticommandTxException)
 };
 
-class ShowSnapshotsDisabledOnDiskStorage final : public QueryException {
+class ShowSnapshotsDisabledOnDiskStorage final : public DisabledForOnDisk {
  public:
-  ShowSnapshotsDisabledOnDiskStorage() : QueryException("SHOW SNAPSHOTS is not supported for on-disk") {}
+  ShowSnapshotsDisabledOnDiskStorage() : DisabledForOnDisk("Snapshots listing") {}
   SPECIALIZE_GET_EXCEPTION_NAME(ShowSnapshotsDisabledOnDiskStorage)
 };
 
-class EdgeImportModeQueryDisabledOnDiskStorage final : public QueryException {
+class EdgeImportModeQueryDisabledOnDiskStorage final : public DisabledForOnDisk {
  public:
-  EdgeImportModeQueryDisabledOnDiskStorage()
-      : QueryException("Edge import mode is only allowed for on-disk storage mode.") {}
+  EdgeImportModeQueryDisabledOnDiskStorage() : DisabledForOnDisk("Edge import mode") {}
   SPECIALIZE_GET_EXCEPTION_NAME(EdgeImportModeQueryDisabledOnDiskStorage)
 };
 
@@ -455,18 +463,6 @@ class TransactionQueueInMulticommandTxException : public MulticommandTxException
   SPECIALIZE_GET_EXCEPTION_NAME(TransactionQueueInMulticommandTxException)
 };
 
-class IndexPersistenceException : public QueryException {
- public:
-  IndexPersistenceException() : QueryException("Persisting index on disk failed.") {}
-  SPECIALIZE_GET_EXCEPTION_NAME(IndexPersistenceException)
-};
-
-class ConstraintsPersistenceException : public QueryException {
- public:
-  ConstraintsPersistenceException() : QueryException("Persisting constraints on disk failed.") {}
-  SPECIALIZE_GET_EXCEPTION_NAME(ConstraintsPersistenceException)
-};
-
 class MultiDatabaseQueryInMulticommandTxException : public MulticommandTxException {
  public:
   MultiDatabaseQueryInMulticommandTxException()
@@ -514,9 +510,9 @@ class TtlInMulticommandTxException : public MulticommandTxException {
   SPECIALIZE_GET_EXCEPTION_NAME(TtlInMulticommandTxException)
 };
 
-class ShowSchemaInfoOnDiskException : public QueryException {
+class ShowSchemaInfoOnDiskException : public DisabledForOnDisk {
  public:
-  ShowSchemaInfoOnDiskException() : QueryException("Show schema info is not supported for OnDisk.") {}
+  ShowSchemaInfoOnDiskException() : DisabledForOnDisk("Show schema info query") {}
   SPECIALIZE_GET_EXCEPTION_NAME(ShowSchemaInfoOnDiskException)
 };
 
