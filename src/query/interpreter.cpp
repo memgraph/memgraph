@@ -210,6 +210,10 @@ template <typename>
 constexpr auto kAlwaysFalse = false;
 
 namespace {
+constexpr std::string_view kSocketErrorExplanation =
+    "The socket address must be a string defining the address and port, delimited by a "
+    "single colon. The address must be valid and the port must be an integer.";
+
 template <typename T, typename K>
 void Sort(std::vector<T, K> &vec) {
   std::sort(vec.begin(), vec.end());
@@ -394,7 +398,7 @@ class ReplQueryHandler {
       }
 
     } else {
-      throw QueryRuntimeException("Invalid socket address!");
+      throw QueryRuntimeException("Invalid socket address. {}", kSocketErrorExplanation);
     }
   }
 
@@ -404,13 +408,17 @@ class ReplQueryHandler {
     switch (result) {
       using enum memgraph::query::UnregisterReplicaResult;
       case NO_ACCESS:
-        throw QueryRuntimeException("Couldn't get unique access to replication state!");
+        throw QueryRuntimeException(
+            "Failed to unregister replica due to lack of unique access over the cluster state. Please try again later "
+            "on.");
       case NOT_MAIN:
-        throw QueryRuntimeException("Replica can't unregister a replica!");
+        throw QueryRuntimeException(
+            "Replica can't unregister a replica! Please rerun the query on main in order to unregister a replica from "
+            "the cluster.");
       case COULD_NOT_BE_PERSISTED:
         [[fallthrough]];
       case CANNOT_UNREGISTER:
-        throw QueryRuntimeException("Couldn't unregister the replica {}.", replica_name);
+        throw QueryRuntimeException("Failed to unregister the replica {}.", replica_name);
       case SUCCESS:
         break;
     }
@@ -421,7 +429,7 @@ class ReplQueryHandler {
     if (info.HasError()) {
       switch (info.GetError()) {
         case ShowReplicaError::NOT_MAIN:
-          throw QueryRuntimeException("Replica can't show registered replicas (it shouldn't have any)!");
+          throw QueryRuntimeException("Show replicas query should only be run on the main instance.");
       }
     }
 
@@ -545,17 +553,17 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
                                    std::string_view instance_name, CoordinatorQuery::SyncMode sync_mode) override {
     auto const maybe_bolt_server = io::network::Endpoint::ParseAndCreateSocketOrAddress(bolt_server);
     if (!maybe_bolt_server) {
-      throw QueryRuntimeException("Invalid bolt socket address!");
+      throw QueryRuntimeException("Invalid bolt socket address. {}", kSocketErrorExplanation);
     }
 
     auto const maybe_management_server = io::network::Endpoint::ParseAndCreateSocketOrAddress(management_server);
     if (!maybe_management_server) {
-      throw QueryRuntimeException("Invalid management socket address!");
+      throw QueryRuntimeException("Invalid management socket address. {}", kSocketErrorExplanation);
     }
 
     auto const maybe_replication_server = io::network::Endpoint::ParseAndCreateSocketOrAddress(replication_server);
     if (!maybe_replication_server) {
-      throw QueryRuntimeException("Invalid replication socket address!");
+      throw QueryRuntimeException("Invalid replication socket address. {}", kSocketErrorExplanation);
     }
 
     auto const repl_config =
@@ -622,17 +630,17 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       -> void override {
     auto const maybe_coordinator_server = io::network::Endpoint::ParseAndCreateSocketOrAddress(coordinator_server);
     if (!maybe_coordinator_server) {
-      throw QueryRuntimeException("Invalid coordinator socket address!");
+      throw QueryRuntimeException("Invalid coordinator socket address. {}", kSocketErrorExplanation);
     }
 
     auto const maybe_management_server = io::network::Endpoint::ParseAndCreateSocketOrAddress(management_server);
     if (!maybe_management_server) {
-      throw QueryRuntimeException("Invalid management socket address!");
+      throw QueryRuntimeException("Invalid management socket address. {}", kSocketErrorExplanation);
     }
 
     auto const maybe_bolt_server = io::network::Endpoint::ParseAndCreateSocketOrAddress(bolt_server);
     if (!maybe_bolt_server) {
-      throw QueryRuntimeException("Invalid bolt socket address!");
+      throw QueryRuntimeException("Invalid bolt socket address. {}", kSocketErrorExplanation);
     }
 
     auto const coord_coord_config =
@@ -803,7 +811,10 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
                 username, password.IsString() ? std::make_optional(std::string(password.ValueString())) : std::nullopt,
                 &*interpreter->system_transaction_)) {
           if (!if_not_exists) {
-            throw UserAlreadyExistsException("User '{}' already exists.", username);
+            throw UserAlreadyExistsException(
+                "User with username '{}' already exists. Use the SHOW USERS query to list all users. In addition you "
+                "can rerun the current query with IF NOT EXISTS.",
+                username);
           }
           spdlog::warn("User '{}' already exists.", username);
         }
@@ -839,7 +850,8 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         }
 
         if (!auth->DropUser(username, &*interpreter->system_transaction_)) {
-          throw QueryRuntimeException("User '{}' doesn't exist.", username);
+          throw QueryRuntimeException(
+              "User with username '{}' doesn't exist. A new user can be created via the CREAT USER query.", username);
         }
         return std::vector<std::vector<TypedValue>>();
       };
@@ -888,7 +900,10 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
 
         if (!auth->CreateRole(rolename, &*interpreter->system_transaction_)) {
           if (!if_not_exists) {
-            throw QueryRuntimeException("Role '{}' already exists.", rolename);
+            throw QueryRuntimeException(
+                "Role with name '{}' already exists. Use the SHOW ROLES query to list all roles. In addition you "
+                "can rerun the current query with IF NOT EXISTS.",
+                rolename);
           }
           spdlog::warn("Role '{}' already exists.", rolename);
         }
@@ -1384,7 +1399,8 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
   using enum memgraph::flags::Experiments;
 
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
-    throw QueryRuntimeException("High availability is only available in Memgraph Enterprise.");
+    throw QueryRuntimeException(
+        license::LicenseCheckErrorToString(license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "high availability"));
   }
 
   Callback callback;
@@ -3212,7 +3228,8 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
                               std::vector<Notification> *notifications, CurrentDB &current_db,
                               InterpreterContext *interpreter_context) {
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
-    throw QueryException("Trying to use enterprise feature without a valid license.");
+    throw QueryRuntimeException(
+        license::LicenseCheckErrorToString(license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "TTL"));
   }
 
   if (in_explicit_transaction) {
@@ -4415,10 +4432,12 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
     case DatabaseInfoQuery::InfoType::METRICS: {
 #ifdef MG_ENTERPRISE
       if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-        throw QueryRuntimeException("SHOW METRICS INFO command is only available with a valid Enterprise License!");
+        throw QueryRuntimeException(license::LicenseCheckErrorToString(
+            license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "SHOW METRICS INFO"));
       }
 #else
-      throw QueryRuntimeException("SHOW METRICS INFO command is only available in Memgraph Enterprise build!");
+      throw QueryException(
+          "Query is part of an entreprise feature. In order to run it, you need an enterprise build and license.");
 #endif
       header = {"name", "type", "metric type", "value"};
       handler = [storage = current_db.db_acc_->get()->storage()] {
@@ -4839,7 +4858,8 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &cur
                                         Interpreter &interpreter) {
 #ifdef MG_ENTERPRISE
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
-    throw QueryException("Trying to use enterprise feature without a valid license.");
+    throw QueryRuntimeException(
+        license::LicenseCheckErrorToString(license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "multi-tenancy"));
   }
 
   auto *query = utils::Downcast<MultiDatabaseQuery>(parsed_query.query);
@@ -5002,7 +5022,8 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &cur
     }
   };
 #else
-  throw QueryException("Query not supported.");
+  throw QueryException(
+      "Query is part of an entreprise feature. In order to run it, you need an enterprise build and license.");
 #endif
 }
 
@@ -5010,7 +5031,8 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
                                         std::shared_ptr<QueryUserOrRole> user_or_role) {
 #ifdef MG_ENTERPRISE
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
-    throw QueryException("Trying to use enterprise feature without a valid license.");
+    throw QueryRuntimeException(
+        license::LicenseCheckErrorToString(license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "multi-tenancy"));
   }
 
   auto *db_handler = interpreter_context->dbms_handler;
@@ -5078,7 +5100,8 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
       ""  // No target DB
   };
 #else
-  throw QueryException("Query not supported.");
+  throw QueryException(
+      "Query is part of an entreprise feature. In order to run it, you need an enterprise build and license.");
 #endif
 }
 
@@ -5344,7 +5367,8 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       // Pack json into query result
       schema.push_back(std::vector<TypedValue>{TypedValue(json.dump())});
     } else {
-      throw QueryException("SchemaInfo disabled.");
+      throw QueryException(
+          "SchemaInfo query is disabled. To enable it, start Memgraph with the --schema-info-enabled flag.");
     }
     return schema;
   };
@@ -5605,7 +5629,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       prepared_query = PrepareTtlQuery(std::move(parsed_query), in_explicit_transaction_,
                                        &query_execution->notifications, current_db_, interpreter_context_);
 #else
-      throw QueryException("Query not supported.");
+      throw QueryException(
+          "Query is part of an entreprise feature. In order to run it, you need an enterprise build and license.");
 #endif  // MG_ENTERPRISE
     } else if (utils::Downcast<AnalyzeGraphQuery>(parsed_query.query)) {
       prepared_query = PrepareAnalyzeGraphQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
@@ -5643,7 +5668,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
           PrepareCoordinatorQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications,
                                   *interpreter_context_->coordinator_state_, interpreter_context_->config);
 #else
-      throw QueryRuntimeException("Coordinator queries are not part of community edition");
+      throw QueryException(
+          "Query is part of an entreprise feature. In order to run it, you need an enterprise build and license.");
 #endif
     } else if (utils::Downcast<LockPathQuery>(parsed_query.query)) {
       prepared_query = PrepareLockPathQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
@@ -5934,7 +5960,9 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
                 }
               }
             } else if constexpr (std::is_same_v<ErrorType, storage::SerializationError>) {
-              throw QueryException("Unable to commit due to serialization error.");
+              throw QueryException(MessageWithDocsLink(
+                  "Unable to commit due to serialization error. Try retrying this transaction when the conflicting "
+                  "transaction is finished."));
             } else if constexpr (std::is_same_v<ErrorType, storage::PersistenceError>) {
               throw QueryException("Unable to commit due to persistance error.");
             } else {
