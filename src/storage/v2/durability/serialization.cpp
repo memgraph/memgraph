@@ -258,17 +258,13 @@ bool Decoder::Peek(uint8_t *data, size_t size) { return file_.Peek(data, size); 
 std::optional<Marker> Decoder::PeekMarker() {
   uint8_t value;
   if (!Peek(&value, sizeof(value))) return std::nullopt;
-  auto marker = CastToMarker(value);
-  if (!marker) return std::nullopt;
-  return *marker;
+  return CastToMarker(value);
 }
 
 std::optional<Marker> Decoder::ReadMarker() {
   uint8_t value;
   if (!Read(&value, sizeof(value))) return std::nullopt;
-  auto marker = CastToMarker(value);
-  if (!marker) return std::nullopt;
-  return *marker;
+  return CastToMarker(value);
 }
 
 std::optional<bool> Decoder::ReadBool() {
@@ -284,8 +280,7 @@ std::optional<uint64_t> Decoder::ReadUint() {
   if (!marker || *marker != Marker::TYPE_INT) return std::nullopt;
   uint64_t value;
   if (!Read(reinterpret_cast<uint8_t *>(&value), sizeof(value))) return std::nullopt;
-  value = utils::LittleEndianToHost(value);
-  return value;
+  return utils::LittleEndianToHost(value);
 }
 
 std::optional<double> Decoder::ReadDouble() {
@@ -294,8 +289,7 @@ std::optional<double> Decoder::ReadDouble() {
   uint64_t value_int;
   if (!Read(reinterpret_cast<uint8_t *>(&value_int), sizeof(value_int))) return std::nullopt;
   value_int = utils::LittleEndianToHost(value_int);
-  auto value = utils::MemcpyCast<double>(value_int);
-  return value;
+  return utils::MemcpyCast<double>(value_int);
 }
 
 std::optional<std::string> Decoder::ReadString() {
