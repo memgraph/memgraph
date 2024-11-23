@@ -44,11 +44,11 @@ bool memgraph::flags::ValidLogLevel(std::string_view value) {
     const auto error = result.GetError();
     switch (error) {
       case memgraph::utils::ValidationError::EmptyValue: {
-        std::cout << "Log level cannot be empty." << std::endl;
+        std::cout << "Log level cannot be empty." << '\n';
         break;
       }
       case memgraph::utils::ValidationError::InvalidValue: {
-        std::cout << "Invalid value for log level. Allowed values: " << allowed_log_levels << std::endl;
+        std::cout << "Invalid value for log level. Allowed values: " << allowed_log_levels << '\n';
         break;
       }
     }
