@@ -897,6 +897,18 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionAll2) {
   EXPECT_FALSE(value.ValueBool());
 }
 
+TYPED_TEST(ExpressionEvaluatorTest, FunctionAllEmptyList) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *all = ALL("x", LIST(), WHERE(LITERAL(true)));
+  const auto x_sym = this->symbol_table.CreateSymbol("x", true);
+  all->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = this->Eval(all);
+  ASSERT_TRUE(value.IsBool());
+  EXPECT_TRUE(value.ValueBool());
+}
+
 TYPED_TEST(ExpressionEvaluatorTest, FunctionAllNullList) {
   AstStorage storage;
   auto *all = ALL("x", LITERAL(memgraph::storage::PropertyValue()), WHERE(LITERAL(true)));
@@ -909,19 +921,18 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionAllNullList) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionAllNullElementInList1) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *all = ALL("x", LIST(LITERAL(1), LITERAL(memgraph::storage::PropertyValue())), WHERE(EQ(ident_x, LITERAL(1))));
+  auto *all = ALL("x", LIST(LITERAL(true), LITERAL(memgraph::storage::PropertyValue())), WHERE(ident_x));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   all->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
   auto value = this->Eval(all);
-  ASSERT_TRUE(value.IsBool());
-  EXPECT_FALSE(value.ValueBool());
+  EXPECT_TRUE(value.IsNull());
 }
 
 TYPED_TEST(ExpressionEvaluatorTest, FunctionAllNullElementInList2) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *all = ALL("x", LIST(LITERAL(2), LITERAL(memgraph::storage::PropertyValue())), WHERE(EQ(ident_x, LITERAL(1))));
+  auto *all = ALL("x", LIST(LITERAL(false), LITERAL(memgraph::storage::PropertyValue())), WHERE(ident_x));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   all->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -962,6 +973,18 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionSingle2) {
   EXPECT_FALSE(value.ValueBool());
 }
 
+TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleEmptyList) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *single = SINGLE("x", LIST(), WHERE(LITERAL(true)));
+  const auto x_sym = this->symbol_table.CreateSymbol("x", true);
+  single->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = this->Eval(single);
+  ASSERT_TRUE(value.IsBool());
+  EXPECT_FALSE(value.ValueBool());
+}
+
 TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleNullList) {
   AstStorage storage;
   auto *single = SINGLE("x", LITERAL(memgraph::storage::PropertyValue()), WHERE(LITERAL(true)));
@@ -974,8 +997,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleNullList) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleNullElementInList1) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *single =
-      SINGLE("x", LIST(LITERAL(1), LITERAL(memgraph::storage::PropertyValue())), WHERE(EQ(ident_x, LITERAL(1))));
+  auto *single = SINGLE("x", LIST(LITERAL(true), LITERAL(memgraph::storage::PropertyValue())), WHERE(ident_x));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   single->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -987,8 +1009,19 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleNullElementInList1) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleNullElementInList2) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
+  auto *single = SINGLE("x", LIST(LITERAL(false), LITERAL(memgraph::storage::PropertyValue())), WHERE(ident_x));
+  const auto x_sym = this->symbol_table.CreateSymbol("x", true);
+  single->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = this->Eval(single);
+  EXPECT_TRUE(value.IsNull());
+}
+
+TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleNullElementInList3) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
   auto *single =
-      SINGLE("x", LIST(LITERAL(2), LITERAL(memgraph::storage::PropertyValue())), WHERE(EQ(ident_x, LITERAL(1))));
+      SINGLE("x", LIST(LITERAL(memgraph::storage::PropertyValue()), LITERAL(true), LITERAL(true)), WHERE(ident_x));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   single->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -1021,6 +1054,18 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionAny2) {
   EXPECT_FALSE(value.ValueBool());
 }
 
+TYPED_TEST(ExpressionEvaluatorTest, FunctionAnyEmptyList) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *any = ANY("x", LIST(), WHERE(LITERAL(true)));
+  const auto x_sym = this->symbol_table.CreateSymbol("x", true);
+  any->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = this->Eval(any);
+  ASSERT_TRUE(value.IsBool());
+  EXPECT_FALSE(value.ValueBool());
+}
+
 TYPED_TEST(ExpressionEvaluatorTest, FunctionAnyNullList) {
   AstStorage storage;
   auto *any = ANY("x", LITERAL(memgraph::storage::PropertyValue()), WHERE(LITERAL(true)));
@@ -1033,7 +1078,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionAnyNullList) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionAnyNullElementInList1) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *any = ANY("x", LIST(LITERAL(0), LITERAL(memgraph::storage::PropertyValue())), WHERE(EQ(ident_x, LITERAL(0))));
+  auto *any = ANY("x", LIST(LITERAL(true), LITERAL(memgraph::storage::PropertyValue())), WHERE(ident_x));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   any->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -1044,12 +1089,12 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionAnyNullElementInList1) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionAnyNullElementInList2) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *any = ANY("x", LIST(LITERAL(1), LITERAL(memgraph::storage::PropertyValue())), WHERE(EQ(ident_x, LITERAL(0))));
+  auto *any = ANY("x", LIST(LITERAL(false), LITERAL(memgraph::storage::PropertyValue())), WHERE(ident_x));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   any->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
   auto value = this->Eval(any);
-  EXPECT_FALSE(value.ValueBool());
+  EXPECT_TRUE(value.IsNull());
 }
 
 TYPED_TEST(ExpressionEvaluatorTest, FunctionAnyWhereWrongType) {
@@ -1084,6 +1129,18 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionNone2) {
   EXPECT_FALSE(value.ValueBool());
 }
 
+TYPED_TEST(ExpressionEvaluatorTest, FunctionNoneEmptyList) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *none = NONE("x", LIST(), WHERE(LITERAL(true)));
+  const auto x_sym = this->symbol_table.CreateSymbol("x", true);
+  none->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = this->Eval(none);
+  ASSERT_TRUE(value.IsBool());
+  EXPECT_TRUE(value.ValueBool());
+}
+
 TYPED_TEST(ExpressionEvaluatorTest, FunctionNoneNullList) {
   AstStorage storage;
   auto *none = NONE("x", LITERAL(memgraph::storage::PropertyValue()), WHERE(LITERAL(true)));
@@ -1096,18 +1153,18 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionNoneNullList) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionNoneNullElementInList1) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *any = NONE("x", LIST(LITERAL(1), LITERAL(memgraph::storage::PropertyValue())), WHERE(EQ(ident_x, LITERAL(0))));
+  auto *any = NONE("x", LIST(LITERAL(false), LITERAL(memgraph::storage::PropertyValue())), WHERE(ident_x));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   any->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
   auto value = this->Eval(any);
-  EXPECT_TRUE(value.ValueBool());
+  EXPECT_TRUE(value.IsNull());
 }
 
 TYPED_TEST(ExpressionEvaluatorTest, FunctionNoneNullElementInList2) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *none = NONE("x", LIST(LITERAL(0), LITERAL(memgraph::storage::PropertyValue())), WHERE(EQ(ident_x, LITERAL(0))));
+  auto *none = NONE("x", LIST(LITERAL(true), LITERAL(memgraph::storage::PropertyValue())), WHERE(ident_x));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   none->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -1712,6 +1769,30 @@ TYPED_TEST(FunctionTest, StartNode) {
                    .ValueVertex()
                    .HasLabel(memgraph::storage::View::NEW, this->dba.NameToLabel("label1")));
   ASSERT_THROW(this->EvaluateFunction("STARTNODE", 2), QueryRuntimeException);
+}
+
+TYPED_TEST(FunctionTest, IsEmpty) {
+  ASSERT_THROW(this->EvaluateFunction("ISEMPTY"), QueryRuntimeException);
+
+  auto null = TypedValue{};
+
+  ASSERT_TRUE(this->EvaluateFunction("ISEMPTY", null).IsNull());
+
+  auto empty_list = TypedValue(std::vector<TypedValue>{});
+  auto empty_map = TypedValue(std::map<std::string, TypedValue>{});
+  auto empty_string = TypedValue("");
+
+  ASSERT_TRUE(this->EvaluateFunction("ISEMPTY", empty_list).ValueBool());
+  ASSERT_TRUE(this->EvaluateFunction("ISEMPTY", empty_map).ValueBool());
+  ASSERT_TRUE(this->EvaluateFunction("ISEMPTY", empty_string).ValueBool());
+
+  auto non_empty_list = TypedValue(std::vector{null});
+  auto non_empty_map = TypedValue(std::map{std::pair<std::string, TypedValue>{"key", null}});
+  auto non_empty_string = TypedValue("nonempty");
+
+  ASSERT_FALSE(this->EvaluateFunction("ISEMPTY", non_empty_list).ValueBool());
+  ASSERT_FALSE(this->EvaluateFunction("ISEMPTY", non_empty_map).ValueBool());
+  ASSERT_FALSE(this->EvaluateFunction("ISEMPTY", non_empty_string).ValueBool());
 }
 
 TYPED_TEST(FunctionTest, Degree) {
