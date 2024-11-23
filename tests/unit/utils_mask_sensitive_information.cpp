@@ -23,14 +23,26 @@ TEST(MaskPasswords, GeneralCases) {
             "CALL migrate.sql_server('example_table', {user:'memgraph', password:'****', host:'localhost', "
             "database:'demo_db'} ) YIELD row RETURN row;");
 
+  EXPECT_EQ(memgraph::logging::MaskSensitiveInformation(
+                "CALL migrate.sql_server('example_table', {user:'memgraph', password:\"password\", host:'localhost', "
+                "database:'demo_db'} ) YIELD row RETURN row;"),
+            "CALL migrate.sql_server('example_table', {user:'memgraph', password:\"****\", host:'localhost', "
+            "database:'demo_db'} ) YIELD row RETURN row;");
+
   EXPECT_EQ(memgraph::logging::MaskSensitiveInformation("SET PASSWORD TO 'newpassword' REPLACE 'oldpassword'"),
             "SET PASSWORD TO '****' REPLACE '****'");
+
+  EXPECT_EQ(memgraph::logging::MaskSensitiveInformation("SET PASSWORD TO \"newpassword\" REPLACE \"oldpassword\""),
+            "SET PASSWORD TO \"****\" REPLACE \"****\"");
 
   EXPECT_EQ(memgraph::logging::MaskSensitiveInformation("CREATE USER `alice@memgraph.com` IDENTIFIED BY '0042';"),
             "CREATE USER `alice@memgraph.com` IDENTIFIED BY '****';");
 
   EXPECT_EQ(memgraph::logging::MaskSensitiveInformation("SET PASSWORD FOR user_name TO 'new_password';"),
             "SET PASSWORD FOR user_name TO '****';");
+
+  EXPECT_EQ(memgraph::logging::MaskSensitiveInformation("SET PASSWORD FOR user_name TO \"new_password\";"),
+            "SET PASSWORD FOR user_name TO \"****\";");
 
   EXPECT_EQ(memgraph::logging::MaskSensitiveInformation("SET PASWORD FOR user_name TO 'new_password';"),
             "SET PASWORD FOR user_name TO '****';");
@@ -45,5 +57,12 @@ TEST(MaskPasswords, NodePropertyCases) {
           "CREATE (g1:G {name: 'g1', password: 'password'}), (g2:G {name: 'g2'}), (h1:H {name: 'h1'}), (h2:H {name: "
           "'h2'}), (h3:H {name: 'h3'}), (g1)-[:CONNECTS]->(g2), (h1)-[:CONNECTS]->(h2), (h2)-[:CONNECTS]->(h3');"),
       "CREATE (g1:G {name: 'g1', password: 'password'}), (g2:G {name: 'g2'}), (h1:H {name: 'h1'}), (h2:H {name: "
+      "'h2'}), (h3:H {name: 'h3'}), (g1)-[:CONNECTS]->(g2), (h1)-[:CONNECTS]->(h2), (h2)-[:CONNECTS]->(h3');");
+
+  EXPECT_EQ(
+      memgraph::logging::MaskSensitiveInformation(
+          "CREATE (g1:G {name: 'g1', password: \"password\"}), (g2:G {name: 'g2'}), (h1:H {name: 'h1'}), (h2:H {name: "
+          "'h2'}), (h3:H {name: 'h3'}), (g1)-[:CONNECTS]->(g2), (h1)-[:CONNECTS]->(h2), (h2)-[:CONNECTS]->(h3');"),
+      "CREATE (g1:G {name: 'g1', password: \"password\"}), (g2:G {name: 'g2'}), (h1:H {name: 'h1'}), (h2:H {name: "
       "'h2'}), (h3:H {name: 'h3'}), (g1)-[:CONNECTS]->(g2), (h1)-[:CONNECTS]->(h2), (h2)-[:CONNECTS]->(h3');");
 }
