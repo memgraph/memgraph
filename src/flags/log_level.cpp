@@ -34,20 +34,21 @@ inline constexpr std::array log_level_mappings{
     std::pair{"INFO"sv, spdlog::level::info},   std::pair{"WARNING"sv, spdlog::level::warn},
     std::pair{"ERROR"sv, spdlog::level::err},   std::pair{"CRITICAL"sv, spdlog::level::critical}};
 
-const std::string memgraph::flags::log_level_help_string = fmt::format(
-    "Minimum log level. Allowed values: {}", memgraph::utils::GetAllowedEnumValuesString(log_level_mappings));
+const std::string memgraph::flags::allowed_log_levels = memgraph::utils::GetAllowedEnumValuesString(log_level_mappings);
+
+const std::string memgraph::flags::log_level_help_string =
+    fmt::format("Minimum log level. Allowed values: {}", allowed_log_levels);
 
 bool memgraph::flags::ValidLogLevel(std::string_view value) {
   if (const auto result = memgraph::utils::IsValidEnumValueString(value, log_level_mappings); result.HasError()) {
     const auto error = result.GetError();
     switch (error) {
       case memgraph::utils::ValidationError::EmptyValue: {
-        std::cout << "Log level cannot be empty." << std::endl;
+        std::cout << "Log level cannot be empty." << '\n';
         break;
       }
       case memgraph::utils::ValidationError::InvalidValue: {
-        std::cout << "Invalid value for log level. Allowed values: "
-                  << memgraph::utils::GetAllowedEnumValuesString(log_level_mappings) << std::endl;
+        std::cout << "Invalid value for log level. Allowed values: " << allowed_log_levels << '\n';
         break;
       }
     }

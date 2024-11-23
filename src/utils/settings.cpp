@@ -34,7 +34,8 @@ void Settings::RegisterSetting(std::string name, const std::string &default_valu
                                Validation validation) {
   std::lock_guard settings_guard{settings_lock_};
   MG_ASSERT(storage_);
-  MG_ASSERT(validation(default_value), "\"{}\"'s default value does not satisfy the validation condition.", name);
+  MG_ASSERT(!validation(default_value).HasError(), "\"{}\"'s default value does not satisfy the validation condition.",
+            name);
 
   if (const auto maybe_value = storage_->Get(name); maybe_value) {
     SPDLOG_INFO("The setting with name {} already exists!", name);
@@ -69,8 +70,8 @@ bool Settings::SetValue(const std::string &setting_name, const std::string &new_
 
     const auto val = validations_.find(setting_name);
     MG_ASSERT(val != validations_.end(), "Settings storage is out of sync");
-    if (!val->second(new_value)) {
-      throw utils::BasicException("'{}' not valid for '{}'", new_value, setting_name);
+    if (const auto msg = val->second(new_value); msg.HasError()) {
+      throw utils::BasicException("'{}' not valid for '{}': {}", new_value, setting_name, msg.GetError());
     }
 
     MG_ASSERT(storage_->Put(setting_name, new_value), "Failed to modify the setting");
