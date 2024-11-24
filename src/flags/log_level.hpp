@@ -19,6 +19,7 @@
 
 namespace memgraph::flags {
 
+extern const std::string allowed_log_levels;
 extern const std::string log_level_help_string;
 
 bool ValidLogLevel(std::string_view value);

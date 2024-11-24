@@ -41,7 +41,7 @@ target_sources(mg-utils
     scheduler.hpp
 )
 
-find_package(Boost REQUIRED)
+find_package(Boost REQUIRED CONFIG)
 find_package(fmt REQUIRED)
 find_package(gflags REQUIRED)
 find_package(Threads REQUIRED)

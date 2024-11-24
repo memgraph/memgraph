@@ -15,7 +15,7 @@ set(communication_src_files
     helpers.cpp
     init.cpp)
 
-find_package(Boost REQUIRED)
+find_package(Boost REQUIRED CONFIG)
 
 add_library(mg-communication-metrics STATIC metrics.cpp)
 target_link_libraries(mg-communication-metrics json)

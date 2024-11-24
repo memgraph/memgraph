@@ -430,7 +430,7 @@ add_unit_test(rpc.cpp)
 target_link_libraries(${test_prefix}rpc mg-rpc)
 
 # Test websocket
-find_package(Boost REQUIRED)
+find_package(Boost REQUIRED CONFIG)
 
 add_unit_test(monitoring.cpp)
 target_link_libraries(${test_prefix}monitoring mg-communication Boost::headers)

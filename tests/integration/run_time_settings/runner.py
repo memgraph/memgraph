@@ -154,13 +154,13 @@ def run_log_test(tester_binary: str, memgraph_args: List[str], executor_binary: 
         tester_binary,
         ["SET DATABASE SETTING 'log.to_stderr' TO 'something'"],
         should_fail=True,
-        failure_message="'something' not valid for 'log.to_stderr'",
+        failure_message="'something' not valid for 'log.to_stderr': Boolean value supports only 'false' or 'true' as the input.",
     )
     execute_tester(
         tester_binary,
         ["SET DATABASE SETTING 'log.level' TO 'something'"],
         should_fail=True,
-        failure_message="'something' not valid for 'log.level'",
+        failure_message="'something' not valid for 'log.level': Unsupported log level. Log level must be defined as one of the following strings: TRACE, DEBUG, INFO, WARNING, ERROR, CRITICAL",
     )
     cleanup(memgraph)
     atexit.unregister(cleanup)
