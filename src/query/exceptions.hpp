@@ -102,7 +102,7 @@ class UnprovidedParameterError : public QueryException {
   SPECIALIZE_GET_EXCEPTION_NAME(UnprovidedParameterError)
 };
 
-class EnterpriseOnlyException : QueryException {
+class EnterpriseOnlyException : public QueryException {
  public:
   EnterpriseOnlyException()
       : QueryException("Query is part of the Enterprise feature. In order to run it, you need an Enterprise license.") {
