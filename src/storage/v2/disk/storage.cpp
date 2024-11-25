@@ -1771,6 +1771,9 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
         case MetadataDelta::Action::POINT_INDEX_CREATE:
         case MetadataDelta::Action::POINT_INDEX_DROP:
           throw utils::NotYetImplemented("Point index is not implemented for DiskStorage.");
+        case MetadataDelta::Action::VECTOR_INDEX_CREATE:
+        case MetadataDelta::Action::VECTOR_INDEX_DROP:
+          throw utils::NotYetImplemented("Vector index is not implemented for DiskStorage.");
       }
     }
   } else if (transaction_.deltas.empty() ||
@@ -2090,6 +2093,16 @@ utils::BasicResult<storage::StorageIndexDefinitionError, void> DiskStorage::Disk
 utils::BasicResult<storage::StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropPointIndex(
     storage::LabelId /*label*/, storage::PropertyId /*property*/) {
   throw utils::NotYetImplemented("Point index related operations are not yet supported using on-disk storage mode.");
+}
+
+utils::BasicResult<storage::StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateVectorIndex(
+    VectorIndexSpec const & /*spec*/) {
+  throw utils::NotYetImplemented("Vector index related operations are not yet supported using on-disk storage mode.");
+}
+
+utils::BasicResult<storage::StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropVectorIndex(
+    std::string_view /*index_name*/) {
+  throw utils::NotYetImplemented("Vector index related operations are not yet supported using on-disk storage mode.");
 }
 
 utils::BasicResult<StorageExistenceConstraintDefinitionError, void>

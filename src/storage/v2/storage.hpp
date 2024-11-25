@@ -60,6 +60,7 @@ extern const Event ActiveLabelIndices;
 extern const Event ActiveLabelPropertyIndices;
 extern const Event ActivePointIndices;
 extern const Event ActiveTextIndices;
+extern const Event ActiveVectorIndices;
 }  // namespace memgraph::metrics
 
 namespace memgraph::storage {
@@ -387,7 +388,11 @@ class Storage {
 
     void DropTextIndex(const std::string &index_name);
 
-    void CreateVectorIndex(const VectorIndexSpec &spec);
+    virtual utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateVectorIndex(
+        const VectorIndexSpec &spec) = 0;
+
+    virtual utils::BasicResult<storage::StorageIndexDefinitionError, void> DropVectorIndex(
+        std::string_view index_name) = 0;
 
     void TryInsertVertexIntoVectorIndex(const VertexAccessor &vertex);
 

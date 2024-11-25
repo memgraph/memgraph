@@ -1854,6 +1854,34 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   return {};
 }
 
+utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateVectorIndex(
+    const VectorIndexSpec &spec) {
+  MG_ASSERT(unique_guard_.owns_lock(), "Creating vector index requires a unique access to the storage!");
+  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  auto &vector_index = in_memory->indices_.vector_index_;
+  if (!vector_index.CreateIndex(spec, in_memory->vertices_.access(), in_memory->name_id_mapper_.get())) {
+    return StorageIndexDefinitionError{IndexDefinitionError{}};
+  }
+  transaction_.md_deltas.emplace_back(MetadataDelta::vector_index_create, spec);
+  // We don't care if there is a replication error because on main node the change will go through
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveVectorIndices);
+  return {};
+}
+
+utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropVectorIndex(
+    std::string_view index_name) {
+  MG_ASSERT(unique_guard_.owns_lock(), "Dropping vector index requires a unique access to the storage!");
+  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  auto &vector_index = in_memory->indices_.vector_index_;
+  if (!vector_index.DropIndex(index_name)) {
+    return StorageIndexDefinitionError{IndexDefinitionError{}};
+  }
+  transaction_.md_deltas.emplace_back(MetadataDelta::vector_index_drop, index_name);  // check if this will work atm
+  // We don't care if there is a replication error because on main node the change will go through
+  memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveVectorIndices);
+  return {};
+}
+
 utils::BasicResult<StorageExistenceConstraintDefinitionError, void>
 InMemoryStorage::InMemoryAccessor::CreateExistenceConstraint(LabelId label, PropertyId property) {
   MG_ASSERT(unique_guard_.owns_lock(), "Creating existence requires a unique access to the storage!");

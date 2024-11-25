@@ -185,6 +185,8 @@ constexpr WalDeltaData::Type MarkerToWalDeltaDataType(Marker marker) {
     add_case(VERTEX_SET_PROPERTY);
     add_case(POINT_INDEX_CREATE);
     add_case(POINT_INDEX_DROP);
+    add_case(VECTOR_INDEX_CREATE);
+    add_case(VECTOR_INDEX_DROP);
 
     case Marker::TYPE_NULL:
     case Marker::TYPE_BOOL:
@@ -444,6 +446,42 @@ WalDeltaData ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version) 
       }
       break;
     }
+    case WalDeltaData::Type::VECTOR_INDEX_CREATE:
+    case WalDeltaData::Type::VECTOR_INDEX_DROP: {
+      if constexpr (read_data) {
+        auto index_name = decoder->ReadString();
+        if (!index_name) throw RecoveryFailure("Invalid WAL data!");
+        auto label = decoder->ReadString();
+        if (!label) throw RecoveryFailure("Invalid WAL data!");
+        auto property = decoder->ReadString();
+        if (!property) throw RecoveryFailure("Invalid WAL data!");
+        auto metric = decoder->ReadString();
+        if (!metric) throw RecoveryFailure("Invalid WAL data!");
+        auto scalar = decoder->ReadString();
+        if (!scalar) throw RecoveryFailure("Invalid WAL data!");
+        auto dimension = decoder->ReadUint();
+        if (!dimension) throw RecoveryFailure("Invalid WAL data!");
+        auto capacity = decoder->ReadUint();
+        if (!capacity) throw RecoveryFailure("Invalid WAL data!");
+        auto resize_coefficient = decoder->ReadUint();  // TODO: change to double
+        if (!resize_coefficient) throw RecoveryFailure("Invalid WAL data!");
+        delta.operation_vector = VectorIndexSpec{
+            .index_name = std::move(*index_name),
+            .label = std::move(*label),
+            .property = std::move(*property),
+            .metric = std::move(*metric),
+            .scalar = std::move(*scalar),
+            .dimension = *dimension,
+            .capacity = *capacity,
+            .resize_coefficient = *resize_coefficient,
+        };
+      } else {
+        if (!decoder->SkipString() || !decoder->SkipString() || !decoder->SkipString() || !decoder->SkipString() ||
+            !decoder->ReadUint() || !decoder->ReadUint() || !decoder->ReadUint())
+          throw RecoveryFailure("Invalid WAL data!");
+      }
+      break;
+    }
     case WalDeltaData::Type::ENUM_CREATE: {
       if constexpr (read_data) {
         auto etype = decoder->ReadString();
@@ -654,6 +692,10 @@ bool operator==(const WalDeltaData &a, const WalDeltaData &b) {
     case WalDeltaData::Type::TEXT_INDEX_DROP:
       return a.operation_text.index_name == b.operation_text.index_name &&
              a.operation_text.label == b.operation_text.label;
+
+    case WalDeltaData::Type::VECTOR_INDEX_CREATE:
+    case WalDeltaData::Type::VECTOR_INDEX_DROP:
+      return a.operation_vector == b.operation_vector;
 
     case WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE:
     case WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP:
@@ -1125,6 +1167,16 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
           auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(delta.operation_label_property.property));
           RemoveRecoveredIndexConstraint(&indices_constraints->indices.point_label_property, {label_id, property_id},
                                          "The label property index doesn't exist!");
+          break;
+        }
+        case WalDeltaData::Type::VECTOR_INDEX_CREATE: {
+          AddRecoveredIndexConstraint(&indices_constraints->indices.vector_indices, delta.operation_vector,
+                                      "The vector index already exists!");
+          break;
+        }
+        case WalDeltaData::Type::VECTOR_INDEX_DROP: {
+          RemoveRecoveredIndexConstraint(&indices_constraints->indices.vector_indices, delta.operation_vector,
+                                         "The vector index doesn't exist!");
           break;
         }
         case WalDeltaData::Type::LABEL_PROPERTY_INDEX_STATS_SET: {

@@ -23,6 +23,7 @@
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
+#include "utils/result.hpp"
 #include "utils/rw_lock.hpp"
 
 #include <rocksdb/db.h>
@@ -228,6 +229,12 @@ class DiskStorage final : public Storage {
 
     utils::BasicResult<storage::StorageIndexDefinitionError, void> DropPointIndex(
         storage::LabelId label, storage::PropertyId property) override;
+
+    utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateVectorIndex(
+        const VectorIndexSpec &spec) override;
+
+    utils::BasicResult<storage::StorageIndexDefinitionError, void> DropVectorIndex(
+        std::string_view index_name) override;
 
     utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
         LabelId label, PropertyId property) override;

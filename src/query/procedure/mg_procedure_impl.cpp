@@ -3561,12 +3561,12 @@ void WrapVectorIndexInfoResult(mgp_memory *memory, mgp_map **result,
       throw std::logic_error("Retrieving vector search results failed during creation of a string mgp_value");
     }
 
-    if (const auto err = mgp_value_make_string(impl->LabelToName(label).c_str(), memory, &label_value);
+    if (const auto err = mgp_value_make_string(label.c_str(), memory, &label_value);
         err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error("Retrieving vector search results failed during creation of a string mgp_value");
     }
 
-    if (const auto err = mgp_value_make_string(impl->PropertyToName(property).c_str(), memory, &property_value);
+    if (const auto err = mgp_value_make_string(property.c_str(), memory, &property_value);
         err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error("Retrieving vector search results failed during creation of a string mgp_value");
     }

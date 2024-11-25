@@ -1121,6 +1121,13 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
         }
         break;
       }
+        // case WalDeltaData::Type::VECTOR_INDEX_CREATE: {
+        //   auto spec = delta.operation_vector_index_create;
+        //   spdlog::trace("       Create vector index on :{}({})", spec.label, spec.property);
+        //   auto *transaction = get_transaction_accessor(delta_timestamp, kUniqueAccess);
+        //   transaction->CreateVectorIndex(storage->NameToLabel(spec.label), storage->NameToProperty(spec.property),
+        //                                  spec.dimension, spec.distance);
+        // }
     }
     applied_deltas++;
   }

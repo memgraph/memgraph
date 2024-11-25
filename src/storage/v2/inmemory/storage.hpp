@@ -16,6 +16,7 @@
 #include <utility>
 #include "flags/run_time_configurable.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
+#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
@@ -401,6 +402,10 @@ class InMemoryStorage final : public Storage {
 
     utils::BasicResult<StorageIndexDefinitionError, void> DropPointIndex(storage::LabelId label,
                                                                          storage::PropertyId property) override;
+
+    utils::BasicResult<StorageIndexDefinitionError, void> CreateVectorIndex(const VectorIndexSpec &spec) override;
+
+    utils::BasicResult<StorageIndexDefinitionError, void> DropVectorIndex(std::string_view index_name) override;
 
     /// Returns void if the existence constraint has been created.
     /// Returns `StorageExistenceConstraintDefinitionError` if an error occures. Error can be:

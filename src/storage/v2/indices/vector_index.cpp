@@ -139,8 +139,7 @@ struct VectorIndex::Impl {
 VectorIndex::VectorIndex() : pimpl(std::make_unique<Impl>()) {}
 VectorIndex::~VectorIndex() {}
 
-std::vector<VectorIndexSpec> VectorIndex::ParseIndexSpec(const nlohmann::json &index_spec,
-                                                         NameIdMapper *name_id_mapper) {
+std::vector<VectorIndexSpec> VectorIndex::ParseIndexSpec(const nlohmann::json &index_spec) {
   if (index_spec.empty()) {
     throw std::invalid_argument("Vector index spec cannot be empty.");
   }
@@ -156,23 +155,20 @@ std::vector<VectorIndexSpec> VectorIndex::ParseIndexSpec(const nlohmann::json &i
       MG_ASSERT(index_spec.contains(kDimension), "Vector index spec must have a 'dimension' field.");
       MG_ASSERT(index_spec.contains(kCapacity), "Vector index spec must have a 'capacity' field.");
 
-      const auto label_name = index_spec[kLabel.data()].get<std::string>();
-      const auto property_name = index_spec[kProperty.data()].get<std::string>();
+      const auto label = index_spec[kLabel.data()].get<std::string>();
+      const auto property = index_spec[kProperty.data()].get<std::string>();
       const std::string metric = index_spec.contains(kMetric.data()) ? index_spec[kMetric.data()].get<std::string>()
                                                                      : std::string(kDefaultMetric);
       const std::string scalar = index_spec.contains(kScalar.data()) ? index_spec[kScalar.data()].get<std::string>()
                                                                      : std::string(kDefaultScalar);
       const auto dimension = index_spec[kDimension.data()].get<std::uint64_t>();
-      const auto size_limit = index_spec[kCapacity.data()].get<std::uint64_t>();
+      const auto capacity = index_spec[kCapacity.data()].get<std::uint64_t>();
       const auto resize_coefficient = index_spec.contains(kResizeCoefficient.data())
                                           ? index_spec[kResizeCoefficient.data()].get<std::uint64_t>()
                                           : kDefaultResizeCoefficient;
 
-      const auto label = LabelId::FromUint(name_id_mapper->NameToId(label_name));
-      const auto property = PropertyId::FromUint(name_id_mapper->NameToId(property_name));
-
       result.emplace_back(
-          VectorIndexSpec{index_name, label, property, metric, scalar, dimension, size_limit, resize_coefficient});
+          VectorIndexSpec{index_name, label, property, metric, scalar, dimension, capacity, resize_coefficient});
     }
   } catch (const std::exception &e) {
     throw std::invalid_argument("Error parsing vector index spec: " + std::string(e.what()));
@@ -181,16 +177,21 @@ std::vector<VectorIndexSpec> VectorIndex::ParseIndexSpec(const nlohmann::json &i
   return result;
 }
 
-void VectorIndex::CreateIndex(const VectorIndexSpec &spec) {
+void VectorIndex::CreateIndex(const VectorIndexSpec &spec, NameIdMapper *name_id_mapper) {
   const unum::usearch::metric_kind_t metric_kind = GetMetricKindFromConfig(spec.metric);
   const unum::usearch::scalar_kind_t scalar_kind = GetScalarKindFromConfig(spec.scalar);
 
   const unum::usearch::metric_punned_t metric(spec.dimension, metric_kind, scalar_kind);
 
   // use the number of workers as the number of possible concurrent index operations
-  const unum::usearch::index_limits_t limits(spec.size_limit, FLAGS_bolt_num_workers);
+  const unum::usearch::index_limits_t limits(spec.capacity, FLAGS_bolt_num_workers);
 
-  const auto label_prop = LabelPropKey{spec.label, spec.property};
+  auto label_id = LabelId::FromUint(name_id_mapper->NameToId(spec.label));
+  auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(spec.property));
+  const auto label_prop = LabelPropKey{label_id, property_id};
+  if (pimpl->index_.contains(label_prop) || pimpl->index_name_to_label_prop_.contains(spec.index_name)) {
+    throw std::invalid_argument("Given vector index already exists.");
+  }
   pimpl->index_name_to_label_prop_.emplace(spec.index_name, label_prop);
   pimpl->index_.emplace(label_prop, IndexItem{mg_vector_index_t::make(metric), spec, utils::RWSpinLock()});
   if (pimpl->index_[label_prop].mg_index.try_reserve(limits)) {
@@ -199,6 +200,40 @@ void VectorIndex::CreateIndex(const VectorIndexSpec &spec) {
     throw std::invalid_argument("Failed to create vector index " + spec.index_name +
                                 " due to failed memory allocation. Try again with a smaller size limit.");
   }
+}
+
+bool VectorIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor vertices,
+                              NameIdMapper *name_id_mapper) {
+  try {
+    CreateIndex(spec, name_id_mapper);
+    auto label_id = LabelId::FromUint(name_id_mapper->NameToId(spec.label));
+    auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(spec.property));
+    auto &[index, _, lock] = pimpl->index_.at(LabelPropKey{label_id, property_id});
+    auto guard = std::unique_lock{lock};
+    for (auto &vertex : vertices) {
+      UpdateVectorIndex(&vertex, LabelPropKey{label_id, property_id});
+    }
+  } catch (const std::exception &e) {
+    spdlog::error("Failed to create vector index {}: {}", spec.index_name, e.what());
+    return false;
+  }
+  return true;
+}
+
+bool VectorIndex::DropIndex(std::string_view index_name) {
+  // TODO(DavIvek): Check if we have a engine lock here
+  auto it = pimpl->index_name_to_label_prop_.find(index_name.data());
+  if (it == pimpl->index_name_to_label_prop_.end()) {
+    return false;
+  }
+  const auto &label_prop = it->second;
+  auto &[index, _, lock] = pimpl->index_.at(label_prop);
+  auto guard = std::unique_lock{lock};
+  index.reset();
+  pimpl->index_.erase(label_prop);
+  pimpl->index_name_to_label_prop_.erase(it);
+  spdlog::info("Dropped vector index " + std::string(index_name));
+  return true;
 }
 
 void VectorIndex::UpdateVectorIndex(Vertex *vertex, const LabelPropKey &label_prop, const PropertyValue *value) const {
@@ -224,7 +259,7 @@ void VectorIndex::UpdateVectorIndex(Vertex *vertex, const LabelPropKey &label_pr
   if (index.capacity() == index.size()) {
     spdlog::warn("Vector index is full, resizing...");
     auto guard = std::unique_lock{lock};
-    const auto new_size = spec.resize_coefficient * spec.size_limit;
+    const auto new_size = spec.resize_coefficient * spec.capacity;
     const unum::usearch::index_limits_t new_limits(new_size, FLAGS_bolt_num_workers);
     if (!index.try_reserve(new_limits)) {
       throw std::invalid_argument("Vector index is full and can't be resized");
@@ -281,13 +316,12 @@ std::vector<VectorIndexInfo> VectorIndex::ListVectorIndicesInfo() const {
     throw query::VectorSearchDisabledException();
   }
   std::vector<VectorIndexInfo> result;
-  result.reserve(pimpl->index_name_to_label_prop_.size());
-  std::ranges::transform(pimpl->index_name_to_label_prop_, std::back_inserter(result), [this](const auto &pair) {
-    const auto &[index_name, label_prop] = pair;
-    const auto &index = pimpl->index_.at(label_prop).mg_index;
-    return VectorIndexInfo{index_name,         label_prop.label(), label_prop.property(),
-                           index.dimensions(), index.capacity(),   index.size()};
-  });
+  for (const auto &[_, index_item] : pimpl->index_) {
+    const auto &[index, spec, lock] = index_item;
+    auto guard = std::shared_lock{lock};
+    result.emplace_back(VectorIndexInfo{spec.index_name, spec.label, spec.property, index.dimensions(),
+                                        index.capacity(), index.size()});
+  }
   return result;
 }
 
@@ -299,6 +333,17 @@ std::vector<std::pair<LabelId, PropertyId>> VectorIndex::ListIndices() const {
   result.reserve(pimpl->index_name_to_label_prop_.size());
   std::ranges::transform(pimpl->index_name_to_label_prop_, std::back_inserter(result),
                          [](const auto &pair) { return std::make_pair(pair.second.label(), pair.second.property()); });
+  return result;
+}
+
+std::vector<VectorIndexSpec> VectorIndex::ListIndexSpecs() const {
+  if (!flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
+    throw query::VectorSearchDisabledException();
+  }
+  std::vector<VectorIndexSpec> result;
+  result.reserve(pimpl->index_.size());
+  std::ranges::transform(pimpl->index_ | std::views::values, std::back_inserter(result),
+                         [](const auto &index_item) { return index_item.spec; });
   return result;
 }
 

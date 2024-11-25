@@ -26,6 +26,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
+#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/schema_info.hpp"
@@ -85,6 +86,8 @@ struct WalDeltaData {
     ENUM_ALTER_UPDATE,
     POINT_INDEX_CREATE,
     POINT_INDEX_DROP,
+    VECTOR_INDEX_CREATE,
+    VECTOR_INDEX_DROP,
   };
 
   Type type{Type::TRANSACTION_END};
@@ -157,6 +160,8 @@ struct WalDeltaData {
     std::string label;
   } operation_text;
 
+  VectorIndexSpec operation_vector;
+
   struct {
     std::string etype;
     std::vector<std::string> evalues;
@@ -223,6 +228,8 @@ constexpr bool IsWalDeltaDataTypeTransactionEndVersion15(const WalDeltaData::Typ
     case WalDeltaData::Type::POINT_INDEX_DROP:
     case WalDeltaData::Type::TYPE_CONSTRAINT_CREATE:
     case WalDeltaData::Type::TYPE_CONSTRAINT_DROP:
+    case WalDeltaData::Type::VECTOR_INDEX_CREATE:
+    case WalDeltaData::Type::VECTOR_INDEX_DROP:
       return true;  // TODO: Still true?
       break;
   }

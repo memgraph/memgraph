@@ -17,6 +17,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
+#include "storage/v2/indices/vector_index.hpp"
 
 namespace memgraph::storage {
 
@@ -48,6 +49,8 @@ struct MetadataDelta {
     ENUM_ALTER_UPDATE,
     POINT_INDEX_CREATE,
     POINT_INDEX_DROP,
+    VECTOR_INDEX_CREATE,
+    VECTOR_INDEX_DROP,
   };
 
   static constexpr struct LabelIndexCreate {
@@ -82,6 +85,10 @@ struct MetadataDelta {
   } text_index_create;
   static constexpr struct TextIndexDrop {
   } text_index_drop;
+  static constexpr struct VectorIndexCreate {
+  } vector_index_create;
+  static constexpr struct VectorIndexDrop {
+  } vector_index_drop;
   static constexpr struct ExistenceConstraintCreate {
   } existence_constraint_create;
   static constexpr struct ExistenceConstraintDrop {
@@ -146,6 +153,12 @@ struct MetadataDelta {
   MetadataDelta(PointIndexDrop /*tag*/, LabelId label, PropertyId property)
       : action(Action::POINT_INDEX_DROP), label_property{label, property} {}
 
+  MetadataDelta(VectorIndexCreate /*tag*/, VectorIndexSpec spec)
+      : action(Action::VECTOR_INDEX_CREATE), vector_index_spec{std::move(spec)} {}
+
+  MetadataDelta(VectorIndexDrop /*tag*/, VectorIndexSpec spec)
+      : action(Action::VECTOR_INDEX_DROP), vector_index_spec{std::move(spec)} {}
+
   MetadataDelta(ExistenceConstraintCreate /*tag*/, LabelId label, PropertyId property)
       : action(Action::EXISTENCE_CONSTRAINT_CREATE), label_property{label, property} {}
 
@@ -201,6 +214,8 @@ struct MetadataDelta {
       case ENUM_ALTER_UPDATE:
       case POINT_INDEX_CREATE:
       case POINT_INDEX_DROP:
+      case VECTOR_INDEX_CREATE:
+      case VECTOR_INDEX_DROP:
         break;
       case UNIQUE_CONSTRAINT_CREATE:
       case UNIQUE_CONSTRAINT_DROP: {
@@ -259,6 +274,7 @@ struct MetadataDelta {
       LabelId label;
     } text_index;
 
+    VectorIndexSpec vector_index_spec;
     struct {
       EnumTypeId etype;
     } enum_create_info;
