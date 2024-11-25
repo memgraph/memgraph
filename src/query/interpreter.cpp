@@ -851,7 +851,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
 
         if (!auth->DropUser(username, &*interpreter->system_transaction_)) {
           throw QueryRuntimeException(
-              "User with username '{}' doesn't exist. A new user can be created via the CREAT USER query.", username);
+              "User with username '{}' doesn't exist. A new user can be created via the CREATE USER query.", username);
         }
         return std::vector<std::vector<TypedValue>>();
       };
