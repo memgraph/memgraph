@@ -4436,8 +4436,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
             license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "SHOW METRICS INFO"));
       }
 #else
-      throw QueryException(
-          "Query is part of an entreprise feature. In order to run it, you need an enterprise build and license.");
+      throw EnterpriseOnlyException();
 #endif
       header = {"name", "type", "metric type", "value"};
       handler = [storage = current_db.db_acc_->get()->storage()] {
@@ -5022,8 +5021,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &cur
     }
   };
 #else
-  throw QueryException(
-      "Query is part of an entreprise feature. In order to run it, you need an enterprise build and license.");
+  throw EnterpriseOnlyException();
 #endif
 }
 
@@ -5100,8 +5098,7 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
       ""  // No target DB
   };
 #else
-  throw QueryException(
-      "Query is part of an entreprise feature. In order to run it, you need an enterprise build and license.");
+  throw EnterpriseOnlyException();
 #endif
 }
 
@@ -5629,8 +5626,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       prepared_query = PrepareTtlQuery(std::move(parsed_query), in_explicit_transaction_,
                                        &query_execution->notifications, current_db_, interpreter_context_);
 #else
-      throw QueryException(
-          "Query is part of an entreprise feature. In order to run it, you need an enterprise build and license.");
+      throw EnterpriseOnlyException();
 #endif  // MG_ENTERPRISE
     } else if (utils::Downcast<AnalyzeGraphQuery>(parsed_query.query)) {
       prepared_query = PrepareAnalyzeGraphQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
@@ -5668,8 +5664,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
           PrepareCoordinatorQuery(std::move(parsed_query), in_explicit_transaction_, &query_execution->notifications,
                                   *interpreter_context_->coordinator_state_, interpreter_context_->config);
 #else
-      throw QueryException(
-          "Query is part of an entreprise feature. In order to run it, you need an enterprise build and license.");
+      throw EnterpriseOnlyException();
 #endif
     } else if (utils::Downcast<LockPathQuery>(parsed_query.query)) {
       prepared_query = PrepareLockPathQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
