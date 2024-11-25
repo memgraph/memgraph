@@ -237,6 +237,10 @@ class InMemoryStorage final : public Storage {
       return storage_->indices_.point_index_.ApproximatePointCount(label, property);
     }
 
+    std::optional<uint64_t> ApproximateVerticesVectorCount(LabelId label, PropertyId property) const override {
+      return storage_->indices_.vector_index_.ApproximateVectorCount(label, property);
+    }
+
     template <typename TResult, typename TIndex, typename TIndexKey>
     std::optional<TResult> GetIndexStatsForIndex(TIndex *index, TIndexKey &&key) const {
       return index->GetIndexStats(key);

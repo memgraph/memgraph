@@ -4289,6 +4289,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         const std::string_view edge_type_property_index_mark{"edge-type+property"};
         const std::string_view text_index_mark{"text"};
         const std::string_view point_label_property_index_mark{"point"};
+        const std::string_view vector_label_property_index_mark{"vector"};
         auto info = dba->ListAllIndices();
         auto storage_acc = database->Access();
         std::vector<std::vector<TypedValue>> results;
@@ -4321,6 +4322,13 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
                              TypedValue(storage->PropertyToName(prop_id)),
                              TypedValue(static_cast<int>(
                                  storage_acc->ApproximateVerticesPointCount(label_id, prop_id).value_or(0)))});
+        }
+
+        for (const auto &[label_id, prop_id] : info.vector_label_property) {
+          results.push_back({TypedValue(vector_label_property_index_mark), TypedValue(storage->LabelToName(label_id)),
+                             TypedValue(storage->PropertyToName(prop_id)),
+                             TypedValue(static_cast<int>(
+                                 storage_acc->ApproximateVerticesVectorCount(label_id, prop_id).value_or(0)))});
         }
 
         std::sort(results.begin(), results.end(), [&label_index_mark](const auto &record_1, const auto &record_2) {
@@ -5288,6 +5296,16 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
              {"count", storage_acc->ApproximateVerticesPointCount(label_id, property).value_or(0)},
              {"type", "label+property_point"}}));
       }
+
+      // Vertex label property_vector
+      for (const auto &[label_id, property] : index_info.vector_label_property) {
+        node_indexes.push_back(nlohmann::json::object(
+            {{"labels", {storage->LabelToName(label_id)}},
+             {"properties", {storage->PropertyToName(property)}},
+             {"count", storage_acc->ApproximateVerticesVectorCount(label_id, property).value_or(0)},
+             {"type", "label+property_vector"}}));
+      }
+
       // Edge type indices
       for (const auto type : index_info.edge_type) {
         edge_indexes.push_back(nlohmann::json::object({{"edge_type", {storage->EdgeTypeToName(type)}},

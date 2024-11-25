@@ -581,6 +581,10 @@ class DbAccessor final {
     return accessor_->ApproximateVerticesPointCount(label, property);
   }
 
+  std::optional<uint64_t> VerticesVectorCount(storage::LabelId label, storage::PropertyId property) const {
+    return accessor_->ApproximateVerticesVectorCount(label, property);
+  }
+
   int64_t VerticesCount(storage::LabelId label, storage::PropertyId property,
                         const storage::PropertyValue &value) const {
     return accessor_->ApproximateVertexCount(label, property, value);

@@ -276,7 +276,7 @@ void VectorIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &
   }
 }
 
-std::vector<VectorIndexInfo> VectorIndex::ListAllIndices() const {
+std::vector<VectorIndexInfo> VectorIndex::ListVectorIndicesInfo() const {
   if (!flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
     throw query::VectorSearchDisabledException();
   }
@@ -289,6 +289,30 @@ std::vector<VectorIndexInfo> VectorIndex::ListAllIndices() const {
                            index.dimensions(), index.capacity(),   index.size()};
   });
   return result;
+}
+
+std::vector<std::pair<LabelId, PropertyId>> VectorIndex::ListIndices() const {
+  if (!flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
+    throw query::VectorSearchDisabledException();
+  }
+  std::vector<std::pair<LabelId, PropertyId>> result;
+  result.reserve(pimpl->index_name_to_label_prop_.size());
+  std::ranges::transform(pimpl->index_name_to_label_prop_, std::back_inserter(result),
+                         [](const auto &pair) { return std::make_pair(pair.second.label(), pair.second.property()); });
+  return result;
+}
+
+std::optional<uint64_t> VectorIndex::ApproximateVectorCount(LabelId label, PropertyId property) const {
+  if (!flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
+    throw query::VectorSearchDisabledException();
+  }
+  auto it = pimpl->index_.find(LabelPropKey{label, property});
+  if (it == pimpl->index_.end()) {
+    return std::nullopt;
+  }
+  auto &[index, _, lock] = it->second;
+  auto guard = std::shared_lock{lock};
+  return index.size();
 }
 
 std::vector<std::tuple<Vertex *, double, double>> VectorIndex::Search(std::string_view index_name,

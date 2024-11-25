@@ -2485,6 +2485,7 @@ StorageInfo InMemoryStorage::GetInfo() {
     info.label_indices = lbl.label.size();
     info.label_property_indices = lbl.label_property.size();
     info.text_indices = lbl.text_indices.size();
+    info.vector_indices = lbl.vector_label_property.size();
     const auto &con = access->ListAllConstraints();
     info.existence_constraints = con.existence.size();
     info.unique_constraints = con.unique.size();
@@ -3202,10 +3203,12 @@ IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
       static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
   auto &text_index = storage_->indices_.text_index_;
   auto &point_index = storage_->indices_.point_index_;
+  auto &vector_index = storage_->indices_.vector_index_;
 
   return {mem_label_index->ListIndices(),     mem_label_property_index->ListIndices(),
           mem_edge_type_index->ListIndices(), mem_edge_type_property_index->ListIndices(),
-          text_index.ListIndices(),           point_index.ListIndices()};
+          text_index.ListIndices(),           point_index.ListIndices(),
+          vector_index.ListIndices()};
 }
 ConstraintsInfo InMemoryStorage::InMemoryAccessor::ListAllConstraints() const {
   const auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
@@ -3288,7 +3291,7 @@ std::vector<std::tuple<VertexAccessor, double, double>> InMemoryStorage::InMemor
 }
 
 std::vector<VectorIndexInfo> InMemoryStorage::InMemoryAccessor::ListAllVectorIndices() const {
-  return storage_->indices_.vector_index_.ListAllIndices();
+  return storage_->indices_.vector_index_.ListVectorIndicesInfo();
 };
 
 auto InMemoryStorage::InMemoryAccessor::PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,

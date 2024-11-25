@@ -27,6 +27,7 @@
 
 #include <rocksdb/db.h>
 #include <rocksdb/slice.h>
+#include <cstdint>
 #include <unordered_set>
 #include "utils/small_vector.hpp"
 
@@ -120,6 +121,11 @@ class DiskStorage final : public Storage {
 
     std::optional<uint64_t> ApproximateVerticesPointCount(LabelId label, PropertyId property) const override {
       // Point index does not exist for on disk
+      return std::nullopt;
+    }
+
+    std::optional<uint64_t> ApproximateVerticesVectorCount(LabelId /*label*/, PropertyId /*property*/) const override {
+      // Vector index does not exist for on disk
       return std::nullopt;
     }
 

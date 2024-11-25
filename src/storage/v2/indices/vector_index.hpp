@@ -101,9 +101,18 @@ class VectorIndex {
   /// @param vertex The vertex on which the property was modified.
   void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex) const;
 
-  /// @brief Lists the names of all existing indexes.
-  /// @return A vector of strings representing the names of all indexes.
-  std::vector<VectorIndexInfo> ListAllIndices() const;
+  /// @brief Lists the info of all existing indexes.
+  /// @return A vector of VectorIndexInfo objects representing the indexes.
+  std::vector<VectorIndexInfo> ListVectorIndicesInfo() const;
+
+  /// @brief Lists the labels and properties that have vector indices.
+  /// @return A vector of pairs containing the label ID and the property ID.
+  std::vector<std::pair<LabelId, PropertyId>> ListIndices() const;
+
+  /// @brief Returns number of vertices in the index.
+  /// @param label_prop The label and property key for the index.
+  /// @return The number of vertices in the index.
+  std::optional<uint64_t> ApproximateVectorCount(LabelId label, PropertyId property) const;
 
   /// @brief Searches for nodes in the specified index using a query vector.
   /// @param index_name The name of the index to search.
