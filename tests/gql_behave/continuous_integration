@@ -8,8 +8,8 @@ everything which is needed for the CI environment.
 List of responsibilities:
     * execute default suites
     * terminate execution if any of internal scenarios fails
-    * creates the report file that is needed by the Apollo plugin
-      to post the status on Phabricator. (.quality_assurance_status)
+    * creates the report file that is packaged and exposed under Github
+      (.quality_assurance_status).
 """
 
 import argparse
