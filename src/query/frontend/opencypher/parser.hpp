@@ -59,17 +59,20 @@ class Parser {
           error_ = "Error on line " + std::to_string(line) + " position " + std::to_string(position + 1) +
                    " with the " + token->getText() + " token. The underlying parsing error is " + message + "." +
                    " Take a look at clauses around and try to fix the query.";
+          return;
         } catch (...) {
-          error_ = "Error on line " + std::to_string(line) + " position " + std::to_string(position + 1) +
-                   ". The underlying parsing error is " + message;
+          // Handled below
+          (void)0;
         }
+        error_ = "Error on line " + std::to_string(line) + " position " + std::to_string(position + 1) +
+                 ". The underlying parsing error is " + message;
       }
     }
 
    private:
     friend class Parser;
 
-    std::string error_;
+    std::string error_{};
     std::string_view query_;
   };
 
