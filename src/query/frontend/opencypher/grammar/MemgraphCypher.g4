@@ -106,6 +106,7 @@ memgraphCypherKeyword : cypherKeyword
                       | LOCK
                       | MAIN
                       | MAP
+                      | METRICS
                       | MODE
                       | MODULE_READ
                       | MODULE_WRITE
