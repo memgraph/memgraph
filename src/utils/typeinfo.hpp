@@ -18,6 +18,9 @@ namespace memgraph::utils {
 
 enum class TypeId : uint64_t {
   UNKNOWN = 0,
+  SUM_REQ,       // used in unit tests
+  SUM_RES,       // used in unit tests
+  ECHO_MESSAGE,  // used in unit tests
 
   // Operators
   LOGICAL_OPERATOR = 1000,
