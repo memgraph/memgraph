@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -77,8 +77,9 @@ class Client final {
    * stores it in an internal buffer. If `exactly_len` is set to `false` then
    * less than `len` bytes can be received. It returns `true` if the read
    * succeeded and `false` if it didn't.
+   * Propagates timeout_ms to Socket::WaitForReadyRead.
    */
-  bool Read(size_t len, bool exactly_len = true);
+  bool Read(size_t len, bool exactly_len = true, std::optional<int> timeout_ms = std::nullopt);
 
   /**
    * This function returns a pointer to the read data that is currently stored
@@ -107,12 +108,12 @@ class Client final {
    * TODO (mferencevic): the `have_more` flag currently isn't supported when
    * using OpenSSL
    */
-  bool Write(const uint8_t *data, size_t len, bool have_more = false);
+  bool Write(const uint8_t *data, size_t len, bool have_more = false, std::optional<int> timeout_ms = std::nullopt);
 
   /**
    * This function writes data to the socket.
    */
-  bool Write(const std::string &str, bool have_more = false);
+  bool Write(const std::string &str, bool have_more = false, std::optional<int> timeout_ms = std::nullopt);
 
   const io::network::Endpoint &endpoint();
 
