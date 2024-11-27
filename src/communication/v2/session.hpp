@@ -393,19 +393,49 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       auto buffer = input_buffer_.write_end()->Allocate();
       socket.async_read_some(
           boost::asio::buffer(buffer.data, buffer.len),
-          boost::asio::bind_executor(strand_, std::bind_front(&Session::OnRead, shared_from_this())));
+          boost::asio::bind_executor(strand_, std::bind_front(&Session::OnFirstRead, shared_from_this())));
     });
   }
 
-  bool IsWebsocketUpgrade(boost::beast::http::request_parser<boost::beast::http::string_body> &parser) {
+  std::optional<boost::beast::http::request<boost::beast::http::string_body>> IsWebsocketUpgrade(void *data,
+                                                                                                 size_t size) {
+    boost::beast::http::request_parser<boost::beast::http::string_body> parser;
     boost::system::error_code error_code_parsing;
-    parser.put(boost::asio::buffer(input_buffer_.read_end()->data(), input_buffer_.read_end()->size()),
-               error_code_parsing);
+    parser.put(boost::asio::buffer(data, size), error_code_parsing);
     if (error_code_parsing) {
-      return false;
+      return std::nullopt;
     }
 
-    return boost::beast::websocket::is_upgrade(parser.get());
+    if (boost::beast::websocket::is_upgrade(parser.get())) return parser.release();
+    return std::nullopt;
+  }
+
+  // Connect -> Handshake -> Authenticate <-> Prepare <-> Execute
+
+  void OnFirstRead(const boost::system::error_code &ec, const size_t bytes_transferred) {
+    if (ec) {
+      // TODO Check if client disconnected
+      session_.HandleError();
+      return OnError(ec);
+    }
+
+    // Can be a websocket connection only on the first read, since it is not
+    // expected from clients to upgrade from tcp to websocket
+
+    if (auto req = IsWebsocketUpgrade(input_buffer_.read_end()->data(), bytes_transferred); req) {
+      spdlog::info("Switching {} to websocket connection", remote_endpoint_);
+      if (std::holds_alternative<TCPSocket>(socket_)) {
+        auto sock = std::get<TCPSocket>(std::move(socket_));
+        WebsocketSession<TSession, TSessionContext>::Create(std::move(sock), session_context_, endpoint_, service_name_)
+            ->DoAccept(std::move(*req));
+        execution_active_ = false;
+        return;
+      }
+      spdlog::error("Error while upgrading connection to websocket");
+      DoShutdown();
+    }
+
+    OnRead(ec, bytes_transferred);
   }
 
   void OnRead(const boost::system::error_code &ec, const size_t bytes_transferred) {
@@ -579,6 +609,5 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   std::chrono::seconds timeout_seconds_;
   boost::asio::steady_timer timeout_timer_;
   std::atomic_bool execution_active_{false};
-  std::atomic_bool has_received_msg_{false};
 };
 }  // namespace memgraph::communication::v2
