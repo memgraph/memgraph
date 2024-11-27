@@ -429,6 +429,10 @@ target_link_libraries(${test_prefix}slk_streams mg-slk gflags fmt)
 add_unit_test(rpc.cpp)
 target_link_libraries(${test_prefix}rpc mg-rpc)
 
+# Test rpc-timeouts
+add_unit_test(rpc_timeouts.cpp)
+target_link_libraries(${test_prefix}rpc_timeouts mg-rpc)
+
 # Test websocket
 find_package(Boost REQUIRED CONFIG)
 
