@@ -221,11 +221,11 @@ constexpr bool isValidMarkerValue(uint8_t v) {
     auto arr = std::array<uint64_t, 4>{};
     for (auto const valid_marker : kMarkersAll) {
       auto const as_u8 = static_cast<uint8_t>(valid_marker);
-      arr[as_u8 >> 6] |= (1ul << (as_u8 & 0x3F));
+      arr[as_u8 >> 6UL] |= (1UL << (as_u8 & 0x3FUL));
     }
     return arr;
   });
-  return validMarkerBitMaps[v >> 6] & (1ul << (v & 0x3F));
+  return validMarkerBitMaps[v >> 6UL] & (1UL << (v & 0x3FUL));
 }
 
 std::optional<Marker> CastToMarker(uint8_t value) {
