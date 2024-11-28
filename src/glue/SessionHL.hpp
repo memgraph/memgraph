@@ -12,6 +12,7 @@
 
 #include "audit/log.hpp"
 #include "auth/auth.hpp"
+#include "communication/bolt/v1/session.hpp"
 #include "communication/v2/server.hpp"
 #include "communication/v2/session.hpp"
 #include "dbms/database.hpp"
