@@ -78,12 +78,10 @@ class Server final {
    * invokes workers_count workers
    */
   Server(ServerEndpoint &endpoint, TSessionContext *session_context, ServerContext *server_context,
-         int inactivity_timeout_sec, std::string_view service_name,
-         size_t workers_count = std::thread::hardware_concurrency());
+         std::string_view service_name, size_t workers_count = std::thread::hardware_concurrency());
 
   Server(handle_errors /*_*/, ServerEndpoint &endpoint, TSessionContext *session_context, ServerContext *server_context,
-         int inactivity_timeout_sec, std::string_view service_name,
-         size_t workers_count = std::thread::hardware_concurrency());
+         std::string_view service_name, size_t workers_count = std::thread::hardware_concurrency());
 
   ~Server();
 
@@ -120,26 +118,24 @@ Server<TSession, TSessionContext>::~Server() {
 
 template <typename TSession, typename TSessionContext>
 Server<TSession, TSessionContext>::Server(ServerEndpoint &endpoint, TSessionContext *session_context,
-                                          ServerContext *server_context, const int inactivity_timeout_sec,
-                                          const std::string_view service_name, size_t workers_count)
-    : endpoint_{endpoint},
-      service_name_{service_name},
-      context_thread_pool_{workers_count},
-      listener_{Listener<TSession, TSessionContext>::Create(context_thread_pool_.GetIOContext(), session_context,
-                                                            server_context, endpoint_, service_name_,
-                                                            inactivity_timeout_sec)} {}
-
-template <typename TSession, typename TSessionContext>
-Server<TSession, TSessionContext>::Server(handle_errors /*_*/, ServerEndpoint &endpoint,
-                                          TSessionContext *session_context, ServerContext *server_context,
-                                          const int inactivity_timeout_sec, const std::string_view service_name,
+                                          ServerContext *server_context, const std::string_view service_name,
                                           size_t workers_count)
     : endpoint_{endpoint},
       service_name_{service_name},
       context_thread_pool_{workers_count},
+      listener_{Listener<TSession, TSessionContext>::Create(context_thread_pool_.GetIOContext(), session_context,
+                                                            server_context, endpoint_, service_name_)} {}
+
+template <typename TSession, typename TSessionContext>
+Server<TSession, TSessionContext>::Server(handle_errors /*_*/, ServerEndpoint &endpoint,
+                                          TSessionContext *session_context, ServerContext *server_context,
+                                          const std::string_view service_name, size_t workers_count)
+    : endpoint_{endpoint},
+      service_name_{service_name},
+      context_thread_pool_{workers_count},
       listener_{Listener<TSession, TSessionContext>::Create(assert_create_t, context_thread_pool_.GetIOContext(),
-                                                            session_context, server_context, endpoint_, service_name_,
-                                                            inactivity_timeout_sec)} {}
+                                                            session_context, server_context, endpoint_,
+                                                            service_name_)} {}
 
 template <typename TSession, typename TSessionContext>
 bool Server<TSession, TSessionContext>::Start() {

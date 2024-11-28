@@ -68,27 +68,24 @@ class Listener final : public std::enable_shared_from_this<Listener<TSession, TS
 
  private:
   Listener(boost::asio::io_context &io_context, TSessionContext *session_context, ServerContext *server_context,
-           tcp::endpoint &endpoint, const std::string_view service_name, const uint64_t inactivity_timeout_sec)
+           tcp::endpoint &endpoint, const std::string_view service_name)
       : io_context_(io_context),
         session_context_(session_context),
         server_context_(server_context),
         acceptor_(io_context_),
         endpoint_{endpoint},
-        service_name_{service_name},
-        inactivity_timeout_{inactivity_timeout_sec} {
+        service_name_{service_name} {
     TryCreate<false>();
   }
 
   Listener(assert_create /*obj*/, boost::asio::io_context &io_context, TSessionContext *session_context,
-           ServerContext *server_context, tcp::endpoint &endpoint, const std::string_view service_name,
-           const uint64_t inactivity_timeout_sec)
+           ServerContext *server_context, tcp::endpoint &endpoint, const std::string_view service_name)
       : io_context_(io_context),
         session_context_(session_context),
         server_context_(server_context),
         acceptor_(io_context_),
         endpoint_{endpoint},
-        service_name_{service_name},
-        inactivity_timeout_{inactivity_timeout_sec} {
+        service_name_{service_name} {
     TryCreate<true>();
   }
 
@@ -154,8 +151,8 @@ class Listener final : public std::enable_shared_from_this<Listener<TSession, TS
     if (endpoint_ec) {
       return OnError(ec, "accept - remote_endpoint");
     }
-    auto session = SessionHandler::Create(std::move(socket), session_context_, *server_context_, remote_endpoint,
-                                          inactivity_timeout_, service_name_);
+    auto session =
+        SessionHandler::Create(std::move(socket), session_context_, *server_context_, remote_endpoint, service_name_);
     session->Start();
     DoAccept();
   }
@@ -172,7 +169,6 @@ class Listener final : public std::enable_shared_from_this<Listener<TSession, TS
 
   tcp::endpoint endpoint_;
   std::string_view service_name_;
-  std::chrono::seconds inactivity_timeout_;
 
   std::atomic<bool> alive_;
 };
