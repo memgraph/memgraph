@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <json/json.hpp>
@@ -20,6 +21,7 @@
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
+#include "usearch/index_plugins.hpp"
 
 namespace memgraph::storage {
 
@@ -30,9 +32,9 @@ namespace memgraph::storage {
 /// the dimension of the vectors in the index, and the size of the index.
 struct VectorIndexInfo {
   std::string index_name;
-  std::string label;
-  std::string property;
-  std::size_t dimension;
+  LabelId label;
+  PropertyId property;
+  std::uint16_t dimension;
   std::size_t capacity;
   std::size_t size;
 };
@@ -43,20 +45,16 @@ struct VectorIndexInfo {
 /// This structure includes the index name, the label and property on which the index is created,
 /// and the configuration options for the index in the form of a JSON object.
 struct VectorIndexSpec {
+  // TODO(@DavIvek): Add scalar kind configuration options
   std::string index_name;
-  std::string label;
-  std::string property;
-  std::string metric;
-  std::string scalar;
-  std::uint64_t dimension;
-  std::uint64_t capacity;
-  std::uint64_t resize_coefficient;
+  LabelId label;
+  PropertyId property;
+  unum::usearch::metric_kind_t metric;
+  std::uint16_t dimension;
+  std::size_t capacity;
+  std::uint16_t resize_coefficient;  // TODO(@DavIvek): Revisit resizing options
 
-  bool operator==(const VectorIndexSpec &rhs) const {
-    return index_name == rhs.index_name && label == rhs.label && property == rhs.property && metric == rhs.metric &&
-           scalar == rhs.scalar && dimension == rhs.dimension && capacity == rhs.capacity &&
-           resize_coefficient == rhs.resize_coefficient;
-  }
+  friend bool operator==(const VectorIndexSpec &, const VectorIndexSpec &) = default;
 };
 
 /// @class VectorIndex
@@ -84,18 +82,18 @@ class VectorIndex {
   /// @param index_spec The nlohmann::json object representing the index specification.
   /// @param name_id_mapper The NameIdMapper instance used to map label and property names to IDs.
   /// @throws std::invalid_argument if the index specification is invalid.
-  /// @return A vector of VectorIndexSpec objects representing the parsed index specifications.
-  static std::vector<VectorIndexSpec> ParseIndexSpec(const nlohmann::json &index_spec);
+  /// @return A vector of shared pointers to the VectorIndexSpec objects representing the parsed index specifications.
+  static std::vector<std::shared_ptr<VectorIndexSpec>> ParseIndexSpec(const nlohmann::json &index_spec,
+                                                                      NameIdMapper *name_id_mapper);
 
   /// @brief Creates a new index based on the specified configuration.
   /// @param spec The specification for the index to be created.
-  void CreateIndex(const VectorIndexSpec &spec, NameIdMapper *name_id_mapper);
+  void CreateIndex(const std::shared_ptr<VectorIndexSpec> &spec);
 
   /// @brief Creates a new index based on the name, label, property and vertices.
   /// @param spec The specification for the index to be created.
   /// @return true if the index was created successfully, false otherwise.
-  bool CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor vertices,
-                   NameIdMapper *name_id_mapper);
+  bool CreateIndex(const std::shared_ptr<VectorIndexSpec> &spec, utils::SkipList<Vertex>::Accessor vertices);
 
   /// @brief Drops an existing index.
   /// @param index_name The name of the index to be dropped.

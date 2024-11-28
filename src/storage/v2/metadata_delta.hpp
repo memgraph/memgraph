@@ -156,8 +156,8 @@ struct MetadataDelta {
   MetadataDelta(VectorIndexCreate /*tag*/, VectorIndexSpec spec)
       : action(Action::VECTOR_INDEX_CREATE), vector_index_spec{std::move(spec)} {}
 
-  MetadataDelta(VectorIndexDrop /*tag*/, VectorIndexSpec spec)
-      : action(Action::VECTOR_INDEX_DROP), vector_index_spec{std::move(spec)} {}
+  MetadataDelta(VectorIndexDrop /*tag*/, std::string index_name)
+      : action(Action::VECTOR_INDEX_DROP), vector_index_name{std::move(index_name)} {}
 
   MetadataDelta(ExistenceConstraintCreate /*tag*/, LabelId label, PropertyId property)
       : action(Action::EXISTENCE_CONSTRAINT_CREATE), label_property{label, property} {}
@@ -274,7 +274,6 @@ struct MetadataDelta {
       LabelId label;
     } text_index;
 
-    VectorIndexSpec vector_index_spec;
     struct {
       EnumTypeId etype;
     } enum_create_info;
@@ -287,6 +286,9 @@ struct MetadataDelta {
       Enum value;
       std::string old_value;
     } enum_alter_update_info;
+
+    VectorIndexSpec vector_index_spec;
+    std::string vector_index_name;
   };
 };
 
