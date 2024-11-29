@@ -160,8 +160,6 @@ struct WalDeltaData {
     std::string label;
   } operation_text;
 
-  VectorIndexSpec operation_vector;
-
   struct {
     std::string etype;
     std::vector<std::string> evalues;
@@ -177,6 +175,10 @@ struct WalDeltaData {
     std::string evalue_old;
     std::string evalue_new;
   } operation_enum_alter_update;
+
+  std::shared_ptr<VectorIndexSpec>
+      operation_vector_create;  // this won't work atm since we don't have the NameIdMapper in read delta data functions
+  std::string operation_vector_drop;
 };
 
 bool operator==(const WalDeltaData &a, const WalDeltaData &b);
@@ -294,6 +296,9 @@ void EncodeLabelPropertyStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper
 void EncodeLabelStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label, LabelIndexStats stats);
 void EncodeTextIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, std::string_view text_index_name,
                      LabelId label);
+void EncodeVectorIndexCreate(BaseEncoder &encoder, NameIdMapper &name_id_mapper,
+                             std::shared_ptr<VectorIndexSpec> const &spec);
+void EncodeVectorIndexDrop(BaseEncoder &encoder, std::string_view index_name);
 
 void EncodeOperationPreamble(BaseEncoder &encoder, StorageMetadataOperation Op, uint64_t timestamp);
 

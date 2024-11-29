@@ -2096,7 +2096,7 @@ utils::BasicResult<storage::StorageIndexDefinitionError, void> DiskStorage::Disk
 }
 
 utils::BasicResult<storage::StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateVectorIndex(
-    VectorIndexSpec const & /*spec*/) {
+    std::shared_ptr<VectorIndexSpec> const & /*spec*/) {
   throw utils::NotYetImplemented("Vector index related operations are not yet supported using on-disk storage mode.");
 }
 

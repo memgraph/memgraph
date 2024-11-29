@@ -153,8 +153,8 @@ struct MetadataDelta {
   MetadataDelta(PointIndexDrop /*tag*/, LabelId label, PropertyId property)
       : action(Action::POINT_INDEX_DROP), label_property{label, property} {}
 
-  MetadataDelta(VectorIndexCreate /*tag*/, VectorIndexSpec spec)
-      : action(Action::VECTOR_INDEX_CREATE), vector_index_spec{std::move(spec)} {}
+  MetadataDelta(VectorIndexCreate /*tag*/, const std::shared_ptr<VectorIndexSpec> &spec)
+      : action(Action::VECTOR_INDEX_CREATE), vector_index_spec(spec) {}
 
   MetadataDelta(VectorIndexDrop /*tag*/, std::string index_name)
       : action(Action::VECTOR_INDEX_DROP), vector_index_name{std::move(index_name)} {}
@@ -214,9 +214,14 @@ struct MetadataDelta {
       case ENUM_ALTER_UPDATE:
       case POINT_INDEX_CREATE:
       case POINT_INDEX_DROP:
-      case VECTOR_INDEX_CREATE:
-      case VECTOR_INDEX_DROP:
+      case VECTOR_INDEX_CREATE: {
+        std::destroy_at(&vector_index_spec);
         break;
+      }
+      case VECTOR_INDEX_DROP: {
+        std::destroy_at(&vector_index_name);
+        break;
+      }
       case UNIQUE_CONSTRAINT_CREATE:
       case UNIQUE_CONSTRAINT_DROP: {
         std::destroy_at(&label_properties);
@@ -287,7 +292,7 @@ struct MetadataDelta {
       std::string old_value;
     } enum_alter_update_info;
 
-    VectorIndexSpec vector_index_spec;
+    std::shared_ptr<VectorIndexSpec> vector_index_spec;
     std::string vector_index_name;
   };
 };

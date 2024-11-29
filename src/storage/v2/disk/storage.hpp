@@ -231,7 +231,7 @@ class DiskStorage final : public Storage {
         storage::LabelId label, storage::PropertyId property) override;
 
     utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateVectorIndex(
-        const VectorIndexSpec &spec) override;
+        const std::shared_ptr<VectorIndexSpec> &spec) override;
 
     utils::BasicResult<storage::StorageIndexDefinitionError, void> DropVectorIndex(
         std::string_view index_name) override;

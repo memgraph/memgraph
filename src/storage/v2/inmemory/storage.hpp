@@ -403,7 +403,8 @@ class InMemoryStorage final : public Storage {
     utils::BasicResult<StorageIndexDefinitionError, void> DropPointIndex(storage::LabelId label,
                                                                          storage::PropertyId property) override;
 
-    utils::BasicResult<StorageIndexDefinitionError, void> CreateVectorIndex(const VectorIndexSpec &spec) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> CreateVectorIndex(
+        const std::shared_ptr<VectorIndexSpec> &spec) override;
 
     utils::BasicResult<StorageIndexDefinitionError, void> DropVectorIndex(std::string_view index_name) override;
 

@@ -446,39 +446,22 @@ WalDeltaData ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version) 
       }
       break;
     }
-    case WalDeltaData::Type::VECTOR_INDEX_CREATE:
+    case WalDeltaData::Type::VECTOR_INDEX_CREATE: {
+      if constexpr (read_data) {
+        auto index_name = decoder->ReadString();
+        if (!index_name) throw RecoveryFailure("Invalid WAL data!");
+        auto label_name = decoder->ReadString();
+        if (!label_name) throw RecoveryFailure("Invalid WAL data!");
+      }
+      break;
+    }
     case WalDeltaData::Type::VECTOR_INDEX_DROP: {
       if constexpr (read_data) {
         auto index_name = decoder->ReadString();
         if (!index_name) throw RecoveryFailure("Invalid WAL data!");
-        auto label = decoder->ReadString();
-        if (!label) throw RecoveryFailure("Invalid WAL data!");
-        auto property = decoder->ReadString();
-        if (!property) throw RecoveryFailure("Invalid WAL data!");
-        auto metric = decoder->ReadString();
-        if (!metric) throw RecoveryFailure("Invalid WAL data!");
-        auto scalar = decoder->ReadString();
-        if (!scalar) throw RecoveryFailure("Invalid WAL data!");
-        auto dimension = decoder->ReadUint();
-        if (!dimension) throw RecoveryFailure("Invalid WAL data!");
-        auto capacity = decoder->ReadUint();
-        if (!capacity) throw RecoveryFailure("Invalid WAL data!");
-        auto resize_coefficient = decoder->ReadUint();  // TODO: change to double
-        if (!resize_coefficient) throw RecoveryFailure("Invalid WAL data!");
-        delta.operation_vector = VectorIndexSpec{
-            .index_name = std::move(*index_name),
-            .label = std::move(*label),
-            .property = std::move(*property),
-            .metric = std::move(*metric),
-            .scalar = std::move(*scalar),
-            .dimension = *dimension,
-            .capacity = *capacity,
-            .resize_coefficient = *resize_coefficient,
-        };
+        delta.operation_vector_drop = std::move(*index_name);
       } else {
-        if (!decoder->SkipString() || !decoder->SkipString() || !decoder->SkipString() || !decoder->SkipString() ||
-            !decoder->ReadUint() || !decoder->ReadUint() || !decoder->ReadUint())
-          throw RecoveryFailure("Invalid WAL data!");
+        if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
       }
       break;
     }
@@ -694,8 +677,9 @@ bool operator==(const WalDeltaData &a, const WalDeltaData &b) {
              a.operation_text.label == b.operation_text.label;
 
     case WalDeltaData::Type::VECTOR_INDEX_CREATE:
+      return a.operation_vector_drop == b.operation_vector_drop;
     case WalDeltaData::Type::VECTOR_INDEX_DROP:
-      return a.operation_vector == b.operation_vector;
+      return a.operation_vector_create == b.operation_vector_create;
 
     case WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE:
     case WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP:
@@ -1170,13 +1154,16 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
           break;
         }
         case WalDeltaData::Type::VECTOR_INDEX_CREATE: {
-          AddRecoveredIndexConstraint(&indices_constraints->indices.vector_indices, delta.operation_vector,
+          AddRecoveredIndexConstraint(&indices_constraints->indices.vector_indices, delta.operation_vector_create,
                                       "The vector index already exists!");
           break;
         }
         case WalDeltaData::Type::VECTOR_INDEX_DROP: {
-          RemoveRecoveredIndexConstraint(&indices_constraints->indices.vector_indices, delta.operation_vector,
-                                         "The vector index doesn't exist!");
+          indices_constraints->indices.vector_indices.erase(
+              std::remove_if(indices_constraints->indices.vector_indices.begin(),
+                             indices_constraints->indices.vector_indices.end(),
+                             [&delta](const auto &index) { return index->index_name == delta.operation_vector_drop; }),
+              indices_constraints->indices.vector_indices.end());
           break;
         }
         case WalDeltaData::Type::LABEL_PROPERTY_INDEX_STATS_SET: {
@@ -1531,6 +1518,17 @@ void EncodeOperationPreamble(BaseEncoder &encoder, StorageMetadataOperation Op, 
   encoder.WriteMarker(Marker::SECTION_DELTA);
   encoder.WriteUint(timestamp);
   encoder.WriteMarker(OperationToMarker(Op));
+}
+
+void EncodeVectorIndexCreate(BaseEncoder &encoder, NameIdMapper &name_id_mapper,
+                             std::shared_ptr<VectorIndexSpec> const &spec) {
+  encoder.WriteString(spec->index_name);
+  encoder.WriteString(name_id_mapper.IdToName(spec->label.AsUint()));
+  encoder.WriteString(name_id_mapper.IdToName(spec->property.AsUint()));
+  encoder.WriteUint(static_cast<uint64_t>(spec->metric));
+  encoder.WriteUint(static_cast<uint64_t>(spec->dimension));
+  encoder.WriteUint(spec->capacity);
+  encoder.WriteUint(spec->resize_coefficient);
 }
 
 }  // namespace memgraph::storage::durability

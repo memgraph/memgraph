@@ -1855,11 +1855,11 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateVectorIndex(
-    const VectorIndexSpec &spec) {
+    const std::shared_ptr<VectorIndexSpec> &spec) {
   MG_ASSERT(unique_guard_.owns_lock(), "Creating vector index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto &vector_index = in_memory->indices_.vector_index_;
-  if (!vector_index.CreateIndex(spec, in_memory->vertices_.access(), in_memory->name_id_mapper_.get())) {
+  if (!vector_index.CreateIndex(spec, in_memory->vertices_.access())) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::vector_index_create, spec);

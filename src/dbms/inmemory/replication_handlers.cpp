@@ -11,7 +11,6 @@
 
 #include "dbms/inmemory/replication_handlers.hpp"
 
-#include "dbms/constants.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "replication/replication_server.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
@@ -20,7 +19,6 @@
 #include "storage/v2/durability/version.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/inmemory/storage.hpp"
-#include "storage/v2/inmemory/unique_constraints.hpp"
 #include "storage/v2/schema_info.hpp"
 
 #include <spdlog/spdlog.h>
@@ -1121,13 +1119,28 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
         }
         break;
       }
-        // case WalDeltaData::Type::VECTOR_INDEX_CREATE: {
-        //   auto spec = delta.operation_vector_index_create;
-        //   spdlog::trace("       Create vector index on :{}({})", spec.label, spec.property);
-        //   auto *transaction = get_transaction_accessor(delta_timestamp, kUniqueAccess);
-        //   transaction->CreateVectorIndex(storage->NameToLabel(spec.label), storage->NameToProperty(spec.property),
-        //                                  spec.dimension, spec.distance);
-        // }
+      case WalDeltaData::Type::VECTOR_INDEX_CREATE: {
+        auto const &spec = delta.operation_vector_create;
+        auto const &label_name = storage->LabelToName(spec->label);
+        auto const &property_name = storage->PropertyToName(spec->property);
+        spdlog::trace("       Create vector index {} on :{}({})", spec->index_name, label_name, property_name);
+        auto *transaction = get_transaction_accessor(delta_timestamp, kUniqueAccess);
+        auto res = transaction->CreateVectorIndex(spec);
+        if (res.HasError()) {
+          throw utils::BasicException("Failed to create vector index on :{}({})", label_name, property_name);
+        }
+        break;
+      }
+      case WalDeltaData::Type::VECTOR_INDEX_DROP: {
+        auto const &index_name = delta.operation_vector_drop;
+        spdlog::trace("       Drop vector index {}", index_name);
+        auto *transaction = get_transaction_accessor(delta_timestamp, kUniqueAccess);
+        auto res = transaction->DropVectorIndex(index_name);
+        if (res.HasError()) {
+          throw utils::BasicException("Failed to drop vector index {}", index_name);
+        }
+        break;
+      }
     }
     applied_deltas++;
   }
