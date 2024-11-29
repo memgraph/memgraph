@@ -38,16 +38,15 @@ ReplicationStorageClient::ReplicationStorageClient(::memgraph::replication::Repl
 void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAccessProtector db_acc) {
   auto &replStorageState = storage->repl_storage_state_;
 
-  // default-constructed HeartbeatRpc
-  replication::HeartbeatRes replica;
-
   // stream should be destroyed so that RPC lock is released before taking engine lock
-  {
-    auto hb_stream{client_.rpc_client_.Stream<replication::HeartbeatRpc>(main_uuid_, storage->uuid(),
-                                                                         replStorageState.last_durable_timestamp_,
-                                                                         std::string{replStorageState.epoch_.id()})};
-    replica = hb_stream.AwaitResponse();
-  }
+  replication::HeartbeatRes replica = std::invoke([&] {
+    // stream should be destroyed so that RPC lock is released
+    // before taking engine lock
+    auto hb_stream = client_.rpc_client_.Stream<replication::HeartbeatRpc>(main_uuid_, storage->uuid(),
+                                                                           replStorageState.last_durable_timestamp_,
+                                                                           std::string{replStorageState.epoch_.id()});
+    return hb_stream.AwaitResponse();
+  });
 
 #ifdef MG_ENTERPRISE       // Multi-tenancy is only supported in enterprise
   if (!replica.success) {  // Replica is missing the current database
