@@ -42,7 +42,7 @@ class KVStore final {
    * NOTE: Don't instantiate more instances of a KVStore with the same
    *       storage directory because that will lead to undefined behaviour.
    */
-  explicit KVStore(std::filesystem::path storage);
+  explicit KVStore(std::filesystem::path const &storage);
 
   KVStore(const KVStore &other) = delete;
   KVStore(KVStore &&other);

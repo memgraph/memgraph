@@ -226,80 +226,109 @@ constexpr WalDeltaData::Type MarkerToWalDeltaDataType(Marker marker) {
 // be used.
 // @throw RecoveryFailure
 template <bool read_data>
-WalDeltaData ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version) {
-  WalDeltaData delta;
-
+auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
+    -> std::conditional_t<read_data, WalDeltaData, WalDeltaData::Type> {
   auto action = decoder->ReadMarker();
   if (!action) throw RecoveryFailure("Invalid WAL data!");
-  delta.type = MarkerToWalDeltaDataType(*action);
+  auto type = MarkerToWalDeltaDataType(*action);
 
-  switch (delta.type) {
+  switch (type) {
     case WalDeltaData::Type::VERTEX_CREATE:
     case WalDeltaData::Type::VERTEX_DELETE: {
       auto gid = decoder->ReadUint();
       if (!gid) throw RecoveryFailure("Invalid WAL data!");
-      delta.vertex_create_delete.gid = Gid::FromUint(*gid);
-      break;
+      if constexpr (read_data) {
+        WalDeltaData delta;
+        delta.type = type;
+        delta.vertex_create_delete.gid = Gid::FromUint(*gid);
+        return delta;
+      } else {
+        return type;
+      }
     }
     case WalDeltaData::Type::VERTEX_ADD_LABEL:
     case WalDeltaData::Type::VERTEX_REMOVE_LABEL: {
       auto gid = decoder->ReadUint();
       if (!gid) throw RecoveryFailure("Invalid WAL data!");
-      delta.vertex_add_remove_label.gid = Gid::FromUint(*gid);
       if constexpr (read_data) {
         auto label = decoder->ReadString();
         if (!label) throw RecoveryFailure("Invalid WAL data!");
+        WalDeltaData delta;
+        delta.type = type;
+        delta.vertex_add_remove_label.gid = Gid::FromUint(*gid);
         delta.vertex_add_remove_label.label = std::move(*label);
+        return delta;
       } else {
         if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
+        return type;
       }
-      break;
     }
     case WalDeltaData::Type::VERTEX_SET_PROPERTY:
     case WalDeltaData::Type::EDGE_SET_PROPERTY: {
       auto gid = decoder->ReadUint();
       if (!gid) throw RecoveryFailure("Invalid WAL data!");
-      delta.vertex_edge_set_property.gid = Gid::FromUint(*gid);
+
       if constexpr (read_data) {
         auto property = decoder->ReadString();
         if (!property) throw RecoveryFailure("Invalid WAL data!");
-        delta.vertex_edge_set_property.property = std::move(*property);
         auto value = decoder->ReadPropertyValue();
         if (!value) throw RecoveryFailure("Invalid WAL data!");
+        WalDeltaData delta;
+        delta.type = type;
+        delta.vertex_edge_set_property.gid = Gid::FromUint(*gid);
+        delta.vertex_edge_set_property.property = std::move(*property);
         delta.vertex_edge_set_property.value = std::move(*value);
+        // Store from vertex only in case of edge set prop
+        if (type == WalDeltaData::Type::EDGE_SET_PROPERTY && version >= kEdgeSetDeltaWithVertexInfo) {
+          auto from_gid = decoder->ReadUint();
+          if (!from_gid) throw RecoveryFailure("Invalid WAL data!");
+          delta.vertex_edge_set_property.from_gid = Gid::FromUint(*from_gid);
+        }
+        return delta;
       } else {
         if (!decoder->SkipString() || !decoder->SkipPropertyValue()) throw RecoveryFailure("Invalid WAL data!");
+        // Store from vertex only in case of edge set prop
+        if (type == WalDeltaData::Type::EDGE_SET_PROPERTY && version >= kEdgeSetDeltaWithVertexInfo) {
+          auto from_gid = decoder->ReadUint();
+          if (!from_gid) throw RecoveryFailure("Invalid WAL data!");
+        }
+        return type;
       }
-      // Store from vertex only in case of edge set prop
-      if (delta.type == WalDeltaData::Type::EDGE_SET_PROPERTY && version >= kEdgeSetDeltaWithVertexInfo) {
-        auto from_gid = decoder->ReadUint();
-        if (!from_gid) throw RecoveryFailure("Invalid WAL data!");
-        delta.vertex_edge_set_property.from_gid = Gid::FromUint(*from_gid);
-      }
-      break;
     }
     case WalDeltaData::Type::EDGE_CREATE:
     case WalDeltaData::Type::EDGE_DELETE: {
       auto gid = decoder->ReadUint();
       if (!gid) throw RecoveryFailure("Invalid WAL data!");
-      delta.edge_create_delete.gid = Gid::FromUint(*gid);
       if constexpr (read_data) {
         auto edge_type = decoder->ReadString();
         if (!edge_type) throw RecoveryFailure("Invalid WAL data!");
+        auto from_gid = decoder->ReadUint();
+        if (!from_gid) throw RecoveryFailure("Invalid WAL data!");
+        auto to_gid = decoder->ReadUint();
+        if (!to_gid) throw RecoveryFailure("Invalid WAL data!");
+        WalDeltaData delta;
+        delta.type = type;
+        delta.edge_create_delete.gid = Gid::FromUint(*gid);
         delta.edge_create_delete.edge_type = std::move(*edge_type);
+        delta.edge_create_delete.from_vertex = Gid::FromUint(*from_gid);
+        delta.edge_create_delete.to_vertex = Gid::FromUint(*to_gid);
+        return delta;
       } else {
         if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
+        if (!decoder->ReadUint()) throw RecoveryFailure("Invalid WAL data!");
+        if (!decoder->ReadUint()) throw RecoveryFailure("Invalid WAL data!");
+        return type;
       }
-      auto from_gid = decoder->ReadUint();
-      if (!from_gid) throw RecoveryFailure("Invalid WAL data!");
-      delta.edge_create_delete.from_vertex = Gid::FromUint(*from_gid);
-      auto to_gid = decoder->ReadUint();
-      if (!to_gid) throw RecoveryFailure("Invalid WAL data!");
-      delta.edge_create_delete.to_vertex = Gid::FromUint(*to_gid);
-      break;
     }
-    case WalDeltaData::Type::TRANSACTION_END:
-      break;
+    case WalDeltaData::Type::TRANSACTION_END: {
+      if constexpr (read_data) {
+        WalDeltaData delta;
+        delta.type = type;
+        return delta;
+      } else {
+        return type;
+      }
+    }
     // NOLINTNEXTLINE(bugprone-branch-clone)
     case WalDeltaData::Type::LABEL_INDEX_CREATE:
     case WalDeltaData::Type::LABEL_INDEX_DROP:
@@ -310,35 +339,45 @@ WalDeltaData ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version) 
       if constexpr (read_data) {
         auto label = decoder->ReadString();
         if (!label) throw RecoveryFailure("Invalid WAL data!");
+        WalDeltaData delta;
+        delta.type = type;
         delta.operation_label.label = std::move(*label);
+        return delta;
       } else {
         if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
+        return type;
       }
-      break;
     }
     case WalDeltaData::Type::EDGE_INDEX_CREATE:
     case WalDeltaData::Type::EDGE_INDEX_DROP: {
       if constexpr (read_data) {
         auto edge_type = decoder->ReadString();
         if (!edge_type) throw RecoveryFailure("Invalid WAL data!");
+        WalDeltaData delta;
+        delta.type = type;
         delta.operation_edge_type.edge_type = std::move(*edge_type);
+        return delta;
       } else {
         if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
+        return type;
       }
-      break;
     }
     case WalDeltaData::Type::LABEL_INDEX_STATS_SET: {
       if constexpr (read_data) {
         auto label = decoder->ReadString();
         if (!label) throw RecoveryFailure("Invalid WAL data!");
-        delta.operation_label_stats.label = std::move(*label);
         auto stats = decoder->ReadString();
         if (!stats) throw RecoveryFailure("Invalid WAL data!");
+        WalDeltaData delta;
+        delta.type = type;
+        delta.operation_label_stats.label = std::move(*label);
         delta.operation_label_stats.stats = std::move(*stats);
+        return delta;
       } else {
         if (!decoder->SkipString() || !decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
+        return type;
       }
-    } break;
+    }
     case WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE:
     case WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP:
     case WalDeltaData::Type::POINT_INDEX_CREATE:
@@ -348,60 +387,75 @@ WalDeltaData ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version) 
       if constexpr (read_data) {
         auto label = decoder->ReadString();
         if (!label) throw RecoveryFailure("Invalid WAL data!");
-        delta.operation_label_property.label = std::move(*label);
         auto property = decoder->ReadString();
         if (!property) throw RecoveryFailure("Invalid WAL data!");
+        WalDeltaData delta;
+        delta.type = type;
+        delta.operation_label_property.label = std::move(*label);
         delta.operation_label_property.property = std::move(*property);
+        return delta;
       } else {
         if (!decoder->SkipString() || !decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
+        return type;
       }
-      break;
     }
     case WalDeltaData::Type::LABEL_PROPERTY_INDEX_STATS_SET: {
       if constexpr (read_data) {
         auto label = decoder->ReadString();
         if (!label) throw RecoveryFailure("Invalid WAL data!");
-        delta.operation_label_property_stats.label = std::move(*label);
         auto property = decoder->ReadString();
         if (!property) throw RecoveryFailure("Invalid WAL data!");
-        delta.operation_label_property_stats.property = std::move(*property);
         auto stats = decoder->ReadString();
         if (!stats) throw RecoveryFailure("Invalid WAL data!");
+        WalDeltaData delta;
+        delta.type = type;
+        delta.operation_label_property_stats.label = std::move(*label);
+        delta.operation_label_property_stats.property = std::move(*property);
         delta.operation_label_property_stats.stats = std::move(*stats);
+        return delta;
       } else {
         if (!decoder->SkipString() || !decoder->SkipString() || !decoder->SkipString())
           throw RecoveryFailure("Invalid WAL data!");
+        return type;
       }
-      break;
     }
     case WalDeltaData::Type::EDGE_PROPERTY_INDEX_CREATE:
     case WalDeltaData::Type::EDGE_PROPERTY_INDEX_DROP: {
       if constexpr (read_data) {
         auto edge_type = decoder->ReadString();
         if (!edge_type) throw RecoveryFailure("Invalid WAL data!");
-        delta.operation_edge_type_property.edge_type = std::move(*edge_type);
         auto property = decoder->ReadString();
         if (!property) throw RecoveryFailure("Invalid WAL data!");
+        WalDeltaData delta;
+        delta.type = type;
+        delta.operation_edge_type_property.edge_type = std::move(*edge_type);
         delta.operation_edge_type_property.property = std::move(*property);
+        return delta;
       } else {
         // Skips the edge type and property strings
         if (!decoder->SkipString() || !decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
+        return type;
       }
-      break;
     }
     case WalDeltaData::Type::UNIQUE_CONSTRAINT_CREATE:
     case WalDeltaData::Type::UNIQUE_CONSTRAINT_DROP: {
       if constexpr (read_data) {
         auto label = decoder->ReadString();
         if (!label) throw RecoveryFailure("Invalid WAL data!");
-        delta.operation_label_properties.label = std::move(*label);
+
+        std::set<std::string, std::less<>> properties;
         auto properties_count = decoder->ReadUint();
         if (!properties_count) throw RecoveryFailure("Invalid WAL data!");
         for (uint64_t i = 0; i < *properties_count; ++i) {
           auto property = decoder->ReadString();
           if (!property) throw RecoveryFailure("Invalid WAL data!");
-          delta.operation_label_properties.properties.emplace(std::move(*property));
+          properties.emplace(std::move(*property));
         }
+        WalDeltaData delta;
+        delta.type = type;
+        delta.operation_label_properties.label = std::move(*label);
+        delta.operation_label_properties.properties = std::move(properties);
+        return delta;
       } else {
         if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
         auto properties_count = decoder->ReadUint();
@@ -409,42 +463,47 @@ WalDeltaData ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version) 
         for (uint64_t i = 0; i < *properties_count; ++i) {
           if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
         }
+        return type;
       }
-      break;
     }
     case WalDeltaData::Type::TYPE_CONSTRAINT_CREATE:
     case WalDeltaData::Type::TYPE_CONSTRAINT_DROP: {
       if constexpr (read_data) {
         auto label = decoder->ReadString();
         if (!label) throw RecoveryFailure("Invalid WAL data!");
-        delta.operation_label_property_type.label = std::move(*label);
-
         auto property = decoder->ReadString();
         if (!property) throw RecoveryFailure("Invalid WAL data!");
-        delta.operation_label_property_type.property = std::move(*property);
+        auto kind = decoder->ReadUint();
+        if (!kind) throw RecoveryFailure("Invalid WAL data!");
 
-        auto type = decoder->ReadUint();
-        if (!type) throw RecoveryFailure("Invalid WAL data!");
-        delta.operation_label_property_type.type = static_cast<TypeConstraintKind>(*type);
+        WalDeltaData delta;
+        delta.type = type;
+        delta.operation_label_property_type.label = std::move(*label);
+        delta.operation_label_property_type.property = std::move(*property);
+        delta.operation_label_property_type.type = static_cast<TypeConstraintKind>(*kind);
+        return delta;
       } else {
         if (!decoder->SkipString() || !decoder->SkipString() || !decoder->ReadUint())
           throw RecoveryFailure("Invalid WAL data!");
+        return type;
       }
-      break;
     }
     case WalDeltaData::Type::TEXT_INDEX_CREATE:
     case WalDeltaData::Type::TEXT_INDEX_DROP: {
       if constexpr (read_data) {
         auto index_name = decoder->ReadString();
         if (!index_name) throw RecoveryFailure("Invalid WAL data!");
-        delta.operation_text.index_name = std::move(*index_name);
         auto label = decoder->ReadString();
         if (!label) throw RecoveryFailure("Invalid WAL data!");
+        WalDeltaData delta;
+        delta.type = type;
+        delta.operation_text.index_name = std::move(*index_name);
         delta.operation_text.label = std::move(*label);
+        return delta;
       } else {
         if (!decoder->SkipString() || !decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
+        return type;
       }
-      break;
     }
     case WalDeltaData::Type::VECTOR_INDEX_CREATE: {
       if constexpr (read_data) {
@@ -469,7 +528,6 @@ WalDeltaData ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version) 
       if constexpr (read_data) {
         auto etype = decoder->ReadString();
         if (!etype) throw RecoveryFailure("Invalid WAL data!");
-        delta.operation_enum_create.etype = *etype;
 
         auto evalues_count = decoder->ReadUint();
         if (!evalues_count) throw RecoveryFailure("Invalid WAL data!");
@@ -480,7 +538,11 @@ WalDeltaData ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version) 
           if (!evalue) throw RecoveryFailure("Invalid WAL data!");
           evalues.emplace_back(*std::move(evalue));
         }
+        WalDeltaData delta;
+        delta.type = type;
+        delta.operation_enum_create.etype = *etype;
         delta.operation_enum_create.evalues = std::move(evalues);
+        return delta;
       } else {
         if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
 
@@ -489,45 +551,48 @@ WalDeltaData ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version) 
         for (auto i = 0; i != *evalues_count; ++i) {
           if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
         }
+        return type;
       }
-      break;
     }
-    case WalDeltaData::Type::ENUM_ALTER_ADD:
+    case WalDeltaData::Type::ENUM_ALTER_ADD: {
       if constexpr (read_data) {
         auto etype = decoder->ReadString();
         if (!etype) throw RecoveryFailure("Invalid WAL data!");
-        delta.operation_enum_alter_add.etype = *etype;
-
         auto evalue = decoder->ReadString();
         if (!evalue) throw RecoveryFailure("Invalid WAL data!");
+        WalDeltaData delta;
+        delta.type = type;
+        delta.operation_enum_alter_add.etype = *etype;
         delta.operation_enum_alter_add.evalue = *evalue;
+        return delta;
       } else {
         if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
         if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
+        return type;
       }
-      break;
-    case WalDeltaData::Type::ENUM_ALTER_UPDATE:
+    }
+    case WalDeltaData::Type::ENUM_ALTER_UPDATE: {
       if constexpr (read_data) {
         auto etype = decoder->ReadString();
         if (!etype) throw RecoveryFailure("Invalid WAL data!");
-        delta.operation_enum_alter_update.etype = *etype;
-
         auto evalue_old = decoder->ReadString();
         if (!evalue_old) throw RecoveryFailure("Invalid WAL data!");
-        delta.operation_enum_alter_update.evalue_old = *evalue_old;
-
         auto evalue_new = decoder->ReadString();
         if (!evalue_new) throw RecoveryFailure("Invalid WAL data!");
+        WalDeltaData delta;
+        delta.type = type;
+        delta.operation_enum_alter_update.etype = *etype;
+        delta.operation_enum_alter_update.evalue_old = *evalue_old;
         delta.operation_enum_alter_update.evalue_new = *evalue_new;
+        return delta;
       } else {
         if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
         if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
         if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
+        return type;
       }
-      break;
+    }
   }
-
-  return delta;
 }
 
 }  // namespace
@@ -749,8 +814,7 @@ WalDeltaData ReadWalDeltaData(BaseDecoder *decoder, const uint64_t version) {
 // Function used to skip the current WAL delta data. The WAL delta header must
 // be read before calling this function.
 WalDeltaData::Type SkipWalDeltaData(BaseDecoder *decoder, const uint64_t version) {
-  auto delta = ReadSkipWalDeltaData<false>(decoder, version);
-  return delta.type;
+  return ReadSkipWalDeltaData<false>(decoder, version);
 }
 
 void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, SalientConfig::Items items, const Delta &delta,

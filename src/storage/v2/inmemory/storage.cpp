@@ -332,8 +332,14 @@ std::optional<VertexAccessor> InMemoryStorage::InMemoryAccessor::CreateVertexEx(
   // threads (it is the replica), it is guaranteed that no other writes are
   // possible.
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-  mem_storage->vertex_id_.store(std::max(mem_storage->vertex_id_.load(std::memory_order_acquire), gid.AsUint() + 1),
-                                std::memory_order_release);
+  auto current_vertex_id = mem_storage->vertex_id_.load(std::memory_order_acquire);
+  bool updated = false;
+  auto next_vertex_id = gid.AsUint() + 1;
+  // Only update if larger
+  while (!updated && current_vertex_id < next_vertex_id) {
+    updated =
+        mem_storage->vertex_id_.compare_exchange_weak(current_vertex_id, next_vertex_id, std::memory_order_acq_rel);
+  }
   auto acc = mem_storage->vertices_.access();
 
   auto *delta = CreateDeleteObjectDelta(&transaction_);
