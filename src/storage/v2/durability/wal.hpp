@@ -184,8 +184,7 @@ struct WalDeltaData {
     std::uint16_t dimension;
     std::size_t capacity;
     std::uint16_t resize_coefficient;
-  } operation_vector_create;  // TODO(@DavIvek): consider using shared_ptr to this object instead of this struct since
-                              // it's big
+  } operation_vector_create;  // TODO(@DavIvek): this will change since we will refactor WalDeltaData
 
   std::string operation_vector_drop;
 };

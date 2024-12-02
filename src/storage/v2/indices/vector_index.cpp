@@ -114,8 +114,8 @@ std::vector<std::shared_ptr<VectorIndexSpec>> VectorIndex::ParseIndexSpec(const 
                                           ? index_spec[kResizeCoefficient.data()].get<std::uint16_t>()
                                           : kDefaultResizeCoefficient;
 
-      result.emplace_back(std::make_shared<VectorIndexSpec>(
-          VectorIndexSpec{index_name, label, property, metric_kind.result, dimension, capacity, resize_coefficient}));
+      result.emplace_back(std::make_shared<VectorIndexSpec>(index_name, label, property, metric_kind.result, dimension,
+                                                            capacity, resize_coefficient));
     }
   } catch (const std::exception &e) {
     throw std::invalid_argument("Error parsing vector index spec: " + std::string(e.what()));
@@ -137,8 +137,7 @@ void VectorIndex::CreateIndex(const std::shared_ptr<VectorIndexSpec> &spec) {
     throw std::invalid_argument("Given vector index already exists.");
   }
   pimpl->index_name_to_label_prop_.emplace(spec->index_name, label_prop);
-  pimpl->index_.emplace(label_prop, IndexItem{mg_vector_index_t::make(metric), std::make_shared<VectorIndexSpec>(spec),
-                                              utils::RWSpinLock()});
+  pimpl->index_.emplace(label_prop, IndexItem{mg_vector_index_t::make(metric), spec, utils::RWSpinLock()});
   if (pimpl->index_[label_prop].mg_index.try_reserve(limits)) {
     spdlog::info("Created vector index " + spec->index_name);
   } else {

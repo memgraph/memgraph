@@ -406,7 +406,7 @@ class InMemoryStorage final : public Storage {
     utils::BasicResult<StorageIndexDefinitionError, void> CreateVectorIndex(
         const std::shared_ptr<VectorIndexSpec> &spec) override;
 
-    utils::BasicResult<StorageIndexDefinitionError, void> DropVectorIndex(std::string_view index_name) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> DropVectorIndex(const std::string &index_name) override;
 
     /// Returns void if the existence constraint has been created.
     /// Returns `StorageExistenceConstraintDefinitionError` if an error occures. Error can be:

@@ -3007,15 +3007,17 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
         if (!capacity) throw RecoveryFailure("Couldn't read vector index capacity!");
         auto resize_coefficient = snapshot.ReadUint();
         if (!resize_coefficient) throw RecoveryFailure("Couldn't read vector index resize coefficient!");
-        auto spec = VectorIndexSpec{std::move(index_name.value()),
-                                    get_label_from_id(*label),
-                                    get_property_from_id(*property),
-                                    usearch_metric,
-                                    static_cast<std::uint16_t>(*dimension),
-                                    *capacity,
-                                    static_cast<std::uint16_t>(*resize_coefficient)};
-        AddRecoveredIndexConstraint(&indices_constraints.indices.vector_indices, spec,
-                                    "The vector index already exists!");
+        auto spec = std::make_shared<VectorIndexSpec>(
+            std::move(index_name.value()), get_label_from_id(*label), get_property_from_id(*property), usearch_metric,
+            static_cast<std::uint16_t>(*dimension), *capacity, static_cast<std::uint16_t>(*resize_coefficient));
+
+        if (std::ranges::any_of(indices_constraints.indices.vector_indices, [&spec](const auto &vector_index) {
+              return vector_index->index_name == spec->index_name;
+            })) {
+          throw RecoveryFailure("The vector index already exists!");
+        }
+
+        indices_constraints.indices.vector_indices.push_back(spec);
         SPDLOG_TRACE("Recovered metadata of vector index {} for :{}({})", spec.index_name,
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));

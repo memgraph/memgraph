@@ -392,7 +392,7 @@ class Storage {
         const std::shared_ptr<VectorIndexSpec> &spec) = 0;
 
     virtual utils::BasicResult<storage::StorageIndexDefinitionError, void> DropVectorIndex(
-        std::string_view index_name) = 0;
+        const std::string &index_name) = 0;
 
     void TryInsertVertexIntoVectorIndex(const VertexAccessor &vertex);
 

@@ -1121,17 +1121,19 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
         break;
       }
       case WalDeltaData::Type::VECTOR_INDEX_CREATE: {
-        auto const &spec = delta.operation_vector_create;
-        auto const &label_id = storage->NameToLabel(spec.label);
-        auto const &property_id = storage->NameToProperty(spec.property);
-        spdlog::trace("       Create vector index {} on :{}({})", spec.index_name, spec.label, spec.property);
+        auto const &vector_info = delta.operation_vector_create;
+        auto const &label_id = storage->NameToLabel(vector_info.label);
+        auto const &property_id = storage->NameToProperty(vector_info.property);
+        spdlog::trace("       Create vector index {} on :{}({})", vector_info.index_name, vector_info.label,
+                      vector_info.property);
         auto *transaction = get_transaction_accessor(delta_timestamp, kUniqueAccess);
-        auto const vector_spec = storage::VectorIndexSpec{
-            spec.index_name,        label_id, property_id, spec.metric, spec.dimension, spec.capacity,
-            spec.resize_coefficient};
+        auto const vector_spec = std::make_shared<storage::VectorIndexSpec>(
+            vector_info.index_name, label_id, property_id, vector_info.metric, vector_info.dimension,
+            vector_info.capacity, vector_info.resize_coefficient);
         auto res = transaction->CreateVectorIndex(vector_spec);
         if (res.HasError()) {
-          throw utils::BasicException("Failed to create vector index on :{}({})", spec.label, spec.property);
+          throw utils::BasicException("Failed to create vector index on :{}({})", vector_info.label,
+                                      vector_info.property);
         }
         break;
       }

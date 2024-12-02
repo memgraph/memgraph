@@ -184,8 +184,8 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     const auto specs = flags::ParseExperimentalConfig(flags::Experiments::VECTOR_SEARCH);
     const auto vector_index_specs = memgraph::storage::VectorIndex::ParseIndexSpec(specs, name_id_mapper_.get());
     for (const auto &spec : vector_index_specs) {
-      spdlog::info("Having vector index named {} on :{}({})", spec.index_name,
-                   name_id_mapper_->IdToName(spec.label.AsUint()), name_id_mapper_->IdToName(spec.property.AsUint()));
+      spdlog::info("Having vector index named {} on :{}({})", spec->index_name,
+                   name_id_mapper_->IdToName(spec->label.AsUint()), name_id_mapper_->IdToName(spec->property.AsUint()));
       indices_.vector_index_.CreateIndex(spec);
     }
   }
@@ -1877,14 +1877,14 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropVectorIndex(
-    std::string_view index_name) {
+    const std::string &index_name) {
   MG_ASSERT(unique_guard_.owns_lock(), "Dropping vector index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto &vector_index = in_memory->indices_.vector_index_;
   if (!vector_index.DropIndex(index_name)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  transaction_.md_deltas.emplace_back(MetadataDelta::vector_index_drop, index_name);  // check if this will work atm
+  transaction_.md_deltas.emplace_back(MetadataDelta::vector_index_drop, index_name);
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveVectorIndices);
   return {};

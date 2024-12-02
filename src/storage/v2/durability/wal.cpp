@@ -1257,22 +1257,23 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
           const auto label_id = LabelId::FromUint(name_id_mapper->NameToId(delta.operation_vector_create.label));
           const auto property_id =
               PropertyId::FromUint(name_id_mapper->NameToId(delta.operation_vector_create.property));
-          const auto spec = VectorIndexSpec{delta.operation_vector_create.index_name,
-                                            label_id,
-                                            property_id,
-                                            delta.operation_vector_create.metric,
-                                            delta.operation_vector_create.dimension,
-                                            delta.operation_vector_create.capacity,
-                                            delta.operation_vector_create.resize_coefficient};
-          AddRecoveredIndexConstraint(&indices_constraints->indices.vector_indices, spec,
-                                      "The vector index already exists!");
+          const auto spec = std::make_shared<VectorIndexSpec>(
+              delta.operation_vector_create.index_name, label_id, property_id, delta.operation_vector_create.metric,
+              delta.operation_vector_create.dimension, delta.operation_vector_create.capacity,
+              delta.operation_vector_create.resize_coefficient);
+          if (std::ranges::any_of(indices_constraints->indices.vector_indices, [&spec](const auto &vector_index) {
+                return vector_index->index_name == spec->index_name;
+              })) {
+            throw RecoveryFailure("The vector index already exists!");
+          }
+          indices_constraints->indices.vector_indices.push_back(spec);
           break;
         }
         case WalDeltaData::Type::VECTOR_INDEX_DROP: {
           indices_constraints->indices.vector_indices.erase(
               std::remove_if(indices_constraints->indices.vector_indices.begin(),
                              indices_constraints->indices.vector_indices.end(),
-                             [&delta](const auto &index) { return index.index_name == delta.operation_vector_drop; }),
+                             [&delta](const auto &index) { return index->index_name == delta.operation_vector_drop; }),
               indices_constraints->indices.vector_indices.end());
           break;
         }

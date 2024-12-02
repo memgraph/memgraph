@@ -284,8 +284,8 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
       if (!indices->vector_index_.CreateIndex(spec, vertices->access())) {
         throw RecoveryFailure("The vector index must be created here!");
       }
-      spdlog::info("Vector index on :{}({}) is recreated from metadata", name_id_mapper->IdToName(spec.label.AsUint()),
-                   name_id_mapper->IdToName(spec.property.AsUint()));
+      spdlog::info("Vector index on :{}({}) is recreated from metadata", name_id_mapper->IdToName(spec->label.AsUint()),
+                   name_id_mapper->IdToName(spec->property.AsUint()));
     }
     spdlog::info("Vector indices are recreated.");
   }
