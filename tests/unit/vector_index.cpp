@@ -8,13 +8,13 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
+#include <gtest/gtest.h>
 #include <sys/types.h>
-#include <stdexcept>
 #include <string_view>
 #include <thread>
+#include <usearch/index_plugins.hpp>
 
 #include "flags/experimental.hpp"
-#include "gtest/gtest.h"
 #include "query/db_accessor.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -30,8 +30,7 @@ using namespace memgraph::storage;
 static constexpr std::string_view test_index = "test_index";
 static constexpr std::string_view test_label = "test_label";
 static constexpr std::string_view test_property = "test_property";
-static constexpr std::string_view metric = "l2sq";
-static constexpr std::string_view scalar = "f32";
+static constexpr unum::usearch::metric_kind_t metric = unum::usearch::metric_kind_t::l2sq_k;
 static constexpr std::size_t resize_coefficient = 2;
 
 template <typename StorageType>
@@ -47,18 +46,19 @@ class VectorSearchTest : public testing::Test {
     memgraph::flags::SetExperimental(memgraph::flags::Experiments::NONE);
   }
 
-  void CreateIndex(std::size_t dimension, std::size_t limit) {
+  void CreateIndex(std::uint16_t dimension, std::size_t capacity) {
     memgraph::flags::SetExperimental(memgraph::flags::Experiments::VECTOR_SEARCH);
 
-    auto storage_dba = storage->Access();
-    memgraph::query::DbAccessor dba(storage_dba.get());
+    auto unique_acc = this->storage->UniqueAccess();
+    memgraph::query::DbAccessor dba(unique_acc.get());
     const auto label = dba.NameToLabel(test_label.data());
     const auto property = dba.NameToProperty(test_property.data());
 
     // Create a specification for the index
-    const auto spec = VectorIndexSpec{test_index.data(), label,     property, metric.data(),
-                                      scalar.data(),     dimension, limit,    resize_coefficient};
-    storage_dba->CreateVectorIndex(spec);
+    const auto spec = std::make_shared<VectorIndexSpec>(test_index.data(), label, property, metric, dimension, capacity,
+                                                        resize_coefficient);
+    EXPECT_FALSE(unique_acc->CreateVectorIndex(spec).HasError());
+    ASSERT_NO_ERROR(unique_acc->Commit());
   }
 
   VertexAccessor CreateVertex(Storage::Accessor *accessor, std::string_view property,
@@ -344,11 +344,11 @@ TYPED_TEST(VectorSearchTest, RemoveObsoleteEntriesTest) {
   ASSERT_NO_ERROR(acc->Commit());
 
   auto *mem_storage = static_cast<InMemoryStorage *>(this->storage.get());
-  EXPECT_EQ(mem_storage->indices_.vector_index_.ListAllIndices()[0].size, 1);
+  EXPECT_EQ(mem_storage->indices_.vector_index_.ListVectorIndicesInfo()[0].size, 1);
 
   // Expect the index to have 0 entries, as the vertex was deleted
   mem_storage->indices_.vector_index_.RemoveObsoleteEntries(std::stop_token());
-  EXPECT_EQ(mem_storage->indices_.vector_index_.ListAllIndices()[0].size, 0);
+  EXPECT_EQ(mem_storage->indices_.vector_index_.ListVectorIndicesInfo()[0].size, 0);
 }
 
 TYPED_TEST(VectorSearchTest, IndexResizeTest) {

@@ -3018,7 +3018,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
         }
 
         indices_constraints.indices.vector_indices.push_back(spec);
-        SPDLOG_TRACE("Recovered metadata of vector index {} for :{}({})", spec.index_name,
+        SPDLOG_TRACE("Recovered metadata of vector index {} for :{}({})", spec->index_name,
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
       }

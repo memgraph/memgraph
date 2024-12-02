@@ -102,18 +102,21 @@ std::vector<std::shared_ptr<VectorIndexSpec>> VectorIndex::ParseIndexSpec(const 
       MG_ASSERT(index_spec.contains(kDimension), "Vector index spec must have a 'dimension' field.");
       MG_ASSERT(index_spec.contains(kCapacity), "Vector index spec must have a 'capacity' field.");
 
-      const auto label = LabelId::FromUint(name_id_mapper->NameToId(index_spec[kLabel.data()].get<std::string>()));
-      const auto property =
-          PropertyId::FromUint(name_id_mapper->NameToId(index_spec[kProperty.data()].get<std::string>()));
       const auto metric = index_spec.contains(kMetric.data()) ? index_spec[kMetric.data()].get<std::string>()
                                                               : std::string(kDefaultMetric);
       const auto metric_kind = unum::usearch::metric_from_name(metric.c_str(), metric.size());
+      if (metric_kind.error) {
+        throw std::invalid_argument("Invalid metric name: " + metric);
+      }
+
+      const auto label = LabelId::FromUint(name_id_mapper->NameToId(index_spec[kLabel.data()].get<std::string>()));
+      const auto property =
+          PropertyId::FromUint(name_id_mapper->NameToId(index_spec[kProperty.data()].get<std::string>()));
       const auto dimension = index_spec[kDimension.data()].get<std::uint16_t>();
       const auto capacity = index_spec[kCapacity.data()].get<std::size_t>();
       const auto resize_coefficient = index_spec.contains(kResizeCoefficient.data())
                                           ? index_spec[kResizeCoefficient.data()].get<std::uint16_t>()
                                           : kDefaultResizeCoefficient;
-
       result.emplace_back(std::make_shared<VectorIndexSpec>(index_name, label, property, metric_kind.result, dimension,
                                                             capacity, resize_coefficient));
     }
