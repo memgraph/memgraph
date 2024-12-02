@@ -36,9 +36,22 @@ using namespace std::string_view_literals;
 /// Client is thread safe, but it is recommended to use thread_local clients.
 class Client {
  public:
+  inline static std::map<std::string_view, int> const default_rpc_timeouts_ms{
+      {"ShowInstancesReq"sv, 10000},          // coordinator sending to coordinator
+      {"DemoteMainToReplicaReq"sv, 10000},    // coordinator sending to main
+      {"PromoteToMainReq"sv, 10000},          // coordinator sending to replica
+      {"RegisterReplicaOnMainReq"sv, 10000},  // coordinator sending to main
+      {"UnregisterReplicaReq"sv, 10000},      // coordinator sending to main
+      {"EnableWritingOnMainReq"sv, 10000},    // coordinator to main
+      {"GetInstanceUUIDReq"sv, 10000},        // coordinator to data instances
+      {"GetDatabaseHistoriesReq"sv, 10000},   // coordinator to data instances
+      {"StateCheckReq"sv, 10000},             // coordinator to data instances
+      {"HeartbeatReq"sv, 10000},              // main to replica
+      {"TimestampReq"sv, 10000},              // main to replica
+  };
   // Dependency injection of rpc_timeouts
   Client(io::network::Endpoint endpoint, communication::ClientContext *context,
-         std::map<std::string_view, int> const &rpc_timeouts_ms = {});
+         std::map<std::string_view, int> const &rpc_timeouts_ms = Client::default_rpc_timeouts_ms);
 
   /// Object used to handle streaming of request data to the RPC server.
   template <class TRequestResponse>
