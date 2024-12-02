@@ -20,6 +20,7 @@
 #include "flags/bolt.hpp"
 #include "flags/experimental.hpp"
 #include "query/exceptions.hpp"
+#include "spdlog/spdlog.h"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/name_id_mapper.hpp"
@@ -88,7 +89,8 @@ VectorIndex::~VectorIndex() {}
 std::vector<std::shared_ptr<VectorIndexSpec>> VectorIndex::ParseIndexSpec(const nlohmann::json &index_spec,
                                                                           NameIdMapper *name_id_mapper) {
   if (index_spec.empty()) {
-    throw std::invalid_argument("Vector index spec cannot be empty.");
+    spdlog::error("Vector index spec is empty. No indexes will be created.");
+    return {};
   }
 
   std::vector<std::shared_ptr<VectorIndexSpec>> result;
@@ -190,7 +192,7 @@ void VectorIndex::Clear() {
 void VectorIndex::UpdateVectorIndex(Vertex *vertex, const LabelPropKey &label_prop, const PropertyValue *value) const {
   auto &[index, spec, lock] = pimpl->index_.at(label_prop);
 
-  // first, try to remove entry (if it exists) and then add new one
+  // first, try to remove entry (if it exists) and then add a new one
   {
     auto guard = std::shared_lock{lock};
     index.remove(vertex);
@@ -278,9 +280,6 @@ std::vector<VectorIndexInfo> VectorIndex::ListVectorIndicesInfo() const {
 }
 
 std::vector<std::pair<LabelId, PropertyId>> VectorIndex::ListIndices() const {
-  if (!flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
-    throw query::VectorSearchDisabledException();
-  }
   std::vector<std::pair<LabelId, PropertyId>> result;
   result.reserve(pimpl->index_name_to_label_prop_.size());
   std::ranges::transform(pimpl->index_name_to_label_prop_, std::back_inserter(result),
