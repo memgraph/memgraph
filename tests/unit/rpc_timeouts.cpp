@@ -58,9 +58,11 @@ void SumRes::Save(const SumRes &obj, memgraph::slk::Builder *builder) { memgraph
 void EchoMessage::Load(EchoMessage *obj, memgraph::slk::Reader *reader) { memgraph::slk::Load(obj, reader); }
 void EchoMessage::Save(const EchoMessage &obj, memgraph::slk::Builder *builder) { memgraph::slk::Save(obj, builder); }
 
+constexpr int port{8181};
+
 // RPC client is setup with timeout but shouldn't be triggered.
 TEST(RpcTimeout, TimeoutNoFailure) {
-  Endpoint endpoint{"localhost", 10000};
+  Endpoint endpoint{"localhost", port};
 
   ServerContext server_context;
   Server rpc_server{endpoint, &server_context, /* workers */ 1};
@@ -91,7 +93,7 @@ TEST(RpcTimeout, TimeoutNoFailure) {
 
 // Simulate something long executing on server.
 TEST(RpcTimeout, TimeoutExecutionBlocks) {
-  Endpoint endpoint{"localhost", 10000};
+  Endpoint endpoint{"localhost", port};
 
   ServerContext server_context;
   Server rpc_server{endpoint, &server_context, /* workers */ 1};
@@ -122,7 +124,7 @@ TEST(RpcTimeout, TimeoutExecutionBlocks) {
 
 // Simulate server with one thread being busy processing other RPC message.
 TEST(RpcTimeout, TimeoutServerBusy) {
-  Endpoint endpoint{"localhost", 10000};
+  Endpoint endpoint{"localhost", port};
 
   ServerContext server_context;
   Server rpc_server{endpoint, &server_context, /* workers */ 1};
@@ -171,7 +173,7 @@ TEST(RpcTimeout, TimeoutServerBusy) {
 }
 
 TEST(RpcTimeout, SendingToWrongSocket) {
-  Endpoint endpoint{"localhost", 10000};
+  Endpoint endpoint{"localhost", port};
 
   ServerContext server_context;
   Server rpc_server{endpoint, &server_context, /* workers */ 1};
