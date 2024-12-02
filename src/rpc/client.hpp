@@ -48,6 +48,8 @@ class Client {
       {"StateCheckReq"sv, 10000},             // coordinator to data instances
       {"HeartbeatReq"sv, 10000},              // main to replica
       {"TimestampReq"sv, 10000},              // main to replica
+      {"SwapMainUUIDReq"sv, 10000},           // coord to data instances
+      {"FrequentHeartbeatReq"sv, 10000},      // coord to data instances
   };
   // Dependency injection of rpc_timeouts
   Client(io::network::Endpoint endpoint, communication::ClientContext *context,
