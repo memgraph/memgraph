@@ -2096,7 +2096,7 @@ utils::BasicResult<storage::StorageIndexDefinitionError, void> DiskStorage::Disk
 }
 
 utils::BasicResult<storage::StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateVectorIndex(
-    std::shared_ptr<VectorIndexSpec> const & /*spec*/) {
+    VectorIndexSpec const & /*spec*/) {
   throw utils::NotYetImplemented("Vector index related operations are not yet supported using on-disk storage mode.");
 }
 
@@ -2272,7 +2272,8 @@ IndicesInfo DiskStorage::DiskAccessor::ListAllIndices() const {
   auto &text_index = storage_->indices_.text_index_;
   return {disk_label_index->ListIndices(), disk_label_property_index->ListIndices(),
           {/* edge type indices */},       {/* edge_type_property */},
-          text_index.ListIndices(),        {/*  */}};
+          text_index.ListIndices(),        {/*  */},
+          {/* vector indices */}};
 }
 ConstraintsInfo DiskStorage::DiskAccessor::ListAllConstraints() const {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);

@@ -114,7 +114,7 @@ std::vector<std::shared_ptr<VectorIndexSpec>> VectorIndex::ParseIndexSpec(const 
                                           ? index_spec[kResizeCoefficient.data()].get<std::uint16_t>()
                                           : kDefaultResizeCoefficient;
 
-      result.push_back(std::make_shared<VectorIndexSpec>(
+      result.emplace_back(std::make_shared<VectorIndexSpec>(
           VectorIndexSpec{index_name, label, property, metric_kind.result, dimension, capacity, resize_coefficient}));
     }
   } catch (const std::exception &e) {
@@ -175,6 +175,14 @@ bool VectorIndex::DropIndex(std::string_view index_name) {
   pimpl->index_name_to_label_prop_.erase(it);
   spdlog::info("Dropped vector index " + std::string(index_name));
   return true;
+}
+
+void VectorIndex::Clear() {
+  pimpl->index_name_to_label_prop_.clear();
+  for (auto &[_, index_item] : pimpl->index_) {
+    index_item.mg_index.reset();
+  }
+  pimpl->index_.clear();
 }
 
 void VectorIndex::UpdateVectorIndex(Vertex *vertex, const LabelPropKey &label_prop, const PropertyValue *value) const {

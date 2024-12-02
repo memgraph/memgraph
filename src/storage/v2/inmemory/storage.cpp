@@ -93,6 +93,8 @@ constexpr auto ActionToStorageOperation(MetadataDelta::Action action) -> durabil
     add_case(ENUM_ALTER_UPDATE);
     add_case(POINT_INDEX_CREATE);
     add_case(POINT_INDEX_DROP);
+    add_case(VECTOR_INDEX_CREATE);
+    add_case(VECTOR_INDEX_DROP);
   }
 #undef add_case
 }
@@ -2657,6 +2659,17 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
           EncodeTextIndex(encoder, *name_id_mapper_, md_delta.text_index.index_name, md_delta.text_index.label);
         });
+        break;
+      }
+      case MetadataDelta::Action::VECTOR_INDEX_CREATE: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeVectorIndexCreate(encoder, *name_id_mapper_, md_delta.vector_index_spec);
+        });
+        break;
+      }
+      case MetadataDelta::Action::VECTOR_INDEX_DROP: {
+        apply_encode(
+            op, [&](durability::BaseEncoder &encoder) { EncodeVectorIndexDrop(encoder, md_delta.vector_index_name); });
         break;
       }
       case MetadataDelta::Action::UNIQUE_CONSTRAINT_CREATE:

@@ -176,8 +176,17 @@ struct WalDeltaData {
     std::string evalue_new;
   } operation_enum_alter_update;
 
-  std::shared_ptr<VectorIndexSpec>
-      operation_vector_create;  // this won't work atm since we don't have the NameIdMapper in read delta data functions
+  struct {
+    std::string index_name;
+    std::string label;
+    std::string property;
+    unum::usearch::metric_kind_t metric;
+    std::uint16_t dimension;
+    std::size_t capacity;
+    std::uint16_t resize_coefficient;
+  } operation_vector_create;  // TODO(@DavIvek): consider using shared_ptr to this object instead of this struct since
+                              // it's big
+
   std::string operation_vector_drop;
 };
 

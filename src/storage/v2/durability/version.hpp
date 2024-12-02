@@ -34,6 +34,8 @@ const uint64_t kPointIndexAndTypeConstraints{20};
 
 const uint64_t kEdgeSetDeltaWithVertexInfo{21};
 
+const uint64_t kVectorIndex{22};
+
 // Magic values written to the start of a snapshot/WAL file to identify it.
 const std::string kSnapshotMagic{"MGsn"};
 const std::string kWalMagic{"MGwl"};

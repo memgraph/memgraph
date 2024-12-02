@@ -100,6 +100,9 @@ class VectorIndex {
   /// @return true if the index was dropped successfully, false otherwise.
   bool DropIndex(std::string_view index_name);
 
+  /// @brief Drops all existing indexes.
+  void Clear();
+
   /// @brief Updates the index when a label is added to a vertex.
   /// @param added_label The label that was added to the vertex.
   /// @param vertex_after_update The vertex after the label was added.

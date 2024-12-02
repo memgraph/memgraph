@@ -113,6 +113,8 @@ constexpr Marker OperationToMarker(StorageMetadataOperation operation) {
     add_case(TYPE_CONSTRAINT_DROP);
     add_case(POINT_INDEX_CREATE);
     add_case(POINT_INDEX_DROP);
+    add_case(VECTOR_INDEX_CREATE);
+    add_case(VECTOR_INDEX_DROP);
   }
 #undef add_case
 }
@@ -511,18 +513,45 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
         if (!index_name) throw RecoveryFailure("Invalid WAL data!");
         auto label_name = decoder->ReadString();
         if (!label_name) throw RecoveryFailure("Invalid WAL data!");
+        auto property_name = decoder->ReadString();
+        if (!property_name) throw RecoveryFailure("Invalid WAL data!");
+        auto metric = decoder->ReadUint();
+        if (!metric) throw RecoveryFailure("Invalid WAL data!");
+        auto dimension = decoder->ReadUint();
+        if (!dimension) throw RecoveryFailure("Invalid WAL data!");
+        auto capacity = decoder->ReadUint();
+        if (!capacity) throw RecoveryFailure("Invalid WAL data!");
+        auto resize_coefficient = decoder->ReadUint();
+        if (!resize_coefficient) throw RecoveryFailure("Invalid WAL data!");
+        WalDeltaData delta;
+        delta.type = type;
+        delta.operation_vector_create.index_name = std::move(*index_name);
+        delta.operation_vector_create.label = std::move(*label_name);
+        delta.operation_vector_create.property = std::move(*property_name);
+        delta.operation_vector_create.metric = static_cast<unum::usearch::metric_kind_t>(*metric);
+        delta.operation_vector_create.dimension = *dimension;
+        delta.operation_vector_create.capacity = *capacity;
+        delta.operation_vector_create.resize_coefficient = *resize_coefficient;
+        return delta;
+      } else {
+        if (!decoder->SkipString() || !decoder->SkipString() || !decoder->SkipString() || !decoder->ReadUint() ||
+            !decoder->ReadUint() || !decoder->ReadUint() || !decoder->ReadUint() || !decoder->ReadUint())
+          throw RecoveryFailure("Invalid WAL data!");
+        return type;
       }
-      break;
     }
     case WalDeltaData::Type::VECTOR_INDEX_DROP: {
       if constexpr (read_data) {
         auto index_name = decoder->ReadString();
         if (!index_name) throw RecoveryFailure("Invalid WAL data!");
+        WalDeltaData delta;
+        delta.type = type;
         delta.operation_vector_drop = std::move(*index_name);
+        return delta;
       } else {
         if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
+        return type;
       }
-      break;
     }
     case WalDeltaData::Type::ENUM_CREATE: {
       if constexpr (read_data) {
@@ -742,9 +771,16 @@ bool operator==(const WalDeltaData &a, const WalDeltaData &b) {
              a.operation_text.label == b.operation_text.label;
 
     case WalDeltaData::Type::VECTOR_INDEX_CREATE:
-      return a.operation_vector_drop == b.operation_vector_drop;
+      return a.operation_vector_create.index_name == b.operation_vector_create.index_name &&
+             a.operation_vector_create.label == b.operation_vector_create.label &&
+             a.operation_vector_create.property == b.operation_vector_create.property &&
+             a.operation_vector_create.metric == b.operation_vector_create.metric &&
+             a.operation_vector_create.dimension == b.operation_vector_create.dimension &&
+             a.operation_vector_create.capacity == b.operation_vector_create.capacity &&
+             a.operation_vector_create.resize_coefficient == b.operation_vector_create.resize_coefficient;
+
     case WalDeltaData::Type::VECTOR_INDEX_DROP:
-      return a.operation_vector_create == b.operation_vector_create;
+      return a.operation_vector_drop == b.operation_vector_drop;
 
     case WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE:
     case WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP:
@@ -1218,7 +1254,17 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
           break;
         }
         case WalDeltaData::Type::VECTOR_INDEX_CREATE: {
-          AddRecoveredIndexConstraint(&indices_constraints->indices.vector_indices, delta.operation_vector_create,
+          const auto label_id = LabelId::FromUint(name_id_mapper->NameToId(delta.operation_vector_create.label));
+          const auto property_id =
+              PropertyId::FromUint(name_id_mapper->NameToId(delta.operation_vector_create.property));
+          const auto spec = VectorIndexSpec{delta.operation_vector_create.index_name,
+                                            label_id,
+                                            property_id,
+                                            delta.operation_vector_create.metric,
+                                            delta.operation_vector_create.dimension,
+                                            delta.operation_vector_create.capacity,
+                                            delta.operation_vector_create.resize_coefficient};
+          AddRecoveredIndexConstraint(&indices_constraints->indices.vector_indices, spec,
                                       "The vector index already exists!");
           break;
         }
@@ -1226,7 +1272,7 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
           indices_constraints->indices.vector_indices.erase(
               std::remove_if(indices_constraints->indices.vector_indices.begin(),
                              indices_constraints->indices.vector_indices.end(),
-                             [&delta](const auto &index) { return index->index_name == delta.operation_vector_drop; }),
+                             [&delta](const auto &index) { return index.index_name == delta.operation_vector_drop; }),
               indices_constraints->indices.vector_indices.end());
           break;
         }
@@ -1594,5 +1640,7 @@ void EncodeVectorIndexCreate(BaseEncoder &encoder, NameIdMapper &name_id_mapper,
   encoder.WriteUint(spec->capacity);
   encoder.WriteUint(spec->resize_coefficient);
 }
+
+void EncodeVectorIndexDrop(BaseEncoder &encoder, std::string_view index_name) { encoder.WriteString(index_name); }
 
 }  // namespace memgraph::storage::durability
