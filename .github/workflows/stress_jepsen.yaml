@@ -17,7 +17,7 @@ jobs:
   core:
     name: "Jepsen stress tests"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
-    timeout-minutes: 600
+    timeout-minutes: 720
     steps:
       - name: Set up repository
         uses: actions/checkout@v4
