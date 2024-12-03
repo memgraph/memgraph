@@ -82,6 +82,9 @@ namespace memgraph::storage::durability {
 
 namespace {
 
+constexpr std::string_view kErrorMessage =
+    "Your durability WAL files got corrupted. Please contact the Memgraph team for support.";
+
 constexpr Marker OperationToMarker(StorageMetadataOperation operation) {
   // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define add_case(E)                 \
@@ -216,7 +219,7 @@ constexpr WalDeltaData::Type MarkerToWalDeltaDataType(Marker marker) {
     case Marker::SECTION_ENUMS:
     case Marker::VALUE_FALSE:
     case Marker::VALUE_TRUE:
-      throw RecoveryFailure("Invalid WAL data!");
+      throw RecoveryFailure(kErrorMessage);
   }
 #undef add_case
 }
@@ -231,14 +234,14 @@ template <bool read_data>
 auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
     -> std::conditional_t<read_data, WalDeltaData, WalDeltaData::Type> {
   auto action = decoder->ReadMarker();
-  if (!action) throw RecoveryFailure("Invalid WAL data!");
+  if (!action) throw RecoveryFailure(kErrorMessage);
   auto type = MarkerToWalDeltaDataType(*action);
 
   switch (type) {
     case WalDeltaData::Type::VERTEX_CREATE:
     case WalDeltaData::Type::VERTEX_DELETE: {
       auto gid = decoder->ReadUint();
-      if (!gid) throw RecoveryFailure("Invalid WAL data!");
+      if (!gid) throw RecoveryFailure(kErrorMessage);
       if constexpr (read_data) {
         WalDeltaData delta;
         delta.type = type;
@@ -251,30 +254,30 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
     case WalDeltaData::Type::VERTEX_ADD_LABEL:
     case WalDeltaData::Type::VERTEX_REMOVE_LABEL: {
       auto gid = decoder->ReadUint();
-      if (!gid) throw RecoveryFailure("Invalid WAL data!");
+      if (!gid) throw RecoveryFailure(kErrorMessage);
       if constexpr (read_data) {
         auto label = decoder->ReadString();
-        if (!label) throw RecoveryFailure("Invalid WAL data!");
+        if (!label) throw RecoveryFailure(kErrorMessage);
         WalDeltaData delta;
         delta.type = type;
         delta.vertex_add_remove_label.gid = Gid::FromUint(*gid);
         delta.vertex_add_remove_label.label = std::move(*label);
         return delta;
       } else {
-        if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
+        if (!decoder->SkipString()) throw RecoveryFailure(kErrorMessage);
         return type;
       }
     }
     case WalDeltaData::Type::VERTEX_SET_PROPERTY:
     case WalDeltaData::Type::EDGE_SET_PROPERTY: {
       auto gid = decoder->ReadUint();
-      if (!gid) throw RecoveryFailure("Invalid WAL data!");
+      if (!gid) throw RecoveryFailure(kErrorMessage);
 
       if constexpr (read_data) {
         auto property = decoder->ReadString();
-        if (!property) throw RecoveryFailure("Invalid WAL data!");
+        if (!property) throw RecoveryFailure(kErrorMessage);
         auto value = decoder->ReadPropertyValue();
-        if (!value) throw RecoveryFailure("Invalid WAL data!");
+        if (!value) throw RecoveryFailure(kErrorMessage);
         WalDeltaData delta;
         delta.type = type;
         delta.vertex_edge_set_property.gid = Gid::FromUint(*gid);
@@ -283,16 +286,16 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
         // Store from vertex only in case of edge set prop
         if (type == WalDeltaData::Type::EDGE_SET_PROPERTY && version >= kEdgeSetDeltaWithVertexInfo) {
           auto from_gid = decoder->ReadUint();
-          if (!from_gid) throw RecoveryFailure("Invalid WAL data!");
+          if (!from_gid) throw RecoveryFailure(kErrorMessage);
           delta.vertex_edge_set_property.from_gid = Gid::FromUint(*from_gid);
         }
         return delta;
       } else {
-        if (!decoder->SkipString() || !decoder->SkipPropertyValue()) throw RecoveryFailure("Invalid WAL data!");
+        if (!decoder->SkipString() || !decoder->SkipPropertyValue()) throw RecoveryFailure(kErrorMessage);
         // Store from vertex only in case of edge set prop
         if (type == WalDeltaData::Type::EDGE_SET_PROPERTY && version >= kEdgeSetDeltaWithVertexInfo) {
           auto from_gid = decoder->ReadUint();
-          if (!from_gid) throw RecoveryFailure("Invalid WAL data!");
+          if (!from_gid) throw RecoveryFailure(kErrorMessage);
         }
         return type;
       }
@@ -300,14 +303,14 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
     case WalDeltaData::Type::EDGE_CREATE:
     case WalDeltaData::Type::EDGE_DELETE: {
       auto gid = decoder->ReadUint();
-      if (!gid) throw RecoveryFailure("Invalid WAL data!");
+      if (!gid) throw RecoveryFailure(kErrorMessage);
       if constexpr (read_data) {
         auto edge_type = decoder->ReadString();
-        if (!edge_type) throw RecoveryFailure("Invalid WAL data!");
+        if (!edge_type) throw RecoveryFailure(kErrorMessage);
         auto from_gid = decoder->ReadUint();
-        if (!from_gid) throw RecoveryFailure("Invalid WAL data!");
+        if (!from_gid) throw RecoveryFailure(kErrorMessage);
         auto to_gid = decoder->ReadUint();
-        if (!to_gid) throw RecoveryFailure("Invalid WAL data!");
+        if (!to_gid) throw RecoveryFailure(kErrorMessage);
         WalDeltaData delta;
         delta.type = type;
         delta.edge_create_delete.gid = Gid::FromUint(*gid);
@@ -316,9 +319,9 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
         delta.edge_create_delete.to_vertex = Gid::FromUint(*to_gid);
         return delta;
       } else {
-        if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
-        if (!decoder->ReadUint()) throw RecoveryFailure("Invalid WAL data!");
-        if (!decoder->ReadUint()) throw RecoveryFailure("Invalid WAL data!");
+        if (!decoder->SkipString()) throw RecoveryFailure(kErrorMessage);
+        if (!decoder->ReadUint()) throw RecoveryFailure(kErrorMessage);
+        if (!decoder->ReadUint()) throw RecoveryFailure(kErrorMessage);
         return type;
       }
     }
@@ -340,13 +343,13 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
     {
       if constexpr (read_data) {
         auto label = decoder->ReadString();
-        if (!label) throw RecoveryFailure("Invalid WAL data!");
+        if (!label) throw RecoveryFailure(kErrorMessage);
         WalDeltaData delta;
         delta.type = type;
         delta.operation_label.label = std::move(*label);
         return delta;
       } else {
-        if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
+        if (!decoder->SkipString()) throw RecoveryFailure(kErrorMessage);
         return type;
       }
     }
@@ -354,29 +357,29 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
     case WalDeltaData::Type::EDGE_INDEX_DROP: {
       if constexpr (read_data) {
         auto edge_type = decoder->ReadString();
-        if (!edge_type) throw RecoveryFailure("Invalid WAL data!");
+        if (!edge_type) throw RecoveryFailure(kErrorMessage);
         WalDeltaData delta;
         delta.type = type;
         delta.operation_edge_type.edge_type = std::move(*edge_type);
         return delta;
       } else {
-        if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
+        if (!decoder->SkipString()) throw RecoveryFailure(kErrorMessage);
         return type;
       }
     }
     case WalDeltaData::Type::LABEL_INDEX_STATS_SET: {
       if constexpr (read_data) {
         auto label = decoder->ReadString();
-        if (!label) throw RecoveryFailure("Invalid WAL data!");
+        if (!label) throw RecoveryFailure(kErrorMessage);
         auto stats = decoder->ReadString();
-        if (!stats) throw RecoveryFailure("Invalid WAL data!");
+        if (!stats) throw RecoveryFailure(kErrorMessage);
         WalDeltaData delta;
         delta.type = type;
         delta.operation_label_stats.label = std::move(*label);
         delta.operation_label_stats.stats = std::move(*stats);
         return delta;
       } else {
-        if (!decoder->SkipString() || !decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
+        if (!decoder->SkipString() || !decoder->SkipString()) throw RecoveryFailure(kErrorMessage);
         return type;
       }
     }
@@ -388,27 +391,27 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
     case WalDeltaData::Type::EXISTENCE_CONSTRAINT_DROP: {
       if constexpr (read_data) {
         auto label = decoder->ReadString();
-        if (!label) throw RecoveryFailure("Invalid WAL data!");
+        if (!label) throw RecoveryFailure(kErrorMessage);
         auto property = decoder->ReadString();
-        if (!property) throw RecoveryFailure("Invalid WAL data!");
+        if (!property) throw RecoveryFailure(kErrorMessage);
         WalDeltaData delta;
         delta.type = type;
         delta.operation_label_property.label = std::move(*label);
         delta.operation_label_property.property = std::move(*property);
         return delta;
       } else {
-        if (!decoder->SkipString() || !decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
+        if (!decoder->SkipString() || !decoder->SkipString()) throw RecoveryFailure(kErrorMessage);
         return type;
       }
     }
     case WalDeltaData::Type::LABEL_PROPERTY_INDEX_STATS_SET: {
       if constexpr (read_data) {
         auto label = decoder->ReadString();
-        if (!label) throw RecoveryFailure("Invalid WAL data!");
+        if (!label) throw RecoveryFailure(kErrorMessage);
         auto property = decoder->ReadString();
-        if (!property) throw RecoveryFailure("Invalid WAL data!");
+        if (!property) throw RecoveryFailure(kErrorMessage);
         auto stats = decoder->ReadString();
-        if (!stats) throw RecoveryFailure("Invalid WAL data!");
+        if (!stats) throw RecoveryFailure(kErrorMessage);
         WalDeltaData delta;
         delta.type = type;
         delta.operation_label_property_stats.label = std::move(*label);
@@ -417,7 +420,7 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
         return delta;
       } else {
         if (!decoder->SkipString() || !decoder->SkipString() || !decoder->SkipString())
-          throw RecoveryFailure("Invalid WAL data!");
+          throw RecoveryFailure(kErrorMessage);
         return type;
       }
     }
@@ -425,9 +428,9 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
     case WalDeltaData::Type::EDGE_PROPERTY_INDEX_DROP: {
       if constexpr (read_data) {
         auto edge_type = decoder->ReadString();
-        if (!edge_type) throw RecoveryFailure("Invalid WAL data!");
+        if (!edge_type) throw RecoveryFailure(kErrorMessage);
         auto property = decoder->ReadString();
-        if (!property) throw RecoveryFailure("Invalid WAL data!");
+        if (!property) throw RecoveryFailure(kErrorMessage);
         WalDeltaData delta;
         delta.type = type;
         delta.operation_edge_type_property.edge_type = std::move(*edge_type);
@@ -435,7 +438,7 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
         return delta;
       } else {
         // Skips the edge type and property strings
-        if (!decoder->SkipString() || !decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
+        if (!decoder->SkipString() || !decoder->SkipString()) throw RecoveryFailure(kErrorMessage);
         return type;
       }
     }
@@ -443,14 +446,14 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
     case WalDeltaData::Type::UNIQUE_CONSTRAINT_DROP: {
       if constexpr (read_data) {
         auto label = decoder->ReadString();
-        if (!label) throw RecoveryFailure("Invalid WAL data!");
+        if (!label) throw RecoveryFailure(kErrorMessage);
 
         std::set<std::string, std::less<>> properties;
         auto properties_count = decoder->ReadUint();
-        if (!properties_count) throw RecoveryFailure("Invalid WAL data!");
+        if (!properties_count) throw RecoveryFailure(kErrorMessage);
         for (uint64_t i = 0; i < *properties_count; ++i) {
           auto property = decoder->ReadString();
-          if (!property) throw RecoveryFailure("Invalid WAL data!");
+          if (!property) throw RecoveryFailure(kErrorMessage);
           properties.emplace(std::move(*property));
         }
         WalDeltaData delta;
@@ -459,11 +462,11 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
         delta.operation_label_properties.properties = std::move(properties);
         return delta;
       } else {
-        if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
+        if (!decoder->SkipString()) throw RecoveryFailure(kErrorMessage);
         auto properties_count = decoder->ReadUint();
-        if (!properties_count) throw RecoveryFailure("Invalid WAL data!");
+        if (!properties_count) throw RecoveryFailure(kErrorMessage);
         for (uint64_t i = 0; i < *properties_count; ++i) {
-          if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
+          if (!decoder->SkipString()) throw RecoveryFailure(kErrorMessage);
         }
         return type;
       }
@@ -472,11 +475,11 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
     case WalDeltaData::Type::TYPE_CONSTRAINT_DROP: {
       if constexpr (read_data) {
         auto label = decoder->ReadString();
-        if (!label) throw RecoveryFailure("Invalid WAL data!");
+        if (!label) throw RecoveryFailure(kErrorMessage);
         auto property = decoder->ReadString();
-        if (!property) throw RecoveryFailure("Invalid WAL data!");
+        if (!property) throw RecoveryFailure(kErrorMessage);
         auto kind = decoder->ReadUint();
-        if (!kind) throw RecoveryFailure("Invalid WAL data!");
+        if (!kind) throw RecoveryFailure(kErrorMessage);
 
         WalDeltaData delta;
         delta.type = type;
@@ -486,7 +489,7 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
         return delta;
       } else {
         if (!decoder->SkipString() || !decoder->SkipString() || !decoder->ReadUint())
-          throw RecoveryFailure("Invalid WAL data!");
+          throw RecoveryFailure(kErrorMessage);
         return type;
       }
     }
@@ -494,35 +497,35 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
     case WalDeltaData::Type::TEXT_INDEX_DROP: {
       if constexpr (read_data) {
         auto index_name = decoder->ReadString();
-        if (!index_name) throw RecoveryFailure("Invalid WAL data!");
+        if (!index_name) throw RecoveryFailure(kErrorMessage);
         auto label = decoder->ReadString();
-        if (!label) throw RecoveryFailure("Invalid WAL data!");
+        if (!label) throw RecoveryFailure(kErrorMessage);
         WalDeltaData delta;
         delta.type = type;
         delta.operation_text.index_name = std::move(*index_name);
         delta.operation_text.label = std::move(*label);
         return delta;
       } else {
-        if (!decoder->SkipString() || !decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
+        if (!decoder->SkipString() || !decoder->SkipString()) throw RecoveryFailure(kErrorMessage);
         return type;
       }
     }
     case WalDeltaData::Type::VECTOR_INDEX_CREATE: {
       if constexpr (read_data) {
         auto index_name = decoder->ReadString();
-        if (!index_name) throw RecoveryFailure("Invalid WAL data!");
+        if (!index_name) throw RecoveryFailure(kErrorMessage);
         auto label_name = decoder->ReadString();
-        if (!label_name) throw RecoveryFailure("Invalid WAL data!");
+        if (!label_name) throw RecoveryFailure(kErrorMessage);
         auto property_name = decoder->ReadString();
-        if (!property_name) throw RecoveryFailure("Invalid WAL data!");
+        if (!property_name) throw RecoveryFailure(kErrorMessage);
         auto metric = decoder->ReadUint();
-        if (!metric) throw RecoveryFailure("Invalid WAL data!");
+        if (!metric) throw RecoveryFailure(kErrorMessage);
         auto dimension = decoder->ReadUint();
-        if (!dimension) throw RecoveryFailure("Invalid WAL data!");
+        if (!dimension) throw RecoveryFailure(kErrorMessage);
         auto capacity = decoder->ReadUint();
-        if (!capacity) throw RecoveryFailure("Invalid WAL data!");
+        if (!capacity) throw RecoveryFailure(kErrorMessage);
         auto resize_coefficient = decoder->ReadUint();
-        if (!resize_coefficient) throw RecoveryFailure("Invalid WAL data!");
+        if (!resize_coefficient) throw RecoveryFailure(kErrorMessage);
         WalDeltaData delta;
         delta.type = type;
         delta.operation_vector_create.index_name = std::move(*index_name);
@@ -536,35 +539,35 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
       } else {
         if (!decoder->SkipString() || !decoder->SkipString() || !decoder->SkipString() || !decoder->ReadUint() ||
             !decoder->ReadUint() || !decoder->ReadUint() || !decoder->ReadUint() || !decoder->ReadUint())
-          throw RecoveryFailure("Invalid WAL data!");
+          throw RecoveryFailure(kErrorMessage);
         return type;
       }
     }
     case WalDeltaData::Type::VECTOR_INDEX_DROP: {
       if constexpr (read_data) {
         auto index_name = decoder->ReadString();
-        if (!index_name) throw RecoveryFailure("Invalid WAL data!");
+        if (!index_name) throw RecoveryFailure(kErrorMessage);
         WalDeltaData delta;
         delta.type = type;
         delta.operation_vector_drop = std::move(*index_name);
         return delta;
       } else {
-        if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
+        if (!decoder->SkipString()) throw RecoveryFailure(kErrorMessage);
         return type;
       }
     }
     case WalDeltaData::Type::ENUM_CREATE: {
       if constexpr (read_data) {
         auto etype = decoder->ReadString();
-        if (!etype) throw RecoveryFailure("Invalid WAL data!");
+        if (!etype) throw RecoveryFailure(kErrorMessage);
 
         auto evalues_count = decoder->ReadUint();
-        if (!evalues_count) throw RecoveryFailure("Invalid WAL data!");
+        if (!evalues_count) throw RecoveryFailure(kErrorMessage);
         auto evalues = std::vector<std::string>{};
         evalues.reserve(*evalues_count);
         for (auto i = 0; i != *evalues_count; ++i) {
           auto evalue = decoder->ReadString();
-          if (!evalue) throw RecoveryFailure("Invalid WAL data!");
+          if (!evalue) throw RecoveryFailure(kErrorMessage);
           evalues.emplace_back(*std::move(evalue));
         }
         WalDeltaData delta;
@@ -573,12 +576,12 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
         delta.operation_enum_create.evalues = std::move(evalues);
         return delta;
       } else {
-        if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
+        if (!decoder->SkipString()) throw RecoveryFailure(kErrorMessage);
 
         auto evalues_count = decoder->ReadUint();
-        if (!evalues_count) throw RecoveryFailure("Invalid WAL data!");
+        if (!evalues_count) throw RecoveryFailure(kErrorMessage);
         for (auto i = 0; i != *evalues_count; ++i) {
-          if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
+          if (!decoder->SkipString()) throw RecoveryFailure(kErrorMessage);
         }
         return type;
       }
@@ -586,28 +589,28 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
     case WalDeltaData::Type::ENUM_ALTER_ADD: {
       if constexpr (read_data) {
         auto etype = decoder->ReadString();
-        if (!etype) throw RecoveryFailure("Invalid WAL data!");
+        if (!etype) throw RecoveryFailure(kErrorMessage);
         auto evalue = decoder->ReadString();
-        if (!evalue) throw RecoveryFailure("Invalid WAL data!");
+        if (!evalue) throw RecoveryFailure(kErrorMessage);
         WalDeltaData delta;
         delta.type = type;
         delta.operation_enum_alter_add.etype = *etype;
         delta.operation_enum_alter_add.evalue = *evalue;
         return delta;
       } else {
-        if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
-        if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
+        if (!decoder->SkipString()) throw RecoveryFailure(kErrorMessage);
+        if (!decoder->SkipString()) throw RecoveryFailure(kErrorMessage);
         return type;
       }
     }
     case WalDeltaData::Type::ENUM_ALTER_UPDATE: {
       if constexpr (read_data) {
         auto etype = decoder->ReadString();
-        if (!etype) throw RecoveryFailure("Invalid WAL data!");
+        if (!etype) throw RecoveryFailure(kErrorMessage);
         auto evalue_old = decoder->ReadString();
-        if (!evalue_old) throw RecoveryFailure("Invalid WAL data!");
+        if (!evalue_old) throw RecoveryFailure(kErrorMessage);
         auto evalue_new = decoder->ReadString();
-        if (!evalue_new) throw RecoveryFailure("Invalid WAL data!");
+        if (!evalue_new) throw RecoveryFailure(kErrorMessage);
         WalDeltaData delta;
         delta.type = type;
         delta.operation_enum_alter_update.etype = *etype;
@@ -615,9 +618,9 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
         delta.operation_enum_alter_update.evalue_new = *evalue_new;
         return delta;
       } else {
-        if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
-        if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
-        if (!decoder->SkipString()) throw RecoveryFailure("Invalid WAL data!");
+        if (!decoder->SkipString()) throw RecoveryFailure(kErrorMessage);
+        if (!decoder->SkipString()) throw RecoveryFailure(kErrorMessage);
+        if (!decoder->SkipString()) throw RecoveryFailure(kErrorMessage);
         return type;
       }
     }
@@ -640,10 +643,10 @@ WalInfo ReadWalInfo(const std::filesystem::path &path) {
   // Read offsets.
   {
     auto marker = wal.ReadMarker();
-    if (!marker || *marker != Marker::SECTION_OFFSETS) throw RecoveryFailure("Invalid WAL data!");
+    if (!marker || *marker != Marker::SECTION_OFFSETS) throw RecoveryFailure(kErrorMessage);
 
     auto wal_size = wal.GetSize();
-    if (!wal_size) throw RecoveryFailure("Invalid WAL data!");
+    if (!wal_size) throw RecoveryFailure(kErrorMessage);
 
     auto read_offset = [&wal, wal_size] {
       auto maybe_offset = wal.ReadUint();
@@ -662,18 +665,18 @@ WalInfo ReadWalInfo(const std::filesystem::path &path) {
     wal.SetPosition(info.offset_metadata);
 
     auto marker = wal.ReadMarker();
-    if (!marker || *marker != Marker::SECTION_METADATA) throw RecoveryFailure("Invalid WAL data!");
+    if (!marker || *marker != Marker::SECTION_METADATA) throw RecoveryFailure(kErrorMessage);
 
     auto maybe_uuid = wal.ReadString();
-    if (!maybe_uuid) throw RecoveryFailure("Invalid WAL data!");
+    if (!maybe_uuid) throw RecoveryFailure(kErrorMessage);
     info.uuid = std::move(*maybe_uuid);
 
     auto maybe_epoch_id = wal.ReadString();
-    if (!maybe_epoch_id) throw RecoveryFailure("Invalid WAL data!");
+    if (!maybe_epoch_id) throw RecoveryFailure(kErrorMessage);
     info.epoch_id = std::move(*maybe_epoch_id);
 
     auto maybe_seq_num = wal.ReadUint();
-    if (!maybe_seq_num) throw RecoveryFailure("Invalid WAL data!");
+    if (!maybe_seq_num) throw RecoveryFailure(kErrorMessage);
     info.seq_num = *maybe_seq_num;
   }
 
@@ -718,7 +721,7 @@ WalInfo ReadWalInfo(const std::filesystem::path &path) {
     }
   }
 
-  if (info.num_deltas == 0) throw RecoveryFailure("Invalid WAL data!");
+  if (info.num_deltas == 0) throw RecoveryFailure(kErrorMessage);
 
   return info;
 }
@@ -834,10 +837,10 @@ bool operator!=(const WalDeltaData &a, const WalDeltaData &b) { return !(a == b)
 // timestamp.
 uint64_t ReadWalDeltaHeader(BaseDecoder *decoder) {
   auto marker = decoder->ReadMarker();
-  if (!marker || *marker != Marker::SECTION_DELTA) throw RecoveryFailure("Invalid WAL data!");
+  if (!marker || *marker != Marker::SECTION_DELTA) throw RecoveryFailure(kErrorMessage);
 
   auto timestamp = decoder->ReadUint();
-  if (!timestamp) throw RecoveryFailure("Invalid WAL data!");
+  if (!timestamp) throw RecoveryFailure(kErrorMessage);
   return *timestamp;
 }
 
