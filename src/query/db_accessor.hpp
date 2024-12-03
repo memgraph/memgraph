@@ -678,12 +678,13 @@ class DbAccessor final {
 
   void DropTextIndex(const std::string &index_name) { accessor_->DropTextIndex(index_name); }
 
-  // not used at the moment since we are creating vector index directly via storage accessor
-  void CreateVectorIndex(const std::shared_ptr<storage::VectorIndexSpec> &spec) {
-    auto res = accessor_->CreateVectorIndex(spec);
-    if (res.HasError()) {
-      throw utils::BasicException("Failed to create vector index {}", spec->index_name);
-    }
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateVectorIndex(
+      const std::shared_ptr<storage::VectorIndexSpec> &spec) {
+    return accessor_->CreateVectorIndex(spec);
+  }
+
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> DropVectorIndex(const std::string &index_name) {
+    return accessor_->DropVectorIndex(index_name);
   }
 
   utils::BasicResult<storage::StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(

@@ -508,12 +508,17 @@ class TextSearchDisabledException : public TextSearchException {
   SPECIALIZE_GET_EXCEPTION_NAME(TextSearchDisabledException)
 };
 
-class VectorSearchDisabledException : public QueryException {
+class VectorSearchException : public QueryException {
+  using QueryException::QueryException;
+  SPECIALIZE_GET_EXCEPTION_NAME(VectorSearchException)
+};
+
+class VectorSearchDisabledException : public VectorSearchException {
  public:
   VectorSearchDisabledException()
-      : QueryException(
+      : VectorSearchException(
             "To use vector indices and vector search, start Memgraph with the experimental vector search feature "
-            "flag.") {}
+            "flag.") {}  // TODO(@DavIvek): Change this when vector search is stable.
   SPECIALIZE_GET_EXCEPTION_NAME(VectorSearchDisabledException)
 };
 
