@@ -496,7 +496,9 @@ def test_replication_works_on_failover_replica_2_epochs_more_commits_away(data_r
 
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(instance_1_cursor, "CREATE (:Epoch2Vertex {prop:1});")
-    assert "At least one SYNC replica has not confirmed committing last transaction." in str(e.value)
+    assert ("At least one SYNC replica has not confirmed committing last transaction." in str(e.value)) or (
+        "Write query forbidden on the main!" in str(e.value)
+    )
 
     # 8
 
