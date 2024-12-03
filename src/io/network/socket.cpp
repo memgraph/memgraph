@@ -267,8 +267,8 @@ bool Socket::WaitForReadyRead(std::optional<int> timeout_ms) const {
   // event occurs.
 
   // -1 for blocking indefinitely, otherwise wait for timeout_ms.
-  int timeout = timeout_ms ? *timeout_ms : -1;
-  int ret = poll(&p, 1, timeout);
+  int const timeout = timeout_ms ? *timeout_ms : -1;
+  int const ret = poll(&p, 1, timeout);
   if (ret == -1) {
     spdlog::error("Error occurred while polling for file descriptors.");
     return false;
@@ -291,8 +291,8 @@ bool Socket::WaitForReadyWrite(std::optional<int> timeout_ms) const {
   // event occurs.
 
   // -1 for blocking indefinitely, otherwise wait for timeout_ms.
-  int timeout = timeout_ms ? *timeout_ms : -1;
-  int ret = poll(&p, 1, timeout);
+  int const timeout = timeout_ms ? *timeout_ms : -1;
+  int const ret = poll(&p, 1, timeout);
   if (ret == -1) {
     spdlog::error("Error occurred while polling for file descriptors.");
     return false;
