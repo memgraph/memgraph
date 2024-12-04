@@ -586,9 +586,9 @@ class InMemoryStorage final : public Storage {
   std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>> FindEdge(Gid gid);
 
   // Main object storage
-  utils::SkipList<storage::Vertex> vertices_;
-  utils::SkipList<storage::Edge> edges_;
-  utils::SkipList<storage::EdgeMetadata> edges_metadata_;
+  utils::SkipList<Vertex> vertices_;
+  utils::SkipList<Edge> edges_;
+  utils::SkipList<EdgeMetadata> edges_metadata_;
 
   // Durability
   durability::Recovery recovery_;
