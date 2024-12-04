@@ -11,6 +11,9 @@
 
 #include "kafka_mock.hpp"
 
+#include <chrono>
+#include <thread>
+
 namespace details {
 void RdKafkaDeleter::operator()(rd_kafka_t *rd) {
   if (rd != nullptr) {

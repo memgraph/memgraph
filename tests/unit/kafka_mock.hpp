@@ -14,6 +14,7 @@
 #include <memory>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <librdkafka/rdkafka.h>
