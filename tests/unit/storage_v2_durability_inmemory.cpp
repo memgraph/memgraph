@@ -2179,29 +2179,18 @@ TEST_P(DurabilityTest, WalTransactionOrdering) {
     ASSERT_EQ(data[7].first, data[6].first);
     ASSERT_EQ(data[8].first, data[7].first);
     // Verify transaction 3.
-    ASSERT_EQ(data[0].second.type, memgraph::storage::durability::WalDeltaData::Type::VERTEX_CREATE);
-    ASSERT_EQ(data[0].second.vertex_create_delete.gid, gid3);
-    ASSERT_EQ(data[1].second.type, memgraph::storage::durability::WalDeltaData::Type::VERTEX_SET_PROPERTY);
-    ASSERT_EQ(data[1].second.vertex_edge_set_property.gid, gid3);
-    ASSERT_EQ(data[1].second.vertex_edge_set_property.property, "id");
-    ASSERT_EQ(data[1].second.vertex_edge_set_property.value, memgraph::storage::PropertyValue(3));
-    ASSERT_EQ(data[2].second.type, memgraph::storage::durability::WalDeltaData::Type::TRANSACTION_END);
+    using namespace memgraph::storage::durability;
+    ASSERT_EQ(data[0].second, WalDeltaData{WalVertexCreate{gid3}});
+    ASSERT_EQ(data[1].second, WalDeltaData{WalVertexSetProperty(gid3, "id", memgraph::storage::PropertyValue(3))});
+    ASSERT_EQ(data[2].second, WalDeltaData{WalTransactionEnd{}});
     // Verify transaction 1.
-    ASSERT_EQ(data[3].second.type, memgraph::storage::durability::WalDeltaData::Type::VERTEX_CREATE);
-    ASSERT_EQ(data[3].second.vertex_create_delete.gid, gid1);
-    ASSERT_EQ(data[4].second.type, memgraph::storage::durability::WalDeltaData::Type::VERTEX_SET_PROPERTY);
-    ASSERT_EQ(data[4].second.vertex_edge_set_property.gid, gid1);
-    ASSERT_EQ(data[4].second.vertex_edge_set_property.property, "id");
-    ASSERT_EQ(data[4].second.vertex_edge_set_property.value, memgraph::storage::PropertyValue(1));
-    ASSERT_EQ(data[5].second.type, memgraph::storage::durability::WalDeltaData::Type::TRANSACTION_END);
+    ASSERT_EQ(data[3].second, WalDeltaData{WalVertexCreate{gid1}});
+    ASSERT_EQ(data[4].second, WalDeltaData{WalVertexSetProperty(gid1, "id", memgraph::storage::PropertyValue(1))});
+    ASSERT_EQ(data[5].second, WalDeltaData{WalTransactionEnd{}});
     // Verify transaction 2.
-    ASSERT_EQ(data[6].second.type, memgraph::storage::durability::WalDeltaData::Type::VERTEX_CREATE);
-    ASSERT_EQ(data[6].second.vertex_create_delete.gid, gid2);
-    ASSERT_EQ(data[7].second.type, memgraph::storage::durability::WalDeltaData::Type::VERTEX_SET_PROPERTY);
-    ASSERT_EQ(data[7].second.vertex_edge_set_property.gid, gid2);
-    ASSERT_EQ(data[7].second.vertex_edge_set_property.property, "id");
-    ASSERT_EQ(data[7].second.vertex_edge_set_property.value, memgraph::storage::PropertyValue(2));
-    ASSERT_EQ(data[8].second.type, memgraph::storage::durability::WalDeltaData::Type::TRANSACTION_END);
+    ASSERT_EQ(data[6].second, WalDeltaData{WalVertexCreate{gid2}});
+    ASSERT_EQ(data[7].second, WalDeltaData{WalVertexSetProperty(gid2, "id", memgraph::storage::PropertyValue(2))});
+    ASSERT_EQ(data[8].second, WalDeltaData{WalTransactionEnd{}});
   }
 
   // Recover WALs.
