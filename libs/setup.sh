@@ -262,7 +262,7 @@ spdlog_tag="v1.12.0" # (2022-11-02)
 repo_clone_try_double "${primary_urls[spdlog]}" "${secondary_urls[spdlog]}" "spdlog" "$spdlog_tag" true
 
 # librdkafka
-librdkafka_tag="v1.7.0" # (2021-05-06)
+librdkafka_tag="v2.6.1" # (2024-12-04)
 repo_clone_try_double "${primary_urls[librdkafka]}" "${secondary_urls[librdkafka]}" "librdkafka" "$librdkafka_tag" true
 
 # protobuf
