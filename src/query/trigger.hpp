@@ -13,7 +13,6 @@
 
 #include <atomic>
 #include <filesystem>
-#include <map>
 #include <memory>
 #include <string>
 #include <utility>
@@ -27,8 +26,8 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/trigger_context.hpp"
 #include "storage/v2/property_value.hpp"
+#include "utils/rw_spin_lock.hpp"
 #include "utils/skip_list.hpp"
-#include "utils/spin_lock.hpp"
 
 namespace memgraph::query {
 
@@ -72,7 +71,7 @@ struct Trigger {
 
   TriggerEventType event_type_;
 
-  mutable utils::SpinLock plan_lock_;
+  mutable utils::RWSpinLock plan_lock_;
   mutable std::shared_ptr<TriggerPlan> trigger_plan_;
   std::shared_ptr<QueryUserOrRole> owner_;
 };

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -38,19 +38,10 @@ class SpinLock {
     MG_ASSERT(pthread_spin_init(&lock_, PTHREAD_PROCESS_PRIVATE) == 0, "Couldn't construct utils::SpinLock!");
   }
 
-  SpinLock(SpinLock &&other) noexcept : lock_(other.lock_) {
-    MG_ASSERT(pthread_spin_init(&other.lock_, PTHREAD_PROCESS_PRIVATE) == 0, "Couldn't construct utils::SpinLock!");
-  }
-
-  SpinLock &operator=(SpinLock &&other) noexcept {
-    MG_ASSERT(pthread_spin_destroy(&lock_) == 0, "Couldn't destruct utils::SpinLock!");
-    lock_ = other.lock_;
-    MG_ASSERT(pthread_spin_init(&other.lock_, PTHREAD_PROCESS_PRIVATE) == 0, "Couldn't construct utils::SpinLock!");
-    return *this;
-  }
-
   SpinLock(const SpinLock &) = delete;
   SpinLock &operator=(const SpinLock &) = delete;
+  SpinLock(SpinLock &&) = delete;
+  SpinLock &operator=(SpinLock &&) = delete;
 
   ~SpinLock() { MG_ASSERT(pthread_spin_destroy(&lock_) == 0, "Couldn't destruct utils::SpinLock!"); }
 

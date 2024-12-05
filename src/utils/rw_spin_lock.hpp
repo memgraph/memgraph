@@ -90,6 +90,11 @@ struct RWSpinLock {
     }
   }
 
+  bool try_lock() {
+    status_t unlocked = 0;
+    return std::atomic_ref{lock_status_}.compare_exchange_strong(unlocked, UNIQUE_LOCKED, std::memory_order_acq_rel);
+  }
+
   void unlock() { std::atomic_ref{lock_status_}.fetch_and(~UNIQUE_LOCKED, std::memory_order_release); }
 
   void lock_shared() {
