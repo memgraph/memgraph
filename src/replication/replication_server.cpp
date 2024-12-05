@@ -50,6 +50,7 @@ void ReplicationServer::Shutdown() {
       auto const &endpoint = rpc_server_.endpoint();
       spdlog::trace("Closing replication server on {}", endpoint.SocketAddress());
       rpc_server_.Shutdown();
+      // NOLINTNEXTLINE(bugprone-empty-catch)
     } catch (std::exception const &) {
     }
   }
