@@ -211,11 +211,14 @@ bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid) {
 
   auto unlock_repl_state = utils::OnScopeExit([this]() { repl_state_.Unlock(); });
 
-  // Shutdown any remaining client
-  // Main can be promoted while being MAIN; we do this in order to update the uuid and epoch
-  // Shutdown must be done after lock on repl_state is taken so that COMMIT and PROMOTION operations are serialized
   if (IsMain()) {
+    // Shutdown any remaining client
+    // Main can be promoted while being MAIN; we do this in order to update the uuid and epoch
+    // Shutdown must be done after lock on repl_state is taken so that COMMIT and PROMOTION operations are serialized
     ClientsShutdown();
+  } else {
+    // Before preparing storage for new epoch, we need to finish everything from ReplicationServer (recovery)
+    repl_state_.GetReplicaRole().server->Shutdown();
   }
 
   // STEP 1) bring down all REPLICA servers
