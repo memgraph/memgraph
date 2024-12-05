@@ -39,7 +39,11 @@ ReplicationServer::ReplicationServer(const memgraph::replication::ReplicationSer
   });
 }
 
-ReplicationServer::~ReplicationServer() {
+ReplicationServer::~ReplicationServer() { Shutdown(); }
+
+bool ReplicationServer::Start() { return rpc_server_.Start(); }
+
+void ReplicationServer::Shutdown() {
   if (rpc_server_.IsRunning()) {
     auto const &endpoint = rpc_server_.endpoint();
     spdlog::trace("Closing replication server on {}", endpoint.SocketAddress());
@@ -47,7 +51,5 @@ ReplicationServer::~ReplicationServer() {
   }
   rpc_server_.AwaitShutdown();
 }
-
-bool ReplicationServer::Start() { return rpc_server_.Start(); }
 
 }  // namespace memgraph::replication

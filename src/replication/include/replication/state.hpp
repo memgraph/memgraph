@@ -111,6 +111,11 @@ struct ReplicationState {
     return std::get<RoleMainData>(replication_data_);
   }
 
+  auto GetReplicaRole() -> RoleReplicaData & {
+    MG_ASSERT(!IsMain(), "Instance is MAIN");
+    return std::get<RoleReplicaData>(replication_data_);
+  }
+
   bool HasDurability() const { return nullptr != durability_; }
 
   bool TryPersistRoleMain(std::string new_epoch, utils::UUID main_uuid);
