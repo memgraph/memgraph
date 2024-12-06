@@ -89,6 +89,8 @@ class RaftState {
 
   auto GetLeaderId() const -> uint32_t;
 
+  auto SelfCoordinatorConfig() const -> CoordinatorToCoordinatorConfig;
+
   auto GetCoordinatorToCoordinatorConfigs() const -> std::vector<CoordinatorToCoordinatorConfig>;
 
  private:

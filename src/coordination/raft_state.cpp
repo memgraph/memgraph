@@ -255,6 +255,10 @@ auto RaftState::InstanceName() const -> std::string { return fmt::format("coordi
 
 auto RaftState::GetCoordinatorId() const -> uint32_t { return coordinator_id_; }
 
+auto RaftState::SelfCoordinatorConfig() const -> CoordinatorToCoordinatorConfig {
+  return state_manager_->SelfCoordinatorConfig();
+}
+
 auto RaftState::GetCoordinatorToCoordinatorConfigs() const -> std::vector<CoordinatorToCoordinatorConfig> {
   return state_manager_->GetCoordinatorToCoordinatorConfigs();
 }

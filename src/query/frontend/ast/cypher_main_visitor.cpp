@@ -599,6 +599,13 @@ antlrcpp::Any CypherMainVisitor::visitAddCoordinatorInstance(MemgraphCypher::Add
 }
 
 // License check is done in the interpreter
+antlrcpp::Any CypherMainVisitor::visitShowInstance(MemgraphCypher::ShowInstanceContext * /*ctx*/) {
+  auto *coordinator_query = storage_->Create<CoordinatorQuery>();
+  coordinator_query->action_ = CoordinatorQuery::Action::SHOW_INSTANCE;
+  return coordinator_query;
+}
+
+// License check is done in the interpreter
 antlrcpp::Any CypherMainVisitor::visitShowInstances(MemgraphCypher::ShowInstancesContext * /*ctx*/) {
   auto *coordinator_query = storage_->Create<CoordinatorQuery>();
   coordinator_query->action_ = CoordinatorQuery::Action::SHOW_INSTANCES;

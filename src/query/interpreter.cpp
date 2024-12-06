@@ -704,6 +704,10 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     }
   }
 
+  [[nodiscard]] coordination::InstanceStatus ShowInstance() const override {
+    return coordinator_handler_.ShowInstance();
+  }
+
   [[nodiscard]] std::vector<coordination::InstanceStatus> ShowInstances() const override {
     return coordinator_handler_.ShowInstances();
   }
@@ -1558,8 +1562,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
 
       callback.header = {"name",   "bolt_server", "coordinator_server", "management_server",
                          "health", "role",        "last_succ_resp_ms"};
-      callback.fn = [handler = CoordQueryHandler{*coordinator_state},
-                     replica_nfields = callback.header.size()]() mutable {
+      callback.fn = [handler = CoordQueryHandler{*coordinator_state}]() mutable {
         auto const instances = handler.ShowInstances();
         auto const converter = [](const auto &status) -> std::vector<TypedValue> {
           return {TypedValue{status.instance_name},
@@ -1572,6 +1575,26 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
         };
 
         return utils::fmap(instances, converter);
+      };
+      return callback;
+    }
+    case CoordinatorQuery::Action::SHOW_INSTANCE: {
+      if (!coordinator_state->IsCoordinator()) {
+        throw QueryRuntimeException("Only coordinator can run SHOW INSTANCE query.");
+      }
+
+      callback.header = {"name", "bolt_server", "coordinator_server", "management_server", "role"};
+      callback.fn = [handler = CoordQueryHandler{*coordinator_state}]() mutable {
+        auto const instance = handler.ShowInstance();
+        std::vector<std::vector<TypedValue>> results;
+        auto instance_result = std::vector{
+            TypedValue{instance.instance_name},      TypedValue{instance.bolt_server},
+            TypedValue{instance.coordinator_server}, TypedValue{instance.management_server},
+            TypedValue{instance.cluster_role},
+
+        };
+        results.push_back(std::move(instance_result));
+        return results;
       };
       return callback;
     }

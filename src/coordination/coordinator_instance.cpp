@@ -256,6 +256,19 @@ auto CoordinatorInstance::ShowInstancesAsLeader() const -> std::optional<std::ve
   return instances_status;
 }
 
+auto CoordinatorInstance::ShowInstance() const -> InstanceStatus {
+  auto const my_config = raft_state_->SelfCoordinatorConfig();
+  auto const curr_leader_id = raft_state_->GetLeaderId();
+  std::string const role = std::invoke(
+      [curr_leader_id, my_id = my_config.coordinator_id]() { return my_id == curr_leader_id ? "leader" : "follower"; });
+
+  return InstanceStatus{.instance_name = raft_state_->InstanceName(),
+                        .coordinator_server = my_config.coordinator_server.SocketAddress(),  // show non-resolved IP
+                        .management_server = my_config.management_server.SocketAddress(),    // show non-resolved IP
+                        .bolt_server = my_config.bolt_server.SocketAddress(),                // show non-resolved IP
+                        .cluster_role = role};
+}
+
 auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
   auto const leader_results = ShowInstancesAsLeader();
   if (leader_results.has_value()) {

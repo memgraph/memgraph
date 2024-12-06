@@ -3294,5 +3294,31 @@ def test_main_reselected_to_become_main(test_name):
     mg_sleep_and_assert_collection([(1,)], check_data)
 
 
+def test_show_instance(test_name):
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
+
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+
+    coord_cursor_3 = connect(host="localhost", port=7692).cursor()
+    for query in get_default_setup_queries():
+        execute_and_fetch_all(coord_cursor_3, query)
+
+    res = execute_and_fetch_all(coord_cursor_3, "SHOW INSTANCE")
+    assert res == [("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "leader")]
+
+    coord_cursor_1 = connect(host="localhost", port=7690).cursor()
+    res = execute_and_fetch_all(coord_cursor_1, "SHOW INSTANCE")
+    assert res == [("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "follower")]
+
+    coord_cursor_2 = connect(host="localhost", port=7691).cursor()
+    res = execute_and_fetch_all(coord_cursor_2, "SHOW INSTANCE")
+    assert res == [("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "follower")]
+
+    data_1_cursor = connect(host="localhost", port=7687).cursor()
+    with pytest.raises(Exception) as e:
+        execute_and_fetch_all(data_1_cursor, "SHOW INSTANCE;")
+    assert str(e.value) == "Only coordinator can run SHOW INSTANCE query."
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

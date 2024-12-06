@@ -274,6 +274,7 @@ replicationQuery : setReplicationRole
 coordinatorQuery : registerInstanceOnCoordinator
                  | unregisterInstanceOnCoordinator
                  | setInstanceToMain
+                 | showInstance
                  | showInstances
                  | addCoordinatorInstance
                  | forceResetClusterStateOnCoordinator
@@ -482,6 +483,7 @@ setReplicationRole : SET REPLICATION ROLE TO ( MAIN | REPLICA )
 
 showReplicationRole : SHOW REPLICATION ROLE ;
 
+showInstance : SHOW INSTANCE ;
 showInstances : SHOW INSTANCES ;
 
 instanceName : symbolicName ;

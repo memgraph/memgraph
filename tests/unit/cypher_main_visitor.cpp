@@ -2748,6 +2748,14 @@ TEST_P(CypherMainVisitorTest, TestAddCoordinatorInstance) {
   EXPECT_EQ(config_map.find(kBoltServer)->second, "127.0.0.1:7688");
   EXPECT_EQ(config_map.find(kCoordinatorServer)->second, "127.0.0.1:10111");
 }
+
+TEST_P(CypherMainVisitorTest, TestShowInstance) {
+  auto &ast_generator = *GetParam();
+  std::string const query = "SHOW INSTANCE";
+  auto *parsed_query = dynamic_cast<CoordinatorQuery *>(ast_generator.ParseQuery(query));
+  EXPECT_EQ(parsed_query->action_, CoordinatorQuery::Action::SHOW_INSTANCE);
+}
+
 #endif
 
 TEST_P(CypherMainVisitorTest, TestDeleteReplica) {
