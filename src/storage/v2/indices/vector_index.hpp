@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <json/json.hpp>
@@ -20,6 +21,7 @@
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
+#include "usearch/index_plugins.hpp"
 
 namespace memgraph::storage {
 
@@ -32,7 +34,7 @@ struct VectorIndexInfo {
   std::string index_name;
   LabelId label;
   PropertyId property;
-  std::size_t dimension;
+  std::uint16_t dimension;
   std::size_t capacity;
   std::size_t size;
 };
@@ -43,14 +45,16 @@ struct VectorIndexInfo {
 /// This structure includes the index name, the label and property on which the index is created,
 /// and the configuration options for the index in the form of a JSON object.
 struct VectorIndexSpec {
+  // TODO(@DavIvek): Add scalar kind configuration options
   std::string index_name;
   LabelId label;
   PropertyId property;
-  std::string metric;
-  std::string scalar;
-  std::uint64_t dimension;
-  std::uint64_t size_limit;
-  std::uint64_t resize_coefficient;
+  unum::usearch::metric_kind_t metric_kind;
+  std::uint16_t dimension;
+  std::size_t capacity;
+  std::uint16_t resize_coefficient;  // TODO(@DavIvek): Revisit resizing options
+
+  friend bool operator==(const VectorIndexSpec &, const VectorIndexSpec &) = default;
 };
 
 /// @class VectorIndex
@@ -78,12 +82,26 @@ class VectorIndex {
   /// @param index_spec The nlohmann::json object representing the index specification.
   /// @param name_id_mapper The NameIdMapper instance used to map label and property names to IDs.
   /// @throws std::invalid_argument if the index specification is invalid.
-  /// @return A vector of VectorIndexSpec objects representing the parsed index specifications.
-  static std::vector<VectorIndexSpec> ParseIndexSpec(const nlohmann::json &index_spec, NameIdMapper *name_id_mapper);
+  /// @return A vector of shared pointers to the VectorIndexSpec objects representing the parsed index specifications.
+  static std::vector<std::shared_ptr<VectorIndexSpec>> ParseIndexSpec(const nlohmann::json &index_spec,
+                                                                      NameIdMapper *name_id_mapper);
 
   /// @brief Creates a new index based on the specified configuration.
   /// @param spec The specification for the index to be created.
-  void CreateIndex(const VectorIndexSpec &spec);
+  void CreateIndex(const std::shared_ptr<VectorIndexSpec> &spec);
+
+  /// @brief Creates a new index based on the name, label, property and vertices.
+  /// @param spec The specification for the index to be created.
+  /// @return true if the index was created successfully, false otherwise.
+  bool CreateIndex(const std::shared_ptr<VectorIndexSpec> &spec, utils::SkipList<Vertex>::Accessor vertices);
+
+  /// @brief Drops an existing index.
+  /// @param index_name The name of the index to be dropped.
+  /// @return true if the index was dropped successfully, false otherwise.
+  bool DropIndex(std::string_view index_name);
+
+  /// @brief Drops all existing indexes.
+  void Clear();
 
   /// @brief Updates the index when a label is added to a vertex.
   /// @param added_label The label that was added to the vertex.
@@ -101,9 +119,22 @@ class VectorIndex {
   /// @param vertex The vertex on which the property was modified.
   void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex) const;
 
-  /// @brief Lists the names of all existing indexes.
-  /// @return A vector of strings representing the names of all indexes.
-  std::vector<VectorIndexInfo> ListAllIndices() const;
+  /// @brief Lists the info of all existing indexes.
+  /// @return A vector of VectorIndexInfo objects representing the indexes.
+  std::vector<VectorIndexInfo> ListVectorIndicesInfo() const;
+
+  /// @brief Lists the labels and properties that have vector indices.
+  /// @return A vector of pairs containing the label ID and the property ID.
+  std::vector<std::pair<LabelId, PropertyId>> ListIndices() const;
+
+  /// @brief Lists vector index specifications.
+  /// @return A vector of VectorIndexSpec objects representing the index specifications.
+  std::vector<VectorIndexSpec> ListIndexSpecs() const;
+
+  /// @brief Returns number of vertices in the index.
+  /// @param label_prop The label and property key for the index.
+  /// @return The number of vertices in the index.
+  std::optional<uint64_t> ApproximateVectorCount(LabelId label, PropertyId property) const;
 
   /// @brief Searches for nodes in the specified index using a query vector.
   /// @param index_name The name of the index to search.

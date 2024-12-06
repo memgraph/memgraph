@@ -2412,6 +2412,55 @@ class TextIndexQuery : public memgraph::query::Query {
   friend class AstStorage;
 };
 
+class VectorIndexQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  enum class Action { CREATE, DROP };
+
+  VectorIndexQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  memgraph::query::VectorIndexQuery::Action action_;
+  std::string index_name_;
+  memgraph::query::LabelIx label_;
+  memgraph::query::PropertyIx property_;
+  std::string metric_;
+  std::uint16_t dimension_;
+  std::size_t capacity_;
+  std::uint16_t resize_coefficient_;
+
+  VectorIndexQuery *Clone(AstStorage *storage) const override {
+    VectorIndexQuery *object = storage->Create<VectorIndexQuery>();
+    object->action_ = action_;
+    object->index_name_ = index_name_;
+    object->label_ = storage->GetLabelIx(label_.name);
+    object->property_ = storage->GetPropertyIx(property_.name);
+    object->metric_ = metric_;
+    object->dimension_ = dimension_;
+    object->capacity_ = capacity_;
+    object->resize_coefficient_ = resize_coefficient_;
+    return object;
+  }
+
+ protected:
+  VectorIndexQuery(Action action, std::string index_name, LabelIx label, PropertyIx property, std::string metric,
+                   std::uint16_t dimension, std::size_t capacity, std::uint16_t resize_coefficient)
+      : action_(action),
+        index_name_(std::move(index_name)),
+        label_(std::move(label)),
+        property_(std::move(property)),
+        metric_(metric),
+        dimension_(dimension),
+        capacity_(capacity),
+        resize_coefficient_(resize_coefficient) {}
+
+ private:
+  friend class AstStorage;
+};
+
 class Create : public memgraph::query::Clause {
  public:
   static const utils::TypeInfo kType;

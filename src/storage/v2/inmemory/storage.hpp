@@ -16,6 +16,7 @@
 #include <utility>
 #include "flags/run_time_configurable.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
+#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
@@ -237,6 +238,10 @@ class InMemoryStorage final : public Storage {
       return storage_->indices_.point_index_.ApproximatePointCount(label, property);
     }
 
+    std::optional<uint64_t> ApproximateVerticesVectorCount(LabelId label, PropertyId property) const override {
+      return storage_->indices_.vector_index_.ApproximateVectorCount(label, property);
+    }
+
     template <typename TResult, typename TIndex, typename TIndexKey>
     std::optional<TResult> GetIndexStatsForIndex(TIndex *index, TIndexKey &&key) const {
       return index->GetIndexStats(key);
@@ -397,6 +402,11 @@ class InMemoryStorage final : public Storage {
 
     utils::BasicResult<StorageIndexDefinitionError, void> DropPointIndex(storage::LabelId label,
                                                                          storage::PropertyId property) override;
+
+    utils::BasicResult<StorageIndexDefinitionError, void> CreateVectorIndex(
+        const std::shared_ptr<VectorIndexSpec> &spec) override;
+
+    utils::BasicResult<StorageIndexDefinitionError, void> DropVectorIndex(const std::string &index_name) override;
 
     /// Returns void if the existence constraint has been created.
     /// Returns `StorageExistenceConstraintDefinitionError` if an error occures. Error can be:

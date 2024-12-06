@@ -186,6 +186,7 @@ USERS                   : U S E R S ;
 USING                   : U S I N G ;
 VALUE                   : V A L U E ;
 VALUES                  : V A L U E S ;
+VECTOR                  : V E C T O R ;
 VERSION                 : V E R S I O N ;
 WEBSOCKET               : W E B S O C K E T ;
 ZONEDDATETIME           : Z O N E D D A T E T I M E ;
