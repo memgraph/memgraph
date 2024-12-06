@@ -11,6 +11,8 @@
 
 #include "storage/v2/durability/wal.hpp"
 #include <algorithm>
+#include <cstdint>
+#include <type_traits>
 
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/delta.hpp"
@@ -18,9 +20,11 @@
 #include "storage/v2/durability/marker.hpp"
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/paths.hpp"
+#include "storage/v2/durability/serialization.hpp"
 #include "storage/v2/durability/version.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
+#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/schema_info.hpp"
 #include "storage/v2/vertex.hpp"
@@ -114,6 +118,8 @@ constexpr Marker OperationToMarker(StorageMetadataOperation operation) {
     add_case(TYPE_CONSTRAINT_DROP);
     add_case(POINT_INDEX_CREATE);
     add_case(POINT_INDEX_DROP);
+    add_case(VECTOR_INDEX_CREATE);
+    add_case(VECTOR_INDEX_DROP);
   }
 #undef add_case
 }
@@ -192,6 +198,8 @@ constexpr bool IsMarkerImplicitTransactionEndVersion15(Marker marker) {
     case DELTA_POINT_INDEX_DROP:
     case DELTA_TYPE_CONSTRAINT_CREATE:
     case DELTA_TYPE_CONSTRAINT_DROP:
+    case DELTA_VECTOR_INDEX_CREATE:
+    case DELTA_VECTOR_INDEX_DROP:
       return true;
 
     // Not deltas
@@ -335,6 +343,36 @@ auto Decode(utils::tag_type<TypeConstraintKind> /*unused*/, BaseDecoder *decoder
   }
 }
 
+template <bool is_read>
+auto Decode(utils::tag_type<uint8_t> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
+    -> std::conditional_t<is_read, uint8_t, void> {
+  const auto uint8 = decoder->ReadUint();
+  if (!uint8) throw RecoveryFailure("Invalid WAL data!");
+  if constexpr (is_read) {
+    return static_cast<uint8_t>(*uint8);
+  }
+}
+
+template <bool is_read>
+auto Decode(utils::tag_type<uint16_t> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
+    -> std::conditional_t<is_read, uint16_t, void> {
+  const auto uint16 = decoder->ReadUint();
+  if (!uint16) throw RecoveryFailure("Invalid WAL data!");
+  if constexpr (is_read) {
+    return static_cast<uint16_t>(*uint16);
+  }
+}
+
+template <bool is_read>
+auto Decode(utils::tag_type<std::size_t> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
+    -> std::conditional_t<is_read, std::size_t, void> {
+  const auto size = decoder->ReadUint();
+  if (!size) throw RecoveryFailure("Invalid WAL data!");
+  if constexpr (is_read) {
+    return static_cast<std::size_t>(*size);
+  }
+}
+
 template <typename T>
 auto Read(BaseDecoder *decoder, const uint64_t version) -> T {
   using ctr_types = typename T::ctr_types;
@@ -416,6 +454,8 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
     read_skip(ENUM_CREATE, WalEnumCreate);
     read_skip(ENUM_ALTER_ADD, WalEnumAlterAdd);
     read_skip(ENUM_ALTER_UPDATE, WalEnumAlterUpdate);
+    read_skip(VECTOR_INDEX_CREATE, WalVectorIndexCreate);
+    read_skip(VECTOR_INDEX_DROP, WalVectorIndexDrop);
 
     // Other markers are not actions
     case Marker::TYPE_NULL:
@@ -1038,6 +1078,21 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
           }
         }
       },
+      [&](WalVectorIndexCreate const &data) {
+        auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
+        auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
+        const auto spec = std::make_shared<VectorIndexSpec>(data.index_name, label_id, property_id, data.metric_kind,
+                                                            data.dimension, data.capacity, data.resize_coefficient);
+        if (std::ranges::any_of(indices_constraints->indices.vector_indices,
+                                [&](const auto &index) { return index->index_name == spec->index_name; })) {
+          throw RecoveryFailure("The vector index already exists!");
+        }
+        indices_constraints->indices.vector_indices.push_back(spec);
+      },
+      [&](WalVectorIndexDrop const &data) {
+        std::erase_if(indices_constraints->indices.vector_indices,
+                      [&](const auto &index) { return index->index_name == data.index_name; });
+      },
   };
 
   for (uint64_t i = 0; i < info.num_deltas; ++i) {
@@ -1265,6 +1320,19 @@ void EncodeTextIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, std::st
   encoder.WriteString(text_index_name);
   encoder.WriteString(name_id_mapper.IdToName(label.AsUint()));
 }
+
+void EncodeVectorIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper,
+                           const std::shared_ptr<VectorIndexSpec> &index_spec) {
+  encoder.WriteString(index_spec->index_name);
+  encoder.WriteString(name_id_mapper.IdToName(index_spec->label.AsUint()));
+  encoder.WriteString(name_id_mapper.IdToName(index_spec->property.AsUint()));
+  encoder.WriteUint(static_cast<uint64_t>(index_spec->metric_kind));
+  encoder.WriteUint(index_spec->dimension);
+  encoder.WriteUint(index_spec->capacity);
+  encoder.WriteDouble(index_spec->resize_coefficient);
+}
+
+void EncodeVectorIndexName(BaseEncoder &encoder, std::string_view index_name) { encoder.WriteString(index_name); }
 
 void EncodeOperationPreamble(BaseEncoder &encoder, StorageMetadataOperation Op, uint64_t timestamp) {
   encoder.WriteMarker(Marker::SECTION_DELTA);

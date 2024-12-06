@@ -2663,13 +2663,13 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
       }
       case MetadataDelta::Action::VECTOR_INDEX_CREATE: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeVectorIndexCreate(encoder, *name_id_mapper_, md_delta.vector_index_spec);
+          EncodeVectorIndexSpec(encoder, *name_id_mapper_, md_delta.vector_index_spec);
         });
         break;
       }
       case MetadataDelta::Action::VECTOR_INDEX_DROP: {
         apply_encode(
-            op, [&](durability::BaseEncoder &encoder) { EncodeVectorIndexDrop(encoder, md_delta.vector_index_name); });
+            op, [&](durability::BaseEncoder &encoder) { EncodeVectorIndexName(encoder, md_delta.vector_index_name); });
         break;
       }
       case MetadataDelta::Action::UNIQUE_CONSTRAINT_CREATE:

@@ -49,7 +49,7 @@ struct VectorIndexSpec {
   std::string index_name;
   LabelId label;
   PropertyId property;
-  unum::usearch::metric_kind_t metric;
+  unum::usearch::metric_kind_t metric_kind;
   std::uint16_t dimension;
   std::size_t capacity;
   std::uint16_t resize_coefficient;  // TODO(@DavIvek): Revisit resizing options

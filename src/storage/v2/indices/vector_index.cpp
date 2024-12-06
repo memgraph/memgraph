@@ -131,7 +131,7 @@ std::vector<std::shared_ptr<VectorIndexSpec>> VectorIndex::ParseIndexSpec(const 
 
 void VectorIndex::CreateIndex(const std::shared_ptr<VectorIndexSpec> &spec) {
   const unum::usearch::metric_punned_t metric(
-      spec->dimension, spec->metric,
+      spec->dimension, spec->metric_kind,
       unum::usearch::scalar_kind_t::f32_k);  // TODO(@DavIvek): scalar kind is hardcoded to f32
 
   // use the number of workers as the number of possible concurrent index operations
