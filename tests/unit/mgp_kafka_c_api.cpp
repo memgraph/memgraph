@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,7 +11,6 @@
 
 #include <algorithm>
 #include <cstring>
-#include <exception>
 #include <iterator>
 #include <memory>
 #include <optional>
@@ -20,7 +19,6 @@
 #include "gtest/gtest.h"
 #include "integrations/kafka/consumer.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
-#include "query/stream/common.hpp"
 #include "test_utils.hpp"
 #include "utils/pmr/vector.hpp"
 
@@ -33,14 +31,15 @@
 class MockedRdKafkaMessage : public RdKafka::Message {
  public:
   explicit MockedRdKafkaMessage(std::string key, std::string payload, int64_t offset)
-      : key_(std::move(key)), payload_(std::move(payload)) {
+      : key_(std::move(key)),
+        rd_kafka_(rd_kafka_new(rd_kafka_type_t::RD_KAFKA_CONSUMER, nullptr, nullptr, 0)),
+        payload_(std::move(payload)) {
     message_.err = rd_kafka_resp_err_t::RD_KAFKA_RESP_ERR__BEGIN;
     message_.key = static_cast<void *>(key_.data());
     message_.key_len = key_.size();
     message_.offset = offset;
     message_.payload = static_cast<void *>(payload_.data());
     message_.len = payload_.size();
-    rd_kafka_ = rd_kafka_new(rd_kafka_type_t::RD_KAFKA_CONSUMER, nullptr, nullptr, 0);
     message_.rkt = rd_kafka_topic_new(rd_kafka_, mocked_topic_name.data(), nullptr);
   }
 
@@ -88,12 +87,16 @@ class MockedRdKafkaMessage : public RdKafka::Message {
 
   [[noreturn]] RdKafka::Headers *headers() override { ThrowIllegalCallError(); }
 
-  [[noreturn]] RdKafka::Headers *headers(RdKafka::ErrorCode *err) override { ThrowIllegalCallError(); }
+  [[noreturn]] RdKafka::Headers *headers(RdKafka::ErrorCode * /*err*/) override { ThrowIllegalCallError(); }
 
   [[noreturn]] int32_t broker_id() const override { ThrowIllegalCallError(); }
 
+  [[noreturn]] int32_t leader_epoch() const override { ThrowIllegalCallError(); }
+
+  [[noreturn]] RdKafka::Error *offset_store() override { ThrowIllegalCallError(); }
+
  private:
-  [[noreturn]] void ThrowIllegalCallError() const {
+  [[noreturn]] static void ThrowIllegalCallError() {
     throw std::logic_error("This function should not have been called");
   }
 
@@ -169,10 +172,4 @@ TEST_F(MgpApiTest, TestAllMgpKafkaCApi) {
     // Test for offset
     EXPECT_EQ(EXPECT_MGP_NO_ERROR(int64_t, mgp_message_offset, message), expected[i].offset);
   }
-
-  // Unfortunately, we can't test timestamp here because we can't mock (as explained above)
-  // and the test does not have access to the internal rd_kafka_message2msg() function.
-  // auto expected_timestamp = rd_kafka_timestamp_type_t::RD_KAFKA_TIMESTAMP_NOT_AVAILABLE;
-  // EXPECT_EQ(mgp_message_timestamp(first_msg), expected_timestamp);
-  // EXPECT_EQ(mgp_message_timestamp(second_msg), expected_timestamp);
 }

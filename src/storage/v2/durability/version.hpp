@@ -24,6 +24,7 @@ const uint64_t kVersion{21};
 
 const uint64_t kOldestSupportedVersion{14};
 const uint64_t kUniqueConstraintVersion{13};
+const uint64_t kMetaDataDeltasHaveExplicitTransactionEnd{16};
 // Edge-type index version is 17. Edge-type property index version is 18.
 // But they are written in the same section.
 const uint64_t kEdgeIndicesVersion{17};
