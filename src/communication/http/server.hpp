@@ -70,8 +70,8 @@ Server<TRequestHandler, TSessionContext>::Server(io::network::Endpoint endpoint,
   spdlog::trace("Boost IP address created");
   auto tcp_endpoint = tcp::endpoint{boost_ip_address, endpoint.GetPort()};
   spdlog::trace("TCP endpoint created");
-  listener_ = std::make_shared(
-      Listener<TRequestHandler, TSessionContext>::Create(ioc_, session_context, context, tcp_endpoint));
+  listener_ =
+      std::shared_ptr(Listener<TRequestHandler, TSessionContext>::Create(ioc_, session_context, context, tcp_endpoint));
   spdlog::trace("Listener created");
 }
 
