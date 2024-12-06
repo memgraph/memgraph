@@ -117,6 +117,11 @@ CoordinatorStateManager::CoordinatorStateManager(CoordinatorStateManagerConfig c
   TryUpdateClusterConfigFromDisk();
 }
 
+auto CoordinatorStateManager::SelfCoordinatorConfig() const -> CoordinatorToCoordinatorConfig {
+  auto const config = cluster_config_->get_server(my_id_);
+  return nlohmann::json::parse(config->get_aux()).template get<CoordinatorToCoordinatorConfig>();
+}
+
 auto CoordinatorStateManager::GetCoordinatorToCoordinatorConfigs() const
     -> std::vector<CoordinatorToCoordinatorConfig> {
   std::vector<CoordinatorToCoordinatorConfig> coordinator_to_coordinator_mappings;

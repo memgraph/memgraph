@@ -158,6 +158,9 @@ class CoordinatorQueryHandler {
   virtual void SetReplicationInstanceToMain(std::string_view instance_name) = 0;
 
   /// @throw QueryRuntimeException if an error occurred.
+  virtual coordination::InstanceStatus ShowInstance() const = 0;
+
+  /// @throw QueryRuntimeException if an error occurred.
   virtual std::vector<coordination::InstanceStatus> ShowInstances() const = 0;
 
   /// @throw QueryRuntimeException if an error occurred.
