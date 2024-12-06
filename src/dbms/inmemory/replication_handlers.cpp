@@ -24,6 +24,7 @@
 #include <spdlog/spdlog.h>
 #include <cstdint>
 #include <optional>
+#include <usearch/index_plugins.hpp>
 
 using memgraph::replication_coordination_glue::ReplicationRole;
 using memgraph::storage::Delta;
@@ -1044,8 +1045,14 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           auto labelId = storage->NameToLabel(data.label);
           auto propId = storage->NameToProperty(data.property);
-          const auto spec =
-              std::make_shared<storage::VectorIndexSpec>(data.index_name, labelId, propId, data.metric_kind,
+          auto const unum_metric_kind =
+              unum::usearch::metric_from_name(data.metric_kind.data(), data.metric_kind.size());
+          if (unum_metric_kind.error) {
+            throw utils::BasicException("Failed to create vector index on :{}({}), invalid metric kind: {}", data.label,
+                                        data.property, data.metric_kind);
+          }
+          auto const spec =
+              std::make_shared<storage::VectorIndexSpec>(data.index_name, labelId, propId, unum_metric_kind.result,
                                                          data.dimension, data.capacity, data.resize_coefficient);
           auto res = transaction->CreateVectorIndex(spec);
           if (res.HasError()) {

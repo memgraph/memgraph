@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <type_traits>
+#include <usearch/index_plugins.hpp>
 
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/delta.hpp"
@@ -340,16 +341,6 @@ auto Decode(utils::tag_type<TypeConstraintKind> /*unused*/, BaseDecoder *decoder
     return static_cast<TypeConstraintKind>(*kind);
   } else {
     if (!decoder->ReadUint()) throw RecoveryFailure("Invalid WAL data!");
-  }
-}
-
-template <bool is_read>
-auto Decode(utils::tag_type<uint8_t> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
-    -> std::conditional_t<is_read, uint8_t, void> {
-  const auto uint8 = decoder->ReadUint();
-  if (!uint8) throw RecoveryFailure("Invalid WAL data!");
-  if constexpr (is_read) {
-    return static_cast<uint8_t>(*uint8);
   }
 }
 
@@ -1081,8 +1072,13 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
       [&](WalVectorIndexCreate const &data) {
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
         auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
-        const auto spec = std::make_shared<VectorIndexSpec>(data.index_name, label_id, property_id, data.metric_kind,
-                                                            data.dimension, data.capacity, data.resize_coefficient);
+        const auto unum_metric_kind = unum::usearch::metric_from_name(data.metric_kind.data(), data.metric_kind.size());
+        if (!unum_metric_kind.error) {
+          throw RecoveryFailure("Invalid metric kind for vector index!");
+        }
+        const auto spec =
+            std::make_shared<VectorIndexSpec>(data.index_name, label_id, property_id, unum_metric_kind.result,
+                                              data.dimension, data.capacity, data.resize_coefficient);
         if (std::ranges::any_of(indices_constraints->indices.vector_indices,
                                 [&](const auto &index) { return index->index_name == spec->index_name; })) {
           throw RecoveryFailure("The vector index already exists!");

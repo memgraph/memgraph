@@ -200,11 +200,11 @@ struct WalEnumAlterUpdate {
 struct WalVectorIndexCreate {
   friend bool operator==(const WalVectorIndexCreate &, const WalVectorIndexCreate &) = default;
   using ctr_types =
-      std::tuple<std::string, std::string, std::string, std::uint8_t, std::uint16_t, std::size_t, std::uint16_t>;
+      std::tuple<std::string, std::string, std::string, std::string, std::uint16_t, std::size_t, std::uint16_t>;
   std::string index_name;
   std::string label;
   std::string property;
-  std::uint8_t metric_kind;
+  std::string metric_kind;
   std::uint16_t dimension;
   std::size_t capacity;
   std::uint16_t resize_coefficient;
