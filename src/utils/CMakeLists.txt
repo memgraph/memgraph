@@ -39,6 +39,7 @@ target_sources(mg-utils
     logging.hpp
     string.hpp
     scheduler.hpp
+    epoch_based_reclaimation.hpp
 )
 
 find_package(Boost REQUIRED CONFIG)
