@@ -29,7 +29,7 @@ mgp::Value ParseJsonToMgpList(const nlohmann::json &json_array, mgp_memory *memo
   auto list = mgp::List();
   for (const auto &element : json_array) {
     auto value = ParseJsonToMgpValue(element, memory);
-    list.Append(std::move(value));
+    list.AppendExtend(std::move(value));
   }
 
   return mgp::Value(std::move(list));
