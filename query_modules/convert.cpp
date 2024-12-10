@@ -62,7 +62,7 @@ void str2object(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp
     mgp::MemoryDispatcherGuard guard(memory);
 
     // Retrieve the string argument
-    auto str = mgp::Value(mgp::list_at(args, 0)).ValueString();
+    auto str = std::string(mgp::Value(mgp::list_at(args, 0)).ValueString());
     auto json_object = nlohmann::json::parse(str);
 
     auto result = ParseJsonToMgpValue(json_object, memory);
