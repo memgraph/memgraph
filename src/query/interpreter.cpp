@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <boost/move/default_delete.hpp>
 #include <chrono>
 #include <concepts>
 #include <cstddef>
@@ -5867,7 +5868,7 @@ void Interpreter::Abort() {
 namespace {
 void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *interpreter_context,
                             TriggerContext original_trigger_context) {
-  std::atomic<TransactionStatus> transaction_status{TransactionStatus::ACTIVE};  // dummy value -> not used
+  std::atomic<TransactionStatus> *transaction_status{nullptr};  // dummy value -> not used in after commit triggers
   // Run the triggers
   for (const auto &trigger : db_acc->trigger_store()->AfterCommitTriggers().access()) {
     QueryAllocator execution_memory{};
