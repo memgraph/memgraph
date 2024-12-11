@@ -77,8 +77,8 @@ void AddNextExpansions(const Symbol &atom_symbol, const Matching &matching, cons
       const bool is_expanding_from_node2 = symbol_table.at(*expansion.node2->identifier_) == atom_symbol;
       const bool is_expanding_from_edge = symbol_table.at(*expansion.edge->identifier_) == atom_symbol;
 
-      DMG_ASSERT(expansion.node2 && (is_expanding_from_node2 || is_expanding_from_edge),
-                 "Expected node_symbol or edge_symbol to be bound");
+      MG_ASSERT(expansion.node2 && (is_expanding_from_node2 || is_expanding_from_edge),
+                "Expected node_symbol or edge_symbol to be bound");
 
       // if we are expanding from an edge, we will not do any change, but at some point need to throw
       // as expanding from edge in a path is invalid
