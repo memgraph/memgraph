@@ -1615,7 +1615,6 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
           break;
       }
     }
-    memgraph::metrics::DecrementCounter(memgraph::metrics::UnreleasedDeltaObjects, delta_size);
 
     {
       auto engine_guard = std::unique_lock(storage_->engine_lock_);
