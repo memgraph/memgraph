@@ -5883,7 +5883,7 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
     trigger_context.AdaptForAccessor(&db_accessor);
     try {
       trigger.Execute(&db_accessor, db_acc, execution_memory.resource(), flags::run_time::GetExecutionTimeout(),
-                      &interpreter_context->is_shutting_down, &transaction_status, trigger_context);
+                      &interpreter_context->is_shutting_down, transaction_status, trigger_context);
     } catch (const utils::BasicException &exception) {
       spdlog::warn("Trigger '{}' failed with exception:\n{}", trigger.Name(), exception.what());
       db_accessor.Abort();
