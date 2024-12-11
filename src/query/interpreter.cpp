@@ -15,7 +15,6 @@
 
 #include <algorithm>
 #include <atomic>
-#include <boost/move/default_delete.hpp>
 #include <chrono>
 #include <concepts>
 #include <cstddef>
