@@ -5867,7 +5867,7 @@ void Interpreter::Abort() {
 namespace {
 void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *interpreter_context,
                             TriggerContext original_trigger_context) {
-  std::atomic<TransactionStatus> transaction_status{TransactionStatus::ACTIVE};
+  std::atomic<TransactionStatus> transaction_status{TransactionStatus::ACTIVE};  // dummy value -> not used
   // Run the triggers
   for (const auto &trigger : db_acc->trigger_store()->AfterCommitTriggers().access()) {
     QueryAllocator execution_memory{};
