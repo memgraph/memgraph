@@ -126,6 +126,7 @@ auto MakeLogicalPlan(TPlanningContext *context, TPlanPostProcess *post_process, 
     auto plans = MakeLogicalPlanForSingleQuery<VariableStartPlanner>(query_parts, context);
     bool valid_plan_found = false;
     for (auto plan : plans) {
+      if (!plan) continue;
       // Plans are generated lazily and the current plan will disappear, so
       // it's ok to move it.
       auto rewritten_plan = post_process->Rewrite(std::move(plan), context);
