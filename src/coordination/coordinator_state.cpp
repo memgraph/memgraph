@@ -116,6 +116,12 @@ auto CoordinatorState::SetReplicationInstanceToMain(std::string_view instance_na
       data_);
 }
 
+auto CoordinatorState::ShowInstance() const -> InstanceStatus {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Can't call show instance on data_, as variant holds wrong alternative");
+  return std::get<CoordinatorInstance>(data_).ShowInstance();
+}
+
 auto CoordinatorState::ShowInstances() const -> std::vector<InstanceStatus> {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Can't call show instances on data_, as variant holds wrong alternative");
