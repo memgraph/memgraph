@@ -14,7 +14,6 @@ in_memory_cluster: &in_memory_cluster
 
 workloads:
   - name: "Convert query module test"
-    pre_set_workload: "tests/e2e/x.sh"
     binary: "tests/e2e/pytest_runner.sh"
     proc: "query_modules/"
     args: ["query_modules/convert_test.py"]
