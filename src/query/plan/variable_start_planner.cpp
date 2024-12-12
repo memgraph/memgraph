@@ -163,18 +163,29 @@ std::vector<Expansion> ExpansionsFrom(const PatternAtom *start_atom, const Match
 // Collect all unique nodes from expansions. Uniqueness is determined by
 // symbol uniqueness.
 auto ExpansionAtoms(const std::vector<Expansion> &expansions, const SymbolTable &symbol_table) {
-  std::unordered_set<PatternAtom *, PatternAtomSymbolHash, PatternAtomSymbolEqual> graph_atoms(
+  std::unordered_set<PatternAtom *, PatternAtomSymbolHash, PatternAtomSymbolEqual> graph_atoms_set(
       expansions.size(), PatternAtomSymbolHash(symbol_table), PatternAtomSymbolEqual(symbol_table));
+  std::vector<PatternAtom *> graph_atoms;
   for (const auto &expansion : expansions) {
     // TODO: Handle labels and properties from different node atoms.
-    graph_atoms.insert(expansion.node1);
+    auto result_node1 = graph_atoms_set.insert(expansion.node1).second;
+    if (result_node1) {
+      graph_atoms.push_back(expansion.node1);
+    }
     if (expansion.edge) {
-      graph_atoms.insert(expansion.edge);
+      auto result_edge = graph_atoms_set.insert(expansion.edge).second;
+      if (result_edge) {
+        graph_atoms.push_back(expansion.edge);
+      }
     }
     if (expansion.node2) {
-      graph_atoms.insert(expansion.node2);
+      auto result_node2 = graph_atoms_set.insert(expansion.node2).second;
+      if (result_node2) {
+        graph_atoms.push_back(expansion.node2);
+      }
     }
   }
+
   return graph_atoms;
 }
 
