@@ -504,7 +504,9 @@ class RuleBasedPlanner {
       MG_ASSERT(utils::Contains(bound_symbols, named_path.first), "Expected generated named path to have bound symbol");
       match_context.new_symbols.emplace_back(named_path.first);
     }
-    MG_ASSERT(filters.empty(), "Expected to generate all filters");
+    if (!filters.empty()) {
+      throw QueryException("Expected to generate all filters");
+    }
     return last_op;
   }
 

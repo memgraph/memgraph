@@ -126,6 +126,7 @@ auto MakeLogicalPlan(TPlanningContext *context, TPlanPostProcess *post_process, 
     auto plans = MakeLogicalPlanForSingleQuery<VariableStartPlanner>(query_parts, context);
     bool valid_plan_found = false;
     for (auto plan : plans) {
+      if (!plan) continue;
       // Plans are generated lazily and the current plan will disappear, so
       // it's ok to move it.
       auto rewritten_plan = post_process->Rewrite(std::move(plan), context);
@@ -151,8 +152,7 @@ auto MakeLogicalPlan(TPlanningContext *context, TPlanPostProcess *post_process, 
         total_cost = plan_cost.cost;
       }
     }
-
-    MG_ASSERT(valid_plan_found, "Could not create a valid query plan!");
+    if (!valid_plan_found) throw QueryException("Could not create a valid query plan, possible ill-formed query");
   } else {
     auto plan = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(query_parts, context);
     auto rewritten_plan = post_process->Rewrite(std::move(plan), context);
