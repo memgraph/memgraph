@@ -212,8 +212,7 @@ class VaryMatchingStart {
     // being at the end. When there are no nodes or edges, this iterator needs to produce
     // a single result, which is the original matching passed in. Setting
     // start_atoms_it_ to end signifies the end of our iteration.
-    std::optional<std::unordered_set<PatternAtom *, PatternAtomSymbolHash, PatternAtomSymbolEqual>::iterator>
-        start_atoms_it_;
+    std::optional<std::vector<PatternAtom *>::iterator> start_atoms_it_;
   };
 
   auto begin() { return iterator(this, false); }
@@ -223,7 +222,7 @@ class VaryMatchingStart {
   friend class iterator;
   Matching matching_;
   const SymbolTable &symbol_table_;
-  std::unordered_set<PatternAtom *, PatternAtomSymbolHash, PatternAtomSymbolEqual> graph_atoms_;
+  std::vector<PatternAtom *> graph_atoms_;
 };
 
 // Similar to VaryMatchingStart, but varies the starting nodes for all given
