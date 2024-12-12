@@ -799,16 +799,8 @@ bool SymbolGenerator::PostVisit(EdgeAtom &) {
 bool SymbolGenerator::PreVisit(PatternComprehension &pc) {
   auto &scope = scopes_.back();
 
-  if (scope.in_set_property) {
-    throw utils::NotYetImplemented("Pattern Comprehension cannot be used within SET clause.!");
-  }
-
-  if (scope.in_reduce) {
-    throw utils::NotYetImplemented("Pattern Comprehension cannot be used within REDUCE!");
-  }
-
-  if (scope.num_if_operators) {
-    throw utils::NotYetImplemented("IF operator cannot be used with Pattern Comprehension!");
+  if (!scope.in_with && !scope.in_return) {
+    throw utils::NotYetImplemented("Pattern comprehension can only be used within With and Return clauses!");
   }
 
   scopes_.emplace_back(Scope{.in_pattern_comprehension = true});
