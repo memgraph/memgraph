@@ -62,6 +62,11 @@ auto CoordinatorHandler::AddCoordinatorInstance(coordination::CoordinatorToCoord
   return coordinator_state_.AddCoordinatorInstance(config);
 }
 
+auto CoordinatorHandler::RemoveCoordinatorInstance(int coordinator_id)
+    -> coordination::RemoveCoordinatorInstanceStatus {
+  return coordinator_state_.RemoveCoordinatorInstance(coordinator_id);
+}
+
 auto CoordinatorHandler::GetLeaderCoordinatorData() const
     -> std::optional<coordination::CoordinatorToCoordinatorConfig> {
   return coordinator_state_.GetLeaderCoordinatorData();

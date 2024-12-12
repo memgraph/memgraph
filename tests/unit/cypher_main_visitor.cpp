@@ -2720,6 +2720,16 @@ TEST_P(CypherMainVisitorTest, TestRegisterAsyncInstance) {
   EXPECT_EQ(config_map.find(memgraph::query::kReplicationServer)->second, "127.0.0.1:10001");
 }
 
+TEST_P(CypherMainVisitorTest, TestRemoveCoordinatorInstance) {
+  auto &ast_generator = *GetParam();
+
+  std::string const correct_query = R"(REMOVE COORDINATOR 1)";
+  auto *parsed_query = dynamic_cast<CoordinatorQuery *>(ast_generator.ParseQuery(correct_query));
+
+  EXPECT_EQ(parsed_query->action_, CoordinatorQuery::Action::REMOVE_COORDINATOR_INSTANCE);
+  ast_generator.CheckLiteral(parsed_query->coordinator_id_, TypedValue(1));
+}
+
 TEST_P(CypherMainVisitorTest, TestAddCoordinatorInstance) {
   auto &ast_generator = *GetParam();
 

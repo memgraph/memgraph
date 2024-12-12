@@ -708,6 +708,20 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
   return UnregisterInstanceCoordinatorStatus::SUCCESS;
 }
 
+auto CoordinatorInstance::RemoveCoordinatorInstance(int coordinator_id) -> RemoveCoordinatorInstanceStatus {
+  spdlog::trace("Started removing coordinator instance {}.", coordinator_id);
+
+  auto const curr_instances = raft_state_->GetCoordinatorInstances();
+  if (!std::ranges::any_of(curr_instances, [coordinator_id](auto const &instance) {
+        return instance.coordinator_id == coordinator_id;
+      })) {
+    return RemoveCoordinatorInstanceStatus::NO_SUCH_ID;
+  }
+
+  raft_state_->RemoveCoordinatorInstance(coordinator_id);
+  return RemoveCoordinatorInstanceStatus::SUCCESS;
+}
+
 auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config)
     -> AddCoordinatorInstanceStatus {
   spdlog::trace("Adding coordinator instance {} start in CoordinatorInstance for {}", config.coordinator_id,
