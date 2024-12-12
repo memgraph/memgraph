@@ -137,8 +137,14 @@ auto CoordinatorState::GetDataInstanceManagementServer() const -> DataInstanceMa
 auto CoordinatorState::AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config)
     -> AddCoordinatorInstanceStatus {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
-            "Coordinator cannot register replica since variant holds wrong alternative");
+            "Coordinator cannot be added since variant holds wrong alternative");
   return std::get<CoordinatorInstance>(data_).AddCoordinatorInstance(config);
+}
+
+auto CoordinatorState::RemoveCoordinatorInstance(int coordinator_id) -> RemoveCoordinatorInstanceStatus {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Coordinator cannot be unregistered since variant holds wrong alternative");
+  return std::get<CoordinatorInstance>(data_).RemoveCoordinatorInstance(coordinator_id);
 }
 
 auto CoordinatorState::GetRoutingTable() -> RoutingTable {

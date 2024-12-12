@@ -66,6 +66,11 @@ enum class AddCoordinatorInstanceStatus : uint8_t {
   COORDINATOR_ENDPOINT_ALREADY_EXISTS
 };
 
+enum class RemoveCoordinatorInstanceStatus : uint8_t {
+  SUCCESS,
+  NO_SUCH_ID,
+};
+
 enum class DemoteInstanceCoordinatorStatus : uint8_t {
   NO_INSTANCE_WITH_NAME,
   NOT_LEADER,

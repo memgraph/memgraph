@@ -3287,6 +3287,7 @@ class CoordinatorQuery : public memgraph::query::Query {
     SHOW_INSTANCE,
     SHOW_INSTANCES,
     ADD_COORDINATOR_INSTANCE,
+    REMOVE_COORDINATOR_INSTANCE,
     DEMOTE_INSTANCE,
     FORCE_RESET_CLUSTER_STATE
   };

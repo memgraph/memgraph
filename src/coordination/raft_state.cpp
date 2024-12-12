@@ -263,6 +263,40 @@ auto RaftState::GetCoordinatorToCoordinatorConfigs() const -> std::vector<Coordi
   return state_manager_->GetCoordinatorToCoordinatorConfigs();
 }
 
+auto RaftState::RemoveCoordinatorInstance(int coordinator_id) -> void {
+  spdlog::trace("Removing coordinator instance {}.", coordinator_id);
+
+  auto cmd_result = raft_server_->remove_srv(coordinator_id);
+
+  if (cmd_result->get_result_code() == nuraft::cmd_result_code::OK) {
+    spdlog::info("Request for removing coordinator {} from the cluster accepted", coordinator_id);
+  } else {
+    throw RaftRemoveServerException(
+        "Failed to accept request for removing coordinator {} from the cluster with the error code {}", coordinator_id,
+        int(cmd_result->get_result_code()));
+  }
+
+  // Waiting for server to join
+  constexpr int max_tries{10};
+  auto maybe_stop = utils::ResettableCounter<max_tries>();
+  std::chrono::milliseconds const waiting_period{200};
+  bool removed{false};
+  while (!maybe_stop()) {
+    std::this_thread::sleep_for(waiting_period);
+    const auto server_config = raft_server_->get_srv_config(static_cast<nuraft::int32>(coordinator_id));
+    if (!server_config) {
+      spdlog::trace("Coordinator with id {} removed from the cluster", coordinator_id);
+      removed = true;
+      break;
+    }
+  }
+
+  if (!removed) {
+    throw RaftRemoveServerException("Failed to remove coordinator {} from the cluster in {}ms", coordinator_id,
+                                    max_tries * waiting_period);
+  }
+}
+
 auto RaftState::AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) -> void {
   spdlog::trace("Adding coordinator instance {} start in RaftState for coordinator_{}", config.coordinator_id,
                 coordinator_id_);
@@ -281,10 +315,10 @@ auto RaftState::AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &con
   // Waiting for server to join
   constexpr int max_tries{10};
   auto maybe_stop = utils::ResettableCounter<max_tries>();
-  constexpr int waiting_period{200};
+  std::chrono::milliseconds const waiting_period{200};
   bool added{false};
   while (!maybe_stop()) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(waiting_period));
+    std::this_thread::sleep_for(waiting_period);
     const auto server_config = raft_server_->get_srv_config(static_cast<nuraft::int32>(config.coordinator_id));
     if (server_config) {
       spdlog::trace("Server with id {} added to cluster", config.coordinator_id);

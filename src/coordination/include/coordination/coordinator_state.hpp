@@ -56,6 +56,8 @@ class CoordinatorState {
   auto AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config)
       -> AddCoordinatorInstanceStatus;
 
+  auto RemoveCoordinatorInstance(int coordinator_id) -> RemoveCoordinatorInstanceStatus;
+
   [[nodiscard]] auto GetLeaderCoordinatorData() const -> std::optional<coordination::CoordinatorToCoordinatorConfig>;
 
   // NOTE: The client code must check that the server exists before calling this method.

@@ -64,6 +64,7 @@ class RaftState {
   auto InstanceName() const -> std::string;
 
   auto AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) -> void;
+  auto RemoveCoordinatorInstance(int coordinator_id) -> void;
   auto GetCoordinatorInstances() const -> std::vector<CoordinatorToCoordinatorConfig>;
 
   auto IsLeader() const -> bool;

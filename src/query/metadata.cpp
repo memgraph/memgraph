@@ -71,6 +71,8 @@ constexpr std::string_view GetCodeString(const NotificationCode code) {
       return "RegisterReplicationInstance"sv;
     case NotificationCode::ADD_COORDINATOR_INSTANCE:
       return "AddCoordinatorInstance"sv;
+    case NotificationCode::REMOVE_COORDINATOR_INSTANCE:
+      return "RemoveCoordinatorInstance"sv;
     case NotificationCode::UNREGISTER_INSTANCE:
       return "UnregisterInstance"sv;
     case NotificationCode::DEMOTE_INSTANCE_TO_REPLICA:
