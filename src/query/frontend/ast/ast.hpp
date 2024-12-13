@@ -2427,10 +2427,7 @@ class VectorIndexQuery : public memgraph::query::Query {
   std::string index_name_;
   memgraph::query::LabelIx label_;
   memgraph::query::PropertyIx property_;
-  std::string metric_;
-  std::uint16_t dimension_;
-  std::size_t capacity_;
-  std::uint16_t resize_coefficient_;
+  std::unordered_map<memgraph::query::Expression *, memgraph::query::Expression *> configs_;
 
   VectorIndexQuery *Clone(AstStorage *storage) const override {
     VectorIndexQuery *object = storage->Create<VectorIndexQuery>();
@@ -2438,24 +2435,20 @@ class VectorIndexQuery : public memgraph::query::Query {
     object->index_name_ = index_name_;
     object->label_ = storage->GetLabelIx(label_.name);
     object->property_ = storage->GetPropertyIx(property_.name);
-    object->metric_ = metric_;
-    object->dimension_ = dimension_;
-    object->capacity_ = capacity_;
-    object->resize_coefficient_ = resize_coefficient_;
+    for (const auto &[key, value] : configs_) {
+      object->configs_[key->Clone(storage)] = value->Clone(storage);
+    }
     return object;
   }
 
  protected:
-  VectorIndexQuery(Action action, std::string index_name, LabelIx label, PropertyIx property, std::string metric,
-                   std::uint16_t dimension, std::size_t capacity, std::uint16_t resize_coefficient)
+  VectorIndexQuery(Action action, std::string index_name, LabelIx label, PropertyIx property,
+                   std::unordered_map<Expression *, Expression *> configs)
       : action_(action),
         index_name_(std::move(index_name)),
         label_(std::move(label)),
         property_(std::move(property)),
-        metric_(metric),
-        dimension_(dimension),
-        capacity_(capacity),
-        resize_coefficient_(resize_coefficient) {}
+        configs_(std::move(configs)) {}
 
  private:
   friend class AstStorage;
