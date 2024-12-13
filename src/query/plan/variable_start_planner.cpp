@@ -166,24 +166,17 @@ auto ExpansionAtoms(const std::vector<Expansion> &expansions, const SymbolTable 
   std::unordered_set<PatternAtom *, PatternAtomSymbolHash, PatternAtomSymbolEqual> graph_atoms_set(
       expansions.size(), PatternAtomSymbolHash(symbol_table), PatternAtomSymbolEqual(symbol_table));
   std::vector<PatternAtom *> graph_atoms;
+
+  auto try_insert_atom = [&](PatternAtom *atom) {
+    if (atom && graph_atoms_set.insert(atom).second) {
+      graph_atoms.push_back(atom);
+    }
+  };
+
   for (const auto &expansion : expansions) {
-    // TODO: Handle labels and properties from different node atoms.
-    auto result_node1 = graph_atoms_set.insert(expansion.node1).second;
-    if (result_node1) {
-      graph_atoms.push_back(expansion.node1);
-    }
-    if (expansion.edge) {
-      auto result_edge = graph_atoms_set.insert(expansion.edge).second;
-      if (result_edge) {
-        graph_atoms.push_back(expansion.edge);
-      }
-    }
-    if (expansion.node2) {
-      auto result_node2 = graph_atoms_set.insert(expansion.node2).second;
-      if (result_node2) {
-        graph_atoms.push_back(expansion.node2);
-      }
-    }
+    try_insert_atom(expansion.node1);
+    try_insert_atom(expansion.edge);
+    try_insert_atom(expansion.node2);
   }
 
   return graph_atoms;
