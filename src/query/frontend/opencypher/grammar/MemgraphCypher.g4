@@ -277,6 +277,7 @@ coordinatorQuery : registerInstanceOnCoordinator
                  | showInstance
                  | showInstances
                  | addCoordinatorInstance
+                 | removeCoordinatorInstance
                  | forceResetClusterStateOnCoordinator
                  | demoteInstanceOnCoordinator
                  ;
@@ -510,6 +511,8 @@ setInstanceToMain : SET INSTANCE instanceName TO MAIN ;
 coordinatorServerId : literal ;
 
 addCoordinatorInstance : ADD COORDINATOR coordinatorServerId WITH CONFIG configsMap=configMap ;
+
+removeCoordinatorInstance : REMOVE COORDINATOR coordinatorServerId ;
 
 dropReplica : DROP REPLICA instanceName ;
 

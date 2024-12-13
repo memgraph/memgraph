@@ -97,6 +97,8 @@ class CoordinatorInstance {
 
   auto AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) -> AddCoordinatorInstanceStatus;
 
+  auto RemoveCoordinatorInstance(int coordinator_id) -> RemoveCoordinatorInstanceStatus;
+
   auto GetRoutingTable() const -> RoutingTable;
 
   static auto GetMostUpToDateInstanceFromHistories(std::list<ReplicationInstanceConnector> &instances)
