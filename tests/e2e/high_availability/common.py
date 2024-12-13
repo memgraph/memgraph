@@ -34,6 +34,34 @@ def ignore_elapsed_time_from_results(results: typing.List[tuple]) -> typing.List
     return [result[:-1] for result in results]
 
 
+def show_instances(cursor):
+    """
+    Accepts a cursor and returns a list of all instances using the `SHOW INSTANCES` query.
+    """
+    return sorted(ignore_elapsed_time_from_results(list(execute_and_fetch_all(cursor, "SHOW INSTANCES;"))))
+
+
+def show_replicas(cursor):
+    """
+    Accepts a cursor and returns a list of all replicas using the `SHOW REPLICAS` query.
+    """
+    return sorted(list(execute_and_fetch_all(cursor, "SHOW REPLICAS;")))
+
+
+def get_vertex_count(cursor):
+    """
+    Accepts a cursor and returns a count of vertices.
+    """
+    return execute_and_fetch_all(cursor, "MATCH (n) RETURN count(n)")[0][0]
+
+
+def show_replication_role(cursor):
+    """
+    Accepts a cursor and returns the replication role.
+    """
+    return sorted(list(execute_and_fetch_all(cursor, "SHOW REPLICATION ROLE;")))
+
+
 def execute_and_fetch_all(cursor: mgclient.Cursor, query: str, params: dict = {}) -> typing.List[tuple]:
     cursor.execute(query, params)
     return cursor.fetchall()
