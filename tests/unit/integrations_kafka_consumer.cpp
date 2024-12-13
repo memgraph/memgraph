@@ -144,7 +144,7 @@ TEST_F(ConsumerTest, BatchInterval) {
   static constexpr auto kMessageCount = 7;
   for (auto sent_messages = 0; sent_messages < kMessageCount; ++sent_messages) {
     cluster.SeedTopic(kTopicName, kMessage);
-    std::this_thread::sleep_for(kBatchInterval * 0.5);
+    std::this_thread::sleep_for(kBatchInterval * 0.6);
   }
   // Wait for all messages to be delivered
   std::this_thread::sleep_for(kBatchInterval);
@@ -314,7 +314,7 @@ TEST_F(ConsumerTest, InvalidBatchSize) {
   EXPECT_NO_THROW(Consumer(info, kDummyConsumerFunction));
 }
 
-TEST_F(ConsumerTest, DISABLED_StartsFromPreviousOffset) {
+TEST_F(ConsumerTest, DISABLED_StartsFromPreviousOffset) {  // TODO: What to do with this test? Disabled for 3 years now.
   static constexpr auto kBatchSize = 1;
   auto info = CreateDefaultConsumerInfo();
   info.batch_size = kBatchSize;
