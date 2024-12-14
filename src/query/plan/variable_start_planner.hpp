@@ -370,13 +370,18 @@ class VariableStartPlanner {
   /// @brief Generate multiple plans by varying the order of graph traversal.
   auto Plan(const QueryParts &query_parts) {
     return iter::imap(
-        [context = context_, old_query_parts = query_parts, this](const auto &alternative_query_parts) {
+        [context = context_, old_query_parts = query_parts,
+         this](const auto &alternative_query_parts) -> RuleBasedPlanner<TPlanningContext>::PlanResult {
           uint64_t index = 0;
           auto reconstructed_query_parts = ReconstructQueryParts(old_query_parts, alternative_query_parts, index);
 
           RuleBasedPlanner<TPlanningContext> rule_planner(context);
           context->bound_symbols.clear();
-          return rule_planner.Plan(reconstructed_query_parts);
+          try {
+            return rule_planner.Plan(reconstructed_query_parts);
+          } catch (QueryException const &e) {
+            return nullptr;
+          }
         },
         VaryQueryMatching(query_parts, *context_->symbol_table));
   }
