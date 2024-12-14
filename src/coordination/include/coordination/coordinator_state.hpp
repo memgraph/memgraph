@@ -49,10 +49,14 @@ class CoordinatorState {
 
   [[nodiscard]] auto SetReplicationInstanceToMain(std::string_view instance_name) -> SetInstanceToMainCoordinatorStatus;
 
+  [[nodiscard]] auto ShowInstance() const -> InstanceStatus;
+
   [[nodiscard]] auto ShowInstances() const -> std::vector<InstanceStatus>;
 
   auto AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config)
       -> AddCoordinatorInstanceStatus;
+
+  auto RemoveCoordinatorInstance(int coordinator_id) -> RemoveCoordinatorInstanceStatus;
 
   [[nodiscard]] auto GetLeaderCoordinatorData() const -> std::optional<coordination::CoordinatorToCoordinatorConfig>;
 

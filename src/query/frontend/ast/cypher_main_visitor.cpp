@@ -587,6 +587,15 @@ antlrcpp::Any CypherMainVisitor::visitDemoteInstanceOnCoordinator(
   return coordinator_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitRemoveCoordinatorInstance(MemgraphCypher::RemoveCoordinatorInstanceContext *ctx) {
+  auto *coordinator_query = storage_->Create<CoordinatorQuery>();
+
+  coordinator_query->action_ = CoordinatorQuery::Action::REMOVE_COORDINATOR_INSTANCE;
+  coordinator_query->coordinator_id_ = std::any_cast<Expression *>(ctx->coordinatorServerId()->accept(this));
+
+  return coordinator_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitAddCoordinatorInstance(MemgraphCypher::AddCoordinatorInstanceContext *ctx) {
   auto *coordinator_query = storage_->Create<CoordinatorQuery>();
 
@@ -595,6 +604,13 @@ antlrcpp::Any CypherMainVisitor::visitAddCoordinatorInstance(MemgraphCypher::Add
   coordinator_query->configs_ =
       std::any_cast<std::unordered_map<Expression *, Expression *>>(ctx->configsMap->accept(this));
 
+  return coordinator_query;
+}
+
+// License check is done in the interpreter
+antlrcpp::Any CypherMainVisitor::visitShowInstance(MemgraphCypher::ShowInstanceContext * /*ctx*/) {
+  auto *coordinator_query = storage_->Create<CoordinatorQuery>();
+  coordinator_query->action_ = CoordinatorQuery::Action::SHOW_INSTANCE;
   return coordinator_query;
 }
 
