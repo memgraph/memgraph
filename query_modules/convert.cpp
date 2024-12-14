@@ -37,11 +37,9 @@ mgp::Value ParseJsonToMgpList(const nlohmann::json &json_array, mgp_memory *memo
 
 mgp::Value ParseJsonToMgpValue(const nlohmann::json &json_obj, mgp_memory *memory) {
   if (json_obj.is_object()) {
-    auto map = ParseJsonToMgpMap(json_obj, memory);
-    return map;
+    return ParseJsonToMgpMap(json_obj, memory);
   } else if (json_obj.is_array()) {
-    auto list = ParseJsonToMgpList(json_obj, memory);
-    return list;
+    return ParseJsonToMgpList(json_obj, memory);
   } else if (json_obj.is_string()) {
     return mgp::Value(mgp::value_make_string(json_obj.get<std::string>().c_str(), memory));
   } else if (json_obj.is_number_integer()) {
@@ -50,8 +48,6 @@ mgp::Value ParseJsonToMgpValue(const nlohmann::json &json_obj, mgp_memory *memor
     return mgp::Value(mgp::value_make_double(json_obj.get<double>(), memory));
   } else if (json_obj.is_boolean()) {
     return mgp::Value(mgp::value_make_bool(json_obj.get<bool>(), memory));
-  } else if (json_obj.is_null()) {
-    return mgp::Value();
   } else {
     return mgp::Value();
   }
@@ -63,11 +59,11 @@ void str2object(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp
 
     // Retrieve the string argument
     auto str = std::string(mgp::Value(mgp::list_at(args, 0)).ValueString());
-    auto json_object = nlohmann::json::parse(str);
+    const auto json_object = nlohmann::json::parse(str);
 
-    auto result = ParseJsonToMgpValue(json_object, memory);
+    const auto result = ParseJsonToMgpValue(json_object, memory);
 
-    auto func_result = mgp::Result(res);
+    const auto func_result = mgp::Result(res);
 
     if (result.IsMap()) {
       func_result.SetValue(result.ValueMap());
