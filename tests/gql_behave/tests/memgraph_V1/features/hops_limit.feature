@@ -96,7 +96,7 @@ Feature: Hops Limit
             """
             | p                                                                                    |
             | <(:Node{name:'A'})-[:CONNECTED]->(:Node{name:'B'})>                                  |
-            | <(:Node{name:'A'})-[:CONNECTED]->(:Node{name:'B'})-[:CONNECTED]->(:Node{name:'D'})>  |                              |
+            | <(:Node{name:'A'})-[:CONNECTED]->(:Node{name:'B'})-[:CONNECTED]->(:Node{name:'D'})>  |
             | <(:Node{name:'A'})-[:CONNECTED]->(:Node{name:'B'})-[:CONNECTED]->(:Node{name:'E'})>  |
             | <(:Node{name:'A'})-[:CONNECTED]->(:Node{name:'C'})>                                  |
 
