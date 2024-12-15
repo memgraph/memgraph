@@ -14,9 +14,14 @@
 #include "storage/v2/delta.hpp"
 #include "utils/allocator/page_aligned.hpp"
 #include "utils/allocator/page_slab_memory_resource.hpp"
+#include "utils/event_counter.hpp"
 #include "utils/static_vector.hpp"
 
 #include <forward_list>
+
+namespace memgraph::metrics {
+extern const Event UnreleasedDeltaObjects;
+}
 
 namespace memgraph::storage {
 namespace {
@@ -227,7 +232,7 @@ struct delta_container {
     return *this;
   }
 
-  ~delta_container() = default;
+  ~delta_container() { memgraph::metrics::DecrementCounter(memgraph::metrics::UnreleasedDeltaObjects, size_); }
 
   auto begin() { return Flatten(deltas_).begin(); }
   auto end() { return Flatten(deltas_).end(); }
@@ -242,6 +247,7 @@ struct delta_container {
         // no need for memory_resource
         auto &delta = deltas_.front().emplace_back(std::forward<Args>(args)...);
         ++size_;
+        memgraph::metrics::IncrementCounter(memgraph::metrics::UnreleasedDeltaObjects);
         return delta;
       } else {
         // requires memory_resource
@@ -250,6 +256,7 @@ struct delta_container {
         }
         auto &delta = deltas_.front().emplace_back(std::forward<Args>(args)..., memory_resource_.get());
         ++size_;
+        memgraph::metrics::IncrementCounter(memgraph::metrics::UnreleasedDeltaObjects);
         return delta;
       }
     };
@@ -270,6 +277,7 @@ struct delta_container {
   void clear() {
     deltas_.clear();
     memory_resource_.reset();
+    memgraph::metrics::DecrementCounter(memgraph::metrics::UnreleasedDeltaObjects, size_);
     size_ = 0;
   }
 
