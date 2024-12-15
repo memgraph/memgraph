@@ -1210,7 +1210,7 @@ void ModuleRegistry::DoUnloadAllModules() {
   modules_.erase(mg_it);
   auto on_exit = utils::OnScopeExit{[&] { modules_.emplace("mg", std::move(mg_preserved)); }};
 
-  if (!TryEraseAllModules()) throw query::QueryException("Unable to unload modules, they are currently being used");
+  if (!TryEraseAllModules()) throw query::QueryException("Unable to unload modules, they are currently being used.");
 }
 
 ModuleRegistry::ModuleRegistry() {
@@ -1260,7 +1260,8 @@ bool ModuleRegistry::LoadOrReloadModuleFromName(const std::string_view name) {
   auto guard = std::unique_lock{lock_};
 
   if (!TryEraseModule(name))
-    throw query::QueryException("Unable to unload module '{}', it is currently being used", name);
+    throw query::QueryException("Unable to unload module '{}', either it doesn't exist, or it is currently being used.",
+                                name);
 
   for (const auto &module_dir : modules_dirs_) {
     if (LoadModuleIfFound(module_dir, name)) {
