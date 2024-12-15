@@ -29,6 +29,7 @@
 #include "utils/memory_tracker.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/readable_size.hpp"
+#include "utils/rw_spin_lock.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/stack.hpp"
 #include "utils/stat.hpp"
@@ -312,8 +313,8 @@ class SkipListGc final {
     // which could have OOMException enabled in its thread so to ensure no exception
     // is thrown while cleaning the skip list, we add the blocker.
     utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
-    if (!lock_.try_lock()) return;
-    OnScopeExit cleanup([&] { lock_.unlock(); });
+    auto guard = std::unique_lock{lock_, std::defer_lock};
+    if (!guard.try_lock()) return;
     Block *tail = tail_.load(std::memory_order_acquire);
     uint64_t last_dead = 0;
     bool remove_block = true;
@@ -406,7 +407,7 @@ class SkipListGc final {
 
  private:
   MemoryResource *memory_;
-  SpinLock lock_;
+  RWSpinLock lock_;
   std::atomic<uint64_t> accessor_id_{0};
   std::atomic<Block *> head_{nullptr};
   std::atomic<Block *> tail_{nullptr};
