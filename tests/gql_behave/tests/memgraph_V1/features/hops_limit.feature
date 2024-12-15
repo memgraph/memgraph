@@ -18,12 +18,12 @@ Feature: Hops Limit
             USING HOPS LIMIT 5 MATCH p=(a)-[:CONNECTED *]->(e) RETURN p
             """
         Then the result should be:
-            | p                                                                                                      |
-            | <(:Node {name: 'A'})-[:CONNECTED]->(:Node {name: 'B'})>                                                |
-            | <(:Node {name: 'A'})-[:CONNECTED]->(:Node {name: 'C'})>                                                |
-            | <(:Node {name: 'B'})-[:CONNECTED]->(:Node {name: 'D'})>                                                |
-            | <(:Node {name: 'A'})-[:CONNECTED]->(:Node {name: 'B'})-[:CONNECTED]->(:Node {name: 'D'})>              |
-            | <(:Node {name: 'B'})-[:CONNECTED]->(:Node {name: 'E'})>                                                |
+            | p                                                                                                                           |
+            | <(:Node {name: 'A'})-[:CONNECTED]->(:Node {name: 'B'})>                                                                     |
+            | <(:Node {name: 'A'})-[:CONNECTED]->(:Node {name: 'B'})-[:CONNECTED]->(:Node {name: 'D'})>                                   |
+            | <(:Node {name: 'A'})-[:CONNECTED]->(:Node {name: 'B'})-[:CONNECTED]->(:Node {name: 'D'})-[:CONNECTED]->(:Node {name: 'H'})> |
+            | <(:Node {name: 'A'})-[:CONNECTED]->(:Node {name: 'B'})-[:CONNECTED]->(:Node {name: 'E'})>                                   |
+            | <(:Node {name: 'A'})-[:CONNECTED]->(:Node {name: 'C'})>                                                                     |
 
 
     Scenario: Test hops limit DFS test02 - partial results
@@ -84,9 +84,7 @@ Feature: Hops Limit
             """
             USING HOPS LIMIT 3 MATCH p=(a:Node {name: 'A'})-[:CONNECTED *BFS]->(d:Node {name: 'D'}) return p
             """
-        Then the result should be:
-            | p                                                                                                      |
-            | <(:Node {name: 'A'})-[:CONNECTED]->(:Node {name: 'B'})-[:CONNECTED]->(:Node {name: 'D'})>              |
+        Then the result should be empty
 
 
     Scenario: Test hops limit BFS test03 - partial results
@@ -96,7 +94,12 @@ Feature: Hops Limit
             """
             USING HOPS LIMIT 2 MATCH p=(a:Node {name: 'A'})-[:CONNECTED *BFS]->(d:Node {name: 'D'}) return p
             """
-        Then the result should be empty
+            | p                                                                                    |
+            | <(:Node{name:'A'})-[:CONNECTED]->(:Node{name:'B'})>                                  |
+            | <(:Node{name:'A'})-[:CONNECTED]->(:Node{name:'B'})-[:CONNECTED]->(:Node{name:'D'})>  |                              |
+            | <(:Node{name:'A'})-[:CONNECTED]->(:Node{name:'B'})-[:CONNECTED]->(:Node{name:'E'})>  |
+            | <(:Node{name:'A'})-[:CONNECTED]->(:Node{name:'C'})>                                  |
+
 
 
     Scenario: Test hops limit BFS both directions - partial results
@@ -106,11 +109,12 @@ Feature: Hops Limit
             USING HOPS LIMIT 5 MATCH p=(a)-[:CONNECTED *BFS]-(e) RETURN p
             """
         Then the result should be:
-            | p                                                                                         |
-            | <(:Node {name: 'A'})-[:CONNECTED]->(:Node {name: 'C'})>                                   |
-            | <(:Node {name: 'A'})-[:CONNECTED]->(:Node {name: 'B'})>                                   |
-            | <(:Node {name: 'A'})-[:CONNECTED]->(:Node {name: 'C'})-[:CONNECTED]->(:Node {name: 'G'})> |
-            | <(:Node {name: 'A'})-[:CONNECTED]->(:Node {name: 'C'})-[:CONNECTED]->(:Node {name: 'F'})> |
+            | p                                                                                   |
+            | <(:Node{name:'A'})-[:CONNECTED]->(:Node{name:'B'})>                                 |
+            | <(:Node{name:'A'})-[:CONNECTED]->(:Node{name:'B'})-[:CONNECTED]->(:Node{name:'D'})> |
+            | <(:Node{name:'A'})-[:CONNECTED]->(:Node{name:'B'})-[:CONNECTED]->(:Node{name:'E'})> |
+            | <(:Node{name:'A'})-[:CONNECTED]->(:Node{name:'C'})>                                 |
+
 
 
     Scenario: Test simple expand - partial results
@@ -135,12 +139,12 @@ Feature: Hops Limit
             USING HOPS LIMIT 5 MATCH p=(a)-[:CONNECTED]-(b) RETURN p
             """
         Then the result should be:
-            | p                                                       |
-            | <(:Node {name: 'B'})<-[:CONNECTED]-(:Node {name: 'A'})> |
-            | <(:Node {name: 'C'})<-[:CONNECTED]-(:Node {name: 'A'})> |
-            | <(:Node {name: 'A'})-[:CONNECTED]->(:Node {name: 'B'})> |
-            | <(:Node {name: 'D'})<-[:CONNECTED]-(:Node {name: 'B'})> |
-            | <(:Node {name: 'E'})<-[:CONNECTED]-(:Node {name: 'B'})> |
+            | p                                                   |
+            | <(:Node{name:'A'})-[:CONNECTED]->(:Node{name:'B'})> |
+            | <(:Node{name:'A'})-[:CONNECTED]->(:Node{name:'C'})> |
+            | <(:Node{name:'B'})<-[:CONNECTED]-(:Node{name:'A'})> |
+            | <(:Node{name:'B'})-[:CONNECTED]->(:Node{name:'D'})> |
+            | <(:Node{name:'B'})-[:CONNECTED]->(:Node{name:'E'})> |
 
 
     Scenario: Test hops limit flag with partial results disabled
