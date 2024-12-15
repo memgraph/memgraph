@@ -55,10 +55,10 @@ Feature: Hops Limit
             """
         Then the result should be:
             | p                                                                                         |
-            | <(:Node {name: 'A'})<-[:CONNECTED]-(:Node {name: 'C'})>                                   |
-            | <(:Node {name: 'A'})<-[:CONNECTED]-(:Node {name: 'B'})>                                   |
-            | <(:Node {name: 'A'})<-[:CONNECTED]-(:Node {name: 'C'})<-[:CONNECTED]-(:Node {name: 'G'})> |
-            | <(:Node {name: 'A'})<-[:CONNECTED]-(:Node {name: 'C'})<-[:CONNECTED]-(:Node {name: 'F'})> |
+            | <(:Node {name: 'A'})-[:CONNECTED]->(:Node {name: 'B'})>                                   |
+            | <(:Node {name: 'A'})-[:CONNECTED]->(:Node {name: 'B'})-[:CONNECTED]->(:Node {name: 'D'})> |
+            | <(:Node {name: 'A'})-[:CONNECTED]->(:Node {name: 'B'})-[:CONNECTED]->(:Node {name: 'E'})> |
+            | <(:Node {name: 'A'})-[:CONNECTED]->(:Node {name: 'C'})>                                   |
 
     Scenario: Test hops limit BFS test01 - partial results
         Given graph "simple_binary_tree"
@@ -82,7 +82,9 @@ Feature: Hops Limit
             """
             USING HOPS LIMIT 3 MATCH p=(a:Node {name: 'A'})-[:CONNECTED *BFS]->(d:Node {name: 'D'}) return p
             """
-        Then the result should be empty
+        Then the result should be:
+            | p                                                                                         |
+            | <(:Node {name: 'A'})-[:CONNECTED]->(:Node {name: 'B'})-[:CONNECTED]->(:Node {name: 'D'})> |
 
 
     Scenario: Test hops limit BFS test03 - partial results
@@ -99,7 +101,6 @@ Feature: Hops Limit
             | <(:Node{name:'A'})-[:CONNECTED]->(:Node{name:'C'})>                                  |
 
 
-
     Scenario: Test hops limit BFS both directions - partial results
         Given graph "simple_binary_tree"
         When executing query:
@@ -108,11 +109,10 @@ Feature: Hops Limit
             """
         Then the result should be:
             | p                                                                                   |
-            | <(:Node{name:'A'})-[:CONNECTED]->(:Node{name:'B'})>                                 |
-            | <(:Node{name:'A'})-[:CONNECTED]->(:Node{name:'B'})-[:CONNECTED]->(:Node{name:'D'})> |
-            | <(:Node{name:'A'})-[:CONNECTED]->(:Node{name:'B'})-[:CONNECTED]->(:Node{name:'E'})> |
             | <(:Node{name:'A'})-[:CONNECTED]->(:Node{name:'C'})>                                 |
-
+            | <(:Node{name:'A'})-[:CONNECTED]->(:Node{name:'B'})>                                 |
+            | <(:Node{name:'A'})-[:CONNECTED]->(:Node{name:'C'})-[:CONNECTED]->(:Node{name:'G'})> |
+            | <(:Node{name:'A'})-[:CONNECTED]->(:Node{name:'C'})-[:CONNECTED]->(:Node{name:'F'})> |
 
 
     Scenario: Test simple expand - partial results
