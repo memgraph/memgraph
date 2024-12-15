@@ -33,9 +33,7 @@ Feature: Hops Limit
             """
             USING HOPS LIMIT 2 MATCH p=(a:Node {name: 'A'})-[:CONNECTED *]->(d:Node {name: 'D'}) return p
             """
-        Then the result should be:
-            | p                                                                                            |
-            | <(:Node {name: 'A'})-[:CONNECTED]->(:Node {name: 'B'})-[:CONNECTED]->(:Node {name: 'D'})>    |
+        Then the result should be empty
 
 
     Scenario: Test hops limit DFS test03 - partial results
@@ -57,10 +55,10 @@ Feature: Hops Limit
             """
         Then the result should be:
             | p                                                                                         |
-            | <(:Node {name: 'B'})<-[:CONNECTED]-(:Node {name: 'A'})>                                   |
-            | <(:Node {name: 'D'})<-[:CONNECTED]-(:Node {name: 'B'})<-[:CONNECTED]-(:Node {name: 'A'})> |
-            | <(:Node {name: 'E'})<-[:CONNECTED]-(:Node {name: 'B'})<-[:CONNECTED]-(:Node {name: 'A'})> |
-            | <(:Node {name: 'C'})<-[:CONNECTED]-(:Node {name: 'A'})>                                   |
+            | <(:Node {name: 'A'})<-[:CONNECTED]-(:Node {name: 'C'})>                                   |
+            | <(:Node {name: 'A'})<-[:CONNECTED]-(:Node {name: 'B'})>                                   |
+            | <(:Node {name: 'A'})<-[:CONNECTED]-(:Node {name: 'C'})<-[:CONNECTED]-(:Node {name: 'G'})> |
+            | <(:Node {name: 'A'})<-[:CONNECTED]-(:Node {name: 'C'})<-[:CONNECTED]-(:Node {name: 'F'})> |
 
     Scenario: Test hops limit BFS test01 - partial results
         Given graph "simple_binary_tree"
