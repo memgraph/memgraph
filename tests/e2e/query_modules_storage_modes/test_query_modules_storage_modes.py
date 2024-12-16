@@ -65,9 +65,9 @@ def test_function_delete_result(cursor, api):
     cursor.execute(SWITCH_TO_ANALYTICAL)
 
     write_query = (
-        f"MATCH (m:Component {{id: 'A7422'}})-[e:PART_OF]->(n:Component {{id: '7X8X0'}}) CALL {api}_api.delete_edge(e);"
+        f"MATCH (n:Component {{id: '7X8X0'}})<-[e:PART_OF]-(m:Component {{id: 'A7422'}}) CALL {api}_api.delete_edge(e);"
     )
-    read_query = f"MATCH (m)-[e]->(n) RETURN {api}_api.pass_relationship(e);"
+    read_query = f"MATCH (n)<-[e]-(m) RETURN {api}_api.pass_relationship(e);"
     check_correctness = lambda result: len(result) == 1 and len(result[0]) == 1 and result[0][0].type == "DEPENDS_ON"
 
     result = execute_test(cursor, write_query, read_query, api, check_correctness)
