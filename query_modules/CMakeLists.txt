@@ -97,8 +97,27 @@ set_target_properties(vector_search PROPERTIES
 # Also install the source of the example, so user can read it.
 install(FILES vector_search_module.cpp DESTINATION lib/memgraph/query_modules/src)
 
+add_library(convert SHARED convert.cpp)
+target_include_directories(convert PRIVATE ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/libs)
+target_compile_options(convert PRIVATE -Wall)
+target_link_libraries(convert PRIVATE -static-libgcc -static-libstdc++ fmt::fmt json)
+
+# Strip the module in release build
+if (lower_build_type STREQUAL "release")
+  add_custom_command(TARGET convert POST_BUILD
+                     COMMAND strip -s $<TARGET_FILE:convert>
+                     COMMENT "Stripping symbols and sections from the C++ convert module")
+endif()
+
+set_target_properties(convert PROPERTIES
+    PREFIX ""
+    OUTPUT_NAME "convert"
+)
+
+install(FILES convert.cpp DESTINATION lib/memgraph/query_modules/src)
+
 # Install C++ query modules
-install(TARGETS example_c example_cpp schema text_search vector_search
+install(TARGETS convert example_c example_cpp schema text_search vector_search
     DESTINATION lib/memgraph/query_modules
 )
 
@@ -109,4 +128,3 @@ install(FILES mgp_networkx.py DESTINATION lib/memgraph/query_modules)
 install(FILES nxalg.py DESTINATION lib/memgraph/query_modules)
 install(FILES wcc.py DESTINATION lib/memgraph/query_modules)
 install(FILES mgps.py DESTINATION lib/memgraph/query_modules)
-install(FILES convert.py DESTINATION lib/memgraph/query_modules)
