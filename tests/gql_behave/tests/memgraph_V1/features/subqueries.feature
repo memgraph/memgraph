@@ -424,7 +424,7 @@ Feature: Subqueries
         Given an empty graph
         And having executed
             """
-            CREATE ({n0:x})
+            CREATE ({n0:0})
             """
         When executing query:
             """
