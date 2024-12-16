@@ -58,8 +58,8 @@ void str2object(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp
     mgp::MemoryDispatcherGuard guard(memory);
 
     // Retrieve the string argument
-    const auto str = std::string(mgp::Value(mgp::list_at(args, 0)).ValueString());
-    const auto json_object = nlohmann::json::parse(str);
+    const auto string_arg = mgp::Value(mgp::list_at(args, 0));
+    const auto json_object = nlohmann::json::parse(string_arg.ValueString());
     const auto result = ParseJsonToMgpValue(json_object, memory);
 
     auto func_result = mgp::Result(res);
@@ -83,6 +83,7 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
     mgp::AddFunction(str2object, "str2object", {mgp::Parameter("string", mgp::Type::String)}, module, memory);
 
   } catch (const std::exception &e) {
+    std::cerr << "Error while initializing query module: " << e.what() << '\n';
     return 1;
   }
 
