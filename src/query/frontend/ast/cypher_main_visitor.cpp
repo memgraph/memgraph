@@ -443,7 +443,7 @@ antlrcpp::Any CypherMainVisitor::visitCreateVectorIndex(MemgraphCypher::CreateVe
   index_query->index_name_ = std::any_cast<std::string>(ctx->indexName()->accept(this));
   index_query->label_ = AddLabel(std::any_cast<std::string>(ctx->labelName()->accept(this)));
   index_query->property_ = std::any_cast<PropertyIx>(ctx->propertyKeyName()->accept(this));
-  index_query->configs_ = std::any_cast<std::unordered_map<Expression *, Expression *>>(ctx->configMap()->accept(this));
+  index_query->configs_ = std::any_cast<std::unordered_map<Expression *, Expression *>>(ctx->configsMap->accept(this));
   return index_query;
 }
 

@@ -5631,8 +5631,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     bool const unique_db_transaction =
         utils::Downcast<IndexQuery>(parsed_query.query) || utils::Downcast<EdgeIndexQuery>(parsed_query.query) ||
         utils::Downcast<PointIndexQuery>(parsed_query.query) || utils::Downcast<TextIndexQuery>(parsed_query.query) ||
-        utils::Downcast<ConstraintQuery>(parsed_query.query) || utils::Downcast<DropGraphQuery>(parsed_query.query) ||
-        utils::Downcast<CreateEnumQuery>(parsed_query.query) ||
+        utils::Downcast<VectorIndexQuery>(parsed_query.query) || utils::Downcast<ConstraintQuery>(parsed_query.query) ||
+        utils::Downcast<DropGraphQuery>(parsed_query.query) || utils::Downcast<CreateEnumQuery>(parsed_query.query) ||
         utils::Downcast<AlterEnumAddValueQuery>(parsed_query.query) ||
         utils::Downcast<AlterEnumUpdateValueQuery>(parsed_query.query) ||
         utils::Downcast<TtlQuery>(parsed_query.query) || utils::Downcast<RecoverSnapshotQuery>(parsed_query.query);

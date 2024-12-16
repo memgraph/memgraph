@@ -88,8 +88,7 @@ VectorIndexConfigMap VectorIndex::ParseIndexSpec(
     std::unordered_map<query::Expression *, query::Expression *> const &config_map,
     query::ExpressionVisitor<query::TypedValue> &evaluator) {
   if (config_map.empty()) {
-    spdlog::error("Vector index spec is empty. No indexes will be created.");
-    return {};
+    throw std::invalid_argument("Vector index config map is empty.");
   }
 
   auto transformed_map = std::ranges::views::all(config_map) | std::views::transform([&evaluator](const auto &pair) {
@@ -128,7 +127,7 @@ VectorIndexConfigMap VectorIndex::ParseIndexSpec(
 void VectorIndex::CreateIndex(const std::shared_ptr<VectorIndexSpec> &spec) {
   const unum::usearch::metric_punned_t metric(
       spec->dimension, spec->metric_kind,
-      unum::usearch::scalar_kind_t::f32_k);  // TODO(@DavIvek): scalar kind is hardcoded to f32
+      unum::usearch::scalar_kind_t::f32_k);  // TODO(@DavIvek): scalar kind is hardcoded to f32 ATM
 
   // use the number of workers as the number of possible concurrent index operations
   const unum::usearch::index_limits_t limits(spec->capacity, FLAGS_bolt_num_workers);
