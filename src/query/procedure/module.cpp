@@ -1260,8 +1260,11 @@ bool ModuleRegistry::LoadOrReloadModuleFromName(const std::string_view name) {
   auto guard = std::unique_lock{lock_};
 
   if (!TryEraseModule(name))
-    throw query::QueryException("Unable to unload module '{}', either it doesn't exist, or it is currently being used.",
-                                name);
+    throw query::QueryException(
+        "Unable to unload module '{}', either it doesn't exist, or it is currently being used. In order to check "
+        "whether the module exists, please use CALL mg.procedures() YIELD * for custom query procedures, or CALL "
+        "mg.functions() YIELD * for custom query functions.",
+        name);
 
   for (const auto &module_dir : modules_dirs_) {
     if (LoadModuleIfFound(module_dir, name)) {
