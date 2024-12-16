@@ -185,6 +185,7 @@ memgraphCypherKeyword : cypherKeyword
                       | USING
                       | VALUE
                       | VALUES
+                      | VECTOR
                       | VERSION
                       | WEBSOCKET
                       | ZONEDDATETIME
@@ -200,6 +201,7 @@ query : cypherQuery
       | edgeIndexQuery
       | pointIndexQuery
       | textIndexQuery
+      | vectorIndexQuery
       | explainQuery
       | profileQuery
       | databaseInfoQuery

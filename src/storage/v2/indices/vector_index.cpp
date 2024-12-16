@@ -34,8 +34,6 @@
 
 namespace memgraph::storage {
 
-static constexpr std::string_view kLabel = "label";
-static constexpr std::string_view kProperty = "property";
 static constexpr std::string_view kMetric = "metric";
 static constexpr std::string_view kDimension = "dimension";
 static constexpr std::string_view kCapacity = "capacity";
@@ -86,47 +84,45 @@ struct VectorIndex::Impl {
 VectorIndex::VectorIndex() : pimpl(std::make_unique<Impl>()) {}
 VectorIndex::~VectorIndex() {}
 
-std::vector<std::shared_ptr<VectorIndexSpec>> VectorIndex::ParseIndexSpec(const nlohmann::json &index_spec,
-                                                                          NameIdMapper *name_id_mapper) {
-  if (index_spec.empty()) {
+VectorIndexConfigMap VectorIndex::ParseIndexSpec(
+    std::unordered_map<query::Expression *, query::Expression *> const &config_map,
+    query::ExpressionVisitor<query::TypedValue> &evaluator) {
+  if (config_map.empty()) {
     spdlog::error("Vector index spec is empty. No indexes will be created.");
     return {};
   }
 
-  std::vector<std::shared_ptr<VectorIndexSpec>> result;
-  result.reserve(index_spec.size());
+  auto transformed_map = std::ranges::views::all(config_map) | std::views::transform([&evaluator](const auto &pair) {
+                           auto key_expr = pair.first->Accept(evaluator);
+                           auto value_expr = pair.second->Accept(evaluator);
+                           return std::pair{key_expr.ValueString(), value_expr};
+                         }) |
+                         ranges::to<std::map<std::string, query::TypedValue, std::less<>>>;
 
-  try {
-    for (const auto &[index_name, index_spec] : index_spec.items()) {
-      // Check mandatory fields
-      MG_ASSERT(index_spec.contains(kLabel), "Vector index spec must have a 'label' field.");
-      MG_ASSERT(index_spec.contains(kProperty), "Vector index spec must have a 'property' field.");
-      MG_ASSERT(index_spec.contains(kDimension), "Vector index spec must have a 'dimension' field.");
-      MG_ASSERT(index_spec.contains(kCapacity), "Vector index spec must have a 'capacity' field.");
-
-      const auto metric = index_spec.contains(kMetric.data()) ? index_spec[kMetric.data()].get<std::string>()
-                                                              : std::string(kDefaultMetric);
-      const auto metric_kind = unum::usearch::metric_from_name(metric.c_str(), metric.size());
-      if (metric_kind.error) {
-        throw std::invalid_argument("Invalid metric name: " + metric);
-      }
-
-      const auto label = LabelId::FromUint(name_id_mapper->NameToId(index_spec[kLabel.data()].get<std::string>()));
-      const auto property =
-          PropertyId::FromUint(name_id_mapper->NameToId(index_spec[kProperty.data()].get<std::string>()));
-      const auto dimension = index_spec[kDimension.data()].get<std::uint16_t>();
-      const auto capacity = index_spec[kCapacity.data()].get<std::size_t>();
-      const auto resize_coefficient = index_spec.contains(kResizeCoefficient.data())
-                                          ? index_spec[kResizeCoefficient.data()].get<std::uint16_t>()
-                                          : kDefaultResizeCoefficient;
-      result.emplace_back(std::make_shared<VectorIndexSpec>(index_name, label, property, metric_kind.result, dimension,
-                                                            capacity, resize_coefficient));
-    }
-  } catch (const std::exception &e) {
-    throw std::invalid_argument("Error parsing vector index spec: " + std::string(e.what()));
+  auto metric_str = transformed_map.contains(kMetric.data())
+                        ? std::string(transformed_map.at(kMetric.data()).ValueString())
+                        : std::string(kDefaultMetric);
+  auto metric_kind = unum::usearch::metric_from_name(metric_str.c_str(), metric_str.size());
+  if (metric_kind.error) {
+    throw std::invalid_argument("Invalid metric kind: " + metric_str);
   }
 
-  return result;
+  auto dimension = transformed_map.find(kDimension.data());
+  if (dimension == transformed_map.end()) {
+    throw std::invalid_argument("Vector index spec must have a 'dimension' field.");
+  }
+  auto dimension_value = static_cast<std::uint16_t>(dimension->second.ValueInt());
+
+  auto capacity = transformed_map.find(kCapacity.data());
+  if (capacity == transformed_map.end()) {
+    throw std::invalid_argument("Vector index spec must have a 'capacity' field.");
+  }
+  auto capacity_value = static_cast<std::size_t>(capacity->second.ValueInt());
+
+  auto resize_coefficient = transformed_map.contains(kResizeCoefficient.data())
+                                ? static_cast<std::uint16_t>(transformed_map.at(kResizeCoefficient.data()).ValueInt())
+                                : kDefaultResizeCoefficient;
+  return VectorIndexConfigMap{metric_kind.result, dimension_value, capacity_value, resize_coefficient};
 }
 
 void VectorIndex::CreateIndex(const std::shared_ptr<VectorIndexSpec> &spec) {

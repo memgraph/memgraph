@@ -11,19 +11,30 @@
 
 #pragma once
 
-#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <json/json.hpp>
 #include <string>
 
+#include "query/frontend/ast/ast.hpp"
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
 #include "usearch/index_plugins.hpp"
 
 namespace memgraph::storage {
+
+/// @struct VectorIndexConfigMap
+/// @brief Represents the configuration options for a vector index.
+///
+/// This structure includes the metric name, the dimension of the vectors in the index,
+/// the capacity of the index, and the resize coefficient for the index.
+struct VectorIndexConfigMap {
+  unum::usearch::metric_kind_t metric;
+  std::uint16_t dimension;
+  std::size_t capacity;
+  std::uint16_t resize_coefficient;
+};
 
 /// @struct VectorIndexInfo
 /// @brief Represents information about a vector index in the system.
@@ -83,8 +94,9 @@ class VectorIndex {
   /// @param name_id_mapper The NameIdMapper instance used to map label and property names to IDs.
   /// @throws std::invalid_argument if the index specification is invalid.
   /// @return A vector of shared pointers to the VectorIndexSpec objects representing the parsed index specifications.
-  static std::vector<std::shared_ptr<VectorIndexSpec>> ParseIndexSpec(const nlohmann::json &index_spec,
-                                                                      NameIdMapper *name_id_mapper);
+  static VectorIndexConfigMap ParseIndexSpec(
+      std::unordered_map<query::Expression *, query::Expression *> const &config_map,
+      query::ExpressionVisitor<query::TypedValue> &evaluator);
 
   /// @brief Creates a new index based on the specified configuration.
   /// @param spec The specification for the index to be created.

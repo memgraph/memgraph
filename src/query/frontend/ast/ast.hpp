@@ -36,6 +36,15 @@ constexpr std::string_view kReplicationServer = "replication_server";
 constexpr std::string_view kCoordinatorServer = "coordinator_server";
 constexpr std::string_view kManagementServer = "management_server";
 
+constexpr std::string_view kLabel = "label";
+constexpr std::string_view kProperty = "property";
+constexpr std::string_view kMetric = "metric";
+constexpr std::string_view kDimension = "dimension";
+constexpr std::string_view kCapacity = "capacity";
+constexpr std::string_view kResizeCoefficient = "resize_coefficient";
+constexpr std::uint16_t kDefaultResizeCoefficient = 2;
+constexpr std::string_view kDefaultMetric = "l2sq";
+
 struct LabelIx {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const { return kType; }
