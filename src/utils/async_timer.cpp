@@ -52,7 +52,10 @@ uint64_t AddFlag(std::weak_ptr<std::atomic<bool>> flag) {
   return id;
 }
 
-void EraseFlag(uint64_t flag_id) { expiration_flags.access().remove(flag_id); }
+void EraseFlag(uint64_t flag_id) {
+  expiration_flags.access().remove(flag_id);
+  expiration_flags.run_gc();
+}
 
 std::weak_ptr<std::atomic<bool>> GetFlag(uint64_t flag_id) {
   const auto flag_accessor = expiration_flags.access();
@@ -190,7 +193,7 @@ void AsyncTimer::ReleaseResources() {
     timer_delete(timer_id_);
     EraseFlag(flag_id_);
     flag_id_ = kInvalidFlagId;
-    expiration_flag_ = std::shared_ptr<std::atomic<bool>>{};
+    expiration_flag_.reset();
   }
 }
 
