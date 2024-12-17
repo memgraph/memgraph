@@ -28,7 +28,9 @@ void SystemHeartbeatHandler(const uint64_t ts, const std::optional<utils::UUID> 
 
   // Ignore if no license
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
-    spdlog::error("Handling SystemHeartbeat, an enterprise RPC message, without license.");
+    spdlog::error(
+        "Handling SystemHeartbeat, an enterprise RPC message, without license. Check your license status by running "
+        "SHOW LICENSE INFO.");
     memgraph::slk::Save(res, res_builder);
     return;
   }

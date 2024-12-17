@@ -182,7 +182,9 @@ class MetricsRequestHandler final {
 
 #ifdef MG_ENTERPRISE
     if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-      return send(bad_request("Memgraph must have an Enterprise License for providing metrics!"));
+      return send(
+          bad_request("Memgraph must have an Enterprise License for providing metrics! Check your license status by "
+                      "running SHOW LICENSE INFO."));
     }
 #else
     return send(bad_request("Memgraph must be built for Enterprise for providing metrics!"));

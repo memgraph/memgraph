@@ -114,6 +114,7 @@ void LicenseChecker::RevalidateLicense(const utils::Settings &settings) {
 }
 
 void LicenseChecker::RevalidateLicense(const std::string &license_key, const std::string &organization_name) {
+  spdlog::trace("License revalidation started");
   static utils::Synchronized<std::optional<int64_t>, utils::SpinLock> previous_memory_limit;
   const auto set_memory_limit = [](const auto memory_limit) {
     auto locked_previous_memory_limit_ptr = previous_memory_limit.Lock();
@@ -136,9 +137,9 @@ void LicenseChecker::RevalidateLicense(const std::string &license_key, const std
                                  locked_previous_license_info->license_key == license_key &&
                                  locked_previous_license_info->organization_name == organization_name;
   // If we already know it's invalid skip the check
-  if (same_license_info && !locked_previous_license_info->is_valid) {
-    return;
-  }
+  // if (same_license_info && !locked_previous_license_info->is_valid) {
+  //   return;
+  // }
 
   locked_previous_license_info.emplace(license_key, organization_name);
 
@@ -252,7 +253,7 @@ LicenseCheckResult LicenseChecker::IsEnterpriseValid(const utils::Settings &sett
 
 void LicenseChecker::StartBackgroundLicenseChecker(const utils::Settings &settings) {
   RevalidateLicense(settings);
-  scheduler_.SetInterval(std::chrono::minutes{5});
+  scheduler_.SetInterval(std::chrono::seconds{10});
   scheduler_.Run("licensechecker", [&, this] { RevalidateLicense(settings); });
 }
 
