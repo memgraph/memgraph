@@ -11,10 +11,33 @@
 #pragma once
 
 #include "communication/v2/server.hpp"
-#include "glue/SessionHL.hpp"
+#include "utils/synchronized.hpp"
 
-extern template class memgraph::communication::v2::Server<memgraph::glue::SessionHL, memgraph::glue::Context>;
+namespace memgraph::query {
+struct InterpreterContext;
+}
+
+#if MG_ENTERPRISE
+namespace memgraph::audit {
+class Log;
+}
+#endif
+
+namespace memgraph::utils {
+class WritePrioritizedRWLock;
+}
+namespace memgraph::auth {
+class Auth;
+using SynchedAuth = memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock>;
+}  // namespace memgraph::auth
 
 namespace memgraph::glue {
-using ServerT = memgraph::communication::v2::Server<memgraph::glue::SessionHL, memgraph::glue::Context>;
+struct Context {
+  memgraph::communication::v2::ServerEndpoint endpoint;
+  memgraph::query::InterpreterContext *ic;
+  memgraph::auth::SynchedAuth *auth;
+#if MG_ENTERPRISE
+  memgraph::audit::Log *audit_log;
+#endif
+};
 }  // namespace memgraph::glue

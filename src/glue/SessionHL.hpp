@@ -16,6 +16,7 @@
 #include "communication/v2/server.hpp"
 #include "communication/v2/session.hpp"
 #include "dbms/database.hpp"
+#include "glue/SessionContext.hpp"
 #include "glue/query_user.hpp"
 #include "query/interpreter.hpp"
 
@@ -27,15 +28,8 @@ using bolt_map_t = memgraph::communication::bolt::map_t;
 class SessionHL final : public memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
                                                                       memgraph::communication::v2::OutputStream> {
  public:
-  SessionHL(memgraph::query::InterpreterContext *interpreter_context,
-            memgraph::communication::v2::ServerEndpoint endpoint,
-            memgraph::communication::v2::InputStream *input_stream,
-            memgraph::communication::v2::OutputStream *output_stream, memgraph::auth::SynchedAuth *auth
-#ifdef MG_ENTERPRISE
-            ,
-            memgraph::audit::Log *audit_log
-#endif
-  );
+  SessionHL(Context context, memgraph::communication::v2::InputStream *input_stream,
+            memgraph::communication::v2::OutputStream *output_stream);
 
   ~SessionHL() override;
 
