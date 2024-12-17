@@ -493,7 +493,7 @@ bool InMemoryReplicationHandlers::LoadWal(storage::InMemoryStorage *storage, sto
     }
 
     // If WAL file doesn't contain any changes that need to be applied, ignore it
-    if (wal_info.to_timestamp <= storage->repl_storage_state_.last_durable_timestamp_) {
+    if (wal_info.to_timestamp <= storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire)) {
       spdlog::trace("WAL file won't be applied since all changes already exist.");
       return true;
     }

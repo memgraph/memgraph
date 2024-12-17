@@ -74,9 +74,6 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
       return main_epoch_info.first == replica.epoch_id;
     });
 
-    spdlog::trace("Found commit timestamp {} for epoch {} in history.", epoch_info_iter->second,
-                  epoch_info_iter->first);
-
     if (epoch_info_iter == history.crend()) {
       spdlog::trace("Couldn't find epoch {} in main, setting branching point to 0.", std::string(replica.epoch_id));
       branching_point = 0;
@@ -89,7 +86,8 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
       branching_point = epoch_info_iter->second;
     } else {
       branching_point = std::nullopt;
-      spdlog::trace("Found continuous history between replica {} and main.", client_.name_);
+      spdlog::trace("Found continuous history between replica {} and main. Our commit timestamp for epoch {} was {}.",
+                    client_.name_, epoch_info_iter->first, epoch_info_iter->second);
     }
   }
   if (branching_point) {
