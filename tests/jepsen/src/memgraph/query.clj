@@ -35,16 +35,12 @@
   RETURN n.id as id;
   ")
 
-(defn add-nodes
-  [batch-size]
-  (dbclient/create-query
-   (let [query
-         (str "MATCH (n:Node) WITH coalesce(max(n.id), 0) as max_idx "
-              "FOREACH (i in range(max_idx+1, max_idx+"
-              batch-size
-              ") | CREATE (:Node {id: i}));")]
-
-     (info "Create query" query))))
+(dbclient/defquery add-nodes
+  "MATCH (n:Node)
+  WITH coalesce(max(n.id), 0) as max_idx
+  FOREACH (i in range(max_idx + 1, max_idx + $batch-size)
+    | CREATE (:Node {id: i}));
+  ")
 
 (defn register-replication-instance
   [name node-config]
