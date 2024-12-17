@@ -654,9 +654,9 @@ int main(int argc, char **argv) {
   auto server_endpoint = memgraph::communication::v2::ServerEndpoint{
       boost::asio::ip::address::from_string(FLAGS_bolt_address), static_cast<uint16_t>(extracted_bolt_port)};
 #ifdef MG_ENTERPRISE
-  Context session_context{&interpreter_context_, auth_.get(), &audit_log};
+  memgraph::glue::Context session_context{server_endpoint, &interpreter_context_, auth_.get(), &audit_log};
 #else
-  Context session_context{&interpreter_context_, auth_.get()};
+  Context session_context{server_endpoint, &interpreter_context_, auth_.get()};
 #endif
   memgraph::glue::ServerT server(memgraph::communication::v2::handle_errors_t, server_endpoint, &session_context,
                                  &context, service_name, FLAGS_bolt_num_workers);
