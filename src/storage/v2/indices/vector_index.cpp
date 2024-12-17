@@ -150,8 +150,6 @@ bool VectorIndex::CreateIndex(const std::shared_ptr<VectorIndexSpec> &spec,
                               utils::SkipList<Vertex>::Accessor vertices) {
   try {
     CreateIndex(spec);
-    auto &[index, _, lock] = pimpl->index_.at(LabelPropKey{spec->label, spec->property});
-    auto guard = std::unique_lock{lock};
     for (auto &vertex : vertices) {
       UpdateVectorIndex(&vertex, LabelPropKey{spec->label, spec->property});
     }
