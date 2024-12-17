@@ -20,6 +20,7 @@
 #pragma pop_macro("EOF")  // bring EOF back
 
 #include <string>
+#include <string_view>
 
 namespace memgraph::query::frontend::opencypher {
 
@@ -34,7 +35,7 @@ class Parser {
    * @param query incoming query that has to be compiled into query plan
    *        the first step is to generate AST
    */
-  explicit Parser(const std::string query) : query_(std::move(query)) {
+  explicit Parser(std::string query) : query_(std::move(query)) {
     parser_.removeErrorListeners();
     parser_.addErrorListener(&error_listener_);
     tree_ = parser_.cypher();
@@ -47,19 +48,36 @@ class Parser {
 
  private:
   class FirstMessageErrorListener : public antlr4::BaseErrorListener {
-    void syntaxError(antlr4::Recognizer *, antlr4::Token *, size_t line, size_t position, const std::string &message,
-                     std::exception_ptr) override {
+   public:
+    explicit FirstMessageErrorListener(const std::string &query) : query_(query) {}
+    void syntaxError(antlr4::Recognizer * /* unused */, antlr4::Token *token, size_t line, size_t position,
+                     const std::string &message, std::exception_ptr exception) override {
       if (error_.empty()) {
-        error_ = "line " + std::to_string(line) + ":" + std::to_string(position + 1) + " " + message;
+        try {
+          if (exception) std::rethrow_exception(exception);
+        } catch (const antlr4::NoViableAltException &ex) {
+          error_ = "Error on line " + std::to_string(line) + " position " + std::to_string(position + 1) +
+                   " with the " + token->getText() + " token. The underlying parsing error is " + message + "." +
+                   " Take a look at clauses around and try to fix the query.";
+          return;
+        } catch (...) {
+          // Handled below
+          (void)0;
+        }
+        error_ = "Error on line " + std::to_string(line) + " position " + std::to_string(position + 1) +
+                 ". The underlying parsing error is " + message;
       }
     }
 
-   public:
-    std::string error_;
+   private:
+    friend class Parser;
+
+    std::string error_{};
+    std::string_view query_;
   };
 
-  FirstMessageErrorListener error_listener_;
   std::string query_;
+  FirstMessageErrorListener error_listener_{query_};
   antlr4::ANTLRInputStream input_{query_};
   antlropencypher::MemgraphCypherLexer lexer_{&input_};
   antlr4::CommonTokenStream tokens_{&lexer_};
