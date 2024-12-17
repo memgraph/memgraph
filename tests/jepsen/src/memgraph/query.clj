@@ -6,10 +6,8 @@
 (dbclient/defquery get-all-instances
   "SHOW INSTANCES;")
 
-
 (dbclient/defquery show-replication-role
   "SHOW REPLICATION ROLE;")
-
 
 (dbclient/defquery detach-delete-all
   "MATCH (n) DETACH DELETE n;")
@@ -37,15 +35,16 @@
   RETURN n.id as id;
   ")
 
-(dbclient/defquery max-id
-  "MATCH (n:Node)
-  RETURN max(n.id) as id;
-  ")
-
 (defn add-nodes
-  [start-idx end-idx]
+  [batch-size]
   (dbclient/create-query
-   (str "FOREACH (i in range(" start-idx ", " end-idx ") | CREATE (:Node {id: i}));")))
+   (let [query
+         (str "MATCH (n:Node) WITH coalesce(max(n.id), 0) as max_idx "
+              "FOREACH (i in range(max_idx+1, max_idx+"
+              batch-size
+              ") | CREATE (:Node {id: i}));")]
+
+     (info "Create query" query))))
 
 (defn register-replication-instance
   [name node-config]
