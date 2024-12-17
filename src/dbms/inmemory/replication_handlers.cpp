@@ -297,7 +297,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
         storage->config_.salient.items.enable_schema_info ? &storage->schema_info_.Get() : nullptr);
     spdlog::debug("Snapshot loaded successfully");
     // If this step is present it should always be the first step of
-    // the recovery so we use the UUID we read from snasphost
+    // the recovery so we use the UUID we read from snapshot
     storage->uuid().set(recovered_snapshot.snapshot_info.uuid);
     storage->repl_storage_state_.epoch_.SetEpoch(std::move(recovered_snapshot.snapshot_info.epoch_id));
     const auto &recovery_info = recovered_snapshot.recovery_info;
@@ -492,6 +492,12 @@ bool InMemoryReplicationHandlers::LoadWal(storage::InMemoryStorage *storage, sto
       storage->uuid().set(wal_info.uuid);
     }
 
+    // If WAL file doesn't contain any changes that need to be applied, ignore it
+    if (wal_info.to_timestamp <= storage->repl_storage_state_.last_durable_timestamp_) {
+      spdlog::trace("WAL file won't be applied since all changes already exist.");
+      return true;
+    }
+
     auto &replica_epoch = storage->repl_storage_state_.epoch_;
     if (wal_info.epoch_id != replica_epoch.id()) {
       // questionable behaviour, we trust that any change in epoch implies change in who is MAIN
@@ -523,7 +529,7 @@ bool InMemoryReplicationHandlers::LoadWal(storage::InMemoryStorage *storage, sto
       i += ReadAndApplyDeltas(storage, &wal, *version);
     }
 
-    spdlog::debug("Replication from current WAL successful!");
+    spdlog::trace("Replication from WAL file {} successful!", *maybe_wal_path);
     return true;
   } catch (const storage::durability::RecoveryFailure &e) {
     spdlog::error("Couldn't recover WAL deltas from {} because of: {}.", *maybe_wal_path, e.what());

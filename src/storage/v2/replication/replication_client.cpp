@@ -74,6 +74,9 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
       return main_epoch_info.first == replica.epoch_id;
     });
 
+    spdlog::trace("Found commit timestamp {} for epoch {} in history.", epoch_info_iter->second,
+                  epoch_info_iter->first);
+
     if (epoch_info_iter == history.crend()) {
       spdlog::trace("Couldn't find epoch {} in main, setting branching point to 0.", std::string(replica.epoch_id));
       branching_point = 0;
