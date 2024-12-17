@@ -69,8 +69,22 @@ void str2object(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp
       func_result.SetValue(result.ValueMap());
     } else if (result.IsList()) {
       func_result.SetValue(result.ValueList());
+    } else if (result.IsString()) {
+      func_result.SetValue(result.ValueString());
+    } else if (result.IsInt()) {
+      func_result.SetValue(result.ValueInt());
+    } else if (result.IsDouble()) {
+      func_result.SetValue(result.ValueDouble());
+    } else if (result.IsBool()) {
+      func_result.SetValue(result.ValueBool());
+    } else if (result.IsNull()) {
+      func_result.SetValue();
     } else {
-      mgp::func_result_set_error_msg(res, "The end result is not map or list!", memory);
+      mgp::func_result_set_error_msg(
+          res,
+          "The end result is not one of the following JSON-language data types: object, array, "
+          "number, string, boolean, or null.",
+          memory);
     }
   } catch (const std::exception &e) {
     mgp::func_result_set_error_msg(res, e.what(), memory);

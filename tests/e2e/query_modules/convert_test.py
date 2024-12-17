@@ -44,5 +44,60 @@ def test_convert_map():
     }
 
 
+def test_convert_null():
+    cursor = connect().cursor()
+    result = execute_and_fetch_all(
+        cursor,
+        'RETURN convert.str2object("null");',
+    )[
+        0
+    ][0]
+    assert result == None
+
+
+def test_convert_int():
+    cursor = connect().cursor()
+    result = execute_and_fetch_all(
+        cursor,
+        'RETURN convert.str2object("1");',
+    )[
+        0
+    ][0]
+    assert result == 1
+
+
+def test_convert_double():
+    cursor = connect().cursor()
+    result = execute_and_fetch_all(
+        cursor,
+        'RETURN convert.str2object("1.5");',
+    )[
+        0
+    ][0]
+    assert result == 1.5
+
+
+def test_convert_bool():
+    cursor = connect().cursor()
+    result = execute_and_fetch_all(
+        cursor,
+        'RETURN convert.str2object("true");',
+    )[
+        0
+    ][0]
+    assert result == True
+
+
+def test_convert_string():
+    cursor = connect().cursor()
+    result = execute_and_fetch_all(
+        cursor,
+        'RETURN convert.str2object("\\"Cool string\\"");',
+    )[
+        0
+    ][0]
+    assert result == "Cool string"
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
