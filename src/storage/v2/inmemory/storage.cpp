@@ -2522,7 +2522,7 @@ StorageInfo InMemoryStorage::GetInfo() {
     info.label_indices = lbl.label.size();
     info.label_property_indices = lbl.label_property.size();
     info.text_indices = lbl.text_indices.size();
-    info.vector_indices = lbl.vector_label_property.size();
+    info.vector_indices = lbl.vector_indices_spec.size();
     const auto &con = access->ListAllConstraints();
     info.existence_constraints = con.existence.size();
     info.unique_constraints = con.unique.size();

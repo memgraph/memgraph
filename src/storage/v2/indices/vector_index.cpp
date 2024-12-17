@@ -274,11 +274,11 @@ std::vector<VectorIndexInfo> VectorIndex::ListVectorIndicesInfo() const {
   return result;
 }
 
-std::vector<std::pair<LabelId, PropertyId>> VectorIndex::ListIndices() const {
-  std::vector<std::pair<LabelId, PropertyId>> result;
-  result.reserve(pimpl->index_name_to_label_prop_.size());
-  std::ranges::transform(pimpl->index_name_to_label_prop_, std::back_inserter(result),
-                         [](const auto &pair) { return std::make_pair(pair.second.label(), pair.second.property()); });
+std::vector<std::shared_ptr<VectorIndexSpec>> VectorIndex::ListIndices() const {
+  std::vector<std::shared_ptr<VectorIndexSpec>> result;
+  result.reserve(pimpl->index_.size());
+  std::ranges::transform(pimpl->index_, std::back_inserter(result),
+                         [](const auto &label_prop_index_item) { return label_prop_index_item.second.spec; });
   return result;
 }
 
@@ -312,8 +312,12 @@ std::vector<std::tuple<Vertex *, double, double>> VectorIndex::Search(std::strin
   if (!flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
     throw query::VectorSearchDisabledException();
   }
-  const auto label_prop = pimpl->index_name_to_label_prop_.at(index_name.data());
-  const auto &[index, _, lock] = pimpl->index_.at(label_prop);
+
+  const auto label_prop = pimpl->index_name_to_label_prop_.find(std::string(index_name));
+  if (label_prop == pimpl->index_name_to_label_prop_.end()) {
+    throw std::invalid_argument("Vector index " + std::string(index_name) + " does not exist.");
+  }
+  auto &[index, _, lock] = pimpl->index_.at(label_prop->second);
 
   // The result vector will contain pairs of vertices and their score.
   std::vector<std::tuple<Vertex *, double, double>> result;

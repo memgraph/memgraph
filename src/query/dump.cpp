@@ -29,6 +29,7 @@
 #include "query/trigger_context.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
+#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/temporal.hpp"
@@ -315,6 +316,13 @@ void DumpPointIndex(std::ostream *os, query::DbAccessor *dba, storage::LabelId l
       << EscapeName(dba->PropertyToName(property)) << ");";
 }
 
+void DumpVectorIndex(std::ostream *os, query::DbAccessor *dba, const std::shared_ptr<storage::VectorIndexSpec> &spec) {
+  *os << "CREATE VECTOR INDEX " << EscapeName(spec->index_name) << " ON :" << EscapeName(dba->LabelToName(spec->label))
+      << "(" << EscapeName(dba->PropertyToName(spec->property)) << ") WITH CONFIG { dimension: " << spec->dimension
+      << ", metric: " << storage::kMetricToStringMap.at(spec->metric_kind).front() << ", capacity: " << spec->capacity
+      << ", resize_coefficient: " << spec->resize_coefficient << "};";
+}
+
 void DumpExistenceConstraint(std::ostream *os, query::DbAccessor *dba, storage::LabelId label,
                              storage::PropertyId property) {
   *os << "CREATE CONSTRAINT ON (u:" << EscapeName(dba->LabelToName(label)) << ") ASSERT EXISTS (u."
@@ -361,6 +369,8 @@ PullPlanDump::PullPlanDump(DbAccessor *dba, dbms::DatabaseAccess db_acc)
                    CreateTextIndicesPullChunk(),
                    // Dump all point indices
                    CreatePointIndicesPullChunk(),
+                   // Dump all vector indices
+                   CreateVectorIndexPullChunk(),
                    // Dump all existence constraints
                    CreateExistenceConstraintsPullChunk(),
                    // Dump all unique constraints
@@ -595,6 +605,33 @@ PullPlanDump::PullChunk PullPlanDump::CreatePointIndicesPullChunk() {
     }
 
     if (global_index == point_label_properties.size()) {
+      return local_counter;
+    }
+
+    return std::nullopt;
+  };
+}
+
+PullPlanDump::PullChunk PullPlanDump::CreateVectorIndexPullChunk() {
+  return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
+    // Delay the construction of indices vectors
+    if (!indices_info_) {
+      indices_info_.emplace(dba_->ListAllIndices());
+    }
+    const auto &vector = indices_info_->vector_indices_spec;
+
+    size_t local_counter = 0;
+    while (global_index < vector.size() && (!n || local_counter < *n)) {
+      const auto &index = vector[global_index];
+      std::ostringstream os;
+      DumpVectorIndex(&os, dba_, index);
+      stream->Result({TypedValue(os.str())});
+
+      ++global_index;
+      ++local_counter;
+    }
+
+    if (global_index == vector.size()) {
       return local_counter;
     }
 

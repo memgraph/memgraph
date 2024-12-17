@@ -24,6 +24,18 @@
 
 namespace memgraph::storage {
 
+/// usearch does not provide a way to convert metric_kind_t to string, so we need to do it manually.
+inline const std::unordered_map<unum::usearch::metric_kind_t, std::vector<std::string>> kMetricToStringMap = {
+    {unum::usearch::metric_kind_t::l2sq_k, {"l2sq", "euclidean_sq"}},
+    {unum::usearch::metric_kind_t::ip_k, {"ip", "inner", "dot"}},
+    {unum::usearch::metric_kind_t::cos_k, {"cos", "angular"}},
+    {unum::usearch::metric_kind_t::haversine_k, {"haversine"}},
+    {unum::usearch::metric_kind_t::divergence_k, {"divergence"}},
+    {unum::usearch::metric_kind_t::pearson_k, {"pearson"}},
+    {unum::usearch::metric_kind_t::hamming_k, {"hamming"}},
+    {unum::usearch::metric_kind_t::tanimoto_k, {"tanimoto"}},
+    {unum::usearch::metric_kind_t::sorensen_k, {"sorensen"}}};
+
 /// @struct VectorIndexConfigMap
 /// @brief Represents the configuration options for a vector index.
 ///
@@ -136,8 +148,8 @@ class VectorIndex {
   std::vector<VectorIndexInfo> ListVectorIndicesInfo() const;
 
   /// @brief Lists the labels and properties that have vector indices.
-  /// @return A vector of pairs containing the label ID and the property ID.
-  std::vector<std::pair<LabelId, PropertyId>> ListIndices() const;
+  /// @return A vector of specs representing vector indices configurations.
+  std::vector<std::shared_ptr<VectorIndexSpec>> ListIndices() const;
 
   /// @brief Lists vector index specifications.
   /// @return A vector of VectorIndexSpec objects representing the index specifications.

@@ -74,7 +74,7 @@ struct IndicesInfo {
   std::vector<std::pair<EdgeTypeId, PropertyId>> edge_type_property;
   std::vector<std::pair<std::string, LabelId>> text_indices;
   std::vector<std::pair<LabelId, PropertyId>> point_label_property;
-  std::vector<std::pair<LabelId, PropertyId>> vector_label_property;
+  std::vector<std::shared_ptr<VectorIndexSpec>> vector_indices_spec;
 };
 
 struct ConstraintsInfo {
