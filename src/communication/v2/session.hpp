@@ -190,15 +190,11 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
 
  private:
   explicit Session(tcp::socket &&socket, TSessionContext *session_context, ServerContext &server_context,
-                   tcp::endpoint endpoint, std::string_view service_name)
+                   std::string_view service_name)
       : socket_(CreateSocket(std::move(socket), server_context)),
         strand_{boost::asio::make_strand(GetExecutor())},
         output_stream_([this](const uint8_t *data, size_t len, bool have_more) { return Write(data, len, have_more); }),
-        session_{session_context->ic,       endpoint, input_buffer_.read_end(), &output_stream_, session_context->auth,
-#ifdef MG_ENTERPRISE
-                 session_context->audit_log
-#endif
-        },
+        session_{*session_context, input_buffer_.read_end(), &output_stream_},
         session_context_{session_context},
         remote_endpoint_{GetRemoteEndpoint()},
         service_name_{service_name} {
