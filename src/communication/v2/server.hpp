@@ -198,7 +198,7 @@ inline void Server<TSession, TSessionContext>::OnAccept(boost::system::error_cod
     return OnError(ec, "accept");
   }
 
-  // Move socket from the listener thread to worker
+  // Move socket from the listener thread to worker pool and create a new session
   auto fd = socket.release();
   boost::asio::ip::tcp::socket connected_socket(context_thread_pool_.GetIOContext());
   connected_socket.assign(endpoint_.protocol(), fd);
