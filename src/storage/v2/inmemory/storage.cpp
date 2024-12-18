@@ -247,6 +247,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       // SkipList is already threadsafe
       vertices_.run_gc();
       edges_.run_gc();
+      edges_metadata_.run_gc();
     };
   }
 
@@ -2381,13 +2382,13 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     }
   }
 
-  {
+  if (!current_deleted_vertices.empty()) {
     auto vertex_acc = vertices_.access();
     for (auto vertex : current_deleted_vertices) {
       MG_ASSERT(vertex_acc.remove(vertex), "Invalid database state!");
     }
   }
-  {
+  if (!current_deleted_edges.empty()) {
     auto edge_acc = edges_.access();
     auto edge_metadata_acc = edges_metadata_.access();
     for (auto edge : current_deleted_edges) {

@@ -412,13 +412,13 @@ def test_multiple_match_query(memgraph):
     # TODO: Fix this test since it has the filtering info wrong (filtering by label that's already indexed)
     expected_explain_with_hint = [
         " * Produce {n, m}",
-        " * Cartesian {m : n}",
+        " * Cartesian {n : m}",
         " |\\ ",
-        " | * Filter (n :Label1:Label2), {n.id}",
-        " | * ScanAllByLabel (n :Label1)",
+        " | * Filter (m :Label2:Label3)",
+        " | * ScanAllByLabel (m :Label2)",
         " | * Once",
-        " * Filter (m :Label2:Label3)",
-        " * ScanAllByLabel (m :Label2)",
+        " * Filter (n :Label1:Label2), {n.id}",
+        " * ScanAllByLabel (n :Label1)",
         " * Once",
     ]
 
