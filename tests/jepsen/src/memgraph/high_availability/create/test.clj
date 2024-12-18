@@ -249,7 +249,7 @@
                        (utils/with-session bolt-conn session
                            ; If query failed because the instance got killed, we should catch TransientException -> this will be logged as
                            ; fail result.
-                           (mgquery/add-nodes session {:batch-size batch-size}))
+                           (mgquery/add-nodes session {:batchSize batch-size}))
                        (assoc op :type :ok :value "Nodes created.")
 
                        (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
