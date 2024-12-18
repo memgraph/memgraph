@@ -49,6 +49,7 @@
 #include "utils/event_counter.hpp"
 #include "utils/logging.hpp"
 #include "utils/on_scope_exit.hpp"
+#include "utils/thread_pool.hpp"
 #include "utils/variant_helpers.hpp"
 
 namespace memgraph::metrics {
@@ -59,6 +60,24 @@ extern const Event ActiveWebSocketSessions;
 }  // namespace memgraph::metrics
 
 namespace memgraph::communication::v2 {
+
+struct ConnectionInfo {
+  bool handshake;
+  int priority;
+  std::string database;
+  std::string username;
+  std::string rolename;
+};
+
+inline class Scheduler {
+ public:
+  explicit Scheduler(size_t n) : pool_{n} {}
+
+  void AddTask(ConnectionInfo info, auto task) { pool_.AddTask(std::move(task)); }
+
+ private:
+  utils::ThreadPool pool_;
+} scheduler_{16};
 
 /**
  * This is used to provide input to user Sessions. All Sessions used with the
@@ -307,6 +326,11 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     OnRead(ec, bytes_transferred);
   }
 
+  // TODO
+  // Ideally we would have a connected (handshake + authenticated) in a different pool
+  // Not sure how to best handle that
+  //
+
   void OnRead(const boost::system::error_code &ec, const size_t bytes_transferred) {
     if (ec) {
       // TODO Check if client disconnected
@@ -316,18 +340,42 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
 
     input_buffer_.write_end()->Written(bytes_transferred);
 
-    try {
-      session_.Execute();
-      DoRead();
-    } catch (const SessionClosedException &e) {
-      spdlog::info("{} client {} closed the connection.", service_name_, remote_endpoint_);
-      DoShutdown();
-    } catch (const std::exception &e) {
-      spdlog::error("Exception was thrown while processing event in {} session associated with {}", service_name_,
-                    remote_endpoint_);
-      spdlog::debug("Exception message: {}", e.what());
-      DoShutdown();
-    }
+    session_.Execute([shared_this = shared_from_this()](std::exception_ptr eptr) {
+      // Handle any generated errors
+      if (eptr) {
+        try {
+          std::rethrow_exception(eptr);
+        } catch (const SessionClosedException &e) {
+          spdlog::info("{} client {} closed the connection.", shared_this->service_name_,
+                       shared_this->remote_endpoint_);
+          shared_this->DoShutdown();
+        } catch (const std::exception &e) {
+          spdlog::error("Exception was thrown while processing event in {} session associated with {}",
+                        shared_this->service_name_, shared_this->remote_endpoint_);
+          spdlog::debug("Exception message: {}", e.what());
+          shared_this->DoShutdown();
+        }
+      }
+      shared_this->DoRead();
+    });
+  }
+
+  void AddTask(auto info, auto task) {
+    auto wrapped_task = [shared_this = shared_from_this(), task = std::move(task)]() {
+      try {
+        task();
+        shared_this->DoRead();
+      } catch (const SessionClosedException &e) {
+        spdlog::info("{} client {} closed the connection.", shared_this->service_name_, shared_this->remote_endpoint_);
+        shared_this->DoShutdown();
+      } catch (const std::exception &e) {
+        spdlog::error("Exception was thrown while processing event in {} session associated with {}",
+                      shared_this->service_name_, shared_this->remote_endpoint_);
+        spdlog::debug("Exception message: {}", e.what());
+        shared_this->DoShutdown();
+      }
+    };
+    scheduler_.AddTask(info, std::move(wrapped_task));
   }
 
   void OnError(const boost::system::error_code &ec) {

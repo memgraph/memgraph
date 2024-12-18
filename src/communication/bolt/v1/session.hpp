@@ -13,6 +13,7 @@
 
 #include <concepts>
 #include <cstddef>
+#include <exception>
 #include <optional>
 #include <thread>
 
@@ -32,10 +33,13 @@
 #include "dbms/global.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
+#include "utils/thread_pool.hpp"
 #include "utils/timestamp.hpp"
 #include "utils/uuid.hpp"
 
 namespace memgraph::communication::bolt {
+
+inline static utils::ThreadPool fake_scheduler{16};
 
 /**
  * Bolt Session Exception
@@ -104,7 +108,7 @@ class Session {
    * @param q If set, defines from which query to pull the results,
    * otherwise the last query is used.
    */
-  virtual map_t Pull(TEncoder *encoder, std::optional<int> n, std::optional<int> qid) = 0;
+  virtual map_t Pull(std::optional<int> n, std::optional<int> qid) = 0;
 
   /**
    * Discard results of the processed query.
@@ -134,7 +138,7 @@ class Session {
    * Executes the session after data has been read into the buffer.
    * Goes through the bolt states in order to execute commands from the client.
    */
-  void Execute() {
+  void Execute(auto &&async_cb) {
     if (UNLIKELY(!handshake_done_)) {
       // Resize the input buffer to ensure that a whole chunk can fit into it.
       // This can be done only once because the buffer holds its size.
@@ -157,6 +161,7 @@ class Session {
     }
 
     ChunkState chunk_state;
+    // TODO Have to handle single message at a time
     while ((chunk_state = decoder_buffer_.GetChunk()) != ChunkState::Partial) {
       if (chunk_state == ChunkState::Whole) {
         // The chunk is whole, we need to read one more chunk
@@ -182,14 +187,53 @@ class Session {
           break;
       }
 
-      // State::Close is handled here because we always want to check for
-      // it after the above select. If any of the states above return a
-      // State::Close then the connection should be terminated immediately.
-      if (UNLIKELY(state_ == State::Close)) {
-        ClientFailureInvalidData();
+      if (state_ == State::Postponed) [[likely]] {
+        AsyncExecution(std::move(async_cb));
         return;
+      } else if (state_ == State::Close) [[unlikely]] {
+        // State::Close is handled here because we always want to check for
+        // it after the above select. If any of the states above return a
+        // State::Close then the connection should be terminated immediately.
+        // TODO Handle the exception from this
+        ClientFailureInvalidData();
       }
     }
+    async_cb(std::exception_ptr{/* no expections */});
+  }
+
+  struct PostponedWork {
+    std::optional<int> n;
+    std::optional<int> qid;
+    bool is_pull;
+  };
+
+  std::optional<PostponedWork> postponed_work;
+
+  void PostponeWork(bool is_pull, std::optional<int> n, std::optional<int> qid) {
+    DMG_ASSERT(!postponed_work, "Work already postponed");
+    postponed_work.emplace(n, qid, is_pull);
+  }
+
+  void AsyncExecution(auto &&cb) {
+    DMG_ASSERT(postoned_work, "No postponed work to execute");
+    // TODO Actually make this
+    // Safe to pass in this, since the cb actually holds on to the sesssion. Make this make sense...
+    fake_scheduler.AddTask([this, cb = std::move(cb), postponed_work = std::move(postponed_work)]() {
+      // TODO Catch exceptions and pass to cb
+      // Seems like the only exceptions that can be thrown is from the close handler
+      std::exception_ptr eptr;
+      try {
+        if (postponed_work->is_pull) {
+          state_ = communication::bolt::details::HandlePullDiscard<true>(*this, postponed_work->n, postponed_work->qid);
+        }
+        if (state_ == communication::bolt::State::Close) {
+          ClientFailureInvalidData();
+        }
+      } catch (const std::exception &) {
+        eptr = std::current_exception();
+      }
+      cb(eptr);
+    });
   }
 
   void HandleError() {
@@ -225,7 +269,7 @@ class Session {
   std::string UUID() const { return session_uuid_; }
   std::string GetLoginTimestamp() const { return login_timestamp_; }
 
- private:
+ protected:
   void ClientFailureInvalidData() {
     // Set the state to Close.
     state_ = State::Close;
@@ -241,8 +285,8 @@ class Session {
     throw SessionException("Something went wrong during session execution!");
   }
 
+ private:
   const std::string kTimestampFormat = "{:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}.{:06d}";
-
   const std::string session_uuid_;  //!< unique identifier of the session (auto generated)
   const std::string login_timestamp_;
 };
