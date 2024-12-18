@@ -63,7 +63,7 @@ class CoordinatorStateManager : public state_mgr {
   auto GetCoordinatorToCoordinatorConfigs() const -> std::vector<CoordinatorToCoordinatorConfig>;
 
  private:
-  void NotifyObserver(std::vector<CoordinatorToCoordinatorConfig> const &configs);
+  void NotifyObserver(std::vector<CoordinatorToCoordinatorConfig> const &configs) const;
   void HandleVersionMigration();
   void TryUpdateClusterConfigFromDisk();
 

@@ -63,14 +63,14 @@ class RaftState {
 
   auto InstanceName() const -> std::string;
 
-  auto AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) -> void;
-  auto RemoveCoordinatorInstance(int coordinator_id) -> void;
+  auto AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) const -> void;
+  auto RemoveCoordinatorInstance(int coordinator_id) const -> void;
   auto GetCoordinatorInstances() const -> std::vector<CoordinatorToCoordinatorConfig>;
 
   auto IsLeader() const -> bool;
   auto GetCoordinatorId() const -> uint32_t;
 
-  auto AppendClusterUpdate(std::vector<DataInstanceState> cluster_state, utils::UUID uuid) -> bool;
+  auto AppendClusterUpdate(std::vector<DataInstanceState> cluster_state, utils::UUID uuid) const -> bool;
 
   auto GetDataInstances() const -> std::vector<DataInstanceState>;
 
@@ -86,7 +86,7 @@ class RaftState {
   auto GetRoutingTable() const -> RoutingTable;
 
   // Returns elapsed time in ms since last successful response from the coordinator with id srv_id
-  auto CoordLastSuccRespMs(uint32_t srv_id) -> std::chrono::milliseconds;
+  auto CoordLastSuccRespMs(uint32_t srv_id) const -> std::chrono::milliseconds;
 
   auto GetLeaderId() const -> uint32_t;
 

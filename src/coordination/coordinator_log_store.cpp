@@ -198,7 +198,8 @@ ptr<std::vector<ptr<log_entry>>> CoordinatorLogStore::log_entries(uint64_t start
   return ret;
 }
 
-std::vector<std::pair<int64_t, ptr<log_entry>>> CoordinatorLogStore::GetAllEntriesRange(uint64_t start, uint64_t end) {
+std::vector<std::pair<int64_t, ptr<log_entry>>> CoordinatorLogStore::GetAllEntriesRange(uint64_t start,
+                                                                                        uint64_t end) const {
   std::vector<std::pair<int64_t, ptr<log_entry>>> entries;
   entries.reserve(end - start);
 

@@ -77,12 +77,17 @@ class CoordinatorInstance {
 
   // The logic here is that as long as we didn't set uuid for the whole cluster, actions will be reverted on instances
   // on the next state check.
-  [[nodiscard]] auto SetReplicationInstanceToMain(std::string_view new_main_name) -> SetInstanceToMainCoordinatorStatus;
+  [[nodiscard]] auto SetReplicationInstanceToMain(std::string_view new_main_name) const
+      -> SetInstanceToMainCoordinatorStatus;
+
+  auto AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) const -> AddCoordinatorInstanceStatus;
+
+  auto RemoveCoordinatorInstance(int coordinator_id) const -> RemoveCoordinatorInstanceStatus;
 
   // If user demotes main to replica, cluster will be without main instance. User should then call
   // TryVerifyOrCorrectClusterState or SetReplicationInstanceToMain. The logic here is that as long as we didn't set
   // uuid for the whole cluster, actions will be reverted on instances on the next state check.
-  [[nodiscard]] auto DemoteInstanceToReplica(std::string_view instance_name) -> DemoteInstanceCoordinatorStatus;
+  [[nodiscard]] auto DemoteInstanceToReplica(std::string_view instance_name) const -> DemoteInstanceCoordinatorStatus;
 
   [[nodiscard]] auto TryVerifyOrCorrectClusterState() -> ReconcileClusterStateStatus;
 
@@ -93,15 +98,11 @@ class CoordinatorInstance {
   auto ShowInstancesAsLeader() const -> std::optional<std::vector<InstanceStatus>>;
 
   // Finds most up to date instance that could become new main. Only alive instances are taken into account.
-  [[nodiscard]] auto TryFailover() -> FailoverStatus;
-
-  auto AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) -> AddCoordinatorInstanceStatus;
-
-  auto RemoveCoordinatorInstance(int coordinator_id) -> RemoveCoordinatorInstanceStatus;
+  [[nodiscard]] auto TryFailover() const -> FailoverStatus;
 
   auto GetRoutingTable() const -> RoutingTable;
 
-  static auto GetMostUpToDateInstanceFromHistories(std::list<ReplicationInstanceConnector> &instances)
+  static auto GetMostUpToDateInstanceFromHistories(std::list<ReplicationInstanceConnector> const &instances)
       -> std::optional<std::string>;
 
   static auto ChooseMostUpToDateInstance(std::span<InstanceNameDbHistories> histories) -> std::optional<NewMainRes>;
@@ -112,7 +113,7 @@ class CoordinatorInstance {
 
   void ShuttingDown();
 
-  void AddOrUpdateClientConnectors(std::vector<CoordinatorToCoordinatorConfig> const &configs);
+  void AddOrUpdateClientConnectors(std::vector<CoordinatorToCoordinatorConfig> const &configs) const;
 
   auto GetCoordinatorToCoordinatorConfigs() const -> std::vector<CoordinatorToCoordinatorConfig>;
 

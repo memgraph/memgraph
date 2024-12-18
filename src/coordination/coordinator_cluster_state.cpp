@@ -88,7 +88,7 @@ auto CoordinatorClusterState::DoAction(std::vector<DataInstanceState> data_insta
   current_main_uuid_ = main_uuid;
 }
 
-auto CoordinatorClusterState::Serialize(ptr<buffer> &data) -> void {
+auto CoordinatorClusterState::Serialize(ptr<buffer> &data) const -> void {
   auto lock = std::shared_lock{log_lock_};
   nlohmann::json json;
   to_json(json, *this);

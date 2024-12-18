@@ -25,7 +25,16 @@ void Builder::Save(const uint8_t *data, uint64_t size) {
   while (size > 0) {
     FlushSegment(false);
 
+<<<<<<< Updated upstream
+    size_t const to_write = std::min(size, kSegmentMaxDataSize - pos_);
+||||||| constructed merge base
+    size_t to_write = size;
+    if (to_write > kSegmentMaxDataSize - pos_) {
+      to_write = kSegmentMaxDataSize - pos_;
+    }
+=======
     size_t to_write = std::min(size, kSegmentMaxDataSize - pos_);
+>>>>>>> Stashed changes
 
     memcpy(segment_.data() + sizeof(SegmentSize) + pos_, data + offset, to_write);
 

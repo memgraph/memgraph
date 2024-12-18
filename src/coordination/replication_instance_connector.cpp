@@ -59,30 +59,32 @@ auto ReplicationInstanceConnector::ReplicationSocketAddress() const -> std::stri
 }
 
 auto ReplicationInstanceConnector::SendPromoteToMainRpc(utils::UUID const &new_uuid,
-                                                        ReplicationClientsInfo repl_clients_info) -> bool {
+                                                        ReplicationClientsInfo repl_clients_info) const -> bool {
   return client_.SendPromoteToMainRpc(new_uuid, std::move(repl_clients_info));
 }
 
-auto ReplicationInstanceConnector::SendDemoteToReplicaRpc() -> bool { return client_.SendDemoteToReplicaRpc(); }
+auto ReplicationInstanceConnector::SendDemoteToReplicaRpc() const -> bool { return client_.SendDemoteToReplicaRpc(); }
 
 auto ReplicationInstanceConnector::SendStateCheckRpc() const -> std::optional<InstanceState> {
   return client_.SendStateCheckRpc();
 }
 
 auto ReplicationInstanceConnector::SendRegisterReplicaRpc(utils::UUID const &uuid,
-                                                          ReplicationClientInfo replication_client_info) -> bool {
+                                                          ReplicationClientInfo replication_client_info) const -> bool {
   return client_.SendRegisterReplicaRpc(uuid, std::move(replication_client_info));
 }
 
-auto ReplicationInstanceConnector::SendSwapAndUpdateUUID(utils::UUID const &new_main_uuid) -> bool {
+auto ReplicationInstanceConnector::SendSwapAndUpdateUUID(utils::UUID const &new_main_uuid) const -> bool {
   return replication_coordination_glue::SendSwapMainUUIDRpc(client_.RpcClient(), new_main_uuid);
 }
 
-auto ReplicationInstanceConnector::SendUnregisterReplicaRpc(std::string_view instance_name) -> bool {
+auto ReplicationInstanceConnector::SendUnregisterReplicaRpc(std::string_view instance_name) const -> bool {
   return client_.SendUnregisterReplicaRpc(instance_name);
 }
 
-auto ReplicationInstanceConnector::SendEnableWritingOnMainRpc() -> bool { return client_.SendEnableWritingOnMainRpc(); }
+auto ReplicationInstanceConnector::SendEnableWritingOnMainRpc() const -> bool {
+  return client_.SendEnableWritingOnMainRpc();
+}
 
 auto ReplicationInstanceConnector::StartStateCheck() -> void { client_.StartStateCheck(); }
 auto ReplicationInstanceConnector::StopStateCheck() -> void { client_.StopStateCheck(); }
