@@ -1,5 +1,5 @@
 from_id,edge_type,to_id
-1,KNOWS,3
-2,HAS,4
-3,SHIPS,2
-4,DOES,1
+1,EDGE_1,3
+2,EDGE_2,4
+3,EDGE_3,2
+4,EDGE_4,1
