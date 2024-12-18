@@ -421,13 +421,19 @@ Feature: Subqueries
             | title          |
             | 'Forrest Gump' |
     Scenario: Match after call
-        Given any graph
+        Given an empty graph
+        And having executed
+            """
+            CREATE ({n0:0})
+            """
         When executing query:
             """
             CALL {
             	RETURN 0 AS x
             }
-            MATCH ({n0:x})
-            RETURN 0;
+            MATCH (n {n0:x})
+            RETURN n.n0 as n0;
             """
-        Then an error should be raised
+        Then the result should be:
+            | n0 |
+            | 0  |
