@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 #pragma once
 
+#include <exception>
 #include "audit/log.hpp"
 #include "auth/auth.hpp"
 #include "communication/bolt/v1/session.hpp"
@@ -19,6 +20,7 @@
 #include "glue/SessionContext.hpp"
 #include "glue/query_user.hpp"
 #include "query/interpreter.hpp"
+#include "utils/thread_pool.hpp"
 
 namespace memgraph::glue {
 
@@ -57,7 +59,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
       -> bolt_map_t override;
 #endif
 
-  bolt_map_t Pull(TEncoder *encoder, std::optional<int> n, std::optional<int> qid) override;
+  bolt_map_t Pull(std::optional<int> n, std::optional<int> qid) override;
 
   bolt_map_t Discard(std::optional<int> n, std::optional<int> qid) override;
 
