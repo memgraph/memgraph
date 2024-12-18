@@ -1,0 +1,5 @@
+from_id,edge_type,to_id
+1,KNOWS,3
+2,HAS,4
+3,SHIPS,2
+4,DOES,1

@@ -18,7 +18,8 @@ from gqlalchemy import Memgraph
 from mgclient import DatabaseError
 from neo4j import GraphDatabase
 
-SIMPLE_CSV_FILE = "simple.csv"
+SIMPLE_NODES_CSV_FILE = "simple_nodes.csv"
+SIMPLE_EDGES_CSV_FILE = "simple_edges.csv"
 
 
 def get_file_path(file: str) -> str:
@@ -32,7 +33,7 @@ def test_given_two_rows_in_db_when_load_csv_after_match_then_throw_exception():
         next(
             memgraph.execute_and_fetch(
                 f"""MATCH (n) LOAD CSV
-            FROM '{get_file_path(SIMPLE_CSV_FILE)}' WITH HEADER AS row
+            FROM '{get_file_path(SIMPLE_NODES_CSV_FILE)}' WITH HEADER AS row
             CREATE (:Person {{name: row.name}})
             """
             )
@@ -44,7 +45,7 @@ def test_given_one_row_in_db_when_load_csv_after_match_then_pass():
 
     results = memgraph.execute_and_fetch(
         f"""MATCH (n {{prop: 1}}) LOAD CSV
-        FROM '{get_file_path(SIMPLE_CSV_FILE)}' WITH HEADER AS row
+        FROM '{get_file_path(SIMPLE_NODES_CSV_FILE)}' WITH HEADER AS row
         CREATE (:Person {{name: row.name}})
         RETURN n
         """
@@ -58,7 +59,7 @@ def test_creating_labels_with_load_csv_variable():
 
     results = list(
         memgraph.execute_and_fetch(
-            f"""LOAD CSV FROM '{get_file_path(SIMPLE_CSV_FILE)}' WITH HEADER AS row
+            f"""LOAD CSV FROM '{get_file_path(SIMPLE_NODES_CSV_FILE)}' WITH HEADER AS row
         CREATE (p:row.name)
         RETURN p
         """
@@ -77,7 +78,7 @@ def test_create_relationships_with_load_csv_variable2():
 
     results = list(
         memgraph.execute_and_fetch(
-            f"""LOAD CSV FROM '{get_file_path(SIMPLE_CSV_FILE)}' WITH HEADER AS row
+            f"""LOAD CSV FROM '{get_file_path(SIMPLE_NODES_CSV_FILE)}' WITH HEADER AS row
         CREATE (p:row.name:Person:row.id)
         RETURN p
         """
@@ -102,9 +103,37 @@ def test_load_csv_with_parameters():
                 FROM $file WITH HEADER AS row
                 CREATE (:Person {{name: row.name}})
                 RETURN n""",
-                file=get_file_path(SIMPLE_CSV_FILE),
+                file=get_file_path(SIMPLE_NODES_CSV_FILE),
             )
             assert len(list(results)) == 4
+
+
+def test_creating_edge_types_with_load_csv_variable():
+    memgraph = Memgraph("localhost", 7687)
+
+    memgraph.execute(
+        f"""LOAD CSV FROM '{get_file_path(SIMPLE_EDGES_CSV_FILE)}' WITH HEADER AS row
+    MERGE (:Person {{id: row.from_id}})
+    MERGE (:Person {{id: row.to_id}})
+    """
+    )
+
+    results = list(
+        memgraph.execute_and_fetch(
+            f"""LOAD CSV FROM '{get_file_path(SIMPLE_EDGES_CSV_FILE)}' WITH HEADER AS row
+        MATCH (p1:Person {{id: row.from_id}})
+        MATCH (p2:Person {{id: row.to_id}})
+        CREATE (p1)-[e:row.edge_type]->(p2)
+        RETURN e
+        """
+        )
+    )
+
+    assert len(results) == 4
+    assert results[0]["e"]._type == {"KNOWS"}
+    assert results[1]["e"]._type == {"HAS"}
+    assert results[2]["e"]._type == {"SHIPS"}
+    assert results[3]["e"]._type == {"DOES"}
 
 
 if __name__ == "__main__":
