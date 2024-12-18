@@ -36,14 +36,10 @@
 
 namespace memgraph::communication::v2 {
 
-inline struct assert_create {
-} assert_create_t;
-
 template <class TSession, class TSessionContext>
-class Listener final : public std::enable_shared_from_this<Listener<TSession, TSessionContext>> {
+class Listener final {
   using tcp = boost::asio::ip::tcp;
   using SessionHandler = Session<TSession, TSessionContext>;
-  using std::enable_shared_from_this<Listener<TSession, TSessionContext>>::shared_from_this;
 
  public:
   Listener(const Listener &) = delete;
@@ -57,14 +53,11 @@ class Listener final : public std::enable_shared_from_this<Listener<TSession, TS
     return std::shared_ptr<Listener>{new Listener(std::forward<Args>(args)...)};
   }
 
-  template <typename... Args>
-  static std::shared_ptr<Listener> Create(assert_create /*assert_create_t*/, Args &&...args) {
-    return std::shared_ptr<Listener>{new Listener(assert_create_t, std::forward<Args>(args)...)};
-  }
-
   void Start() { DoAccept(); }
 
   bool IsRunning() const noexcept { return alive_.load(std::memory_order_relaxed); }
+
+  using std::enable_shared_from_this<Listener<TSession, TSessionContext>>::shared_from_this;
 
  private:
   Listener(boost::asio::io_context &io_context, TSessionContext *session_context, ServerContext *server_context,
@@ -72,73 +65,47 @@ class Listener final : public std::enable_shared_from_this<Listener<TSession, TS
       : io_context_(io_context),
         session_context_(session_context),
         server_context_(server_context),
-        acceptor_(io_context_),
+        acceptor_(listener_thread_.GetIOContext()),
         endpoint_{endpoint},
         service_name_{service_name} {
-    TryCreate<false>();
-  }
-
-  Listener(assert_create /*obj*/, boost::asio::io_context &io_context, TSessionContext *session_context,
-           ServerContext *server_context, tcp::endpoint &endpoint, const std::string_view service_name)
-      : io_context_(io_context),
-        session_context_(session_context),
-        server_context_(server_context),
-        acceptor_(io_context_),
-        endpoint_{endpoint},
-        service_name_{service_name} {
-    TryCreate<true>();
-  }
-
-  template <bool AssertCreate = false>
-  void TryCreate() {
     boost::system::error_code ec;
     // Open the acceptor
-    acceptor_.open(endpoint_.protocol(), ec);
+    (void)acceptor_.open(endpoint_.protocol(), ec);
     if (ec) {
       OnError(ec, "open");
-      if constexpr (AssertCreate) {
-        MG_ASSERT(false, "Failed to open to socket.");
-      }
+      MG_ASSERT(false, "Failed to open to socket.");
       return;
     }
 
     // Allow address reuse
-    acceptor_.set_option(boost::asio::socket_base::reuse_address(true), ec);
+    (void)acceptor_.set_option(boost::asio::socket_base::reuse_address(true), ec);
     if (ec) {
       OnError(ec, "set_option");
-      if constexpr (AssertCreate) {
-        MG_ASSERT(false, "Failed to set_option.");
-      }
+      MG_ASSERT(false, "Failed to set_option.");
       return;
     }
 
     // Bind to the server address
-    acceptor_.bind(endpoint_, ec);
+    (void)acceptor_.bind(endpoint_, ec);
     if (ec) {
       spdlog::error(
           utils::MessageWithLink("Cannot bind to socket on endpoint {}.", endpoint_, "https://memgr.ph/socket"));
       OnError(ec, "bind");
-      if constexpr (AssertCreate) {
-        MG_ASSERT(false, "Failed to bind.");
-      }
+      MG_ASSERT(false, "Failed to bind.");
       return;
     }
 
-    acceptor_.listen(boost::asio::socket_base::max_listen_connections, ec);
+    (void)acceptor_.listen(boost::asio::socket_base::max_listen_connections, ec);
     if (ec) {
       OnError(ec, "listen");
-      if constexpr (AssertCreate) {
-        MG_ASSERT(false, "Failed to listen.");
-      }
+      MG_ASSERT(false, "Failed to listen.");
       return;
     }
   }
 
   void DoAccept() {
-    acceptor_.async_accept(io_context_,
-                           [shared_this = shared_from_this()](auto ec, boost::asio::ip::tcp::socket &&socket) {
-                             shared_this->OnAccept(ec, std::move(socket));
-                           });
+    acceptor_.async_accept(listener_thread_.GetIOContext(),
+                           [this](auto ec, boost::asio::ip::tcp::socket &&socket) { OnAccept(ec, std::move(socket)); });
   }
 
   void OnAccept(boost::system::error_code ec, tcp::socket socket) {
@@ -156,6 +123,7 @@ class Listener final : public std::enable_shared_from_this<Listener<TSession, TS
     alive_.store(false, std::memory_order_relaxed);
   }
 
+  IOContextThreadPool listener_thread_{1};
   boost::asio::io_context &io_context_;
   TSessionContext *session_context_;
   ServerContext *server_context_;

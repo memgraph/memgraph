@@ -658,8 +658,7 @@ int main(int argc, char **argv) {
 #else
   Context session_context{server_endpoint, &interpreter_context_, auth_.get()};
 #endif
-  memgraph::glue::ServerT server(memgraph::communication::v2::handle_errors_t, server_endpoint, &session_context,
-                                 &context, service_name, FLAGS_bolt_num_workers);
+  memgraph::glue::ServerT server(server_endpoint, &session_context, &context, service_name, FLAGS_bolt_num_workers);
 
   const auto machine_id = memgraph::utils::GetMachineId();
 
