@@ -374,3 +374,37 @@ Feature: With
         Then the result should be:
             | n             |
             | (:labelvalue) |
+
+    Scenario: With test 23:
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({name: "node1"})
+            """
+        When executing query:
+            """
+            MATCH (n) WITH n AS node
+            CREATE ()-[:node.name]->()
+            """
+        When executing query:
+            """
+            MATCH ()-[r]->() RETURN r;
+            """
+        Then the result should be:
+            | r        |
+            | [:node1] |
+
+    Scenario: With test 24:
+        Given an empty graph
+        And having executed:
+            """
+            WITH {value: {edge_type: "edgetypevalue"}} as edge_type
+            CREATE ()-[r:edge_type.value.edge_type]->();
+            """
+        When executing query:
+            """
+            MATCH ()-[r]->() RETURN r;
+            """
+        Then the result should be:
+            | r                |
+            | [:edgetypevalue] |
