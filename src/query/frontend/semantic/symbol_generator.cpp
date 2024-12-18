@@ -669,12 +669,15 @@ bool SymbolGenerator::PreVisit(NodeAtom &node_atom) {
 
   scope.in_node_atom = true;
 
-  if (scope.in_create) {  // you can use expressions with labels only in create
-    for (auto &label : node_atom.labels_) {
-      if (auto *expression = std::get_if<Expression *>(&label)) {
-        (*expression)->Accept(*this);
-      }
+  bool has_expressions = false;
+  for (auto &label : node_atom.labels_) {
+    if (auto *expression = std::get_if<Expression *>(&label)) {
+      (*expression)->Accept(*this);
+      has_expressions = true;
     }
+  }
+  if (!scope.in_create && has_expressions) {
+    throw SemanticException("You can use expressions with labels only in create!");
   }
 
   if (auto *properties = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&node_atom.properties_)) {
@@ -722,6 +725,19 @@ bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
           "edge.");
     }
   }
+
+  bool has_expressions = false;
+  for (auto &edge_type : edge_atom.edge_types_) {
+    if (auto *expression = std::get_if<Expression *>(&edge_type)) {
+      (*expression)->Accept(*this);
+      has_expressions = true;
+    }
+  }
+
+  if (!scope.in_create && has_expressions) {
+    throw SemanticException("You can use expressions with edge types only in create!");
+  }
+
   if (auto *properties = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&edge_atom.properties_)) {
     for (auto kv : *properties) {
       kv.second->Accept(*this);

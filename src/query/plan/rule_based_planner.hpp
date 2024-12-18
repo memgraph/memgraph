@@ -321,11 +321,18 @@ class RuleBasedPlanner {
 
   storage::EdgeTypeId GetEdgeType(EdgeTypeIx edge_type) { return context_->db->NameToEdgeType(edge_type.name); }
 
-  std::vector<storage::EdgeTypeId> GetEdgeTypes(std::vector<EdgeTypeIx> edge_types) {
+  std::vector<storage::EdgeTypeId> GetEdgeTypes(std::vector<QueryEdgeType> edge_types) {
     std::vector<storage::EdgeTypeId> transformed_edge_types;
     transformed_edge_types.reserve(edge_types.size());
+
     for (const auto &type : edge_types) {
-      transformed_edge_types.push_back(GetEdgeType(type));
+      if (const auto *edge_type_atom = std::get_if<EdgeTypeIx>(&type)) {
+        transformed_edge_types.push_back(GetEdgeType(*edge_type_atom));
+      } else {
+        throw QueryException(
+            "Failed to work with dynamic edge types! Please contact Memgraph support as this scenario should not "
+            "happen!");
+      }
     }
 
     return transformed_edge_types;
@@ -342,6 +349,19 @@ class RuleBasedPlanner {
       }
     }
     return label_ids;
+  }
+
+  std::vector<StorageEdgeType> GetEdgeIds(const std::vector<QueryEdgeType> &edge_types) {
+    std::vector<StorageEdgeType> edge_ids;
+    edge_ids.reserve(edge_types.size());
+    for (const auto &edge_type : edge_types) {
+      if (const auto *edge_type_atom = std::get_if<EdgeTypeIx>(&edge_type)) {
+        edge_ids.emplace_back(GetEdgeType(*edge_type_atom));
+      } else {
+        edge_ids.emplace_back(std::get<Expression *>(edge_type));
+      }
+    }
+    return edge_ids;
   }
 
   std::unique_ptr<LogicalOperator> HandleMatching(std::unique_ptr<LogicalOperator> last_op,
@@ -432,7 +452,7 @@ class RuleBasedPlanner {
       });
 
       MG_ASSERT(edge->edge_types_.size() == 1, "Creating an edge with a single type should be required by syntax");
-      EdgeCreationInfo edge_info{edge_symbol, properties, GetEdgeType(edge->edge_types_[0]), edge->direction_};
+      EdgeCreationInfo edge_info{edge_symbol, properties, GetEdgeIds(edge->edge_types_)[0], edge->direction_};
       return std::make_unique<CreateExpand>(node_info, edge_info, std::move(last_op), input_symbol, node_existing);
     };
 
@@ -570,8 +590,8 @@ class RuleBasedPlanner {
     // Whenever there are 2 scan branches, they will be joined with a Cartesian operator
 
     // New symbols from the opposite branch
-    // We need to see what are cross new symbols in order to check for edge uniqueness for cross branch of same matching
-    // Since one matching needs to comfort to Cyphermorphism
+    // We need to see what are cross new symbols in order to check for edge uniqueness for cross branch of same
+    // matching Since one matching needs to comfort to Cyphermorphism
     std::vector<Symbol> cross_branch_new_symbols;
     bool initial_expansion_done = false;
     for (const auto &expansion : matching.expansions) {

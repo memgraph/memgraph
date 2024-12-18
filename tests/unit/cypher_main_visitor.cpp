@@ -1403,7 +1403,7 @@ TEST_P(CypherMainVisitorTest, RelationshipPatternDotsUnboundedWithEdgeTypeProper
   ast_generator.CheckLiteral(std::get<0>(edge->properties_)[ast_generator.Prop("prop")], 42);
   ASSERT_EQ(edge->edge_types_.size(), 1U);
   auto edge_type = ast_generator.EdgeType("edge_type");
-  EXPECT_EQ(edge->edge_types_[0], edge_type);
+  EXPECT_EQ(*std::get_if<EdgeTypeIx>(&edge->edge_types_[0]), edge_type);
 }
 
 TEST_P(CypherMainVisitorTest, RelationshipPatternUpperBoundedWithProperty) {
