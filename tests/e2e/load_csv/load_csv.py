@@ -100,6 +100,23 @@ def test_load_csv_dynamic_labels_with_parameters(memgraph):
             assert len(list(results)) == 4
 
 
+def test_load_csv_dynamic_labels_with_parameter_for_label(memgraph):
+    URI = "bolt://localhost:7687"
+    AUTH = ("", "")
+
+    with GraphDatabase.driver(URI, auth=AUTH) as client:
+        with client.session(database="memgraph") as session:
+            results = session.run(
+                f"""MATCH (n {{prop: 1}}) LOAD CSV
+                FROM $file WITH HEADER AS row
+                CREATE (:Person {{name: $node_label}})
+                RETURN n""",
+                file=get_file_path(SIMPLE_NODES_CSV_FILE),
+                node_label="NODE_LABEL",
+            )
+            assert len(list(results)) == 4
+
+
 def test_creating_edge_types_with_load_csv_variable(memgraph):
     memgraph.execute("CREATE INDEX ON :Person")
     memgraph.execute("CREATE INDEX ON :Person(id)")
@@ -118,7 +135,7 @@ def test_creating_edge_types_with_load_csv_variable(memgraph):
         MATCH (p2:Person {{id: row.to_id}})
         CREATE (p1)-[e:row.edge_type]->(p2)
         RETURN e
-        """
+        """,
         )
     )
 
@@ -127,6 +144,36 @@ def test_creating_edge_types_with_load_csv_variable(memgraph):
     assert results[1]["e"]._type == "EDGE_2"
     assert results[2]["e"]._type == "EDGE_3"
     assert results[3]["e"]._type == "EDGE_4"
+
+
+def test_creating_edge_types_with_load_csv_parameter(memgraph):
+    memgraph.execute("CREATE INDEX ON :Person")
+    memgraph.execute("CREATE INDEX ON :Person(id)")
+
+    memgraph.execute(
+        f"""LOAD CSV FROM '{get_file_path(SIMPLE_EDGES_CSV_FILE)}' WITH HEADER AS row
+    MERGE (:Person {{id: row.from_id}})
+    MERGE (:Person {{id: row.to_id}})
+    """
+    )
+
+    results = list(
+        memgraph.execute_and_fetch(
+            f"""LOAD CSV FROM '{get_file_path(SIMPLE_EDGES_CSV_FILE)}' WITH HEADER AS row
+        MATCH (p1:Person {{id: row.from_id}})
+        MATCH (p2:Person {{id: row.to_id}})
+        CREATE (p1)-[e:$edge_type]->(p2)
+        RETURN e
+        """,
+            {"edge_type": "EDGE_TYPE"},
+        )
+    )
+
+    assert len(results) == 4
+    assert results[0]["e"]._type == "EDGE_TYPE"
+    assert results[1]["e"]._type == "EDGE_TYPE"
+    assert results[2]["e"]._type == "EDGE_TYPE"
+    assert results[3]["e"]._type == "EDGE_TYPE"
 
 
 if __name__ == "__main__":
