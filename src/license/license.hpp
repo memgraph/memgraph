@@ -60,6 +60,7 @@ struct DetailedLicenseInfo {
   bool is_valid{false};
   std::string license_type;
   std::string valid_until;
+  int64_t memory_limit;
   std::string status;
 };
 
@@ -97,7 +98,7 @@ struct LicenseChecker {
   void StartBackgroundLicenseChecker(const utils::Settings &settings);
 
   utils::Synchronized<std::optional<LicenseInfo>, utils::SpinLock> &GetLicenseInfo();
-  DetailedLicenseInfo GetDetailedLicenseInfo() const;
+  DetailedLicenseInfo GetDetailedLicenseInfo();
 
   void Finalize() { scheduler_.Stop(); }
 

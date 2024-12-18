@@ -261,7 +261,48 @@ utils::Synchronized<std::optional<LicenseInfo>, utils::SpinLock> &LicenseChecker
   return previous_license_info_;
 }
 
-DetailedLicenseInfo LicenseChecker::GetDetailedLicenseInfo() const { return DetailedLicenseInfo{}; }
+DetailedLicenseInfo LicenseChecker::GetDetailedLicenseInfo() {
+  DetailedLicenseInfo info;
+
+  auto locked_previous_license_info_ptr = previous_license_info_.Lock();
+  auto &locked_previous_license_info = *locked_previous_license_info_ptr;
+
+  info.license_key = locked_previous_license_info->license_key;
+  info.organization_name = locked_previous_license_info->organization_name;
+  info.is_valid = true;
+  info.status = "You are running a valid Memgraph Enterprise License.";
+
+  const auto maybe_license = GetLicense(locked_previous_license_info->license_key);
+  if (!maybe_license) {
+    info.status = "Invalid license key string!";
+    info.is_valid = false;
+    return info;
+  }
+
+  info.memory_limit = maybe_license->memory_limit;
+  info.license_type = LicenseTypeToString(maybe_license->type);
+
+  // convert the epoch of validity to date string
+  int64_t valid_until = maybe_license->valid_until;
+  if (valid_until != 0) {
+    std::time_t time = static_cast<std::time_t>(valid_until);
+    std::tm *tm = std::gmtime(&time);
+    char buffer[30];
+    std::strftime(buffer, sizeof(buffer), "%Y-%m-%d", tm);
+    info.valid_until = std::string(buffer);
+
+    auto now = std::chrono::system_clock::now();
+    int64_t currentEpoch = std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count();
+    if (currentEpoch > valid_until) {
+      info.is_valid = false;
+      info.status = "You are running an expired license!";
+    }
+  } else {
+    info.valid_until = "FOREVER";
+  }
+
+  return info;
+}
 
 bool LicenseChecker::IsEnterpriseValidFast() const {
   return license_type_ == LicenseType::ENTERPRISE && is_valid_.load(std::memory_order_relaxed);

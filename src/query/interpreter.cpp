@@ -4597,11 +4597,23 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
       };
     } break;
     case SystemInfoQuery::InfoType::LICENSE: {
-      header = {"organization_name", "license_key", "is_valid", "license_type", "valid_until", "status"};
+      header = {"license info", "value"};
       handler = [] {
         const auto license_info = license::global_license_checker.GetDetailedLicenseInfo();
-        std::vector<std::vector<TypedValue>> results{{TypedValue(""), TypedValue(""), TypedValue(""), TypedValue(""),
-                                                      TypedValue(""), TypedValue("No license info was provided.")}};
+        const auto memory_limit = license_info.memory_limit != 0
+                                      ? utils::GetReadableSize(static_cast<double>(license_info.memory_limit))
+                                      : "UNLIMITED";
+
+        std::vector<std::vector<TypedValue>> results{
+            {TypedValue("organization_name"), TypedValue(license_info.organization_name)},
+            {TypedValue("license_key"), TypedValue(license_info.license_key)},
+            {TypedValue("is_valid"), TypedValue(license_info.is_valid)},
+            {TypedValue("license_type"), TypedValue(license_info.license_type)},
+            {TypedValue("valid_until"), TypedValue(license_info.valid_until)},
+            {TypedValue("memory_limit"), TypedValue(memory_limit)},
+            {TypedValue("status"), TypedValue(license_info.status)},
+        };
+
         return std::pair{results, QueryHandlerResult::NOTHING};
       };
     } break;
