@@ -28,8 +28,8 @@
 #include "communication/context.hpp"
 #include "communication/fmt.hpp"
 #include "communication/init.hpp"
-#include "communication/v2/listener.hpp"
 #include "communication/v2/pool.hpp"
+#include "communication/v2/session.hpp"
 #include "utils/logging.hpp"
 #include "utils/message.hpp"
 #include "utils/thread.hpp"
@@ -65,22 +65,18 @@ using ServerEndpoint = boost::asio::ip::tcp::endpoint;
  *         session
  */
 
-inline struct handle_errors {
-} handle_errors_t;
-
 template <typename TSession, typename TSessionContext>
 class Server final {
-  using ServerHandler = Server<TSession, TSessionContext>;
+  using tcp = boost::asio::ip::tcp;
+  using SessionHandler = Session<TSession, TSessionContext>;
 
  public:
   /**
    * Constructs and binds server to endpoint, operates on session data and
    * invokes workers_count workers
    */
-  Server(ServerEndpoint &endpoint, TSessionContext *session_context, ServerContext *server_context,
-         std::string_view service_name, size_t workers_count = std::thread::hardware_concurrency());
 
-  Server(handle_errors /*_*/, ServerEndpoint &endpoint, TSessionContext *session_context, ServerContext *server_context,
+  Server(ServerEndpoint &endpoint, TSessionContext *session_context, ServerContext *server_context,
          std::string_view service_name, size_t workers_count = std::thread::hardware_concurrency());
 
   ~Server();
@@ -95,20 +91,40 @@ class Server final {
   bool Start();
 
   void Shutdown() {
+    listener_thread_.Shutdown();
     context_thread_pool_.Shutdown();
-    spdlog::info("{} shutting down...", service_name_);
+    spdlog::info("{} shutdown.", service_name_);
   }
 
-  void AwaitShutdown() { context_thread_pool_.AwaitShutdown(); }
+  void AwaitShutdown() {
+    listener_thread_.AwaitShutdown();
+    context_thread_pool_.AwaitShutdown();
+  }
 
   bool IsRunning() const noexcept;
 
  private:
+  void DoAccept() {
+    acceptor_.async_accept([this](auto ec, boost::asio::ip::tcp::socket &&socket) { OnAccept(ec, std::move(socket)); });
+  }
+
+  void OnAccept(boost::system::error_code ec, tcp::socket socket);
+
+  void OnError(const boost::system::error_code &ec, const std::string_view what) {
+    spdlog::error("Listener failed on {}: {}", what, ec.message());
+    // Shutdown();
+    // TODO Recoverable?
+  }
+
   ServerEndpoint endpoint_;
   std::string service_name_;
 
+  TSessionContext *session_context_;
+  ServerContext *server_context_;
+
   IOContextThreadPool context_thread_pool_;
-  std::shared_ptr<Listener<TSession, TSessionContext>> listener_;
+  IOContextThreadPool listener_thread_{1};
+  tcp::acceptor acceptor_{listener_thread_.GetIOContext()};
 };
 
 template <typename TSession, typename TSessionContext>
@@ -122,20 +138,43 @@ Server<TSession, TSessionContext>::Server(ServerEndpoint &endpoint, TSessionCont
                                           size_t workers_count)
     : endpoint_{endpoint},
       service_name_{service_name},
-      context_thread_pool_{workers_count},
-      listener_{Listener<TSession, TSessionContext>::Create(context_thread_pool_.GetIOContext(), session_context,
-                                                            server_context, endpoint_, service_name_)} {}
+      session_context_(session_context),
+      server_context_(server_context),
+      context_thread_pool_{workers_count} {
+  boost::system::error_code ec;
+  // Open the acceptor
+  (void)acceptor_.open(endpoint_.protocol(), ec);
+  if (ec) {
+    OnError(ec, "open");
+    MG_ASSERT(false, "Failed to open to socket.");
+    return;
+  }
 
-template <typename TSession, typename TSessionContext>
-Server<TSession, TSessionContext>::Server(handle_errors /*_*/, ServerEndpoint &endpoint,
-                                          TSessionContext *session_context, ServerContext *server_context,
-                                          const std::string_view service_name, size_t workers_count)
-    : endpoint_{endpoint},
-      service_name_{service_name},
-      context_thread_pool_{workers_count},
-      listener_{Listener<TSession, TSessionContext>::Create(assert_create_t, context_thread_pool_.GetIOContext(),
-                                                            session_context, server_context, endpoint_,
-                                                            service_name_)} {}
+  // Allow address reuse
+  (void)acceptor_.set_option(boost::asio::socket_base::reuse_address(true), ec);
+  if (ec) {
+    OnError(ec, "set_option");
+    MG_ASSERT(false, "Failed to set_option.");
+    return;
+  }
+
+  // Bind to the server address
+  (void)acceptor_.bind(endpoint_, ec);
+  if (ec) {
+    spdlog::error(
+        utils::MessageWithLink("Cannot bind to socket on endpoint {}.", endpoint_, "https://memgr.ph/socket"));
+    OnError(ec, "bind");
+    MG_ASSERT(false, "Failed to bind.");
+    return;
+  }
+
+  (void)acceptor_.listen(boost::asio::socket_base::max_listen_connections, ec);
+  if (ec) {
+    OnError(ec, "listen");
+    MG_ASSERT(false, "Failed to listen.");
+    return;
+  }
+}
 
 template <typename TSession, typename TSessionContext>
 bool Server<TSession, TSessionContext>::Start() {
@@ -143,13 +182,30 @@ bool Server<TSession, TSessionContext>::Start() {
     spdlog::error("The server is already running");
     return false;
   }
-  listener_->Start();
+
+  context_thread_pool_.Run();
+  listener_thread_.Run();
+  DoAccept();
 
   spdlog::info("{} server is fully armed and operational", service_name_);
   spdlog::info("{} listening on {}", service_name_, endpoint_);
-  context_thread_pool_.Run();
-
   return true;
+}
+
+template <typename TSession, typename TSessionContext>
+inline void Server<TSession, TSessionContext>::OnAccept(boost::system::error_code ec, tcp::socket socket) {
+  if (ec) {
+    return OnError(ec, "accept");
+  }
+
+  // Move socket from the listener thread to worker
+  auto fd = socket.release();
+  boost::asio::ip::tcp::socket connected_socket(context_thread_pool_.GetIOContext());
+  connected_socket.assign(endpoint_.protocol(), fd);
+  auto session = SessionHandler::Create(std::move(connected_socket), session_context_, *server_context_, service_name_);
+  session->Start();
+
+  DoAccept();
 }
 
 template <typename TSession, typename TSessionContext>
@@ -160,7 +216,7 @@ const auto &Server<TSession, TSessionContext>::Endpoint() const {
 
 template <typename TSession, typename TSessionContext>
 bool Server<TSession, TSessionContext>::IsRunning() const noexcept {
-  return context_thread_pool_.IsRunning() && listener_->IsRunning();
+  return context_thread_pool_.IsRunning() && listener_thread_.IsRunning();
 }
 
 }  // namespace memgraph::communication::v2
