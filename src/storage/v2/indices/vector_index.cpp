@@ -91,7 +91,8 @@ VectorIndexConfigMap VectorIndex::ParseIndexSpec(
     throw std::invalid_argument("Vector index config map is empty.");
   }
 
-  auto transformed_map = std::ranges::views::all(config_map) | std::views::transform([&evaluator](const auto &pair) {
+  auto transformed_map = std::ranges::views::all(config_map) |
+                         std::ranges::views::transform([&evaluator](const auto &pair) {
                            auto key_expr = pair.first->Accept(evaluator);
                            auto value_expr = pair.second->Accept(evaluator);
                            return std::pair{key_expr.ValueString(), value_expr};

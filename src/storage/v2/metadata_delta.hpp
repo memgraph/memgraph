@@ -214,10 +214,8 @@ struct MetadataDelta {
       case ENUM_ALTER_UPDATE:
       case POINT_INDEX_CREATE:
       case POINT_INDEX_DROP:
-      case VECTOR_INDEX_CREATE: {
-        std::destroy_at(&vector_index_spec);
+      case VECTOR_INDEX_CREATE:
         break;
-      }
       case VECTOR_INDEX_DROP: {
         std::destroy_at(&vector_index_name);
         break;
