@@ -205,9 +205,9 @@ storage::EdgeTypeId EvaluateEdgeType(const StorageEdgeType &edge_type, Expressio
                                      DbAccessor *dba) {
   if (const auto *edge_type_id = std::get_if<storage::EdgeTypeId>(&edge_type)) {
     return *edge_type_id;
-  } else {
-    return dba->NameToEdgeType(std::get<Expression *>(edge_type)->Accept(evaluator).ValueString());
   }
+
+  return dba->NameToEdgeType(std::get<Expression *>(edge_type)->Accept(evaluator).ValueString());
 }
 
 }  // namespace
@@ -376,7 +376,7 @@ std::vector<Symbol> CreateExpand::ModifiedSymbols(const SymbolTable &table) cons
 
 std::string CreateExpand::ToString() const {
   const auto *maybe_edge_type_id = std::get_if<storage::EdgeTypeId>(&edge_info_.edge_type);
-  bool is_expansion_static = maybe_edge_type_id != nullptr;
+  const bool is_expansion_static = maybe_edge_type_id != nullptr;
   return fmt::format("{} ({}){}[{}:{}]{}({})", is_expansion_static ? "CreateExpand" : "DynamicCreateExpand",
                      input_symbol_.name(), edge_info_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-",
                      edge_info_.symbol.name(),

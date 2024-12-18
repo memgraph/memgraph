@@ -421,13 +421,11 @@ json ToJson(const std::vector<StorageLabelType> &labels, const DbAccessor &dba) 
 }
 
 json ToJson(const StorageEdgeType &edge_type, const DbAccessor &dba) {
-  json json;
   if (const auto *edge_type_expression = std::get_if<Expression *>(&edge_type)) {
-    json.emplace_back(ToJson(*edge_type_expression, dba));
-  } else {
-    json.emplace_back(ToJson(std::get<storage::EdgeTypeId>(edge_type), dba));
+    return ToJson(*edge_type_expression, dba);
   }
-  return json;
+
+  return ToJson(std::get<storage::EdgeTypeId>(edge_type), dba);
 }
 
 json ToJson(const NodeCreationInfo &node_info, const DbAccessor &dba) {
