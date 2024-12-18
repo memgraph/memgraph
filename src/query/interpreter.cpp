@@ -4597,28 +4597,12 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
       };
     } break;
     case SystemInfoQuery::InfoType::LICENSE: {
-      header = {"organization_name", "license_key", "license_type", "valid_until", "status"};
+      header = {"organization_name", "license_key", "is_valid", "license_type", "valid_until", "status"};
       handler = [] {
-        const auto &license_info = license::global_license_checker.GetLicenseInfo();
-        if (!license_info->has_value()) {
-          std::vector<std::vector<TypedValue>> results{{TypedValue(""), TypedValue(""), TypedValue(""), TypedValue(""),
-                                                        TypedValue("No license info was provided.")}};
-          return std::pair{results, QueryHandlerResult::NOTHING};
-        }
-
+        const auto license_info = license::global_license_checker.GetDetailedLicenseInfo();
         std::vector<std::vector<TypedValue>> results{{TypedValue(""), TypedValue(""), TypedValue(""), TypedValue(""),
-                                                      TypedValue("No license info was provided.")}};
+                                                      TypedValue(""), TypedValue("No license info was provided.")}};
         return std::pair{results, QueryHandlerResult::NOTHING};
-        // const auto license = license_info->value().license;
-        // const auto organization_name = license.organization_name;
-        // const auto license_type = license.type;
-        // const auto valid_until = license.valid_until;
-        // const auto license_key = license_info  .license_key;
-
-        // std::vector<std::vector<TypedValue>> results{{TypedValue(organization_name), TypedValue(license_key),
-        //                                               TypedValue(license_type), TypedValue(valid_until),
-        //                                               TypedValue("Some license")}};
-        // return std::pair{results, QueryHandlerResult::NOTHING};
       };
     } break;
   }

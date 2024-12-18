@@ -261,6 +261,8 @@ utils::Synchronized<std::optional<LicenseInfo>, utils::SpinLock> &LicenseChecker
   return previous_license_info_;
 }
 
+DetailedLicenseInfo LicenseChecker::GetDetailedLicenseInfo() const { return DetailedLicenseInfo{}; }
+
 bool LicenseChecker::IsEnterpriseValidFast() const {
   return license_type_ == LicenseType::ENTERPRISE && is_valid_.load(std::memory_order_relaxed);
 }

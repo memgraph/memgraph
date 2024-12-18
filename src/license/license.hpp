@@ -54,6 +54,15 @@ struct LicenseInfo {
   License license;
 };
 
+struct DetailedLicenseInfo {
+  std::string organization_name;
+  std::string license_key;
+  bool is_valid{false};
+  std::string license_type;
+  std::string valid_until;
+  std::string status;
+};
+
 inline constexpr std::string_view kEnterpriseLicenseSettingKey = "enterprise.license";
 inline constexpr std::string_view kOrganizationNameSettingKey = "organization.name";
 
@@ -88,6 +97,7 @@ struct LicenseChecker {
   void StartBackgroundLicenseChecker(const utils::Settings &settings);
 
   utils::Synchronized<std::optional<LicenseInfo>, utils::SpinLock> &GetLicenseInfo();
+  DetailedLicenseInfo GetDetailedLicenseInfo() const;
 
   void Finalize() { scheduler_.Stop(); }
 
