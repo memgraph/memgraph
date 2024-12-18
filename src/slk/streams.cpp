@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,10 +25,7 @@ void Builder::Save(const uint8_t *data, uint64_t size) {
   while (size > 0) {
     FlushSegment(false);
 
-    size_t to_write = size;
-    if (to_write > kSegmentMaxDataSize - pos_) {
-      to_write = kSegmentMaxDataSize - pos_;
-    }
+    size_t to_write = std::min(size, kSegmentMaxDataSize - pos_);
 
     memcpy(segment_.data() + sizeof(SegmentSize) + pos_, data + offset, to_write);
 

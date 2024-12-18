@@ -443,21 +443,19 @@ utils::BasicResult<const char *, std::filesystem::path> ParentModuleDirectory(co
                                                                               const std::filesystem::path &path) {
   const auto &module_directories = module_registry.GetModulesDirectory();
 
-  auto longest_parent_directory = module_directories.end();
-  auto max_length = std::numeric_limits<uint64_t>::min();
-  for (auto it = module_directories.begin(); it != module_directories.end(); ++it) {
-    if (IsSubPath(*it, path)) {
-      const auto length = std::filesystem::canonical(*it).string().size();
-      if (length > max_length) {
-        longest_parent_directory = it;
-        max_length = length;
-      }
-    }
-  }
+  std::vector<std::filesystem::path> valid_directories;
+  std::copy_if(module_directories.cbegin(), module_directories.cend(), std::back_inserter(valid_directories),
+               [&](const auto &dir) { return IsSubPath(dir, path); });
 
-  if (longest_parent_directory == module_directories.end()) {
+  if (valid_directories.empty()) {
     return "The specified file isn't contained in any of the module directories.";
   }
+
+  auto const longest_parent_directory =
+      std::max_element(valid_directories.cbegin(), valid_directories.cend(), [&](const auto &lhs, const auto &rhs) {
+        // Compare lengths of canonical string representations
+        return std::filesystem::canonical(lhs).string().size() < std::filesystem::canonical(rhs).string().size();
+      });
 
   return *longest_parent_directory;
 }

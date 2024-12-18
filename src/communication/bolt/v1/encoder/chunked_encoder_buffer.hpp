@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -63,7 +63,7 @@ class ChunkedEncoderBuffer {
     while (n > 0) {
       // Define the number of bytes which will be copied into the chunk because
       // the internal storage is a fixed length array.
-      size_t size = n < kChunkMaxDataSize - have_ ? n : kChunkMaxDataSize - have_;
+      size_t size = std::min(n, kChunkMaxDataSize - have_);
 
       // Copy `size` values to the chunk array.
       std::memcpy(chunk_.data() + kChunkHeaderSize + have_, values + written, size);
