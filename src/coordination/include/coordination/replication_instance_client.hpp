@@ -71,7 +71,7 @@ class ReplicationInstanceClient {
 
   auto GetReplicationClientInfo() const -> ReplicationClientInfo;
 
-  auto RpcClient() -> rpc::Client & { return rpc_client_; }
+  auto RpcClient() const -> rpc::Client & { return rpc_client_; }
 
   friend bool operator==(ReplicationInstanceClient const &first, ReplicationInstanceClient const &second) {
     return first.config_ == second.config_;

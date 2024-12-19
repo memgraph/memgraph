@@ -167,7 +167,7 @@ auto CoordinatorStateManager::save_config(cluster_config const &config) -> void 
   NotifyObserver(GetCoordinatorToCoordinatorConfigs());
 }
 
-void CoordinatorStateManager::NotifyObserver(std::vector<CoordinatorToCoordinatorConfig> const &configs) {
+void CoordinatorStateManager::NotifyObserver(std::vector<CoordinatorToCoordinatorConfig> const &configs) const {
   logger_.Log(nuraft_log_level::TRACE, "Notifying observer about cluster config change.");
   if (observer_) {
     observer_.value().Update(configs);

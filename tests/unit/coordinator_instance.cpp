@@ -81,10 +81,7 @@ TEST_F(CoordinatorInstanceTest, ShowInstancesEmptyTest) {
 
 TEST_F(CoordinatorInstanceTest, ConnectCoordinators) {
   GTEST_SKIP() << "skip flaky issue #https://github.com/memgraph/memgraph/issues/2212";
-  auto const wait_until_added = [](auto &instance) {
-    while (instance.ShowInstances().size() != 3) {
-    }
-  };
+
   auto const init_config1 = CoordinatorInstanceInitConfig{coordinator_ids[0],
                                                           coordinator_ports[0],
                                                           bolt_ports[0],
@@ -150,10 +147,7 @@ TEST_F(CoordinatorInstanceTest, ConnectCoordinators) {
 
 TEST_F(CoordinatorInstanceTest, GetConnectedCoordinatorsConfigs) {
   GTEST_SKIP() << "skip flaky issue #https://github.com/memgraph/memgraph/issues/2212";
-  auto const wait_until_added = [](auto &instance) {
-    while (instance.ShowInstances().size() != 3) {
-    }
-  };
+
   auto const init_config1 = CoordinatorInstanceInitConfig{coordinator_ids[0],
                                                           coordinator_ports[0],
                                                           bolt_ports[0],
@@ -230,10 +224,7 @@ TEST_F(CoordinatorInstanceTest, GetConnectedCoordinatorsConfigs) {
 
 TEST_F(CoordinatorInstanceTest, GetRoutingTable) {
   GTEST_SKIP() << "skip flaky issue #https://github.com/memgraph/memgraph/issues/2212";
-  auto const wait_until_added = [](auto &instance) {
-    while (instance.ShowInstances().size() != 3) {
-    }
-  };
+
   auto const init_config1 = CoordinatorInstanceInitConfig{coordinator_ids[0],
                                                           coordinator_ports[0],
                                                           bolt_ports[0],

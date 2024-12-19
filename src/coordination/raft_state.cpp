@@ -263,7 +263,7 @@ auto RaftState::GetCoordinatorToCoordinatorConfigs() const -> std::vector<Coordi
   return state_manager_->GetCoordinatorToCoordinatorConfigs();
 }
 
-auto RaftState::RemoveCoordinatorInstance(int coordinator_id) -> void {
+auto RaftState::RemoveCoordinatorInstance(int coordinator_id) const -> void {
   spdlog::trace("Removing coordinator instance {}.", coordinator_id);
 
   auto cmd_result = raft_server_->remove_srv(coordinator_id);
@@ -297,7 +297,7 @@ auto RaftState::RemoveCoordinatorInstance(int coordinator_id) -> void {
   }
 }
 
-auto RaftState::AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) -> void {
+auto RaftState::AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) const -> void {
   spdlog::trace("Adding coordinator instance {} start in RaftState for coordinator_{}", config.coordinator_id,
                 coordinator_id_);
   auto const endpoint = config.coordinator_server.SocketAddress();  // non-resolved IP
@@ -333,7 +333,7 @@ auto RaftState::AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &con
   }
 }
 
-auto RaftState::CoordLastSuccRespMs(uint32_t srv_id) -> std::chrono::milliseconds {
+auto RaftState::CoordLastSuccRespMs(uint32_t srv_id) const -> std::chrono::milliseconds {
   using std::chrono::duration_cast;
   using std::chrono::microseconds;
   using std::chrono::milliseconds;
@@ -372,7 +372,7 @@ auto RaftState::GetLeaderCoordinatorData() const -> std::optional<CoordinatorToC
 
 auto RaftState::IsLeader() const -> bool { return raft_server_->is_leader(); }
 
-auto RaftState::AppendClusterUpdate(std::vector<DataInstanceState> cluster_state, utils::UUID uuid) -> bool {
+auto RaftState::AppendClusterUpdate(std::vector<DataInstanceState> cluster_state, utils::UUID uuid) const -> bool {
   auto new_log = CoordinatorStateMachine::SerializeUpdateClusterState(std::move(cluster_state), uuid);
   auto const res = raft_server_->append_entries({new_log});
   if (!res->get_accepted()) {
