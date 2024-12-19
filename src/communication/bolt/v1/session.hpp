@@ -135,20 +135,6 @@ class Session {
    * Executes the session after data has been read into the buffer.
    * Goes through the bolt states in order to execute commands from the client.
    */
-  // TODO Better this, but I need to catch exceptions and pass them back
-  void Execute(auto &&async_cb) {
-    try {
-      Execute_();
-      if (state_ == State::Postponed) [[likely]] {
-        AsyncExecution(std::move(async_cb));
-        return;
-      }
-      async_cb(false, std::exception_ptr{/* no expections */});
-    } catch (const std::exception & /* unused */) {
-      async_cb(false, std::current_exception());
-    }
-  }
-
   void Execute_() {
     if (UNLIKELY(!handshake_done_)) {
       // Resize the input buffer to ensure that a whole chunk can fit into it.
@@ -229,7 +215,7 @@ class Session {
     postponed_work.emplace(n, qid, is_pull);
   }
 
-  virtual void AsyncExecution(std::function<void(bool, std::exception_ptr)> &&cb) noexcept = 0;
+  // virtual void AsyncExecution(std::function<void(bool, std::exception_ptr)> &&cb) noexcept = 0;
 
   void HandleError() {
     if (!at_least_one_run_) {

@@ -75,7 +75,21 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 
   std::optional<std::string> GetServerNameForInit() override;
 
-  void AsyncExecution(std::function<void(bool, std::exception_ptr)> &&cb) noexcept override;
+  void AsyncExecution(std::function<void(bool, std::exception_ptr)> &&cb) noexcept;
+
+  // TODO Better this, but I need to catch exceptions and pass them back
+  void Execute(auto &&async_cb) {
+    try {
+      Execute_();
+      if (state_ == memgraph::communication::bolt::State::Postponed) [[likely]] {
+        AsyncExecution(std::move(async_cb));
+        return;
+      }
+      async_cb(false, std::exception_ptr{/* no expections */});
+    } catch (const std::exception & /* unused */) {
+      async_cb(false, std::current_exception());
+    }
+  }
 
   std::string GetCurrentDB() const override;
 
