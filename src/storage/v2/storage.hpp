@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <optional>
 #include <span>
 
@@ -59,6 +60,7 @@ extern const Event ActiveLabelIndices;
 extern const Event ActiveLabelPropertyIndices;
 extern const Event ActivePointIndices;
 extern const Event ActiveTextIndices;
+extern const Event ActiveVectorIndices;
 }  // namespace memgraph::metrics
 
 namespace memgraph::storage {
@@ -72,6 +74,7 @@ struct IndicesInfo {
   std::vector<std::pair<EdgeTypeId, PropertyId>> edge_type_property;
   std::vector<std::pair<std::string, LabelId>> text_indices;
   std::vector<std::pair<LabelId, PropertyId>> point_label_property;
+  std::vector<std::shared_ptr<VectorIndexSpec>> vector_indices_spec;
 };
 
 struct ConstraintsInfo {
@@ -91,6 +94,7 @@ struct StorageInfo {
   uint64_t label_indices;
   uint64_t label_property_indices;
   uint64_t text_indices;
+  uint64_t vector_indices;
   uint64_t existence_constraints;
   uint64_t unique_constraints;
   StorageMode storage_mode;
@@ -120,6 +124,7 @@ static inline nlohmann::json ToJson(const StorageInfo &info) {
   res["label_indices"] = info.label_indices;
   res["label_prop_indices"] = info.label_property_indices;
   res["text_indices"] = info.text_indices;
+  res["vector_indices"] = info.vector_indices;
   res["existence_constraints"] = info.existence_constraints;
   res["unique_constraints"] = info.unique_constraints;
   res["storage_mode"] = storage::StorageModeToString(info.storage_mode);
@@ -246,6 +251,8 @@ class Storage {
                                           const std::optional<utils::Bound<PropertyValue>> &upper) const = 0;
 
     virtual std::optional<uint64_t> ApproximateVerticesPointCount(LabelId label, PropertyId property) const = 0;
+
+    virtual std::optional<uint64_t> ApproximateVerticesVectorCount(LabelId label, PropertyId property) const = 0;
 
     virtual std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const = 0;
 
@@ -381,7 +388,11 @@ class Storage {
 
     void DropTextIndex(const std::string &index_name);
 
-    void CreateVectorIndex(const VectorIndexSpec &spec);
+    virtual utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateVectorIndex(
+        const std::shared_ptr<VectorIndexSpec> &spec) = 0;
+
+    virtual utils::BasicResult<storage::StorageIndexDefinitionError, void> DropVectorIndex(
+        const std::string &index_name) = 0;
 
     void TryInsertVertexIntoVectorIndex(const VertexAccessor &vertex);
 

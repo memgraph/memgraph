@@ -16,7 +16,6 @@
 #include "storage/v2/disk/label_index.hpp"
 #include "storage/v2/disk/label_property_index.hpp"
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
@@ -75,6 +74,7 @@ void Indices::DropGraphClearIndices() {
   static_cast<InMemoryEdgeTypeIndex *>(edge_type_index_.get())->DropGraphClearIndices();
   static_cast<InMemoryEdgeTypePropertyIndex *>(edge_type_property_index_.get())->DropGraphClearIndices();
   point_index_.Clear();
+  vector_index_.Clear();
 }
 
 void Indices::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) const {

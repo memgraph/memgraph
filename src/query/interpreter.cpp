@@ -3196,6 +3196,90 @@ PreparedQuery PreparePointIndexQuery(ParsedQuery parsed_query, bool in_explicit_
       RWType::W};
 }
 
+PreparedQuery PrepareVectorIndexQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
+                                      std::vector<Notification> *notifications, CurrentDB &current_db) {
+  if (in_explicit_transaction) {
+    throw IndexInMulticommandTxException();
+  }
+
+  auto *vector_index_query = utils::Downcast<VectorIndexQuery>(parsed_query.query);
+  std::function<Notification(void)> handler;
+
+  MG_ASSERT(current_db.db_acc_, "Index query expects a current DB");
+  auto &db_acc = *current_db.db_acc_;
+
+  MG_ASSERT(current_db.db_transactional_accessor_, "Index query expects a current DB transaction");
+  auto *dba = &*current_db.execution_db_accessor_;
+
+  auto const invalidate_plan_cache = [plan_cache = db_acc->plan_cache()] {
+    plan_cache->WithLock([&](auto &cache) { cache.reset(); });
+  };
+
+  auto index_name = vector_index_query->index_name_;
+  auto label_name = vector_index_query->label_.name;
+  auto prop_name = vector_index_query->property_.name;
+  auto config = vector_index_query->configs_;
+  auto *storage = db_acc->storage();
+  switch (vector_index_query->action_) {
+    case VectorIndexQuery::Action::CREATE: {
+      handler = [dba, storage, invalidate_plan_cache = std::move(invalidate_plan_cache), &parsed_query,
+                 index_name = std::move(index_name), label_name = std::move(label_name),
+                 prop_name = std::move(prop_name), config = std::move(config)]() {
+        Notification index_notification(SeverityLevel::INFO);
+        index_notification.code = NotificationCode::CREATE_INDEX;
+        index_notification.title = fmt::format("Created vector index on label {}, property {}.", label_name, prop_name);
+
+        auto label_id = storage->NameToLabel(label_name);
+        auto prop_id = storage->NameToProperty(prop_name);
+
+        EvaluationContext evaluation_context;
+        evaluation_context.timestamp = QueryTimestamp();
+        evaluation_context.parameters = parsed_query.parameters;
+        auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
+        auto vector_index_config = storage::VectorIndex::ParseIndexSpec(config, evaluator);
+
+        auto spec = std::make_shared<storage::VectorIndexSpec>(
+            index_name, label_id, prop_id, vector_index_config.metric, vector_index_config.dimension,
+            vector_index_config.capacity, vector_index_config.resize_coefficient);
+        auto maybe_error = dba->CreateVectorIndex(spec);
+        utils::OnScopeExit const invalidator(invalidate_plan_cache);
+        if (maybe_error.HasError()) {
+          index_notification.code = NotificationCode::EXISTENT_INDEX;
+          index_notification.title =
+              fmt::format("Vector index on label {} and property {} already exists.", label_name, prop_name);
+        }
+        return index_notification;
+      };
+      break;
+    }
+    case VectorIndexQuery::Action::DROP: {
+      handler = [dba, invalidate_plan_cache = std::move(invalidate_plan_cache), index_name = std::move(index_name)]() {
+        Notification index_notification(SeverityLevel::INFO);
+        index_notification.code = NotificationCode::DROP_INDEX;
+        index_notification.title = fmt::format("Dropped point index {}.", index_name);
+
+        auto maybe_index_error = dba->DropVectorIndex(index_name);
+        utils::OnScopeExit const invalidator(invalidate_plan_cache);
+        if (maybe_index_error.HasError()) {
+          index_notification.code = NotificationCode::NONEXISTENT_INDEX;
+          index_notification.title = fmt::format("Vector index {} doesn't exist.", index_name);
+        }
+        return index_notification;
+      };
+      break;
+    }
+  }
+
+  return PreparedQuery{
+      {},
+      std::move(parsed_query.required_privileges),
+      [handler = std::move(handler), notifications](AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable {
+        notifications->push_back(handler());
+        return QueryHandlerResult::COMMIT;
+      },
+      RWType::W};
+}
+
 PreparedQuery PrepareTextIndexQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                                     std::vector<Notification> *notifications, CurrentDB &current_db) {
   if (in_explicit_transaction) {
@@ -4347,6 +4431,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         const std::string_view edge_type_property_index_mark{"edge-type+property"};
         const std::string_view text_index_mark{"text"};
         const std::string_view point_label_property_index_mark{"point"};
+        const std::string_view vector_label_property_index_mark{"vector"};
         auto info = dba->ListAllIndices();
         auto storage_acc = database->Access();
         std::vector<std::vector<TypedValue>> results;
@@ -4379,6 +4464,14 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
                              TypedValue(storage->PropertyToName(prop_id)),
                              TypedValue(static_cast<int>(
                                  storage_acc->ApproximateVerticesPointCount(label_id, prop_id).value_or(0)))});
+        }
+
+        for (const auto &spec : info.vector_indices_spec) {
+          results.push_back(
+              {TypedValue(vector_label_property_index_mark), TypedValue(storage->LabelToName(spec->label)),
+               TypedValue(storage->PropertyToName(spec->property)),
+               TypedValue(static_cast<int>(
+                   storage_acc->ApproximateVerticesVectorCount(spec->label, spec->property).value_or(0)))});
         }
 
         std::sort(results.begin(), results.end(), [&label_index_mark](const auto &record_1, const auto &record_2) {
@@ -5346,6 +5439,16 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
              {"count", storage_acc->ApproximateVerticesPointCount(label_id, property).value_or(0)},
              {"type", "label+property_point"}}));
       }
+
+      // Vertex label property_vector
+      for (const auto &spec : index_info.vector_indices_spec) {
+        node_indexes.push_back(nlohmann::json::object(
+            {{"labels", {storage->LabelToName(spec->label)}},
+             {"properties", {storage->PropertyToName(spec->property)}},
+             {"count", storage_acc->ApproximateVerticesVectorCount(spec->label, spec->property).value_or(0)},
+             {"type", "label+property_vector"}}));
+      }
+
       // Edge type indices
       for (const auto type : index_info.edge_type) {
         edge_indexes.push_back(nlohmann::json::object({{"edge_type", {storage->EdgeTypeToName(type)}},
@@ -5589,8 +5692,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     bool const unique_db_transaction =
         utils::Downcast<IndexQuery>(parsed_query.query) || utils::Downcast<EdgeIndexQuery>(parsed_query.query) ||
         utils::Downcast<PointIndexQuery>(parsed_query.query) || utils::Downcast<TextIndexQuery>(parsed_query.query) ||
-        utils::Downcast<ConstraintQuery>(parsed_query.query) || utils::Downcast<DropGraphQuery>(parsed_query.query) ||
-        utils::Downcast<CreateEnumQuery>(parsed_query.query) ||
+        utils::Downcast<VectorIndexQuery>(parsed_query.query) || utils::Downcast<ConstraintQuery>(parsed_query.query) ||
+        utils::Downcast<DropGraphQuery>(parsed_query.query) || utils::Downcast<CreateEnumQuery>(parsed_query.query) ||
         utils::Downcast<AlterEnumAddValueQuery>(parsed_query.query) ||
         utils::Downcast<AlterEnumUpdateValueQuery>(parsed_query.query) ||
         utils::Downcast<TtlQuery>(parsed_query.query) || utils::Downcast<RecoverSnapshotQuery>(parsed_query.query);
@@ -5658,6 +5761,9 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     } else if (utils::Downcast<TextIndexQuery>(parsed_query.query)) {
       prepared_query = PrepareTextIndexQuery(std::move(parsed_query), in_explicit_transaction_,
                                              &query_execution->notifications, current_db_);
+    } else if (utils::Downcast<VectorIndexQuery>(parsed_query.query)) {
+      prepared_query = PrepareVectorIndexQuery(std::move(parsed_query), in_explicit_transaction_,
+                                               &query_execution->notifications, current_db_);
     } else if (utils::Downcast<TtlQuery>(parsed_query.query)) {
 #ifdef MG_ENTERPRISE
       prepared_query = PrepareTtlQuery(std::move(parsed_query), in_explicit_transaction_,
