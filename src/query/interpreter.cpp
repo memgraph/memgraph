@@ -4604,7 +4604,7 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
                                       ? utils::GetReadableSize(static_cast<double>(license_info.memory_limit))
                                       : "UNLIMITED";
 
-        std::vector<std::vector<TypedValue>> results{
+        const std::vector<std::vector<TypedValue>> results{
             {TypedValue("organization_name"), TypedValue(license_info.organization_name)},
             {TypedValue("license_key"), TypedValue(license_info.license_key)},
             {TypedValue("is_valid"), TypedValue(license_info.is_valid)},

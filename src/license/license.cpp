@@ -293,7 +293,7 @@ DetailedLicenseInfo LicenseChecker::GetDetailedLicenseInfo() {
     const auto time = static_cast<std::time_t>(valid_until);
     std::tm *tm = std::gmtime(&time);
     char buffer[30];
-    std::strftime(buffer, sizeof(buffer), "%Y-%m-%d", tm);
+    (void)std::strftime(buffer, sizeof(buffer), "%Y-%m-%d", tm);
     info.valid_until = std::string(buffer);
 
     auto now = std::chrono::system_clock::now();
