@@ -75,6 +75,8 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 
   std::optional<std::string> GetServerNameForInit() override;
 
+  void AsyncExecution(std::function<void(bool, std::exception_ptr)> &&cb) noexcept override;
+
   std::string GetCurrentDB() const override;
 
  private:

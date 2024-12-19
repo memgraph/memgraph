@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <exception>
 #include <optional>
 #include <utility>
 #include "auth/auth.hpp"
@@ -33,6 +34,9 @@ extern const Event ActiveBoltSessions;
 }  // namespace memgraph::metrics
 
 namespace {
+
+inline static memgraph::utils::ThreadPool fake_scheduler{16};
+
 auto ToQueryExtras(const memgraph::glue::bolt_value_t &extra) -> memgraph::query::QueryExtras {
   auto const &as_map = extra.ValueMap();
 
@@ -480,4 +484,28 @@ bolt_map_t SessionHL::DecodeSummary(const std::map<std::string, memgraph::query:
 
   return decoded_summary;
 }
+
+void SessionHL::AsyncExecution(std::function<void(bool, std::exception_ptr)> &&cb) noexcept {
+  DMG_ASSERT(postoned_work, "No postponed work to execute");
+  // TODO Actually make this
+  // Safe to pass in this, since the cb actually holds on to the sesssion. Make this make sense...
+  fake_scheduler.AddTask([this, cb = std::move(cb), postponed_work = std::move(postponed_work)]() {
+    // TODO Catch exceptions and pass to cb
+    // Seems like the only exceptions that can be thrown is from the close handler
+    std::exception_ptr eptr;
+    try {
+      if (postponed_work->is_pull) {
+        state_ = communication::bolt::details::HandlePullDiscard<true>(*this, postponed_work->n, postponed_work->qid);
+      }
+      if (state_ == communication::bolt::State::Close) {
+        ClientFailureInvalidData();
+      }
+    } catch (const std::exception &) {
+      // Error occured while executing, stop and pass back the exception to the cb
+      eptr = std::current_exception();
+    }
+    cb(true, eptr);
+  });
+}
+
 }  // namespace memgraph::glue
