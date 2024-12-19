@@ -1439,6 +1439,8 @@ class Result {
  public:
   explicit Result(mgp_func_result *result);
 
+  /// @brief Sets a null value to be returned.
+  inline void SetValue();
   /// @brief Sets a boolean value to be returned.
   inline void SetValue(bool value);
   /// @brief Sets an integer value to be returned.
@@ -4213,6 +4215,12 @@ inline void RecordFactory::SetErrorMessage(const char *error_msg) const {
 // Result:
 
 inline Result::Result(mgp_func_result *result) : result_(result) {}
+
+inline void Result::SetValue() {
+  auto *mgp_val = mgp::MemHandlerCallback(value_make_null);
+  { mgp::MemHandlerCallback(func_result_set_value, result_, mgp_val); }
+  mgp::value_destroy(mgp_val);
+}
 
 inline void Result::SetValue(bool value) {
   auto *mgp_val = mgp::MemHandlerCallback(value_make_bool, value);
