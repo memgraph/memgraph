@@ -137,9 +137,9 @@ void LicenseChecker::RevalidateLicense(const std::string &license_key, const std
                                  locked_previous_license_info->license_key == license_key &&
                                  locked_previous_license_info->organization_name == organization_name;
   // If we already know it's invalid skip the check
-  // if (same_license_info && !locked_previous_license_info->is_valid) {
-  //   return;
-  // }
+  if (same_license_info && !locked_previous_license_info->is_valid) {
+    return;
+  }
 
   locked_previous_license_info.emplace(license_key, organization_name);
 
