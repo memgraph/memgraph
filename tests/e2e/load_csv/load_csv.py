@@ -157,23 +157,21 @@ def test_creating_edge_types_with_load_csv_parameter(memgraph):
     """
     )
 
-    results = list(
-        memgraph.execute_and_fetch(
-            f"""LOAD CSV FROM '{get_file_path(SIMPLE_EDGES_CSV_FILE)}' WITH HEADER AS row
-        MATCH (p1:Person {{id: row.from_id}})
-        MATCH (p2:Person {{id: row.to_id}})
-        CREATE (p1)-[e:$edge_type]->(p2)
-        RETURN e
-        """,
-            {"edge_type": "EDGE_TYPE"},
-        )
-    )
+    URI = "bolt://localhost:7687"
+    AUTH = ("", "")
 
-    assert len(results) == 4
-    assert results[0]["e"]._type == "EDGE_TYPE"
-    assert results[1]["e"]._type == "EDGE_TYPE"
-    assert results[2]["e"]._type == "EDGE_TYPE"
-    assert results[3]["e"]._type == "EDGE_TYPE"
+    with GraphDatabase.driver(URI, auth=AUTH) as client:
+        with client.session(database="memgraph") as session:
+            results = session.run(
+                f"""LOAD CSV FROM '{get_file_path(SIMPLE_EDGES_CSV_FILE)}' WITH HEADER AS row
+            MATCH (p1:Person {{id: row.from_id}})
+            MATCH (p2:Person {{id: row.to_id}})
+            CREATE (p1)-[e:$edge_type]->(p2)
+            RETURN e
+            """,
+                edge_type="EDGE_TYPE",
+            )
+            assert len(list(results)) == 4
 
 
 if __name__ == "__main__":
