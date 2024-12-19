@@ -27,6 +27,24 @@
 namespace {
 template <typename>
 [[maybe_unused]] inline constexpr bool always_false_v = false;
+
+using memgraph::storage::replication::ReplicaState;
+constexpr auto StateToString(ReplicaState &replica_state) -> std::string {
+  switch (replica_state) {
+    case ReplicaState::MAYBE_BEHIND:
+      return "MAYBE_BEHIND";
+    case ReplicaState::READY:
+      return "READY";
+    case ReplicaState::REPLICATING:
+      return "REPLICATING";
+    case ReplicaState::RECOVERY:
+      return "RECOVERY";
+    case ReplicaState::DIVERGED_FROM_MAIN:
+      return "DIVERGED_FROM_MAIN";
+    default:
+      return "Unknown ReplicaState";
+  }
+}
 }  // namespace
 
 namespace memgraph::storage {

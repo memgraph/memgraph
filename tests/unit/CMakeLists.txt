@@ -520,6 +520,27 @@ target_link_libraries(${test_prefix}coordinator_env_flag_handler gflags mg-flags
 target_include_directories(${test_prefix}coordinator_env_flag_handler PRIVATE ${CMAKE_SOURCE_DIR}/include)
 endif()
 
+
+# Build all HA unit tests
+if(MG_ENTERPRISE)
+add_custom_target(memgraph__unit__high_availability ALL
+    DEPENDS memgraph__unit__coordinator_cluster_state
+            memgraph__unit__coordinator_env_flag_handler
+            memgraph__unit__coordinator_instance
+            memgraph__unit__coordinator_log_store
+            memgraph__unit__coordinator_raft_log_serialization
+            memgraph__unit__coordinator_raft_state
+            memgraph__unit__coordinator_state_machine
+            memgraph__unit__coordinator_state_manager
+            memgraph__unit__coordinator_utils
+)
+
+add_custom_target(run_ha_tests
+    COMMAND ctest -j4 -R memgraph__unit__coordinator_
+)
+
+endif()
+
 # Test time to live
 if(MG_ENTERPRISE)
 add_unit_test(ttl.cpp)

@@ -302,7 +302,8 @@ auto ReplicationHandler::GetRole() const -> replication_coordination_glue::Repli
   return repl_state_.GetRole();
 }
 
-auto ReplicationHandler::GetDatabasesHistories() -> replication_coordination_glue::DatabaseHistories {
+// TODO: (andi) Repl storage state of the history isn't protected here. We should lock it.
+auto ReplicationHandler::GetDatabasesHistories() const -> replication_coordination_glue::DatabaseHistories {
   replication_coordination_glue::DatabaseHistories results;
   dbms_handler_.ForEach([&results](memgraph::dbms::DatabaseAccess db_acc) {
     auto &repl_storage_state = db_acc->storage()->repl_storage_state_;
@@ -319,12 +320,13 @@ auto ReplicationHandler::GetDatabasesHistories() -> replication_coordination_glu
   return results;
 }
 
-auto ReplicationHandler::GetMainUUID() -> utils::UUID {
+// Caller's job to check whether we are main or replica.
+auto ReplicationHandler::GetMainUUID() const -> utils::UUID {
   return std::get<RoleMainData>(repl_state_.ReplicationData()).uuid_;
 }
 
 // Caller's job to check whether we are main or replica.
-auto ReplicationHandler::GetReplicaUUID() -> std::optional<utils::UUID> {
+auto ReplicationHandler::GetReplicaUUID() const -> std::optional<utils::UUID> {
   return std::get<RoleReplicaData>(repl_state_.ReplicationData()).uuid_;
 }
 

@@ -119,22 +119,6 @@ class ReplicationStorageClient {
 
   auto State() const -> replication::ReplicaState { return replica_state_.WithLock(std::identity()); }
 
-  auto StateToString(replication::ReplicaState &replica_state) const -> std::string {
-    switch (replica_state) {
-      case replication::ReplicaState::MAYBE_BEHIND:
-        return "MAYBE_BEHIND";
-      case replication::ReplicaState::READY:
-        return "READY";
-      case replication::ReplicaState::REPLICATING:
-        return "REPLICATING";
-      case replication::ReplicaState::RECOVERY:
-        return "RECOVERY";
-      case replication::ReplicaState::DIVERGED_FROM_MAIN:
-        return "DIVERGED_FROM_MAIN";
-      default:
-        return "Unknown ReplicaState";
-    }
-  }
   auto GetTimestampInfo(Storage const *storage) -> TimestampInfo;
 
   /**
