@@ -2392,7 +2392,7 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
 
   if (relationshipDetail->relationshipTypes()) {
     edge->edge_types_ =
-        std::any_cast<std::vector<EdgeTypeIx>>(ctx->relationshipDetail()->relationshipTypes()->accept(this));
+        std::any_cast<std::vector<QueryEdgeType>>(ctx->relationshipDetail()->relationshipTypes()->accept(this));
   }
 
   auto relationshipLambdas = relationshipDetail->relationshipLambda();
@@ -2523,9 +2523,27 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipLambda(MemgraphCypher::Relatio
 }
 
 antlrcpp::Any CypherMainVisitor::visitRelationshipTypes(MemgraphCypher::RelationshipTypesContext *ctx) {
-  std::vector<EdgeTypeIx> types;
+  std::vector<QueryEdgeType> types;
   for (auto *edge_type : ctx->relTypeName()) {
-    types.push_back(AddEdgeType(std::any_cast<std::string>(edge_type->accept(this))));
+    if (edge_type->symbolicName()) {
+      types.emplace_back(AddEdgeType(std::any_cast<std::string>(edge_type->accept(this))));
+    } else if (edge_type->parameter()) {
+      // If we have a parameter, we have to resolve it.
+      const auto *param_lookup = std::any_cast<ParameterLookup *>(edge_type->accept(this));
+      const auto edge_type_name = parameters_->AtTokenPosition(param_lookup->token_position_).ValueString();
+      types.emplace_back(storage_->GetEdgeTypeIx(edge_type_name));
+      query_info_.is_cacheable = false;  // We can't cache queries with label parameters.
+    } else {
+      auto variable = std::any_cast<std::string>(edge_type->variable()->accept(this));
+      users_identifiers.insert(variable);
+      auto *expression = static_cast<Expression *>(storage_->Create<Identifier>(variable));
+      for (auto *lookup : edge_type->propertyLookup()) {
+        auto key = std::any_cast<PropertyIx>(lookup->accept(this));
+        auto *property_lookup = storage_->Create<PropertyLookup>(expression, key);
+        expression = property_lookup;
+      }
+      types.emplace_back(expression);
+    }
   }
   return types;
 }

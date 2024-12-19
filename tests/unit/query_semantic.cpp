@@ -847,7 +847,7 @@ TYPED_TEST(TestSymbolGenerator, MatchBfsReturn) {
   auto *r_prop = PROPERTY_LOOKUP(this->dba, "r", prop);
   auto *n_prop = PROPERTY_LOOKUP(this->dba, "n", prop);
   auto *bfs = this->storage.template Create<EdgeAtom>(IDENT("r"), EdgeAtom::Type::BREADTH_FIRST,
-                                                      EdgeAtom::Direction::OUT, std::vector<EdgeTypeIx>{});
+                                                      EdgeAtom::Direction::OUT, std::vector<QueryEdgeType>{});
   bfs->filter_lambda_.inner_edge = IDENT("r");
   bfs->filter_lambda_.inner_node = IDENT("n");
   bfs->filter_lambda_.expression = r_prop;
@@ -939,7 +939,7 @@ TYPED_TEST(TestSymbolGenerator, MatchWShortestReturn) {
   auto *r_weight = PROPERTY_LOOKUP(this->dba, "r", weight);
   auto *r_filter = PROPERTY_LOOKUP(this->dba, "r", filter);
   auto *shortest = this->storage.template Create<EdgeAtom>(IDENT("r"), EdgeAtom::Type::WEIGHTED_SHORTEST_PATH,
-                                                           EdgeAtom::Direction::OUT, std::vector<EdgeTypeIx>{});
+                                                           EdgeAtom::Direction::OUT, std::vector<QueryEdgeType>{});
   {
     shortest->weight_lambda_.inner_edge = IDENT("r");
     shortest->weight_lambda_.inner_node = IDENT("n");

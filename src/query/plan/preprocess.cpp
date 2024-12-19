@@ -393,6 +393,12 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
     add_properties(node);
   };
   auto add_expand_filter = [&](NodeAtom *, EdgeAtom *edge, NodeAtom *node) {
+    for (auto edge_type : edge->edge_types_) {
+      if (const auto *edge_type_name = std::get_if<Expression *>(&edge_type)) {
+        throw SemanticException("Property lookup not supported in MATCH/MERGE clause!");
+      }
+    }
+
     if (edge->IsVariable())
       add_properties_variable(edge);
     else
