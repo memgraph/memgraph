@@ -70,6 +70,9 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
       case SystemInfoQuery::InfoType::ACTIVE_USERS:
         AddPrivilege(AuthQuery::Privilege::STATS);
         break;
+      case SystemInfoQuery::InfoType::LICENSE:
+        AddPrivilege(AuthQuery::Privilege::CONFIG);
+        break;
     }
   }
 
