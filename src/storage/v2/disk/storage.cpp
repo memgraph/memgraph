@@ -2174,39 +2174,53 @@ UniqueConstraints::DeletionStatus DiskStorage::DiskAccessor::DropUniqueConstrain
 
 utils::BasicResult<StorageExistenceConstraintDefinitionError, void> DiskStorage::DiskAccessor::CreateTypeConstraint(
     LabelId /**/, PropertyId /**/, TypeConstraintKind /**/) {
-  throw utils::NotYetImplemented("Type constraints are not yet implemented for on-disk storage");
+  throw utils::NotYetImplemented(
+      "Type constraints are not yet implemented for on-disk storage. Consider switching to the IN_MEMORY_TRANSACTIONAL "
+      "mode or contact the Memgraph team.");
 }
 
 utils::BasicResult<StorageExistenceConstraintDroppingError, void> DiskStorage::DiskAccessor::DropTypeConstraint(
     LabelId /**/, PropertyId /**/, TypeConstraintKind /**/) {
-  throw utils::NotYetImplemented("Type constraints are not yet implemented for on-disk storage");
+  throw utils::NotYetImplemented(
+      "Type constraints are not yet implemented for on-disk storage. Consider switching to the IN_MEMORY_TRANSACTIONAL "
+      "mode or contact the Memgraph team.");
 }
 
 void DiskStorage::DiskAccessor::DropGraph() {
-  throw utils::NotYetImplemented("Drop graph is not yet implemented for on-disk storage");
+  throw utils::NotYetImplemented(
+      "Drop graph is not yet implemented for on-disk storage. Consider switching to the IN_MEMORY_TRANSACTIONAL mode "
+      "or contact the Memgraph team.");
 }
 
 auto DiskStorage::DiskAccessor::PointVertices(LabelId /*label*/, PropertyId /*property*/,
                                               CoordinateReferenceSystem /*crs*/, PropertyValue const & /*point_value*/,
                                               PropertyValue const & /*boundary_value*/,
                                               PointDistanceCondition /*condition*/) -> PointIterable {
-  throw utils::NotYetImplemented("Point Vertices is not yet implemented for on-disk storage");
+  throw utils::NotYetImplemented(
+      "Point Vertices is not yet implemented for on-disk storage. Consider switching to the IN_MEMORY_TRANSACTIONAL "
+      "mode or contact the Memgraph team.");
 }
 
 std::vector<std::tuple<VertexAccessor, double, double>> DiskStorage::DiskAccessor::VectorIndexSearch(
     const std::string & /*index_name*/, uint64_t /*number_of_results*/, const std::vector<float> & /*vector*/) {
-  throw utils::NotYetImplemented("Vector index is not yet implemented for on-disk storage");
+  throw utils::NotYetImplemented(
+      "Vector index is not yet implemented for on-disk storage. Consider switching to the IN_MEMORY_TRANSACTIONAL mode "
+      "or contact the Memgraph team.");
 }
 
 std::vector<VectorIndexInfo> DiskStorage::DiskAccessor::ListAllVectorIndices() const {
-  throw utils::NotYetImplemented("Vector index is not yet implemented for on-disk storage");
+  throw utils::NotYetImplemented(
+      "Vector index is not yet implemented for on-disk storage. Consider switching to the IN_MEMORY_TRANSACTIONAL mode "
+      "or contact the Memgraph team.");
 };
 
 auto DiskStorage::DiskAccessor::PointVertices(LabelId /*label*/, PropertyId /*property*/,
                                               CoordinateReferenceSystem /*crs*/, PropertyValue const & /*bottom_left*/,
                                               PropertyValue const & /*top_right*/, WithinBBoxCondition /*condition*/)
     -> PointIterable {
-  throw utils::NotYetImplemented("Point Vertices is not yet implemented for on-disk storage");
+  throw utils::NotYetImplemented(
+      "Point Vertices is not yet implemented for on-disk storage. Consider switching to the IN_MEMORY_TRANSACTIONAL "
+      "mode or contact the Memgraph team.");
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
