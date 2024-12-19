@@ -17,7 +17,6 @@
 #include <string>
 
 #include "query/frontend/ast/ast.hpp"
-#include "query/typed_value.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
@@ -103,15 +102,6 @@ class VectorIndex {
   VectorIndex &operator=(const VectorIndex &) = delete;
   VectorIndex(VectorIndex &&) noexcept;
   VectorIndex &operator=(VectorIndex &&) noexcept;
-
-  /// @brief Parses a string representation of an index specification.
-  /// @param index_spec The nlohmann::json object representing the index specification.
-  /// @param name_id_mapper The NameIdMapper instance used to map label and property names to IDs.
-  /// @throws std::invalid_argument if the index specification is invalid.
-  /// @return A vector of shared pointers to the VectorIndexSpec objects representing the parsed index specifications.
-  static VectorIndexConfigMap ParseIndexSpec(
-      std::unordered_map<query::Expression *, query::Expression *> const &config_map,
-      query::ExpressionVisitor<query::TypedValue> &evaluator);
 
   /// @brief Creates a new index based on the specified configuration.
   /// @param spec The specification for the index to be created.

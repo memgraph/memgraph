@@ -1378,6 +1378,47 @@ auto ParseConfigMap(std::unordered_map<Expression *, Expression *> const &config
          ranges::to<std::map<std::string, std::string, std::less<>>>;
 }
 
+auto ParseVectorIndexConfigMap(std::unordered_map<query::Expression *, query::Expression *> const &config_map,
+                               query::ExpressionVisitor<query::TypedValue> &evaluator)
+    -> storage::VectorIndexConfigMap {
+  if (config_map.empty()) {
+    throw std::invalid_argument("Vector index config map is empty.");
+  }
+
+  auto transformed_map = std::ranges::views::all(config_map) |
+                         std::ranges::views::transform([&evaluator](const auto &pair) {
+                           auto key_expr = pair.first->Accept(evaluator);
+                           auto value_expr = pair.second->Accept(evaluator);
+                           return std::pair{key_expr.ValueString(), value_expr};
+                         }) |
+                         ranges::to<std::map<std::string, query::TypedValue, std::less<>>>;
+
+  auto metric_str = transformed_map.contains(kMetric.data())
+                        ? std::string(transformed_map.at(kMetric.data()).ValueString())
+                        : std::string(kDefaultMetric);
+  auto metric_kind = unum::usearch::metric_from_name(metric_str.c_str(), metric_str.size());
+  if (metric_kind.error) {
+    throw std::invalid_argument("Invalid metric kind: " + metric_str);
+  }
+
+  auto dimension = transformed_map.find(kDimension.data());
+  if (dimension == transformed_map.end()) {
+    throw std::invalid_argument("Vector index spec must have a 'dimension' field.");
+  }
+  auto dimension_value = static_cast<std::uint16_t>(dimension->second.ValueInt());
+
+  auto capacity = transformed_map.find(kCapacity.data());
+  if (capacity == transformed_map.end()) {
+    throw std::invalid_argument("Vector index spec must have a 'capacity' field.");
+  }
+  auto capacity_value = static_cast<std::size_t>(capacity->second.ValueInt());
+
+  auto resize_coefficient = transformed_map.contains(kResizeCoefficient.data())
+                                ? static_cast<std::uint16_t>(transformed_map.at(kResizeCoefficient.data()).ValueInt())
+                                : kDefaultResizeCoefficient;
+  return storage::VectorIndexConfigMap{metric_kind.result, dimension_value, capacity_value, resize_coefficient};
+}
+
 Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Parameters &parameters,
                                 coordination::CoordinatorState *coordinator_state,
                                 const query::InterpreterConfig &config, std::vector<Notification> *notifications) {
@@ -3178,7 +3219,7 @@ PreparedQuery PrepareVectorIndexQuery(ParsedQuery parsed_query, bool in_explicit
         evaluation_context.timestamp = QueryTimestamp();
         evaluation_context.parameters = parsed_query.parameters;
         auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
-        auto vector_index_config = storage::VectorIndex::ParseIndexSpec(config, evaluator);
+        auto vector_index_config = ParseVectorIndexConfigMap(config, evaluator);
 
         auto spec = std::make_shared<storage::VectorIndexSpec>(
             index_name, label_id, prop_id, vector_index_config.metric, vector_index_config.dimension,

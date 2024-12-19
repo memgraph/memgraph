@@ -23,24 +23,14 @@
 #include "spdlog/spdlog.h"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/vector_index.hpp"
-#include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
 #include "usearch/index_dense.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/counter.hpp"
-#include "utils/logging.hpp"
 #include "utils/rw_spin_lock.hpp"
 
 namespace memgraph::storage {
-
-static constexpr std::string_view kMetric = "metric";
-static constexpr std::string_view kDimension = "dimension";
-static constexpr std::string_view kCapacity = "capacity";
-static constexpr std::string_view kResizeCoefficient = "resize_coefficient";
-
-static constexpr std::uint16_t kDefaultResizeCoefficient = 2;
-static constexpr std::string_view kDefaultMetric = "l2sq";
 
 using mg_vector_index_t = unum::usearch::index_dense_gt<Vertex *, unum::usearch::uint40_t>;
 
@@ -83,47 +73,6 @@ struct VectorIndex::Impl {
 
 VectorIndex::VectorIndex() : pimpl(std::make_unique<Impl>()) {}
 VectorIndex::~VectorIndex() {}
-
-VectorIndexConfigMap VectorIndex::ParseIndexSpec(
-    std::unordered_map<query::Expression *, query::Expression *> const &config_map,
-    query::ExpressionVisitor<query::TypedValue> &evaluator) {
-  if (config_map.empty()) {
-    throw std::invalid_argument("Vector index config map is empty.");
-  }
-
-  auto transformed_map = std::ranges::views::all(config_map) |
-                         std::ranges::views::transform([&evaluator](const auto &pair) {
-                           auto key_expr = pair.first->Accept(evaluator);
-                           auto value_expr = pair.second->Accept(evaluator);
-                           return std::pair{key_expr.ValueString(), value_expr};
-                         }) |
-                         ranges::to<std::map<std::string, query::TypedValue, std::less<>>>;
-
-  auto metric_str = transformed_map.contains(kMetric.data())
-                        ? std::string(transformed_map.at(kMetric.data()).ValueString())
-                        : std::string(kDefaultMetric);
-  auto metric_kind = unum::usearch::metric_from_name(metric_str.c_str(), metric_str.size());
-  if (metric_kind.error) {
-    throw std::invalid_argument("Invalid metric kind: " + metric_str);
-  }
-
-  auto dimension = transformed_map.find(kDimension.data());
-  if (dimension == transformed_map.end()) {
-    throw std::invalid_argument("Vector index spec must have a 'dimension' field.");
-  }
-  auto dimension_value = static_cast<std::uint16_t>(dimension->second.ValueInt());
-
-  auto capacity = transformed_map.find(kCapacity.data());
-  if (capacity == transformed_map.end()) {
-    throw std::invalid_argument("Vector index spec must have a 'capacity' field.");
-  }
-  auto capacity_value = static_cast<std::size_t>(capacity->second.ValueInt());
-
-  auto resize_coefficient = transformed_map.contains(kResizeCoefficient.data())
-                                ? static_cast<std::uint16_t>(transformed_map.at(kResizeCoefficient.data()).ValueInt())
-                                : kDefaultResizeCoefficient;
-  return VectorIndexConfigMap{metric_kind.result, dimension_value, capacity_value, resize_coefficient};
-}
 
 void VectorIndex::CreateIndex(const std::shared_ptr<VectorIndexSpec> &spec) {
   const unum::usearch::metric_punned_t metric(

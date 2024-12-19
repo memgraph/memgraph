@@ -31,19 +31,19 @@
 
 namespace memgraph::query {
 
-constexpr std::string_view kBoltServer = "bolt_server";
-constexpr std::string_view kReplicationServer = "replication_server";
-constexpr std::string_view kCoordinatorServer = "coordinator_server";
-constexpr std::string_view kManagementServer = "management_server";
+inline constexpr std::string_view kBoltServer = "bolt_server";
+inline constexpr std::string_view kReplicationServer = "replication_server";
+inline constexpr std::string_view kCoordinatorServer = "coordinator_server";
+inline constexpr std::string_view kManagementServer = "management_server";
 
-constexpr std::string_view kLabel = "label";
-constexpr std::string_view kProperty = "property";
-constexpr std::string_view kMetric = "metric";
-constexpr std::string_view kDimension = "dimension";
-constexpr std::string_view kCapacity = "capacity";
-constexpr std::string_view kResizeCoefficient = "resize_coefficient";
-constexpr std::uint16_t kDefaultResizeCoefficient = 2;
-constexpr std::string_view kDefaultMetric = "l2sq";
+inline constexpr std::string_view kLabel = "label";
+inline constexpr std::string_view kProperty = "property";
+inline constexpr std::string_view kMetric = "metric";
+inline constexpr std::string_view kDimension = "dimension";
+inline constexpr std::string_view kCapacity = "capacity";
+inline constexpr std::string_view kResizeCoefficient = "resize_coefficient";
+inline constexpr std::uint16_t kDefaultResizeCoefficient = 2;
+inline constexpr std::string_view kDefaultMetric = "l2sq";
 
 struct LabelIx {
   static const utils::TypeInfo kType;

@@ -178,18 +178,6 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
               config_.durability.storage_directory);
   }
 
-  // // This is temporary solution for vector index to accelerate the development
-  // if (flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
-  //   const auto specs = flags::ParseExperimentalConfig(flags::Experiments::VECTOR_SEARCH);
-  //   const auto vector_index_specs = memgraph::storage::VectorIndex::ParseIndexSpec(specs, name_id_mapper_.get());
-  //   for (const auto &spec : vector_index_specs) {
-  //     spdlog::info("Having vector index named {} on :{}({})", spec->index_name,
-  //                  name_id_mapper_->IdToName(spec->label.AsUint()),
-  //                  name_id_mapper_->IdToName(spec->property.AsUint()));
-  //     indices_.vector_index_.CreateIndex(spec);
-  //   }
-  // }
-
   if (config_.durability.recover_on_startup) {
     auto info =
         recovery_.RecoverData(uuid(), repl_storage_state_, &vertices_, &edges_, &edges_metadata_, &edge_count_,
