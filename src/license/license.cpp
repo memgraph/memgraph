@@ -274,7 +274,11 @@ DetailedLicenseInfo LicenseChecker::GetDetailedLicenseInfo() {
 
   const auto maybe_license = GetLicense(locked_previous_license_info->license_key);
   if (!maybe_license) {
-    info.status = "Invalid license key string!";
+    if (info.license_key.empty() && info.organization_name.empty()) {
+      info.status = "You have not provided any license!";
+    } else {
+      info.status = "Invalid license key string!";
+    }
     info.is_valid = false;
     return info;
   }

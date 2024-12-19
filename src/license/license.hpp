@@ -60,7 +60,7 @@ struct DetailedLicenseInfo {
   bool is_valid{false};
   std::string license_type;
   std::string valid_until;
-  int64_t memory_limit;
+  int64_t memory_limit{0};
   std::string status;
 };
 
