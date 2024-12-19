@@ -76,7 +76,7 @@ struct VectorIndexSpec {
   unum::usearch::metric_kind_t metric_kind;
   std::uint16_t dimension;
   std::size_t capacity;
-  std::uint16_t resize_coefficient;  // TODO(@DavIvek): Revisit resizing options
+  std::uint16_t resize_coefficient;  // TODO(@DavIvek): Revisit resizing options (maybe using float?)
 
   friend bool operator==(const VectorIndexSpec &, const VectorIndexSpec &) = default;
 };
@@ -86,6 +86,8 @@ struct VectorIndexSpec {
 ///
 /// The VectorIndex class supports creating new indexes, adding nodes to an index,
 /// listing all indexes, and searching for nodes using a query vector.
+/// Currently, vector index operates in READ_UNCOMMITTED isolation level. Database can
+/// still operate in any other isolation level.
 /// This class is thread-safe and uses the Pimpl (Pointer to Implementation) idiom
 /// to hide implementation details.
 class VectorIndex {

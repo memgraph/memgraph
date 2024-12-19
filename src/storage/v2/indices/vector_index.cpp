@@ -52,7 +52,7 @@ struct IndexItem {
 };
 
 /// Map from usearch metric kind to similarity function
-/// TODO(@DavIvek): Check if this functions are correct -> l2sq and cosine are correct and they are most critical atm
+/// TODO(@DavIvek): Check if this functions are correct -> l2sq and cosine are correct and they are most critical ATM
 static const std::unordered_map<unum::usearch::metric_kind_t, std::function<double(double)>> similarity_map = {
     {unum::usearch::metric_kind_t::ip_k, [](double distance) { return 1.0 - distance; }},
     {unum::usearch::metric_kind_t::cos_k, [](double distance) { return 1.0 - distance; }},
@@ -128,7 +128,8 @@ VectorIndexConfigMap VectorIndex::ParseIndexSpec(
 void VectorIndex::CreateIndex(const std::shared_ptr<VectorIndexSpec> &spec) {
   const unum::usearch::metric_punned_t metric(
       spec->dimension, spec->metric_kind,
-      unum::usearch::scalar_kind_t::f32_k);  // TODO(@DavIvek): scalar kind is hardcoded to f32 ATM
+      unum::usearch::scalar_kind_t::f32_k);  // TODO(@DavIvek): scalar kind is hardcoded to f32 ATM -> changing this
+                                             // could be beneficial for memory usage
 
   // use the number of workers as the number of possible concurrent index operations
   const unum::usearch::index_limits_t limits(spec->capacity, FLAGS_bolt_num_workers);
