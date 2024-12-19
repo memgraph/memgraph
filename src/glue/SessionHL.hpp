@@ -45,7 +45,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   using TEncoder = memgraph::communication::bolt::Encoder<
       memgraph::communication::bolt::ChunkedEncoderBuffer<memgraph::communication::v2::OutputStream>>;
 
-  void BeginTransaction(const bolt_map_t &extra) override;
+  void BeginTransaction(const bolt_map_t &extra);
 
   void CommitTransaction() override;
 
@@ -59,7 +59,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
       -> bolt_map_t override;
 #endif
 
-  bolt_map_t Pull(std::optional<int> n, std::optional<int> qid) override;
+  bolt_map_t Pull(std::optional<int> n, std::optional<int> qid);
 
   bolt_map_t Discard(std::optional<int> n, std::optional<int> qid) override;
 
@@ -80,7 +80,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   // TODO Better this, but I need to catch exceptions and pass them back
   void Execute(auto &&async_cb) {
     try {
-      Execute_();
+      Execute_(*this);
       if (state_ == memgraph::communication::bolt::State::Postponed) [[likely]] {
         AsyncExecution(std::move(async_cb));
         return;
