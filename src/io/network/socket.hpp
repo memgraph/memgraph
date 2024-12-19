@@ -43,7 +43,7 @@ class Socket {
   /**
    * Shutdown the socket if it is open.
    */
-  void Shutdown();
+  void Shutdown() const;
 
   /**
    * Checks whether the socket is open.
@@ -86,7 +86,7 @@ class Socket {
    *             true if the listen succeeded
    *             false if the listen failed
    */
-  bool Listen(int backlog);
+  bool Listen(int backlog) const;
 
   /**
    * Accepts a new connection.
@@ -94,24 +94,24 @@ class Socket {
    *
    * @return socket if accepted, nullopt otherwise.
    */
-  std::optional<Socket> Accept();
+  std::optional<Socket> Accept() const;
 
   /**
    * Sets the socket to non-blocking.
    */
-  void SetNonBlocking();
+  void SetNonBlocking() const;
 
   /**
    * Enables TCP keep-alive on the socket.
    */
-  void SetKeepAlive();
+  void SetKeepAlive() const;
 
   /**
    * Enables TCP no_delay on the socket.
    * When enabled, the socket doesn't wait for an ACK of every data packet
    * before sending the next packet.
    */
-  void SetNoDelay();
+  void SetNoDelay() const;
 
   /**
    * Sets the socket timeout.
@@ -145,12 +145,15 @@ class Socket {
    * @param have_more set to true if you plan to send more data to allow the
    * kernel to buffer the data instead of immediately sending it out
    *
+   * @param timeout_ms Timeout in miliseconds for writing operation
+   *
    * @return write success status:
    *             true if write succeeded
    *             false if write failed
    */
-  bool Write(const uint8_t *data, size_t len, bool have_more = false);
-  bool Write(std::string_view s, bool have_more = false);
+  bool Write(const uint8_t *data, size_t len, bool have_more = false,
+             std::optional<int> timeout_ms = std::nullopt) const;
+  bool Write(std::string_view s, bool have_more = false, std::optional<int> timeout_ms = std::nullopt) const;
 
   /**
    * Read data from the socket.
@@ -165,7 +168,7 @@ class Socket {
    *             == 0 if the client closed the connection
    *             < 0 if an error has occurred
    */
-  ssize_t Read(void *buffer, size_t len, bool nonblock = false);
+  ssize_t Read(void *buffer, size_t len, bool nonblock = false) const;
 
   /**
    * Wait until the socket becomes ready for a `Read` operation.
@@ -178,11 +181,13 @@ class Socket {
    * be read from the socket) and returns `false` if the wait failed (the socket
    * was closed or something else bad happened).
    *
+   * @param timeout_ms Timeout in miliseconds.
+   *
    * @return wait success status:
    *             true if the wait succeeded
    *             false if the wait failed
    */
-  bool WaitForReadyRead();
+  bool WaitForReadyRead(std::optional<int> timeout_ms = std::nullopt) const;
 
   /**
    * Wait until the socket becomes ready for a `Write` operation.
@@ -195,11 +200,15 @@ class Socket {
    * to) and returns `false` if the wait failed (the socket was closed or
    * something else bad happened).
    *
+   * @param timeout_ms Timeout in miliseconds. Max time allowed for waiting before socket becomes writeable.
+   *
    * @return wait success status:
    *             true if the wait succeeded
    *             false if the wait failed
    */
-  bool WaitForReadyWrite();
+  // TODO: (andi) Does this mean that if the RPC message needs to be sent but waits too long because some other requests
+  // are there from before, we won't send this RPC message?
+  bool WaitForReadyWrite(std::optional<int> timeout_ms = std::nullopt) const;
 
  private:
   Socket(int fd, Endpoint endpoint) : socket_(fd), endpoint_(std::move(endpoint)) {}

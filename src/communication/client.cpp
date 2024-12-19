@@ -97,7 +97,7 @@ void Client::Close() {
   socket_.Close();
 }
 
-bool Client::Read(size_t len, bool exactly_len) {
+bool Client::Read(size_t len, bool exactly_len, std::optional<int> timeout_ms) {
   if (len == 0) return false;
   size_t received = 0;
   buffer_.write_end()->Resize(buffer_.read_end()->size() + len);
@@ -128,7 +128,7 @@ bool Client::Read(size_t len, bool exactly_len) {
           continue;
         } else {
           // This is a fatal error.
-          SPDLOG_ERROR("Received an unexpected SSL error: {}", err);
+          spdlog::error("Received an unexpected SSL error: {}", err);
           return false;
         }
       } else if (got == 0) {
@@ -141,6 +141,9 @@ bool Client::Read(size_t len, bool exactly_len) {
       received += got;
     } else {
       // Read raw data from the socket.
+      if (!socket_.WaitForReadyRead(timeout_ms)) {
+        return false;
+      }
       auto got = socket_.Read(buff.data, len - received);
 
       if (got <= 0) {
@@ -167,7 +170,7 @@ void Client::ShiftData(size_t len) { buffer_.read_end()->Shift(len); }
 
 void Client::ClearData() { buffer_.read_end()->Clear(); }
 
-bool Client::Write(const uint8_t *data, size_t len, bool have_more) {
+bool Client::Write(const uint8_t *data, size_t len, bool have_more, std::optional<int> timeout_ms) {
   if (ssl_) {
     // `SSL_write` has the interface of a normal `write` call. Because of that
     // we need to ensure that all data is written to the socket manually.
@@ -204,12 +207,12 @@ bool Client::Write(const uint8_t *data, size_t len, bool have_more) {
     }
     return true;
   } else {
-    return socket_.Write(data, len, have_more);
+    return socket_.Write(data, len, have_more, timeout_ms);
   }
 }
 
-bool Client::Write(const std::string &str, bool have_more) {
-  return Write(reinterpret_cast<const uint8_t *>(str.data()), str.size(), have_more);
+bool Client::Write(const std::string &str, bool have_more, std::optional<int> timeout_ms) {
+  return Write(reinterpret_cast<const uint8_t *>(str.data()), str.size(), have_more, timeout_ms);
 }
 
 const io::network::Endpoint &Client::endpoint() { return socket_.endpoint(); }
