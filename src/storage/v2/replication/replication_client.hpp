@@ -191,9 +191,6 @@ class ReplicationStorageClient {
    * @param gk gatekeeper access that protects the database; std::any to have separation between dbms and storage
    */
   void TryCheckReplicaStateAsync(Storage *storage, DatabaseAccessProtector db_acc);  // TODO Move back to private
-
-  auto &Client() { return client_; }
-
  private:
   /**
    * @brief Get necessary recovery steps and execute them.
