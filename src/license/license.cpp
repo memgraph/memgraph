@@ -288,16 +288,16 @@ DetailedLicenseInfo LicenseChecker::GetDetailedLicenseInfo() {
   info.license_type = LicenseTypeToString(maybe_license->type);
 
   // convert the epoch of validity to date string
-  int64_t valid_until = maybe_license->valid_until;
+  const int64_t valid_until = maybe_license->valid_until;
   if (valid_until != 0) {
-    std::time_t time = static_cast<std::time_t>(valid_until);
+    const auto time = static_cast<std::time_t>(valid_until);
     std::tm *tm = std::gmtime(&time);
     char buffer[30];
     std::strftime(buffer, sizeof(buffer), "%Y-%m-%d", tm);
     info.valid_until = std::string(buffer);
 
     auto now = std::chrono::system_clock::now();
-    int64_t currentEpoch = std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count();
+    const int64_t currentEpoch = std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count();
     if (currentEpoch > valid_until) {
       info.is_valid = false;
       info.status = "You are running an expired license!";
