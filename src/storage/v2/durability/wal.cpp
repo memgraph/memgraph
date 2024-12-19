@@ -1073,7 +1073,7 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
         auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
         const auto unum_metric_kind = unum::usearch::metric_from_name(data.metric_kind.data(), data.metric_kind.size());
-        if (!unum_metric_kind.error) {
+        if (unum_metric_kind.error) {
           throw RecoveryFailure("Invalid metric kind for vector index!");
         }
         const auto spec =
@@ -1322,10 +1322,10 @@ void EncodeVectorIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper,
   encoder.WriteString(index_spec->index_name);
   encoder.WriteString(name_id_mapper.IdToName(index_spec->label.AsUint()));
   encoder.WriteString(name_id_mapper.IdToName(index_spec->property.AsUint()));
-  encoder.WriteUint(static_cast<uint64_t>(index_spec->metric_kind));
+  encoder.WriteString(storage::kMetricToStringMap.at(index_spec->metric_kind).front());
   encoder.WriteUint(index_spec->dimension);
   encoder.WriteUint(index_spec->capacity);
-  encoder.WriteDouble(index_spec->resize_coefficient);
+  encoder.WriteUint(index_spec->resize_coefficient);
 }
 
 void EncodeVectorIndexName(BaseEncoder &encoder, std::string_view index_name) { encoder.WriteString(index_name); }
