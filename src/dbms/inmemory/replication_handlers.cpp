@@ -19,12 +19,12 @@
 #include "storage/v2/durability/version.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/inmemory/storage.hpp"
-#include "storage/v2/inmemory/unique_constraints.hpp"
 #include "storage/v2/schema_info.hpp"
 
 #include <spdlog/spdlog.h>
 #include <cstdint>
 #include <optional>
+#include <usearch/index_plugins.hpp>
 
 using memgraph::replication_coordination_glue::ReplicationRole;
 using memgraph::storage::Delta;
@@ -1044,6 +1044,33 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
           auto res = transaction->DropPointIndex(labelId, propId);
           if (res.HasError()) {
             throw utils::BasicException("Failed to drop point index on :{}({})", data.label, data.property);
+          }
+        },
+        [&](WalVectorIndexCreate const &data) {
+          spdlog::trace("       Create vector index on :{}({})", data.label, data.property);
+          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          auto labelId = storage->NameToLabel(data.label);
+          auto propId = storage->NameToProperty(data.property);
+          auto const unum_metric_kind =
+              unum::usearch::metric_from_name(data.metric_kind.data(), data.metric_kind.size());
+          if (unum_metric_kind.error) {
+            throw utils::BasicException("Failed to create vector index on :{}({}), invalid metric kind: {}", data.label,
+                                        data.property, data.metric_kind);
+          }
+          auto const spec =
+              std::make_shared<storage::VectorIndexSpec>(data.index_name, labelId, propId, unum_metric_kind.result,
+                                                         data.dimension, data.capacity, data.resize_coefficient);
+          auto res = transaction->CreateVectorIndex(spec);
+          if (res.HasError()) {
+            throw utils::BasicException("Failed to create vector index on :{}({})", data.label, data.property);
+          }
+        },
+        [&](WalVectorIndexDrop const &data) {
+          spdlog::trace("       Drop vector index {} ", data.index_name);
+          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          auto res = transaction->DropVectorIndex(data.index_name);
+          if (res.HasError()) {
+            throw utils::BasicException("Failed to drop vector index {}", data.index_name);
           }
         },
     };
