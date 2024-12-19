@@ -12,11 +12,9 @@
 #include <sys/types.h>
 #include <string_view>
 #include <thread>
-#include <usearch/index_plugins.hpp>
 
 #include "flags/experimental.hpp"
 #include "query/db_accessor.hpp"
-#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
@@ -450,5 +448,22 @@ TYPED_TEST(VectorSearchTest, ClearTest) {
   {
     auto acc = this->storage->Access();
     EXPECT_EQ(acc->ListAllVectorIndices().size(), 0);
+  }
+}
+
+TYPED_TEST(VectorSearchTest, CreateIndexWhenNodesExistsAlreadyTest) {
+  {
+    auto acc = this->storage->Access();
+
+    PropertyValue properties(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
+    [[maybe_unused]] const auto vertex = this->CreateVertex(acc.get(), test_property, properties, test_label);
+    ASSERT_NO_ERROR(acc->Commit());
+  }
+  this->CreateIndex(2, 10);
+
+  // Expect the index to have 1 entry
+  {
+    auto acc = this->storage->Access();
+    EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 1);
   }
 }

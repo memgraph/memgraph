@@ -23,6 +23,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/point_index.hpp"
 #include "storage/v2/indices/point_iterator.hpp"
+#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
 #include "storage/v2/storage.hpp"
