@@ -158,12 +158,16 @@ class CoordinatorQueryHandler {
   virtual void SetReplicationInstanceToMain(std::string_view instance_name) = 0;
 
   /// @throw QueryRuntimeException if an error occurred.
+  virtual coordination::InstanceStatus ShowInstance() const = 0;
+
+  /// @throw QueryRuntimeException if an error occurred.
   virtual std::vector<coordination::InstanceStatus> ShowInstances() const = 0;
 
   /// @throw QueryRuntimeException if an error occurred.
-  virtual auto AddCoordinatorInstance(uint32_t coordinator_id, std::string_view bolt_server,
-                                      std::string_view coordinator_server, std::string_view management_server)
-      -> void = 0;
+  virtual void AddCoordinatorInstance(uint32_t coordinator_id, std::string_view bolt_server,
+                                      std::string_view coordinator_server, std::string_view management_server) = 0;
+
+  virtual void RemoveCoordinatorInstance(int coordinator_id) = 0;
 
   virtual void DemoteInstanceToReplica(std::string_view instance_name) = 0;
 

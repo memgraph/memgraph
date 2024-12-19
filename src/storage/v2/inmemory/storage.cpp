@@ -237,6 +237,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       // SkipList is already threadsafe
       vertices_.run_gc();
       edges_.run_gc();
+      edges_metadata_.run_gc();
     };
   }
 
@@ -1252,10 +1253,7 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &curr
     }
 
     // delete deltas
-    auto delta_size = deltas.size();
     deltas.clear();
-
-    memgraph::metrics::DecrementCounter(memgraph::metrics::UnreleasedDeltaObjects, delta_size);
   };
 
   // STEP 1) ensure everything in GC is gone
@@ -1349,7 +1347,6 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     std::map<LabelPropKey, std::vector<Vertex *>> vector_label_property_cleanup;
     std::map<LabelPropKey, std::vector<std::pair<PropertyValue, Vertex *>>> vector_label_property_restore;
 
-    auto delta_size = transaction_.deltas.size();
     for (const auto &delta : transaction_.deltas) {
       auto prev = delta.prev.Get();
       switch (prev.type) {
@@ -1605,7 +1602,6 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
           break;
       }
     }
-    memgraph::metrics::DecrementCounter(memgraph::metrics::UnreleasedDeltaObjects, delta_size);
 
     {
       auto engine_guard = std::unique_lock(storage_->engine_lock_);
@@ -2146,23 +2142,15 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) {
       guard.unlock();
       if (aggressive or mark_timestamp == oldest_active_start_timestamp) {
-        auto const released_delta_count =
-            std::accumulate(garbage_undo_buffers.cbegin(), garbage_undo_buffers.cend(), uint64_t{0},
-                            [](uint64_t curr, GCDeltas const &gc_deltas) { return curr + gc_deltas.deltas_.size(); });
-
         // We know no transaction is active, it is safe to simply delete all the garbage undos
         // Nothing can be reading them
         garbage_undo_buffers.clear();
-        memgraph::metrics::DecrementCounter(memgraph::metrics::UnreleasedDeltaObjects, released_delta_count);
       } else {
-        auto released_delta_count = uint64_t{0};
         // garbage_undo_buffers is ordered, pop until we can't
         while (!garbage_undo_buffers.empty() &&
                garbage_undo_buffers.front().mark_timestamp_ <= oldest_active_start_timestamp) {
-          released_delta_count += garbage_undo_buffers.front().deltas_.size();
           garbage_undo_buffers.pop_front();
         }
-        memgraph::metrics::DecrementCounter(memgraph::metrics::UnreleasedDeltaObjects, released_delta_count);
       }
     });
   }
@@ -2395,7 +2383,6 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
 
       // Now total_deltas contains the sum of all deltas in the unlinked_undo_buffers list
       unlinked_undo_buffers.clear();
-      memgraph::metrics::DecrementCounter(memgraph::metrics::UnreleasedDeltaObjects, released_delta_count);
     } else {
       // Take garbage_undo_buffers lock while holding the engine lock to make
       // sure that entries are sorted by mark timestamp in the list.
@@ -2413,13 +2400,13 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     }
   }
 
-  {
+  if (!current_deleted_vertices.empty()) {
     auto vertex_acc = vertices_.access();
     for (auto vertex : current_deleted_vertices) {
       MG_ASSERT(vertex_acc.remove(vertex), "Invalid database state!");
     }
   }
-  {
+  if (!current_deleted_edges.empty()) {
     auto edge_acc = edges_.access();
     auto edge_metadata_acc = edges_metadata_.access();
     for (auto edge : current_deleted_edges) {

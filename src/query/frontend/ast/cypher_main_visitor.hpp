@@ -302,6 +302,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   /**
    * @return CoordinatorQuery*
    */
+  antlrcpp::Any visitRemoveCoordinatorInstance(MemgraphCypher::RemoveCoordinatorInstanceContext *ctx) override;
+
+  /**
+   * @return CoordinatorQuery*
+   */
   antlrcpp::Any visitForceResetClusterStateOnCoordinator(
       MemgraphCypher::ForceResetClusterStateOnCoordinatorContext *ctx) override;
 
@@ -309,6 +314,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return CoordinatorQuery*
    */
   antlrcpp::Any visitDemoteInstanceOnCoordinator(MemgraphCypher::DemoteInstanceOnCoordinatorContext *ctx) override;
+
+  /**
+   * @return CoordinatorQuery*
+   */
+  antlrcpp::Any visitShowInstance(MemgraphCypher::ShowInstanceContext *ctx) override;
 
   /**
    * @return CoordinatorQuery*

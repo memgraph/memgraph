@@ -435,3 +435,13 @@ Feature: List operators
             | 'Keanu Reeves'       | [2003,2003,1999,2021] | ['TheMatrixRevolutions','TheMatrixReloaded','TheMatrix','TheMatrixResurrections'] |
             | 'Carrie-Anne Moss'   | [1999,2003]           | ['TheMatrix','TheMatrixReloaded']                                                 |
             | 'Laurence Fishburne' | [1999]                | ['The Matrix']                                                                    |
+
+    Scenario: List comprehension outside with and return
+        Given any graph
+        When executing query:
+            """
+             MATCH (a:A)
+             WHERE single(b IN [(a)-->(b:B) | 1] WHERE true)
+             RETURN a;
+            """
+        Then an error should be raised

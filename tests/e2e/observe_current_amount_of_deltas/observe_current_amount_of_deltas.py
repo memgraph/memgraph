@@ -30,30 +30,42 @@ def free_memory():
     execute_and_fetch_all(connect_with_autocommit().cursor(), "FREE MEMORY")
 
 
-def test_amount_of_deltas_drops_after_commit(connection):
+@pytest.fixture(autouse=True)
+def first_cleanup():
+    free_memory()
+    assert get_current_amount_of_deltas() == 0
+
+
+def test_amount_of_deltas_drops_after_commit_single_tx(connection):
     cursor = connection.cursor()
     execute_and_fetch_all(cursor, "CREATE ()")
 
-    current_amount_of_deltas_before_commit = get_current_amount_of_deltas()
-    assert current_amount_of_deltas_before_commit == 1
+    assert get_current_amount_of_deltas() == 1
 
     connection.commit()
 
-    current_amount_of_deltas_after_commit = get_current_amount_of_deltas()
-    assert current_amount_of_deltas_after_commit == 0
+    # Quick discard since only tx
+    assert get_current_amount_of_deltas() == 0
+
+    free_memory()
+
+    assert get_current_amount_of_deltas() == 0
 
 
-def test_amount_of_deltas_drops_after_rollback(connection):
+def test_amount_of_deltas_drops_after_rollback_single_tx(connection):
     cursor = connection.cursor()
     execute_and_fetch_all(cursor, "CREATE ()")
 
-    current_amount_of_deltas_before_commit = get_current_amount_of_deltas()
-    assert current_amount_of_deltas_before_commit == 1
+    assert get_current_amount_of_deltas() == 1
 
     connection.rollback()
 
-    current_amount_of_deltas_after_commit = get_current_amount_of_deltas()
-    assert current_amount_of_deltas_after_commit == 0
+    # Deltas should remain, only after the GC/Free memory should it drop
+    assert get_current_amount_of_deltas() == 1
+
+    free_memory()
+
+    assert get_current_amount_of_deltas() == 0
 
 
 def test_amount_of_deltas_with_2_transactions():
@@ -64,16 +76,22 @@ def test_amount_of_deltas_with_2_transactions():
     execute_and_fetch_all(cursor1, "CREATE ()")
     execute_and_fetch_all(cursor2, "CREATE ()")
 
-    current_amount_of_deltas_before_commit = get_current_amount_of_deltas()
-    assert current_amount_of_deltas_before_commit == 2
+    assert get_current_amount_of_deltas() == 2
+
+    # Commit the newer transaction first
+    # This will block fast discard deltas, since the older tx cannot be sure it is the only active
+    # NOTE: Might change in the future and deltas could be discarded after this commit
+    connection2.commit()
+
+    assert get_current_amount_of_deltas() == 2
 
     connection1.commit()
-    connection2.commit()
+
+    assert get_current_amount_of_deltas() == 2
 
     free_memory()
 
-    current_amount_of_deltas_after_commit = get_current_amount_of_deltas()
-    assert current_amount_of_deltas_after_commit == 0
+    assert get_current_amount_of_deltas() == 0
 
 
 if __name__ == "__main__":
