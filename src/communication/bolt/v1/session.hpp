@@ -38,9 +38,6 @@
 #include "utils/uuid.hpp"
 
 namespace memgraph::communication::bolt {
-
-inline static utils::ThreadPool fake_scheduler{16};
-
 /**
  * Bolt Session Exception
  *
@@ -138,7 +135,21 @@ class Session {
    * Executes the session after data has been read into the buffer.
    * Goes through the bolt states in order to execute commands from the client.
    */
+  // TODO Better this, but I need to catch exceptions and pass them back
   void Execute(auto &&async_cb) {
+    try {
+      Execute_();
+      if (state_ == State::Postponed) [[likely]] {
+        AsyncExecution(std::move(async_cb));
+        return;
+      }
+      async_cb(false, std::exception_ptr{/* no expections */});
+    } catch (const std::exception & /* unused */) {
+      async_cb(false, std::current_exception());
+    }
+  }
+
+  void Execute_() {
     if (UNLIKELY(!handshake_done_)) {
       // Resize the input buffer to ensure that a whole chunk can fit into it.
       // This can be done only once because the buffer holds its size.
@@ -181,14 +192,19 @@ class Session {
         case State::Error:
           state_ = StateErrorRun(*this, state_);
           break;
+        case State::Postponed:
+          DMG_ASSERT(false, "Trying to execute new commands while in postponed state.");
+          break;
         default:
           // State::Handshake is handled above
           // State::Close is handled below
           break;
       }
-
       if (state_ == State::Postponed) [[likely]] {
-        AsyncExecution(std::move(async_cb));
+        // We can execute a single command at a time.
+        // It is possible to receive multiple commands in a single read
+        // return here with true (has_more)
+        // higher level needs to handle this and recall execute without reading from the socket
         return;
       } else if (state_ == State::Close) [[unlikely]] {
         // State::Close is handled here because we always want to check for
@@ -198,7 +214,6 @@ class Session {
         ClientFailureInvalidData();
       }
     }
-    async_cb(std::exception_ptr{/* no expections */});
   }
 
   struct PostponedWork {
@@ -214,27 +229,7 @@ class Session {
     postponed_work.emplace(n, qid, is_pull);
   }
 
-  void AsyncExecution(auto &&cb) {
-    DMG_ASSERT(postoned_work, "No postponed work to execute");
-    // TODO Actually make this
-    // Safe to pass in this, since the cb actually holds on to the sesssion. Make this make sense...
-    fake_scheduler.AddTask([this, cb = std::move(cb), postponed_work = std::move(postponed_work)]() {
-      // TODO Catch exceptions and pass to cb
-      // Seems like the only exceptions that can be thrown is from the close handler
-      std::exception_ptr eptr;
-      try {
-        if (postponed_work->is_pull) {
-          state_ = communication::bolt::details::HandlePullDiscard<true>(*this, postponed_work->n, postponed_work->qid);
-        }
-        if (state_ == communication::bolt::State::Close) {
-          ClientFailureInvalidData();
-        }
-      } catch (const std::exception &) {
-        eptr = std::current_exception();
-      }
-      cb(eptr);
-    });
-  }
+  virtual void AsyncExecution(std::function<void(bool, std::exception_ptr)> &&cb) noexcept = 0;
 
   void HandleError() {
     if (!at_least_one_run_) {
