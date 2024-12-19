@@ -105,7 +105,7 @@ class Session {
    * @param q If set, defines from which query to pull the results,
    * otherwise the last query is used.
    */
-  virtual map_t Pull(std::optional<int> n, std::optional<int> qid) = 0;
+  // virtual map_t Pull(std::optional<int> n, std::optional<int> qid) = 0;
 
   /**
    * Discard results of the processed query.
@@ -117,7 +117,7 @@ class Session {
    */
   virtual map_t Discard(std::optional<int> n, std::optional<int> qid) = 0;
 
-  virtual void BeginTransaction(const map_t &params) = 0;
+  // virtual void BeginTransaction(const map_t &params) = 0;
   virtual void CommitTransaction() = 0;
   virtual void RollbackTransaction() = 0;
 
@@ -135,7 +135,8 @@ class Session {
    * Executes the session after data has been read into the buffer.
    * Goes through the bolt states in order to execute commands from the client.
    */
-  void Execute_() {
+  template <typename TSession>
+  void Execute_(TSession &session) {
     if (UNLIKELY(!handshake_done_)) {
       // Resize the input buffer to ensure that a whole chunk can fit into it.
       // This can be done only once because the buffer holds its size.
@@ -146,7 +147,7 @@ class Session {
         spdlog::trace("Received partial handshake of size {}", input_stream_.size());
         return;
       }
-      state_ = StateHandshakeRun(*this);
+      state_ = StateHandshakeRun(session);
       if (UNLIKELY(state_ == State::Close)) {
         ClientFailureInvalidData();
         return;
@@ -168,15 +169,15 @@ class Session {
 
       switch (state_) {
         case State::Init:
-          state_ = StateInitRun(*this);
+          state_ = StateInitRun(session);
           break;
         case State::Idle:
         case State::Result:
           at_least_one_run_ = true;
-          state_ = StateExecutingRun(*this, state_);
+          state_ = StateExecutingRun(session, state_);
           break;
         case State::Error:
-          state_ = StateErrorRun(*this, state_);
+          state_ = StateErrorRun(session, state_);
           break;
         case State::Postponed:
           DMG_ASSERT(false, "Trying to execute new commands while in postponed state.");
