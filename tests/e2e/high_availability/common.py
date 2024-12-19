@@ -34,6 +34,25 @@ def ignore_elapsed_time_from_results(results: typing.List[tuple]) -> typing.List
     return [result[:-1] for result in results]
 
 
+def wait_until_main_writeable_assert_replica_down(cursor, query):
+    """
+    After becoming main, the instance can be in non-writeable state at the beginning. Therefore, we try
+    to execute the query and if succeed, we return immediately. If an exception occurs, there are 3 possible situations.
+    If the error message is that write query is forbidden on the main, then we will try once again execute the query.
+    If not, then the only allowed option is that one of SYNC replicas are down. Otherwise, we assert false and crash the
+    program.
+    """
+    while True:
+        try:
+            execute_and_fetch_all(cursor, query)
+            break
+        except Exception as e:
+            if "Write query forbidden on the main" in str(e):
+                continue
+            assert "At least one SYNC replica has not confirmed committing last transaction." in str(e)
+            break
+
+
 def show_instances(cursor):
     """
     Accepts a cursor and returns a list of all instances using the `SHOW INSTANCES` query.

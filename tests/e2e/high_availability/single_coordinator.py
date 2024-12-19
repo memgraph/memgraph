@@ -23,6 +23,7 @@ from common import (
     show_instances,
     show_replicas,
     show_replication_role,
+    wait_until_main_writeable_assert_replica_down,
 )
 from mg_utils import (
     mg_sleep_and_assert,
@@ -310,9 +311,7 @@ def test_replication_works_on_failover_replica_1_epoch_2_commits_away(data_recov
         lambda: execute_and_fetch_all(instance_2_cursor, "SHOW REPLICATION ROLE;")[0][0], "main"
     )
 
-    with pytest.raises(Exception) as e:
-        execute_and_fetch_all(instance_2_cursor, "CREATE (:Epoch3 {prop:3});")
-    assert "At least one SYNC replica has not confirmed committing last transaction." in str(e.value)
+    wait_until_main_writeable_assert_replica_down(instance_2_cursor, "CREATE (:Epoch3 {prop:3});")
 
     # 10
     interactive_mg_runner.start(memgraph_instances_description, "instance_1")
@@ -474,9 +473,7 @@ def test_replication_works_on_failover_replica_2_epochs_more_commits_away(data_r
         lambda: execute_and_fetch_all(instance_1_cursor, "SHOW REPLICATION ROLE;")[0][0], "main"
     )
 
-    with pytest.raises(Exception) as e:
-        execute_and_fetch_all(instance_1_cursor, "CREATE (:Epoch2Vertex {prop:1});")
-    assert "At least one SYNC replica has not confirmed committing last transaction." in str(e.value)
+    wait_until_main_writeable_assert_replica_down(instance_1_cursor, "CREATE (:Epoch2Vertex {prop:1});")
 
     # 8
 
@@ -503,9 +500,7 @@ def test_replication_works_on_failover_replica_2_epochs_more_commits_away(data_r
         lambda: execute_and_fetch_all(instance_4_cursor, "SHOW REPLICATION ROLE;")[0][0], "main"
     )
 
-    with pytest.raises(Exception) as e:
-        execute_and_fetch_all(instance_4_cursor, "CREATE (:Epoch3Vertex {prop:1});")
-    assert "At least one SYNC replica has not confirmed committing last transaction." in str(e.value)
+    wait_until_main_writeable_assert_replica_down(instance_4_cursor, "CREATE (:Epoch3Vertex {prop:1});")
 
     # 12
 
@@ -655,9 +650,7 @@ def test_replication_forcefully_works_on_failover_replica_misses_epoch(data_reco
         lambda: execute_and_fetch_all(instance_2_cursor, "SHOW REPLICATION ROLE;")[0][0], "main"
     )
 
-    with pytest.raises(Exception) as e:
-        execute_and_fetch_all(instance_2_cursor, "CREATE (:Epoch2Vertex {prop:1});")
-    assert "At least one SYNC replica has not confirmed committing last transaction." in str(e.value)
+    wait_until_main_writeable_assert_replica_down(instance_2_cursor, "CREATE (:Epoch2Vertex {prop:1});")
 
     mg_sleep_and_assert(3, partial(get_vertex_count, instance_4_cursor))
     mg_sleep_and_assert(3, partial(get_vertex_count, instance_2_cursor))
@@ -846,9 +839,7 @@ def test_replication_correct_replica_chosen_up_to_date_data(data_recovery, test_
         lambda: execute_and_fetch_all(instance_2_cursor, "SHOW REPLICATION ROLE;")[0][0], "main"
     )
 
-    with pytest.raises(Exception) as e:
-        execute_and_fetch_all(instance_2_cursor, "CREATE (:Epoch2Vertex {prop:1});")
-    assert "At least one SYNC replica has not confirmed committing last transaction." in str(e.value)
+    wait_until_main_writeable_assert_replica_down(instance_2_cursor, "CREATE (:Epoch2Vertex {prop:1});")
 
     interactive_mg_runner.start(memgraph_instances_description, "instance_4")
     instance_4_cursor = connect(host="localhost", port=7691).cursor()
@@ -952,9 +943,8 @@ def test_replication_works_on_failover_simple(test_name):
 
     # 5
 
-    with pytest.raises(Exception) as e:
-        execute_and_fetch_all(new_main_cursor, "CREATE ();")
-    assert "At least one SYNC replica has not confirmed committing last transaction." in str(e.value)
+    wait_until_main_writeable_assert_replica_down(new_main_cursor, "CREATE ();")
+
     # 6
     alive_replica_cursor = connect(host="localhost", port=7689).cursor()
 
@@ -1055,6 +1045,7 @@ def test_replication_works_on_replica_instance_restart(test_name):
 
     # 4
     instance_1_cursor = connect(host="localhost", port=7688).cursor()
+
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(main_cursor, "CREATE ();")
     assert "At least one SYNC replica has not confirmed committing last transaction." in str(e.value)

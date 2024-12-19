@@ -28,6 +28,7 @@ from common import (
     show_instances,
     show_replicas,
     update_tuple_value,
+    wait_until_main_writeable_assert_replica_down,
 )
 from mg_utils import (
     mg_assert_until,
@@ -1425,9 +1426,7 @@ def test_multiple_failovers_in_row_no_leadership_change(test_name):
         lambda: execute_and_fetch_all(instance_3_cursor, "SHOW REPLICATION ROLE;")[0][0], "main"
     )
 
-    with pytest.raises(Exception) as e:
-        execute_and_fetch_all(instance_3_cursor, "CREATE ();")
-    assert "At least one SYNC replica has not confirmed committing last transaction." in str(e.value)
+    wait_until_main_writeable_assert_replica_down(instance_3_cursor, "CREATE ();")
 
     # 12
     interactive_mg_runner.start(inner_memgraph_instances, "instance_1")
