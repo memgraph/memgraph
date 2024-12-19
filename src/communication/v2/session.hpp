@@ -340,7 +340,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
 
     input_buffer_.write_end()->Written(bytes_transferred);
 
-    session_.Execute([shared_this = shared_from_this()](std::exception_ptr eptr) {
+    session_.Execute([shared_this = shared_from_this()](bool has_more, std::exception_ptr eptr) {
       // Handle any generated errors
       if (eptr) {
         try {
@@ -356,7 +356,15 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
           shared_this->DoShutdown();
         }
       }
-      shared_this->DoRead();
+      if (has_more) {
+        // More to read from the previous message
+        // Async work has been done, move back to session's thread pool
+        boost::asio::dispatch(shared_this->strand_,
+                              [shared_this] { shared_this->OnRead({/* no error */}, /* new bytes read = */ 0); });
+      } else {
+        // Handled all data,  async wait for new incoming data
+        shared_this->DoRead();
+      }
     });
   }
 
