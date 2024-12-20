@@ -17,6 +17,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
+#include "storage/v2/indices/vector_index.hpp"
 
 namespace memgraph::storage {
 
@@ -48,6 +49,8 @@ struct MetadataDelta {
     ENUM_ALTER_UPDATE,
     POINT_INDEX_CREATE,
     POINT_INDEX_DROP,
+    VECTOR_INDEX_CREATE,
+    VECTOR_INDEX_DROP,
   };
 
   static constexpr struct LabelIndexCreate {
@@ -82,6 +85,10 @@ struct MetadataDelta {
   } text_index_create;
   static constexpr struct TextIndexDrop {
   } text_index_drop;
+  static constexpr struct VectorIndexCreate {
+  } vector_index_create;
+  static constexpr struct VectorIndexDrop {
+  } vector_index_drop;
   static constexpr struct ExistenceConstraintCreate {
   } existence_constraint_create;
   static constexpr struct ExistenceConstraintDrop {
@@ -146,6 +153,12 @@ struct MetadataDelta {
   MetadataDelta(PointIndexDrop /*tag*/, LabelId label, PropertyId property)
       : action(Action::POINT_INDEX_DROP), label_property{label, property} {}
 
+  MetadataDelta(VectorIndexCreate /*tag*/, const std::shared_ptr<VectorIndexSpec> &spec)
+      : action(Action::VECTOR_INDEX_CREATE), vector_index_spec(spec) {}
+
+  MetadataDelta(VectorIndexDrop /*tag*/, std::string index_name)
+      : action(Action::VECTOR_INDEX_DROP), vector_index_name{std::move(index_name)} {}
+
   MetadataDelta(ExistenceConstraintCreate /*tag*/, LabelId label, PropertyId property)
       : action(Action::EXISTENCE_CONSTRAINT_CREATE), label_property{label, property} {}
 
@@ -201,7 +214,12 @@ struct MetadataDelta {
       case ENUM_ALTER_UPDATE:
       case POINT_INDEX_CREATE:
       case POINT_INDEX_DROP:
+      case VECTOR_INDEX_CREATE:
         break;
+      case VECTOR_INDEX_DROP: {
+        std::destroy_at(&vector_index_name);
+        break;
+      }
       case UNIQUE_CONSTRAINT_CREATE:
       case UNIQUE_CONSTRAINT_DROP: {
         std::destroy_at(&label_properties);
@@ -271,6 +289,9 @@ struct MetadataDelta {
       Enum value;
       std::string old_value;
     } enum_alter_update_info;
+
+    std::shared_ptr<VectorIndexSpec> vector_index_spec;
+    std::string vector_index_name;
   };
 };
 

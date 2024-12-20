@@ -151,6 +151,10 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: [ "replication/replicate_spatial_feature.py" ]
 
+  - name: "Replicate vector search"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: [ "replication/replicate_vector_search.py" ]
+
   - name: "Delete edge replication"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["replication/edge_delete.py"]
