@@ -10,13 +10,18 @@
 // licenses/APL.txt.
 #pragma once
 
+#include <atomic>
+#include <exception>
 #include "audit/log.hpp"
 #include "auth/auth.hpp"
+#include "communication/bolt/v1/session.hpp"
 #include "communication/v2/server.hpp"
 #include "communication/v2/session.hpp"
 #include "dbms/database.hpp"
+#include "glue/SessionContext.hpp"
 #include "glue/query_user.hpp"
 #include "query/interpreter.hpp"
+#include "utils/thread_pool.hpp"
 
 namespace memgraph::glue {
 
@@ -26,59 +31,73 @@ using bolt_map_t = memgraph::communication::bolt::map_t;
 class SessionHL final : public memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
                                                                       memgraph::communication::v2::OutputStream> {
  public:
-  SessionHL(memgraph::query::InterpreterContext *interpreter_context,
-            memgraph::communication::v2::ServerEndpoint endpoint,
-            memgraph::communication::v2::InputStream *input_stream,
-            memgraph::communication::v2::OutputStream *output_stream, memgraph::auth::SynchedAuth *auth
-#ifdef MG_ENTERPRISE
-            ,
-            memgraph::audit::Log *audit_log
-#endif
-  );
+  SessionHL(Context context, memgraph::communication::v2::InputStream *input_stream,
+            memgraph::communication::v2::OutputStream *output_stream);
 
-  ~SessionHL() override;
+  ~SessionHL();
 
   SessionHL(const SessionHL &) = delete;
   SessionHL &operator=(const SessionHL &) = delete;
   SessionHL(SessionHL &&) = delete;
   SessionHL &operator=(SessionHL &&) = delete;
 
-  void Configure(const bolt_map_t &run_time_info) override;
+  void Configure(const bolt_map_t &run_time_info);
 
   using TEncoder = memgraph::communication::bolt::Encoder<
       memgraph::communication::bolt::ChunkedEncoderBuffer<memgraph::communication::v2::OutputStream>>;
 
-  void BeginTransaction(const bolt_map_t &extra) override;
+  void BeginTransaction(const bolt_map_t &extra);
 
-  void CommitTransaction() override;
+  void CommitTransaction();
 
-  void RollbackTransaction() override;
+  void RollbackTransaction();
 
   std::pair<std::vector<std::string>, std::optional<int>> Interpret(const std::string &query, const bolt_map_t &params,
-                                                                    const bolt_map_t &extra) override;
+                                                                    const bolt_map_t &extra);
 
 #ifdef MG_ENTERPRISE
   auto Route(bolt_map_t const &routing, std::vector<bolt_value_t> const &bookmarks, bolt_map_t const &extra)
-      -> bolt_map_t override;
+      -> bolt_map_t;
 #endif
 
-  bolt_map_t Pull(TEncoder *encoder, std::optional<int> n, std::optional<int> qid) override;
+  bolt_map_t Pull(std::optional<int> n, std::optional<int> qid, const std::atomic_bool &yield_signal);
 
-  bolt_map_t Discard(std::optional<int> n, std::optional<int> qid) override;
+  bolt_map_t Discard(std::optional<int> n, std::optional<int> qid, const std::atomic_bool &yield_signal);
 
-  void Abort() override;
+  void Abort();
 
   void TryDefaultDB();
 
   // Called during Init
-  bool Authenticate(const std::string &username, const std::string &password) override;
+  bool Authenticate(const std::string &username, const std::string &password);
 
   // Called during Init
-  bool SSOAuthenticate(const std::string &scheme, const std::string &identity_provider_response) override;
+  bool SSOAuthenticate(const std::string &scheme, const std::string &identity_provider_response);
 
-  std::optional<std::string> GetServerNameForInit() override;
+  std::optional<std::string> GetServerNameForInit();
 
-  std::string GetCurrentDB() const override;
+  void AsyncExecution(std::function<void(bool, std::exception_ptr)> &&cb) noexcept;
+
+  // TODO Better this, but I need to catch exceptions and pass them back
+  void Execute(auto &&async_cb) {
+    try {
+      Execute_(*this);
+      if (state_ == memgraph::communication::bolt::State::Postponed) [[likely]] {
+        AsyncExecution(std::move(async_cb));
+        return;
+      }
+      async_cb(false, std::exception_ptr{/* no expections */});
+    } catch (const std::exception & /* unused */) {
+      async_cb(false, std::current_exception());
+    }
+  }
+
+  void Handshake() {
+    // TODO Handle excp
+    Handshake_(*this);
+  }
+
+  std::string GetCurrentDB() const;
 
  private:
   bolt_map_t DecodeSummary(const std::map<std::string, memgraph::query::TypedValue> &summary);

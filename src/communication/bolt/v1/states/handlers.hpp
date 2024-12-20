@@ -94,14 +94,15 @@ inline std::pair<std::string, std::string> ExceptionToErrorMessage(const std::ex
 namespace details {
 
 template <bool is_pull, typename TSession>
-State HandlePullDiscard(TSession &session, std::optional<int> n, std::optional<int> qid) {
+State HandlePullDiscard(TSession &session, std::optional<int> n, std::optional<int> qid,
+                        const std::atomic_bool &yield_signal) {
   try {
     map_t summary;
     if constexpr (is_pull) {
       // Pull can throw.
-      summary = session.Pull(&session.encoder_, n, qid);
+      summary = session.Pull(n, qid, yield_signal);
     } else {
-      summary = session.Discard(n, qid);
+      summary = session.Discard(n, qid, yield_signal);
     }
 
     if (!session.encoder_.MessageSuccess(summary)) {
@@ -117,6 +118,12 @@ State HandlePullDiscard(TSession &session, std::optional<int> n, std::optional<i
   } catch (const std::exception &e) {
     return HandleFailure(session, e);
   }
+}
+
+template <bool is_pull, typename TSession>
+State PostponePullDiscard(TSession &session, std::optional<int> n, std::optional<int> qid) {
+  session.PostponeWork(is_pull, n, qid);
+  return State::Postponed;
 }
 
 template <bool is_pull, typename TSession>
@@ -137,7 +144,7 @@ State HandlePullDiscardV1(TSession &session, const State state, const Marker mar
     return State::Close;
   }
 
-  return HandlePullDiscard<is_pull, TSession>(session, std::nullopt, std::nullopt);
+  return PostponePullDiscard<is_pull, TSession>(session, std::nullopt, std::nullopt);
 }
 
 template <bool is_pull, typename TSession>
@@ -175,7 +182,7 @@ State HandlePullDiscardV4(TSession &session, const State state, const Marker mar
       qid = qid_value;
     }
   }
-  return HandlePullDiscard<is_pull, TSession>(session, n, qid);
+  return PostponePullDiscard<is_pull, TSession>(session, n, qid);
 }
 }  // namespace details
 
