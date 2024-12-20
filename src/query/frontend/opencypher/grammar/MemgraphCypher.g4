@@ -106,6 +106,7 @@ memgraphCypherKeyword : cypherKeyword
                       | LOCK
                       | MAIN
                       | MAP
+                      | METRICS
                       | MODE
                       | MODULE_READ
                       | MODULE_WRITE
@@ -273,8 +274,10 @@ replicationQuery : setReplicationRole
 coordinatorQuery : registerInstanceOnCoordinator
                  | unregisterInstanceOnCoordinator
                  | setInstanceToMain
+                 | showInstance
                  | showInstances
                  | addCoordinatorInstance
+                 | removeCoordinatorInstance
                  | forceResetClusterStateOnCoordinator
                  | demoteInstanceOnCoordinator
                  ;
@@ -481,6 +484,7 @@ setReplicationRole : SET REPLICATION ROLE TO ( MAIN | REPLICA )
 
 showReplicationRole : SHOW REPLICATION ROLE ;
 
+showInstance : SHOW INSTANCE ;
 showInstances : SHOW INSTANCES ;
 
 instanceName : symbolicName ;
@@ -507,6 +511,8 @@ setInstanceToMain : SET INSTANCE instanceName TO MAIN ;
 coordinatorServerId : literal ;
 
 addCoordinatorInstance : ADD COORDINATOR coordinatorServerId WITH CONFIG configsMap=configMap ;
+
+removeCoordinatorInstance : REMOVE COORDINATOR coordinatorServerId ;
 
 dropReplica : DROP REPLICA instanceName ;
 

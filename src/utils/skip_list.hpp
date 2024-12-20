@@ -29,6 +29,7 @@
 #include "utils/memory_tracker.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/readable_size.hpp"
+#include "utils/rw_spin_lock.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/stack.hpp"
 #include "utils/stat.hpp"
@@ -118,13 +119,13 @@ struct SkipListNode {
   // The items here are carefully placed to minimize padding gaps.
 
   TObj obj;
-  SpinLock lock;
-  std::atomic<bool> marked;
-  std::atomic<bool> fully_linked;
+  SpinLock lock{};
+  std::atomic<bool> marked{false};
+  std::atomic<bool> fully_linked{false};
   static_assert(std::numeric_limits<uint8_t>::max() >= kSkipListMaxHeight, "Maximum height doesn't fit in uint8_t");
   uint8_t height;
   // uint8_t PAD;
-  std::atomic<SkipListNode<TObj> *> nexts[0];
+  std::atomic<SkipListNode *> nexts[0];
 };
 
 /// Maximum size of a single SkipListNode instance.
@@ -312,8 +313,8 @@ class SkipListGc final {
     // which could have OOMException enabled in its thread so to ensure no exception
     // is thrown while cleaning the skip list, we add the blocker.
     utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
-    if (!lock_.try_lock()) return;
-    OnScopeExit cleanup([&] { lock_.unlock(); });
+    auto guard = std::unique_lock{lock_, std::defer_lock};
+    if (!guard.try_lock()) return;
     Block *tail = tail_.load(std::memory_order_acquire);
     uint64_t last_dead = 0;
     bool remove_block = true;
@@ -406,7 +407,7 @@ class SkipListGc final {
 
  private:
   MemoryResource *memory_;
-  SpinLock lock_;
+  RWSpinLock lock_;
   std::atomic<uint64_t> accessor_id_{0};
   std::atomic<Block *> head_{nullptr};
   std::atomic<Block *> tail_{nullptr};
@@ -1036,17 +1037,27 @@ class SkipList final : detail::SkipListNode_base {
 
       TNode *new_node;
       {
-        TNode *prev_pred = nullptr;
+        TNode *previous_locked = nullptr;
         bool valid = true;
-        std::unique_lock<SpinLock> guards[kSkipListMaxHeight];
+
+        auto locked_count = 0;
+        TNode *locked[kSkipListMaxHeight];
+        auto guard = OnScopeExit{[&] {
+          for (auto i = 0; i != locked_count; ++i) {
+            locked[i]->lock.unlock();
+          }
+        }};
+
         // The paper has a wrong condition here. In the paper it states that this
         // loop should have `(layer <= top_layer)`, but that isn't correct.
         for (int layer = 0; valid && (layer < top_layer); ++layer) {
           TNode *pred = preds[layer];
           TNode *succ = succs[layer];
-          if (pred != prev_pred) {
-            guards[layer] = std::unique_lock{pred->lock};
-            prev_pred = pred;
+          if (pred != previous_locked) {
+            pred->lock.lock();
+            locked[locked_count] = pred;
+            ++locked_count;
+            previous_locked = pred;
           }
           // Existence test is missing in the paper.
           valid = !pred->marked.load(std::memory_order_acquire) &&
@@ -1060,8 +1071,6 @@ class SkipList final : detail::SkipListNode_base {
 
         MemoryResource *memoryResource = GetMemoryResource();
         void *ptr = memoryResource->Allocate(node_bytes, SkipListNodeAlign<TObj>());
-        // `calloc` would be faster, but the API has no such call.
-        memset(ptr, 0, node_bytes);
         new_node = static_cast<TNode *>(ptr);
 
         // Construct through allocator so it propagates if needed.
@@ -1072,6 +1081,8 @@ class SkipList final : detail::SkipListNode_base {
         // `top_layer` which is wrong.
         for (int layer = 0; layer < top_layer; ++layer) {
           new_node->nexts[layer].store(succs[layer], std::memory_order_release);
+        }
+        for (int layer = 0; layer < top_layer; ++layer) {
           preds[layer]->nexts[layer].store(new_node, std::memory_order_release);
         }
       }

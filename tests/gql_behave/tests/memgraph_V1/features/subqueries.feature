@@ -420,3 +420,14 @@ Feature: Subqueries
         Then the result should be:
             | title          |
             | 'Forrest Gump' |
+    Scenario: Match after call
+        Given any graph
+        When executing query:
+            """
+            CALL {
+            	RETURN 0 AS x
+            }
+            MATCH ({n0:x})
+            RETURN 0;
+            """
+        Then an error should be raised

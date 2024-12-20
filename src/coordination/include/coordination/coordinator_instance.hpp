@@ -86,6 +86,8 @@ class CoordinatorInstance {
 
   [[nodiscard]] auto TryVerifyOrCorrectClusterState() -> ReconcileClusterStateStatus;
 
+  auto ShowInstance() const -> InstanceStatus;
+
   auto ShowInstances() const -> std::vector<InstanceStatus>;
 
   auto ShowInstancesAsLeader() const -> std::optional<std::vector<InstanceStatus>>;
@@ -94,6 +96,8 @@ class CoordinatorInstance {
   [[nodiscard]] auto TryFailover() -> FailoverStatus;
 
   auto AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) -> AddCoordinatorInstanceStatus;
+
+  auto RemoveCoordinatorInstance(int coordinator_id) -> RemoveCoordinatorInstanceStatus;
 
   auto GetRoutingTable() const -> RoutingTable;
 

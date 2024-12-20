@@ -212,8 +212,7 @@ class VaryMatchingStart {
     // being at the end. When there are no nodes or edges, this iterator needs to produce
     // a single result, which is the original matching passed in. Setting
     // start_atoms_it_ to end signifies the end of our iteration.
-    std::optional<std::unordered_set<PatternAtom *, PatternAtomSymbolHash, PatternAtomSymbolEqual>::iterator>
-        start_atoms_it_;
+    std::optional<std::vector<PatternAtom *>::iterator> start_atoms_it_;
   };
 
   auto begin() { return iterator(this, false); }
@@ -223,7 +222,7 @@ class VaryMatchingStart {
   friend class iterator;
   Matching matching_;
   const SymbolTable &symbol_table_;
-  std::unordered_set<PatternAtom *, PatternAtomSymbolHash, PatternAtomSymbolEqual> graph_atoms_;
+  std::vector<PatternAtom *> graph_atoms_;
 };
 
 // Similar to VaryMatchingStart, but varies the starting nodes for all given
@@ -371,13 +370,18 @@ class VariableStartPlanner {
   /// @brief Generate multiple plans by varying the order of graph traversal.
   auto Plan(const QueryParts &query_parts) {
     return iter::imap(
-        [context = context_, old_query_parts = query_parts, this](const auto &alternative_query_parts) {
+        [context = context_, old_query_parts = query_parts,
+         this](const auto &alternative_query_parts) -> RuleBasedPlanner<TPlanningContext>::PlanResult {
           uint64_t index = 0;
           auto reconstructed_query_parts = ReconstructQueryParts(old_query_parts, alternative_query_parts, index);
 
           RuleBasedPlanner<TPlanningContext> rule_planner(context);
           context->bound_symbols.clear();
-          return rule_planner.Plan(reconstructed_query_parts);
+          try {
+            return rule_planner.Plan(reconstructed_query_parts);
+          } catch (QueryException const &e) {
+            return nullptr;
+          }
         },
         VaryQueryMatching(query_parts, *context_->symbol_table));
   }

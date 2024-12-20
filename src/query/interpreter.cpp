@@ -617,6 +617,19 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     }
   }
 
+  void RemoveCoordinatorInstance(int coordinator_id) override {
+    auto const status = coordinator_handler_.RemoveCoordinatorInstance(coordinator_id);
+    switch (status) {
+      using enum memgraph::coordination::RemoveCoordinatorInstanceStatus;  // NOLINT
+      case NO_SUCH_ID:
+        throw QueryRuntimeException(
+            "Couldn't remove coordinator instance because coordinator with id {} doesn't exist!", coordinator_id);
+      case SUCCESS:
+        break;
+    }
+    spdlog::info("Removed coordinator {}.", coordinator_id);
+  }
+
   auto AddCoordinatorInstance(uint32_t coordinator_id, std::string_view bolt_server,
                               std::string_view coordinator_server, std::string_view management_server)
       -> void override {
@@ -702,6 +715,10 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case SUCCESS:
         break;
     }
+  }
+
+  [[nodiscard]] coordination::InstanceStatus ShowInstance() const override {
+    return coordinator_handler_.ShowInstance();
   }
 
   [[nodiscard]] std::vector<coordination::InstanceStatus> ShowInstances() const override {
@@ -1389,6 +1406,28 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
 
   Callback callback;
   switch (coordinator_query->action_) {
+    case CoordinatorQuery::Action::REMOVE_COORDINATOR_INSTANCE: {
+      if (!coordinator_state->IsCoordinator()) {
+        throw QueryRuntimeException("Only coordinator can remove coordinator instance!");
+      }
+
+      // TODO: MemoryResource for EvaluationContext, it should probably be passed as
+      // the argument to Callback.
+      EvaluationContext const evaluation_context{.timestamp = QueryTimestamp(), .parameters = parameters};
+      auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
+
+      auto coord_server_id = coordinator_query->coordinator_id_->Accept(evaluator).ValueInt();
+
+      callback.fn = [handler = CoordQueryHandler{*coordinator_state}, coord_server_id]() mutable {
+        handler.RemoveCoordinatorInstance(static_cast<int>(coord_server_id));
+        return std::vector<std::vector<TypedValue>>();
+      };
+
+      notifications->emplace_back(SeverityLevel::INFO, NotificationCode::REMOVE_COORDINATOR_INSTANCE,
+                                  fmt::format("Coordinator {} has been removed.", coord_server_id));
+      return callback;
+    }
+
     case CoordinatorQuery::Action::ADD_COORDINATOR_INSTANCE: {
       if (!coordinator_state->IsCoordinator()) {
         throw QueryRuntimeException("Only coordinator can add coordinator instance!");
@@ -1558,8 +1597,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
 
       callback.header = {"name",   "bolt_server", "coordinator_server", "management_server",
                          "health", "role",        "last_succ_resp_ms"};
-      callback.fn = [handler = CoordQueryHandler{*coordinator_state},
-                     replica_nfields = callback.header.size()]() mutable {
+      callback.fn = [handler = CoordQueryHandler{*coordinator_state}]() mutable {
         auto const instances = handler.ShowInstances();
         auto const converter = [](const auto &status) -> std::vector<TypedValue> {
           return {TypedValue{status.instance_name},
@@ -1572,6 +1610,26 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
         };
 
         return utils::fmap(instances, converter);
+      };
+      return callback;
+    }
+    case CoordinatorQuery::Action::SHOW_INSTANCE: {
+      if (!coordinator_state->IsCoordinator()) {
+        throw QueryRuntimeException("Only coordinator can run SHOW INSTANCE query.");
+      }
+
+      callback.header = {"name", "bolt_server", "coordinator_server", "management_server", "role"};
+      callback.fn = [handler = CoordQueryHandler{*coordinator_state}]() mutable {
+        auto const instance = handler.ShowInstance();
+        std::vector<std::vector<TypedValue>> results;
+        auto instance_result = std::vector{
+            TypedValue{instance.instance_name},      TypedValue{instance.bolt_server},
+            TypedValue{instance.coordinator_server}, TypedValue{instance.management_server},
+            TypedValue{instance.cluster_role},
+
+        };
+        results.push_back(std::move(instance_result));
+        return results;
       };
       return callback;
     }
@@ -5866,8 +5924,7 @@ void Interpreter::Abort() {
 
 namespace {
 void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *interpreter_context,
-                            TriggerContext original_trigger_context,
-                            std::atomic<TransactionStatus> *transaction_status) {
+                            TriggerContext original_trigger_context) {
   // Run the triggers
   for (const auto &trigger : db_acc->trigger_store()->AfterCommitTriggers().access()) {
     QueryAllocator execution_memory{};
@@ -5882,7 +5939,7 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
     trigger_context.AdaptForAccessor(&db_accessor);
     try {
       trigger.Execute(&db_accessor, db_acc, execution_memory.resource(), flags::run_time::GetExecutionTimeout(),
-                      &interpreter_context->is_shutting_down, transaction_status, trigger_context);
+                      &interpreter_context->is_shutting_down, /* transaction_status = */ nullptr, trigger_context);
     } catch (const utils::BasicException &exception) {
       spdlog::warn("Trigger '{}' failed with exception:\n{}", trigger.Name(), exception.what());
       db_accessor.Abort();
@@ -6140,10 +6197,10 @@ void Interpreter::Commit() {
   // want to commit are still waiting for commiting or one of them just started commiting its changes. This means the
   // ordered execution of after commit triggers are not guaranteed.
   if (trigger_context && db->trigger_store()->AfterCommitTriggers().size() > 0) {
-    db->AddTask([this, trigger_context = std::move(*trigger_context),
+    db->AddTask([db_acc = *current_db_.db_acc_, interpreter_context = interpreter_context_,
+                 trigger_context = std::move(*trigger_context),
                  user_transaction = std::shared_ptr(std::move(current_db_.db_transactional_accessor_))]() mutable {
-      RunTriggersAfterCommit(*current_db_.db_acc_, interpreter_context_, std::move(trigger_context),
-                             &this->transaction_status_);
+      RunTriggersAfterCommit(db_acc, interpreter_context, std::move(trigger_context));
       user_transaction->FinalizeTransaction();
       SPDLOG_DEBUG("Finished executing after commit triggers");  // NOLINT(bugprone-lambda-function-name)
     });

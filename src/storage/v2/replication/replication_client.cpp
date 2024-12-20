@@ -38,10 +38,15 @@ ReplicationStorageClient::ReplicationStorageClient(::memgraph::replication::Repl
 void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAccessProtector db_acc) {
   auto &replStorageState = storage->repl_storage_state_;
 
-  auto hb_stream{client_.rpc_client_.Stream<replication::HeartbeatRpc>(main_uuid_, storage->uuid(),
-                                                                       replStorageState.last_durable_timestamp_,
-                                                                       std::string{replStorageState.epoch_.id()})};
-  const auto replica = hb_stream.AwaitResponse();
+  // stream should be destroyed so that RPC lock is released before taking engine lock
+  replication::HeartbeatRes replica = std::invoke([&] {
+    // stream should be destroyed so that RPC lock is released
+    // before taking engine lock
+    auto hb_stream = client_.rpc_client_.Stream<replication::HeartbeatRpc>(main_uuid_, storage->uuid(),
+                                                                           replStorageState.last_durable_timestamp_,
+                                                                           std::string{replStorageState.epoch_.id()});
+    return hb_stream.AwaitResponse();
+  });
 
 #ifdef MG_ENTERPRISE       // Multi-tenancy is only supported in enterprise
   if (!replica.success) {  // Replica is missing the current database
@@ -81,7 +86,8 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
       branching_point = epoch_info_iter->second;
     } else {
       branching_point = std::nullopt;
-      spdlog::trace("Found continuous history between replica {} and main.", client_.name_);
+      spdlog::trace("Found continuous history between replica {} and main. Our commit timestamp for epoch {} was {}.",
+                    client_.name_, epoch_info_iter->first, epoch_info_iter->second);
     }
   }
   if (branching_point) {

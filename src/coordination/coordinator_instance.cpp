@@ -256,6 +256,19 @@ auto CoordinatorInstance::ShowInstancesAsLeader() const -> std::optional<std::ve
   return instances_status;
 }
 
+auto CoordinatorInstance::ShowInstance() const -> InstanceStatus {
+  auto const my_config = raft_state_->SelfCoordinatorConfig();
+  auto const curr_leader_id = raft_state_->GetLeaderId();
+  std::string const role = std::invoke(
+      [curr_leader_id, my_id = my_config.coordinator_id]() { return my_id == curr_leader_id ? "leader" : "follower"; });
+
+  return InstanceStatus{.instance_name = raft_state_->InstanceName(),
+                        .coordinator_server = my_config.coordinator_server.SocketAddress(),  // show non-resolved IP
+                        .management_server = my_config.management_server.SocketAddress(),    // show non-resolved IP
+                        .bolt_server = my_config.bolt_server.SocketAddress(),                // show non-resolved IP
+                        .cluster_role = role};
+}
+
 auto CoordinatorInstance::ShowInstances() const -> std::vector<InstanceStatus> {
   auto const leader_results = ShowInstancesAsLeader();
   if (leader_results.has_value()) {
@@ -693,6 +706,20 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
   std::erase_if(repl_instances_, name_matches);
 
   return UnregisterInstanceCoordinatorStatus::SUCCESS;
+}
+
+auto CoordinatorInstance::RemoveCoordinatorInstance(int coordinator_id) -> RemoveCoordinatorInstanceStatus {
+  spdlog::trace("Started removing coordinator instance {}.", coordinator_id);
+
+  auto const curr_instances = raft_state_->GetCoordinatorInstances();
+  if (!std::ranges::any_of(curr_instances, [coordinator_id](auto const &instance) {
+        return instance.coordinator_id == coordinator_id;
+      })) {
+    return RemoveCoordinatorInstanceStatus::NO_SUCH_ID;
+  }
+
+  raft_state_->RemoveCoordinatorInstance(coordinator_id);
+  return RemoveCoordinatorInstanceStatus::SUCCESS;
 }
 
 auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config)
