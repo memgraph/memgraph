@@ -26,7 +26,7 @@ class LoggerWrapper {
   explicit LoggerWrapper(Logger *logger);
 
   void Log(nuraft_log_level level, std::string const &log_line,
-           std::source_location location = std::source_location::current());
+           std::source_location location = std::source_location::current()) const;
 
  private:
   Logger *logger_;

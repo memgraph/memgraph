@@ -114,8 +114,6 @@ class CoordinatorInstance {
 
   void AddOrUpdateClientConnectors(std::vector<CoordinatorToCoordinatorConfig> const &configs);
 
-  auto GetCoordinatorToCoordinatorConfigs() const -> std::vector<CoordinatorToCoordinatorConfig>;
-
   void InstanceSuccessCallback(std::string_view instance_name, std::optional<InstanceState> instance_state);
   void InstanceFailCallback(std::string_view instance_name, std::optional<InstanceState> instance_state);
 

@@ -33,6 +33,37 @@
 #include "nuraft/constants_log_durability.hpp"
 #include "utils.hpp"
 
+namespace {
+
+// TODO: Test this
+auto DeserializeRaftContext(std::string const &user_ctx) -> std::map<int, std::string> {
+  if (user_ctx.empty()) {
+    return {};
+  }
+  std::map<int, std::string> servers;
+  try {
+    auto const parsedJson = nlohmann::json::parse(user_ctx);
+    // Deserialize JSON object into the map
+    for (auto it = parsedJson.begin(); it != parsedJson.end(); ++it) {
+      int const server_id = std::stoi(it.key());  // Convert string keys back to int
+      servers[server_id] = it.value();
+    }
+  } catch (nlohmann::json::exception const &e) {
+    MG_ASSERT(false, "Error when parsing context of raft servers.");
+  }
+  return servers;
+}
+
+auto SerializeRaftContext(std::map<int, std::string> const &servers) -> std::string {
+  nlohmann::json j;
+  for (auto const &[server_id, server_context] : servers) {
+    j[std::to_string(server_id)] = server_context;
+  }
+  return j.dump();
+}
+
+}  // namespace
+
 namespace memgraph::coordination {
 
 using nuraft::asio_service;
@@ -300,37 +331,47 @@ auto RaftState::RemoveCoordinatorInstance(int coordinator_id) -> void {
 auto RaftState::AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) -> void {
   spdlog::trace("Adding coordinator instance {} start in RaftState for coordinator_{}", config.coordinator_id,
                 coordinator_id_);
-  auto const endpoint = config.coordinator_server.SocketAddress();  // non-resolved IP
-  auto const aux = nlohmann::json(config).dump();
-  srv_config const srv_config_to_add(static_cast<int>(config.coordinator_id), 0, endpoint, aux, false);
 
-  auto cmd_result = raft_server_->add_srv(srv_config_to_add);
+  if (config.coordinator_id != coordinator_id_) {
+    auto const endpoint = config.coordinator_server.SocketAddress();  // non-resolved IP
+    auto const aux = nlohmann::json(config).dump();
+    srv_config const srv_config_to_add(static_cast<int>(config.coordinator_id), 0, endpoint, aux, false);
 
-  if (cmd_result->get_result_code() == nuraft::cmd_result_code::OK) {
-    spdlog::info("Request to add server {} to the cluster accepted", endpoint);
-  } else {
-    throw RaftAddServerException("Failed to accept request to add server {} to the cluster with error code {}",
-                                 endpoint, int(cmd_result->get_result_code()));
-  }
-  // Waiting for server to join
-  constexpr int max_tries{10};
-  auto maybe_stop = utils::ResettableCounter<max_tries>();
-  std::chrono::milliseconds const waiting_period{200};
-  bool added{false};
-  while (!maybe_stop()) {
-    std::this_thread::sleep_for(waiting_period);
-    const auto server_config = raft_server_->get_srv_config(static_cast<nuraft::int32>(config.coordinator_id));
-    if (server_config) {
-      spdlog::trace("Server with id {} added to cluster", config.coordinator_id);
-      added = true;
-      break;
+    auto cmd_result = raft_server_->add_srv(srv_config_to_add);
+
+    if (cmd_result->get_result_code() == nuraft::cmd_result_code::OK) {
+      spdlog::info("Request to add server {} to the cluster accepted", endpoint);
+    } else {
+      throw RaftAddServerException("Failed to accept request to add server {} to the cluster with error code {}",
+                                   endpoint, int(cmd_result->get_result_code()));
+    }
+    // Waiting for server to join
+    constexpr int max_tries{10};
+    auto maybe_stop = utils::ResettableCounter<max_tries>();
+    std::chrono::milliseconds const waiting_period{200};
+    bool added{false};
+    while (!maybe_stop()) {
+      std::this_thread::sleep_for(waiting_period);
+      const auto server_config = raft_server_->get_srv_config(static_cast<nuraft::int32>(config.coordinator_id));
+      if (server_config) {
+        spdlog::trace("Server with id {} added to cluster", config.coordinator_id);
+        added = true;
+        break;
+      }
+    }
+
+    if (!added) {
+      throw RaftAddServerException("Failed to add server {} to the cluster in {}ms", endpoint,
+                                   max_tries * waiting_period);
     }
   }
 
-  if (!added) {
-    throw RaftAddServerException("Failed to add server {} to the cluster in {}ms", endpoint,
-                                 max_tries * waiting_period);
-  }
+  // Do it both for myself and for other coordinators
+  // Ideally this also stores management server so that I avoid using server_config completely
+  // TODO: (andi) Add a breaking label
+  auto servers = DeserializeRaftContext(raft_server_->get_user_ctx());
+  servers[config.coordinator_id] = config.bolt_server.SocketAddress();
+  raft_server_->set_user_ctx(SerializeRaftContext(servers));
 }
 
 auto RaftState::CoordLastSuccRespMs(uint32_t srv_id) -> std::chrono::milliseconds {
@@ -420,11 +461,17 @@ auto RaftState::GetRoutingTable() const -> RoutingTable {
 
   auto const is_instance_replica = [&](auto &&instance) { return !IsCurrentMain(instance.config.instance_name); };
 
+  // Fetch data instances from raft log
   auto const raft_log_data_instances = GetDataInstances();
 
   auto bolt_mains = raft_log_data_instances | ranges::views::filter(is_instance_main) |
                     ranges::views::transform(repl_instance_to_bolt) | ranges::to<std::vector>();
   MG_ASSERT(bolt_mains.size() <= 1, "There can be at most one main instance active!");
+
+  spdlog::trace("WRITERS");
+  for (auto const &writer : bolt_mains) {
+    spdlog::trace("  {}", writer);
+  }
 
   if (!std::ranges::empty(bolt_mains)) {
     res.emplace_back(std::move(bolt_mains), "WRITE");
@@ -432,17 +479,22 @@ auto RaftState::GetRoutingTable() const -> RoutingTable {
 
   auto bolt_replicas = raft_log_data_instances | ranges::views::filter(is_instance_replica) |
                        ranges::views::transform(repl_instance_to_bolt) | ranges::to<std::vector>();
+
+  spdlog::trace("READERS:");
+  for (auto const &reader : bolt_replicas) {
+    spdlog::trace("  {}", reader);
+  }
+
   if (!std::ranges::empty(bolt_replicas)) {
     res.emplace_back(std::move(bolt_replicas), "READ");
   }
 
-  auto const coord_instance_to_bolt = [](CoordinatorToCoordinatorConfig const &instance) {
-    return instance.bolt_server.SocketAddress();  // non-resolved IP
-  };
-
-  auto const &raft_log_coord_instances = GetCoordinatorInstances();
-  auto bolt_coords =
-      raft_log_coord_instances | ranges::views::transform(coord_instance_to_bolt) | ranges::to<std::vector>();
+  auto const coord_servers = DeserializeRaftContext(raft_server_->get_user_ctx());
+  auto bolt_coords = coord_servers | ranges::views::values | ranges::to<std::vector>();
+  spdlog::trace("ROUTERS:");
+  for (auto const &server : bolt_coords) {
+    spdlog::trace("  {}", server);
+  }
 
   res.emplace_back(std::move(bolt_coords), "ROUTE");
 

@@ -278,7 +278,6 @@ TEST_F(CoordinatorInstanceTest, GetRoutingTable) {
   spdlog::trace("Added coordinator instances!");
   {
     ASSERT_TRUE(HasBecomeEqual([&instance1]() { return instance1.ShowInstances().size(); }, 3));
-    ASSERT_TRUE(HasBecomeEqual([&instance1]() { return instance1.GetCoordinatorToCoordinatorConfigs().size(); }, 3));
     auto const routing_table = instance1.GetRoutingTable();
     ASSERT_EQ(routing_table.size(), 1);
     auto const &routers = routing_table[0];
@@ -297,7 +296,6 @@ TEST_F(CoordinatorInstanceTest, GetRoutingTable) {
 
   {
     ASSERT_TRUE(HasBecomeEqual([&instance2]() { return instance2.ShowInstances().size(); }, 3));
-    ASSERT_TRUE(HasBecomeEqual([&instance2]() { return instance2.GetCoordinatorToCoordinatorConfigs().size(); }, 3));
     auto const routing_table = instance2.GetRoutingTable();
     ASSERT_EQ(routing_table.size(), 1);
     auto const &routers = routing_table[0];
@@ -316,7 +314,6 @@ TEST_F(CoordinatorInstanceTest, GetRoutingTable) {
 
   {
     ASSERT_TRUE(HasBecomeEqual([&instance3]() { return instance3.ShowInstances().size(); }, 3));
-    ASSERT_TRUE(HasBecomeEqual([&instance3]() { return instance3.GetCoordinatorToCoordinatorConfigs().size(); }, 3));
     auto const routing_table = instance3.GetRoutingTable();
     ASSERT_EQ(routing_table.size(), 1);
     auto const &routers = routing_table[0];
