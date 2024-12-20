@@ -33,47 +33,47 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   SessionHL(Context context, memgraph::communication::v2::InputStream *input_stream,
             memgraph::communication::v2::OutputStream *output_stream);
 
-  ~SessionHL() override;
+  ~SessionHL();
 
   SessionHL(const SessionHL &) = delete;
   SessionHL &operator=(const SessionHL &) = delete;
   SessionHL(SessionHL &&) = delete;
   SessionHL &operator=(SessionHL &&) = delete;
 
-  void Configure(const bolt_map_t &run_time_info) override;
+  void Configure(const bolt_map_t &run_time_info);
 
   using TEncoder = memgraph::communication::bolt::Encoder<
       memgraph::communication::bolt::ChunkedEncoderBuffer<memgraph::communication::v2::OutputStream>>;
 
   void BeginTransaction(const bolt_map_t &extra);
 
-  void CommitTransaction() override;
+  void CommitTransaction();
 
-  void RollbackTransaction() override;
+  void RollbackTransaction();
 
   std::pair<std::vector<std::string>, std::optional<int>> Interpret(const std::string &query, const bolt_map_t &params,
-                                                                    const bolt_map_t &extra) override;
+                                                                    const bolt_map_t &extra);
 
 #ifdef MG_ENTERPRISE
   auto Route(bolt_map_t const &routing, std::vector<bolt_value_t> const &bookmarks, bolt_map_t const &extra)
-      -> bolt_map_t override;
+      -> bolt_map_t;
 #endif
 
   bolt_map_t Pull(std::optional<int> n, std::optional<int> qid);
 
-  bolt_map_t Discard(std::optional<int> n, std::optional<int> qid) override;
+  bolt_map_t Discard(std::optional<int> n, std::optional<int> qid);
 
-  void Abort() override;
+  void Abort();
 
   void TryDefaultDB();
 
   // Called during Init
-  bool Authenticate(const std::string &username, const std::string &password) override;
+  bool Authenticate(const std::string &username, const std::string &password);
 
   // Called during Init
-  bool SSOAuthenticate(const std::string &scheme, const std::string &identity_provider_response) override;
+  bool SSOAuthenticate(const std::string &scheme, const std::string &identity_provider_response);
 
-  std::optional<std::string> GetServerNameForInit() override;
+  std::optional<std::string> GetServerNameForInit();
 
   void AsyncExecution(std::function<void(bool, std::exception_ptr)> &&cb) noexcept;
 
@@ -91,7 +91,12 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
     }
   }
 
-  std::string GetCurrentDB() const override;
+  void Handshake() {
+    // TODO Handle excp
+    Handshake_(*this);
+  }
+
+  std::string GetCurrentDB() const;
 
  private:
   bolt_map_t DecodeSummary(const std::map<std::string, memgraph::query::TypedValue> &summary);
