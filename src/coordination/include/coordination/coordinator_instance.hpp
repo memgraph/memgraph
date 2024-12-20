@@ -112,7 +112,7 @@ class CoordinatorInstance {
 
   void ShuttingDown();
 
-  void AddOrUpdateClientConnectors(std::vector<CoordinatorToCoordinatorConfig> const &configs);
+  void AddOrUpdateClientConnectors(std::vector<CoordinatorToCoordinatorConfig> const &coordinator_configs);
 
   void InstanceSuccessCallback(std::string_view instance_name, std::optional<InstanceState> instance_state);
   void InstanceFailCallback(std::string_view instance_name, std::optional<InstanceState> instance_state);

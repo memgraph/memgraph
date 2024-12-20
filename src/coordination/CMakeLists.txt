@@ -6,6 +6,7 @@ target_sources(mg-coordination
         include/coordination/coordinator_state.hpp
         include/coordination/coordinator_rpc.hpp
         include/coordination/coordinator_instance_management_server.hpp
+        include/coordination/coordinator_instance_context.hpp
         include/coordination/data_instance_management_server.hpp
         include/coordination/coordinator_communication_config.hpp
         include/coordination/coordinator_exceptions.hpp
@@ -37,6 +38,7 @@ target_sources(mg-coordination
         coordinator_state.cpp
         coordinator_rpc.cpp
         coordinator_instance_management_server.cpp
+        coordinator_instance_context.cpp
         data_instance_management_server.cpp
         data_instance_management_server_handlers.cpp
         coordinator_instance_management_server_handlers.cpp
