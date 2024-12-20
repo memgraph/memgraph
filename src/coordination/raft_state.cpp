@@ -22,47 +22,15 @@
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_exceptions.hpp"
 #include "coordination/raft_state.hpp"
+#include "nuraft/constants_log_durability.hpp"
 #include "nuraft/logger_wrapper.hpp"
+#include "utils.hpp"
 #include "utils/counter.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
 
 #include <spdlog/spdlog.h>
 #include "json/json.hpp"
-
-#include "nuraft/constants_log_durability.hpp"
-#include "utils.hpp"
-
-namespace {
-
-// TODO: Test this
-auto DeserializeRaftContext(std::string const &user_ctx) -> std::map<int, std::string> {
-  if (user_ctx.empty()) {
-    return {};
-  }
-  std::map<int, std::string> servers;
-  try {
-    auto const parsedJson = nlohmann::json::parse(user_ctx);
-    // Deserialize JSON object into the map
-    for (auto it = parsedJson.begin(); it != parsedJson.end(); ++it) {
-      int const server_id = std::stoi(it.key());  // Convert string keys back to int
-      servers[server_id] = it.value();
-    }
-  } catch (nlohmann::json::exception const &e) {
-    MG_ASSERT(false, "Error when parsing context of raft servers.");
-  }
-  return servers;
-}
-
-auto SerializeRaftContext(std::map<int, std::string> const &servers) -> std::string {
-  nlohmann::json j;
-  for (auto const &[server_id, server_context] : servers) {
-    j[std::to_string(server_id)] = server_context;
-  }
-  return j.dump();
-}
-
-}  // namespace
 
 namespace memgraph::coordination {
 
@@ -366,11 +334,10 @@ auto RaftState::AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &con
     }
   }
 
-  // Do it both for myself and for other coordinators
-  // Ideally this also stores management server so that I avoid using server_config completely
   // TODO: (andi) Add a breaking label
   auto servers = DeserializeRaftContext(raft_server_->get_user_ctx());
-  servers[config.coordinator_id] = config.bolt_server.SocketAddress();
+  servers[static_cast<int>(config.coordinator_id)] = {.bolt_server = config.bolt_server.SocketAddress(),
+                                                      .management_server = config.management_server.SocketAddress()};
   raft_server_->set_user_ctx(SerializeRaftContext(servers));
 }
 
@@ -489,8 +456,11 @@ auto RaftState::GetRoutingTable() const -> RoutingTable {
     res.emplace_back(std::move(bolt_replicas), "READ");
   }
 
+  auto const get_bolt_server = [](CoordinatorInstanceContext const &context) { return context.bolt_server; };
+
   auto const coord_servers = DeserializeRaftContext(raft_server_->get_user_ctx());
-  auto bolt_coords = coord_servers | ranges::views::values | ranges::to<std::vector>();
+  auto bolt_coords =
+      coord_servers | ranges::views::values | ranges::views::transform(get_bolt_server) | ranges::to<std::vector>();
   spdlog::trace("ROUTERS:");
   for (auto const &server : bolt_coords) {
     spdlog::trace("  {}", server);

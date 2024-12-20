@@ -48,10 +48,6 @@ using nuraft::state_machine;
 using nuraft::state_mgr;
 using raft_result = nuraft::cmd_result<ptr<buffer>>;
 
-// struct RaftServerCtx {
-//     std::string bolt_server;
-// };
-
 class RaftState {
  public:
   auto InitRaftServer() -> void;
