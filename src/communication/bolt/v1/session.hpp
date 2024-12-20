@@ -149,7 +149,7 @@ class Session {
     } else {
       state_ = StateHandshakeRun(impl);
     }
-    if (UNLIKELY(state_ == State::Close)) {
+    if (state_ == State::Close) [[unlikely]] {
       ClientFailureInvalidData();
       return;
     }
