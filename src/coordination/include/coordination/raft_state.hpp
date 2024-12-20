@@ -48,6 +48,10 @@ using nuraft::state_machine;
 using nuraft::state_mgr;
 using raft_result = nuraft::cmd_result<ptr<buffer>>;
 
+// struct RaftServerCtx {
+//     std::string bolt_server;
+// };
+
 class RaftState {
  public:
   auto InitRaftServer() -> void;
@@ -93,6 +97,9 @@ class RaftState {
   auto SelfCoordinatorConfig() const -> CoordinatorToCoordinatorConfig;
 
   auto GetCoordinatorToCoordinatorConfigs() const -> std::vector<CoordinatorToCoordinatorConfig>;
+
+  auto GetUserCtx() const -> std::string;
+  auto SetUserCtx(std::string const &new_user_ctx) -> void;
 
  private:
   int coordinator_port_;

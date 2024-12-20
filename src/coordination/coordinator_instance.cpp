@@ -727,6 +727,7 @@ auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorToCoordinatorConfig 
   spdlog::trace("Adding coordinator instance {} start in CoordinatorInstance for {}", config.coordinator_id,
                 raft_state_->InstanceName());
 
+  /*
   auto const curr_instances = raft_state_->GetCoordinatorInstances();
   if (std::ranges::any_of(curr_instances, [&config](auto const &instance) {
         return instance.coordinator_id == config.coordinator_id;
@@ -745,6 +746,7 @@ auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorToCoordinatorConfig 
       })) {
     return AddCoordinatorInstanceStatus::BOLT_ENDPOINT_ALREADY_EXISTS;
   }
+  */
 
   raft_state_->AddCoordinatorInstance(config);
   return AddCoordinatorInstanceStatus::SUCCESS;
@@ -920,10 +922,6 @@ auto CoordinatorInstance::ChooseMostUpToDateInstance(std::span<InstanceNameDbHis
 }
 
 auto CoordinatorInstance::GetRoutingTable() const -> RoutingTable { return raft_state_->GetRoutingTable(); }
-
-auto CoordinatorInstance::GetCoordinatorToCoordinatorConfigs() const -> std::vector<CoordinatorToCoordinatorConfig> {
-  return raft_state_->GetCoordinatorToCoordinatorConfigs();
-}
 
 auto CoordinatorInstance::GetMostUpToDateInstanceFromHistories(std::list<ReplicationInstanceConnector> &instances)
     -> std::optional<std::string> {
