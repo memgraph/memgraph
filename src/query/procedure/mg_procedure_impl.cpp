@@ -151,6 +151,11 @@ struct AuthorizationException : public memgraph::utils::BasicException {
   SPECIALIZE_GET_EXCEPTION_NAME(AuthorizationException)
 };
 
+struct RetryBasicException : public memgraph::utils::BasicException {
+  using memgraph::utils::BasicException::BasicException;
+  SPECIALIZE_GET_EXCEPTION_NAME(RetryBasicException)
+};
+
 template <typename TFunc, typename TReturn>
 concept ReturnsType = std::same_as<std::invoke_result_t<TFunc>, TReturn>;
 
@@ -4627,8 +4632,15 @@ mgp_error mgp_pull_one(mgp_execution_result *exec_result, mgp_graph *graph, mgp_
 
         try {
           exec_result->pImpl->interpreter->Pull(&stream, 1, {});
+        } catch (const memgraph::query::RetryBasicException &rbe) {
+          spdlog::error(
+              "Transient error during mg API call: {}. You can perform a retry on this transaction as it might suceed "
+              "when the temporary error is resolved.",
+              rbe.what());
+          throw RetryBasicException(rbe.what());
         } catch (const std::exception &e) {
-          return nullptr;
+          spdlog::error("Error during mg API call: {}", e.what());
+          throw e;
         }
 
         if (stream.rows.empty()) {

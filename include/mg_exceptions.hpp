@@ -110,4 +110,8 @@ struct NotYetImplementedException : public std::exception {
   const char *what() const noexcept override { return "Not yet implemented!"; }
 };
 
+struct RetryBasicException : public std::exception {
+  const char *what() const noexcept override { return "Transient error!"; }
+};
+
 }  // namespace mg_exception
