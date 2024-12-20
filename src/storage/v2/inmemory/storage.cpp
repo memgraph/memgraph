@@ -1182,7 +1182,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
     if (unique_constraint_violation) {
       Abort();
       DMG_ASSERT(commit_timestamp_.has_value());
-      commit_timestamp_.reset();  // We have aborted, hence we have not committed
+      // commit_timestamp_.reset();  // We have aborted, hence we have not committed
       return StorageManipulationError{*unique_constraint_violation};
     }
 
