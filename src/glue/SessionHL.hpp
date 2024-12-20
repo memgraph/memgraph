@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 #pragma once
 
+#include <atomic>
 #include <exception>
 #include "audit/log.hpp"
 #include "auth/auth.hpp"
@@ -59,9 +60,9 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
       -> bolt_map_t;
 #endif
 
-  bolt_map_t Pull(std::optional<int> n, std::optional<int> qid);
+  bolt_map_t Pull(std::optional<int> n, std::optional<int> qid, const std::atomic_bool &yield_signal);
 
-  bolt_map_t Discard(std::optional<int> n, std::optional<int> qid);
+  bolt_map_t Discard(std::optional<int> n, std::optional<int> qid, const std::atomic_bool &yield_signal);
 
   void Abort();
 

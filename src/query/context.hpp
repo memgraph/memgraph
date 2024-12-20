@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <memory>
 #include <type_traits>
 
@@ -85,6 +86,7 @@ struct ExecutionContext {
   std::unique_ptr<FineGrainedAuthChecker> auth_checker{nullptr};
 #endif
   DatabaseAccessProtector db_acc;
+  std::atomic_bool *yield;
 };
 
 static_assert(std::is_move_assignable_v<ExecutionContext>, "ExecutionContext must be move assignable!");

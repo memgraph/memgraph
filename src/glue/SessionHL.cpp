@@ -35,7 +35,45 @@ extern const Event ActiveBoltSessions;
 
 namespace {
 
-inline static memgraph::utils::ThreadPool fake_scheduler{16};
+class FakeScheduler {
+ public:
+  void AddTask(auto &&task) {
+    auto lock = std::unique_lock{mtx_};
+    if (tasks.size() >= 16 /* pool.size() */) {
+      // Need to yield something
+      for (auto &info : tasks) {
+        if (!info.yield_signal_) {
+          info.yield_signal_ = true;
+          break;
+        }
+      }
+      // TODO yield confirmation
+    }
+    const auto &yield = tasks.emplace_back(++id);
+    lock.unlock();
+    pool.AddTask([this, task = std::move(task), &yield]() {
+      task(yield.yield_signal_);
+      auto lock = std::unique_lock{mtx_};
+      tasks.remove(yield.id_);
+    });
+  }
+
+  struct TaskTracking {
+    TaskTracking(size_t id) : id_{id} {}
+    size_t id_{0};
+    std::atomic_bool yield_signal_{false};
+    bool operator==(const TaskTracking &other) const { return id_ == other.id_; }
+  };
+
+  memgraph::utils::ThreadPool pool{16};
+  std::list<TaskTracking> tasks;
+  mutable std::mutex mtx_;
+  static size_t id;
+};
+
+size_t FakeScheduler::id = 0;
+
+inline static FakeScheduler fake_scheduler{};
 
 auto ToQueryExtras(const memgraph::glue::bolt_value_t &extra) -> memgraph::query::QueryExtras {
   auto const &as_map = extra.ValueMap();
@@ -219,10 +257,10 @@ bool SessionHL::SSOAuthenticate(const std::string &scheme, const std::string &id
 
 void SessionHL::Abort() { interpreter_.Abort(); }
 
-bolt_map_t SessionHL::Discard(std::optional<int> n, std::optional<int> qid) {
+bolt_map_t SessionHL::Discard(std::optional<int> n, std::optional<int> qid, const std::atomic_bool &yield_signal) {
   try {
     memgraph::query::DiscardValueResultStream stream;
-    return DecodeSummary(interpreter_.Pull(&stream, n, qid));
+    return DecodeSummary(interpreter_.Pull(&stream, n, qid, yield_signal));
   } catch (const memgraph::query::QueryException &e) {
     // Count the number of specific exceptions thrown
     metrics::IncrementCounter(GetExceptionName(e));
@@ -232,7 +270,7 @@ bolt_map_t SessionHL::Discard(std::optional<int> n, std::optional<int> qid) {
   }
 }
 
-bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid) {
+bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid, const std::atomic_bool &yield_signal) {
   // We can access everything from here
   // 3. we have the interpreter so we know the user, db, session uuid, etc
   // 1. create a task
@@ -249,7 +287,7 @@ bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid) {
     auto &db = interpreter_.current_db_.db_acc_;
     auto *storage = db ? db->get()->storage() : nullptr;
     TypedValueResultStream<TEncoder> stream(&encoder_, storage);
-    return DecodeSummary(interpreter_.Pull(&stream, n, qid));
+    return DecodeSummary(interpreter_.Pull(&stream, n, qid, yield_signal));
   } catch (const memgraph::query::QueryException &e) {
     // Count the number of specific exceptions thrown
     metrics::IncrementCounter(GetExceptionName(e));
@@ -489,23 +527,26 @@ void SessionHL::AsyncExecution(std::function<void(bool, std::exception_ptr)> &&c
   DMG_ASSERT(postoned_work, "No postponed work to execute");
   // TODO Actually make this
   // Safe to pass in this, since the cb actually holds on to the sesssion. Make this make sense...
-  fake_scheduler.AddTask([this, cb = std::move(cb), postponed_work = std::move(postponed_work)]() {
-    // TODO Catch exceptions and pass to cb
-    // Seems like the only exceptions that can be thrown is from the close handler
-    std::exception_ptr eptr;
-    try {
-      if (postponed_work->is_pull) {
-        state_ = communication::bolt::details::HandlePullDiscard<true>(*this, postponed_work->n, postponed_work->qid);
-      }
-      if (state_ == communication::bolt::State::Close) {
-        ClientFailureInvalidData();
-      }
-    } catch (const std::exception &) {
-      // Error occured while executing, stop and pass back the exception to the cb
-      eptr = std::current_exception();
-    }
-    cb(true, eptr);
-  });
+  fake_scheduler.AddTask(
+      [this, cb = std::move(cb), postponed_work = std::move(postponed_work)](const std::atomic_bool &yield_signal) {
+        std::exception_ptr eptr;
+        try {
+          if (postponed_work->is_pull) {
+            state_ = communication::bolt::details::HandlePullDiscard<true>(*this, postponed_work->n,
+                                                                           postponed_work->qid, yield_signal);
+          } else {
+            state_ = communication::bolt::details::HandlePullDiscard<false>(*this, postponed_work->n,
+                                                                            postponed_work->qid, yield_signal);
+          }
+          if (state_ == communication::bolt::State::Close) {
+            ClientFailureInvalidData();
+          }
+        } catch (const std::exception &) {
+          // Error occured while executing, stop and pass back the exception to the cb
+          eptr = std::current_exception();
+        }
+        cb(true, eptr);
+      });
 }
 
 }  // namespace memgraph::glue

@@ -188,7 +188,9 @@ class AnalyzeGraphQueryHandler {
 struct PreparedQuery {
   std::vector<std::string> header;
   std::vector<AuthQuery::Privilege> privileges;
-  std::function<std::optional<QueryHandlerResult>(AnyStream *stream, std::optional<int> n)> query_handler;
+  std::function<std::optional<QueryHandlerResult>(AnyStream *stream, std::optional<int> n,
+                                                  const std::atomic_bool &yield_signal)>
+      query_handler;
   plan::ReadWriteTypeChecker::RWType rw_type;
   std::optional<std::string> db{};
 };
@@ -344,8 +346,8 @@ class Interpreter final {
    * @throw query::QueryException
    */
   template <typename TStream>
-  std::map<std::string, TypedValue> Pull(TStream *result_stream, std::optional<int> n = {},
-                                         std::optional<int> qid = {});
+  std::map<std::string, TypedValue> Pull(TStream *result_stream, std::optional<int> n = {}, std::optional<int> qid = {},
+                                         const std::atomic_bool &yield_signal = {});
 
   void BeginTransaction(QueryExtras const &extras = {});
 
@@ -458,7 +460,7 @@ class Interpreter final {
 
 template <typename TStream>
 std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std::optional<int> n,
-                                                    std::optional<int> qid) {
+                                                    std::optional<int> qid, const std::atomic_bool &yield_signal) {
   MG_ASSERT(in_explicit_transaction_ || !qid, "qid can be only used in explicit transaction!");
 
   const int qid_value = qid ? *qid : static_cast<int>(query_executions_.size() - 1);
@@ -482,7 +484,7 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
     // Wrap the (statically polymorphic) stream type into a common type which
     // the handler knows.
     AnyStream stream{result_stream, query_execution->execution_memory.resource()};
-    const auto maybe_res = query_execution->prepared_query->query_handler(&stream, n);
+    const auto maybe_res = query_execution->prepared_query->query_handler(&stream, n, yield_signal);
     // Stream is using execution memory of the query_execution which
     // can be deleted after its execution so the stream should be cleared
     // first.

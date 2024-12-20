@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <atomic>
 #include "dbms/database.hpp"
 #include "query/db_accessor.hpp"
 #include "query/stream.hpp"
@@ -25,7 +26,7 @@ struct PullPlanDump {
 
   /// Pull the dump results lazily
   /// @return true if all results were returned, false otherwise
-  bool Pull(AnyStream *stream, std::optional<int> n);
+  bool Pull(AnyStream *stream, std::optional<int> n, const std::atomic_bool &yield_signal);
 
  private:
   query::DbAccessor *dba_ = nullptr;
