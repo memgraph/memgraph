@@ -73,7 +73,7 @@ class CoordinatorClusterState {
 
   auto DoAction(std::vector<DataInstanceState> data_instances, utils::UUID main_uuid) -> void;
 
-  auto Serialize(ptr<buffer> &data) -> void;
+  auto Serialize(ptr<buffer> &data) const -> void;
 
   static auto Deserialize(buffer &data) -> CoordinatorClusterState;
 
