@@ -417,7 +417,6 @@ auto RaftState::GetRoutingTable() const -> RoutingTable {
   };
 
   auto const is_instance_main = [&](auto &&instance) { return IsCurrentMain(instance.config.instance_name); };
-
   auto const is_instance_replica = [&](auto &&instance) { return !IsCurrentMain(instance.config.instance_name); };
 
   auto const raft_log_data_instances = GetDataInstances();
@@ -440,7 +439,7 @@ auto RaftState::GetRoutingTable() const -> RoutingTable {
     return instance.bolt_server.SocketAddress();  // non-resolved IP
   };
 
-  auto const &raft_log_coord_instances = GetCoordinatorInstances();
+  auto const raft_log_coord_instances = GetCoordinatorInstances();
   auto bolt_coords =
       raft_log_coord_instances | ranges::views::transform(coord_instance_to_bolt) | ranges::to<std::vector>();
 

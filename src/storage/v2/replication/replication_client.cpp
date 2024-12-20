@@ -153,7 +153,6 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
   replica_state_.WithLock([&](auto &state) {
     // Recovered and state didn't change in the meantime
     // ldt can be larger on replica due to snapshots
-    // TODO: (andi) I think this shouldn't be allowed.
     if (replica.current_commit_timestamp >= replStorageState.last_durable_timestamp_.load(std::memory_order_acquire)) {
       spdlog::debug("Replica '{}' up to date.", client_.name_);
       state = replication::ReplicaState::READY;
@@ -169,28 +168,24 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
   });
 }
 
-// TODO: (andi) I don't like passing pointer to the storage here. Makes a function non-pure with side-effects.
+// TODO: (andi) Make a function pure by returning only replica timestamp.
 TimestampInfo ReplicationStorageClient::GetTimestampInfo(Storage const *storage) {
   try {
     // Exclusive access to client
     auto stream{client_.rpc_client_.Stream<replication::TimestampRpc>(main_uuid_, storage->uuid())};
     const auto response = stream.AwaitResponse();
 
-    auto main_timestamp = storage->repl_storage_state_.last_durable_timestamp_.load();
-    TimestampInfo info{.current_timestamp_of_replica = response.current_commit_timestamp,
-                       .current_number_of_timestamp_behind_main = response.current_commit_timestamp - main_timestamp};
-
-    if (!response.success || info.current_number_of_timestamp_behind_main != 0) {
-      // Still under client lock, all good
-      replica_state_.WithLock([](auto &val) { val = replication::ReplicaState::MAYBE_BEHIND; });
-      LogRpcFailure();
+    if (!response.success) {
+      spdlog::trace("Error occurred on replica when trying to return timestamp.");
+      return {};
     }
-    return info;
+
+    auto const main_timestamp = storage->repl_storage_state_.last_durable_timestamp_.load();
+    return {.current_timestamp_of_replica = response.current_commit_timestamp,
+            .current_number_of_timestamp_behind_main = response.current_commit_timestamp - main_timestamp};
 
   } catch (const rpc::RpcFailedException &) {
-    replica_state_.WithLock([](auto &val) { val = replication::ReplicaState::MAYBE_BEHIND; });
-    LogRpcFailure();  // mutex already unlocked, if the new enqueued task dispatches immediately it probably
-                      // won't block
+    spdlog::trace("Obtaining timestamp from replica {} failed.", client_.name_);
     return {};
   }
 }
