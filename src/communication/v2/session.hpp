@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include <chrono>
 #include <concepts/concepts.hpp>
 #include <cstddef>
 #include <cstdint>
@@ -50,7 +49,6 @@
 #include "utils/event_counter.hpp"
 #include "utils/logging.hpp"
 #include "utils/on_scope_exit.hpp"
-#include "utils/thread_pool.hpp"
 #include "utils/variant_helpers.hpp"
 
 template <typename T>
@@ -314,11 +312,31 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
 
     if constexpr (RequiresHandshake<TSession>) {
       input_buffer_.write_end()->Written(bytes_transferred);
-      // TODO Handle excp
-      session_.Handshake();
+      try {
+        session_.Handshake();
+      } catch (const std::exception & /* */) {
+        // Handle any generated errors (connection shutdown)
+        HandleException(std::current_exception());
+        return;
+      }
       OnRead({}, 0);
     } else {
       OnRead(ec, bytes_transferred);
+    }
+  }
+
+  void HandleException(const std::exception_ptr eptr) {
+    DMG_ASSERT(eptr, "No exception to handle");
+    try {
+      std::rethrow_exception(eptr);
+    } catch (const SessionClosedException &e) {
+      spdlog::info("{} client {} closed the connection.", service_name_, remote_endpoint_);
+      DoShutdown();
+    } catch (const std::exception &e) {
+      spdlog::error("Exception was thrown while processing event in {} session associated with {}", service_name_,
+                    remote_endpoint_);
+      spdlog::debug("Exception message: {}", e.what());
+      DoShutdown();
     }
   }
 
@@ -332,20 +350,10 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     input_buffer_.write_end()->Written(bytes_transferred);
 
     session_.Execute([shared_this = shared_from_this()](bool has_more, std::exception_ptr eptr) {
-      // Handle any generated errors
+      // Handle any generated errors (connection shutdown)
       if (eptr) {
-        try {
-          std::rethrow_exception(eptr);
-        } catch (const SessionClosedException &e) {
-          spdlog::info("{} client {} closed the connection.", shared_this->service_name_,
-                       shared_this->remote_endpoint_);
-          shared_this->DoShutdown();
-        } catch (const std::exception &e) {
-          spdlog::error("Exception was thrown while processing event in {} session associated with {}",
-                        shared_this->service_name_, shared_this->remote_endpoint_);
-          spdlog::debug("Exception message: {}", e.what());
-          shared_this->DoShutdown();
-        }
+        shared_this->HandleException(eptr);
+        return;
       }
       // More to read from the previous message
       if (has_more) {
