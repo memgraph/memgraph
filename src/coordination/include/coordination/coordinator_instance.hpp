@@ -112,12 +112,15 @@ class CoordinatorInstance {
 
   void ShuttingDown();
 
-  void AddOrUpdateClientConnectors();
-
   void InstanceSuccessCallback(std::string_view instance_name, std::optional<InstanceState> instance_state);
   void InstanceFailCallback(std::string_view instance_name, std::optional<InstanceState> instance_state);
 
+  // TODO: (andi) Move to private section
+  void UpdateClientConnectors(std::vector<uint32_t> coordinators);
+
  private:
+  auto UpdateConnector(uint32_t coordinator_id, io::network::Endpoint const &management_server) -> void;
+
   auto FindReplicationInstance(std::string_view replication_instance_name) -> ReplicationInstanceConnector &;
   auto ReconcileClusterState_() -> ReconcileClusterStateStatus;
   auto ShowInstancesStatusAsFollower() const -> std::vector<InstanceStatus>;

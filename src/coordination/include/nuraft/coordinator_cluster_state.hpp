@@ -13,6 +13,7 @@
 
 #ifdef MG_ENTERPRISE
 
+#include "coordination/coordination_observer.hpp"
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_instance_context.hpp"
 #include "replication_coordination_glue/role.hpp"
@@ -56,8 +57,8 @@ void from_json(nlohmann::json const &j, DataInstanceState &instance_state);
 // Source of truth since it is modified only as the result of RAFT's commiting.
 class CoordinatorClusterState {
  public:
+  explicit CoordinatorClusterState(std::optional<CoordinationClusterChangeObserver> observer);
   CoordinatorClusterState() = default;
-  explicit CoordinatorClusterState(std::vector<DataInstanceState> instances, utils::UUID current_main_uuid);
 
   CoordinatorClusterState(CoordinatorClusterState const &);
   CoordinatorClusterState &operator=(CoordinatorClusterState const &);
@@ -105,6 +106,7 @@ class CoordinatorClusterState {
   std::vector<CoordinatorInstanceContext> coordinator_instances_{};
   utils::UUID current_main_uuid_{};
   mutable utils::ResourceLock log_lock_{};
+  std::optional<CoordinationClusterChangeObserver> observer_;
 };
 
 void to_json(nlohmann::json &j, CoordinatorClusterState const &state);

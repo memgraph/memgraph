@@ -14,6 +14,7 @@
 #ifdef MG_ENTERPRISE
 
 #include <spdlog/spdlog.h>
+#include "coordination/coordination_observer.hpp"
 #include "coordination/coordinator_communication_config.hpp"
 #include "kvstore/kvstore.hpp"
 #include "nuraft/constants_log_durability.hpp"
@@ -51,7 +52,8 @@ void to_json(nlohmann::json &j, SnapshotCtx const &snapshot_ctx);
 
 class CoordinatorStateMachine : public state_machine {
  public:
-  CoordinatorStateMachine(LoggerWrapper logger, std::optional<LogStoreDurability> log_store_durability);
+  CoordinatorStateMachine(LoggerWrapper logger, std::optional<LogStoreDurability> log_store_durability,
+                          std::optional<CoordinationClusterChangeObserver> observer);
   CoordinatorStateMachine(CoordinatorStateMachine const &) = delete;
   CoordinatorStateMachine &operator=(CoordinatorStateMachine const &) = delete;
   CoordinatorStateMachine(CoordinatorStateMachine &&) = delete;

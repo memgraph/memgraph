@@ -69,8 +69,9 @@ void to_json(nlohmann::json &j, SnapshotCtx const &snapshot_ctx) {
 }
 
 CoordinatorStateMachine::CoordinatorStateMachine(LoggerWrapper logger,
-                                                 std::optional<LogStoreDurability> log_store_durability)
-    : logger_(logger) {
+                                                 std::optional<LogStoreDurability> log_store_durability,
+                                                 std::optional<CoordinationClusterChangeObserver> observer)
+    : logger_(logger), cluster_state_(observer) {
   if (log_store_durability.has_value()) {
     durability_ = log_store_durability->durability_store_;
   }
