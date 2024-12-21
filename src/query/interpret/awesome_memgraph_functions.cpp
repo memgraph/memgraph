@@ -521,6 +521,23 @@ size_t UnwrapDegreeResult(storage::Result<size_t> maybe_degree) {
 
 }  // namespace
 
+TypedValue IsEmpty(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Or<Null, List, Map, String>>("isempty", args, nargs);
+  auto const &arg = args[0];
+  if (arg.IsNull()) return TypedValue(ctx.memory);
+  switch (arg.type()) {
+    using enum TypedValue::Type;
+    case List:
+      return TypedValue(arg.UnsafeValueList().empty(), ctx.memory);
+    case Map:
+      return TypedValue(arg.UnsafeValueMap().empty(), ctx.memory);
+    case String:
+      return TypedValue(arg.UnsafeValueString().empty(), ctx.memory);
+    default:
+      return TypedValue(ctx.memory);
+  }
+}
+
 TypedValue Degree(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Vertex>>("degree", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
@@ -1530,7 +1547,14 @@ TypedValue Point(const TypedValue *args, int64_t nargs, const FunctionContext &c
   }
 
   if (!z_opt.has_value()) {
+    if (!storage::valid2d(*mg_crs)) {
+      throw QueryRuntimeException("Concluded point type is 2D but CRS/SRID says it is 3D.");
+    }
     return TypedValue(storage::Point2d{*mg_crs, x, y}, ctx.memory);
+  }
+
+  if (!storage::valid3d(*mg_crs)) {
+    throw QueryRuntimeException("Concluded point type is 3D but CRS/SRID says it is 2D.");
   }
   return TypedValue(storage::Point3d{*mg_crs, x, y, z_opt->first}, ctx.memory);
 }
@@ -1590,6 +1614,9 @@ TypedValue WithinBBox(const TypedValue *args, int64_t nargs, const FunctionConte
 }
 
 auto const builtin_functions = absl::flat_hash_map<std::string, func_impl>{
+    // Predicate functions
+    {"ISEMPTY", IsEmpty},
+
     // Scalar functions
     {"DEGREE", Degree},
     {"INDEGREE", InDegree},

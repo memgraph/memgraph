@@ -11,6 +11,7 @@
 
 import os
 import sys
+from functools import partial
 
 import interactive_mg_runner
 import pytest
@@ -19,7 +20,7 @@ from common import (
     execute_and_fetch_all,
     get_data_path,
     get_logs_path,
-    ignore_elapsed_time_from_results,
+    show_instances,
 )
 from mg_utils import mg_sleep_and_assert
 
@@ -37,7 +38,6 @@ test_name = "test_writing_disabled_on_main_restart"
 MEMGRAPH_INSTANCES_DESCRIPTION = {
     "instance_1": {
         "args": [
-            "--experimental-enabled=high-availability",
             "--bolt-port",
             "7687",
             "--log-level",
@@ -56,7 +56,6 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
     },
     "instance_2": {
         "args": [
-            "--experimental-enabled=high-availability",
             "--bolt-port",
             "7688",
             "--log-level",
@@ -75,7 +74,6 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
     },
     "instance_3": {
         "args": [
-            "--experimental-enabled=high-availability",
             "--bolt-port",
             "7689",
             "--log-level",
@@ -94,7 +92,6 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
     },
     "coordinator_1": {
         "args": [
-            "--experimental-enabled=high-availability",
             "--bolt-port",
             "7690",
             "--log-level=TRACE",
@@ -109,7 +106,6 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
     },
     "coordinator_2": {
         "args": [
-            "--experimental-enabled=high-availability",
             "--bolt-port",
             "7691",
             "--log-level=TRACE",
@@ -124,7 +120,6 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
     },
     "coordinator_3": {
         "args": [
-            "--experimental-enabled=high-availability",
             "--bolt-port",
             "7692",
             "--log-level=TRACE",
@@ -168,18 +163,13 @@ def test_writing_disabled_on_main_restart():
         "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112', 'management_server': 'localhost:10122'}",
     )
 
-    def check_coordinator3():
-        return ignore_elapsed_time_from_results(
-            sorted(list(execute_and_fetch_all(coordinator3_cursor, "SHOW INSTANCES")))
-        )
-
     expected_cluster_coord3 = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
-    mg_sleep_and_assert(expected_cluster_coord3, check_coordinator3)
+    mg_sleep_and_assert(expected_cluster_coord3, partial(show_instances, coordinator3_cursor))
 
     interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_3")
 
@@ -190,7 +180,7 @@ def test_writing_disabled_on_main_restart():
         ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
     ]
 
-    mg_sleep_and_assert(expected_cluster_coord3, check_coordinator3)
+    mg_sleep_and_assert(expected_cluster_coord3, partial(show_instances, coordinator3_cursor))
 
     interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_3")
 
@@ -210,7 +200,7 @@ def test_writing_disabled_on_main_restart():
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
 
-    mg_sleep_and_assert(expected_cluster_coord3, check_coordinator3)
+    mg_sleep_and_assert(expected_cluster_coord3, partial(show_instances, coordinator3_cursor))
     execute_and_fetch_all(instance3_cursor, "CREATE (n:Node {name: 'node'})")
 
 

@@ -11,20 +11,35 @@
 
 #include "flags/run_time_configurable.hpp"
 
+#include <exception>
+#include <optional>
 #include <stdexcept>
 #include <string>
 
+#include "croncpp.h"
 #include "gflags/gflags.h"
 
 #include "flags/log_level.hpp"
+#include "license/license.hpp"
 #include "spdlog/spdlog.h"
 #include "utils/exceptions.hpp"
 #include "utils/flag_validation.hpp"
+#include "utils/logging.hpp"
+#include "utils/observer.hpp"
+#include "utils/result.hpp"
+#include "utils/rw_spin_lock.hpp"
+#include "utils/scheduler.hpp"
 #include "utils/settings.hpp"
 #include "utils/string.hpp"
+#include "utils/synchronized.hpp"
 
 namespace {
 bool ValidTimezone(std::string_view tz);
+
+template <bool FATAL>
+bool ValidPeriodicSnapshot(std::string_view def);
+template bool ValidPeriodicSnapshot<false>(std::string_view def);
+template bool ValidPeriodicSnapshot<true>(std::string_view def);
 }  // namespace
 
 /*
@@ -65,6 +80,16 @@ DEFINE_VALIDATED_string(timezone, "UTC", "Define instance's timezone (IANA forma
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(query_log_directory, "", "Path to directory where the query logs should be stored.");
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
+DEFINE_string(storage_snapshot_interval, "",
+              "Define periodic snapshot schedule via cron format or as a period in seconds.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_VALIDATED_uint64(storage_snapshot_interval_sec, 0,
+                        "Storage snapshot creation interval (in seconds). Set "
+                        "to 0 to disable periodic snapshot creation.",
+                        FLAG_IN_RANGE(0, 7LU * 24 * 3600));
+
 namespace {
 // Bolt server name
 constexpr auto kServerNameSettingKey = "server.name";
@@ -95,12 +120,37 @@ constexpr auto kQueryLogDirectoryGFlagsKey = "query-log-directory";
 constexpr auto kTimezoneSettingKey = "timezone";
 constexpr auto kTimezoneGFlagsKey = kTimezoneSettingKey;
 
+constexpr auto kSnapshotPeriodicSettingKey = "storage.snapshot.interval";
+constexpr auto kSnapshotPeriodicGFlagsKey = "storage-snapshot-interval";
+
 // NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
 // Local cache-like thing
 std::atomic<double> execution_timeout_sec_;
 std::atomic<bool> hops_limit_partial_results{true};
 std::atomic<bool> cartesian_product_enabled_{true};
 std::atomic<const std::chrono::time_zone *> timezone_{nullptr};
+
+class PeriodicObservable : public memgraph::utils::Observable<memgraph::utils::SchedulerInterval> {
+ public:
+  void Accept(std::shared_ptr<memgraph::utils::Observer<memgraph::utils::SchedulerInterval>> observer) override {
+    const auto periodic_locked = periodic_.ReadLock();
+    observer->Update(*periodic_locked);
+  }
+
+  void Modify(std::chrono::seconds pause) {
+    *periodic_.Lock() = memgraph::utils::SchedulerInterval(pause, std::nullopt);
+    Notify();
+  }
+
+  void Modify(std::string in) {
+    *periodic_.Lock() = memgraph::utils::SchedulerInterval(std::move(in));
+    Notify();
+  }
+
+ private:
+  memgraph::utils::Synchronized<memgraph::utils::SchedulerInterval, memgraph::utils::RWSpinLock> periodic_;
+} snapshot_periodic_;
+
 // NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
 
 auto ToLLEnum(std::string_view val) {
@@ -111,9 +161,12 @@ auto ToLLEnum(std::string_view val) {
   return *ll_enum;
 }
 
-bool ValidBoolStr(std::string_view in) {
+memgraph::utils::Settings::ValidatorResult ValidBoolStr(std::string_view in) {
   const auto lc = memgraph::utils::ToLowerCase(in);
-  return lc == "false" || lc == "true";
+  if (lc != "false" && lc != "true") {
+    return {"Boolean value supports only 'false' or 'true' as the input."};
+  }
+  return {};
 }
 
 auto GenHandler(std::string flag, std::string key) {
@@ -134,8 +187,58 @@ auto GetTimezone(std::string_view tz) -> const std::chrono::time_zone * {
   }
 }
 
+int64_t ValidPeriod(std::string_view str) {
+  try {
+    // str = memgraph::utils::Trim(str);
+    size_t n_processed = 0;
+    const auto period = std::stol(str.data(), &n_processed);
+    if (n_processed != str.size()) throw std::invalid_argument{"string contains more than just an integer"};
+    return static_cast<int64_t>(period);
+  } catch (const std::out_of_range & /* unused */) {
+    // convert to invalid arg
+    throw std::invalid_argument{"out of range"};
+  }
+}
+
 bool ValidTimezone(std::string_view tz) { return GetTimezone(tz) != nullptr; }
 
+template <bool FATAL>
+bool ValidPeriodicSnapshot(const std::string_view def) {
+  bool failure = false;
+  // Empty string = disabled
+  if (def.empty()) return true;
+  try {
+    // Try to get a period in seconds
+    const auto period = ValidPeriod(def);
+    return period >= 0L && period <= 7L * 24 * 3600;
+  } catch (const std::invalid_argument & /* unused */) {
+    // Handled later on
+    failure = true;
+  }
+#ifdef MG_ENTERPRISE
+  try {
+    // NOTE: Cron is an enterprise feature
+    const auto cron = cron::make_cron(def);
+    if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+      constexpr std::string_view msg = "Defining snapshot schedule via cron expressions is an enterprise feature.";
+      if constexpr (FATAL) {
+        LOG_FATAL(msg);
+      }
+      spdlog::error(msg);
+      return false;
+    }
+    return true;
+  } catch (const cron::bad_cronexpr & /* unused */) {
+    // Handled later on
+    failure = true;
+  }
+#endif
+  MG_ASSERT(failure, "Failure not handled correctly.");
+  if constexpr (FATAL) {
+    LOG_FATAL("Defined snapshot interval not a valid expression.");
+  }
+  return false;
+}
 }  // namespace
 
 namespace memgraph::flags::run_time {
@@ -155,7 +258,8 @@ void Initialize() {
   auto register_flag = [&](
                            const std::string &flag, const std::string &key, bool restore,
                            std::function<void(const std::string &)> post_update = [](auto) {},
-                           std::function<bool(std::string_view)> validator = [](std::string_view) { return true; }) {
+                           utils::Settings::Validation validator =
+                               [](std::string_view) -> utils::Settings::ValidatorResult { return {}; }) {
     // Get flag info
     gflags::CommandLineFlagInfo info;
     gflags::GetCommandLineFlagInfo(flag.c_str(), &info);
@@ -166,7 +270,7 @@ void Initialize() {
       post_update(val);
     };
     // Register setting
-    memgraph::utils::global_settings.RegisterSetting(key, info.default_value, callback, validator);
+    memgraph::utils::global_settings.RegisterSetting(key, info.default_value, callback, std::move(validator));
 
     if (restore && info.is_default) {
       // No input from the user, restore persistent value from settings
@@ -206,7 +310,13 @@ void Initialize() {
         spdlog::set_level(ll_enum);
         UpdateStderr(ll_enum);  // Updates level if active
       },
-      memgraph::flags::ValidLogLevel);
+      [](auto in) -> utils::Settings::ValidatorResult {
+        if (!memgraph::flags::ValidLogLevel(in)) {
+          return {"Unsupported log level. Log level must be defined as one of the following strings: " +
+                  allowed_log_levels};
+        }
+        return {};
+      });
 
   /*
    * Register logging to stderr
@@ -239,12 +349,53 @@ void Initialize() {
       [](const std::string &val) {
         timezone_ = ::GetTimezone(val);  // Cache for faster access
       },
-      ValidTimezone);
+      [](auto in) -> utils::Settings::ValidatorResult {
+        if (!ValidTimezone(in)) {
+          return {"Timezone names must follow the IANA standard. Please note that the names are case-sensitive."};
+        }
+        return {};
+      });
 
   /*
    * Register query log directory setting
    */
   register_flag(kQueryLogDirectoryGFlagsKey, kQueryLogDirectorySettingKey, kRestore);
+
+  /*
+   * Register periodic snapshot setting
+   */
+  // Periodic snapshot setup is exclusive between interval_sec and config
+  if (FLAGS_storage_snapshot_interval_sec != 0) {    // Not default
+    if (!FLAGS_storage_snapshot_interval.empty()) {  // Not default
+      LOG_FATAL(
+          "Periodic snapshot schedule define via both --storage-snapshot-interval-sec and "
+          "--storage-snapshot-interval. Please use a single flag to define the schedule!");
+    }
+    // Update the combined flag to reflect the interval defined via FLAGS_storage_snapshot_interval_sec
+    FLAGS_storage_snapshot_interval = std::to_string(FLAGS_storage_snapshot_interval_sec);
+  }
+  // FATAL validation at startup; can't be part of the flag defintion, since we need to check for license
+  ValidPeriodicSnapshot<true>(FLAGS_storage_snapshot_interval);
+  register_flag(
+      kSnapshotPeriodicGFlagsKey, kSnapshotPeriodicSettingKey, !kRestore,
+      [](std::string_view val) {
+        try {
+          const auto period = ValidPeriod(val);
+          snapshot_periodic_.Modify(std::chrono::seconds{period});
+        } catch (const std::invalid_argument & /* unused */) {
+          // String is not a period; pass in as a cron expression
+          // Expression is guaranteed to be valid
+          snapshot_periodic_.Modify(std::string{val});
+        }
+      },
+      [](auto in) -> utils::Settings::ValidatorResult {
+        if (!ValidPeriodicSnapshot<false>(in)) {
+          return {
+              "Snapshot interval can be defined as an integer period in seconds or as a 6-field cron expression. "
+              "Please note that a valid license is needed in order to use cron expressions."};
+        }
+        return {};
+      });
 }
 
 std::string GetServerName() {
@@ -267,6 +418,14 @@ std::string GetQueryLogDirectory() {
   // Thread safe read of gflag
   gflags::GetCommandLineOption(kQueryLogDirectoryGFlagsKey, &s);
   return s;
+}
+
+void SnapshotPeriodicAttach(std::shared_ptr<utils::Observer<utils::SchedulerInterval>> observer) {
+  snapshot_periodic_.Attach(observer);
+}
+
+void SnapshotPeriodicDetach(std::shared_ptr<utils::Observer<utils::SchedulerInterval>> observer) {
+  snapshot_periodic_.Detach(observer);
 }
 
 }  // namespace memgraph::flags::run_time

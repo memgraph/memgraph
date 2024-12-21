@@ -1964,9 +1964,6 @@ void DiskStorage::DiskAccessor::UpdateObjectsCountOnAbort() {
         break;
     }
   }
-
-  auto delta_size = transaction_.deltas.size();
-  memgraph::metrics::DecrementCounter(memgraph::metrics::UnreleasedDeltaObjects, delta_size);
 }
 
 void DiskStorage::DiskAccessor::Abort() {
@@ -2164,7 +2161,32 @@ utils::BasicResult<StorageExistenceConstraintDroppingError, void> DiskStorage::D
   throw utils::NotYetImplemented("Type constraints are not yet implemented for on-disk storage");
 }
 
-void DiskStorage::DiskAccessor::DropGraph() {}
+void DiskStorage::DiskAccessor::DropGraph() {
+  throw utils::NotYetImplemented("Drop graph is not yet implemented for on-disk storage");
+}
+
+auto DiskStorage::DiskAccessor::PointVertices(LabelId /*label*/, PropertyId /*property*/,
+                                              CoordinateReferenceSystem /*crs*/, PropertyValue const & /*point_value*/,
+                                              PropertyValue const & /*boundary_value*/,
+                                              PointDistanceCondition /*condition*/) -> PointIterable {
+  throw utils::NotYetImplemented("Point Vertices is not yet implemented for on-disk storage");
+}
+
+std::vector<std::tuple<VertexAccessor, double, double>> DiskStorage::DiskAccessor::VectorIndexSearch(
+    const std::string & /*index_name*/, uint64_t /*number_of_results*/, const std::vector<float> & /*vector*/) {
+  throw utils::NotYetImplemented("Vector index is not yet implemented for on-disk storage");
+}
+
+std::vector<VectorIndexInfo> DiskStorage::DiskAccessor::ListAllVectorIndices() const {
+  throw utils::NotYetImplemented("Vector index is not yet implemented for on-disk storage");
+};
+
+auto DiskStorage::DiskAccessor::PointVertices(LabelId /*label*/, PropertyId /*property*/,
+                                              CoordinateReferenceSystem /*crs*/, PropertyValue const & /*bottom_left*/,
+                                              PropertyValue const & /*top_right*/, WithinBBoxCondition /*condition*/)
+    -> PointIterable {
+  throw utils::NotYetImplemented("Point Vertices is not yet implemented for on-disk storage");
+};
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 PointIndexStorage DiskStorage::empty_point_index_ = PointIndexStorage{};
@@ -2218,6 +2240,11 @@ bool DiskStorage::DiskAccessor::EdgeTypeIndexExists(EdgeTypeId /*edge_type*/) co
 
 bool DiskStorage::DiskAccessor::EdgeTypePropertyIndexExists(EdgeTypeId /*edge_type*/, PropertyId /*property*/) const {
   spdlog::info("Edge-type index related operations are not yet supported using on-disk storage mode.");
+  return false;
+}
+
+bool DiskStorage::DiskAccessor::PointIndexExists(LabelId /*label*/, PropertyId /*property*/) const {
+  spdlog::info("Point index related operations are not yet supported using on-disk storage mode.");
   return false;
 }
 

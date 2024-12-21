@@ -221,11 +221,12 @@ set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libgcc -static-lib
 
 # Use lld linker to speedup build and use less memory.
 add_link_options(-fuse-ld=lld)
-# NOTE: Moving to latest Clang (probably starting from 15), lld stopped to work
-# without explicit link_directories call.
-string(REPLACE ":" " " LD_LIBS $ENV{LD_LIBRARY_PATH})
-separate_arguments(LD_LIBS)
-link_directories(${LD_LIBS})
+if (DEFINED ENV{LD_LIBRARY_PATH})
+    string(REPLACE ":" " " LD_LIBS $ENV{LD_LIBRARY_PATH})
+    separate_arguments(LD_LIBS)
+    link_directories(${LD_LIBS})
+endif ()
+add_link_options(LINKER:--build-id)
 
 # After linker is set, check we can use link-time optimization
 cmake_policy(SET CMP0138 NEW)

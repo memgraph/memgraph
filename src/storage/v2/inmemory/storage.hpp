@@ -11,15 +11,16 @@
 
 #pragma once
 
-#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <utility>
+#include "flags/run_time_configurable.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/inmemory/replication/recovery.hpp"
+#include "storage/v2/inmemory/snapshot_info.hpp"
 #include "storage/v2/replication/replication_client.hpp"
 #include "storage/v2/schema_info.hpp"
 #include "storage/v2/storage.hpp"
@@ -34,8 +35,10 @@
 #include "storage/v2/replication/serialization.hpp"
 #include "storage/v2/transaction.hpp"
 #include "utils/memory.hpp"
+#include "utils/observer.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/synchronized.hpp"
+#include "utils/temporal.hpp"
 
 namespace memgraph::dbms {
 class InMemoryReplicationHandlers;
@@ -100,6 +103,14 @@ class InMemoryStorage final : public Storage {
  public:
   using free_mem_fn = std::function<void(std::unique_lock<utils::ResourceLock>, bool)>;
   enum class CreateSnapshotError : uint8_t { DisabledForReplica, ReachedMaxNumTries };
+  enum class RecoverSnapshotError : uint8_t {
+    DisabledForReplica,
+    DisabledForMainWithReplicas,
+    NonEmptyStorage,
+    MissingFile,
+    CopyFailure,
+    BackupFailure,
+  };
 
   /// @throw std::system_error
   /// @throw std::bad_alloc
@@ -222,7 +233,7 @@ class InMemoryStorage final : public Storage {
           edge_type, property, lower, upper);
     }
 
-    uint64_t ApproximatePointCount(LabelId label, PropertyId property) const override {
+    std::optional<uint64_t> ApproximateVerticesPointCount(LabelId label, PropertyId property) const override {
       return storage_->indices_.point_index_.ApproximatePointCount(label, property);
     }
 
@@ -293,6 +304,8 @@ class InMemoryStorage final : public Storage {
       return static_cast<InMemoryStorage *>(storage_)->indices_.edge_type_property_index_->IndexExists(edge_type,
                                                                                                        property);
     }
+
+    bool PointIndexExists(LabelId label, PropertyId property) const override;
 
     IndicesInfo ListAllIndices() const override;
 
@@ -439,14 +452,31 @@ class InMemoryStorage final : public Storage {
 
     void DropGraph() override;
 
+    /// View is not needed because a new rtree gets created for each transaction and it is always
+    /// using the latest version
+    auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
+                       PropertyValue const &point_value, PropertyValue const &boundary_value,
+                       PointDistanceCondition condition) -> PointIterable override;
+
+    /// View is not needed because a new rtree gets created for each transaction and it is always
+    /// using the latest version
+    auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
+                       PropertyValue const &bottom_left, PropertyValue const &top_right, WithinBBoxCondition condition)
+        -> PointIterable override;
+
+    std::vector<std::tuple<VertexAccessor, double, double>> VectorIndexSearch(
+        const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) override;
+
+    std::vector<VectorIndexInfo> ListAllVectorIndices() const override;
+
    protected:
     // TODO Better naming
     /// @throw std::bad_alloc
-    VertexAccessor CreateVertexEx(storage::Gid gid);
+    std::optional<VertexAccessor> CreateVertexEx(storage::Gid gid);
     /// @throw std::bad_alloc
     Result<EdgeAccessor> CreateEdgeEx(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type, storage::Gid gid);
 
-    /// Duiring commit, in some cases you do not need to hand over deltas to GC
+    /// During commit, in some cases you do not need to hand over deltas to GC
     /// in those cases this method is a light weight way to unlink and discard our deltas
     void FastDiscardOfDeltas(std::unique_lock<std::mutex> gc_guard);
     void GCRapidDeltaCleanup(std::list<Gid> &current_deleted_edges, std::list<Gid> &current_deleted_vertices,
@@ -459,7 +489,7 @@ class InMemoryStorage final : public Storage {
     explicit ReplicationAccessor(InMemoryAccessor &&inmem) : InMemoryAccessor(std::move(inmem)) {}
 
     /// @throw std::bad_alloc
-    VertexAccessor CreateVertexEx(storage::Gid gid) { return InMemoryAccessor::CreateVertexEx(gid); }
+    std::optional<VertexAccessor> CreateVertexEx(storage::Gid gid) { return InMemoryAccessor::CreateVertexEx(gid); }
 
     /// @throw std::bad_alloc
     Result<EdgeAccessor> CreateEdgeEx(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type,
@@ -484,6 +514,12 @@ class InMemoryStorage final : public Storage {
 
   utils::BasicResult<InMemoryStorage::CreateSnapshotError> CreateSnapshot(
       memgraph::replication_coordination_glue::ReplicationRole replication_role);
+
+  utils::BasicResult<InMemoryStorage::RecoverSnapshotError> RecoverSnapshot(
+      std::filesystem::path path, bool force,
+      memgraph::replication_coordination_glue::ReplicationRole replication_role);
+
+  std::vector<SnapshotFileInfo> ShowSnapshots();
 
   void CreateSnapshotHandler(std::function<utils::BasicResult<InMemoryStorage::CreateSnapshotError>()> cb);
 
@@ -550,23 +586,24 @@ class InMemoryStorage final : public Storage {
   std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>> FindEdge(Gid gid);
 
   // Main object storage
-  utils::SkipList<storage::Vertex> vertices_;
-  utils::SkipList<storage::Edge> edges_;
-  utils::SkipList<storage::EdgeMetadata> edges_metadata_;
+  utils::SkipList<Vertex> vertices_;
+  utils::SkipList<Edge> edges_;
+  utils::SkipList<EdgeMetadata> edges_metadata_;
 
   // Durability
   durability::Recovery recovery_;
 
   std::filesystem::path lock_file_path_;
-  utils::OutputFile lock_file_handle_;
+  std::unique_ptr<utils::OutputFile> lock_file_handle_ = std::make_unique<utils::OutputFile>();
 
   utils::Scheduler snapshot_runner_;
   utils::SpinLock snapshot_lock_;
+  std::shared_ptr<utils::Observer<utils::SchedulerInterval>> snapshot_periodic_observer_;
 
   // Sequence number used to keep track of the chain of WALs.
   uint64_t wal_seq_num_{0};
 
-  std::optional<durability::WalFile> wal_file_;
+  std::unique_ptr<durability::WalFile> wal_file_;
   uint64_t wal_unsynced_transactions_{0};
 
   utils::FileRetainer file_retainer_;

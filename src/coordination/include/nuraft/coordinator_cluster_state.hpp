@@ -71,7 +71,7 @@ class CoordinatorClusterState {
 
   auto IsCurrentMain(std::string_view instance_name) const -> bool;
 
-  auto DoAction(std::pair<std::vector<DataInstanceState>, utils::UUID> log_entry) -> void;
+  auto DoAction(std::vector<DataInstanceState> data_instances, utils::UUID main_uuid) -> void;
 
   auto Serialize(ptr<buffer> &data) -> void;
 

@@ -195,6 +195,11 @@ startup_config_dict = {
         "300",
         "Storage snapshot creation interval (in seconds). Set to 0 to disable periodic snapshot creation.",
     ),
+    "storage_snapshot_interval": (
+        "",
+        "300",
+        "Define periodic snapshot schedule via cron format or as a period in seconds.",
+    ),
     "storage_snapshot_on_exit": ("false", "false", "Controls whether the storage creates another snapshot on exit."),
     "storage_snapshot_retention_count": ("3", "3", "The number of snapshots that should always be kept."),
     "storage_wal_enabled": (
@@ -271,7 +276,12 @@ startup_config_dict = {
     "experimental_enabled": (
         "",
         "",
-        "Experimental features to be used, comma-separated. Options [text-search, high-availability]",
+        "Experimental features to be used, comma-separated. Options [text-search, vector-search]",
+    ),
+    "experimental_config": (
+        "",
+        "",
+        "Experimental features to be used, JSON object. Options [vector-search]",
     ),
     "query_log_directory": ("", "", "Path to directory where the query logs should be stored."),
     "schema_info_enabled": ("false", "false", "Set to true to enable run-time schema info tracking."),

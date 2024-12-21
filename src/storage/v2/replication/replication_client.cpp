@@ -36,14 +36,17 @@ ReplicationStorageClient::ReplicationStorageClient(::memgraph::replication::Repl
     : client_{client}, main_uuid_(main_uuid) {}
 
 void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAccessProtector db_acc) {
-  uint64_t current_commit_timestamp{kTimestampInitialId};
-
   auto &replStorageState = storage->repl_storage_state_;
 
-  auto hb_stream{client_.rpc_client_.Stream<replication::HeartbeatRpc>(main_uuid_, storage->uuid(),
-                                                                       replStorageState.last_durable_timestamp_,
-                                                                       std::string{replStorageState.epoch_.id()})};
-  const auto replica = hb_stream.AwaitResponse();
+  // stream should be destroyed so that RPC lock is released before taking engine lock
+  replication::HeartbeatRes replica = std::invoke([&] {
+    // stream should be destroyed so that RPC lock is released
+    // before taking engine lock
+    auto hb_stream = client_.rpc_client_.Stream<replication::HeartbeatRpc>(main_uuid_, storage->uuid(),
+                                                                           replStorageState.last_durable_timestamp_,
+                                                                           std::string{replStorageState.epoch_.id()});
+    return hb_stream.AwaitResponse();
+  });
 
 #ifdef MG_ENTERPRISE       // Multi-tenancy is only supported in enterprise
   if (!replica.success) {  // Replica is missing the current database
@@ -83,7 +86,8 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
       branching_point = epoch_info_iter->second;
     } else {
       branching_point = std::nullopt;
-      spdlog::trace("Found continuous history between replica {} and main.", client_.name_);
+      spdlog::trace("Found continuous history between replica {} and main. Our commit timestamp for epoch {} was {}.",
+                    client_.name_, epoch_info_iter->first, epoch_info_iter->second);
     }
   }
   if (branching_point) {
@@ -121,22 +125,24 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
     return;
   }
 
-  current_commit_timestamp = replica.current_commit_timestamp;
-  spdlog::trace("Current timestamp on replica {}: {}.", client_.name_, current_commit_timestamp);
+  // Lock engine lock in order to read storage timestamp and synchronize with any active commits
+  auto engine_lock = std::unique_lock{storage->engine_lock_};
+  spdlog::trace("Current timestamp on replica {}: {}.", client_.name_, replica.current_commit_timestamp);
   spdlog::trace("Current timestamp on main: {}. Current durable timestamp on main: {}", storage->timestamp_,
                 replStorageState.last_durable_timestamp_.load());
 
   replica_state_.WithLock([&](auto &state) {
+    // Recovered and state didn't change in the meantime
     // ldt can be larger on replica due to snapshots
-    if (current_commit_timestamp >= replStorageState.last_durable_timestamp_.load(std::memory_order_acquire)) {
+    if (replica.current_commit_timestamp >= replStorageState.last_durable_timestamp_.load(std::memory_order_acquire)) {
       spdlog::debug("Replica '{}' up to date.", client_.name_);
       state = replication::ReplicaState::READY;
     } else {
       spdlog::debug("Replica '{}' is behind.", client_.name_);
       state = replication::ReplicaState::RECOVERY;
-      client_.thread_pool_.AddTask([storage, current_commit_timestamp, gk = std::move(db_acc), this] {
-        this->RecoverReplica(current_commit_timestamp, storage);
-      });
+      client_.thread_pool_.AddTask([storage, current_commit_timestamp = replica.current_commit_timestamp,
+                                    gk = std::move(db_acc),
+                                    this] { this->RecoverReplica(current_commit_timestamp, storage); });
     }
   });
 }
@@ -384,11 +390,11 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, memgraph:
     // and we will go to recovery.
     // By adding this lock, we can avoid that, and go to RECOVERY immediately.
     const auto last_durable_timestamp = storage->repl_storage_state_.last_durable_timestamp_.load();
-    SPDLOG_INFO("Replica {} timestamp: {}, Last commit: {}", client_.name_, replica_commit, last_durable_timestamp);
+    spdlog::info("Replica {} timestamp: {}, Last commit: {}", client_.name_, replica_commit, last_durable_timestamp);
     // ldt can be larger on replica due to a snapshot
     if (last_durable_timestamp <= replica_commit) {
       replica_state_.WithLock([name = client_.name_](auto &val) {
-        spdlog::trace("Replica {} set to ready", name);
+        spdlog::info("Replica {} set to ready.", name);
         val = replication::ReplicaState::READY;
       });
       return;

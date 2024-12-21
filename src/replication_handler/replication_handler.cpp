@@ -106,19 +106,19 @@ void RecoverReplication(replication::ReplicationState &repl_state, dbms::DbmsHan
 }  // namespace
 
 inline std::optional<query::RegisterReplicaError> HandleRegisterReplicaStatus(
-    utils::BasicResult<replication::RegisterReplicaError, replication::ReplicationClient *> &instance_client) {
+    utils::BasicResult<replication::RegisterReplicaStatus, replication::ReplicationClient *> &instance_client) {
   if (instance_client.HasError()) {
     switch (instance_client.GetError()) {
-      case replication::RegisterReplicaError::NOT_MAIN:
+      case replication::RegisterReplicaStatus::NOT_MAIN:
         MG_ASSERT(false, "Only main instance can register a replica!");
         return {};
-      case replication::RegisterReplicaError::NAME_EXISTS:
+      case replication::RegisterReplicaStatus::NAME_EXISTS:
         return query::RegisterReplicaError::NAME_EXISTS;
-      case replication::RegisterReplicaError::ENDPOINT_EXISTS:
+      case replication::RegisterReplicaStatus::ENDPOINT_EXISTS:
         return query::RegisterReplicaError::ENDPOINT_EXISTS;
-      case replication::RegisterReplicaError::COULD_NOT_BE_PERSISTED:
+      case replication::RegisterReplicaStatus::COULD_NOT_BE_PERSISTED:
         return query::RegisterReplicaError::COULD_NOT_BE_PERSISTED;
-      case replication::RegisterReplicaError::SUCCESS:
+      case replication::RegisterReplicaStatus::SUCCESS:
         break;
     }
   }
@@ -187,7 +187,7 @@ bool ReplicationHandler::SetReplicationRoleMain() {
   };
 
   auto const replica_handler = [this](replication::RoleReplicaData const &) {
-    return DoReplicaToMainPromotion(utils::UUID{});
+    return DoToMainPromotion(utils::UUID{});
   };
 
   // TODO: under lock
@@ -204,7 +204,23 @@ bool ReplicationHandler::TrySetReplicationRoleReplica(const memgraph::replicatio
   return SetReplicationRoleReplica_<false>(config, main_uuid);
 }
 
-bool ReplicationHandler::DoReplicaToMainPromotion(const utils::UUID &main_uuid) {
+bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid) {
+  if (!repl_state_.TryLock()) {
+    return false;
+  }
+
+  auto unlock_repl_state = utils::OnScopeExit([this]() { repl_state_.Unlock(); });
+
+  if (IsMain()) {
+    // Shutdown any remaining client
+    // Main can be promoted while being MAIN; we do this in order to update the uuid and epoch
+    // Shutdown must be done after lock on repl_state is taken so that COMMIT and PROMOTION operations are serialized
+    ClientsShutdown();
+  } else {
+    // Before preparing storage for new epoch, we need to finish everything from ReplicationServer (recovery)
+    repl_state_.GetReplicaRole().server->Shutdown();
+  }
+
   // STEP 1) bring down all REPLICA servers
   dbms_handler_.ForEach([](dbms::DatabaseAccess db_acc) {
     auto *storage = db_acc->storage();
@@ -253,6 +269,12 @@ auto ReplicationHandler::RegisterReplica(const memgraph::replication::Replicatio
 }
 
 auto ReplicationHandler::UnregisterReplica(std::string_view name) -> query::UnregisterReplicaResult {
+  if (!repl_state_.TryLock()) {
+    return query::UnregisterReplicaResult::NO_ACCESS;
+  }
+
+  auto unlock_repl_state = utils::OnScopeExit([this]() { repl_state_.Unlock(); });
+
   auto const replica_handler = [](replication::RoleReplicaData const &) -> query::UnregisterReplicaResult {
     return query::UnregisterReplicaResult::NOT_MAIN;
   };

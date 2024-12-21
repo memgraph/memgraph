@@ -35,18 +35,6 @@
 
                        intervals)))
 
-(defn weighted-random
-  "Chooses random number from the collection based on the probabilities vector provided."
-  [coll probs]
-  (assert (= (reduce + probs) 1.0) "Sum of probabilities should equal to 1.")
-  (assert (= (count coll) (count probs)) "Not every element has its probability match.")
-  ; The code relies that `rand` will never generate exactly 1.0. True by the function specification.
-  (let [cumulative-probs (cum-probs probs)
-        rand-num (rand)
-        competent-idx (get-competent-idx cumulative-probs rand-num)
-        chosen-num (nth coll competent-idx)]
-    chosen-num))
-
 (defn hamming-sim
   "Calculates Hamming distance between two sequences. Used as a consistency measure when the order is important."
   [seq1 seq2]
@@ -157,11 +145,6 @@
   [max-id]
   (range 1 (inc max-id)))
 
-(defn batch-end-idx
-  "Calculates end index for the new batch. End index will not be included. E.g 1001, 2001"
-  [batch-start-idx]
-  (+ batch-start-idx (dec batch-size)))
-
 (defn random-coord
   "Get random leader."
   [nodes]
@@ -208,27 +191,24 @@
   ((mgquery/set-instance-to-main first-main) session)
   (info "Set instance" first-main "to main."))
 
-(defn mg-add-nodes
-  "Add nodes as part of the txn."
-  [start-idx end-idx txn]
-  ((mgquery/add-nodes start-idx end-idx) txn))
-
 (defn mg-get-nodes
   "Get all nodes as part of the txn."
   [txn]
   (mgquery/collect-ids txn))
 
-(defn mg-max-id
-  "Get max ID currently in the Memgraph."
-  [txn]
-  (mgquery/max-id txn))
-
-(defn first-or
-  "Returns first element from the collection if exists or default value."
-  [coll default]
-  (if-let [first-elem (first coll)]
-    first-elem
-    default))
+(defn is-main?
+  "Tests if data instance is main. Returns bool true/false, catches all exceptions."
+  [bolt-conn]
+  (try
+    (utils/with-session bolt-conn session
+      (let [role-map (first (reduce conj [] (mgquery/show-replication-role session)))
+            role-vec (vec (apply concat role-map))
+            role (last role-vec)]
+        (info "Role:" role)
+        (info "is-main?" (= role "main"))
+        (= role "main")))
+    (catch Exception _
+      false)))
 
 (defrecord Client [nodes-config first-leader first-main license organization]
   jclient/Client
@@ -264,16 +244,12 @@
                          (assoc op :type :fail :value (str e))))
                      (assoc op :type :info :value "Not data instance."))
 
-        :add-nodes (if (hautils/data-instance? node)
+        :add-nodes (if (and (hautils/data-instance? node) (is-main? bolt-conn))
                      (try
-                       (dbclient/with-transaction bolt-conn txn
+                       (utils/with-session bolt-conn session
                            ; If query failed because the instance got killed, we should catch TransientException -> this will be logged as
                            ; fail result.
-                         (let [mg-res (->> (mg-max-id txn) (map :id) (reduce conj []))
-                               max-idx (first-or mg-res 0)
-                               start-idx (inc max-idx)
-                               end-idx (batch-end-idx start-idx)]
-                           (mg-add-nodes start-idx end-idx txn)))
+                           (mgquery/add-nodes session {:batchSize batch-size}))
                        (assoc op :type :ok :value "Nodes created.")
 
                        (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
@@ -291,7 +267,7 @@
                                :else
                                (assoc op :type :fail :value (str e)))))
 
-                     (assoc op :type :info :value "Not data instance."))
+                     (assoc op :type :info :value "Not main data instance."))
 
 ; Show instances should be run only on coordinators/
         :show-instances-read (if (hautils/coord-instance? node)
@@ -575,5 +551,5 @@
                  {:hacreate     (checker)
                   :timeline (timeline/html)})
      :generator (client-generator)
-     :final-generator {:clients (gen/each-thread (gen/once get-nodes)) :recovery-time 40}
+     :final-generator {:clients (gen/each-thread (gen/once get-nodes)) :recovery-time 900}
      :nemesis-config (nemesis/create db nodes-config)}))

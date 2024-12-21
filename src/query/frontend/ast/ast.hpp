@@ -2151,7 +2151,7 @@ struct IndexHint {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const { return kType; }
 
-  enum class IndexType { LABEL, LABEL_PROPERTY };
+  enum class IndexType { LABEL, LABEL_PROPERTY, POINT };
 
   memgraph::query::IndexHint::IndexType index_type_;
   memgraph::query::LabelIx label_;
@@ -3284,8 +3284,10 @@ class CoordinatorQuery : public memgraph::query::Query {
     REGISTER_INSTANCE,
     UNREGISTER_INSTANCE,
     SET_INSTANCE_TO_MAIN,
+    SHOW_INSTANCE,
     SHOW_INSTANCES,
     ADD_COORDINATOR_INSTANCE,
+    REMOVE_COORDINATOR_INSTANCE,
     DEMOTE_INSTANCE,
     FORCE_RESET_CLUSTER_STATE
   };
@@ -3551,6 +3553,37 @@ class CreateSnapshotQuery : public memgraph::query::Query {
 
   CreateSnapshotQuery *Clone(AstStorage *storage) const override {
     CreateSnapshotQuery *object = storage->Create<CreateSnapshotQuery>();
+    return object;
+  }
+};
+
+class RecoverSnapshotQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  RecoverSnapshotQuery *Clone(AstStorage *storage) const override {
+    RecoverSnapshotQuery *object = storage->Create<RecoverSnapshotQuery>();
+    object->snapshot_ = snapshot_ ? snapshot_->Clone(storage) : nullptr;
+    object->force_ = force_;
+    return object;
+  }
+
+  Expression *snapshot_;
+  bool force_;
+};
+
+class ShowSnapshotsQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  ShowSnapshotsQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<ShowSnapshotsQuery>();
     return object;
   }
 };

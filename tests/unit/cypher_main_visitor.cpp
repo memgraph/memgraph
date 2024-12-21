@@ -19,17 +19,17 @@
 #include <vector>
 
 //////////////////////////////////////////////////////
-// "json.hpp" should always come before "antlr4-runtime.h"
 // "json.hpp" uses libc's EOF macro while
 // "antlr4-runtime.h" contains a static variable of the
 // same name, EOF.
-// This hides the definition of the macro which causes
-// the compilation to fail.
 #include <json/json.hpp>
 // Same is true for <boost/geometry.hpp> that is included by ast.hpp
 #include "query/frontend/ast/ast.hpp"
 //////////////////////////////////////////////////////
+#pragma push_macro("EOF")  // hide EOF for antlr headers
 #include <antlr4-runtime.h>
+#include "query/frontend/opencypher/generated/MemgraphCypherBaseVisitor.h"
+#pragma pop_macro("EOF")  // bring back EOF
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
@@ -2720,6 +2720,16 @@ TEST_P(CypherMainVisitorTest, TestRegisterAsyncInstance) {
   EXPECT_EQ(config_map.find(memgraph::query::kReplicationServer)->second, "127.0.0.1:10001");
 }
 
+TEST_P(CypherMainVisitorTest, TestRemoveCoordinatorInstance) {
+  auto &ast_generator = *GetParam();
+
+  std::string const correct_query = R"(REMOVE COORDINATOR 1)";
+  auto *parsed_query = dynamic_cast<CoordinatorQuery *>(ast_generator.ParseQuery(correct_query));
+
+  EXPECT_EQ(parsed_query->action_, CoordinatorQuery::Action::REMOVE_COORDINATOR_INSTANCE);
+  ast_generator.CheckLiteral(parsed_query->coordinator_id_, TypedValue(1));
+}
+
 TEST_P(CypherMainVisitorTest, TestAddCoordinatorInstance) {
   auto &ast_generator = *GetParam();
 
@@ -2748,6 +2758,14 @@ TEST_P(CypherMainVisitorTest, TestAddCoordinatorInstance) {
   EXPECT_EQ(config_map.find(kBoltServer)->second, "127.0.0.1:7688");
   EXPECT_EQ(config_map.find(kCoordinatorServer)->second, "127.0.0.1:10111");
 }
+
+TEST_P(CypherMainVisitorTest, TestShowInstance) {
+  auto &ast_generator = *GetParam();
+  std::string const query = "SHOW INSTANCE";
+  auto *parsed_query = dynamic_cast<CoordinatorQuery *>(ast_generator.ParseQuery(query));
+  EXPECT_EQ(parsed_query->action_, CoordinatorQuery::Action::SHOW_INSTANCE);
+}
+
 #endif
 
 TEST_P(CypherMainVisitorTest, TestDeleteReplica) {
@@ -3989,6 +4007,17 @@ TEST_P(CypherMainVisitorTest, SetIsolationLevelQuery) {
 TEST_P(CypherMainVisitorTest, CreateSnapshotQuery) {
   auto &ast_generator = *GetParam();
   ASSERT_TRUE(dynamic_cast<CreateSnapshotQuery *>(ast_generator.ParseQuery("CREATE SNAPSHOT")));
+}
+
+TEST_P(CypherMainVisitorTest, RecoverSnapshotQuery) {
+  auto &ast_generator = *GetParam();
+  ASSERT_TRUE(dynamic_cast<RecoverSnapshotQuery *>(ast_generator.ParseQuery(R"(RECOVER SNAPSHOT "a/b/c")")));
+  ASSERT_TRUE(dynamic_cast<RecoverSnapshotQuery *>(ast_generator.ParseQuery(R"(RECOVER SNAPSHOT "a/b/c" FORCE)")));
+}
+
+TEST_P(CypherMainVisitorTest, ShowSnapshotsQuery) {
+  auto &ast_generator = *GetParam();
+  ASSERT_TRUE(dynamic_cast<ShowSnapshotsQuery *>(ast_generator.ParseQuery("SHOW SNAPSHOTS")));
 }
 
 void CheckOptionalExpression(Base &ast_generator, Expression *expression, const std::optional<TypedValue> &expected) {

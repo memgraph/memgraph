@@ -39,6 +39,17 @@ class RaftServerStartException final : public utils::BasicException {
   SPECIALIZE_GET_EXCEPTION_NAME(RaftServerStartException)
 };
 
+class RaftRemoveServerException final : public utils::BasicException {
+ public:
+  explicit RaftRemoveServerException(std::string_view what) noexcept : BasicException(what) {}
+
+  template <class... Args>
+  explicit RaftRemoveServerException(fmt::format_string<Args...> fmt, Args &&...args) noexcept
+      : RaftRemoveServerException(fmt::format(fmt, std::forward<Args>(args)...)) {}
+
+  SPECIALIZE_GET_EXCEPTION_NAME(RaftRemoveServerException)
+};
+
 class RaftAddServerException final : public utils::BasicException {
  public:
   explicit RaftAddServerException(std::string_view what) noexcept : BasicException(what) {}

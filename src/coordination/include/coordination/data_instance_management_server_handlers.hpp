@@ -32,8 +32,8 @@ class DataInstanceManagementServerHandlers {
   static void StateCheckHandler(replication::ReplicationHandler &replication_handler, slk::Reader *req_reader,
                                 slk::Builder *res_builder);
 
-  static void PromoteReplicaToMainHandler(replication::ReplicationHandler &replication_handler, slk::Reader *req_reader,
-                                          slk::Builder *res_builder);
+  static void PromoteToMainHandler(replication::ReplicationHandler &replication_handler, slk::Reader *req_reader,
+                                   slk::Builder *res_builder);
   static void RegisterReplicaOnMainHandler(replication::ReplicationHandler &replication_handler,
                                            slk::Reader *req_reader, slk::Builder *res_builder);
   static void DemoteMainToReplicaHandler(replication::ReplicationHandler &replication_handler, slk::Reader *req_reader,
@@ -65,6 +65,12 @@ class DataInstanceManagementServerHandlers {
     if (instance_client.HasError()) {
       using memgraph::query::RegisterReplicaError;
       switch (instance_client.GetError()) {
+        case RegisterReplicaError::NO_ACCESS: {
+          spdlog::error(
+              "Error when registering instance {} as replica. Couldn't get unique access to ReplicationState.");
+          slk::Save(TResponse{false}, res_builder);
+          return false;
+        }
         case RegisterReplicaError::NOT_MAIN: {
           spdlog::error("Error when registering instance {} as replica. Instance not main anymore.",
                         config.instance_name);

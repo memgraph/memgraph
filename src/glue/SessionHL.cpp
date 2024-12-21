@@ -76,7 +76,9 @@ class TypedValueResultStream : public TypedValueResultStreamBase {
 
   void Result(const std::vector<memgraph::query::TypedValue> &values) {
     DecodeValues(values);
-    encoder_->MessageRecord(AccessValues());
+    if (!encoder_->MessageRecord(AccessValues())) {
+      throw memgraph::communication::bolt::ClientError("Failed to send result to client!");
+    }
   }
 
  private:

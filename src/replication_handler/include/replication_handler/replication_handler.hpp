@@ -25,7 +25,7 @@
 namespace memgraph::replication {
 
 inline std::optional<query::RegisterReplicaError> HandleRegisterReplicaStatus(
-    utils::BasicResult<replication::RegisterReplicaError, replication::ReplicationClient *> &instance_client);
+    utils::BasicResult<replication::RegisterReplicaStatus, replication::ReplicationClient *> &instance_client);
 
 #ifdef MG_ENTERPRISE
 void StartReplicaClient(replication::ReplicationClient &client, system::System &system, dbms::DbmsHandler &dbms_handler,
@@ -138,7 +138,7 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
   // as MAIN, remove a REPLICA connection
   auto UnregisterReplica(std::string_view name) -> memgraph::query::UnregisterReplicaResult override;
 
-  bool DoReplicaToMainPromotion(const utils::UUID &main_uuid);
+  bool DoToMainPromotion(const utils::UUID &main_uuid);
 
   // Helper pass-through (TODO: remove)
   auto GetRole() const -> memgraph::replication_coordination_glue::ReplicationRole override;
@@ -157,24 +157,51 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
   auto GetDatabasesHistories() -> replication_coordination_glue::DatabaseHistories;
 
  private:
+  void ClientsShutdown() {
+    spdlog::trace("Shutting down instance level clients.");
+
+    auto &repl_clients = std::get<RoleMainData>(repl_state_.ReplicationData()).registered_replicas_;
+    for (auto &client : repl_clients) {
+      client.Shutdown();
+    }
+
+    spdlog::trace("Instance-level clients stopped, trying to destroy replication storage clients.");
+
+    // TODO StorageState needs to be synched. Could have a dangling reference if someone adds a database as we are
+    //      deleting the replica.
+    // Remove database specific clients
+    dbms_handler_.ForEach([&](memgraph::dbms::DatabaseAccess db_acc) {
+      auto *storage = db_acc->storage();
+      storage->repl_storage_state_.replication_clients_.WithLock([](auto &clients) { clients.clear(); });
+    });
+
+    spdlog::trace("Replication storage clients destroyed.");
+  }
+
   template <bool SendSwapUUID>
   auto RegisterReplica_(const memgraph::replication::ReplicationClientConfig &config)
       -> memgraph::utils::BasicResult<memgraph::query::RegisterReplicaError> {
     using memgraph::query::RegisterReplicaError;
-    using ClientRegisterReplicaError = memgraph::replication::RegisterReplicaError;
+    using ClientRegisterReplicaStatus = memgraph::replication::RegisterReplicaStatus;
+
+    if (!repl_state_.TryLock()) {
+      return RegisterReplicaError::NO_ACCESS;
+    }
+
+    auto unlock_repl_state = utils::OnScopeExit([this]() { repl_state_.Unlock(); });
 
     auto maybe_client = repl_state_.RegisterReplica(config);
     if (maybe_client.HasError()) {
       switch (maybe_client.GetError()) {
-        case ClientRegisterReplicaError::NOT_MAIN:
+        case ClientRegisterReplicaStatus::NOT_MAIN:
           return RegisterReplicaError::NOT_MAIN;
-        case ClientRegisterReplicaError::NAME_EXISTS:
+        case ClientRegisterReplicaStatus::NAME_EXISTS:
           return RegisterReplicaError::NAME_EXISTS;
-        case ClientRegisterReplicaError::ENDPOINT_EXISTS:
+        case ClientRegisterReplicaStatus::ENDPOINT_EXISTS:
           return RegisterReplicaError::ENDPOINT_EXISTS;
-        case ClientRegisterReplicaError::COULD_NOT_BE_PERSISTED:
+        case ClientRegisterReplicaStatus::COULD_NOT_BE_PERSISTED:
           return RegisterReplicaError::COULD_NOT_BE_PERSISTED;
-        case ClientRegisterReplicaError::SUCCESS:
+        case ClientRegisterReplicaStatus::SUCCESS:
           break;
       }
     }
@@ -236,6 +263,10 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
       auto const unregister_res{UnregisterReplica(config.name)};
       switch (unregister_res) {
         using memgraph::query::UnregisterReplicaResult;
+        case UnregisterReplicaResult::NO_ACCESS:
+          spdlog::trace("Failed to unregister replica {} since we couldn't get unique access to ReplicationState.",
+                        config.name);
+          break;
         case UnregisterReplicaResult::NOT_MAIN:
           spdlog::trace(
               "Failed to unregister replica {} after failed registration process since the instance isn't main "
@@ -277,6 +308,14 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
   template <bool AllowIdempotency>
   bool SetReplicationRoleReplica_(const memgraph::replication::ReplicationServerConfig &config,
                                   const std::optional<utils::UUID> &main_uuid) {
+    // If we cannot acquire lock on repl_state, we cannot set role to replica.
+    if (!repl_state_.TryLock()) {
+      spdlog::trace("Cannot acquire lock on repl state while setting role to replica.");
+      return false;
+    }
+
+    auto unlock_repl_state = utils::OnScopeExit([this]() { repl_state_.Unlock(); });
+
     if (repl_state_.IsReplica()) {
       if (!AllowIdempotency) {
         return false;
@@ -294,18 +333,11 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
 #endif
     }
 
-    // TODO StorageState needs to be synched. Could have a dangling reference if someone adds a database as we are
-    //      deleting the replica.
-    // Remove database specific clients
-    dbms_handler_.ForEach([&](memgraph::dbms::DatabaseAccess db_acc) {
-      auto *storage = db_acc->storage();
-      storage->repl_storage_state_.replication_clients_.WithLock([](auto &clients) { clients.clear(); });
-    });
-    // Remove instance level clients
-    std::get<memgraph::replication::RoleMainData>(repl_state_.ReplicationData()).registered_replicas_.clear();
-
+    // Shutdown any clients we might have had
+    ClientsShutdown();
     // Creates the server
     repl_state_.SetReplicationRoleReplica(config, main_uuid);
+    spdlog::trace("Role set to replica, instance-level clients destroyed.");
 
     // Start
     const auto success =

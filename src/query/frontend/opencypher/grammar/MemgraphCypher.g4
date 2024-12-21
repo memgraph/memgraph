@@ -106,6 +106,7 @@ memgraphCypherKeyword : cypherKeyword
                       | LOCK
                       | MAIN
                       | MAP
+                      | METRICS
                       | MODE
                       | MODULE_READ
                       | MODULE_WRITE
@@ -131,6 +132,7 @@ memgraphCypherKeyword : cypherKeyword
                       | QUOTE
                       | READ
                       | READ_FILE
+                      | RECOVER
                       | REGISTER
                       | REPLACE
                       | REPLICA
@@ -213,6 +215,8 @@ query : cypherQuery
       | isolationLevelQuery
       | storageModeQuery
       | createSnapshotQuery
+      | recoverSnapshotQuery
+      | showSnapshotsQuery
       | streamQuery
       | settingQuery
       | versionQuery
@@ -270,8 +274,10 @@ replicationQuery : setReplicationRole
 coordinatorQuery : registerInstanceOnCoordinator
                  | unregisterInstanceOnCoordinator
                  | setInstanceToMain
+                 | showInstance
                  | showInstances
                  | addCoordinatorInstance
+                 | removeCoordinatorInstance
                  | forceResetClusterStateOnCoordinator
                  | demoteInstanceOnCoordinator
                  ;
@@ -478,6 +484,7 @@ setReplicationRole : SET REPLICATION ROLE TO ( MAIN | REPLICA )
 
 showReplicationRole : SHOW REPLICATION ROLE ;
 
+showInstance : SHOW INSTANCE ;
 showInstances : SHOW INSTANCES ;
 
 instanceName : symbolicName ;
@@ -504,6 +511,8 @@ setInstanceToMain : SET INSTANCE instanceName TO MAIN ;
 coordinatorServerId : literal ;
 
 addCoordinatorInstance : ADD COORDINATOR coordinatorServerId WITH CONFIG configsMap=configMap ;
+
+removeCoordinatorInstance : REMOVE COORDINATOR coordinatorServerId ;
 
 dropReplica : DROP REPLICA instanceName ;
 
@@ -539,6 +548,10 @@ storageMode : IN_MEMORY_ANALYTICAL | IN_MEMORY_TRANSACTIONAL | ON_DISK_TRANSACTI
 storageModeQuery : STORAGE MODE storageMode ;
 
 createSnapshotQuery : CREATE SNAPSHOT ;
+
+recoverSnapshotQuery : RECOVER SNAPSHOT path=literal ( FORCE )? ;
+
+showSnapshotsQuery : SHOW SNAPSHOTS ;
 
 streamName : symbolicName ;
 

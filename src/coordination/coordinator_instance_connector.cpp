@@ -18,6 +18,7 @@ auto CoordinatorInstanceConnector::SendShowInstances() const -> std::optional<st
   try {
     spdlog::trace("Sending ShowInstancesRPC to endpoint {}", client_.RpcClient().Endpoint());
     auto stream{client_.RpcClient().Stream<ShowInstancesRpc>()};
+    spdlog::trace("Waiting response to ShowInstancesRpc.");
     auto res = stream.AwaitResponse();
     spdlog::trace("Received ShowInstancesRPC response");
     return res.instances_status_;

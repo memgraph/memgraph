@@ -34,18 +34,18 @@ enum class CoordinateReferenceSystem : uint8_t {
 };
 
 // srid's are spatial reference system identifiers
-constexpr auto kSrid_WGS85_2D = 4326;  // GEOGRAPHIC_2D_CRS
-constexpr auto kSrid_WGS85_3D = 4979;  // GEOGRAPHIC_3D_CRS
+constexpr auto kSrid_WGS84_2D = 4326;  // GEOGRAPHIC_2D_CRS
+constexpr auto kSrid_WGS84_3D = 4979;  // GEOGRAPHIC_3D_CRS
 constexpr auto kSrid_Cartesian_2D = 7203;
-constexpr auto kSrid_Cartesian_3D = 9757;
+constexpr auto kSrid_Cartesian_3D = 9157;
 
 inline auto CrsToSrid(CoordinateReferenceSystem val) -> Srid {
   switch (val) {
     using enum CoordinateReferenceSystem;
     case WGS84_2d:
-      return Srid{kSrid_WGS85_2D};
+      return Srid{kSrid_WGS84_2D};
     case WGS84_3d:
-      return Srid{kSrid_WGS85_3D};
+      return Srid{kSrid_WGS84_3D};
     case Cartesian_2d:
       return Srid{kSrid_Cartesian_2D};
     case Cartesian_3d:
@@ -77,11 +77,9 @@ inline auto CrsToString(CoordinateReferenceSystem crs) -> std::string {
   switch (crs) {
     using enum CoordinateReferenceSystem;
     case WGS84_2d:
-      return "wgs-84";
     case WGS84_3d:
       return "wgs-84";
     case Cartesian_2d:
-      return "cartesian";
     case Cartesian_3d:
       return "cartesian";
   }
@@ -90,9 +88,9 @@ inline auto CrsToString(CoordinateReferenceSystem crs) -> std::string {
 inline auto SridToCrs(Srid val) -> std::optional<CoordinateReferenceSystem> {
   switch (val.value_of()) {
     using enum CoordinateReferenceSystem;
-    case kSrid_WGS85_2D:
+    case kSrid_WGS84_2D:
       return WGS84_2d;
-    case kSrid_WGS85_3D:
+    case kSrid_WGS84_3D:
       return WGS84_3d;
     case kSrid_Cartesian_2D:
       return Cartesian_2d;

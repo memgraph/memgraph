@@ -11,9 +11,6 @@
 
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 
-#include <support/Any.h>
-#include <tree/ParseTreeVisitor.h>
-
 #include <algorithm>
 #include <any>
 #include <cstring>
@@ -590,6 +587,15 @@ antlrcpp::Any CypherMainVisitor::visitDemoteInstanceOnCoordinator(
   return coordinator_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitRemoveCoordinatorInstance(MemgraphCypher::RemoveCoordinatorInstanceContext *ctx) {
+  auto *coordinator_query = storage_->Create<CoordinatorQuery>();
+
+  coordinator_query->action_ = CoordinatorQuery::Action::REMOVE_COORDINATOR_INSTANCE;
+  coordinator_query->coordinator_id_ = std::any_cast<Expression *>(ctx->coordinatorServerId()->accept(this));
+
+  return coordinator_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitAddCoordinatorInstance(MemgraphCypher::AddCoordinatorInstanceContext *ctx) {
   auto *coordinator_query = storage_->Create<CoordinatorQuery>();
 
@@ -598,6 +604,13 @@ antlrcpp::Any CypherMainVisitor::visitAddCoordinatorInstance(MemgraphCypher::Add
   coordinator_query->configs_ =
       std::any_cast<std::unordered_map<Expression *, Expression *>>(ctx->configsMap->accept(this));
 
+  return coordinator_query;
+}
+
+// License check is done in the interpreter
+antlrcpp::Any CypherMainVisitor::visitShowInstance(MemgraphCypher::ShowInstanceContext * /*ctx*/) {
+  auto *coordinator_query = storage_->Create<CoordinatorQuery>();
+  coordinator_query->action_ = CoordinatorQuery::Action::SHOW_INSTANCE;
   return coordinator_query;
 }
 
@@ -822,6 +835,23 @@ antlrcpp::Any CypherMainVisitor::visitStorageModeQuery(MemgraphCypher::StorageMo
 
 antlrcpp::Any CypherMainVisitor::visitCreateSnapshotQuery(MemgraphCypher::CreateSnapshotQueryContext *ctx) {
   query_ = storage_->Create<CreateSnapshotQuery>();
+  return query_;
+}
+
+antlrcpp::Any CypherMainVisitor::visitRecoverSnapshotQuery(MemgraphCypher::RecoverSnapshotQueryContext *ctx) {
+  auto *recover_snapshot = storage_->Create<RecoverSnapshotQuery>();
+  if (!ctx->path || !ctx->path->StringLiteral()) {
+    throw SemanticException("Snapshot path must be a string literal.");
+  }
+  recover_snapshot->snapshot_ = std::any_cast<Expression *>(ctx->path->accept(this));
+
+  recover_snapshot->force_ = ctx->FORCE();
+  query_ = recover_snapshot;
+  return query_;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowSnapshotsQuery(MemgraphCypher::ShowSnapshotsQueryContext * /*ctx*/) {
+  query_ = storage_->Create<ShowSnapshotsQuery>();
   return query_;
 }
 

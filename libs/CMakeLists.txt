@@ -9,7 +9,7 @@ if(NPROC EQUAL 0)
   set(NPROC 1)
 endif()
 
-find_package(Boost 1.78 REQUIRED)
+find_package(Boost 1.78 REQUIRED CONFIG)
 find_package(BZip2 1.0.6 REQUIRED)
 find_package(Threads REQUIRED)
 set(GFLAGS_NOTHREADS OFF)
@@ -365,3 +365,13 @@ import_library(mgcxx_text_search STATIC ${MGCXX_TEXT_SEARCH_LIBRARY} ${MGCXX_INC
 
 # setup strong_type (cmake sub_directory tolerant)
 add_subdirectory(strong_type EXCLUDE_FROM_ALL)
+
+# setup usearch
+import_header_library(usearch ${CMAKE_CURRENT_SOURCE_DIR}/usearch/include)
+set_property(TARGET usearch PROPERTY INTERFACE_INCLUDE_DIRECTORIES
+    ${CMAKE_CURRENT_SOURCE_DIR}/usearch/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/usearch/fp16/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/usearch/stringzilla/include)
+
+# setup croncpp
+add_subdirectory(croncpp EXCLUDE_FROM_ALL)

@@ -52,8 +52,8 @@ class ReplicationInstanceClient {
 
   virtual auto SendDemoteToReplicaRpc() const -> bool;
 
-  virtual auto SendPromoteReplicaToMainRpc(utils::UUID const &uuid,
-                                           ReplicationClientsInfo replication_clients_info) const -> bool;
+  virtual auto SendPromoteToMainRpc(utils::UUID const &uuid, ReplicationClientsInfo replication_clients_info) const
+      -> bool;
 
   virtual auto SendUnregisterReplicaRpc(std::string_view instance_name) const -> bool;
 
@@ -63,8 +63,7 @@ class ReplicationInstanceClient {
 
   auto SendStateCheckRpc() const -> std::optional<InstanceState>;
 
-  auto SendGetInstanceTimestampsRpc() const
-      -> utils::BasicResult<GetInstanceTimestampsError, replication_coordination_glue::DatabaseHistories>;
+  auto SendGetInstanceTimestampsRpc() const -> std::optional<replication_coordination_glue::DatabaseHistories>;
 
   virtual auto InstanceDownTimeoutSec() const -> std::chrono::seconds;
 

@@ -29,6 +29,7 @@ target_sources(mg-storage-v2
         indices/point_index.cpp
         indices/point_index_change_collector.cpp
         indices/text_index.cpp
+        indices/vector_index.cpp
         inmemory/edge_type_index.cpp
         inmemory/edge_type_property_index.cpp
         inmemory/label_index.cpp
@@ -51,6 +52,7 @@ target_sources(mg-storage-v2
         vertices_iterable.cpp
         schema_info.cpp
         edge_ref.cpp
+        indices/point_iterator.cpp
 
         PUBLIC
         FILE_SET HEADERS
@@ -61,6 +63,8 @@ target_sources(mg-storage-v2
         enum_store.hpp
         indices/point_index.hpp
         indices/point_index_change_collector.hpp
+        indices/point_iterator.hpp
+        indices/point_index_expensive_header.hpp
         mvcc.hpp
         point.hpp
         point_functions.hpp
@@ -95,6 +99,7 @@ target_link_libraries(mg-storage-v2
     lib::rangev3
     mgcxx_text_search
     tantivy_text_search
+    usearch
     strong_type::strong_type
     rangev3
 )

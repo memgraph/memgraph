@@ -60,7 +60,7 @@ auto ReplicationInstanceConnector::ReplicationSocketAddress() const -> std::stri
 
 auto ReplicationInstanceConnector::SendPromoteToMainRpc(utils::UUID const &new_uuid,
                                                         ReplicationClientsInfo repl_clients_info) -> bool {
-  return client_.SendPromoteReplicaToMainRpc(new_uuid, std::move(repl_clients_info));
+  return client_.SendPromoteToMainRpc(new_uuid, std::move(repl_clients_info));
 }
 
 auto ReplicationInstanceConnector::SendDemoteToReplicaRpc() -> bool { return client_.SendDemoteToReplicaRpc(); }
@@ -93,7 +93,7 @@ auto ReplicationInstanceConnector::GetReplicationClientInfo() const -> coordinat
   return client_.GetReplicationClientInfo();
 }
 
-auto ReplicationInstanceConnector::GetClient() -> ReplicationInstanceClient & { return client_; }
+auto ReplicationInstanceConnector::GetClient() const -> ReplicationInstanceClient const & { return client_; }
 
 }  // namespace memgraph::coordination
 #endif

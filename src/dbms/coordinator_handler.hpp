@@ -31,8 +31,6 @@ class CoordinatorHandler {
  public:
   explicit CoordinatorHandler(coordination::CoordinatorState &coordinator_state);
 
-  // TODO: (andi) When moving coordinator state on same instances, rename from RegisterReplicationInstance to
-  // RegisterInstance
   auto RegisterReplicationInstance(coordination::CoordinatorToReplicaConfig const &config)
       -> coordination::RegisterInstanceCoordinatorStatus;
 
@@ -45,14 +43,18 @@ class CoordinatorHandler {
 
   auto ForceResetClusterState() -> coordination::ReconcileClusterStateStatus;
 
+  auto ShowInstance() const -> coordination::InstanceStatus;
   auto ShowInstances() const -> std::vector<coordination::InstanceStatus>;
 
   auto AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config)
       -> coordination::AddCoordinatorInstanceStatus;
 
+  auto RemoveCoordinatorInstance(int coordinator_id) -> coordination::RemoveCoordinatorInstanceStatus;
+
   auto GetLeaderCoordinatorData() const -> std::optional<coordination::CoordinatorToCoordinatorConfig>;
 
  private:
+  // NOLINTNEXTLINE
   coordination::CoordinatorState &coordinator_state_;
 };
 

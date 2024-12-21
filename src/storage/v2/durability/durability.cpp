@@ -32,6 +32,7 @@
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/wal.hpp"
+#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
@@ -276,6 +277,15 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
   }
   spdlog::info("Point indices are recreated.");
 
+  // Recover vector index
+  if (flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
+    auto acc = vertices->access();
+    for (auto &vertex : acc) {
+      indices->vector_index_.TryInsertVertex(&vertex);
+    }
+    spdlog::info("Vector indices are recreated.");
+  }
+
   spdlog::info("Indices are recreated.");
 }
 
@@ -382,7 +392,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
     utils::UUID &uuid, ReplicationStorageState &repl_storage_state, utils::SkipList<Vertex> *vertices,
     utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata, std::atomic<uint64_t> *edge_count,
     NameIdMapper *name_id_mapper, Indices *indices, Constraints *constraints, Config const &config,
-    uint64_t *wal_seq_num, EnumStore *enum_store, SchemaInfo *schema_info,
+    uint64_t *wal_seq_num, EnumStore *enum_store, SharedSchemaTracking *schema_info,
     std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   spdlog::info("Recovering persisted data using snapshot ({}) and WAL directory ({}).", snapshot_directory_,
@@ -419,9 +429,8 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
       }
       spdlog::info("Starting snapshot recovery from {}.", path);
       try {
-        recovered_snapshot =
-            LoadSnapshot(path, vertices, edges, edges_metadata, epoch_history, name_id_mapper, edge_count, config,
-                         enum_store, config.salient.items.enable_schema_info ? schema_info : nullptr);
+        recovered_snapshot = LoadSnapshot(path, vertices, edges, edges_metadata, epoch_history, name_id_mapper,
+                                          edge_count, config, enum_store, schema_info);
         spdlog::info("Snapshot recovery successful!");
         break;
       } catch (const RecoveryFailure &e) {
@@ -559,8 +568,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
 
       try {
         auto info = LoadWal(wal_file.path, &indices_constraints, last_loaded_timestamp, vertices, edges, name_id_mapper,
-                            edge_count, config.salient.items, enum_store,
-                            config.salient.items.enable_schema_info ? schema_info : nullptr, find_edge);
+                            edge_count, config.salient.items, enum_store, schema_info, find_edge);
         recovery_info.next_vertex_id = std::max(recovery_info.next_vertex_id, info.next_vertex_id);
         recovery_info.next_edge_id = std::max(recovery_info.next_edge_id, info.next_edge_id);
         recovery_info.next_timestamp = std::max(recovery_info.next_timestamp, info.next_timestamp);

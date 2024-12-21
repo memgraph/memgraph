@@ -58,6 +58,13 @@ struct IndexHints {
           continue;
         }
         label_property_index_hints_.emplace_back(index_hint);
+      } else if (index_type == IndexHint::IndexType::POINT) {
+        auto property_name = index_hint.property_->name;
+        if (!db->PointIndexExists(db->NameToLabel(label_name), db->NameToProperty(property_name))) {
+          spdlog::debug("Point index for label {} and property {} doesn't exist", label_name, property_name);
+          continue;
+        }
+        point_index_hints_.emplace_back(index_hint);
       }
     }
   }
@@ -85,8 +92,22 @@ struct IndexHints {
     return false;
   }
 
+  // TODO: look into making index hints work for point indexes
+  template <class TDbAccessor>
+  bool HasPointIndex(TDbAccessor *db, storage::LabelId label, storage::PropertyId property) const {
+    for (const auto &[index_type, label_hint, property_hint] : point_index_hints_) {
+      auto label_id = db->NameToLabel(label_hint.name);
+      auto property_id = db->NameToProperty(property_hint->name);
+      if (label_id == label && property_id == property) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   std::vector<IndexHint> label_index_hints_{};
   std::vector<IndexHint> label_property_index_hints_{};
+  std::vector<IndexHint> point_index_hints_{};  // TODO: check this is used somewhere
 };
 
 namespace impl {
@@ -229,6 +250,16 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PostVisit(ScanAllByEdgeTypePropertyRange &op) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(ScanAllByPointDistance &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByPointDistance &op) override {
     prev_ops_.pop_back();
     return true;
   }
@@ -726,6 +757,13 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     std::optional<storage::LabelPropertyIndexStats> index_stats;
   };
 
+  struct PointLabelPropertyIndex {
+    LabelIx label;
+    // FilterInfo with PropertyFilter.
+    FilterInfo filter;
+    int64_t vertex_count;
+  };
+
   bool DefaultPreVisit() override { throw utils::NotYetImplemented("optimizing index lookup"); }
 
   void SetOnParent(const std::shared_ptr<LogicalOperator> &input) {
@@ -796,6 +834,80 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     std::vector<std::pair<IndexHint, FilterInfo>> candidate_indices_{};
     std::unordered_map<std::pair<LabelIx, PropertyIx>, FilterInfo, HashPair> candidate_index_lookup_{};
   };
+
+  CandidateIndices GetCandidatePointIndices(const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols) {
+    auto are_bound = [&bound_symbols](const auto &used_symbols) {
+      for (const auto &used_symbol : used_symbols) {
+        if (!utils::Contains(bound_symbols, used_symbol)) {
+          return false;
+        }
+      }
+      return true;
+    };
+
+    std::vector<std::pair<IndexHint, FilterInfo>> candidate_indices{};
+    std::unordered_map<std::pair<LabelIx, PropertyIx>, FilterInfo, HashPair> candidate_index_lookup{};
+    for (const auto &label : filters_.FilteredLabels(symbol)) {
+      for (const auto &filter : filters_.PointFilters(symbol)) {
+        if (!are_bound(filter.used_symbols)) {
+          // TODO: better more accurate comment
+          // Skip filter expressions which use the symbol whose property we are
+          // looking up or aren't bound. We cannot scan by such expressions. For
+          // example, in `n.a = 2 + n.b` both sides of `=` refer to `n`, so we
+          // cannot scan `n` by property index.
+          continue;
+        }
+
+        const auto &property = filter.point_filter->property_;
+        if (!db_->PointIndexExists(GetLabel(label), GetProperty(property))) {
+          continue;
+        }
+        candidate_indices.emplace_back(
+            IndexHint{.index_type_ = IndexHint::IndexType::POINT, .label_ = label, .property_ = property}, filter);
+        candidate_index_lookup.insert({std::make_pair(label, property), filter});
+      }
+    }
+
+    return CandidateIndices{.candidate_indices_ = candidate_indices, .candidate_index_lookup_ = candidate_index_lookup};
+  }
+
+  std::optional<PointLabelPropertyIndex> FindBestPointLabelPropertyIndex(
+      const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols) {
+    auto [candidate_indices, candidate_index_lookup] = GetCandidatePointIndices(symbol, bound_symbols);
+
+    // TODO: Can point_index_hints_ be populated?
+    //  indexHints: INDEX indexHint ( ',' indexHint )* ;
+    //  indexHint: ':' labelName ( '(' propertyKeyName ')' )? ;
+
+    // First match with the provided hints
+    for (const auto &[index_type, label, maybe_property] : index_hints_.point_index_hints_) {
+      auto property = *maybe_property;
+      auto filter_it = candidate_index_lookup.find(std::make_pair(label, property));
+      if (filter_it != candidate_index_lookup.cend()) {
+        // TODO: isn't .vertex_count as max value wrong?
+        return PointLabelPropertyIndex{
+            .label = label, .filter = filter_it->second, .vertex_count = std::numeric_limits<std::int64_t>::max()};
+      }
+    }
+
+    // Second find a good candidate
+    std::optional<PointLabelPropertyIndex> found;
+    for (const auto &[candidate, filter] : candidate_indices) {
+      const auto &[_, label, maybe_property] = candidate;
+      auto labelId = GetLabel(label);
+      auto propertyId = GetProperty(*maybe_property);
+
+      // TODO: ATM we are looking at index size, are there other situations to select a candidate index over another?
+      auto vertex_count = db_->VerticesPointCount(labelId, propertyId);
+      if (!vertex_count) continue;
+
+      if (!found || vertex_count < found->vertex_count) {
+        found.emplace(label, filter, *vertex_count);
+        continue;
+      }
+    }
+    return found;
+  }
 
   CandidateIndices GetCandidateIndices(const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols) {
     auto are_bound = [&bound_symbols](const auto &used_symbols) {
@@ -958,6 +1070,50 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     if (labels.empty()) {
       // Without labels, we cannot generate any indexed ScanAll.
       return nullptr;
+    }
+
+    // Point index prefered over regular label+property index
+    // TODO: figure out how to make NEW work
+    if (view == storage::View::OLD) {
+      auto found_index = FindBestPointLabelPropertyIndex(node_symbol, bound_symbols);
+
+      if (found_index) {
+        FilterInfo const &filter = found_index->filter;
+        auto const &point_filter = filter.point_filter.value();
+
+        filters_.EraseFilter(filter);
+        std::vector<Expression *> removed_expressions;  // out parameter
+        filters_.EraseLabelFilter(node_symbol, found_index->label, &removed_expressions);
+        filter_exprs_for_removal_.insert(filter.expression);
+        filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
+
+        switch (point_filter.function_) {
+          using enum PointFilter::Function;
+          case DISTANCE: {
+            return std::make_unique<ScanAllByPointDistance>(
+                input, node_symbol, GetLabel(found_index->label), GetProperty(point_filter.property_),
+                point_filter.distance_.cmp_value_,  // uses the CRS from here
+                point_filter.distance_.boundary_value_, point_filter.distance_.boundary_condition_);
+          }
+          case WITHINBBOX: {
+            auto *expr = std::invoke([&]() -> Expression * {
+              // if condition known at plan time, use PrimitiveLiteral
+              if (point_filter.withinbbox_.condition_) {
+                auto is_inside = point_filter.withinbbox_.condition_ == WithinBBoxCondition::INSIDE;
+
+                auto *new_expr = ast_storage_->Create<PrimitiveLiteral>();
+                new_expr->value_ = storage::PropertyValue{is_inside};
+                return new_expr;
+              }
+              // else use provided evaluation time expression
+              return point_filter.withinbbox_.boundary_value_;
+            });
+            return std::make_unique<ScanAllByPointWithinbbox>(
+                input, node_symbol, GetLabel(found_index->label), GetProperty(point_filter.property_),
+                point_filter.withinbbox_.bottom_left_, point_filter.withinbbox_.top_right_, expr);
+          }
+        }
+      }
     }
     auto found_index = FindBestLabelPropertyIndex(node_symbol, bound_symbols);
     if (found_index &&

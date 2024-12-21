@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdlib>
 #include <exception>
@@ -56,12 +57,15 @@
 #include "requests/requests.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/durability/durability.hpp"
+#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/storage_mode.hpp"
+#include "storage/v2/view.hpp"
 #include "system/system.hpp"
 #include "telemetry/telemetry.hpp"
 #include "utils/event_gauge.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
+#include "utils/scheduler.hpp"
 #include "utils/signals.hpp"
 #include "utils/sysinfo/memory.hpp"
 #include "utils/system_info.hpp"
@@ -237,8 +241,8 @@ int main(int argc, char **argv) {
   }
 
   memgraph::utils::Scheduler python_gc_scheduler;
-  python_gc_scheduler.Run("Python GC", std::chrono::seconds(FLAGS_storage_python_gc_cycle_sec),
-                          [] { memgraph::query::procedure::PyCollectGarbage(); });
+  python_gc_scheduler.SetInterval(std::chrono::seconds(FLAGS_storage_python_gc_cycle_sec));
+  python_gc_scheduler.Run("Python GC", [] { memgraph::query::procedure::PyCollectGarbage(); });
 
   // Initialize the communication library.
   memgraph::communication::SSLInit sslInit;
@@ -251,7 +255,8 @@ int main(int argc, char **argv) {
   if (FLAGS_memory_warning_threshold > 0) {
     auto free_ram = memgraph::utils::sysinfo::AvailableMemory();
     if (free_ram) {
-      mem_log_scheduler.Run("Memory check", std::chrono::seconds(3), [] {
+      mem_log_scheduler.SetInterval(std::chrono::seconds(3));
+      mem_log_scheduler.Run("Memory check", [] {
         auto free_ram = memgraph::utils::sysinfo::AvailableMemory();
         if (free_ram && *free_ram / 1024 < FLAGS_memory_warning_threshold)
           spdlog::warn(memgraph::utils::MessageWithLink("Running out of available RAM, only {} MB left.",
@@ -314,15 +319,15 @@ int main(int argc, char **argv) {
                                              memgraph::utils::global_settings);
   memgraph::utils::OnScopeExit global_license_finalizer([] { memgraph::license::global_license_checker.Finalize(); });
 
-  // Has to be initialized after the storage
-  memgraph::flags::run_time::Initialize();
-
   memgraph::license::global_license_checker.CheckEnvLicense();
   if (!FLAGS_organization_name.empty() && !FLAGS_license_key.empty()) {
     memgraph::license::global_license_checker.SetLicenseInfoOverride(FLAGS_license_key, FLAGS_organization_name);
   }
 
   memgraph::license::global_license_checker.StartBackgroundLicenseChecker(memgraph::utils::global_settings);
+
+  // Has to be initialized after the storage and license startup
+  memgraph::flags::run_time::Initialize();
 
   // All enterprise features should be constructed before the main database
   // storage. This will cause them to be destructed *after* the main database
@@ -401,16 +406,16 @@ int main(int argc, char **argv) {
   spdlog::info("config recover on startup {}, flags {}", db_config.durability.recover_on_startup,
                FLAGS_data_recovery_on_startup);
   memgraph::utils::Scheduler jemalloc_purge_scheduler;
-  jemalloc_purge_scheduler.Run("Jemalloc purge", std::chrono::seconds(FLAGS_storage_gc_cycle_sec),
-                               [] { memgraph::memory::PurgeUnusedMemory(); });
+  jemalloc_purge_scheduler.SetInterval(std::chrono::seconds(FLAGS_storage_gc_cycle_sec));
+  jemalloc_purge_scheduler.Run("Jemalloc purge", [] { memgraph::memory::PurgeUnusedMemory(); });
 
   using namespace std::chrono_literals;
   using enum memgraph::storage::StorageMode;
   using enum memgraph::storage::Config::Durability::SnapshotWalMode;
 
+  db_config.durability.snapshot_interval = memgraph::utils::SchedulerInterval(FLAGS_storage_snapshot_interval);
   if (db_config.salient.storage_mode == IN_MEMORY_TRANSACTIONAL) {
-    db_config.durability.snapshot_interval = std::chrono::seconds(FLAGS_storage_snapshot_interval_sec);
-    if (db_config.durability.snapshot_interval == 0s) {
+    if (!db_config.durability.snapshot_interval) {
       if (FLAGS_storage_wal_enabled) {
         LOG_FATAL(
             "In order to use write-ahead-logging you must enable "
@@ -428,7 +433,11 @@ int main(int argc, char **argv) {
   } else {
     // IN_MEMORY_ANALYTICAL and ON_DISK_TRANSACTIONAL do not support periodic snapshots
     db_config.durability.snapshot_wal_mode = DISABLED;
-    db_config.durability.snapshot_interval = 0s;
+  }
+
+  if (memgraph::flags::AreExperimentsEnabled(memgraph::flags::Experiments::VECTOR_SEARCH) &&
+      db_config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL) {
+    LOG_FATAL("Vector indexes are not supported in ON_DISK_TRANSACTIONAL storage mode.");
   }
 
 #ifdef MG_ENTERPRISE
@@ -512,8 +521,9 @@ int main(int argc, char **argv) {
   std::optional<CoordinatorState> coordinator_state{std::nullopt};
   auto const is_valid_data_instance =
       coordination_setup.management_port && !coordination_setup.coordinator_port && !coordination_setup.coordinator_id;
-  auto const is_valid_coordinator_instance =
-      coordination_setup.management_port && coordination_setup.coordinator_port && coordination_setup.coordinator_id;
+  auto const is_valid_coordinator_instance = coordination_setup.management_port &&
+                                             coordination_setup.coordinator_port && coordination_setup.coordinator_id &&
+                                             !coordination_setup.coordinator_hostname.empty();
   auto try_init_coord_state = [&coordinator_state, &extracted_bolt_port, &is_valid_data_instance,
                                &is_valid_coordinator_instance](auto const &coordination_setup) {
     if (!(coordination_setup.management_port || coordination_setup.coordinator_port ||
@@ -526,8 +536,9 @@ int main(int argc, char **argv) {
     if (!(is_valid_coordinator_instance || is_valid_data_instance)) {
       throw std::runtime_error(
           "You specified invalid combination of HA flags to start coordinator instance or data instance."
-          "Coordinator must be started with coordinator_id, port and management_port. Data instance must be "
-          "started with only management port.");
+          "Coordinator must be started with coordinator_id, coordinator_hostname, coordinator_port and "
+          "management_port. Data instance must be "
+          "started only with management port.");
     }
 
     if (is_valid_coordinator_instance) {

@@ -75,11 +75,6 @@ DEFINE_VALIDATED_uint64(storage_python_gc_cycle_sec, 180,
 DEFINE_bool(storage_properties_on_edges, false, "Controls whether edges have properties.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_VALIDATED_uint64(storage_snapshot_interval_sec, 0,
-                        "Storage snapshot creation interval (in seconds). Set "
-                        "to 0 to disable periodic snapshot creation.",
-                        FLAG_IN_RANGE(0, 7 * 24 * 3600));
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(storage_wal_enabled, false,
             "Controls whether the storage uses write-ahead-logging. To enable "
             "WAL periodic snapshots must be enabled.");

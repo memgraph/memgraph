@@ -67,17 +67,17 @@ void ReplicationInstanceClient::StartStateCheck() {
   MG_ASSERT(config_.instance_health_check_frequency_sec > std::chrono::seconds(0),
             "Health check frequency must be greater than 0");
 
-  instance_checker_.Run(config_.instance_name, config_.instance_health_check_frequency_sec,
-                        [this, instance_name = config_.instance_name] {
-                          spdlog::trace("Sending state check message to instance {} on {}.", instance_name,
-                                        config_.ManagementSocketAddress());
-                          auto const res = SendStateCheckRpc();
-                          if (res) {
-                            coord_instance_->InstanceSuccessCallback(instance_name, res);
-                          } else {
-                            coord_instance_->InstanceFailCallback(instance_name, res);
-                          }
-                        });
+  instance_checker_.SetInterval(config_.instance_health_check_frequency_sec);
+  instance_checker_.Run(config_.instance_name, [this, instance_name = config_.instance_name] {
+    spdlog::trace("Sending state check message to instance {} on {}.", instance_name,
+                  config_.ManagementSocketAddress());
+    auto const res = SendStateCheckRpc();
+    if (res) {
+      coord_instance_->InstanceSuccessCallback(instance_name, res);
+    } else {
+      coord_instance_->InstanceFailCallback(instance_name, res);
+    }
+  });
 }
 
 void ReplicationInstanceClient::StopStateCheck() { instance_checker_.Stop(); }
@@ -87,21 +87,20 @@ auto ReplicationInstanceClient::GetReplicationClientInfo() const -> coordination
   return config_.replication_client_info;
 }
 
-auto ReplicationInstanceClient::SendPromoteReplicaToMainRpc(const utils::UUID &uuid,
-                                                            ReplicationClientsInfo replication_clients_info) const
-    -> bool {
+auto ReplicationInstanceClient::SendPromoteToMainRpc(const utils::UUID &uuid,
+                                                     ReplicationClientsInfo replication_clients_info) const -> bool {
   try {
-    spdlog::trace("Sending PromoteReplicaToMainRpc");
-    auto stream{rpc_client_.Stream<PromoteReplicaToMainRpc>(uuid, std::move(replication_clients_info))};
-    spdlog::trace("Awaiting response after sending PromoteReplicaToMainRpc");
+    spdlog::trace("Sending PromoteToMainRpc");
+    auto stream{rpc_client_.Stream<PromoteToMainRpc>(uuid, std::move(replication_clients_info))};
+    spdlog::trace("Awaiting response after sending PromoteToMainRpc");
     if (!stream.AwaitResponse().success) {
-      spdlog::error("Failed to receive successful PromoteReplicaToMainRpc response!");
+      spdlog::error("Failed to receive successful PromoteToMainRpc response!");
       return false;
     }
-    spdlog::trace("Received successful response to PromoteReplicaToMainRPC");
+    spdlog::trace("Received successful response to PromoteToMainRPC");
     return true;
   } catch (rpc::RpcFailedException const &) {
-    spdlog::error("RPC error occurred while sending PromoteReplicaToMainRpc!");
+    spdlog::error("RPC error occurred while sending PromoteToMainRpc!");
   }
   return false;
 }
@@ -179,14 +178,15 @@ auto ReplicationInstanceClient::SendEnableWritingOnMainRpc() const -> bool {
 }
 
 auto ReplicationInstanceClient::SendGetInstanceTimestampsRpc() const
-    -> utils::BasicResult<GetInstanceTimestampsError, replication_coordination_glue::DatabaseHistories> {
+    -> std::optional<replication_coordination_glue::DatabaseHistories> {
   try {
-    auto stream{rpc_client_.Stream<coordination::GetDatabaseHistoriesRpc>()};
-    return stream.AwaitResponse().database_histories;
+    auto stream{rpc_client_.Stream<GetDatabaseHistoriesRpc>()};
+    auto res = stream.AwaitResponse();
+    return res.database_histories;
 
   } catch (const rpc::RpcFailedException &) {
     spdlog::error("Failed to receive RPC response when sending GetInstanceTimestampRPC");
-    return GetInstanceTimestampsError::RPC_EXCEPTION;
+    return {};
   }
 }
 

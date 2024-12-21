@@ -185,7 +185,12 @@ struct small_vector {
   using reverse_iterator = std::reverse_iterator<iterator>;
   using const_reverse_iterator = std::reverse_iterator<const_iterator>;
 
-  small_vector() = default;
+  small_vector() {
+    // Small buffer optimization is turned off; define buffer_ as nullptr
+    if constexpr (!usingSmallBuffer(kSmallCapacity)) {
+      buffer_ = nullptr;
+    }
+  }
 
   small_vector(const small_vector &other) : size_{other.size_}, capacity_{std::max(other.size_, kSmallCapacity)} {
     // NOTE 1: smallest capacity is kSmallCapacity
@@ -275,18 +280,13 @@ struct small_vector {
         size_ = other.size_;
       }
     } else {
-      if (usingSmallBuffer(capacity_)) {
-        std::destroy(begin(), end());
-        size_ = std::exchange(other.size_, 0);
-        capacity_ = std::exchange(other.capacity_, kSmallCapacity);
-        buffer_ = other.buffer_;
-      } else {
-        std::destroy(begin(), end());
-        size_ = std::exchange(other.size_, 0);
-        capacity_ = std::exchange(other.capacity_, kSmallCapacity);
-        auto old_buffer = std::exchange(buffer_, other.buffer_);
-        operator delete (old_buffer, std::align_val_t{alignof(T)});
+      std::destroy(begin(), end());
+      if (!usingSmallBuffer(capacity_)) {
+        operator delete (buffer_, std::align_val_t{alignof(T)});
       }
+      size_ = std::exchange(other.size_, 0);
+      capacity_ = std::exchange(other.capacity_, kSmallCapacity);
+      buffer_ = std::exchange(other.buffer_, nullptr);
     }
     return *this;
   }
@@ -465,16 +465,20 @@ struct small_vector {
 
   friend bool operator==(small_vector const &lhs, small_vector const &rhs) { return std::ranges::equal(lhs, rhs); }
 
+  // kSmallCapacity can be 0; in that case we disable the small buffer
   constexpr static std::uint32_t kSmallCapacity = sizeof(value_type *) / sizeof(value_type);
 
  private:
-  constexpr static bool usingSmallBuffer(uint32_t capacity) { return capacity == kSmallCapacity; }
+  constexpr static bool usingSmallBuffer(uint32_t capacity) {
+    return kSmallCapacity != 0 && capacity == kSmallCapacity;
+  }
 
   uint32_t size_{};                    // max 4 billion
   uint32_t capacity_{kSmallCapacity};  // max 4 billion
   union {
     value_type *buffer_;
-    uninitialised_storage<value_type> small_buffer_[kSmallCapacity];
+    uninitialised_storage<value_type, kSmallCapacity ? sizeof(value_type) : 1>
+        small_buffer_[kSmallCapacity ? kSmallCapacity : 1];  // This mess is to avoid array with 0 length (ub in c++)
   };
 };
 

@@ -18,6 +18,7 @@
 #include "storage/v2/disk/rocksdb_storage.hpp"
 #include "storage/v2/edge_import_mode.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/point_index.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
@@ -117,9 +118,9 @@ class DiskStorage final : public Storage {
       return 10;
     }
 
-    uint64_t ApproximatePointCount(LabelId label, PropertyId property) const override {
+    std::optional<uint64_t> ApproximateVerticesPointCount(LabelId label, PropertyId property) const override {
       // Point index does not exist for on disk
-      return 0;
+      return std::nullopt;
     }
 
     std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId & /*label*/) const override {
@@ -176,6 +177,8 @@ class DiskStorage final : public Storage {
     bool EdgeTypeIndexExists(EdgeTypeId edge_type) const override;
 
     bool EdgeTypePropertyIndexExists(EdgeTypeId edge_type, PropertyId proeprty) const override;
+
+    bool PointIndexExists(LabelId label, PropertyId property) const override;
 
     IndicesInfo ListAllIndices() const override;
 
@@ -239,6 +242,19 @@ class DiskStorage final : public Storage {
         LabelId label, PropertyId property, TypeConstraintKind type) override;
 
     void DropGraph() override;
+
+    auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
+                       PropertyValue const &point_value, PropertyValue const &boundary_value,
+                       PointDistanceCondition condition) -> PointIterable override;
+
+    auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
+                       PropertyValue const &bottom_left, PropertyValue const &top_right, WithinBBoxCondition condition)
+        -> PointIterable override;
+
+    std::vector<std::tuple<VertexAccessor, double, double>> VectorIndexSearch(
+        const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) override;
+
+    std::vector<VectorIndexInfo> ListAllVectorIndices() const override;
   };
 
   using Storage::Access;

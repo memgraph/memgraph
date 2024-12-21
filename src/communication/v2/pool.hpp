@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,6 +12,7 @@
 #pragma once
 
 #include <cstddef>
+#include <exception>
 #include <thread>
 #include <vector>
 
@@ -40,10 +41,20 @@ class IOContextThreadPool final {
 
   void Run() {
     background_threads_.reserve(pool_size_);
-    for (size_t i = 0; i < pool_size_; ++i) {
-      background_threads_.emplace_back([this]() { io_context_.run(); });
-    }
     running_ = true;
+    for (size_t i = 0; i < pool_size_; ++i) {
+      background_threads_.emplace_back([this]() {
+        while (running_) {
+          try {
+            io_context_.run();
+            spdlog::trace("IOContextThreadPool exited");
+            break;  // exited normally
+          } catch (const std::exception &e) {
+            spdlog::trace("IOContextThreadPool exception: {}", e.what());
+          }
+        }
+      });
+    }
   }
 
   void Shutdown() {
@@ -63,6 +74,6 @@ class IOContextThreadPool final {
   IOContextGuard guard_;
   size_t pool_size_;
   std::vector<std::jthread> background_threads_;
-  bool running_{false};
+  std::atomic_bool running_{false};
 };
 }  // namespace memgraph::communication::v2

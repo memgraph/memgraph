@@ -312,6 +312,9 @@ target_link_libraries(${test_prefix}exponential_backoff mg-utils lib::rangev3)
 add_unit_test(utils_compressor.cpp)
 target_link_libraries(${test_prefix}utils_compressor mg-utils)
 
+add_unit_test(utils_observer.cpp)
+target_link_libraries(${test_prefix}utils_observer mg-utils)
+
 # Test mg-storage-v2
 add_unit_test(commit_log_v2.cpp)
 target_link_libraries(${test_prefix}commit_log_v2 gflags mg-utils mg-storage-v2)
@@ -401,6 +404,9 @@ add_unit_test(cpp_api.cpp)
 target_link_libraries(${test_prefix}cpp_api mg-query)
 target_include_directories(${test_prefix}cpp_api PRIVATE ${CMAKE_SOURCE_DIR}/include)
 
+add_unit_test(vector_index.cpp)
+target_link_libraries(${test_prefix}vector_index mg-storage-v2)
+
 # Test mg-auth
 if(MG_ENTERPRISE)
   add_unit_test(auth.cpp)
@@ -424,7 +430,7 @@ add_unit_test(rpc.cpp)
 target_link_libraries(${test_prefix}rpc mg-rpc)
 
 # Test websocket
-find_package(Boost REQUIRED)
+find_package(Boost REQUIRED CONFIG)
 
 add_unit_test(monitoring.cpp)
 target_link_libraries(${test_prefix}monitoring mg-communication Boost::headers)

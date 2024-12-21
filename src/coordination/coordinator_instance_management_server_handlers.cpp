@@ -29,6 +29,7 @@ void CoordinatorInstanceManagementServerHandlers::ShowInstancesHandler(Coordinat
   coordination::ShowInstancesReq req;
   slk::Load(&req, req_reader);
   slk::Save(coordination::ShowInstancesRes{coordinator_instance.ShowInstancesAsLeader()}, res_builder);
+  spdlog::trace("Replying to ShowInstancesRpc.");
 }
 #endif
 }  // namespace memgraph::coordination

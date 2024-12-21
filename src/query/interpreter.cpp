@@ -403,6 +403,8 @@ class ReplQueryHandler {
     auto const result = handler_->UnregisterReplica(replica_name);
     switch (result) {
       using enum memgraph::query::UnregisterReplicaResult;
+      case NO_ACCESS:
+        throw QueryRuntimeException("Couldn't get unique access to replication state!");
       case NOT_MAIN:
         throw QueryRuntimeException("Replica can't unregister a replica!");
       case COULD_NOT_BE_PERSISTED:
@@ -615,6 +617,19 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     }
   }
 
+  void RemoveCoordinatorInstance(int coordinator_id) override {
+    auto const status = coordinator_handler_.RemoveCoordinatorInstance(coordinator_id);
+    switch (status) {
+      using enum memgraph::coordination::RemoveCoordinatorInstanceStatus;  // NOLINT
+      case NO_SUCH_ID:
+        throw QueryRuntimeException(
+            "Couldn't remove coordinator instance because coordinator with id {} doesn't exist!", coordinator_id);
+      case SUCCESS:
+        break;
+    }
+    spdlog::info("Removed coordinator {}.", coordinator_id);
+  }
+
   auto AddCoordinatorInstance(uint32_t coordinator_id, std::string_view bolt_server,
                               std::string_view coordinator_server, std::string_view management_server)
       -> void override {
@@ -700,6 +715,10 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case SUCCESS:
         break;
     }
+  }
+
+  [[nodiscard]] coordination::InstanceStatus ShowInstance() const override {
+    return coordinator_handler_.ShowInstance();
   }
 
   [[nodiscard]] std::vector<coordination::InstanceStatus> ShowInstances() const override {
@@ -1385,14 +1404,30 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
     throw QueryRuntimeException("High availability is only available in Memgraph Enterprise.");
   }
 
-  if (!flags::AreExperimentsEnabled(HIGH_AVAILABILITY)) {
-    throw QueryRuntimeException(
-        "High availability is experimental feature. If you want to use it, add high-availability option to the "
-        "--experimental-enabled flag.");
-  }
-
   Callback callback;
   switch (coordinator_query->action_) {
+    case CoordinatorQuery::Action::REMOVE_COORDINATOR_INSTANCE: {
+      if (!coordinator_state->IsCoordinator()) {
+        throw QueryRuntimeException("Only coordinator can remove coordinator instance!");
+      }
+
+      // TODO: MemoryResource for EvaluationContext, it should probably be passed as
+      // the argument to Callback.
+      EvaluationContext const evaluation_context{.timestamp = QueryTimestamp(), .parameters = parameters};
+      auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
+
+      auto coord_server_id = coordinator_query->coordinator_id_->Accept(evaluator).ValueInt();
+
+      callback.fn = [handler = CoordQueryHandler{*coordinator_state}, coord_server_id]() mutable {
+        handler.RemoveCoordinatorInstance(static_cast<int>(coord_server_id));
+        return std::vector<std::vector<TypedValue>>();
+      };
+
+      notifications->emplace_back(SeverityLevel::INFO, NotificationCode::REMOVE_COORDINATOR_INSTANCE,
+                                  fmt::format("Coordinator {} has been removed.", coord_server_id));
+      return callback;
+    }
+
     case CoordinatorQuery::Action::ADD_COORDINATOR_INSTANCE: {
       if (!coordinator_state->IsCoordinator()) {
         throw QueryRuntimeException("Only coordinator can add coordinator instance!");
@@ -1562,8 +1597,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
 
       callback.header = {"name",   "bolt_server", "coordinator_server", "management_server",
                          "health", "role",        "last_succ_resp_ms"};
-      callback.fn = [handler = CoordQueryHandler{*coordinator_state},
-                     replica_nfields = callback.header.size()]() mutable {
+      callback.fn = [handler = CoordQueryHandler{*coordinator_state}]() mutable {
         auto const instances = handler.ShowInstances();
         auto const converter = [](const auto &status) -> std::vector<TypedValue> {
           return {TypedValue{status.instance_name},
@@ -1576,6 +1610,26 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
         };
 
         return utils::fmap(instances, converter);
+      };
+      return callback;
+    }
+    case CoordinatorQuery::Action::SHOW_INSTANCE: {
+      if (!coordinator_state->IsCoordinator()) {
+        throw QueryRuntimeException("Only coordinator can run SHOW INSTANCE query.");
+      }
+
+      callback.header = {"name", "bolt_server", "coordinator_server", "management_server", "role"};
+      callback.fn = [handler = CoordQueryHandler{*coordinator_state}]() mutable {
+        auto const instance = handler.ShowInstance();
+        std::vector<std::vector<TypedValue>> results;
+        auto instance_result = std::vector{
+            TypedValue{instance.instance_name},      TypedValue{instance.bolt_server},
+            TypedValue{instance.coordinator_server}, TypedValue{instance.management_server},
+            TypedValue{instance.cluster_role},
+
+        };
+        results.push_back(std::move(instance_result));
+        return results;
       };
       return callback;
     }
@@ -4020,6 +4074,96 @@ PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_expli
       RWType::NONE};
 }
 
+PreparedQuery PrepareRecoverSnapshotQuery(ParsedQuery parsed_query, bool in_explicit_transaction, CurrentDB &current_db,
+                                          replication_coordination_glue::ReplicationRole replication_role) {
+  if (in_explicit_transaction) {
+    throw RecoverSnapshotInMulticommandTxException();
+  }
+
+  MG_ASSERT(current_db.db_acc_, "Recover Snapshot query expects a current DB");
+  storage::Storage *storage = current_db.db_acc_->get()->storage();
+
+  if (storage->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
+    throw RecoverSnapshotDisabledOnDiskStorage();
+  }
+
+  auto *recover_query = utils::Downcast<RecoverSnapshotQuery>(parsed_query.query);
+  auto evaluation_context = EvaluationContext{.timestamp = QueryTimestamp(), .parameters = parsed_query.parameters};
+  auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
+
+  return PreparedQuery{
+      {},
+      std::move(parsed_query.required_privileges),
+      [storage, replication_role, path = recover_query->snapshot_->Accept(evaluator).ValueString(),
+       force = recover_query->force_](AnyStream * /*stream*/,
+                                      std::optional<int> /*n*/) -> std::optional<QueryHandlerResult> {
+        auto *mem_storage = static_cast<storage::InMemoryStorage *>(storage);
+        if (auto maybe_error = mem_storage->RecoverSnapshot(path, force, replication_role); maybe_error.HasError()) {
+          switch (maybe_error.GetError()) {
+            case storage::InMemoryStorage::RecoverSnapshotError::DisabledForReplica:
+              throw utils::BasicException(
+                  "Failed to recover a snapshot. Replica instances are not allowed to create them.");
+            case storage::InMemoryStorage::RecoverSnapshotError::DisabledForMainWithReplicas:
+              throw utils::BasicException(
+                  "Failed to recover a snapshot. Cannot recover if instance has registered replicas.");
+            case storage::InMemoryStorage::RecoverSnapshotError::NonEmptyStorage:
+              throw utils::BasicException("Failed to recover a snapshot. Storage is not clean. Try using FORCE.");
+            case storage::InMemoryStorage::RecoverSnapshotError::MissingFile:
+              throw utils::BasicException("Failed to find the defined snapshot file.");
+            case storage::InMemoryStorage::RecoverSnapshotError::CopyFailure:
+              throw utils::BasicException("Failed to copy snapshot over to local snapshots directory.");
+            case storage::InMemoryStorage::RecoverSnapshotError::BackupFailure:
+              throw utils::BasicException(
+                  "Failed to clear local wal and snapshots directories. Please clean them manually.");
+          }
+        }
+        return QueryHandlerResult::COMMIT;
+      },
+      RWType::NONE};
+}
+
+PreparedQuery PrepareShowSnapshotsQuery(ParsedQuery parsed_query, bool in_explicit_transaction, CurrentDB &current_db) {
+  if (in_explicit_transaction) {
+    throw ShowSchemaInfoInMulticommandTxException();
+  }
+
+  MG_ASSERT(current_db.db_acc_, "Show Snapshots query expects a current DB");
+  storage::Storage *storage = current_db.db_acc_->get()->storage();
+
+  if (storage->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
+    throw ShowSnapshotsDisabledOnDiskStorage();
+  }
+
+  Callback callback;
+  callback.header = {"path", "timestamp", "creation_time", "size"};
+  callback.fn = [storage]() mutable -> std::vector<std::vector<TypedValue>> {
+    std::vector<std::vector<TypedValue>> infos;
+    const auto res = static_cast<storage::InMemoryStorage *>(storage)->ShowSnapshots();
+    infos.reserve(res.size());
+    for (const auto &info : res) {
+      infos.push_back({TypedValue{info.path.string()}, TypedValue{static_cast<int64_t>(info.start_timestamp)},
+                       TypedValue{info.creation_time.ToStringWTZ()},
+                       TypedValue{utils::GetReadableSize(static_cast<double>(info.size))}});
+    }
+    return infos;
+  };
+
+  return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
+                       [handler = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+                         if (!pull_plan) {
+                           auto results = handler();
+                           pull_plan = std::make_shared<PullPlanVector>(std::move(results));
+                         }
+
+                         if (pull_plan->Pull(stream, n)) {
+                           return QueryHandlerResult::NOTHING;
+                         }
+                         return std::nullopt;
+                       },
+                       RWType::NONE};
+}
+
 PreparedQuery PrepareSettingQuery(ParsedQuery parsed_query, bool in_explicit_transaction) {
   if (in_explicit_transaction) {
     throw SettingConfigInMulticommandTxException{};
@@ -4233,7 +4377,8 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         for (const auto &[label_id, prop_id] : info.point_label_property) {
           results.push_back({TypedValue(point_label_property_index_mark), TypedValue(storage->LabelToName(label_id)),
                              TypedValue(storage->PropertyToName(prop_id)),
-                             TypedValue(static_cast<int>(storage_acc->ApproximatePointCount(label_id, prop_id)))});
+                             TypedValue(static_cast<int>(
+                                 storage_acc->ApproximateVerticesPointCount(label_id, prop_id).value_or(0)))});
         }
 
         std::sort(results.begin(), results.end(), [&label_index_mark](const auto &record_1, const auto &record_2) {
@@ -5167,7 +5312,7 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
     auto *storage = db->storage();
     if (storage->config_.salient.items.enable_schema_info) {
       // SCHEMA INFO
-      auto json = storage->SchemaInfoReadAccessor().ToJson(*storage->name_id_mapper_, storage->enum_store_);
+      auto json = storage->schema_info_.ToJson(*storage->name_id_mapper_, storage->enum_store_);
 
       // INDICES
       auto node_indexes = nlohmann::json::array();
@@ -5195,11 +5340,11 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       }
       // Vertex label property_point
       for (const auto &[label_id, property] : index_info.point_label_property) {
-        node_indexes.push_back(
-            nlohmann::json::object({{"labels", {storage->LabelToName(label_id)}},
-                                    {"properties", {storage->PropertyToName(property)}},
-                                    {"count", storage_acc->ApproximatePointCount(label_id, property)},
-                                    {"type", "label+property_point"}}));
+        node_indexes.push_back(nlohmann::json::object(
+            {{"labels", {storage->LabelToName(label_id)}},
+             {"properties", {storage->PropertyToName(property)}},
+             {"count", storage_acc->ApproximateVerticesPointCount(label_id, property).value_or(0)},
+             {"type", "label+property_point"}}));
       }
       // Edge type indices
       for (const auto type : index_info.edge_type) {
@@ -5343,14 +5488,18 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
   // Handle transaction control queries.
   const auto upper_case_query = utils::ToUpperCase(query_string);
   const auto trimmed_query = utils::Trim(upper_case_query);
+  const bool is_begin = trimmed_query == "BEGIN";
 
-  if (trimmed_query == "BEGIN") {
-    ResetInterpreter();
-  }
-  // Reset before logging, as some transaction related information will get logged
-  spdlog::debug("{}", QueryLogWrapper{query_string, metadata_ ? &*metadata_ : &extras.metadata_pv, current_db_.name()});
+  // Explicit transactions define the metadata at the beginning and reuse it
+  spdlog::debug(
+      "{}", QueryLogWrapper{query_string,
+                            (in_explicit_transaction_ && metadata_ && !is_begin) ? &*metadata_ : &extras.metadata_pv,
+                            current_db_.name()});
 
-  if (trimmed_query == "BEGIN" || trimmed_query == "COMMIT" || trimmed_query == "ROLLBACK") {
+  if (is_begin || trimmed_query == "COMMIT" || trimmed_query == "ROLLBACK") {
+    if (is_begin) {
+      ResetInterpreter();
+    }
     auto &query_execution = query_executions_.emplace_back(QueryExecution::Create());
     query_execution->prepared_query = PrepareTransactionQuery(trimmed_query, extras);
     auto qid = in_explicit_transaction_ ? static_cast<int>(query_executions_.size() - 1) : std::optional<int>{};
@@ -5443,7 +5592,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
         utils::Downcast<ConstraintQuery>(parsed_query.query) || utils::Downcast<DropGraphQuery>(parsed_query.query) ||
         utils::Downcast<CreateEnumQuery>(parsed_query.query) ||
         utils::Downcast<AlterEnumAddValueQuery>(parsed_query.query) ||
-        utils::Downcast<AlterEnumUpdateValueQuery>(parsed_query.query) || utils::Downcast<TtlQuery>(parsed_query.query);
+        utils::Downcast<AlterEnumUpdateValueQuery>(parsed_query.query) ||
+        utils::Downcast<TtlQuery>(parsed_query.query) || utils::Downcast<RecoverSnapshotQuery>(parsed_query.query);
 
     bool const requires_db_transaction =
         unique_db_transaction || utils::Downcast<CypherQuery>(parsed_query.query) ||
@@ -5574,6 +5724,12 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       auto const replication_role = interpreter_context_->repl_state->GetRole();
       prepared_query =
           PrepareCreateSnapshotQuery(std::move(parsed_query), in_explicit_transaction_, current_db_, replication_role);
+    } else if (utils::Downcast<RecoverSnapshotQuery>(parsed_query.query)) {
+      auto const replication_role = interpreter_context_->repl_state->GetRole();
+      prepared_query =
+          PrepareRecoverSnapshotQuery(std::move(parsed_query), in_explicit_transaction_, current_db_, replication_role);
+    } else if (utils::Downcast<ShowSnapshotsQuery>(parsed_query.query)) {
+      prepared_query = PrepareShowSnapshotsQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
     } else if (utils::Downcast<SettingQuery>(parsed_query.query)) {
       /// SYSTEM PURE
       prepared_query = PrepareSettingQuery(std::move(parsed_query), in_explicit_transaction_);
@@ -5768,8 +5924,7 @@ void Interpreter::Abort() {
 
 namespace {
 void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *interpreter_context,
-                            TriggerContext original_trigger_context,
-                            std::atomic<TransactionStatus> *transaction_status) {
+                            TriggerContext original_trigger_context) {
   // Run the triggers
   for (const auto &trigger : db_acc->trigger_store()->AfterCommitTriggers().access()) {
     QueryAllocator execution_memory{};
@@ -5784,7 +5939,7 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
     trigger_context.AdaptForAccessor(&db_accessor);
     try {
       trigger.Execute(&db_accessor, db_acc, execution_memory.resource(), flags::run_time::GetExecutionTimeout(),
-                      &interpreter_context->is_shutting_down, transaction_status, trigger_context);
+                      &interpreter_context->is_shutting_down, /* transaction_status = */ nullptr, trigger_context);
     } catch (const utils::BasicException &exception) {
       spdlog::warn("Trigger '{}' failed with exception:\n{}", trigger.Name(), exception.what());
       db_accessor.Abort();
@@ -5980,8 +6135,17 @@ void Interpreter::Commit() {
 
   auto commit_confirmed_by_all_sync_replicas = true;
 
-  bool is_main = interpreter_context_->repl_state->IsMain();
+  interpreter_context_->repl_state->Lock();
+  bool const is_main = interpreter_context_->repl_state->IsMain();
+  auto *curr_txn = current_db_.db_transactional_accessor_->GetTransaction();
+  // if I was main with write txn which became replica, abort.
+  if (!is_main && !curr_txn->deltas.empty()) {
+    interpreter_context_->repl_state->Unlock();
+    throw QueryException("Cannot commit because instance is not main anymore.");
+  }
   auto maybe_commit_error = current_db_.db_transactional_accessor_->Commit({.is_main = is_main}, current_db_.db_acc_);
+  interpreter_context_->repl_state->Unlock();
+
   if (maybe_commit_error.HasError()) {
     const auto &error = maybe_commit_error.GetError();
 
@@ -6033,10 +6197,10 @@ void Interpreter::Commit() {
   // want to commit are still waiting for commiting or one of them just started commiting its changes. This means the
   // ordered execution of after commit triggers are not guaranteed.
   if (trigger_context && db->trigger_store()->AfterCommitTriggers().size() > 0) {
-    db->AddTask([this, trigger_context = std::move(*trigger_context),
+    db->AddTask([db_acc = *current_db_.db_acc_, interpreter_context = interpreter_context_,
+                 trigger_context = std::move(*trigger_context),
                  user_transaction = std::shared_ptr(std::move(current_db_.db_transactional_accessor_))]() mutable {
-      RunTriggersAfterCommit(*current_db_.db_acc_, interpreter_context_, std::move(trigger_context),
-                             &this->transaction_status_);
+      RunTriggersAfterCommit(db_acc, interpreter_context, std::move(trigger_context));
       user_transaction->FinalizeTransaction();
       SPDLOG_DEBUG("Finished executing after commit triggers");  // NOLINT(bugprone-lambda-function-name)
     });

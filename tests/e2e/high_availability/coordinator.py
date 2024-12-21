@@ -11,6 +11,7 @@
 
 import os
 import sys
+from functools import partial
 
 import interactive_mg_runner
 import pytest
@@ -19,7 +20,7 @@ from common import (
     execute_and_fetch_all,
     get_data_path,
     get_logs_path,
-    ignore_elapsed_time_from_results,
+    show_instances,
 )
 from mg_utils import mg_sleep_and_assert
 
@@ -42,7 +43,6 @@ def get_memgraph_instances_description(test_name: str):
     return {
         "instance_1": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7688",
                 "--log-level",
@@ -58,7 +58,6 @@ def get_memgraph_instances_description(test_name: str):
         },
         "instance_2": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7689",
                 "--log-level",
@@ -74,7 +73,6 @@ def get_memgraph_instances_description(test_name: str):
         },
         "instance_3": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7687",
                 "--log-level",
@@ -90,7 +88,6 @@ def get_memgraph_instances_description(test_name: str):
         },
         "coordinator_1": {
             "args": [
-                "--experimental-enabled=high-availability",
                 "--bolt-port",
                 "7690",
                 "--log-level=TRACE",
@@ -153,16 +150,13 @@ def test_coordinator_cannot_run_show_repl_role(test_name):
 def test_coordinator_show_instances(test_name):
     cursor = setup_test(test_name=test_name)
 
-    def retrieve_data():
-        return sorted(ignore_elapsed_time_from_results(list(execute_and_fetch_all(cursor, "SHOW INSTANCES;"))))
-
     expected_data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
         ("instance_1", "localhost:7688", "", "localhost:10011", "up", "replica"),
         ("instance_2", "localhost:7689", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7687", "", "localhost:10013", "up", "main"),
     ]
-    mg_sleep_and_assert(expected_data, retrieve_data)
+    mg_sleep_and_assert(expected_data, partial(show_instances, cursor))
 
 
 def test_coordinator_cannot_call_show_replicas(test_name):

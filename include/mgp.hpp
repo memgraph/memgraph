@@ -15,13 +15,9 @@
 #include <cstring>
 #include <functional>
 #include <map>
-#include <mutex>
 #include <optional>
-#include <set>
-#include <shared_mutex>
 #include <string>
 #include <string_view>
-#include <thread>
 #include <type_traits>
 #include <unordered_map>
 #include <utility>
@@ -32,6 +28,15 @@
 #include "mg_procedure.h"
 
 namespace mgp {
+
+class VectorSearchException : public std::exception {
+ public:
+  explicit VectorSearchException(std::string message) : message_(std::move(message)) {}
+  const char *what() const noexcept override { return message_.c_str(); }
+
+ private:
+  std::string message_;
+};
 
 class TextSearchException : public std::exception {
  public:
@@ -560,6 +565,9 @@ class List {
 
   /// @brief returns the string representation
   std::string ToString() const;
+
+  /// @brief returns the mgp_list pointer
+  mgp_list *GetPtr() const;
 
  private:
   mgp_list *ptr_;
@@ -2594,6 +2602,8 @@ inline std::string List::ToString() const {
   return return_str;
 }
 
+inline mgp_list *List::GetPtr() const { return ptr_; }
+
 // MapItem:
 
 inline bool MapItem::operator==(MapItem &other) const { return key == other.key && value == other.value; }
@@ -4535,6 +4545,40 @@ inline std::string_view AggregateOverTextIndex(mgp_graph *memgraph_graph, std::s
   }
 
   return results_or_error.At(kAggregationResultsKey).ValueString();
+}
+
+inline List SearchVectorIndex(mgp_graph *memgraph_graph, std::string_view index_name, List &query_vector,
+                              size_t result_size) {
+  auto results_or_error = Map(mgp::MemHandlerCallback(graph_search_vector_index, memgraph_graph, index_name.data(),
+                                                      query_vector.GetPtr(), result_size));
+  if (results_or_error.KeyExists(kErrorMsgKey)) {
+    if (!results_or_error.At(kErrorMsgKey).IsString()) {
+      throw VectorSearchException{"The error message is not a string!"};
+    }
+    throw VectorSearchException(results_or_error.At(kErrorMsgKey).ValueString().data());
+  }
+  return results_or_error.At(kSearchResultsKey).ValueList();
+}
+
+inline List GetVectorIndexInfo(mgp_graph *memgraph_graph) {
+  auto results_or_error = Map(mgp::MemHandlerCallback(graph_show_index_info, memgraph_graph));
+
+  if (results_or_error.KeyExists(kErrorMsgKey)) {
+    if (!results_or_error.At(kErrorMsgKey).IsString()) {
+      throw VectorSearchException{"The error message is not a string!"};
+    }
+    throw VectorSearchException(results_or_error.At(kErrorMsgKey).ValueString().data());
+  }
+
+  if (!results_or_error.KeyExists(kSearchResultsKey)) {
+    throw VectorSearchException{"Incomplete index info results!"};
+  }
+
+  if (!results_or_error.At(kSearchResultsKey).IsList()) {
+    throw VectorSearchException{"Index info results have wrong type!"};
+  }
+
+  return results_or_error.At(kSearchResultsKey).ValueList();
 }
 
 inline bool CreateExistenceConstraint(mgp_graph *memgraph_graph, const std::string_view label,

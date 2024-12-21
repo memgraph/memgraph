@@ -149,7 +149,11 @@ class Listener final : public std::enable_shared_from_this<Listener<TSession, TS
       return OnError(ec, "accept");
     }
 
-    auto remote_endpoint = socket.lowest_layer().remote_endpoint();
+    boost::system::error_code endpoint_ec;
+    auto remote_endpoint = socket.lowest_layer().remote_endpoint(endpoint_ec);
+    if (endpoint_ec) {
+      return OnError(ec, "accept - remote_endpoint");
+    }
     auto session = SessionHandler::Create(std::move(socket), session_context_, *server_context_, remote_endpoint,
                                           inactivity_timeout_, service_name_);
     session->Start();

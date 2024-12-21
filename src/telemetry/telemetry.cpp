@@ -56,7 +56,8 @@ Telemetry::Telemetry(std::string url, std::filesystem::path storage_directory, s
          metrics::global_one_shot_events[metrics::OneShotEvents::kFirstSuccessfulQueryTs].load()},
         {"first_failed_query", metrics::global_one_shot_events[metrics::OneShotEvents::kFirstFailedQueryTs].load()}};
   });
-  scheduler_.Run("Telemetry", refresh_interval, [&] { CollectData(); });
+  scheduler_.SetInterval(refresh_interval);
+  scheduler_.Run("Telemetry", [&] { CollectData(); });
 }
 
 void Telemetry::AddCollector(const std::string &name, const std::function<const nlohmann::json(void)> &func) {

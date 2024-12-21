@@ -46,6 +46,8 @@ inline void MgExceptionHandle(mgp_error result_code) {
       throw mg_exception::ValueConversionException();
     case mgp_error::MGP_ERROR_SERIALIZATION_ERROR:
       throw mg_exception::SerializationException();
+    case mgp_error::MGP_ERROR_NOT_YET_IMPLEMENTED:
+      throw mg_exception::NotYetImplementedException();
     default:
       return;
   }
@@ -326,6 +328,8 @@ inline mgp_vertex *graph_get_vertex_by_id(mgp_graph *g, mgp_vertex_id id, mgp_me
   return MgInvoke<mgp_vertex *>(mgp_graph_get_vertex_by_id, g, id, memory);
 }
 
+// text index
+
 inline bool graph_has_text_index(mgp_graph *graph, const char *index_name) {
   return MgInvoke<int>(mgp_graph_has_text_index, graph, index_name);
 }
@@ -343,6 +347,17 @@ inline mgp_map *graph_aggregate_over_text_index(mgp_graph *graph, const char *in
 
 inline mgp_vertices_iterator *graph_iter_vertices(mgp_graph *g, mgp_memory *memory) {
   return MgInvoke<mgp_vertices_iterator *>(mgp_graph_iter_vertices, g, memory);
+}
+
+// vector index
+
+inline mgp_map *graph_search_vector_index(mgp_graph *graph, const char *index_name, mgp_list *search_vector,
+                                          size_t result_size, mgp_memory *memory) {
+  return MgInvoke<mgp_map *>(mgp_graph_search_vector_index, graph, index_name, search_vector, result_size, memory);
+}
+
+inline mgp_map *graph_show_index_info(mgp_graph *graph, mgp_memory *memory) {
+  return MgInvoke<mgp_map *>(mgp_graph_show_index_info, graph, memory);
 }
 
 // mgp_vertices_iterator
