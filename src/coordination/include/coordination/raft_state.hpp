@@ -72,9 +72,11 @@ class RaftState {
   auto IsLeader() const -> bool;
   auto GetLeaderId() const -> uint32_t;
 
-  auto AppendClusterUpdate(std::vector<DataInstanceState> cluster_state, utils::UUID uuid) -> bool;
+  auto AppendClusterUpdate(std::vector<DataInstanceState> data_instances,
+                           std::vector<CoordinatorInstanceContext> coordinator_instances, utils::UUID uuid) -> bool;
 
   auto GetDataInstances() const -> std::vector<DataInstanceState>;
+  auto GetCoordinatorInstances() const -> std::vector<CoordinatorInstanceContext>;
 
   // TODO: (andi) Ideally we delete this and rely just on one thing.
   auto MainExists() const -> bool;
@@ -88,7 +90,6 @@ class RaftState {
 
   // Returns elapsed time in ms since last successful response from the coordinator with id srv_id
   auto CoordLastSuccRespMs(uint32_t srv_id) -> std::chrono::milliseconds;
-  auto GetUserContext() const -> std::map<uint32_t, CoordinatorInstanceContext>;
   auto GetCoordinatorInstanceContext(int coordinator_id) const -> CoordinatorInstanceContext;
   auto GetMyCoordinatorInstanceContext() const -> CoordinatorInstanceContext;
 

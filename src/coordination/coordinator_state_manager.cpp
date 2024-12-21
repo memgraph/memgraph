@@ -153,7 +153,7 @@ auto CoordinatorStateManager::save_config(cluster_config const &config) -> void 
 void CoordinatorStateManager::NotifyObserver() {
   spdlog::trace("Notifying observer about cluster config change.");
   if (observer_) {
-    // observer_.value().Update(DeserializeRaftContext(cluster_config_->get_user_ctx()));
+    observer_.value().Update();
   }
 }
 

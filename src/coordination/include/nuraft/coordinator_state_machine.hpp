@@ -59,10 +59,12 @@ class CoordinatorStateMachine : public state_machine {
   ~CoordinatorStateMachine() override = default;
 
   static auto CreateLog(nlohmann::json &&log) -> ptr<buffer>;
-  static auto SerializeUpdateClusterState(std::vector<DataInstanceState> cluster_state, utils::UUID uuid)
-      -> ptr<buffer>;
+  static auto SerializeUpdateClusterState(std::vector<DataInstanceState> data_instances,
+                                          std::vector<CoordinatorInstanceContext> coordinator_instances,
+                                          utils::UUID uuid) -> ptr<buffer>;
 
-  static auto DecodeLog(buffer &data) -> std::pair<std::vector<DataInstanceState>, utils::UUID>;
+  static auto DecodeLog(buffer &data)
+      -> std::tuple<std::vector<DataInstanceState>, std::vector<CoordinatorInstanceContext>, utils::UUID>;
 
   auto pre_commit(ulong log_idx, buffer &data) -> ptr<buffer> override;
 
@@ -89,6 +91,7 @@ class CoordinatorStateMachine : public state_machine {
   auto create_snapshot(snapshot &s, async_result<bool>::handler_type &when_done) -> void override;
 
   auto GetDataInstances() const -> std::vector<DataInstanceState>;
+  auto GetCoordinatorInstances() const -> std::vector<CoordinatorInstanceContext>;
 
   void UpdateStateMachineFromSnapshotDurability();
 

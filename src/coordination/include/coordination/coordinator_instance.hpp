@@ -112,7 +112,7 @@ class CoordinatorInstance {
 
   void ShuttingDown();
 
-  void AddOrUpdateClientConnectors(std::map<uint32_t, CoordinatorInstanceContext> contexts);
+  void AddOrUpdateClientConnectors();
 
   void InstanceSuccessCallback(std::string_view instance_name, std::optional<InstanceState> instance_state);
   void InstanceFailCallback(std::string_view instance_name, std::optional<InstanceState> instance_state);

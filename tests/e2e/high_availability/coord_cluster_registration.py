@@ -242,10 +242,10 @@ def test_register_repl_instances_then_coordinators(test_name):
         coordinator3_cursor,
         "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",
     )
-    # execute_and_fetch_all(
-    #     coordinator3_cursor,
-    #     "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10003'};",
-    # )
+    execute_and_fetch_all(
+        coordinator3_cursor,
+        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10003'};",
+    )
     execute_and_fetch_all(coordinator3_cursor, "SET INSTANCE instance_1 TO MAIN")
     execute_and_fetch_all(
         coordinator3_cursor,

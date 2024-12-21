@@ -14,6 +14,7 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_communication_config.hpp"
+#include "coordination/coordinator_instance_context.hpp"
 #include "replication_coordination_glue/role.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/uuid.hpp"
@@ -71,11 +72,14 @@ class CoordinatorClusterState {
 
   auto IsCurrentMain(std::string_view instance_name) const -> bool;
 
-  auto DoAction(std::vector<DataInstanceState> data_instances, utils::UUID main_uuid) -> void;
+  auto DoAction(std::vector<DataInstanceState> data_instances,
+                std::vector<CoordinatorInstanceContext> coordinator_instances, utils::UUID main_uuid) -> void;
 
   auto Serialize(ptr<buffer> &data) -> void;
 
   static auto Deserialize(buffer &data) -> CoordinatorClusterState;
+
+  auto GetCoordinatorInstances() const -> std::vector<CoordinatorInstanceContext>;
 
   auto GetDataInstances() const -> std::vector<DataInstanceState>;
 
@@ -89,12 +93,16 @@ class CoordinatorClusterState {
   // Setter function used on parsing data from json
   void SetDataInstances(std::vector<DataInstanceState>);
 
+  // Setter function used on parsing data from json
+  void SetCoordinatorInstances(std::vector<CoordinatorInstanceContext>);
+
   friend auto operator==(CoordinatorClusterState const &lhs, CoordinatorClusterState const &rhs) -> bool {
     return lhs.data_instances_ == rhs.data_instances_ && lhs.current_main_uuid_ == rhs.current_main_uuid_;
   }
 
  private:
   std::vector<DataInstanceState> data_instances_{};
+  std::vector<CoordinatorInstanceContext> coordinator_instances_{};
   utils::UUID current_main_uuid_{};
   mutable utils::ResourceLock log_lock_{};
 };
