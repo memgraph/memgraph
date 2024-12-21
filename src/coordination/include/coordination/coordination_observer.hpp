@@ -23,7 +23,7 @@ class CoordinatorInstance;
 class CoordinationClusterChangeObserver {
  public:
   explicit CoordinationClusterChangeObserver(CoordinatorInstance *instance);
-  void Update();
+  void Update(std::vector<uint32_t> coordinators);
 
  private:
   CoordinatorInstance *instance_;

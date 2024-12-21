@@ -23,7 +23,9 @@ namespace memgraph::coordination {
 CoordinationClusterChangeObserver::CoordinationClusterChangeObserver(CoordinatorInstance *instance)
     : instance_{instance} {}
 
-void CoordinationClusterChangeObserver::Update() { instance_->AddOrUpdateClientConnectors(); }
+void CoordinationClusterChangeObserver::Update(std::vector<uint32_t> coordinators) {
+  instance_->UpdateClientConnectors(coordinators);
+}
 
 }  // namespace memgraph::coordination
 

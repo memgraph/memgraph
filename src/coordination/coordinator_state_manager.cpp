@@ -153,7 +153,12 @@ auto CoordinatorStateManager::save_config(cluster_config const &config) -> void 
 void CoordinatorStateManager::NotifyObserver() {
   spdlog::trace("Notifying observer about cluster config change.");
   if (observer_) {
-    observer_.value().Update();
+    auto const &cluster_config_servers = cluster_config_->get_servers();
+    std::vector<uint32_t> ids;
+    for (auto const &server : cluster_config_servers) {
+      ids.emplace_back(server->get_id());
+    }
+    observer_.value().Update(ids);
   }
 }
 

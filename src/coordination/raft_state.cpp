@@ -73,7 +73,7 @@ RaftState::RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb
     state_manager_config.log_store_durability_ = log_store_durability;
   }
 
-  state_machine_ = cs_new<CoordinatorStateMachine>(logger_wrapper, log_store_durability);
+  state_machine_ = cs_new<CoordinatorStateMachine>(logger_wrapper, log_store_durability, observer);
   state_manager_ = cs_new<CoordinatorStateManager>(state_manager_config, logger_wrapper, observer);
 
   auto const last_commit_index_snapshot = [this]() -> uint64_t {
@@ -350,20 +350,6 @@ auto RaftState::AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &con
   }
 
   // TODO: (andi) Add a breaking label
-
-  auto coordinator_instances = GetCoordinatorInstances();
-  coordinator_instances.emplace_back(
-      CoordinatorInstanceContext{.id = config.coordinator_id,
-                                 .bolt_server = config.bolt_server.SocketAddress(),
-                                 .management_server = config.management_server.SocketAddress()});
-
-  auto data_instances = GetDataInstances();
-  auto uuid = GetCurrentMainUUID();
-
-  if (!AppendClusterUpdate(std::move(data_instances), std::move(coordinator_instances), uuid)) {
-    throw RaftAddServerException("Couldn't append application log when adding coordinator {} to the cluster.",
-                                 config.coordinator_id);
-  }
 }
 
 auto RaftState::CoordLastSuccRespMs(uint32_t srv_id) -> std::chrono::milliseconds {

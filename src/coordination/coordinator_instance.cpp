@@ -72,7 +72,6 @@ CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &co
   raft_state_ = std::make_unique<RaftState>(config, GetBecomeLeaderCallback(), GetBecomeFollowerCallback(),
                                             CoordinationClusterChangeObserver{this});
   raft_state_->InitRaftServer();
-  // AddOrUpdateClientConnectors(raft_state_->GetUserContext());
 }
 
 CoordinatorInstance::~CoordinatorInstance() {
@@ -143,30 +142,53 @@ auto CoordinatorInstance::GetLeaderCoordinatorData() const -> std::optional<Lead
   return raft_state_->GetLeaderCoordinatorData();
 }
 
-void CoordinatorInstance::AddOrUpdateClientConnectors() {
+auto CoordinatorInstance::UpdateConnector(uint32_t coordinator_id, io::network::Endpoint const &management_server)
+    -> void {
+  auto connectors = coordinator_connectors_.Lock();
+  auto const connector = std::ranges::find_if(
+      *connectors, [coordinator_id](auto &&connector) { return coordinator_id == connector.first; });
+  if (connector != connectors->end()) {
+    spdlog::trace("Connector to coordinator {} already exists.", coordinator_id);
+    return;
+  }
+  spdlog::trace("Creating new connector to coordinator with id {}, on endpoint:{}.", coordinator_id, management_server);
+  connectors->emplace(connectors->end(), coordinator_id, ManagementServerConfig{management_server});
+}
+
+void CoordinatorInstance::UpdateClientConnectors(std::vector<uint32_t> coordinators) {
   auto connectors = coordinator_connectors_.Lock();
 
-  auto const coordinators = raft_state_->GetCoordinatorInstances();
+  auto const coordinators_context = raft_state_->GetCoordinatorInstances();
 
-  for (auto const &coordinator : coordinators) {
-    spdlog::trace("Coordinator {} found when updating connectors.", coordinator.id);
-    if (coordinator.id == raft_state_->GetMyCoordinatorId()) {
+  for (auto const &coordinator_id : coordinators) {
+    spdlog::trace("Coordinator {} found when updating connectors.", coordinator_id);
+    if (coordinator_id == raft_state_->GetMyCoordinatorId()) {
       continue;
     }
     auto const connector = std::ranges::find_if(
-        *connectors, [coordinator_id = coordinator.id](auto &&connector) { return coordinator_id == connector.first; });
+        *connectors, [coordinator_id](auto &&connector) { return coordinator_id == connector.first; });
     if (connector != connectors->end()) {
-      spdlog::trace("Connector to coordinator {} already exists.", coordinator.id);
+      spdlog::trace("Connector to coordinator {} already exists.", coordinator_id);
       continue;
     }
-    spdlog::trace("Creating new connector to coordinator with id {}, on endpoint:{}.", coordinator.id,
-                  coordinator.management_server);
 
-    auto mgmt_endpoint = io::network::Endpoint::ParseAndCreateSocketOrAddress(coordinator.management_server);
+    auto const coord_context = std::find_if(
+        coordinators_context.cbegin(), coordinators_context.cend(),
+        [coordinator_id](CoordinatorInstanceContext const &context) { return context.id == coordinator_id; });
+
+    if (coord_context == coordinators_context.end()) {
+      spdlog::error("Couldn't find context for coordinator {}.", coordinator_id);
+      continue;
+    }
+
+    spdlog::trace("Creating new connector to coordinator with id {}, on endpoint:{}.", coordinator_id,
+                  coord_context->management_server);
+
+    auto mgmt_endpoint = io::network::Endpoint::ParseAndCreateSocketOrAddress(coord_context->management_server);
     if (!mgmt_endpoint) {
       MG_ASSERT(false, "Failed to parse management endpoint when connecting coordinators");
     }
-    connectors->emplace(connectors->end(), coordinator.id, ManagementServerConfig{std::move(*mgmt_endpoint)});
+    connectors->emplace(connectors->end(), coordinator_id, ManagementServerConfig{std::move(*mgmt_endpoint)});
   }
 }
 
@@ -765,7 +787,24 @@ auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorToCoordinatorConfig 
   //   return AddCoordinatorInstanceStatus::MGMT_ENDPOINT_ALREADY_EXISTS;
   // }
 
+  auto coordinator_instances = raft_state_->GetCoordinatorInstances();
+  coordinator_instances.emplace_back(
+      CoordinatorInstanceContext{.id = config.coordinator_id,
+                                 .bolt_server = config.bolt_server.SocketAddress(),
+                                 .management_server = config.management_server.SocketAddress()});
+
+  auto data_instances = raft_state_->GetDataInstances();
+  auto uuid = raft_state_->GetCurrentMainUUID();
+
+  if (!raft_state_->AppendClusterUpdate(std::move(data_instances), std::move(coordinator_instances), uuid)) {
+    throw RaftAddServerException("Couldn't append application log when adding coordinator {} to the cluster.",
+                                 config.coordinator_id);
+  }
+
+  // The problem is that when I add myself, this won't trigger save_config in state manager, hence connectors won't be
+  // updated. Move if check here from raft state
   raft_state_->AddCoordinatorInstance(config);
+
   return AddCoordinatorInstanceStatus::SUCCESS;
 }
 
