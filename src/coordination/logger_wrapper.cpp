@@ -17,7 +17,7 @@ namespace memgraph::coordination {
 
 LoggerWrapper::LoggerWrapper(Logger *logger) : logger_(logger) {}
 
-void LoggerWrapper::Log(nuraft_log_level level, std::string const &log_line, std::source_location location) {
+void LoggerWrapper::Log(nuraft_log_level level, std::string const &log_line, std::source_location location) const {
   logger_->put_details(static_cast<int>(level), location.file_name(), location.function_name(), location.line(),
                        log_line);
 }

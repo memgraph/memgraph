@@ -74,7 +74,7 @@ TEST_F(RaftStateTest, RaftStateEmptyMetadata) {
   ASSERT_TRUE(raft_state->IsLeader());
   ASSERT_TRUE(raft_state->GetDataInstances().empty());
 
-  auto const coords = raft_state->GetCoordinatorInstances();
+  auto const coords = raft_state->GetUserContext();
   ASSERT_EQ(coords.size(), 1);
 }
 

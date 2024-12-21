@@ -133,6 +133,11 @@ struct CoordinatorToReplicaConfig {
   friend bool operator==(CoordinatorToReplicaConfig const &, CoordinatorToReplicaConfig const &) = default;
 };
 
+struct LeaderCoordinatorData {
+  int id{0};
+  std::string bolt_server;
+};
+
 struct CoordinatorToCoordinatorConfig {
   uint32_t coordinator_id{0};
   io::network::Endpoint bolt_server;

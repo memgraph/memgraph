@@ -59,6 +59,7 @@ void from_json(nlohmann::json const &json_cluster_config, ptr<cluster_config> &c
   auto const log_idx = json_cluster_config.at(kLogIdx.data()).get<int64_t>();
   auto const async_replication = json_cluster_config.at(kAsyncReplication.data()).get<bool>();
   auto const user_ctx = json_cluster_config.at(kUserCtx.data()).get<std::string>();
+
   auto new_cluster_config = cs_new<cluster_config>(log_idx, prev_log_idx, async_replication);
   new_cluster_config->set_user_ctx(user_ctx);
   for (auto &[coord_id, endpoint, aux] : servers) {
@@ -68,6 +69,7 @@ void from_json(nlohmann::json const &json_cluster_config, ptr<cluster_config> &c
   config = new_cluster_config;
 }
 
+// TODO: (andi) cluster config has deserialize and serialize methods, maybe you can make use of them
 void to_json(nlohmann::json &j, cluster_config const &cluster_config) {
   auto const servers_vec =
       ranges::views::transform(
@@ -102,13 +104,11 @@ CoordinatorStateManager::CoordinatorStateManager(CoordinatorStateManagerConfig c
       logger_(logger),
       durability_(config.state_manager_durability_dir_),
       observer_(observer) {
-  auto const c2c = CoordinatorToCoordinatorConfig{
-      config.coordinator_id_, io::network::Endpoint(config.coordinator_hostname, config.bolt_port_),
-      io::network::Endpoint{config.coordinator_hostname, static_cast<uint16_t>(config.coordinator_port_)},
-      io::network::Endpoint{config.coordinator_hostname, static_cast<uint16_t>(config.management_port_)},
-      config.coordinator_hostname};
-  my_srv_config_ = cs_new<srv_config>(config.coordinator_id_, 0, c2c.coordinator_server.SocketAddress(),
-                                      nlohmann::json(c2c).dump(), false);
+  auto const coordinator_server =
+      io::network::Endpoint{config.coordinator_hostname, static_cast<uint16_t>(config.coordinator_port_)};
+
+  bool constexpr learner{false};
+  my_srv_config_ = cs_new<srv_config>(config.coordinator_id_, 0, coordinator_server.SocketAddress(), "", learner);
 
   cluster_config_ = cs_new<cluster_config>();
   cluster_config_->get_servers().push_back(my_srv_config_);
@@ -117,46 +117,29 @@ CoordinatorStateManager::CoordinatorStateManager(CoordinatorStateManagerConfig c
   TryUpdateClusterConfigFromDisk();
 }
 
-auto CoordinatorStateManager::SelfCoordinatorConfig() const -> CoordinatorToCoordinatorConfig {
-  auto const config = cluster_config_->get_server(my_id_);
-  return nlohmann::json::parse(config->get_aux()).template get<CoordinatorToCoordinatorConfig>();
-}
-
-auto CoordinatorStateManager::GetCoordinatorToCoordinatorConfigs() const
-    -> std::vector<CoordinatorToCoordinatorConfig> {
-  std::vector<CoordinatorToCoordinatorConfig> coordinator_to_coordinator_mappings;
-  auto const &cluster_config_servers = cluster_config_->get_servers();
-  coordinator_to_coordinator_mappings.reserve(cluster_config_servers.size());
-
-  std::ranges::transform(
-      cluster_config_servers, std::back_inserter(coordinator_to_coordinator_mappings),
-      [](auto &&server) -> CoordinatorToCoordinatorConfig {
-        return nlohmann::json::parse(server->get_aux()).template get<CoordinatorToCoordinatorConfig>();
-      });
-  return coordinator_to_coordinator_mappings;
-}
-
 void CoordinatorStateManager::TryUpdateClusterConfigFromDisk() {
-  logger_.Log(nuraft_log_level::TRACE, "Loading cluster config from RocksDb");
   auto const maybe_cluster_config = durability_.Get(kClusterConfigKey);
   if (!maybe_cluster_config.has_value()) {
-    logger_.Log(nuraft_log_level::TRACE, "Didn't find anything stored on disk for cluster config.");
+    spdlog::trace("Didn't find anything stored on disk for cluster config.");
     return;
   }
   auto cluster_config_json = nlohmann::json::parse(maybe_cluster_config.value());
 
   from_json(cluster_config_json, cluster_config_);
-  logger_.Log(nuraft_log_level::TRACE, "Loaded all cluster configs from RocksDb");
+  spdlog::trace("Loaded cluster config from the durable storage.");
 }
+
+// Called when application is starting up
 auto CoordinatorStateManager::load_config() -> ptr<cluster_config> {
+  spdlog::trace("Got request to update config from disk");
   TryUpdateClusterConfigFromDisk();
   return cluster_config_;
 }
 
 auto CoordinatorStateManager::save_config(cluster_config const &config) -> void {
+  spdlog::trace("Got request to save config.");
   ptr<buffer> buf = config.serialize();
   cluster_config_ = cluster_config::deserialize(*buf);
-  logger_.Log(nuraft_log_level::TRACE, "Saving cluster config to RocksDb");
   nlohmann::json json;
   to_json(json, config);
   auto const ok = durability_.Put(kClusterConfigKey, json.dump());
@@ -164,18 +147,23 @@ auto CoordinatorStateManager::save_config(cluster_config const &config) -> void 
     throw StoreClusterConfigException("Failed to store cluster config in RocksDb");
   }
 
-  NotifyObserver(GetCoordinatorToCoordinatorConfigs());
+  NotifyObserver();
 }
 
-void CoordinatorStateManager::NotifyObserver(std::vector<CoordinatorToCoordinatorConfig> const &configs) {
-  logger_.Log(nuraft_log_level::TRACE, "Notifying observer about cluster config change.");
+void CoordinatorStateManager::NotifyObserver() {
+  spdlog::trace("Notifying observer about cluster config change.");
   if (observer_) {
-    observer_.value().Update(configs);
+    auto const &cluster_config_servers = cluster_config_->get_servers();
+    std::vector<uint32_t> ids;
+    for (auto const &server : cluster_config_servers) {
+      ids.emplace_back(server->get_id());
+    }
+    observer_.value().Update(ids);
   }
 }
 
 auto CoordinatorStateManager::save_state(srv_state const &state) -> void {
-  logger_.Log(nuraft_log_level::TRACE, "Saving server state in coordinator state manager.");
+  spdlog::trace("Saving server state in coordinator state manager.");
 
   nlohmann::json json;
   to_json(json, state);
@@ -186,7 +174,7 @@ auto CoordinatorStateManager::save_state(srv_state const &state) -> void {
 }
 
 auto CoordinatorStateManager::read_state() -> ptr<srv_state> {
-  logger_.Log(nuraft_log_level::TRACE, "Reading server state in coordinator state manager.");
+  spdlog::trace("Reading server state in coordinator state manager.");
 
   auto const maybe_server_state = durability_.Get(kServerStateKey);
   if (!maybe_server_state.has_value()) {
