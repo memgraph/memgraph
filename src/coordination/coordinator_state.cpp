@@ -153,7 +153,7 @@ auto CoordinatorState::GetRoutingTable() -> RoutingTable {
   return std::get<CoordinatorInstance>(data_).GetRoutingTable();
 }
 
-auto CoordinatorState::GetLeaderCoordinatorData() const -> std::optional<coordination::CoordinatorToCoordinatorConfig> {
+auto CoordinatorState::GetLeaderCoordinatorData() const -> std::optional<coordination::LeaderCoordinatorData> {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Coordinator cannot get leader coordinator data since variant holds wrong alternative");
   return std::get<CoordinatorInstance>(data_).GetLeaderCoordinatorData();

@@ -106,13 +106,13 @@ class CoordinatorInstance {
 
   static auto ChooseMostUpToDateInstance(std::span<InstanceNameDbHistories> histories) -> std::optional<NewMainRes>;
 
-  auto GetLeaderCoordinatorData() const -> std::optional<CoordinatorToCoordinatorConfig>;
+  auto GetLeaderCoordinatorData() const -> std::optional<LeaderCoordinatorData>;
 
   auto ReconcileClusterState() -> ReconcileClusterStateStatus;
 
   void ShuttingDown();
 
-  void AddOrUpdateClientConnectors(std::vector<CoordinatorToCoordinatorConfig> const &coordinator_configs);
+  void AddOrUpdateClientConnectors(std::map<uint32_t, CoordinatorInstanceContext> contexts);
 
   void InstanceSuccessCallback(std::string_view instance_name, std::optional<InstanceState> instance_state);
   void InstanceFailCallback(std::string_view instance_name, std::optional<InstanceState> instance_state);
