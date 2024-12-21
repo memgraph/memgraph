@@ -250,16 +250,33 @@ RaftState::~RaftState() {
   spdlog::trace("Asio service closed");
 }
 
-auto RaftState::InstanceName() const -> std::string { return fmt::format("coordinator_{}", coordinator_id_); }
-
-auto RaftState::GetCoordinatorId() const -> uint32_t { return coordinator_id_; }
-
-auto RaftState::SelfCoordinatorConfig() const -> CoordinatorToCoordinatorConfig {
-  return state_manager_->SelfCoordinatorConfig();
+auto RaftState::GetCoordinatorEndpoint(uint32_t coordinator_id) const -> std::string {
+  return raft_server_->get_srv_config(coordinator_id)->get_endpoint();
 }
 
-auto RaftState::GetCoordinatorToCoordinatorConfigs() const -> std::vector<CoordinatorToCoordinatorConfig> {
-  return state_manager_->GetCoordinatorToCoordinatorConfigs();
+auto RaftState::GetMyCoordinatorEndpoint() const -> std::string { return GetCoordinatorEndpoint(coordinator_id_); }
+
+auto RaftState::InstanceName() const -> std::string { return fmt::format("coordinator_{}", coordinator_id_); }
+
+auto RaftState::GetMyCoordinatorId() const -> uint32_t { return coordinator_id_; }
+
+auto RaftState::GetMyCoordinatorInstanceContext() const -> CoordinatorInstanceContext {
+  return GetCoordinatorInstanceContext(static_cast<int>(coordinator_id_));
+}
+
+auto RaftState::GetCoordinatorInstanceContext(int coordinator_id) const -> CoordinatorInstanceContext {
+  auto const coordinators = GetUserContext();
+  auto const context = coordinators.find(coordinator_id);
+  // This should never happen but just to be sure, don't crash database.
+  if (context == coordinators.end()) {
+    spdlog::error("No information found for coordinator with id {}.", coordinator_id);
+    return {};
+  }
+  return context->second;
+}
+
+auto RaftState::GetUserContext() const -> std::map<uint32_t, CoordinatorInstanceContext> {
+  return DeserializeRaftContext(raft_server_->get_user_ctx());
 }
 
 auto RaftState::RemoveCoordinatorInstance(int coordinator_id) -> void {
@@ -336,6 +353,7 @@ auto RaftState::AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &con
 
   // TODO: (andi) Add a breaking label
   auto servers = DeserializeRaftContext(raft_server_->get_user_ctx());
+  spdlog::trace("Found {} coordinators before adding coordinator {}", servers.size(), config.coordinator_id);
   servers[static_cast<int>(config.coordinator_id)] = {.bolt_server = config.bolt_server.SocketAddress(),
                                                       .management_server = config.management_server.SocketAddress()};
   raft_server_->set_user_ctx(SerializeRaftContext(servers));
@@ -353,29 +371,17 @@ auto RaftState::CoordLastSuccRespMs(uint32_t srv_id) -> std::chrono::millisecond
   return elapsed_time_ms;
 }
 
-auto RaftState::GetCoordinatorInstances() const -> std::vector<CoordinatorToCoordinatorConfig> {
-  std::vector<ptr<srv_config>> srv_configs;
-  raft_server_->get_srv_config_all(srv_configs);
-
-  return ranges::views::transform(
-             srv_configs,
-             [](auto const &srv_config) {
-               return nlohmann::json::parse(srv_config->get_aux()).template get<CoordinatorToCoordinatorConfig>();
-             }) |
-         ranges::to<std::vector>();
-}
-
-auto RaftState::GetLeaderCoordinatorData() const -> std::optional<CoordinatorToCoordinatorConfig> {
-  std::vector<ptr<srv_config>> srv_configs;
-  raft_server_->get_srv_config_all(srv_configs);
+// TODO: (andi) Unit test it
+auto RaftState::GetLeaderCoordinatorData() const -> std::optional<LeaderCoordinatorData> {
   auto const leader_id = raft_server_->get_leader();
-  auto const transform_func = [](auto const &srv_config) -> CoordinatorToCoordinatorConfig {
-    return nlohmann::json::parse(srv_config->get_aux()).template get<CoordinatorToCoordinatorConfig>();
-  };
-  auto maybe_leader_srv_config =
-      std::ranges::find_if(srv_configs, [&](auto const &srv_config) { return leader_id == srv_config->get_id(); });
-  return maybe_leader_srv_config == srv_configs.end() ? std::nullopt
-                                                      : std::make_optional(transform_func(*maybe_leader_srv_config));
+
+  auto const coordinator_contexts = GetUserContext();
+  auto const leader_data = coordinator_contexts.find(leader_id);
+  if (leader_data == coordinator_contexts.end()) {
+    spdlog::trace("Couldn't find data for the current leader.");
+    return {};
+  }
+  return LeaderCoordinatorData{.id = leader_id, .bolt_server = leader_data->second.bolt_server};
 }
 
 auto RaftState::IsLeader() const -> bool { return raft_server_->is_leader(); }

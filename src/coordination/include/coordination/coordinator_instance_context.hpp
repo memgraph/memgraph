@@ -28,8 +28,8 @@ struct CoordinatorInstanceContext {
 void to_json(nlohmann::json &j, CoordinatorInstanceContext const &context);
 void from_json(nlohmann::json const &j, CoordinatorInstanceContext &context);
 
-auto DeserializeRaftContext(std::string const &user_ctx) -> std::map<int, CoordinatorInstanceContext>;
-auto SerializeRaftContext(std::map<int, CoordinatorInstanceContext> const &servers) -> std::string;
+auto DeserializeRaftContext(std::string const &user_ctx) -> std::map<uint32_t, CoordinatorInstanceContext>;
+auto SerializeRaftContext(std::map<uint32_t, CoordinatorInstanceContext> const &servers) -> std::string;
 
 }  // namespace memgraph::coordination
 

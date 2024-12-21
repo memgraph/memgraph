@@ -26,11 +26,11 @@ void from_json(nlohmann::json const &j, CoordinatorInstanceContext &context) {
   context.management_server = j.at("management_server").get<std::string>();
 }
 
-auto DeserializeRaftContext(std::string const &user_ctx) -> std::map<int, CoordinatorInstanceContext> {
+auto DeserializeRaftContext(std::string const &user_ctx) -> std::map<uint32_t, CoordinatorInstanceContext> {
   if (user_ctx.empty()) {
     return {};
   }
-  std::map<int, CoordinatorInstanceContext> servers;
+  std::map<uint32_t, CoordinatorInstanceContext> servers;
   try {
     auto const parsedJson = nlohmann::json::parse(user_ctx);
     // Deserialize JSON object into the map
@@ -44,7 +44,7 @@ auto DeserializeRaftContext(std::string const &user_ctx) -> std::map<int, Coordi
   return servers;
 }
 
-auto SerializeRaftContext(std::map<int, CoordinatorInstanceContext> const &servers) -> std::string {
+auto SerializeRaftContext(std::map<uint32_t, CoordinatorInstanceContext> const &servers) -> std::string {
   if (servers.empty()) {
     return "";
   }

@@ -35,13 +35,13 @@ class CoordinatorInstanceContextTest : public ::testing::Test {
 };
 
 TEST_F(CoordinatorInstanceContextTest, MarshallingEmptyContext) {
-  std::map<int, CoordinatorInstanceContext> servers;
+  std::map<uint32_t, CoordinatorInstanceContext> servers;
   ASSERT_EQ(SerializeRaftContext(servers), "");
   ASSERT_TRUE(DeserializeRaftContext("").empty());
 }
 
 TEST_F(CoordinatorInstanceContextTest, MarshallingNonEmptyContext) {
-  std::map<int, CoordinatorInstanceContext> servers;
+  std::map<uint32_t, CoordinatorInstanceContext> servers;
   servers.emplace(1,
                   CoordinatorInstanceContext{.bolt_server = "localhost:9011", .management_server = "localhost:10111"});
   servers.emplace(2,

@@ -61,14 +61,16 @@ class RaftState {
   RaftState &operator=(RaftState &&other) noexcept = default;
   ~RaftState();
 
+  auto GetCoordinatorEndpoint(uint32_t coordinator_id) const -> std::string;
+  auto GetMyCoordinatorEndpoint() const -> std::string;
+  auto GetMyCoordinatorId() const -> uint32_t;
   auto InstanceName() const -> std::string;
 
   auto AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) -> void;
   auto RemoveCoordinatorInstance(int coordinator_id) -> void;
-  auto GetCoordinatorInstances() const -> std::vector<CoordinatorToCoordinatorConfig>;
 
   auto IsLeader() const -> bool;
-  auto GetCoordinatorId() const -> uint32_t;
+  auto GetLeaderId() const -> uint32_t;
 
   auto AppendClusterUpdate(std::vector<DataInstanceState> cluster_state, utils::UUID uuid) -> bool;
 
@@ -81,21 +83,14 @@ class RaftState {
   auto TryGetCurrentMainName() const -> std::optional<std::string>;
   auto GetCurrentMainUUID() const -> utils::UUID;
 
-  auto GetLeaderCoordinatorData() const -> std::optional<CoordinatorToCoordinatorConfig>;
-
+  auto GetLeaderCoordinatorData() const -> std::optional<LeaderCoordinatorData>;
   auto GetRoutingTable() const -> RoutingTable;
 
   // Returns elapsed time in ms since last successful response from the coordinator with id srv_id
   auto CoordLastSuccRespMs(uint32_t srv_id) -> std::chrono::milliseconds;
-
-  auto GetLeaderId() const -> uint32_t;
-
-  auto SelfCoordinatorConfig() const -> CoordinatorToCoordinatorConfig;
-
-  auto GetCoordinatorToCoordinatorConfigs() const -> std::vector<CoordinatorToCoordinatorConfig>;
-
-  auto GetUserCtx() const -> std::string;
-  auto SetUserCtx(std::string const &new_user_ctx) -> void;
+  auto GetUserContext() const -> std::map<uint32_t, CoordinatorInstanceContext>;
+  auto GetCoordinatorInstanceContext(int coordinator_id) const -> CoordinatorInstanceContext;
+  auto GetMyCoordinatorInstanceContext() const -> CoordinatorInstanceContext;
 
  private:
   int coordinator_port_;

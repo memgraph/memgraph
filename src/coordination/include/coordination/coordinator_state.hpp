@@ -58,7 +58,7 @@ class CoordinatorState {
 
   auto RemoveCoordinatorInstance(int coordinator_id) -> RemoveCoordinatorInstanceStatus;
 
-  [[nodiscard]] auto GetLeaderCoordinatorData() const -> std::optional<coordination::CoordinatorToCoordinatorConfig>;
+  [[nodiscard]] auto GetLeaderCoordinatorData() const -> std::optional<coordination::LeaderCoordinatorData>;
 
   // NOTE: The client code must check that the server exists before calling this method.
   auto GetDataInstanceManagementServer() const -> DataInstanceManagementServer &;
