@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <cstdint>
 #include <string>
 
 #include "json/json.hpp"
@@ -19,6 +20,7 @@
 
 namespace memgraph::coordination {
 struct CoordinatorInstanceContext {
+  uint32_t id;
   std::string bolt_server;
   std::string management_server;
 

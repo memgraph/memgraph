@@ -23,7 +23,7 @@ class CoordinatorInstance;
 class CoordinationClusterChangeObserver {
  public:
   explicit CoordinationClusterChangeObserver(CoordinatorInstance *instance);
-  void Update(std::map<uint32_t, CoordinatorInstanceContext> const &contexts);
+  void Update();
 
  private:
   CoordinatorInstance *instance_;

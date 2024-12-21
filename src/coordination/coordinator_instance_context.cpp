@@ -14,14 +14,17 @@
 #include "coordination/coordinator_instance_context.hpp"
 #include "utils/logging.hpp"
 
+static constexpr std::string_view kId{"id"};
 static constexpr std::string_view kBoltServer{"bolt_server"};
 static constexpr std::string_view kManagementServer{"management_server"};
 
 namespace memgraph::coordination {
 void to_json(nlohmann::json &j, CoordinatorInstanceContext const &context) {
-  j = nlohmann::json{{kBoltServer, context.bolt_server}, {kManagementServer, context.management_server}};
+  j = nlohmann::json{
+      {kId, context.id}, {kBoltServer, context.bolt_server}, {kManagementServer, context.management_server}};
 }
 void from_json(nlohmann::json const &j, CoordinatorInstanceContext &context) {
+  context.id = j.at("id").get<uint32_t>();
   context.bolt_server = j.at("bolt_server").get<std::string>();
   context.management_server = j.at("management_server").get<std::string>();
 }
