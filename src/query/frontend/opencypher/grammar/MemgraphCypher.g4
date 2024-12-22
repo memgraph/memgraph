@@ -185,6 +185,7 @@ memgraphCypherKeyword : cypherKeyword
                       | USING
                       | VALUE
                       | VALUES
+                      | VECTOR
                       | VERSION
                       | WEBSOCKET
                       | ZONEDDATETIME
@@ -200,6 +201,7 @@ query : cypherQuery
       | edgeIndexQuery
       | pointIndexQuery
       | textIndexQuery
+      | vectorIndexQuery
       | explainQuery
       | profileQuery
       | databaseInfoQuery
@@ -657,6 +659,12 @@ createPointIndex : CREATE POINT INDEX ON ':' labelName '(' propertyKeyName ')';
 dropPointIndex : DROP POINT INDEX ON ':' labelName '(' propertyKeyName ')' ;
 
 pointIndexQuery : createPointIndex | dropPointIndex ;
+
+createVectorIndex : CREATE VECTOR INDEX indexName ON ':' labelName ( '(' propertyKeyName ')' )? WITH CONFIG configsMap=configMap ;
+
+dropVectorIndex : DROP VECTOR INDEX indexName ;
+
+vectorIndexQuery : createVectorIndex | dropVectorIndex ;
 
 dropGraphQuery : DROP GRAPH ;
 

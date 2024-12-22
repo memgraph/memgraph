@@ -23,6 +23,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/point_index.hpp"
 #include "storage/v2/indices/point_iterator.hpp"
+#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
 #include "storage/v2/storage.hpp"
@@ -581,6 +582,10 @@ class DbAccessor final {
     return accessor_->ApproximateVerticesPointCount(label, property);
   }
 
+  std::optional<uint64_t> VerticesVectorCount(storage::LabelId label, storage::PropertyId property) const {
+    return accessor_->ApproximateVerticesVectorCount(label, property);
+  }
+
   int64_t VerticesCount(storage::LabelId label, storage::PropertyId property,
                         const storage::PropertyValue &value) const {
     return accessor_->ApproximateVertexCount(label, property, value);
@@ -674,8 +679,14 @@ class DbAccessor final {
 
   void DropTextIndex(const std::string &index_name) { accessor_->DropTextIndex(index_name); }
 
-  // not used at the moment since we are creating vector index directly via storage accessor
-  void CreateVectorIndex(const storage::VectorIndexSpec &spec) { accessor_->CreateVectorIndex(spec); }
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateVectorIndex(
+      const std::shared_ptr<storage::VectorIndexSpec> &spec) {
+    return accessor_->CreateVectorIndex(spec);
+  }
+
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> DropVectorIndex(const std::string &index_name) {
+    return accessor_->DropVectorIndex(index_name);
+  }
 
   utils::BasicResult<storage::StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
       storage::LabelId label, storage::PropertyId property) {

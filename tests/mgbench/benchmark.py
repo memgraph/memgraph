@@ -702,6 +702,8 @@ def save_memory_usage_of_imported_data(vendor_runner, workload, results, memory_
 def run_target_workload(benchmark_context, workload, bench_queries, vendor_runner, client, results, storage_mode):
     memory_usage_of_emtpy_db = save_memory_usage_of_empty_db(vendor_runner, workload, results)
     generated_queries = workload.dataset_generator()
+    if not generated_queries:
+        log.warning("Generated import dataset is empty, probably dataset_generator under workload function is wrong.")
     import_results, rss_usage = setup_indices_and_import_dataset(
         client, vendor_runner, generated_queries, workload, storage_mode
     )
