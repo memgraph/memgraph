@@ -8,11 +8,16 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
+
 #include <optional>
 #include <string>
+
+#include "coordination/coordinator_instance_context.hpp"
 #include "kvstore/kvstore.hpp"
+#include "nuraft/logger_wrapper.hpp"
 
 namespace memgraph::coordination {
-auto GetOrSetDefaultVersion(kvstore::KVStore &durability, std::string_view key, const int default_value,
-                            LoggerWrapper logger) -> int;
+auto GetOrSetDefaultVersion(kvstore::KVStore &durability, std::string_view key, int default_value, LoggerWrapper logger)
+    -> int;
+
 }  // namespace memgraph::coordination

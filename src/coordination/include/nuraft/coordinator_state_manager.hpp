@@ -59,11 +59,8 @@ class CoordinatorStateManager : public state_mgr {
 
   [[nodiscard]] auto GetSrvConfig() const -> ptr<srv_config>;
 
-  auto SelfCoordinatorConfig() const -> CoordinatorToCoordinatorConfig;
-  auto GetCoordinatorToCoordinatorConfigs() const -> std::vector<CoordinatorToCoordinatorConfig>;
-
  private:
-  void NotifyObserver(std::vector<CoordinatorToCoordinatorConfig> const &configs);
+  void NotifyObserver();
   void HandleVersionMigration();
   void TryUpdateClusterConfigFromDisk();
 

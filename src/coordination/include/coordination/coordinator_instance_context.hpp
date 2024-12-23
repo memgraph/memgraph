@@ -9,25 +9,27 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#ifdef MG_ENTERPRISE
+#include <string>
+
+#include "json/json.hpp"
 
 #pragma once
 
-#include "coordination/coordinator_communication_config.hpp"
-#include "coordination/coordinator_instance_context.hpp"
+#ifdef MG_ENTERPRISE
 
 namespace memgraph::coordination {
+struct CoordinatorInstanceContext {
+  std::string bolt_server;
+  std::string management_server;
 
-class CoordinatorInstance;
-
-class CoordinationClusterChangeObserver {
- public:
-  explicit CoordinationClusterChangeObserver(CoordinatorInstance *instance);
-  void Update(std::map<uint32_t, CoordinatorInstanceContext> const &contexts);
-
- private:
-  CoordinatorInstance *instance_;
+  friend bool operator==(CoordinatorInstanceContext const &, CoordinatorInstanceContext const &) = default;
 };
+
+void to_json(nlohmann::json &j, CoordinatorInstanceContext const &context);
+void from_json(nlohmann::json const &j, CoordinatorInstanceContext &context);
+
+auto DeserializeRaftContext(std::string const &user_ctx) -> std::map<uint32_t, CoordinatorInstanceContext>;
+auto SerializeRaftContext(std::map<uint32_t, CoordinatorInstanceContext> const &servers) -> std::string;
 
 }  // namespace memgraph::coordination
 
