@@ -102,6 +102,7 @@ ISOLATION               : I S O L A T I O N ;
 KAFKA                   : K A F K A ;
 LABELS                  : L A B E L S ;
 LEVEL                   : L E V E L ;
+LICENSE                 : L I C E N S E ;
 LIST                    : L I S T ;
 LOAD                    : L O A D ;
 LOCALDATETIME           : L O C A L D A T E T I M E ;

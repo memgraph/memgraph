@@ -150,6 +150,10 @@ antlrcpp::Any CypherMainVisitor::visitSystemInfoQuery(MemgraphCypher::SystemInfo
     info_query->info_type_ = SystemInfoQuery::InfoType::ACTIVE_USERS;
     return info_query;
   }
+  if (ctx->licenseInfo()) {
+    info_query->info_type_ = SystemInfoQuery::InfoType::LICENSE;
+    return info_query;
+  }
   // Should never get here
   throw utils::NotYetImplemented("System info query: '{}'", ctx->getText());
 }

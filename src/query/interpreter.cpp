@@ -1401,7 +1401,9 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
   using enum memgraph::flags::Experiments;
 
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
-    throw QueryRuntimeException("High availability is only available in Memgraph Enterprise.");
+    throw QueryRuntimeException(
+        "High availability is only available in Memgraph Enterprise. Check your license status by running SHOW LICENSE "
+        "INFO.");
   }
 
   Callback callback;
@@ -3270,7 +3272,9 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
                               std::vector<Notification> *notifications, CurrentDB &current_db,
                               InterpreterContext *interpreter_context) {
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
-    throw QueryException("Trying to use enterprise feature without a valid license.");
+    throw QueryException(
+        "Trying to use enterprise feature without a valid license. Check your license status by running SHOW LICENSE "
+        "INFO.");
   }
 
   if (in_explicit_transaction) {
@@ -4473,7 +4477,9 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
     case DatabaseInfoQuery::InfoType::METRICS: {
 #ifdef MG_ENTERPRISE
       if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-        throw QueryRuntimeException("SHOW METRICS INFO command is only available with a valid Enterprise License!");
+        throw QueryRuntimeException(
+            "SHOW METRICS INFO command is only available with a valid Enterprise License! Check your license status by "
+            "running SHOW LICENSE INFO.");
       }
 #else
       throw QueryRuntimeException("SHOW METRICS INFO command is only available in Memgraph Enterprise build!");
@@ -4587,6 +4593,27 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
         for (const auto &result : GetActiveUsersInfo(interpreter_context)) {
           results.push_back({TypedValue(result.username), TypedValue(result.uuid), TypedValue(result.login_timestamp)});
         }
+        return std::pair{results, QueryHandlerResult::NOTHING};
+      };
+    } break;
+    case SystemInfoQuery::InfoType::LICENSE: {
+      header = {"license info", "value"};
+      handler = [] {
+        const auto license_info = license::global_license_checker.GetDetailedLicenseInfo();
+        const auto memory_limit = license_info.memory_limit != 0
+                                      ? utils::GetReadableSize(static_cast<double>(license_info.memory_limit))
+                                      : "UNLIMITED";
+
+        const std::vector<std::vector<TypedValue>> results{
+            {TypedValue("organization_name"), TypedValue(license_info.organization_name)},
+            {TypedValue("license_key"), TypedValue(license_info.license_key)},
+            {TypedValue("is_valid"), TypedValue(license_info.is_valid)},
+            {TypedValue("license_type"), TypedValue(license_info.license_type)},
+            {TypedValue("valid_until"), TypedValue(license_info.valid_until)},
+            {TypedValue("memory_limit"), TypedValue(memory_limit)},
+            {TypedValue("status"), TypedValue(license_info.status)},
+        };
+
         return std::pair{results, QueryHandlerResult::NOTHING};
       };
     } break;
@@ -4897,7 +4924,9 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &cur
                                         Interpreter &interpreter) {
 #ifdef MG_ENTERPRISE
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
-    throw QueryException("Trying to use enterprise feature without a valid license.");
+    throw QueryException(
+        "Trying to use enterprise feature without a valid license. Check your license status by running SHOW LICENSE "
+        "INFO.");
   }
 
   auto *query = utils::Downcast<MultiDatabaseQuery>(parsed_query.query);
@@ -5068,7 +5097,9 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
                                         std::shared_ptr<QueryUserOrRole> user_or_role) {
 #ifdef MG_ENTERPRISE
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
-    throw QueryException("Trying to use enterprise feature without a valid license.");
+    throw QueryException(
+        "Trying to use enterprise feature without a valid license. Check your license status by running SHOW LICENSE "
+        "INFO.");
   }
 
   auto *db_handler = interpreter_context->dbms_handler;
