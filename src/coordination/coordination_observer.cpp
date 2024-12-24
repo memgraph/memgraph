@@ -24,7 +24,7 @@ CoordinationClusterChangeObserver::CoordinationClusterChangeObserver(Coordinator
     : instance_{instance} {}
 
 void CoordinationClusterChangeObserver::Update(std::vector<CoordinatorToCoordinatorConfig> const &configs) {
-  instance_->AddOrUpdateClientConnectors(configs);
+  instance_->UpdateClientConnectors(configs);
 }
 
 }  // namespace memgraph::coordination

@@ -61,18 +61,24 @@ class RaftState {
   RaftState &operator=(RaftState &&other) noexcept = default;
   ~RaftState();
 
+  auto GetCoordinatorEndpoint(uint32_t coordinator_id) const -> std::string;
+  auto GetMyCoordinatorEndpoint() const -> std::string;
+  auto GetMyCoordinatorId() const -> uint32_t;
   auto InstanceName() const -> std::string;
 
   auto AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) -> void;
   auto RemoveCoordinatorInstance(int coordinator_id) -> void;
-  auto GetCoordinatorInstances() const -> std::vector<CoordinatorToCoordinatorConfig>;
 
   auto IsLeader() const -> bool;
-  auto GetCoordinatorId() const -> uint32_t;
+  auto GetLeaderId() const -> uint32_t;
 
-  auto AppendClusterUpdate(std::vector<DataInstanceState> cluster_state, utils::UUID uuid) -> bool;
+  auto GetCoordinatorToCoordinatorConfigs() const -> std::vector<CoordinatorToCoordinatorConfig>;
+
+  auto AppendClusterUpdate(std::vector<DataInstanceState> data_instances,
+                           std::vector<CoordinatorInstanceContext> coordinator_instances, utils::UUID uuid) -> bool;
 
   auto GetDataInstances() const -> std::vector<DataInstanceState>;
+  auto GetCoordinatorInstances() const -> std::vector<CoordinatorInstanceContext>;
 
   // TODO: (andi) Ideally we delete this and rely just on one thing.
   auto MainExists() const -> bool;
@@ -81,18 +87,13 @@ class RaftState {
   auto TryGetCurrentMainName() const -> std::optional<std::string>;
   auto GetCurrentMainUUID() const -> utils::UUID;
 
-  auto GetLeaderCoordinatorData() const -> std::optional<CoordinatorToCoordinatorConfig>;
-
+  auto GetLeaderCoordinatorData() const -> std::optional<LeaderCoordinatorData>;
   auto GetRoutingTable() const -> RoutingTable;
 
   // Returns elapsed time in ms since last successful response from the coordinator with id srv_id
   auto CoordLastSuccRespMs(uint32_t srv_id) -> std::chrono::milliseconds;
-
-  auto GetLeaderId() const -> uint32_t;
-
-  auto SelfCoordinatorConfig() const -> CoordinatorToCoordinatorConfig;
-
-  auto GetCoordinatorToCoordinatorConfigs() const -> std::vector<CoordinatorToCoordinatorConfig>;
+  auto GetCoordinatorInstanceContext(int coordinator_id) const -> CoordinatorInstanceContext;
+  auto GetMyCoordinatorInstanceContext() const -> CoordinatorInstanceContext;
 
  private:
   int coordinator_port_;

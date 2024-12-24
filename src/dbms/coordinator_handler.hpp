@@ -51,7 +51,7 @@ class CoordinatorHandler {
 
   auto RemoveCoordinatorInstance(int coordinator_id) -> coordination::RemoveCoordinatorInstanceStatus;
 
-  auto GetLeaderCoordinatorData() const -> std::optional<coordination::CoordinatorToCoordinatorConfig>;
+  auto GetLeaderCoordinatorData() const -> std::optional<coordination::LeaderCoordinatorData>;
 
  private:
   // NOLINTNEXTLINE

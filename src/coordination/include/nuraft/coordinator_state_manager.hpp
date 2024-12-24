@@ -43,6 +43,9 @@ class CoordinatorStateManager : public state_mgr {
 
   ~CoordinatorStateManager() override = default;
 
+  // TODO: (andi) See what's needed and create a struct only for that, not all things needed.
+  auto GetCoordinatorToCoordinatorConfigs() const -> std::vector<CoordinatorToCoordinatorConfig>;
+
   auto load_config() -> ptr<cluster_config> override;
 
   auto save_config(cluster_config const &config) -> void override;
@@ -58,9 +61,6 @@ class CoordinatorStateManager : public state_mgr {
   auto system_exit(int exit_code) -> void override;
 
   [[nodiscard]] auto GetSrvConfig() const -> ptr<srv_config>;
-
-  auto SelfCoordinatorConfig() const -> CoordinatorToCoordinatorConfig;
-  auto GetCoordinatorToCoordinatorConfigs() const -> std::vector<CoordinatorToCoordinatorConfig>;
 
  private:
   void NotifyObserver(std::vector<CoordinatorToCoordinatorConfig> const &configs);

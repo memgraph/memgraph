@@ -106,20 +106,21 @@ class CoordinatorInstance {
 
   static auto ChooseMostUpToDateInstance(std::span<InstanceNameDbHistories> histories) -> std::optional<NewMainRes>;
 
-  auto GetLeaderCoordinatorData() const -> std::optional<CoordinatorToCoordinatorConfig>;
+  auto GetLeaderCoordinatorData() const -> std::optional<LeaderCoordinatorData>;
 
   auto ReconcileClusterState() -> ReconcileClusterStateStatus;
 
   void ShuttingDown();
 
-  void AddOrUpdateClientConnectors(std::vector<CoordinatorToCoordinatorConfig> const &configs);
-
-  auto GetCoordinatorToCoordinatorConfigs() const -> std::vector<CoordinatorToCoordinatorConfig>;
-
   void InstanceSuccessCallback(std::string_view instance_name, std::optional<InstanceState> instance_state);
   void InstanceFailCallback(std::string_view instance_name, std::optional<InstanceState> instance_state);
 
+  // TODO: (andi) Move to private section
+  void UpdateClientConnectors(std::vector<CoordinatorToCoordinatorConfig> const &configs);
+
  private:
+  auto UpdateConnector(uint32_t coordinator_id, io::network::Endpoint const &management_server) -> void;
+
   auto FindReplicationInstance(std::string_view replication_instance_name) -> ReplicationInstanceConnector &;
   auto ReconcileClusterState_() -> ReconcileClusterStateStatus;
   auto ShowInstancesStatusAsFollower() const -> std::vector<InstanceStatus>;
