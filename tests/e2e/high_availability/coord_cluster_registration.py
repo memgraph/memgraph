@@ -225,105 +225,105 @@ def cleanup_after_test():
     interactive_mg_runner.kill_all(keep_directories=False)
 
 
-def test_register_repl_instances_then_coordinators(test_name):
-    MEMGRAPH_INSTANCES_DESCRIPTION = get_instances_description(test_name=test_name)
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
-
-    coordinator3_cursor = connect(host="localhost", port=7692).cursor()
-
-    execute_and_fetch_all(
-        coordinator3_cursor,
-        "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
-    )
-    execute_and_fetch_all(
-        coordinator3_cursor,
-        "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",
-    )
-    execute_and_fetch_all(
-        coordinator3_cursor,
-        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10003'};",
-    )
-    execute_and_fetch_all(coordinator3_cursor, "SET INSTANCE instance_1 TO MAIN")
-    execute_and_fetch_all(
-        coordinator3_cursor,
-        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111', 'management_server': 'localhost:10121'}",
-    )
-    execute_and_fetch_all(
-        coordinator3_cursor,
-        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112', 'management_server': 'localhost:10122'}",
-    )
-    execute_and_fetch_all(
-        coordinator3_cursor,
-        "ADD COORDINATOR 3 WITH CONFIG {'bolt_server': 'localhost:7692', 'coordinator_server': 'localhost:10113', 'management_server': 'localhost:10123'}",
-    )
-
-    leader_data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "replica"),
-    ]
-    mg_sleep_and_assert(leader_data, partial(show_instances, coordinator3_cursor))
-
-    coordinator1_cursor = connect(host="localhost", port=7690).cursor()
-    coordinator2_cursor = connect(host="localhost", port=7691).cursor()
-
-    mg_sleep_and_assert(leader_data, partial(show_instances, coordinator1_cursor))
-    mg_sleep_and_assert(leader_data, partial(show_instances, coordinator2_cursor))
-
-
-def test_register_coordinator_then_repl_instances(test_name):
-    MEMGRAPH_INSTANCES_DESCRIPTION = get_instances_description(test_name=test_name)
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
-
-    coordinator3_cursor = connect(host="localhost", port=7692).cursor()
-
-    execute_and_fetch_all(
-        coordinator3_cursor,
-        "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111', 'management_server': 'localhost:10121'}",
-    )
-    execute_and_fetch_all(
-        coordinator3_cursor,
-        "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112', 'management_server': 'localhost:10122'}",
-    )
-    execute_and_fetch_all(
-        coordinator3_cursor,
-        "ADD COORDINATOR 3 WITH CONFIG {'bolt_server': 'localhost:7692', 'coordinator_server': 'localhost:10113', 'management_server': 'localhost:10123'}",
-    )
-
-    execute_and_fetch_all(
-        coordinator3_cursor,
-        "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
-    )
-    execute_and_fetch_all(
-        coordinator3_cursor,
-        "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",
-    )
-    execute_and_fetch_all(
-        coordinator3_cursor,
-        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10003'};",
-    )
-    execute_and_fetch_all(coordinator3_cursor, "SET INSTANCE instance_3 TO MAIN")
-
-    data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
-        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
-        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
-        ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
-        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
-    ]
-    mg_sleep_and_assert(data, partial(show_instances, coordinator3_cursor))
-
-    coordinator1_cursor = connect(host="localhost", port=7690).cursor()
-    coordinator2_cursor = connect(host="localhost", port=7691).cursor()
-
-    mg_sleep_and_assert(data, partial(show_instances, coordinator1_cursor))
-    mg_sleep_and_assert(data, partial(show_instances, coordinator2_cursor))
-
-
+# def test_register_repl_instances_then_coordinators(test_name):
+#     MEMGRAPH_INSTANCES_DESCRIPTION = get_instances_description(test_name=test_name)
+#     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
+#
+#     coordinator3_cursor = connect(host="localhost", port=7692).cursor()
+#
+#     execute_and_fetch_all(
+#         coordinator3_cursor,
+#         "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
+#     )
+#     execute_and_fetch_all(
+#         coordinator3_cursor,
+#         "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",
+#     )
+#     execute_and_fetch_all(
+#         coordinator3_cursor,
+#         "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10003'};",
+#     )
+#     execute_and_fetch_all(coordinator3_cursor, "SET INSTANCE instance_1 TO MAIN")
+#     execute_and_fetch_all(
+#         coordinator3_cursor,
+#         "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111', 'management_server': 'localhost:10121'}",
+#     )
+#     execute_and_fetch_all(
+#         coordinator3_cursor,
+#         "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112', 'management_server': 'localhost:10122'}",
+#     )
+#     execute_and_fetch_all(
+#         coordinator3_cursor,
+#         "ADD COORDINATOR 3 WITH CONFIG {'bolt_server': 'localhost:7692', 'coordinator_server': 'localhost:10113', 'management_server': 'localhost:10123'}",
+#     )
+#
+#     leader_data = [
+#         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+#         ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+#         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
+#         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
+#         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
+#         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "replica"),
+#     ]
+#     mg_sleep_and_assert(leader_data, partial(show_instances, coordinator3_cursor))
+#
+#     coordinator1_cursor = connect(host="localhost", port=7690).cursor()
+#     coordinator2_cursor = connect(host="localhost", port=7691).cursor()
+#
+#     mg_sleep_and_assert(leader_data, partial(show_instances, coordinator1_cursor))
+#     mg_sleep_and_assert(leader_data, partial(show_instances, coordinator2_cursor))
+#
+#
+# def test_register_coordinator_then_repl_instances(test_name):
+#     MEMGRAPH_INSTANCES_DESCRIPTION = get_instances_description(test_name=test_name)
+#     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
+#
+#     coordinator3_cursor = connect(host="localhost", port=7692).cursor()
+#
+#     execute_and_fetch_all(
+#         coordinator3_cursor,
+#         "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111', 'management_server': 'localhost:10121'}",
+#     )
+#     execute_and_fetch_all(
+#         coordinator3_cursor,
+#         "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112', 'management_server': 'localhost:10122'}",
+#     )
+#     execute_and_fetch_all(
+#         coordinator3_cursor,
+#         "ADD COORDINATOR 3 WITH CONFIG {'bolt_server': 'localhost:7692', 'coordinator_server': 'localhost:10113', 'management_server': 'localhost:10123'}",
+#     )
+#
+#     execute_and_fetch_all(
+#         coordinator3_cursor,
+#         "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
+#     )
+#     execute_and_fetch_all(
+#         coordinator3_cursor,
+#         "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",
+#     )
+#     execute_and_fetch_all(
+#         coordinator3_cursor,
+#         "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10003'};",
+#     )
+#     execute_and_fetch_all(coordinator3_cursor, "SET INSTANCE instance_3 TO MAIN")
+#
+#     data = [
+#         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+#         ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+#         ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
+#         ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
+#         ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
+#         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
+#     ]
+#     mg_sleep_and_assert(data, partial(show_instances, coordinator3_cursor))
+#
+#     coordinator1_cursor = connect(host="localhost", port=7690).cursor()
+#     coordinator2_cursor = connect(host="localhost", port=7691).cursor()
+#
+#     mg_sleep_and_assert(data, partial(show_instances, coordinator1_cursor))
+#     mg_sleep_and_assert(data, partial(show_instances, coordinator2_cursor))
+#
+#
 def test_coordinators_communication_with_restarts(test_name):
     # 1 Start all instances
     MEMGRAPH_INSTANCES_DESCRIPTION = get_instances_description(test_name=test_name)

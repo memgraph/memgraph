@@ -116,7 +116,7 @@ class CoordinatorInstance {
   void InstanceFailCallback(std::string_view instance_name, std::optional<InstanceState> instance_state);
 
   // TODO: (andi) Move to private section
-  void UpdateClientConnectors(std::vector<uint32_t> coordinators);
+  void UpdateClientConnectors(std::vector<CoordinatorToCoordinatorConfig> const &configs);
 
  private:
   auto UpdateConnector(uint32_t coordinator_id, io::network::Endpoint const &management_server) -> void;

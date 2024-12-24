@@ -71,6 +71,7 @@ CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &co
   // If something is not yet constructed in coordinator instance, we get UB
   raft_state_ = std::make_unique<RaftState>(config, GetBecomeLeaderCallback(), GetBecomeFollowerCallback(),
                                             CoordinationClusterChangeObserver{this});
+  UpdateClientConnectors(raft_state_->GetCoordinatorToCoordinatorConfigs());
   raft_state_->InitRaftServer();
 }
 
@@ -155,40 +156,21 @@ auto CoordinatorInstance::UpdateConnector(uint32_t coordinator_id, io::network::
   connectors->emplace(connectors->end(), coordinator_id, ManagementServerConfig{management_server});
 }
 
-void CoordinatorInstance::UpdateClientConnectors(std::vector<uint32_t> coordinators) {
+void CoordinatorInstance::UpdateClientConnectors(std::vector<CoordinatorToCoordinatorConfig> const &configs) {
   auto connectors = coordinator_connectors_.Lock();
 
-  auto const coordinators_context = raft_state_->GetCoordinatorInstances();
-
-  for (auto const &coordinator_id : coordinators) {
-    spdlog::trace("Coordinator {} found when updating connectors.", coordinator_id);
-    if (coordinator_id == raft_state_->GetMyCoordinatorId()) {
+  for (auto const &config : configs) {
+    if (config.coordinator_id == raft_state_->GetMyCoordinatorId()) {
       continue;
     }
     auto const connector = std::ranges::find_if(
-        *connectors, [coordinator_id](auto &&connector) { return coordinator_id == connector.first; });
+        *connectors, [&config](auto &&connector) { return connector.first == config.coordinator_id; });
     if (connector != connectors->end()) {
-      spdlog::trace("Connector to coordinator {} already exists.", coordinator_id);
       continue;
     }
-
-    auto const coord_context = std::find_if(
-        coordinators_context.cbegin(), coordinators_context.cend(),
-        [coordinator_id](CoordinatorInstanceContext const &context) { return context.id == coordinator_id; });
-
-    if (coord_context == coordinators_context.end()) {
-      spdlog::error("Couldn't find context for coordinator {}.", coordinator_id);
-      continue;
-    }
-
-    spdlog::trace("Creating new connector to coordinator with id {}, on endpoint:{}.", coordinator_id,
-                  coord_context->management_server);
-
-    auto mgmt_endpoint = io::network::Endpoint::ParseAndCreateSocketOrAddress(coord_context->management_server);
-    if (!mgmt_endpoint) {
-      MG_ASSERT(false, "Failed to parse management endpoint when connecting coordinators");
-    }
-    connectors->emplace(connectors->end(), coordinator_id, ManagementServerConfig{std::move(*mgmt_endpoint)});
+    spdlog::trace("Creating new connector to coordinator with id {}, on endpoint:{}.", config.coordinator_id,
+                  config.management_server.SocketAddress());
+    connectors->emplace(connectors->end(), config.coordinator_id, ManagementServerConfig{config.management_server});
   }
 }
 
