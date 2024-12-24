@@ -36,7 +36,7 @@ fi
 TOOLCHAIN_VERSION=6
 # package versions used
 GCC_VERSION=14.2.0
-BINUTILS_VERSION=2.42
+BINUTILS_VERSION=2.43
 case "$DISTRO" in
     centos-7) # because GDB >= 9 does NOT compile with readline6.
         GDB_VERSION=8.3
@@ -45,10 +45,11 @@ case "$DISTRO" in
         GDB_VERSION=15.2
     ;;
 esac
-CMAKE_VERSION=3.30.5
-CPPCHECK_VERSION=2.15.0
+CMAKE_VERSION=3.31.3
+CPPCHECK_VERSION=2.16.0
 LLVM_VERSION=18.1.8
 SWIG_VERSION=4.3.0 # used only for LLVM compilation
+
 # define the name used to make the toolchain archive
 DISTRO_FULL_NAME=${DISTRO}
 if [[ "${DISTRO}" == centos* ]]; then
