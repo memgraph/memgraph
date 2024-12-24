@@ -27,6 +27,24 @@
 namespace {
 template <typename>
 [[maybe_unused]] inline constexpr bool always_false_v = false;
+
+using memgraph::storage::replication::ReplicaState;
+constexpr auto StateToString(ReplicaState &replica_state) -> std::string {
+  switch (replica_state) {
+    case ReplicaState::MAYBE_BEHIND:
+      return "MAYBE_BEHIND";
+    case ReplicaState::READY:
+      return "READY";
+    case ReplicaState::REPLICATING:
+      return "REPLICATING";
+    case ReplicaState::RECOVERY:
+      return "RECOVERY";
+    case ReplicaState::DIVERGED_FROM_MAIN:
+      return "DIVERGED_FROM_MAIN";
+    default:
+      return "Unknown ReplicaState";
+  }
+}
 }  // namespace
 
 namespace memgraph::storage {
@@ -36,10 +54,10 @@ ReplicationStorageClient::ReplicationStorageClient(::memgraph::replication::Repl
     : client_{client}, main_uuid_(main_uuid) {}
 
 void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAccessProtector db_acc) {
-  auto &replStorageState = storage->repl_storage_state_;
+  auto const &replStorageState = storage->repl_storage_state_;
 
   // stream should be destroyed so that RPC lock is released before taking engine lock
-  replication::HeartbeatRes replica = std::invoke([&] {
+  replication::HeartbeatRes const replica = std::invoke([&] {
     // stream should be destroyed so that RPC lock is released
     // before taking engine lock
     auto hb_stream = client_.rpc_client_.Stream<replication::HeartbeatRpc>(main_uuid_, storage->uuid(),
@@ -66,8 +84,8 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
   if (replica.epoch_id != replStorageState.epoch_.id() && replica.current_commit_timestamp != kTimestampInitialId) {
     spdlog::trace(
         "Replica {}: Epoch id: {}, last_durable_timestamp: {}; Main: Epoch id: {}, last_durable_timestamp: {}",
-        client_.name_, std::string(replica.epoch_id), replica.current_commit_timestamp,
-        std::string(replStorageState.epoch_.id()), replStorageState.last_durable_timestamp_);
+        client_.name_, replica.epoch_id, replica.current_commit_timestamp, replStorageState.epoch_.id(),
+        replStorageState.last_durable_timestamp_);
 
     auto const &history = replStorageState.history;
     const auto epoch_info_iter = std::find_if(history.crbegin(), history.crend(), [&](const auto &main_epoch_info) {
@@ -75,13 +93,13 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
     });
 
     if (epoch_info_iter == history.crend()) {
-      spdlog::trace("Couldn't find epoch {} in main, setting branching point to 0.", std::string(replica.epoch_id));
+      spdlog::trace("Couldn't find epoch {} in main, setting branching point to 0.", replica.epoch_id);
       branching_point = 0;
     } else if (epoch_info_iter->second < replica.current_commit_timestamp) {
       spdlog::trace(
           "Found epoch {} on main with last_durable_timestamp {}, replica {} has last_durable_timestamp {}. Setting "
           "branching point to {}.",
-          std::string(epoch_info_iter->first), epoch_info_iter->second, client_.name_, replica.current_commit_timestamp,
+          epoch_info_iter->first, epoch_info_iter->second, client_.name_, replica.current_commit_timestamp,
           epoch_info_iter->second);
       branching_point = epoch_info_iter->second;
     } else {
@@ -90,6 +108,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
                     client_.name_, epoch_info_iter->first, epoch_info_iter->second);
     }
   }
+
   if (branching_point) {
     auto replica_state = replica_state_.Lock();
     if (*replica_state == replication::ReplicaState::DIVERGED_FROM_MAIN) {
@@ -140,40 +159,35 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
     } else {
       spdlog::debug("Replica '{}' is behind.", client_.name_);
       state = replication::ReplicaState::RECOVERY;
-      client_.thread_pool_.AddTask([storage, current_commit_timestamp = replica.current_commit_timestamp,
+      // TODO: (andi) The state of replica can change since the time we went to recovery, hence we could do multiple
+      // unnecessary recovery steps.
+      client_.thread_pool_.AddTask([storage, replica_current_commit_timestamp = replica.current_commit_timestamp,
                                     gk = std::move(db_acc),
-                                    this] { this->RecoverReplica(current_commit_timestamp, storage); });
+                                    this] { this->RecoverReplica(replica_current_commit_timestamp, storage); });
     }
   });
 }
 
+// TODO: (andi) Make a function pure by returning only replica timestamp.
 TimestampInfo ReplicationStorageClient::GetTimestampInfo(Storage const *storage) {
-  TimestampInfo info;
-  info.current_timestamp_of_replica = 0;
-  info.current_number_of_timestamp_behind_main = 0;
-
   try {
     // Exclusive access to client
     auto stream{client_.rpc_client_.Stream<replication::TimestampRpc>(main_uuid_, storage->uuid())};
     const auto response = stream.AwaitResponse();
-    const auto is_success = response.success;
 
-    auto main_time_stamp = storage->repl_storage_state_.last_durable_timestamp_.load();
-    info.current_timestamp_of_replica = response.current_commit_timestamp;
-    info.current_number_of_timestamp_behind_main = response.current_commit_timestamp - main_time_stamp;
-
-    if (!is_success || info.current_number_of_timestamp_behind_main != 0) {
-      // Still under client lock, all good
-      replica_state_.WithLock([](auto &val) { val = replication::ReplicaState::MAYBE_BEHIND; });
-      LogRpcFailure();
+    if (!response.success) {
+      spdlog::trace("Error occurred on replica when trying to return timestamp.");
+      return {};
     }
-  } catch (const rpc::RpcFailedException &) {
-    replica_state_.WithLock([](auto &val) { val = replication::ReplicaState::MAYBE_BEHIND; });
-    LogRpcFailure();  // mutex already unlocked, if the new enqueued task dispatches immediately it probably
-                      // won't block
-  }
 
-  return info;
+    auto const main_timestamp = storage->repl_storage_state_.last_durable_timestamp_.load();
+    return {.current_timestamp_of_replica = response.current_commit_timestamp,
+            .current_number_of_timestamp_behind_main = response.current_commit_timestamp - main_timestamp};
+
+  } catch (const rpc::RpcFailedException &) {
+    spdlog::trace("Obtaining timestamp from replica {} failed.", client_.name_);
+    return {};
+  }
 }
 
 void ReplicationStorageClient::LogRpcFailure() const {
@@ -408,7 +422,7 @@ std::pair<bool, uint64_t> ReplicationStorageClient::ForceResetStorage(memgraph::
   try {
     auto stream{client_.rpc_client_.Stream<replication::ForceResetStorageRpc>(main_uuid_, storage->uuid())};
     const auto res = stream.AwaitResponse();
-    return std::pair{res.success, res.current_commit_timestamp};
+    return {res.success, res.current_commit_timestamp};
   } catch (const rpc::RpcFailedException &) {
     spdlog::error(
         utils::MessageWithLink("Couldn't ForceReset data to {}.", client_.name_, "https://memgr.ph/replication"));

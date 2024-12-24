@@ -61,7 +61,7 @@ class TestMemory final : public memgraph::utils::MemoryResource {
 void *CheckAllocation(memgraph::utils::MemoryResource *mem, size_t bytes,
                       size_t alignment = alignof(std::max_align_t)) {
   void *ptr = mem->Allocate(bytes, alignment);
-  if (alignment > alignof(std::max_align_t)) alignment = alignof(std::max_align_t);
+  alignment = std::min(alignment, alignof(std::max_align_t));
   EXPECT_TRUE(ptr);
   EXPECT_EQ(reinterpret_cast<uintptr_t>(ptr) % alignment, 0) << "Allocated misaligned pointer!";
   // There should be no 0xFF bytes because they are either padded at the end of
