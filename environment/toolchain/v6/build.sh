@@ -557,7 +557,9 @@ if [ ! -f $PREFIX/bin/clang ]; then
     pushd build
     make -j$CPUS
     if [[ "$for_arm" = false ]]; then
-        # TODO(gitbuda): 5 tests fail 4/5 are cuda... -> fix and uncomment.
+        # TODO(gitbuda): 5 tests fail 4/5 are cuda... -> fix (or just ignore
+        # the cuda tests because cuda stuff is actually not used) and
+        # uncomment.
         echo "Skipping LLVM tests..."
         # make -j$CPUS check-clang # run clang test suite
         # ldd is not used
@@ -692,8 +694,8 @@ fi
 # options:
 #   * extreme 1 -> move all libs + Memgraph compilation here, have one giant script
 #   * extreme 2 -> build a granular package manager, each lib (for all variable) separated
-BOOST_SHA256=205666dea9f6a7cfed87c7a6dfbeb52a2c1b9de55712c9c1a87735d7181452b6
-BOOST_VERSION=1.81.0
+BOOST_SHA256=f55c340aa49763b1925ccf02b2e83f35fdcf634c9d5164a2acb87540173c741d
+BOOST_VERSION=1.87.0
 BOOST_VERSION_UNDERSCORES=`echo "${BOOST_VERSION//./_}"`
 BZIP2_SHA256=a2848f34fcd5d6cf47def00461fcb528a0484d8edef8208d6d2e2909dc61d9cd
 BZIP2_VERSION=1.0.6
