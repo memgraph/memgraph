@@ -2,17 +2,37 @@ from typing import Dict, List
 import pytest
 import yaml
 import os
+import subprocess
+import signal
+import logging
 
 from pathlib import Path
 from gqlalchemy import Memgraph, Node, Relationship, Path as path_gql
 from mgclient import Node as node_mgclient
 from mgclient import Relationship as relationship_mgclient
 
+log = logging.getLogger("memgraph.tests.query_modules")
+logging.basicConfig(level=logging.INFO, format="%(levelname)s %(asctime)s %(name)s] %(message)s")
 
 @pytest.fixture
 def db():
-    return Memgraph()
+    SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
+    PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", ".."))
+    BUILD_PATH = os.path.join(PROJECT_DIR, "build", "memgraph")
+    BUILD_ARGS = ['--telemetry-enabled=false']
 
+    process = subprocess.Popen([BUILD_PATH] + BUILD_ARGS, stderr=subprocess.STDOUT)
+    pid = process.pid
+
+    log.info(f"Memgraph started as pid: {pid}")
+
+    yield Memgraph()
+
+    try:
+        os.kill(pid, signal.SIGTERM)
+        log.info(f"Memgraph successfully terminated on pid: {pid}.")
+    except OSError as e:
+        log.error(f"Killing Memgraph failed with error: {e}")
 
 class TestConstants:
     ABSOLUTE_TOLERANCE = 1e-3
