@@ -480,5 +480,9 @@ auto RaftState::GetRoutingTable() const -> RoutingTable {
 
 auto RaftState::GetLeaderId() const -> uint32_t { return raft_server_->get_leader(); }
 
+auto RaftState::GetCoordinatorToCoordinatorConfigs() const -> std::vector<CoordinatorToCoordinatorConfig> {
+  return state_manager_->GetCoordinatorToCoordinatorConfigs();
+}
+
 }  // namespace memgraph::coordination
 #endif

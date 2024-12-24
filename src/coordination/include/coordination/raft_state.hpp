@@ -72,6 +72,8 @@ class RaftState {
   auto IsLeader() const -> bool;
   auto GetLeaderId() const -> uint32_t;
 
+  auto GetCoordinatorToCoordinatorConfigs() const -> std::vector<CoordinatorToCoordinatorConfig>;
+
   auto AppendClusterUpdate(std::vector<DataInstanceState> data_instances,
                            std::vector<CoordinatorInstanceContext> coordinator_instances, utils::UUID uuid) -> bool;
 

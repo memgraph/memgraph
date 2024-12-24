@@ -104,11 +104,19 @@ CoordinatorStateManager::CoordinatorStateManager(CoordinatorStateManagerConfig c
       logger_(logger),
       durability_(config.state_manager_durability_dir_),
       observer_(observer) {
+  auto const c2c = CoordinatorToCoordinatorConfig{
+      config.coordinator_id_, io::network::Endpoint(config.coordinator_hostname, config.bolt_port_),
+      io::network::Endpoint{config.coordinator_hostname, static_cast<uint16_t>(config.coordinator_port_)},
+      io::network::Endpoint{config.coordinator_hostname, static_cast<uint16_t>(config.management_port_)},
+      config.coordinator_hostname};
+
   auto const coordinator_server =
       io::network::Endpoint{config.coordinator_hostname, static_cast<uint16_t>(config.coordinator_port_)};
 
   bool constexpr learner{false};
-  my_srv_config_ = cs_new<srv_config>(config.coordinator_id_, 0, coordinator_server.SocketAddress(), "", learner);
+  // my_srv_config_ = cs_new<srv_config>(config.coordinator_id_, 0, coordinator_server.SocketAddress(), "", learner);
+  my_srv_config_ = cs_new<srv_config>(config.coordinator_id_, 0, c2c.coordinator_server.SocketAddress(),
+                                      nlohmann::json(c2c).dump(), false);
 
   cluster_config_ = cs_new<cluster_config>();
   cluster_config_->get_servers().push_back(my_srv_config_);
@@ -136,6 +144,20 @@ auto CoordinatorStateManager::load_config() -> ptr<cluster_config> {
   return cluster_config_;
 }
 
+auto CoordinatorStateManager::GetCoordinatorToCoordinatorConfigs() const
+    -> std::vector<CoordinatorToCoordinatorConfig> {
+  std::vector<CoordinatorToCoordinatorConfig> coordinator_to_coordinator_mappings;
+  auto const &cluster_config_servers = cluster_config_->get_servers();
+  coordinator_to_coordinator_mappings.reserve(cluster_config_servers.size());
+
+  std::ranges::transform(
+      cluster_config_servers, std::back_inserter(coordinator_to_coordinator_mappings),
+      [](auto &&server) -> CoordinatorToCoordinatorConfig {
+        return nlohmann::json::parse(server->get_aux()).template get<CoordinatorToCoordinatorConfig>();
+      });
+  return coordinator_to_coordinator_mappings;
+}
+
 auto CoordinatorStateManager::save_config(cluster_config const &config) -> void {
   spdlog::trace("Got request to save config.");
   ptr<buffer> buf = config.serialize();
@@ -147,18 +169,13 @@ auto CoordinatorStateManager::save_config(cluster_config const &config) -> void 
     throw StoreClusterConfigException("Failed to store cluster config in RocksDb");
   }
 
-  NotifyObserver();
+  NotifyObserver(GetCoordinatorToCoordinatorConfigs());
 }
 
-void CoordinatorStateManager::NotifyObserver() {
+void CoordinatorStateManager::NotifyObserver(std::vector<CoordinatorToCoordinatorConfig> const &configs) {
   spdlog::trace("Notifying observer about cluster config change.");
   if (observer_) {
-    auto const &cluster_config_servers = cluster_config_->get_servers();
-    std::vector<uint32_t> ids;
-    for (auto const &server : cluster_config_servers) {
-      ids.emplace_back(server->get_id());
-    }
-    observer_.value().Update(ids);
+    observer_.value().Update(configs);
   }
 }
 
