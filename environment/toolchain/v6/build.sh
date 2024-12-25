@@ -1202,7 +1202,6 @@ if [ ! -f $PREFIX/lib/libnuraft.a ]; then
     popd
 fi
 
-# TODO(gitbuda): Add Antlr4 generator under $PREFIX/bin.
 ANTLR_TAG="4.13.2" # 2024-08-03
 log_tool_name "antlr4 $ANTLR_TAG"
 if [ ! -f $PREFIX/lib/libantlr4-runtime.a ]; then
@@ -1224,6 +1223,12 @@ if [ ! -f $PREFIX/lib/libantlr4-runtime.a ]; then
       .
     make -j$CPUS antlr4_static install
     popd && popd
+fi
+log_tool_name "antlr4-generator $ANTLR_TAG"
+antlr_generator_url="https://www.antlr.org/download/antlr-$ANTLR_TAG-complete.jar"
+antlr_generator_filename="$(basename "$antlr_generator_url")"
+if [ ! -f "$PREFIX/bin/$antlr_generator_filename" ]; then
+    timeout 15 wget -nv "$antlr_generator_url" -O "$PREFIX/bin/$antlr_generator_filename"
 fi
 
 # NOTE: Skip FBLIBS -> only used on project-pineapples
