@@ -694,8 +694,14 @@ fi
 # options:
 #   * extreme 1 -> move all libs + Memgraph compilation here, have one giant script
 #   * extreme 2 -> build a granular package manager, each lib (for all variable) separated
-BOOST_SHA256=f55c340aa49763b1925ccf02b2e83f35fdcf634c9d5164a2acb87540173c741d
-BOOST_VERSION=1.87.0
+# BOOST_SHA256=f55c340aa49763b1925ccf02b2e83f35fdcf634c9d5164a2acb87540173c741d
+# BOOST_VERSION=1.87.0
+# TODO(gitbuda): Delete the old uncommented boost versions.
+# TODO(gitbuda): pulsar client can't be compield on 1.87 of Boost -> pick the latest viable version.
+BOOST_SHA256=205666dea9f6a7cfed87c7a6dfbeb52a2c1b9de55712c9c1a87735d7181452b6
+BOOST_VERSION=1.81.0
+# BOOST_SHA256=94ced8b72956591c4775ae2207a9763d3600b30d9d7446562c552f0a14a63be7
+# BOOST_VERSION=1.78.0
 BOOST_VERSION_UNDERSCORES=`echo "${BOOST_VERSION//./_}"`
 BZIP2_SHA256=a2848f34fcd5d6cf47def00461fcb528a0484d8edef8208d6d2e2909dc61d9cd
 BZIP2_VERSION=1.0.6
@@ -1023,7 +1029,7 @@ if [ ! -d $PREFIX/include/boost ]; then
     tar -xzf ../archives/boost_$BOOST_VERSION_UNDERSCORES.tar.gz
     pushd boost_$BOOST_VERSION_UNDERSCORES
     # TODO(gitbuda): Figure out why --with-libraries=python doesn't work for protobuf
-    ./bootstrap.sh --prefix=$PREFIX --with-toolset=clang --with-python=python3  --without-icu
+    ./bootstrap.sh --prefix=$PREFIX --with-toolset=clang --with-python=python3 --without-icu
     if [ "$TOOLCHAIN_STDCXX" = "libstdc++" ]; then
         ./b2 toolset=clang -j$CPUS install variant=release link=static cxxstd=20 --disable-icu \
             -sZLIB_SOURCE="$PREFIX" -sZLIB_INCLUDE="$PREFIX/include" -sZLIB_LIBPATH="$PREFIX/lib" \
@@ -1246,30 +1252,27 @@ if [ ! -f $PREFIX/lib/libprotobuf.a ]; then
     popd
 fi
 
-PULSAR_TAG="v2.8.1"
+PULSAR_TAG="v3.6.0"
 log_tool_name "pulsar $PULSAR_TAG"
 if [ ! -f $PREFIX/lib/libpulsarwithdeps.a ]; then
     if [ -d pulsar ]; then
         rm -rf pulsar
     fi
-    git clone https://github.com/apache/pulsar.git pulsar
+    git clone https://github.com/apache/pulsar-client-cpp pulsar
     pushd pulsar
+    git submodule update --init --recursive
     git checkout $PULSAR_TAG
-    git apply $DIR/pulsar.patch
-    # "-DCMAKE_PREFIX_PATH=$<$<BOOL:${MG_TOOLCHAIN_ROOT}>:${MG_TOOLCHAIN_ROOT}${LIST_SEP}>${PROTOBUF_ROOT}"
-    # TODO(gitbuda): Boost Python can't be found...
-    cmake pulsar-client-cpp $COMMON_CMAKE_FLAGS \
+    # TODO(gitbuda): Double check if the pulsar patch is required.
+    # git apply $DIR/pulsar.patch
+    cmake -B build $COMMON_CMAKE_FLAGS \
       -DBUILD_DYNAMIC_LIB=OFF \
       -DBUILD_STATIC_LIB=ON \
       -DBUILD_TESTS=OFF \
       -DLINK_STATIC=ON \
       -DPROTOC_PATH=$PREFIX/bin/protoc \
-      -DBOOST_ROOT=$PREFIX
-      -DProtobuf_INCLUDE_DIRS=$PREFIX/include \
-      -DBUILD_PYTHON_WRAPPER=OFF \
-      -DBUILD_PERF_TOOLS=OFF \
+      -DUSE_ASIO=OFF \
       -DUSE_LOG4CXX=OFF
-    make -j$CPUS install
+    cmake --build build -j$CPUS --target install
     popd
 fi
 
