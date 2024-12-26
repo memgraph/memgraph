@@ -1022,6 +1022,7 @@ if [ ! -d $PREFIX/include/boost ]; then
     fi
     tar -xzf ../archives/boost_$BOOST_VERSION_UNDERSCORES.tar.gz
     pushd boost_$BOOST_VERSION_UNDERSCORES
+    # TODO(gitbuda): Figure out why --with-libraries=python doesn't work for protobuf
     ./bootstrap.sh --prefix=$PREFIX --with-toolset=clang --with-python=python3  --without-icu
     if [ "$TOOLCHAIN_STDCXX" = "libstdc++" ]; then
         ./b2 toolset=clang -j$CPUS install variant=release link=static cxxstd=20 --disable-icu \
@@ -1231,6 +1232,47 @@ if [ ! -f "$PREFIX/bin/$antlr_generator_filename" ]; then
     timeout 15 wget -nv "$antlr_generator_url" -O "$PREFIX/bin/$antlr_generator_filename"
 fi
 
+PROTOBUF_TAG="v3.12.4"
+log_tool_name "protobuf $PROTOBUF_TAG"
+if [ ! -f $PREFIX/lib/libprotobuf.a ]; then
+    if [ -d protobuf ]; then
+        rm -rf protobuf
+    fi
+    git clone https://github.com/protocolbuffers/protobuf.git protobuf
+    pushd protobuf
+    git checkout $PROTOBUF_TAG
+    ./autogen.sh && ./configure CC=clang CXX=clang++ --prefix=$PREFIX
+    make -j$CPUS install
+    popd
+fi
+
+PULSAR_TAG="v2.8.1"
+log_tool_name "pulsar $PULSAR_TAG"
+if [ ! -f $PREFIX/lib/libpulsarwithdeps.a ]; then
+    if [ -d pulsar ]; then
+        rm -rf pulsar
+    fi
+    git clone https://github.com/apache/pulsar.git pulsar
+    pushd pulsar
+    git checkout $PULSAR_TAG
+    git apply $DIR/pulsar.patch
+    # "-DCMAKE_PREFIX_PATH=$<$<BOOL:${MG_TOOLCHAIN_ROOT}>:${MG_TOOLCHAIN_ROOT}${LIST_SEP}>${PROTOBUF_ROOT}"
+    # TODO(gitbuda): Boost Python can't be found...
+    cmake pulsar-client-cpp $COMMON_CMAKE_FLAGS \
+      -DBUILD_DYNAMIC_LIB=OFF \
+      -DBUILD_STATIC_LIB=ON \
+      -DBUILD_TESTS=OFF \
+      -DLINK_STATIC=ON \
+      -DPROTOC_PATH=$PREFIX/bin/protoc \
+      -DBOOST_ROOT=$PREFIX
+      -DProtobuf_INCLUDE_DIRS=$PREFIX/include \
+      -DBUILD_PYTHON_WRAPPER=OFF \
+      -DBUILD_PERF_TOOLS=OFF \
+      -DUSE_LOG4CXX=OFF
+    make -j$CPUS install
+    popd
+fi
+
 # NOTE: Skip FBLIBS -> only used on project-pineapples
 #   * older versions don't compile on the latest GCC
 #   * newer versions don't work with OpenSSL 1.0 which is critical for CentOS7
@@ -1336,6 +1378,8 @@ if false; then
       popd
   fi
 fi
+
+echo "success -> DELETE the exit 1 after all is added!"
 exit 1
 
 popd
