@@ -80,13 +80,11 @@ def get_deployment_type(config):
     return config["memgraph"]["deployment"]["type"]
 
 
-def start_memgraph(args: Args, memgraph_options: List[str], config) -> Popen:
+def start_memgraph(memgraph: str, memgraph_options: List[str]) -> Popen:
     """Starts Memgraph and return the process"""
-    cwd = os.path.dirname(args.memgraph)
+    cwd = os.path.dirname(memgraph)
 
-    cmd = [args.memgraph] + config["memgraph"]["args"] + memgraph_options
-    if args.use_ssl:
-        cmd += ["--bolt-cert-file", CERT_FILE, "--bolt-key-file", KEY_FILE]
+    cmd = [memgraph] + memgraph_options
     memgraph_proc = subprocess.Popen(cmd, cwd=cwd)
     wait_for_server(7687)
 
@@ -153,23 +151,26 @@ def run_stress_test_suite(args: Args, config) -> Optional[Dict[str, float]]:
     dataset = config["dataset"]["tests"]
 
     for test in dataset:
-        test_run = test["name"]
-        test_options = test["test_args"]
+        test_name = test["name"]
+        test_flags = test["test_args"]
+        timeout = test["timeout_min"]
+        memgraph_flags = test["memgraph_args"] if "memgraph_args" in test else []
+        memgraph_flags += config["memgraph"]["args"]
         if args.use_ssl:
-            test_options += ["--use-ssl"]
+            test_flags += ["--use-ssl"]
+            memgraph_flags += [f"--bolt-cert-file={CERT_FILE}", f"--bolt-key-file={KEY_FILE}"]
 
         try:
-            memgraph_options = test["memgraph_args"] if "memgraph_args" in test else []
-            memgraph_proc = start_memgraph(args, memgraph_options, config)
+            memgraph_proc = start_memgraph(args.memgraph, memgraph_flags)
         except Exception as ex:
             print("Exception occured while starting memgraph", ex)
             return None
         err = False
         try:
-            runtime = run_test(args, test["name"], test_options, test["timeout_min"])
-            runtimes[os.path.splitext(test_run)[0]] = runtime
+            runtime = run_test(args, test_name, test_flags, timeout)
+            runtimes[os.path.splitext(test_name)[0]] = runtime
         except Exception as ex:
-            print(f"Failed to execute {test_run} with following exception:", ex)
+            print(f"Failed to execute {test_name} with following exception:", ex)
             err = True
         finally:
             stop_memgraph(memgraph_proc)

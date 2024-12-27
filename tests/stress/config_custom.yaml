@@ -1,0 +1,19 @@
+memgraph:
+  deployment:
+    type: Default
+  args:
+    - "--bolt-server-name-for-init=Neo4j/"
+    - "--storage-properties-on-edges=true"
+    - "--storage-snapshot-on-exit=true"
+    - "--storage-snapshot-interval-sec=600"
+    - "--storage-snapshot-retention-count=1"
+    - "--storage-wal-enabled=true"
+    - "--data-recovery-on-startup=false"
+    - "--query-execution-timeout-sec=1200"
+    - "--log-file=stress_test.log"
+    - "--log-level=TRACE"
+    - "--also-log-to-stderr=true"
+    - "--data-directory=stress_data"
+
+custom_tests:
+  - name: parallel_csv
