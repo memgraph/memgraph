@@ -209,9 +209,6 @@ void VectorIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &
 }
 
 std::vector<VectorIndexInfo> VectorIndex::ListVectorIndicesInfo() const {
-  if (!flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
-    throw query::VectorSearchDisabledException();
-  }
   std::vector<VectorIndexInfo> result;
   for (const auto &[_, index_item] : pimpl->index_) {
     const auto &[index, spec, lock] = index_item;
@@ -232,9 +229,6 @@ std::vector<std::shared_ptr<VectorIndexSpec>> VectorIndex::ListIndices() const {
 }
 
 std::vector<VectorIndexSpec> VectorIndex::ListIndexSpecs() const {
-  if (!flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
-    throw query::VectorSearchDisabledException();
-  }
   std::vector<VectorIndexSpec> result;
   result.reserve(pimpl->index_.size());
   std::ranges::transform(pimpl->index_ | std::views::values, std::back_inserter(result),
@@ -243,9 +237,6 @@ std::vector<VectorIndexSpec> VectorIndex::ListIndexSpecs() const {
 }
 
 std::optional<uint64_t> VectorIndex::ApproximateVectorCount(LabelId label, PropertyId property) const {
-  if (!flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
-    throw query::VectorSearchDisabledException();
-  }
   auto it = pimpl->index_.find(LabelPropKey{label, property});
   if (it == pimpl->index_.end()) {
     return std::nullopt;
@@ -258,10 +249,6 @@ std::optional<uint64_t> VectorIndex::ApproximateVectorCount(LabelId label, Prope
 std::vector<std::tuple<Vertex *, double, double>> VectorIndex::Search(std::string_view index_name,
                                                                       uint64_t result_set_size,
                                                                       const std::vector<float> &query_vector) const {
-  if (!flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
-    throw query::VectorSearchDisabledException();
-  }
-
   const auto label_prop = pimpl->index_name_to_label_prop_.find(std::string(index_name));
   if (label_prop == pimpl->index_name_to_label_prop_.end()) {
     throw std::invalid_argument("Vector index " + std::string(index_name) + " does not exist.");

@@ -39,14 +39,9 @@ class VectorSearchTest : public testing::Test {
 
   void SetUp() override { storage = std::make_unique<InMemoryStorage>(); }
 
-  void TearDown() override {
-    storage.reset();
-    memgraph::flags::SetExperimental(memgraph::flags::Experiments::NONE);
-  }
+  void TearDown() override { storage.reset(); }
 
   void CreateIndex(std::uint16_t dimension, std::size_t capacity) {
-    memgraph::flags::SetExperimental(memgraph::flags::Experiments::VECTOR_SEARCH);
-
     auto unique_acc = this->storage->UniqueAccess();
     memgraph::query::DbAccessor dba(unique_acc.get());
     const auto label = dba.NameToLabel(test_label.data());

@@ -2987,43 +2987,41 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
       spdlog::info("Metadata of text indices are recovered.");
     }
 
-    if (flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
-      auto size = snapshot.ReadUint();
-      if (!size) throw RecoveryFailure("Couldn't recover the number of vector indices!");
-      spdlog::info("Recovering metadata of {} vector indices.", *size);
-      for (uint64_t i = 0; i < *size; ++i) {
-        auto index_name = snapshot.ReadString();
-        if (!index_name.has_value()) throw RecoveryFailure("Couldn't read vector index name!");
-        auto label = snapshot.ReadUint();
-        if (!label) throw RecoveryFailure("Couldn't read vector index label!");
-        auto property = snapshot.ReadUint();
-        if (!property) throw RecoveryFailure("Couldn't read vector index property!");
-        auto metric = snapshot.ReadUint();
-        if (!metric) throw RecoveryFailure("Couldn't read vector index metric!");
-        auto usearch_metric = static_cast<unum::usearch::metric_kind_t>(*metric);
-        auto dimension = snapshot.ReadUint();
-        if (!dimension) throw RecoveryFailure("Couldn't read vector index dimension!");
-        auto capacity = snapshot.ReadUint();
-        if (!capacity) throw RecoveryFailure("Couldn't read vector index capacity!");
-        auto resize_coefficient = snapshot.ReadUint();
-        if (!resize_coefficient) throw RecoveryFailure("Couldn't read vector index resize coefficient!");
-        auto spec = std::make_shared<VectorIndexSpec>(
-            std::move(index_name.value()), get_label_from_id(*label), get_property_from_id(*property), usearch_metric,
-            static_cast<std::uint16_t>(*dimension), *capacity, static_cast<std::uint16_t>(*resize_coefficient));
+    auto size = snapshot.ReadUint();
+    if (!size) throw RecoveryFailure("Couldn't recover the number of vector indices!");
+    spdlog::info("Recovering metadata of {} vector indices.", *size);
+    for (uint64_t i = 0; i < *size; ++i) {
+      auto index_name = snapshot.ReadString();
+      if (!index_name.has_value()) throw RecoveryFailure("Couldn't read vector index name!");
+      auto label = snapshot.ReadUint();
+      if (!label) throw RecoveryFailure("Couldn't read vector index label!");
+      auto property = snapshot.ReadUint();
+      if (!property) throw RecoveryFailure("Couldn't read vector index property!");
+      auto metric = snapshot.ReadUint();
+      if (!metric) throw RecoveryFailure("Couldn't read vector index metric!");
+      auto usearch_metric = static_cast<unum::usearch::metric_kind_t>(*metric);
+      auto dimension = snapshot.ReadUint();
+      if (!dimension) throw RecoveryFailure("Couldn't read vector index dimension!");
+      auto capacity = snapshot.ReadUint();
+      if (!capacity) throw RecoveryFailure("Couldn't read vector index capacity!");
+      auto resize_coefficient = snapshot.ReadUint();
+      if (!resize_coefficient) throw RecoveryFailure("Couldn't read vector index resize coefficient!");
+      auto spec = std::make_shared<VectorIndexSpec>(
+          std::move(index_name.value()), get_label_from_id(*label), get_property_from_id(*property), usearch_metric,
+          static_cast<std::uint16_t>(*dimension), *capacity, static_cast<std::uint16_t>(*resize_coefficient));
 
-        if (std::ranges::any_of(indices_constraints.indices.vector_indices, [&spec](const auto &vector_index) {
-              return vector_index->index_name == spec->index_name;
-            })) {
-          throw RecoveryFailure("The vector index already exists!");
-        }
-
-        indices_constraints.indices.vector_indices.push_back(spec);
-        SPDLOG_TRACE("Recovered metadata of vector index {} for :{}({})", spec->index_name,
-                     name_id_mapper->IdToName(snapshot_id_map.at(*label)),
-                     name_id_mapper->IdToName(snapshot_id_map.at(*property)));
+      if (std::ranges::any_of(indices_constraints.indices.vector_indices, [&spec](const auto &vector_index) {
+            return vector_index->index_name == spec->index_name;
+          })) {
+        throw RecoveryFailure("The vector index already exists!");
       }
-      spdlog::info("Metadata of vector indices are recovered.");
+
+      indices_constraints.indices.vector_indices.push_back(spec);
+      SPDLOG_TRACE("Recovered metadata of vector index {} for :{}({})", spec->index_name,
+                   name_id_mapper->IdToName(snapshot_id_map.at(*label)),
+                   name_id_mapper->IdToName(snapshot_id_map.at(*property)));
     }
+    spdlog::info("Metadata of vector indices are recovered.");
 
     spdlog::info("Metadata of indices are recovered.");
   }

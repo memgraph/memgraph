@@ -1381,46 +1381,38 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                   }
                 }
 
-                if (flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
-                  // we have to remove the vertex from the vector index if this label is indexed and vertex has
-                  // needed property
-                  const auto &properties = index_stats.vector.l2p.find(current->label.value);
-                  if (properties != index_stats.vector.l2p.end()) {
-                    // label is in the vector index
-                    for (const auto &property : properties->second) {
-                      if (vertex->properties.HasProperty(property)) {
-                        // it has to be removed from the index
-                        vector_label_property_cleanup[LabelPropKey{current->label.value, property}].emplace_back(
-                            vertex);
-                      }
+                // we have to remove the vertex from the vector index if this label is indexed and vertex has
+                // needed property
+                const auto &vector_properties = index_stats.vector.l2p.find(current->label.value);
+                if (vector_properties != index_stats.vector.l2p.end()) {
+                  // label is in the vector index
+                  for (const auto &property : vector_properties->second) {
+                    if (vertex->properties.HasProperty(property)) {
+                      // it has to be removed from the index
+                      vector_label_property_cleanup[LabelPropKey{current->label.value, property}].emplace_back(vertex);
                     }
                   }
                 }
-
                 break;
               }
               case Delta::Action::ADD_LABEL: {
                 auto it = std::find(vertex->labels.begin(), vertex->labels.end(), current->label.value);
                 MG_ASSERT(it == vertex->labels.end(), "Invalid database state!");
                 vertex->labels.push_back(current->label.value);
-
-                if (flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
-                  // we have to add the vertex to the vector index if this label is indexed and vertex has needed
-                  // property
-                  const auto &properties = index_stats.vector.l2p.find(current->label.value);
-                  if (properties != index_stats.vector.l2p.end()) {
-                    // label is in the vector index
-                    for (const auto &property : properties->second) {
-                      auto current_value = vertex->properties.GetProperty(property);
-                      if (!current_value.IsNull()) {
-                        // it has to be added to the index
-                        vector_label_property_restore[LabelPropKey{current->label.value, property}].emplace_back(
-                            std::move(current_value), vertex);
-                      }
+                // we have to add the vertex to the vector index if this label is indexed and vertex has needed
+                // property
+                const auto &vector_properties = index_stats.vector.l2p.find(current->label.value);
+                if (vector_properties != index_stats.vector.l2p.end()) {
+                  // label is in the vector index
+                  for (const auto &property : vector_properties->second) {
+                    auto current_value = vertex->properties.GetProperty(property);
+                    if (!current_value.IsNull()) {
+                      // it has to be added to the index
+                      vector_label_property_restore[LabelPropKey{current->label.value, property}].emplace_back(
+                          std::move(current_value), vertex);
                     }
                   }
                 }
-
                 break;
               }
               case Delta::Action::SET_PROPERTY: {
@@ -1429,9 +1421,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 //  check if we care about the property, this will return all the labels and then get current property
                 //  value
                 const auto &labels = index_stats.property_label.p2l.find(current->property.key);
-                const auto &vector_index_labels = !flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)
-                                                      ? index_stats.vector.p2l.end()
-                                                      : index_stats.vector.p2l.find(current->property.key);
+                const auto &vector_index_labels = index_stats.vector.p2l.find(current->property.key);
                 const auto has_property_index = labels != index_stats.property_label.p2l.end();
                 const auto has_vector_index = vector_index_labels != index_stats.vector.p2l.end();
                 if (has_property_index || has_vector_index) {
@@ -1657,13 +1647,11 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       for (auto const &[edge_type_property, edge] : edge_property_cleanup) {
         storage_->indices_.AbortEntries(edge_type_property, edge, transaction_.start_timestamp);
       }
-      if (flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
-        for (auto const &[label_prop, vertices] : vector_label_property_cleanup) {
-          storage_->indices_.vector_index_.AbortEntries(label_prop, vertices);
-        }
-        for (auto const &[label_prop, prop_vertices] : vector_label_property_restore) {
-          storage_->indices_.vector_index_.RestoreEntries(label_prop, prop_vertices);
-        }
+      for (auto const &[label_prop, vertices] : vector_label_property_cleanup) {
+        storage_->indices_.vector_index_.AbortEntries(label_prop, vertices);
+      }
+      for (auto const &[label_prop, prop_vertices] : vector_label_property_restore) {
+        storage_->indices_.vector_index_.RestoreEntries(label_prop, prop_vertices);
       }
 
       // VERTICES
