@@ -10,7 +10,7 @@ from argparse import Namespace as Args
 from subprocess import Popen
 from typing import Dict, List, Optional
 
-from test_config import LARGE_DATASET, SMALL_DATASET, DatabaseMode, DatasetConstants
+import yaml
 
 # paths
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -61,11 +61,8 @@ def parse_arguments() -> Args:
     # parse arguments
     parser = argparse.ArgumentParser(description="Run stress tests on Memgraph.")
     parser.add_argument("--memgraph", default=os.path.join(BUILD_DIR, "memgraph"))
-    parser.add_argument("--log-file", default="")
-    parser.add_argument("--data-directory", default="")
+    parser.add_argument("--config_file", default=os.path.join(SCRIPT_DIR, "config_small.yaml"))
     parser.add_argument("--python", default=os.path.join(SCRIPT_DIR, "ve3", "bin", "python3"), type=str)
-    parser.add_argument("--large-dataset", action="store_const", const=True, default=False)
-    parser.add_argument("--small-dataset", action="store_const", const=True, default=False)
     parser.add_argument("--specific-test", default="")
     parser.add_argument("--use-ssl", action="store_const", const=True, default=False)
     parser.add_argument("--verbose", action="store_const", const=True, default=False)
@@ -79,27 +76,15 @@ def wait_for_server(port, delay=0.1) -> None:
     time.sleep(delay)
 
 
-def start_memgraph(args: Args, memgraph_options: List[str]) -> Popen:
+def get_deployment_type(config):
+    return config["memgraph"]["deployment"]["type"]
+
+
+def start_memgraph(args: Args, memgraph_options: List[str], config) -> Popen:
     """Starts Memgraph and return the process"""
     cwd = os.path.dirname(args.memgraph)
-    cmd = [
-        args.memgraph,
-        "--bolt-num-workers=" + str(THREADS),
-        "--storage-properties-on-edges=true",
-        "--storage-snapshot-on-exit=true",
-        "--storage-snapshot-interval-sec=600",
-        "--storage-snapshot-retention-count=1",
-        "--storage-wal-enabled=true",
-        "--data-recovery-on-startup=false",
-        "--query-execution-timeout-sec=1200",
-        "--bolt-server-name-for-init=Neo4j/",
-    ] + memgraph_options
-    if not args.verbose:
-        cmd += ["--log-level", "WARNING"]
-    if args.log_file:
-        cmd += ["--log-file", args.log_file]
-    if args.data_directory:
-        cmd += ["--data-directory", args.data_directory]
+
+    cmd = [args.memgraph] + config["memgraph"]["args"] + memgraph_options
     if args.use_ssl:
         cmd += ["--bolt-cert-file", CERT_FILE, "--bolt-key-file", KEY_FILE]
     memgraph_proc = subprocess.Popen(cmd, cwd=cwd)
@@ -117,7 +102,7 @@ def stop_memgraph(proc_mg: Popen) -> None:
         raise Exception("Memgraph binary returned non-zero ({})!".format(ret_mg))
 
 
-def run_test(args: Args, test: str, options: List[str], timeout: int, mode: DatabaseMode) -> float:
+def run_test(args: Args, test: str, options: List[str], timeout: int) -> float:
     """Runs tests for a set of specific database configuration.
 
     Args:
@@ -125,25 +110,13 @@ def run_test(args: Args, test: str, options: List[str], timeout: int, mode: Data
         test: Test name
         options: List of options specific for each test
         timeout: Timeout in minutes
-        mode: DatabaseMode (storage mode & isolation level pair)
     """
     print("Running test '{}'".format(test))
 
     binary = _find_test_binary(args, test)
 
     # start test
-    cmd = (
-        binary
-        + [
-            "--worker-count",
-            str(THREADS),
-            "--isolation-level",
-            mode.isolation_level,
-            "--storage-mode",
-            mode.storage_mode,
-        ]
-        + options
-    )
+    cmd = binary + ["--worker-count", str(THREADS)] + options
     start = time.time()
     ret_test = subprocess.run(cmd, cwd=SCRIPT_DIR, timeout=timeout * 60)
 
@@ -168,7 +141,7 @@ def _find_test_binary(args: Args, test: str) -> List[str]:
     raise Exception("Test '{}' binary not supported!".format(test))
 
 
-def run_stress_test_suite(args: Args) -> Optional[Dict[str, float]]:
+def run_stress_test_suite(args: Args, config) -> Optional[Dict[str, float]]:
     def cleanup(memgraph_proc):
         if memgraph_proc.poll() != None:
             return
@@ -177,45 +150,32 @@ def run_stress_test_suite(args: Args) -> Optional[Dict[str, float]]:
 
     runtimes = {}
 
-    if args.large_dataset and args.small_dataset:
-        raise Exception("Choose only a large dataset or a small dataset for stress testing!")
-
-    dataset = LARGE_DATASET if args.large_dataset else SMALL_DATASET
-    if args.specific_test:
-        dataset = [x for x in dataset if x[DatasetConstants.TEST] == args.specific_test]
-        if not len(dataset):
-            raise Exception("Specific dataset is not found for stress testing!")
+    dataset = config["dataset"]["tests"]
 
     for test in dataset:
+        test_run = test["name"]
+        test_options = test["test_args"]
         if args.use_ssl:
-            test[DatasetConstants.OPTIONS] += ["--use-ssl"]
+            test_options += ["--use-ssl"]
 
-        for mode in test[DatasetConstants.MODE]:
-            test_run = copy.deepcopy(test)
-            # Run for every specified combination of storage mode, serialization mode, etc (if extended)
-            test_run[DatasetConstants.MODE] = mode
-            try:
-                memgraph_options = (
-                    test_run[DatasetConstants.MEMGRAPH_OPTIONS] if DatasetConstants.MEMGRAPH_OPTIONS in test_run else []
-                )
-                if DatasetConstants.MEMGRAPH_OPTIONS in test_run:
-                    del test_run[DatasetConstants.MEMGRAPH_OPTIONS]
-                memgraph_proc = start_memgraph(args, memgraph_options)
-            except Exception as ex:
-                print("Exception occured while starting memgraph", ex)
-                return None
-            err = False
-            try:
-                runtime = run_test(args, **test_run)
-                runtimes[os.path.splitext(test[DatasetConstants.TEST])[0]] = runtime
-            except Exception as ex:
-                print(f"Failed to execute {test_run} with following exception:", ex)
-                err = True
-            finally:
-                stop_memgraph(memgraph_proc)
-                cleanup(memgraph_proc)
-            if err:
-                return None
+        try:
+            memgraph_options = test["memgraph_args"] if "memgraph_args" in test else []
+            memgraph_proc = start_memgraph(args, memgraph_options, config)
+        except Exception as ex:
+            print("Exception occured while starting memgraph", ex)
+            return None
+        err = False
+        try:
+            runtime = run_test(args, test["name"], test_options, test["timeout_min"])
+            runtimes[os.path.splitext(test_run)[0]] = runtime
+        except Exception as ex:
+            print(f"Failed to execute {test_run} with following exception:", ex)
+            err = True
+        finally:
+            stop_memgraph(memgraph_proc)
+            cleanup(memgraph_proc)
+        if err:
+            return None
 
     return runtimes
 
@@ -224,21 +184,23 @@ def write_stats(runtimes: Dict[str, float]) -> None:
     measurements = ""
     for key, value in runtimes.items():
         measurements += "{}.runtime {}\n".format(key, value)
-    with open(STATS_FILE) as f:
-        stats = f.read().split("\n")
-    measurements += "long_running.queries.executed {}\n".format(stats[0])
-    measurements += "long_running.queries.failed {}\n".format(stats[1])
+    if "long_running" in runtimes:
+        with open(STATS_FILE) as f:
+            stats = f.read().split("\n")
+        measurements += "long_running.queries.executed {}\n".format(stats[0])
+        measurements += "long_running.queries.failed {}\n".format(stats[1])
     with open(MEASUREMENTS_FILE, "w") as f:
         f.write(measurements)
 
 
 if __name__ == "__main__":
     args = parse_arguments()
+    config = yaml.safe_load(open(args.config_file))
 
     if args.use_ssl:
         generate_temporary_ssl_certs()
 
-    runtimes = run_stress_test_suite(args)
+    runtimes = run_stress_test_suite(args, config)
     if runtimes is None:
         print("Some stress tests have failed")
         exit(1)
