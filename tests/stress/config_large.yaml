@@ -16,6 +16,7 @@ memgraph:
     - "--data-directory=stress_data"
 
 dataset:
+  use_ssl: false
   tests:
     - name: bipartite.py
       test_args:

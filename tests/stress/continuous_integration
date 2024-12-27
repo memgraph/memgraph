@@ -6,6 +6,7 @@ import multiprocessing
 import os
 import subprocess
 import time
+from abc import ABC
 from argparse import Namespace as Args
 from subprocess import Popen
 from typing import Dict, List, Optional
@@ -25,6 +26,62 @@ STATS_FILE = os.path.join(SCRIPT_DIR, ".long_running_stats")
 
 # get number of threads
 THREADS = os.environ["THREADS"] if "THREADS" in os.environ else multiprocessing.cpu_count()
+
+
+class Deployment(ABC):
+    def start_memgraph(self, flags: List[str]):
+        pass
+
+
+class DefaultDeployment(Deployment):
+    def __init__(self, memgraph: str):
+        super().__init__()
+        self.memgraph = memgraph
+
+    def start_memgraph(self, flags: List[str]):
+        """Starts Memgraph and return the process"""
+        cwd = os.path.dirname(self.memgraph)
+
+        cmd = [self.memgraph] + flags
+        memgraph_proc = subprocess.Popen(cmd, cwd=cwd)
+        wait_for_server(7687)
+
+        assert memgraph_proc.poll() is None, "The database binary died prematurely!"
+
+        return memgraph_proc
+
+
+class DockerDeployment(Deployment):
+    def __init__(self, image: str, tag: str):
+        super().__init__()
+        self.image = image
+        self.tag = tag
+
+    def start_memgraph(self, flags):
+        cmd = ["docker", "run", "--name", "mg_stress", "-d", "-p", "7687:7687", f"{self.image}:{self.tag}"] + flags
+
+        # Start the Memgraph container
+        docker_proc = subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+        # Wait for the server to be ready
+        wait_for_server(7687)
+
+        # Ensure the container is still running
+        container_status_cmd = ["docker", "inspect", "-f", "{{.State.Running}}", "mg_stress"]
+        status = subprocess.run(container_status_cmd, stdout=subprocess.PIPE).stdout.decode().strip()
+        assert status == "true", "The Docker container died prematurely!"
+
+        return docker_proc
+
+
+def deployment_factory(args, config):
+    deployment = config.get("memgraph").get("deployment")
+    deployment_type = deployment.get("type")
+    if deployment_type == "Default":
+        return DefaultDeployment(args.memgraph)
+
+    if deployment_type == "Docker":
+        return DockerDeployment(deployment.get("image"), deployment.get("tag"))
 
 
 def generate_temporary_ssl_certs():
@@ -63,28 +120,22 @@ def parse_arguments() -> Args:
     parser.add_argument("--memgraph", default=os.path.join(BUILD_DIR, "memgraph"))
     parser.add_argument("--config_file", default=os.path.join(SCRIPT_DIR, "config_small.yaml"))
     parser.add_argument("--python", default=os.path.join(SCRIPT_DIR, "ve3", "bin", "python3"), type=str)
-    parser.add_argument("--specific-test", default="")
-    parser.add_argument("--use-ssl", action="store_const", const=True, default=False)
     parser.add_argument("--verbose", action="store_const", const=True, default=False)
     return parser.parse_args()
 
 
-def wait_for_server(port, delay=0.1) -> None:
+def wait_for_server(port, delay=0.5) -> None:
     cmd = ["nc", "-z", "-w", "1", "127.0.0.1", str(port)]
     while subprocess.call(cmd) != 0:
-        time.sleep(0.01)
+        time.sleep(delay)
     time.sleep(delay)
 
 
-def get_deployment_type(config):
-    return config["memgraph"]["deployment"]["type"]
-
-
-def start_memgraph(memgraph: str, memgraph_options: List[str]) -> Popen:
+def start_memgraph(memgraph: str, flags: List[str]) -> Popen:
     """Starts Memgraph and return the process"""
     cwd = os.path.dirname(memgraph)
 
-    cmd = [memgraph] + memgraph_options
+    cmd = [memgraph] + flags
     memgraph_proc = subprocess.Popen(cmd, cwd=cwd)
     wait_for_server(7687)
 
@@ -149,6 +200,7 @@ def run_stress_test_suite(args: Args, config) -> Optional[Dict[str, float]]:
     runtimes = {}
 
     dataset = config["dataset"]["tests"]
+    deployment = config["memgraph"]["deployment"]["type"]
 
     for test in dataset:
         test_name = test["name"]
@@ -156,12 +208,12 @@ def run_stress_test_suite(args: Args, config) -> Optional[Dict[str, float]]:
         timeout = test["timeout_min"]
         memgraph_flags = test["memgraph_args"] if "memgraph_args" in test else []
         memgraph_flags += config["memgraph"]["args"]
-        if args.use_ssl:
+        if "use_ssl" in config["dataset"] and config["dataset"]["use_ssl"] is True:
             test_flags += ["--use-ssl"]
             memgraph_flags += [f"--bolt-cert-file={CERT_FILE}", f"--bolt-key-file={KEY_FILE}"]
 
         try:
-            memgraph_proc = start_memgraph(args.memgraph, memgraph_flags)
+            memgraph_proc = start_memgraph(args.memgraph, memgraph_flags, deployment)
         except Exception as ex:
             print("Exception occured while starting memgraph", ex)
             return None
