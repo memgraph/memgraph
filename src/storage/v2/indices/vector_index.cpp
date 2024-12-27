@@ -213,9 +213,9 @@ std::vector<VectorIndexInfo> VectorIndex::ListVectorIndicesInfo() const {
   for (const auto &[_, index_item] : pimpl->index_) {
     const auto &[index, spec, lock] = index_item;
     auto guard = std::shared_lock{lock};
-    result.emplace_back(VectorIndexInfo{spec->index_name, spec->label, spec->property,
-                                        static_cast<std::uint16_t>(index.dimensions()), index.capacity(),
-                                        index.size()});
+    result.emplace_back(
+        VectorIndexInfo{spec->index_name, spec->label, spec->property, kMetricToStringMap.at(spec->metric_kind).front(),
+                        static_cast<std::uint16_t>(index.dimensions()), index.capacity(), index.size()});
   }
   return result;
 }

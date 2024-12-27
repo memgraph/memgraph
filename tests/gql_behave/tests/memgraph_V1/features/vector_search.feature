@@ -70,8 +70,8 @@ Feature: Vector search related features
             CALL vector_search.show_index_info() YIELD * RETURN *;
             """
         Then the result should be:
-            | capacity | dimension | index_name   | label | property | size |
-            | 64       | 2         | 'test_index' | 'L1'  | 'prop1'  | 0    |
+            | capacity | dimension | index_name   | label | property | metric | size |
+            | 64       | 2         | 'test_index' | 'L1'  | 'prop1'  | 'l2sq' | 0    |
 
     Scenario: Search vector index:
         Given an empty graph

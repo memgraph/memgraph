@@ -44,9 +44,11 @@ inline std::string SupportedMetricKindsToString() {
       supported_metric_kinds += ", ";
     }
   }
-  // remove last two chars
-  supported_metric_kinds.pop_back();
-  supported_metric_kinds.pop_back();
+  if (!supported_metric_kinds.empty()) {
+    // Remove the last two characters (", ") from the string.
+    supported_metric_kinds.pop_back();
+    supported_metric_kinds.pop_back();
+  }
   return supported_metric_kinds;
 }
 
@@ -71,6 +73,7 @@ struct VectorIndexInfo {
   std::string index_name;
   LabelId label;
   PropertyId property;
+  std::string metric;
   std::uint16_t dimension;
   std::size_t capacity;
   std::size_t size;
