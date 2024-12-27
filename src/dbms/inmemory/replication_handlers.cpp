@@ -18,6 +18,7 @@
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/version.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
+#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/schema_info.hpp"
 
@@ -1054,8 +1055,9 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
           auto const unum_metric_kind =
               unum::usearch::metric_from_name(data.metric_kind.data(), data.metric_kind.size());
           if (unum_metric_kind.error) {
-            throw utils::BasicException("Failed to create vector index on :{}({}), invalid metric kind: {}", data.label,
-                                        data.property, data.metric_kind);
+            throw utils::BasicException(
+                "Failed to create vector index on :{}({}), invalid metric kind: {}, supported metric kinds are: {}",
+                data.label, data.property, data.metric_kind, storage::SupportedMetricKindsToString());
           }
           auto const spec =
               std::make_shared<storage::VectorIndexSpec>(data.index_name, labelId, propId, unum_metric_kind.result,

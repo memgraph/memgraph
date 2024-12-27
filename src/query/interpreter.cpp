@@ -1399,7 +1399,8 @@ auto ParseVectorIndexConfigMap(std::unordered_map<query::Expression *, query::Ex
                                query::ExpressionVisitor<query::TypedValue> &evaluator)
     -> storage::VectorIndexConfigMap {
   if (config_map.empty()) {
-    throw std::invalid_argument("Vector index config map is empty.");
+    throw std::invalid_argument(
+        "Vector index config map is empty. Please provide mandatory fields: dimension and capacity.");
   }
 
   auto transformed_map = std::ranges::views::all(config_map) |
@@ -1415,7 +1416,8 @@ auto ParseVectorIndexConfigMap(std::unordered_map<query::Expression *, query::Ex
                         : std::string(kDefaultMetric);
   auto metric_kind = unum::usearch::metric_from_name(metric_str.c_str(), metric_str.size());
   if (metric_kind.error) {
-    throw std::invalid_argument("Invalid metric kind: " + metric_str);
+    throw std::invalid_argument(std::format("Invalid metric kind: {}, supported metric kinds are: {}", metric_str,
+                                            storage::SupportedMetricKindsToString()));
   }
 
   auto dimension = transformed_map.find(kDimension.data());

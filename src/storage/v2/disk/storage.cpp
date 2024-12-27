@@ -938,7 +938,8 @@ std::optional<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::Gid
 }
 
 std::optional<EdgeAccessor> DiskStorage::DiskAccessor::FindEdge(storage::Gid gid, View view) {
-  throw utils::NotYetImplemented("Id based lookup for on-disk storage mode is not yet implemented on edges.");
+  throw utils::NotYetImplemented(
+      std::string("Id based lookup for on-disk storage mode is not yet implemented on edges. ") + kErrorMessage);
 }
 
 Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>>
@@ -1676,11 +1677,13 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
           }
         } break;
         case MetadataDelta::Action::EDGE_INDEX_CREATE: {
-          throw utils::NotYetImplemented("Edge-type indexing is not yet implemented on on-disk storage mode. ");
+          throw utils::NotYetImplemented(
+              std::string("Edge-type indexing is not yet implemented on on-disk storage mode. ") + kErrorMessage);
         }
         case MetadataDelta::Action::EDGE_PROPERTY_INDEX_CREATE: {
           throw utils::NotYetImplemented(
-              "Edge-type + property indexing is not yet implemented on on-disk storage mode. ");
+              std::string("Edge-type + property indexing is not yet implemented on on-disk storage mode. ") +
+              kErrorMessage);
         }
         case MetadataDelta::Action::LABEL_INDEX_DROP: {
           if (!disk_storage->durable_metadata_.PersistLabelIndexDeletion(md_delta.label)) {
@@ -1695,23 +1698,29 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
           }
         } break;
         case MetadataDelta::Action::EDGE_INDEX_DROP: {
-          throw utils::NotYetImplemented("Edge-type indexing is not yet implemented on on-disk storage mode. ");
+          throw utils::NotYetImplemented(
+              std::string("Edge-type indexing is not yet implemented on on-disk storage mode. ") + kErrorMessage);
         }
         case MetadataDelta::Action::EDGE_PROPERTY_INDEX_DROP: {
           throw utils::NotYetImplemented(
-              "Edge-type + property indexing is not yet implemented on on-disk storage mode. ");
+              std::string("Edge-type + property indexing is not yet implemented on on-disk storage mode. ") +
+              kErrorMessage);
         }
         case MetadataDelta::Action::LABEL_INDEX_STATS_SET: {
-          throw utils::NotYetImplemented("SetIndexStats(stats) is not implemented for DiskStorage.");
+          throw utils::NotYetImplemented(std::string("SetIndexStats(stats) is not implemented for DiskStorage. ") +
+                                         kErrorMessage);
         } break;
         case MetadataDelta::Action::LABEL_INDEX_STATS_CLEAR: {
-          throw utils::NotYetImplemented("ClearIndexStats(stats) is not implemented for DiskStorage.");
+          throw utils::NotYetImplemented(std::string("ClearIndexStats(stats) is not implemented for DiskStorage. ") +
+                                         kErrorMessage);
         } break;
         case MetadataDelta::Action::LABEL_PROPERTY_INDEX_STATS_SET: {
-          throw utils::NotYetImplemented("SetIndexStats(stats) is not implemented for DiskStorage.");
+          throw utils::NotYetImplemented(std::string("SetIndexStats(stats) is not implemented for DiskStorage. ") +
+                                         kErrorMessage);
         } break;
         case MetadataDelta::Action::LABEL_PROPERTY_INDEX_STATS_CLEAR: {
-          throw utils::NotYetImplemented("ClearIndexStats(stats) is not implemented for DiskStorage.");
+          throw utils::NotYetImplemented(std::string("ClearIndexStats(stats) is not implemented for DiskStorage. ") +
+                                         kErrorMessage);
         } break;
         case MetadataDelta::Action::TEXT_INDEX_CREATE: {
           const auto &info = md_delta.text_index;
@@ -1754,22 +1763,26 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
 
         case MetadataDelta::Action::TYPE_CONSTRAINT_CREATE:
         case MetadataDelta::Action::TYPE_CONSTRAINT_DROP: {
-          throw utils::NotYetImplemented("Type constraints are not implemented for DiskStorage.");
+          throw utils::NotYetImplemented(std::string("Type constraints are not implemented for DiskStorage. ") +
+                                         kErrorMessage);
           break;
         }
 
         case MetadataDelta::Action::ENUM_CREATE:
         case MetadataDelta::Action::ENUM_ALTER_ADD:
         case MetadataDelta::Action::ENUM_ALTER_UPDATE: {
-          throw utils::NotYetImplemented("Enum types is not implemented for DiskStorage.");
+          throw utils::NotYetImplemented(std::string("Enum types is not implemented for DiskStorage. ") +
+                                         kErrorMessage);
           break;
         }
         case MetadataDelta::Action::POINT_INDEX_CREATE:
         case MetadataDelta::Action::POINT_INDEX_DROP:
-          throw utils::NotYetImplemented("Point index is not implemented for DiskStorage.");
+          throw utils::NotYetImplemented(std::string("Point index is not implemented for DiskStorage. ") +
+                                         kErrorMessage);
         case MetadataDelta::Action::VECTOR_INDEX_CREATE:
         case MetadataDelta::Action::VECTOR_INDEX_DROP:
-          throw utils::NotYetImplemented("Vector index is not implemented for DiskStorage.");
+          throw utils::NotYetImplemented(std::string("Vector index is not implemented for DiskStorage. ") +
+                                         kErrorMessage);
       }
     }
   } else if (transaction_.deltas.empty() ||
@@ -2246,7 +2259,8 @@ uint64_t DiskStorage::GetCommitTimestamp() { return timestamp_++; }
 std::unique_ptr<Storage::Accessor> DiskStorage::Access(std::optional<IsolationLevel> override_isolation_level) {
   auto isolation_level = override_isolation_level.value_or(isolation_level_);
   if (isolation_level != IsolationLevel::SNAPSHOT_ISOLATION) {
-    throw utils::NotYetImplemented("Disk storage supports only SNAPSHOT isolation level.");
+    throw utils::NotYetImplemented(std::string("Disk storage supports only SNAPSHOT isolation level. ") +
+                                   kErrorMessage);
   }
   return std::unique_ptr<DiskAccessor>(
       new DiskAccessor{Storage::Accessor::shared_access, this, isolation_level, storage_mode_});
@@ -2254,7 +2268,8 @@ std::unique_ptr<Storage::Accessor> DiskStorage::Access(std::optional<IsolationLe
 std::unique_ptr<Storage::Accessor> DiskStorage::UniqueAccess(std::optional<IsolationLevel> override_isolation_level) {
   auto isolation_level = override_isolation_level.value_or(isolation_level_);
   if (isolation_level != IsolationLevel::SNAPSHOT_ISOLATION) {
-    throw utils::NotYetImplemented("Disk storage supports only SNAPSHOT isolation level.");
+    throw utils::NotYetImplemented(std::string("Disk storage supports only SNAPSHOT isolation level. ") +
+                                   kErrorMessage);
   }
   return std::unique_ptr<DiskAccessor>(
       new DiskAccessor{Storage::Accessor::unique_access, this, isolation_level, storage_mode_});

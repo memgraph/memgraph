@@ -36,6 +36,20 @@ inline const std::unordered_map<unum::usearch::metric_kind_t, std::vector<std::s
     {unum::usearch::metric_kind_t::tanimoto_k, {"tanimoto"}},
     {unum::usearch::metric_kind_t::sorensen_k, {"sorensen"}}};
 
+inline std::string SupportedMetricKindsToString() {
+  std::string supported_metric_kinds;
+  for (const auto &[_, names] : kMetricToStringMap) {
+    for (const auto &name : names) {
+      supported_metric_kinds += name;
+      supported_metric_kinds += ", ";
+    }
+  }
+  // remove last two chars
+  supported_metric_kinds.pop_back();
+  supported_metric_kinds.pop_back();
+  return supported_metric_kinds;
+}
+
 /// @struct VectorIndexConfigMap
 /// @brief Represents the configuration options for a vector index.
 ///
@@ -68,7 +82,7 @@ struct VectorIndexInfo {
 /// This structure includes the index name, the label and property on which the index is created,
 /// and the configuration options for the index in the form of a JSON object.
 struct VectorIndexSpec {
-  // TODO(@DavIvek): Add scalar kind configuration options
+  // TODO(@DavIvek): Add scalar kind configuration options. This will be useful for memory usage.
   std::string index_name;
   LabelId label;
   PropertyId property;
