@@ -1,6 +1,6 @@
 memgraph:
   deployment:
-    type: Default
+    type: default
   args:
     - "--bolt-server-name-for-init=Neo4j/"
     - "--storage-properties-on-edges=true"

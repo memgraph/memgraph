@@ -1,6 +1,6 @@
 memgraph:
   deployment:
-    type: Docker
+    type: docker
     image: memgraph/memgraph
     tag: latest
   args:

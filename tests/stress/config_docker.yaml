@@ -1,6 +1,8 @@
 memgraph:
   deployment:
     type: docker
+    image: memgraph/memgraph
+    tag: latest
   args:
     - "--bolt-server-name-for-init=Neo4j/"
     - "--storage-properties-on-edges=true"
@@ -8,12 +10,9 @@ memgraph:
     - "--storage-snapshot-interval-sec=600"
     - "--storage-snapshot-retention-count=1"
     - "--storage-wal-enabled=true"
-    - "--data-recovery-on-startup=false"
     - "--query-execution-timeout-sec=1200"
-    - "--log-file=stress_test.log"
     - "--log-level=TRACE"
     - "--also-log-to-stderr=true"
-    - "--data-directory=stress_data"
 
 dataset:
   use_ssl: false
