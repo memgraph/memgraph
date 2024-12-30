@@ -52,8 +52,7 @@ void to_json(nlohmann::json &j, SnapshotCtx const &snapshot_ctx);
 
 class CoordinatorStateMachine : public state_machine {
  public:
-  CoordinatorStateMachine(LoggerWrapper logger, std::optional<LogStoreDurability> log_store_durability,
-                          std::optional<CoordinationClusterChangeObserver> observer);
+  CoordinatorStateMachine(LoggerWrapper logger, std::optional<LogStoreDurability> log_store_durability);
   CoordinatorStateMachine(CoordinatorStateMachine const &) = delete;
   CoordinatorStateMachine &operator=(CoordinatorStateMachine const &) = delete;
   CoordinatorStateMachine(CoordinatorStateMachine &&) = delete;

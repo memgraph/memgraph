@@ -73,7 +73,7 @@ RaftState::RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb
     state_manager_config.log_store_durability_ = log_store_durability;
   }
 
-  state_machine_ = cs_new<CoordinatorStateMachine>(logger_wrapper, log_store_durability, observer);
+  state_machine_ = cs_new<CoordinatorStateMachine>(logger_wrapper, log_store_durability);
   state_manager_ = cs_new<CoordinatorStateManager>(state_manager_config, logger_wrapper, observer);
 
   auto const last_commit_index_snapshot = [this]() -> uint64_t {

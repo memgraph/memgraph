@@ -196,6 +196,8 @@ auto CoordinatorInstance::GetCoordinatorsInstanceStatus() const -> std::vector<I
   std::vector<InstanceStatus> results;
   results.reserve(coordinators.size());
 
+  // TODO: (andi) This needs to be changed, we need to rely on NuRaft connections
+  // and then use our logs just for auxiliary stuff.
   for (auto const &coordinator : coordinators) {
     spdlog::trace("Found coordinator with id {}", coordinator.id);
     results.emplace_back(InstanceStatus{
