@@ -12,6 +12,7 @@
 #include "storage/v2/durability/snapshot.hpp"
 
 #include <thread>
+#include <usearch/index_plugins.hpp>
 
 #include "flags/experimental.hpp"
 #include "flags/run_time_configurable.hpp"
@@ -3478,9 +3479,10 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
         if (!label) throw RecoveryFailure("Couldn't read vector index label!");
         auto property = snapshot.ReadUint();
         if (!property) throw RecoveryFailure("Couldn't read vector index property!");
-        auto metric = snapshot.ReadUint();
+        auto metric = snapshot.ReadString();
         if (!metric) throw RecoveryFailure("Couldn't read vector index metric!");
-        auto usearch_metric = static_cast<unum::usearch::metric_kind_t>(*metric);
+        auto usearch_metric = unum::usearch::metric_from_name(metric->data(), metric->size());
+        if (usearch_metric.error) throw RecoveryFailure("Invalid vector index metric recovered!");
         auto dimension = snapshot.ReadUint();
         if (!dimension) throw RecoveryFailure("Couldn't read vector index dimension!");
         auto capacity = snapshot.ReadUint();
