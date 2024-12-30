@@ -11,6 +11,7 @@
 
 import sys
 
+import mgclient
 import pytest
 from common import connect, execute_and_fetch_all
 
@@ -97,6 +98,15 @@ def test_convert_string():
         0
     ][0]
     assert result == "Cool string"
+
+
+def test_convert_invalid():
+    cursor = connect().cursor()
+    with pytest.raises(mgclient.DatabaseError):
+        result = execute_and_fetch_all(
+            cursor,
+            'RETURN convert.str2object("this is not a string since it is not escaped");',
+        )
 
 
 if __name__ == "__main__":
