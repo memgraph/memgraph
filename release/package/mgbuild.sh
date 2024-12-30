@@ -377,8 +377,8 @@ build_memgraph () {
   # support nproc
   # shellcheck disable=SC2016
   if [[ "$threads" == "$DEFAULT_THREADS" ]]; then
-    docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& make -j$(nproc)'
-    docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& make -j$(nproc) -B mgconsole'
+    docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& make -j$(nproc) install'
+    docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& make -j$(nproc) -B mgconsole install'
   else
     local EXPORT_THREADS="export THREADS=$threads"
     docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $EXPORT_THREADS && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& make -j$THREADS'
