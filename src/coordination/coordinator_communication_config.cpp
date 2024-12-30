@@ -20,7 +20,7 @@
 
 namespace memgraph::coordination {
 
-void to_json(nlohmann::json &j, CoordinatorToCoordinatorConfig const &config) {
+void to_json(nlohmann::json &j, CoordinatorInstanceConfig const &config) {
   j = nlohmann::json{{"coordinator_id", config.coordinator_id},
                      {"coordinator_server", config.coordinator_server},
                      {"bolt_server", config.bolt_server},
@@ -29,7 +29,7 @@ void to_json(nlohmann::json &j, CoordinatorToCoordinatorConfig const &config) {
                      {"coordinator_hostname", config.coordinator_hostname}};
 }
 
-void from_json(nlohmann::json const &j, CoordinatorToCoordinatorConfig &config) {
+void from_json(nlohmann::json const &j, CoordinatorInstanceConfig &config) {
   config.coordinator_id = j.at("coordinator_id").get<uint32_t>();
   config.coordinator_server = j.at("coordinator_server").get<io::network::Endpoint>();
   config.management_server = j.at("management_server").get<io::network::Endpoint>();
@@ -50,7 +50,7 @@ void from_json(nlohmann::json const &j, ReplicationClientInfo &config) {
   config.replication_server = j.at("replication_server").get<io::network::Endpoint>();
 }
 
-void to_json(nlohmann::json &j, CoordinatorToReplicaConfig const &config) {
+void to_json(nlohmann::json &j, DataInstanceConfig const &config) {
   j = nlohmann::json{{"instance_name", config.instance_name},
                      {"mgt_server", config.mgt_server},
                      {"bolt_server", config.bolt_server},
@@ -60,7 +60,7 @@ void to_json(nlohmann::json &j, CoordinatorToReplicaConfig const &config) {
                      {"replication_client_info", config.replication_client_info}};
 }
 
-void from_json(nlohmann::json const &j, CoordinatorToReplicaConfig &config) {
+void from_json(nlohmann::json const &j, DataInstanceConfig &config) {
   config.instance_name = j.at("instance_name").get<std::string>();
   config.mgt_server = j.at("mgt_server").get<io::network::Endpoint>();
   config.bolt_server = j.at("bolt_server").get<io::network::Endpoint>();

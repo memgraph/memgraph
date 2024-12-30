@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "nuraft/coordinator_cluster_state.hpp"
+#include "coordination/coordinator_cluster_state.hpp"
 #include "io/network/endpoint.hpp"
 #include "replication_coordination_glue/role.hpp"
 #include "utils/file.hpp"
@@ -22,8 +22,8 @@
 #include "libnuraft/nuraft.hxx"
 
 using memgraph::coordination::CoordinatorClusterState;
-using memgraph::coordination::CoordinatorToReplicaConfig;
-using memgraph::coordination::DataInstanceState;
+using memgraph::coordination::DataInstanceConfig;
+using memgraph::coordination::DataInstanceContext;
 using memgraph::coordination::InstanceUUIDUpdate;
 using memgraph::io::network::Endpoint;
 using memgraph::replication_coordination_glue::ReplicationMode;
@@ -42,19 +42,18 @@ class CoordinatorClusterStateTest : public ::testing::Test {
 
 TEST_F(CoordinatorClusterStateTest, RegisterReplicationInstance) {
   CoordinatorClusterState cluster_state{};
-  std::vector<DataInstanceState> data_instances;
+  std::vector<DataInstanceContext> data_instances;
 
-  auto config =
-      CoordinatorToReplicaConfig{.instance_name = "instance3",
-                                 .mgt_server = Endpoint{"127.0.0.1", 10112},
-                                 .bolt_server = Endpoint{"127.0.0.1", 7687},
-                                 .replication_client_info = {.instance_name = "instance_name",
-                                                             .replication_mode = ReplicationMode::ASYNC,
-                                                             .replication_server = Endpoint{"127.0.0.1", 10001}},
-                                 .instance_health_check_frequency_sec = std::chrono::seconds{1},
-                                 .instance_down_timeout_sec = std::chrono::seconds{5},
-                                 .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
-                                 .ssl = std::nullopt};
+  auto config = DataInstanceConfig{.instance_name = "instance3",
+                                   .mgt_server = Endpoint{"127.0.0.1", 10112},
+                                   .bolt_server = Endpoint{"127.0.0.1", 7687},
+                                   .replication_client_info = {.instance_name = "instance_name",
+                                                               .replication_mode = ReplicationMode::ASYNC,
+                                                               .replication_server = Endpoint{"127.0.0.1", 10001}},
+                                   .instance_health_check_frequency_sec = std::chrono::seconds{1},
+                                   .instance_down_timeout_sec = std::chrono::seconds{5},
+                                   .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
+                                   .ssl = std::nullopt};
 
   auto const uuid = UUID{};
   data_instances.emplace_back(config, ReplicationRole::REPLICA, uuid);
@@ -68,36 +67,34 @@ TEST_F(CoordinatorClusterStateTest, RegisterReplicationInstance) {
 }
 
 TEST_F(CoordinatorClusterStateTest, SetInstanceToReplica) {
-  std::vector<DataInstanceState> data_instances;
+  std::vector<DataInstanceContext> data_instances;
   CoordinatorClusterState cluster_state{};
   {
-    auto config =
-        CoordinatorToReplicaConfig{.instance_name = "instance1",
-                                   .mgt_server = Endpoint{"127.0.0.1", 10112},
-                                   .bolt_server = Endpoint{"127.0.0.1", 7687},
-                                   .replication_client_info = {.instance_name = "instance1",
-                                                               .replication_mode = ReplicationMode::ASYNC,
-                                                               .replication_server = Endpoint{"127.0.0.1", 10001}},
-                                   .instance_health_check_frequency_sec = std::chrono::seconds{1},
-                                   .instance_down_timeout_sec = std::chrono::seconds{5},
-                                   .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
-                                   .ssl = std::nullopt};
+    auto config = DataInstanceConfig{.instance_name = "instance1",
+                                     .mgt_server = Endpoint{"127.0.0.1", 10112},
+                                     .bolt_server = Endpoint{"127.0.0.1", 7687},
+                                     .replication_client_info = {.instance_name = "instance1",
+                                                                 .replication_mode = ReplicationMode::ASYNC,
+                                                                 .replication_server = Endpoint{"127.0.0.1", 10001}},
+                                     .instance_health_check_frequency_sec = std::chrono::seconds{1},
+                                     .instance_down_timeout_sec = std::chrono::seconds{5},
+                                     .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
+                                     .ssl = std::nullopt};
     auto const uuid = UUID{};
     data_instances.emplace_back(config, ReplicationRole::MAIN, uuid);
     cluster_state.DoAction(data_instances, uuid);
   }
   {
-    auto config =
-        CoordinatorToReplicaConfig{.instance_name = "instance2",
-                                   .mgt_server = Endpoint{"127.0.0.1", 10111},
-                                   .bolt_server = Endpoint{"127.0.0.1", 7688},
-                                   .replication_client_info = {.instance_name = "instance2",
-                                                               .replication_mode = ReplicationMode::ASYNC,
-                                                               .replication_server = Endpoint{"127.0.0.1", 10010}},
-                                   .instance_health_check_frequency_sec = std::chrono::seconds{1},
-                                   .instance_down_timeout_sec = std::chrono::seconds{5},
-                                   .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
-                                   .ssl = std::nullopt};
+    auto config = DataInstanceConfig{.instance_name = "instance2",
+                                     .mgt_server = Endpoint{"127.0.0.1", 10111},
+                                     .bolt_server = Endpoint{"127.0.0.1", 7688},
+                                     .replication_client_info = {.instance_name = "instance2",
+                                                                 .replication_mode = ReplicationMode::ASYNC,
+                                                                 .replication_server = Endpoint{"127.0.0.1", 10010}},
+                                     .instance_health_check_frequency_sec = std::chrono::seconds{1},
+                                     .instance_down_timeout_sec = std::chrono::seconds{5},
+                                     .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
+                                     .ssl = std::nullopt};
 
     auto const uuid = UUID{};
     data_instances.emplace_back(config, ReplicationRole::REPLICA, uuid);
@@ -115,21 +112,21 @@ TEST_F(CoordinatorClusterStateTest, SetInstanceToReplica) {
 }
 
 TEST_F(CoordinatorClusterStateTest, ReplicationInstanceStateSerialization) {
-  DataInstanceState instance_state{
-      CoordinatorToReplicaConfig{.instance_name = "instance3",
-                                 .mgt_server = Endpoint{"127.0.0.1", 10112},
-                                 .bolt_server = Endpoint{"127.0.0.1", 7687},
-                                 .replication_client_info = {.instance_name = "instance_name",
-                                                             .replication_mode = ReplicationMode::ASYNC,
-                                                             .replication_server = Endpoint{"127.0.0.1", 10001}},
-                                 .instance_health_check_frequency_sec = std::chrono::seconds{1},
-                                 .instance_down_timeout_sec = std::chrono::seconds{5},
-                                 .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
-                                 .ssl = std::nullopt},
+  DataInstanceContext instance_state{
+      DataInstanceConfig{.instance_name = "instance3",
+                         .mgt_server = Endpoint{"127.0.0.1", 10112},
+                         .bolt_server = Endpoint{"127.0.0.1", 7687},
+                         .replication_client_info = {.instance_name = "instance_name",
+                                                     .replication_mode = ReplicationMode::ASYNC,
+                                                     .replication_server = Endpoint{"127.0.0.1", 10001}},
+                         .instance_health_check_frequency_sec = std::chrono::seconds{1},
+                         .instance_down_timeout_sec = std::chrono::seconds{5},
+                         .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
+                         .ssl = std::nullopt},
       ReplicationRole::MAIN, .instance_uuid = UUID()};
 
   nlohmann::json j = instance_state;
-  DataInstanceState deserialized_instance_state = j.get<DataInstanceState>();
+  DataInstanceContext deserialized_instance_state = j.get<DataInstanceContext>();
 
   EXPECT_EQ(instance_state.config, deserialized_instance_state.config);
   EXPECT_EQ(instance_state.status, deserialized_instance_state.status);
@@ -137,19 +134,18 @@ TEST_F(CoordinatorClusterStateTest, ReplicationInstanceStateSerialization) {
 
 TEST_F(CoordinatorClusterStateTest, Marshalling) {
   CoordinatorClusterState cluster_state{};
-  std::vector<DataInstanceState> data_instances;
+  std::vector<DataInstanceContext> data_instances;
 
-  auto config =
-      CoordinatorToReplicaConfig{.instance_name = "instance2",
-                                 .mgt_server = Endpoint{"127.0.0.1", 10111},
-                                 .bolt_server = Endpoint{"127.0.0.1", 7688},
-                                 .replication_client_info = {.instance_name = "instance_name",
-                                                             .replication_mode = ReplicationMode::ASYNC,
-                                                             .replication_server = Endpoint{"127.0.0.1", 10010}},
-                                 .instance_health_check_frequency_sec = std::chrono::seconds{1},
-                                 .instance_down_timeout_sec = std::chrono::seconds{5},
-                                 .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
-                                 .ssl = std::nullopt};
+  auto config = DataInstanceConfig{.instance_name = "instance2",
+                                   .mgt_server = Endpoint{"127.0.0.1", 10111},
+                                   .bolt_server = Endpoint{"127.0.0.1", 7688},
+                                   .replication_client_info = {.instance_name = "instance_name",
+                                                               .replication_mode = ReplicationMode::ASYNC,
+                                                               .replication_server = Endpoint{"127.0.0.1", 10010}},
+                                   .instance_health_check_frequency_sec = std::chrono::seconds{1},
+                                   .instance_down_timeout_sec = std::chrono::seconds{5},
+                                   .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
+                                   .ssl = std::nullopt};
 
   auto const uuid = UUID{};
   data_instances.emplace_back(config, ReplicationRole::REPLICA, uuid);

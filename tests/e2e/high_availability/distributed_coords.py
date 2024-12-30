@@ -2807,27 +2807,26 @@ def test_follower_have_correct_health(test_name):
     mg_sleep_and_assert(data, partial(show_instances, coord_cursor_2))
 
 
-# TODO: (andi) Restore once you have a decision with Lastre
-# def test_first_coord_restarts(test_name):
-#     # Goal of this test is to check that first coordinator can restart without any issues
-#
-#     # 1
-#     inner_instances_description = get_instances_description_no_setup(test_name=test_name)
-#
-#     interactive_mg_runner.start(inner_instances_description, "coordinator_1")
-#     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
-#
-#     leader_data = [("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader")]
-#     mg_sleep_and_assert(leader_data, partial(show_instances, coord_cursor_1))
-#
-#     interactive_mg_runner.kill_all(keep_directories=True)
-#
-#     interactive_mg_runner.start(inner_instances_description, "coordinator_1")
-#
-#     leader_data = [("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader")]
-#
-#     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
-#     mg_sleep_and_assert(leader_data, partial(show_instances, coord_cursor_1))
+def test_first_coord_restarts(test_name):
+    # Goal of this test is to check that first coordinator can restart without any issues
+
+    # 1
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
+
+    interactive_mg_runner.start(inner_instances_description, "coordinator_1")
+    coord_cursor_1 = connect(host="localhost", port=7690).cursor()
+
+    leader_data = [("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader")]
+    mg_sleep_and_assert(leader_data, partial(show_instances, coord_cursor_1))
+
+    interactive_mg_runner.kill_all(keep_directories=True)
+
+    interactive_mg_runner.start(inner_instances_description, "coordinator_1")
+
+    leader_data = [("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader")]
+
+    coord_cursor_1 = connect(host="localhost", port=7690).cursor()
+    mg_sleep_and_assert(leader_data, partial(show_instances, coord_cursor_1))
 
 
 def test_main_reselected_to_become_main(test_name):

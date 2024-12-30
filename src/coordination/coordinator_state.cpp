@@ -40,7 +40,7 @@ CoordinatorState::CoordinatorState(ReplicationInstanceInitConfig const &config) 
                 mgmt_config.endpoint.GetPort());
 }
 
-auto CoordinatorState::RegisterReplicationInstance(CoordinatorToReplicaConfig const &config)
+auto CoordinatorState::RegisterReplicationInstance(DataInstanceConfig const &config)
     -> RegisterInstanceCoordinatorStatus {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Coordinator cannot register replica since variant holds wrong alternative");
@@ -134,7 +134,7 @@ auto CoordinatorState::GetDataInstanceManagementServer() const -> DataInstanceMa
   return *std::get<CoordinatorMainReplicaData>(data_).data_instance_management_server_;
 }
 
-auto CoordinatorState::AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config)
+auto CoordinatorState::AddCoordinatorInstance(coordination::CoordinatorInstanceConfig const &config)
     -> AddCoordinatorInstanceStatus {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Coordinator cannot be added since variant holds wrong alternative");

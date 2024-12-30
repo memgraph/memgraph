@@ -9,13 +9,13 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "utils.hpp"
+#include "coordination/utils.hpp"
 
 #include <string_view>
 #include "json/json.hpp"
 
+#include "coordination/logger_wrapper.hpp"
 #include "kvstore/kvstore.hpp"
-#include "nuraft/logger_wrapper.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::coordination {

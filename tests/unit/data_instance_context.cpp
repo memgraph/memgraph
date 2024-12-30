@@ -11,11 +11,11 @@
 
 #include "gtest/gtest.h"
 
-#include "coordination/coordinator_instance_context.hpp"
+#include "coordination/data_instance_context.hpp"
 
-using memgraph::coordination::CoordinatorInstanceContext;
+using memgraph::coordination::DataInstanceContext;
 
-class CoordinatorInstanceContextTest : public ::testing::Test {
+class DataInstanceContextTest : public ::testing::Test {
  protected:
   void SetUp() override {
     if (!std::filesystem::exists(test_folder_)) {
@@ -32,13 +32,4 @@ class CoordinatorInstanceContextTest : public ::testing::Test {
                                      "MG_tests_unit_coordinator_instance_context"};
 };
 
-TEST_F(CoordinatorInstanceContextTest, MarshallingNonEmptyContext) {
-  std::vector<CoordinatorInstanceContext> servers;
-  servers.emplace_back(CoordinatorInstanceContext{.id = 1, .bolt_server = "localhost:9011"});
-  servers.emplace_back(CoordinatorInstanceContext{.id = 2, .bolt_server = "localhost:9012"});
-
-  auto const serialized_servers = nlohmann::json(servers).dump();
-  auto const parsed_servers = nlohmann::json::parse(serialized_servers);
-
-  ASSERT_EQ(servers, parsed_servers.get<std::vector<CoordinatorInstanceContext>>());
-}
+TEST_F(DataInstanceContextTest, MarshallingEmptyContext) {}

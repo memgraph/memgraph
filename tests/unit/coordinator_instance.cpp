@@ -21,8 +21,8 @@
 #include "json/json.hpp"
 
 using memgraph::coordination::CoordinatorInstance;
+using memgraph::coordination::CoordinatorInstanceConfig;
 using memgraph::coordination::CoordinatorInstanceInitConfig;
-using memgraph::coordination::CoordinatorToCoordinatorConfig;
 using memgraph::io::network::Endpoint;
 
 // Networking is used in this test, be careful with ports used.
@@ -113,18 +113,18 @@ TEST_F(CoordinatorInstanceTest, ConnectCoordinators) {
   auto instance3 = CoordinatorInstance{init_config3};
 
   instance1.AddCoordinatorInstance(
-      CoordinatorToCoordinatorConfig{.coordinator_id = coordinator_ids[1],
-                                     .bolt_server = Endpoint{"localhost", bolt_ports[1]},
-                                     .coordinator_server = Endpoint{"localhost", coordinator_ports[1]},
-                                     .management_server = Endpoint{"localhost", management_ports[1]},
-                                     .coordinator_hostname = "localhost"});
+      CoordinatorInstanceConfig{.coordinator_id = coordinator_ids[1],
+                                .bolt_server = Endpoint{"localhost", bolt_ports[1]},
+                                .coordinator_server = Endpoint{"localhost", coordinator_ports[1]},
+                                .management_server = Endpoint{"localhost", management_ports[1]},
+                                .coordinator_hostname = "localhost"});
 
   instance1.AddCoordinatorInstance(
-      CoordinatorToCoordinatorConfig{.coordinator_id = coordinator_ids[2],
-                                     .bolt_server = Endpoint{"localhost", bolt_ports[2]},
-                                     .coordinator_server = Endpoint{"localhost", coordinator_ports[2]},
-                                     .management_server = Endpoint{"localhost", management_ports[2]},
-                                     .coordinator_hostname = "localhost"});
+      CoordinatorInstanceConfig{.coordinator_id = coordinator_ids[2],
+                                .bolt_server = Endpoint{"localhost", bolt_ports[2]},
+                                .coordinator_server = Endpoint{"localhost", coordinator_ports[2]},
+                                .management_server = Endpoint{"localhost", management_ports[2]},
+                                .coordinator_hostname = "localhost"});
 
   auto const wait_and_assert = [this](auto const &instance) {
     ASSERT_TRUE(HasBecomeEqual([&instance]() { return instance.ShowInstances().size(); }, 3));
@@ -182,18 +182,18 @@ TEST_F(CoordinatorInstanceTest, GetRoutingTable) {
   auto instance3 = CoordinatorInstance{init_config3};
 
   instance1.AddCoordinatorInstance(
-      CoordinatorToCoordinatorConfig{.coordinator_id = coordinator_ids[1],
-                                     .bolt_server = Endpoint{"localhost", bolt_ports[1]},
-                                     .coordinator_server = Endpoint{"localhost", coordinator_ports[1]},
-                                     .management_server = Endpoint{"localhost", management_ports[1]},
-                                     .coordinator_hostname = "localhost"});
+      CoordinatorInstanceConfig{.coordinator_id = coordinator_ids[1],
+                                .bolt_server = Endpoint{"localhost", bolt_ports[1]},
+                                .coordinator_server = Endpoint{"localhost", coordinator_ports[1]},
+                                .management_server = Endpoint{"localhost", management_ports[1]},
+                                .coordinator_hostname = "localhost"});
 
   instance1.AddCoordinatorInstance(
-      CoordinatorToCoordinatorConfig{.coordinator_id = coordinator_ids[2],
-                                     .bolt_server = Endpoint{"localhost", bolt_ports[2]},
-                                     .coordinator_server = Endpoint{"localhost", coordinator_ports[2]},
-                                     .management_server = Endpoint{"localhost", management_ports[2]},
-                                     .coordinator_hostname = "localhost"});
+      CoordinatorInstanceConfig{.coordinator_id = coordinator_ids[2],
+                                .bolt_server = Endpoint{"localhost", bolt_ports[2]},
+                                .coordinator_server = Endpoint{"localhost", coordinator_ports[2]},
+                                .management_server = Endpoint{"localhost", management_ports[2]},
+                                .coordinator_hostname = "localhost"});
 
   spdlog::trace("Added coordinator instances!");
   {

@@ -13,12 +13,13 @@
 
 #ifdef MG_ENTERPRISE
 
+#include "coordination/constants_log_durability.hpp"
 #include "coordination/coordination_observer.hpp"
 #include "coordination/coordinator_communication_config.hpp"
+#include "coordination/coordinator_instance_aux.hpp"
+#include "coordination/coordinator_log_store.hpp"
+#include "coordination/logger_wrapper.hpp"
 #include "kvstore/kvstore.hpp"
-#include "nuraft/constants_log_durability.hpp"
-#include "nuraft/coordinator_log_store.hpp"
-#include "nuraft/logger_wrapper.hpp"
 
 #include <spdlog/spdlog.h>
 
@@ -43,8 +44,8 @@ class CoordinatorStateManager : public state_mgr {
 
   ~CoordinatorStateManager() override = default;
 
-  // TODO: (andi) See what's needed and create a struct only for that, not all things needed.
-  auto GetCoordinatorToCoordinatorConfigs() const -> std::vector<CoordinatorToCoordinatorConfig>;
+  // Goes over all connected servers and returns aux field parsed as `CoordinatorInstanceAux`.
+  auto GetCoordinatorInstancesAux() const -> std::vector<CoordinatorInstanceAux>;
 
   auto load_config() -> ptr<cluster_config> override;
 
@@ -63,7 +64,7 @@ class CoordinatorStateManager : public state_mgr {
   [[nodiscard]] auto GetSrvConfig() const -> ptr<srv_config>;
 
  private:
-  void NotifyObserver(std::vector<CoordinatorToCoordinatorConfig> const &configs);
+  void NotifyObserver(std::vector<CoordinatorInstanceAux> const &coord_instances_aux);
   void HandleVersionMigration();
   void TryUpdateClusterConfigFromDisk();
 

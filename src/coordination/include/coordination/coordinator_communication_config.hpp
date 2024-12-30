@@ -13,8 +13,9 @@
 
 #ifdef MG_ENTERPRISE
 
+#include "coordination/constants_log_durability.hpp"
 #include "io/network/endpoint.hpp"
-#include "nuraft/constants_log_durability.hpp"
+#include "kvstore/kvstore.hpp"
 #include "replication_coordination_glue/mode.hpp"
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
@@ -25,7 +26,6 @@
 #include <optional>
 #include <string>
 #include <utility>
-#include "kvstore/kvstore.hpp"
 
 #include <fmt/format.h>
 #include "json/json.hpp"
@@ -106,7 +106,7 @@ struct ReplicationClientInfo {
   friend bool operator==(ReplicationClientInfo const &, ReplicationClientInfo const &) = default;
 };
 
-struct CoordinatorToReplicaConfig {
+struct DataInstanceConfig {
   auto BoltSocketAddress() const -> std::string { return bolt_server.SocketAddress(); }
   auto ManagementSocketAddress() const -> std::string { return mgt_server.SocketAddress(); }
   auto ReplicationSocketAddress() const -> std::string {
@@ -130,7 +130,7 @@ struct CoordinatorToReplicaConfig {
 
   std::optional<SSL> ssl;
 
-  friend bool operator==(CoordinatorToReplicaConfig const &, CoordinatorToReplicaConfig const &) = default;
+  friend bool operator==(DataInstanceConfig const &, DataInstanceConfig const &) = default;
 };
 
 struct LeaderCoordinatorData {
@@ -138,7 +138,7 @@ struct LeaderCoordinatorData {
   std::string bolt_server;
 };
 
-struct CoordinatorToCoordinatorConfig {
+struct CoordinatorInstanceConfig {
   uint32_t coordinator_id{0};
   io::network::Endpoint bolt_server;
   io::network::Endpoint coordinator_server;
@@ -148,7 +148,7 @@ struct CoordinatorToCoordinatorConfig {
   std::string coordinator_hostname;
   std::chrono::seconds instance_down_timeout_sec{5};
 
-  friend bool operator==(CoordinatorToCoordinatorConfig const &, CoordinatorToCoordinatorConfig const &) = default;
+  friend bool operator==(CoordinatorInstanceConfig const &, CoordinatorInstanceConfig const &) = default;
 };
 
 struct ManagementServerConfig {
@@ -172,11 +172,11 @@ struct InstanceUUIDUpdate {
   memgraph::utils::UUID uuid;
 };
 
-void to_json(nlohmann::json &j, CoordinatorToReplicaConfig const &config);
-void from_json(nlohmann::json const &j, CoordinatorToReplicaConfig &config);
+void to_json(nlohmann::json &j, DataInstanceConfig const &config);
+void from_json(nlohmann::json const &j, DataInstanceConfig &config);
 
-void to_json(nlohmann::json &j, CoordinatorToCoordinatorConfig const &config);
-void from_json(nlohmann::json const &j, CoordinatorToCoordinatorConfig &config);
+void to_json(nlohmann::json &j, CoordinatorInstanceConfig const &config);
+void from_json(nlohmann::json const &j, CoordinatorInstanceConfig &config);
 
 void to_json(nlohmann::json &j, ReplicationClientInfo const &config);
 void from_json(nlohmann::json const &j, ReplicationClientInfo &config);

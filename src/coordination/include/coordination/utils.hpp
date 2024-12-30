@@ -13,8 +13,8 @@
 #include <string>
 
 #include "coordination/coordinator_instance_context.hpp"
+#include "coordination/logger_wrapper.hpp"
 #include "kvstore/kvstore.hpp"
-#include "nuraft/logger_wrapper.hpp"
 
 namespace memgraph::coordination {
 auto GetOrSetDefaultVersion(kvstore::KVStore &durability, std::string_view key, int default_value, LoggerWrapper logger)

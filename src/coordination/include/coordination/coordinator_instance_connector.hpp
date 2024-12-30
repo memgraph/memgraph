@@ -13,10 +13,11 @@
 
 #pragma once
 
-#include <memory>
 #include "coordination/coordinator_instance_client.hpp"
 #include "coordination/coordinator_rpc.hpp"
 #include "coordination/instance_status.hpp"
+
+#include <memory>
 
 namespace memgraph::coordination {
 

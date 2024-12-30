@@ -566,14 +566,14 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
                                             .replication_server = *maybe_replication_server};
 
     auto coordinator_client_config =
-        coordination::CoordinatorToReplicaConfig{.instance_name = std::string(instance_name),
-                                                 .mgt_server = *maybe_management_server,
-                                                 .bolt_server = *maybe_bolt_server,
-                                                 .replication_client_info = repl_config,
-                                                 .instance_health_check_frequency_sec = instance_check_frequency,
-                                                 .instance_down_timeout_sec = instance_down_timeout,
-                                                 .instance_get_uuid_frequency_sec = instance_get_uuid_frequency,
-                                                 .ssl = std::nullopt};
+        coordination::DataInstanceConfig{.instance_name = std::string(instance_name),
+                                         .mgt_server = *maybe_management_server,
+                                         .bolt_server = *maybe_bolt_server,
+                                         .replication_client_info = repl_config,
+                                         .instance_health_check_frequency_sec = instance_check_frequency,
+                                         .instance_down_timeout_sec = instance_down_timeout,
+                                         .instance_get_uuid_frequency_sec = instance_get_uuid_frequency,
+                                         .ssl = std::nullopt};
 
     auto status = coordinator_handler_.RegisterReplicationInstance(coordinator_client_config);
     switch (status) {
@@ -651,10 +651,10 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     }
 
     auto const coord_coord_config =
-        coordination::CoordinatorToCoordinatorConfig{.coordinator_id = coordinator_id,
-                                                     .bolt_server = *maybe_bolt_server,
-                                                     .coordinator_server = *maybe_coordinator_server,
-                                                     .management_server = *maybe_management_server
+        coordination::CoordinatorInstanceConfig{.coordinator_id = coordinator_id,
+                                                .bolt_server = *maybe_bolt_server,
+                                                .coordinator_server = *maybe_coordinator_server,
+                                                .management_server = *maybe_management_server
 
         };
 

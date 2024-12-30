@@ -65,8 +65,7 @@ class CoordinatorInstance {
   // We don't need to open lock and close the lock since we need only one writing to raft log here.
   // If some of actions fail like sending rpc, demoting or rpc failed, we clear in-memory structures that we have.
   // If writing to raft succeeds, we know what everything up to that point passed so all good.
-  [[nodiscard]] auto RegisterReplicationInstance(CoordinatorToReplicaConfig const &config)
-      -> RegisterInstanceCoordinatorStatus;
+  [[nodiscard]] auto RegisterReplicationInstance(DataInstanceConfig const &config) -> RegisterInstanceCoordinatorStatus;
 
   // Here we reverse logic from RegisterReplicationInstance. 1st we write to raft log and then we try to unregister
   // replication instance from in-memory structures. If raft passes and some of rpc actions or deletions fails, user
@@ -95,7 +94,7 @@ class CoordinatorInstance {
   // Finds most up to date instance that could become new main. Only alive instances are taken into account.
   [[nodiscard]] auto TryFailover() -> FailoverStatus;
 
-  auto AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) -> AddCoordinatorInstanceStatus;
+  auto AddCoordinatorInstance(CoordinatorInstanceConfig const &config) -> AddCoordinatorInstanceStatus;
 
   auto RemoveCoordinatorInstance(int coordinator_id) -> RemoveCoordinatorInstanceStatus;
 
@@ -115,12 +114,9 @@ class CoordinatorInstance {
   void InstanceSuccessCallback(std::string_view instance_name, std::optional<InstanceState> instance_state);
   void InstanceFailCallback(std::string_view instance_name, std::optional<InstanceState> instance_state);
 
-  // TODO: (andi) Move to private section
-  void UpdateClientConnectors(std::vector<CoordinatorToCoordinatorConfig> const &configs);
+  void UpdateClientConnectors(std::vector<CoordinatorInstanceAux> const &coord_instances_aux);
 
  private:
-  auto UpdateConnector(uint32_t coordinator_id, io::network::Endpoint const &management_server) -> void;
-
   auto FindReplicationInstance(std::string_view replication_instance_name) -> ReplicationInstanceConnector &;
   auto ReconcileClusterState_() -> ReconcileClusterStateStatus;
   auto ShowInstancesStatusAsFollower() const -> std::vector<InstanceStatus>;

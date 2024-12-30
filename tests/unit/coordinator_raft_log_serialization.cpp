@@ -10,8 +10,8 @@
 // licenses/APL.txt.
 
 #include "coordination/coordinator_communication_config.hpp"
+#include "coordination/coordinator_state_machine.hpp"
 #include "io/network/endpoint.hpp"
-#include "nuraft/coordinator_state_machine.hpp"
 #include "utils/file.hpp"
 #include "utils/uuid.hpp"
 
@@ -20,8 +20,8 @@
 #include "json/json.hpp"
 
 using memgraph::coordination::CoordinatorStateMachine;
-using memgraph::coordination::CoordinatorToReplicaConfig;
-using memgraph::coordination::DataInstanceState;
+using memgraph::coordination::DataInstanceConfig;
+using memgraph::coordination::DataInstanceContext;
 using memgraph::coordination::ReplicationClientInfo;
 using memgraph::io::network::Endpoint;
 using memgraph::replication_coordination_glue::ReplicationMode;
@@ -49,35 +49,35 @@ TEST_F(RaftLogSerialization, ReplClientInfo) {
   ASSERT_EQ(info, info2);
 }
 
-TEST_F(RaftLogSerialization, CoordinatorToReplicaConfig) {
-  CoordinatorToReplicaConfig config{.instance_name = "instance3",
-                                    .mgt_server = Endpoint{"127.0.0.1", 10112},
-                                    .replication_client_info = {.instance_name = "instance_name",
-                                                                .replication_mode = ReplicationMode::ASYNC,
-                                                                .replication_server = Endpoint{"127.0.0.1", 10001}},
-                                    .instance_health_check_frequency_sec = std::chrono::seconds{1},
-                                    .instance_down_timeout_sec = std::chrono::seconds{5},
-                                    .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
-                                    .ssl = std::nullopt};
+TEST_F(RaftLogSerialization, DataInstanceConfig) {
+  DataInstanceConfig config{.instance_name = "instance3",
+                            .mgt_server = Endpoint{"127.0.0.1", 10112},
+                            .replication_client_info = {.instance_name = "instance_name",
+                                                        .replication_mode = ReplicationMode::ASYNC,
+                                                        .replication_server = Endpoint{"127.0.0.1", 10001}},
+                            .instance_health_check_frequency_sec = std::chrono::seconds{1},
+                            .instance_down_timeout_sec = std::chrono::seconds{5},
+                            .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
+                            .ssl = std::nullopt};
 
   nlohmann::json j = config;
-  CoordinatorToReplicaConfig config2 = j.get<memgraph::coordination::CoordinatorToReplicaConfig>();
+  DataInstanceConfig config2 = j.get<memgraph::coordination::DataInstanceConfig>();
 
   ASSERT_EQ(config, config2);
 }
 
 TEST_F(RaftLogSerialization, SerializeUpdateClusterState) {
-  CoordinatorToReplicaConfig config{.instance_name = "instance3",
-                                    .mgt_server = Endpoint{"127.0.0.1", 10112},
-                                    .replication_client_info = {.instance_name = "instance_name",
-                                                                .replication_mode = ReplicationMode::ASYNC,
-                                                                .replication_server = Endpoint{"127.0.0.1", 10001}},
-                                    .instance_health_check_frequency_sec = std::chrono::seconds{1},
-                                    .instance_down_timeout_sec = std::chrono::seconds{5},
-                                    .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
-                                    .ssl = std::nullopt};
+  DataInstanceConfig config{.instance_name = "instance3",
+                            .mgt_server = Endpoint{"127.0.0.1", 10112},
+                            .replication_client_info = {.instance_name = "instance_name",
+                                                        .replication_mode = ReplicationMode::ASYNC,
+                                                        .replication_server = Endpoint{"127.0.0.1", 10001}},
+                            .instance_health_check_frequency_sec = std::chrono::seconds{1},
+                            .instance_down_timeout_sec = std::chrono::seconds{5},
+                            .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
+                            .ssl = std::nullopt};
 
-  std::vector<DataInstanceState> cluster_state;
+  std::vector<DataInstanceContext> cluster_state;
 
   cluster_state.emplace_back(config, ReplicationRole::REPLICA, UUID{});
 

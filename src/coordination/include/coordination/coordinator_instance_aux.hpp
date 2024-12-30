@@ -19,16 +19,18 @@
 #ifdef MG_ENTERPRISE
 
 namespace memgraph::coordination {
-// Context saved about each coordinator in Raft logs (app log)
-struct CoordinatorInstanceContext {
+// Context saved about each coordinator in raft_server::aux field. This info is stored upon starting coordinator and
+// cannot change. We use json (de)serialization.
+struct CoordinatorInstanceAux {
   uint32_t id;
-  std::string bolt_server;
+  std::string coordinator_server;
+  std::string management_server;
 
-  friend bool operator==(CoordinatorInstanceContext const &, CoordinatorInstanceContext const &) = default;
+  friend bool operator==(CoordinatorInstanceAux const &, CoordinatorInstanceAux const &) = default;
 };
 
-void to_json(nlohmann::json &j, CoordinatorInstanceContext const &context);
-void from_json(nlohmann::json const &j, CoordinatorInstanceContext &context);
+void to_json(nlohmann::json &j, CoordinatorInstanceAux const &context);
+void from_json(nlohmann::json const &j, CoordinatorInstanceAux &context);
 }  // namespace memgraph::coordination
 
 #endif
