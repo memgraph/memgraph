@@ -11,6 +11,7 @@
 
 import sys
 
+import mgclient
 import pytest
 from common import connect, execute_and_fetch_all
 
@@ -42,6 +43,70 @@ def test_convert_map():
         "test5": None,
         "test6": {"test10": None, "test7": True, "test8": 1, "test9": 1.5},
     }
+
+
+def test_convert_null():
+    cursor = connect().cursor()
+    result = execute_and_fetch_all(
+        cursor,
+        'RETURN convert.str2object("null");',
+    )[
+        0
+    ][0]
+    assert result == None
+
+
+def test_convert_int():
+    cursor = connect().cursor()
+    result = execute_and_fetch_all(
+        cursor,
+        'RETURN convert.str2object("1");',
+    )[
+        0
+    ][0]
+    assert result == 1
+
+
+def test_convert_double():
+    cursor = connect().cursor()
+    result = execute_and_fetch_all(
+        cursor,
+        'RETURN convert.str2object("1.5");',
+    )[
+        0
+    ][0]
+    assert result == 1.5
+
+
+def test_convert_bool():
+    cursor = connect().cursor()
+    result = execute_and_fetch_all(
+        cursor,
+        'RETURN convert.str2object("true");',
+    )[
+        0
+    ][0]
+    assert result == True
+
+
+def test_convert_string():
+    cursor = connect().cursor()
+    result = execute_and_fetch_all(
+        cursor,
+        'RETURN convert.str2object("\\"Cool string\\"");',
+    )[
+        0
+    ][0]
+    assert result == "Cool string"
+
+
+def test_convert_invalid():
+    cursor = connect().cursor()
+    with pytest.raises(mgclient.DatabaseError):
+        execute_and_fetch_all(
+            cursor,
+            'RETURN convert.str2object("this is not a string since it is not escaped");',
+        )
 
 
 if __name__ == "__main__":
