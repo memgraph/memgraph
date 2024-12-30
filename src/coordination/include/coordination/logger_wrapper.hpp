@@ -13,8 +13,8 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "nuraft/log_level.hpp"
-#include "nuraft/logger.hpp"
+#include "coordination/log_level.hpp"
+#include "coordination/logger.hpp"
 
 #include <source_location>
 #include <string>

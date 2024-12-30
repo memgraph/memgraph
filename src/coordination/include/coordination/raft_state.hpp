@@ -16,10 +16,10 @@
 
 #include <flags/replication.hpp>
 #include "coordination/coordinator_communication_config.hpp"
+#include "coordination/coordinator_state_machine.hpp"
+#include "coordination/coordinator_state_manager.hpp"
 #include "coordination_observer.hpp"
 #include "io/network/endpoint.hpp"
-#include "nuraft/coordinator_state_machine.hpp"
-#include "nuraft/coordinator_state_manager.hpp"
 
 #include <libnuraft/logger.hxx>
 #include <libnuraft/nuraft.hxx>
@@ -27,7 +27,7 @@
 namespace memgraph::coordination {
 
 class CoordinatorInstance;
-struct CoordinatorToReplicaConfig;
+struct DataInstanceConfig;
 
 using BecomeLeaderCb = std::function<void()>;
 using BecomeFollowerCb = std::function<void()>;
@@ -66,19 +66,21 @@ class RaftState {
   auto GetMyCoordinatorId() const -> uint32_t;
   auto InstanceName() const -> std::string;
 
-  auto AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) -> void;
+  auto AddCoordinatorInstance(CoordinatorInstanceConfig const &config) -> void;
   auto RemoveCoordinatorInstance(int coordinator_id) -> void;
 
   auto IsLeader() const -> bool;
   auto GetLeaderId() const -> uint32_t;
 
-  auto GetCoordinatorToCoordinatorConfigs() const -> std::vector<CoordinatorToCoordinatorConfig>;
+  auto GetCoordinatorInstanceConfigs() const -> std::vector<CoordinatorInstanceConfig>;
 
-  auto AppendClusterUpdate(std::vector<DataInstanceState> data_instances,
+  auto AppendClusterUpdate(std::vector<DataInstanceContext> data_instances,
                            std::vector<CoordinatorInstanceContext> coordinator_instances, utils::UUID uuid) -> bool;
 
-  auto GetDataInstances() const -> std::vector<DataInstanceState>;
-  auto GetCoordinatorInstances() const -> std::vector<CoordinatorInstanceContext>;
+  auto GetDataInstancesContext() const -> std::vector<DataInstanceContext>;
+  auto GetCoordinatorInstancesContext() const -> std::vector<CoordinatorInstanceContext>;
+  auto GetCoordinatorInstancesAux() const -> std::vector<CoordinatorInstanceAux>;
+  auto GetMyCoordinatorInstanceAux() const -> CoordinatorInstanceAux;
 
   // TODO: (andi) Ideally we delete this and rely just on one thing.
   auto MainExists() const -> bool;
@@ -92,8 +94,9 @@ class RaftState {
 
   // Returns elapsed time in ms since last successful response from the coordinator with id srv_id
   auto CoordLastSuccRespMs(uint32_t srv_id) -> std::chrono::milliseconds;
-  auto GetCoordinatorInstanceContext(int coordinator_id) const -> CoordinatorInstanceContext;
-  auto GetMyCoordinatorInstanceContext() const -> CoordinatorInstanceContext;
+  // Return empty optional in the case when user didn't add coordinator on which setup of the cluster has been done
+  auto GetBoltServer(uint32_t coordinator_id) const -> std::optional<std::string>;
+  auto GetMyBoltServer() const -> std::optional<std::string>;
 
  private:
   int coordinator_port_;

@@ -13,7 +13,7 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "nuraft/log_level.hpp"
+#include "coordination/log_level.hpp"
 
 #include <spdlog/common.h>
 #include <spdlog/sinks/daily_file_sink.h>

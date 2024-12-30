@@ -11,6 +11,9 @@
 
 #pragma once
 
+#include <string>
+#include <string_view>
+
 namespace memgraph::coordination {
 
 enum class LogStoreVersion : int {

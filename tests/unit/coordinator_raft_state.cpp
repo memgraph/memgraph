@@ -20,8 +20,8 @@
 
 using memgraph::coordination::CoordinatorInstanceInitConfig;
 using memgraph::coordination::CoordinatorStateManagerConfig;
-using memgraph::coordination::CoordinatorToReplicaConfig;
-using memgraph::coordination::DataInstanceState;
+using memgraph::coordination::DataInstanceConfig;
+using memgraph::coordination::DataInstanceContext;
 using memgraph::coordination::RaftState;
 using memgraph::coordination::ReplicationClientInfo;
 using memgraph::io::network::Endpoint;
@@ -122,11 +122,11 @@ TEST_F(RaftStateTest, GetMixedRoutingTable) {
 
   raft_state_leader->InitRaftServer();
 
-  std::vector<DataInstanceState> cluster_state{};
+  std::vector<DataInstanceContext> cluster_state{};
   auto const curr_uuid = UUID{};
 
   cluster_state.emplace_back(
-      CoordinatorToReplicaConfig{
+      DataInstanceConfig{
           .instance_name = "instance1",
           .mgt_server = Endpoint{"0.0.0.0", 10011},
           .bolt_server = Endpoint{"0.0.0.0", 7687},
@@ -136,7 +136,7 @@ TEST_F(RaftStateTest, GetMixedRoutingTable) {
       ReplicationRole::MAIN, curr_uuid);
 
   cluster_state.emplace_back(
-      CoordinatorToReplicaConfig{
+      DataInstanceConfig{
           .instance_name = "instance2",
           .mgt_server = Endpoint{"0.0.0.0", 10012},
           .bolt_server = Endpoint{"0.0.0.0", 7688},
@@ -146,7 +146,7 @@ TEST_F(RaftStateTest, GetMixedRoutingTable) {
       ReplicationRole::REPLICA, curr_uuid);
 
   cluster_state.emplace_back(
-      CoordinatorToReplicaConfig{
+      DataInstanceConfig{
           .instance_name = "instance3",
           .mgt_server = Endpoint{"0.0.0.0", 10013},
           .bolt_server = Endpoint{"0.0.0.0", 7689},

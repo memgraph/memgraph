@@ -13,7 +13,7 @@
 # add_subdirectory(manual)
 #
 # # unit test binaries
-# add_subdirectory(unit)
+add_subdirectory(unit)
 #
 # # property based test binaries
 # add_subdirectory(property_based)

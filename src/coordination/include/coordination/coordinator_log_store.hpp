@@ -14,10 +14,10 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_communication_config.hpp"
+#include "coordination/logger_wrapper.hpp"
 
 #include <libnuraft/nuraft.hxx>
 #include "kvstore/kvstore.hpp"
-#include "nuraft/logger_wrapper.hpp"
 
 namespace memgraph::coordination {
 

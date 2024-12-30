@@ -11,11 +11,11 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "nuraft/coordinator_log_store.hpp"
+#include "coordination/coordinator_log_store.hpp"
+#include "coordination/constants_log_durability.hpp"
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_exceptions.hpp"
-#include "nuraft/constants_log_durability.hpp"
-#include "utils.hpp"
+#include "coordination/utils.hpp"
 #include "utils/logging.hpp"
 
 #include "kvstore/kvstore.hpp"

@@ -9,10 +9,10 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "nuraft/coordinator_state_machine.hpp"
+#include "coordination/coordinator_state_machine.hpp"
+#include "coordination/constants_log_durability.hpp"
+#include "coordination/coordinator_state_manager.hpp"
 #include "kvstore/kvstore.hpp"
-#include "nuraft/constants_log_durability.hpp"
-#include "nuraft/coordinator_state_manager.hpp"
 #include "utils/file.hpp"
 
 #include <gflags/gflags.h>
@@ -24,13 +24,13 @@
 #include <range/v3/view.hpp>
 #include "coordination/coordinator_communication_config.hpp"
 
+using memgraph::coordination::CoordinatorInstanceConfig;
 using memgraph::coordination::CoordinatorStateManager;
 using memgraph::coordination::CoordinatorStateManagerConfig;
-using memgraph::coordination::CoordinatorToCoordinatorConfig;
 
+using memgraph::coordination::CoordinatorInstanceConfig;
 using memgraph::coordination::CoordinatorStateMachine;
-using memgraph::coordination::CoordinatorToCoordinatorConfig;
-using memgraph::coordination::CoordinatorToReplicaConfig;
+using memgraph::coordination::DataInstanceConfig;
 using memgraph::coordination::InstanceUUIDUpdate;
 using memgraph::io::network::Endpoint;
 using memgraph::replication_coordination_glue::ReplicationMode;
@@ -123,10 +123,9 @@ TEST_P(CoordinatorStateMachineTestParam, SerializeDeserializeSnapshot) {
                                          log_store_durability};
     ptr<CoordinatorStateManager> state_manager_ = cs_new<CoordinatorStateManager>(config, my_logger);
     old_config = state_manager_->load_config();
-    auto const c2c =
-        CoordinatorToCoordinatorConfig{config.coordinator_id_, memgraph::io::network::Endpoint("0.0.0.0", 9091),
-                                       memgraph::io::network::Endpoint{"0.0.0.0", 12346},
-                                       memgraph::io::network::Endpoint("0.0.0.0", 20223), "localhost"};
+    auto const c2c = CoordinatorInstanceConfig{config.coordinator_id_, memgraph::io::network::Endpoint("0.0.0.0", 9091),
+                                               memgraph::io::network::Endpoint{"0.0.0.0", 12346},
+                                               memgraph::io::network::Endpoint("0.0.0.0", 20223), "localhost"};
     auto temp_srv_config =
         cs_new<srv_config>(1, 0, c2c.coordinator_server.SocketAddress(), nlohmann::json(c2c).dump(), false);
     // second coord stored here

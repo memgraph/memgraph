@@ -11,10 +11,10 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "nuraft/coordinator_state_manager.hpp"
+#include "coordination/coordinator_state_manager.hpp"
 #include "coordination/coordination_observer.hpp"
 #include "coordination/coordinator_exceptions.hpp"
-#include "utils.hpp"
+#include "coordination/utils.hpp"
 #include "utils/file.hpp"
 
 #include <spdlog/spdlog.h>
@@ -31,12 +31,10 @@ using nuraft::state_mgr;
 
 namespace {
 constexpr std::string_view kClusterConfigKey = "cluster_config";  // Key prefix for cluster_config durability
-
-constexpr std::string_view kServerStateKey = "server_state";  // Key prefix for server state durability
+constexpr std::string_view kServerStateKey = "server_state";      // Key prefix for server state durability
 constexpr std::string_view kVotedFor = "voted_for";
 constexpr std::string_view kTerm = "term";
 constexpr std::string_view kElectionTimer = "election_timer";
-
 constexpr std::string_view kStateManagerDurabilityVersionKey = "state_manager_durability_version";
 
 // kV2 includes changes to management server on coordinators
@@ -104,19 +102,15 @@ CoordinatorStateManager::CoordinatorStateManager(CoordinatorStateManagerConfig c
       logger_(logger),
       durability_(config.state_manager_durability_dir_),
       observer_(observer) {
-  auto const c2c = CoordinatorToCoordinatorConfig{
-      config.coordinator_id_, io::network::Endpoint(config.coordinator_hostname, config.bolt_port_),
-      io::network::Endpoint{config.coordinator_hostname, static_cast<uint16_t>(config.coordinator_port_)},
-      io::network::Endpoint{config.coordinator_hostname, static_cast<uint16_t>(config.management_port_)},
-      config.coordinator_hostname};
-
-  auto const coordinator_server =
-      io::network::Endpoint{config.coordinator_hostname, static_cast<uint16_t>(config.coordinator_port_)};
+  auto const coord_instance_aux = CoordinatorInstanceAux{
+      .id = config.coordinator_id_,
+      .coordinator_server = fmt::format("{}:{}", config.coordinator_hostname, config.coordinator_port_),
+      .management_server = fmt::format("{}:{}", config.coordinator_hostname, config.management_port_),
+  };
 
   bool constexpr learner{false};
-  // my_srv_config_ = cs_new<srv_config>(config.coordinator_id_, 0, coordinator_server.SocketAddress(), "", learner);
-  my_srv_config_ = cs_new<srv_config>(config.coordinator_id_, 0, c2c.coordinator_server.SocketAddress(),
-                                      nlohmann::json(c2c).dump(), false);
+  my_srv_config_ = cs_new<srv_config>(config.coordinator_id_, 0, coord_instance_aux.coordinator_server,
+                                      nlohmann::json(coord_instance_aux).dump(), learner);
 
   cluster_config_ = cs_new<cluster_config>();
   cluster_config_->get_servers().push_back(my_srv_config_);
@@ -144,18 +138,18 @@ auto CoordinatorStateManager::load_config() -> ptr<cluster_config> {
   return cluster_config_;
 }
 
-auto CoordinatorStateManager::GetCoordinatorToCoordinatorConfigs() const
-    -> std::vector<CoordinatorToCoordinatorConfig> {
-  std::vector<CoordinatorToCoordinatorConfig> coordinator_to_coordinator_mappings;
+auto CoordinatorStateManager::GetCoordinatorInstancesAux() const -> std::vector<CoordinatorInstanceAux> {
   auto const &cluster_config_servers = cluster_config_->get_servers();
-  coordinator_to_coordinator_mappings.reserve(cluster_config_servers.size());
+  std::vector<CoordinatorInstanceAux> coord_instances_aux;
+  coord_instances_aux.reserve(cluster_config_servers.size());
 
-  std::ranges::transform(
-      cluster_config_servers, std::back_inserter(coordinator_to_coordinator_mappings),
-      [](auto &&server) -> CoordinatorToCoordinatorConfig {
-        return nlohmann::json::parse(server->get_aux()).template get<CoordinatorToCoordinatorConfig>();
-      });
-  return coordinator_to_coordinator_mappings;
+  std::ranges::transform(cluster_config_servers, std::back_inserter(coord_instances_aux),
+                         [](auto const &server) -> CoordinatorInstanceAux {
+                           spdlog::trace("Aux read: {}", server->get_aux());
+                           auto j = nlohmann::json::parse(server->get_aux());
+                           return j.template get<CoordinatorInstanceAux>();
+                         });
+  return coord_instances_aux;
 }
 
 auto CoordinatorStateManager::save_config(cluster_config const &config) -> void {
@@ -169,13 +163,16 @@ auto CoordinatorStateManager::save_config(cluster_config const &config) -> void 
     throw StoreClusterConfigException("Failed to store cluster config in RocksDb");
   }
 
-  NotifyObserver(GetCoordinatorToCoordinatorConfigs());
+  spdlog::trace("Successfully saved cluster config to the durable storage.");
+
+  NotifyObserver(GetCoordinatorInstancesAux());
+  spdlog::trace("Successfully notified observer about changes in the cluster configuration.");
 }
 
-void CoordinatorStateManager::NotifyObserver(std::vector<CoordinatorToCoordinatorConfig> const &configs) {
+void CoordinatorStateManager::NotifyObserver(std::vector<CoordinatorInstanceAux> const &coord_instances_aux) {
   spdlog::trace("Notifying observer about cluster config change.");
   if (observer_) {
-    observer_.value().Update(configs);
+    observer_.value().Update(coord_instances_aux);
   }
 }
 

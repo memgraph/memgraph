@@ -11,7 +11,7 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "nuraft/logger_wrapper.hpp"
+#include "coordination/logger_wrapper.hpp"
 
 namespace memgraph::coordination {
 

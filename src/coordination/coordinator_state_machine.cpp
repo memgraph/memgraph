@@ -11,13 +11,13 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "nuraft/coordinator_state_machine.hpp"
+#include "coordination/coordinator_state_machine.hpp"
 
+#include "coordination/constants_log_durability.hpp"
+#include "coordination/coordinator_cluster_state.hpp"
 #include "coordination/coordinator_exceptions.hpp"
-#include "nuraft/constants_log_durability.hpp"
-#include "nuraft/coordinator_cluster_state.hpp"
-#include "nuraft/coordinator_state_manager.hpp"
-#include "utils.hpp"
+#include "coordination/coordinator_state_manager.hpp"
+#include "coordination/utils.hpp"
 #include "utils/logging.hpp"
 
 #include <regex>
@@ -165,7 +165,7 @@ auto CoordinatorStateMachine::CreateLog(nlohmann::json &&log) -> ptr<buffer> {
   return log_buf;
 }
 
-auto CoordinatorStateMachine::SerializeUpdateClusterState(std::vector<DataInstanceState> data_instances,
+auto CoordinatorStateMachine::SerializeUpdateClusterState(std::vector<DataInstanceContext> data_instances,
                                                           std::vector<CoordinatorInstanceContext> coordinator_instances,
                                                           utils::UUID uuid) -> ptr<buffer> {
   return CreateLog(
@@ -173,14 +173,14 @@ auto CoordinatorStateMachine::SerializeUpdateClusterState(std::vector<DataInstan
 }
 
 auto CoordinatorStateMachine::DecodeLog(buffer &data)
-    -> std::tuple<std::vector<DataInstanceState>, std::vector<CoordinatorInstanceContext>, utils::UUID> {
+    -> std::tuple<std::vector<DataInstanceContext>, std::vector<CoordinatorInstanceContext>, utils::UUID> {
   buffer_serializer bs(data);
   auto const json = nlohmann::json::parse(bs.get_str());
 
   auto const data_instances = json.at("cluster_state");
   auto const uuid = json.at("uuid");
   auto const coordinator_instances = json.at("coordinator_instances");
-  return std::make_tuple(data_instances.get<std::vector<DataInstanceState>>(),
+  return std::make_tuple(data_instances.get<std::vector<DataInstanceContext>>(),
                          coordinator_instances.get<std::vector<CoordinatorInstanceContext>>(), uuid.get<utils::UUID>());
 }
 
@@ -352,12 +352,12 @@ auto CoordinatorStateMachine::CreateSnapshotInternal(ptr<snapshot> const &snapsh
   }
 }
 
-auto CoordinatorStateMachine::GetDataInstances() const -> std::vector<DataInstanceState> {
-  return cluster_state_.GetDataInstances();
+auto CoordinatorStateMachine::GetDataInstancesContext() const -> std::vector<DataInstanceContext> {
+  return cluster_state_.GetDataInstancesContext();
 }
 
-auto CoordinatorStateMachine::GetCoordinatorInstances() const -> std::vector<CoordinatorInstanceContext> {
-  return cluster_state_.GetCoordinatorInstances();
+auto CoordinatorStateMachine::GetCoordinatorInstancesContext() const -> std::vector<CoordinatorInstanceContext> {
+  return cluster_state_.GetCoordinatorInstancesContext();
 }
 
 auto CoordinatorStateMachine::GetCurrentMainUUID() const -> utils::UUID { return cluster_state_.GetCurrentMainUUID(); }

@@ -15,6 +15,7 @@
 
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_instance_context.hpp"
+#include "coordination/data_instance_context.hpp"
 #include "replication_coordination_glue/role.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/uuid.hpp"
@@ -34,23 +35,6 @@ using nuraft::buffer;
 using nuraft::buffer_serializer;
 using nuraft::ptr;
 using replication_coordination_glue::ReplicationRole;
-
-struct DataInstanceState {
-  CoordinatorToReplicaConfig config;
-  ReplicationRole status;
-
-  // for replica this is main uuid of current main
-  // for "main" main this same as current_main_id_
-  // when replica is down and comes back up we reset uuid of main replica is listening to
-  // so we need to send swap uuid again
-  // For MAIN we don't enable writing until cluster is in healthy state
-  utils::UUID instance_uuid;
-
-  friend auto operator==(DataInstanceState const &lhs, DataInstanceState const &rhs) -> bool = default;
-};
-
-void to_json(nlohmann::json &j, DataInstanceState const &instance_state);
-void from_json(nlohmann::json const &j, DataInstanceState &instance_state);
 
 // Represents the state of the cluster from the coordinator's perspective.
 // Source of truth since it is modified only as the result of RAFT's commiting.
@@ -72,16 +56,16 @@ class CoordinatorClusterState {
   auto IsCurrentMain(std::string_view instance_name) const -> bool;
 
   // TODO: (andi) Receive one argument with all values set to optional to avoid moving all the time
-  auto DoAction(std::vector<DataInstanceState> data_instances,
+  auto DoAction(std::vector<DataInstanceContext> data_instances,
                 std::vector<CoordinatorInstanceContext> coordinator_instances, utils::UUID main_uuid) -> void;
 
   auto Serialize(ptr<buffer> &data) -> void;
 
   static auto Deserialize(buffer &data) -> CoordinatorClusterState;
 
-  auto GetCoordinatorInstances() const -> std::vector<CoordinatorInstanceContext>;
+  auto GetCoordinatorInstancesContext() const -> std::vector<CoordinatorInstanceContext>;
 
-  auto GetDataInstances() const -> std::vector<DataInstanceState>;
+  auto GetDataInstancesContext() const -> std::vector<DataInstanceContext>;
 
   auto GetCurrentMainUUID() const -> utils::UUID;
 
@@ -91,7 +75,7 @@ class CoordinatorClusterState {
   void SetCurrentMainUUID(utils::UUID);
 
   // Setter function used on parsing data from json
-  void SetDataInstances(std::vector<DataInstanceState>);
+  void SetDataInstances(std::vector<DataInstanceContext>);
 
   // Setter function used on parsing data from json
   void SetCoordinatorInstances(std::vector<CoordinatorInstanceContext>);
@@ -101,7 +85,7 @@ class CoordinatorClusterState {
   }
 
  private:
-  std::vector<DataInstanceState> data_instances_{};
+  std::vector<DataInstanceContext> data_instances_{};
   std::vector<CoordinatorInstanceContext> coordinator_instances_{};
   utils::UUID current_main_uuid_{};
   mutable utils::ResourceLock log_lock_{};

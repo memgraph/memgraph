@@ -26,15 +26,13 @@
 namespace memgraph::coordination {
 
 namespace {
-auto CreateClientContext(memgraph::coordination::CoordinatorToReplicaConfig const &config)
-    -> communication::ClientContext {
+auto CreateClientContext(memgraph::coordination::DataInstanceConfig const &config) -> communication::ClientContext {
   return (config.ssl) ? communication::ClientContext{config.ssl->key_file, config.ssl->cert_file}
                       : communication::ClientContext{};
 }
 }  // namespace
 
-ReplicationInstanceClient::ReplicationInstanceClient(CoordinatorToReplicaConfig config,
-                                                     CoordinatorInstance *coord_instance)
+ReplicationInstanceClient::ReplicationInstanceClient(DataInstanceConfig config, CoordinatorInstance *coord_instance)
     : rpc_context_{CreateClientContext(config)},
       rpc_client_{config.mgt_server, &rpc_context_},
       config_{std::move(config)},

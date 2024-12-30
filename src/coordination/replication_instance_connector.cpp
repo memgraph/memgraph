@@ -22,7 +22,7 @@
 
 namespace memgraph::coordination {
 
-ReplicationInstanceConnector::ReplicationInstanceConnector(CoordinatorToReplicaConfig const &config,
+ReplicationInstanceConnector::ReplicationInstanceConnector(DataInstanceConfig const &config,
                                                            CoordinatorInstance *coord_instance)
     : client_(ReplicationInstanceClient(config, coord_instance)) {}
 
