@@ -29,9 +29,6 @@ void from_json(nlohmann::json const &j, DataInstanceState &instance_state) {
   j.at("uuid").get_to(instance_state.instance_uuid);
 }
 
-CoordinatorClusterState::CoordinatorClusterState(std::optional<CoordinationClusterChangeObserver> observer)
-    : observer_(observer) {}
-
 CoordinatorClusterState::CoordinatorClusterState(CoordinatorClusterState const &other)
     : data_instances_{other.data_instances_}, current_main_uuid_(other.current_main_uuid_) {}
 
@@ -88,12 +85,6 @@ auto CoordinatorClusterState::DoAction(std::vector<DataInstanceState> data_insta
   data_instances_ = std::move(data_instances);
   current_main_uuid_ = main_uuid;
   coordinator_instances_ = std::move(coordinator_instances);
-
-  // auto update = std::jthread([&]() {
-  //   if (coordinator_instances != coordinator_instances_ && observer_) {
-  //     observer_->Update();
-  //   }
-  // });
 }
 
 auto CoordinatorClusterState::Serialize(ptr<buffer> &data) -> void {
