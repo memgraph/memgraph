@@ -103,7 +103,7 @@ def test_convert_string():
 def test_convert_invalid():
     cursor = connect().cursor()
     with pytest.raises(mgclient.DatabaseError):
-        result = execute_and_fetch_all(
+        execute_and_fetch_all(
             cursor,
             'RETURN convert.str2object("this is not a string since it is not escaped");',
         )
