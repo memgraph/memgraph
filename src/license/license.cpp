@@ -136,7 +136,6 @@ void LicenseChecker::RevalidateLicense(const std::string &license_key, const std
   const bool same_license_info = locked_previous_license_info &&
                                  locked_previous_license_info->license_key == license_key &&
                                  locked_previous_license_info->organization_name == organization_name;
-
   // If we already know it's invalid skip the check
   if (same_license_info && !locked_previous_license_info->is_valid) {
     return;
@@ -254,7 +253,7 @@ LicenseCheckResult LicenseChecker::IsEnterpriseValid(const utils::Settings &sett
 
 void LicenseChecker::StartBackgroundLicenseChecker(const utils::Settings &settings) {
   RevalidateLicense(settings);
-  scheduler_.SetInterval(std::chrono::seconds{10});
+  scheduler_.SetInterval(std::chrono::minutes{5});
   scheduler_.Run("licensechecker", [&, this] { RevalidateLicense(settings); });
 }
 

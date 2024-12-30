@@ -71,6 +71,7 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
         AddPrivilege(AuthQuery::Privilege::STATS);
         break;
       case SystemInfoQuery::InfoType::LICENSE:
+        // same privilege as for SHOW DATABASE SETTINGS
         AddPrivilege(AuthQuery::Privilege::CONFIG);
         break;
     }
