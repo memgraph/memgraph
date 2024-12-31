@@ -95,9 +95,9 @@ add_subdirectory(show_active_users_info)
 add_subdirectory(periodic_commit)
 add_subdirectory(query_log)
 add_subdirectory(edge_indices)
-
 add_subdirectory(system_replication)
 add_subdirectory(durability)
+add_subdirectory(show_license_info)
 
 copy_e2e_python_files(pytest_runner pytest_runner.sh "")
 copy_e2e_python_files(x x.sh "")
