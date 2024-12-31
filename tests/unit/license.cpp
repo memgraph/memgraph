@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -173,5 +173,34 @@ TEST_F(LicenseTest, LicenseType) {
     const std::string license_key = memgraph::license::Encode(license_oem);
     license_checker->SetLicenseInfoOverride(license_key, organization_name);
     CheckLicenseValidity(false);
+  }
+}
+
+TEST_F(LicenseTest, DetailedLicenseInfo) {
+  CheckLicenseValidity(false);
+  const std::string organization_name{"Memgraph"};
+  {
+    memgraph::license::License license_entr{organization_name, 0, 0, memgraph::license::LicenseType::ENTERPRISE};
+    const std::string license_key = memgraph::license::Encode(license_entr);
+    license_checker->SetLicenseInfoOverride(license_key, organization_name);
+    auto detailed_license_info = license_checker->GetDetailedLicenseInfo();
+    ASSERT_EQ(detailed_license_info.organization_name, "Memgraph");
+    ASSERT_TRUE(detailed_license_info.is_valid);
+    ASSERT_EQ(detailed_license_info.license_type, "enterprise");
+    ASSERT_EQ(detailed_license_info.valid_until, "FOREVER");
+    ASSERT_EQ(detailed_license_info.memory_limit, 0);
+    ASSERT_EQ(detailed_license_info.status, "You are running a valid Memgraph Enterprise License.");
+  }
+
+  {
+    memgraph::license::License license_oem{organization_name, 1, 6, memgraph::license::LicenseType::OEM};
+    const std::string license_key = memgraph::license::Encode(license_oem);
+    license_checker->SetLicenseInfoOverride(license_key, organization_name);
+    auto detailed_license_info = license_checker->GetDetailedLicenseInfo();
+    ASSERT_FALSE(detailed_license_info.is_valid);
+    ASSERT_EQ(detailed_license_info.license_type, "oem");
+    ASSERT_EQ(detailed_license_info.memory_limit, 6);
+    ASSERT_EQ(detailed_license_info.valid_until, "1970-01-01");
+    ASSERT_EQ(detailed_license_info.status, "You are running an expired license!");
   }
 }

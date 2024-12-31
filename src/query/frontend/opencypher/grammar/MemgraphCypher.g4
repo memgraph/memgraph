@@ -99,6 +99,7 @@ memgraphCypherKeyword : cypherKeyword
                       | KAFKA
                       | LABELS
                       | LEVEL
+                      | LICENSE
                       | LIST
                       | LOAD
                       | LOCALDATETIME
