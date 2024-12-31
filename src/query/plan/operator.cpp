@@ -377,9 +377,8 @@ std::vector<Symbol> CreateExpand::ModifiedSymbols(const SymbolTable &table) cons
 std::string CreateExpand::ToString() const {
   const auto *maybe_edge_type_id = std::get_if<storage::EdgeTypeId>(&edge_info_.edge_type);
   const bool is_expansion_static = maybe_edge_type_id != nullptr;
-  return fmt::format("{} ({}){}[{}:{}]{}({})", is_expansion_static ? "CreateExpand" : "DynamicCreateExpand",
-                     input_symbol_.name(), edge_info_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-",
-                     edge_info_.symbol.name(),
+  return fmt::format("{} ({}){}[{}:{}]{}({})", "CreateExpand", input_symbol_.name(),
+                     edge_info_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-", edge_info_.symbol.name(),
                      is_expansion_static ? dba_->EdgeTypeToName(*maybe_edge_type_id) : "<DYNAMIC>",
                      edge_info_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-", node_info_.symbol.name());
 }
