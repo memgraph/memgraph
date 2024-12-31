@@ -1276,6 +1276,28 @@ if [ ! -f $PREFIX/lib/libpulsarwithdeps.a ]; then
     popd
 fi
 
+KAFKA_TAG="v2.6.1"
+log_tool_name "kafka $KAFKA_TAG"
+if [ ! -f $PREFIX/lib/librdkafka++.a ]; then
+    if [ -d kafka ]; then
+        rm -rf kafka
+    fi
+    git clone https://github.com/edenhill/librdkafka.git kafka
+    pushd kafka
+    git checkout $KAFKA_TAG
+    cmake -B build $COMMON_CMAKE_FLAGS \
+      -DRDKAFKA_BUILD_STATIC=ON \
+      -DRDKAFKA_BUILD_EXAMPLES=OFF \
+      -DRDKAFKA_BUILD_TESTS=OFF \
+      -DWITH_ZSTD=OFF \
+      -DENABLE_LZ4_EXT=OFF \
+      -DCMAKE_INSTALL_LIBDIR=lib \
+      -DWITH_SSL=ON \
+      -DWITH_SASL=ON
+    cmake --build build -j$CPUS --target install
+    popd
+fi
+
 # NOTE: Skip FBLIBS -> only used on project-pineapples
 #   * older versions don't compile on the latest GCC
 #   * newer versions don't work with OpenSSL 1.0 which is critical for CentOS7
