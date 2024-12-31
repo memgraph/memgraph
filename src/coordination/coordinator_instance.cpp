@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <cmath>
 #ifdef MG_ENTERPRISE
 
 #include <algorithm>
@@ -143,7 +144,8 @@ auto CoordinatorInstance::GetLeaderCoordinatorData() const -> std::optional<Coor
   return raft_state_->GetLeaderCoordinatorData();
 }
 
-void CoordinatorInstance::AddOrUpdateClientConnectors(std::vector<CoordinatorToCoordinatorConfig> const &configs) {
+void CoordinatorInstance::AddOrUpdateClientConnectors(
+    std::vector<CoordinatorToCoordinatorConfig> const &configs) const {
   auto connectors = coordinator_connectors_.Lock();
 
   for (auto const &config : configs) {
@@ -450,7 +452,7 @@ auto CoordinatorInstance::TryVerifyOrCorrectClusterState() -> ReconcileClusterSt
 
 void CoordinatorInstance::ShuttingDown() { is_shutting_down_.store(true, std::memory_order_release); }
 
-auto CoordinatorInstance::TryFailover() -> FailoverStatus {
+auto CoordinatorInstance::TryFailover() const -> FailoverStatus {
   // TODO: (andi) Remove has replica state.
   spdlog::trace("Trying failover in thread {}.", std::this_thread::get_id());
 
@@ -473,7 +475,7 @@ auto CoordinatorInstance::TryFailover() -> FailoverStatus {
     data_instance.instance_uuid = new_main_uuid;
   }
 
-  auto main_data_instance = std::ranges::find_if(cluster_state, [&new_main_name](auto &&data_instance) {
+  auto const main_data_instance = std::ranges::find_if(cluster_state, [&new_main_name](auto &&data_instance) {
     return data_instance.config.instance_name == new_main_name;
   });
 
@@ -488,7 +490,7 @@ auto CoordinatorInstance::TryFailover() -> FailoverStatus {
   return FailoverStatus::SUCCESS;
 }
 
-auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view new_main_name)
+auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view new_main_name) const
     -> SetInstanceToMainCoordinatorStatus {
   spdlog::trace("Acquiring lock to set replication instance to main in thread {}.", std::this_thread::get_id());
   auto lock = std::lock_guard{coord_instance_lock_};
@@ -558,7 +560,8 @@ auto CoordinatorInstance::SetReplicationInstanceToMain(std::string_view new_main
   return SetInstanceToMainCoordinatorStatus::SUCCESS;
 }
 
-auto CoordinatorInstance::DemoteInstanceToReplica(std::string_view instance_name) -> DemoteInstanceCoordinatorStatus {
+auto CoordinatorInstance::DemoteInstanceToReplica(std::string_view instance_name) const
+    -> DemoteInstanceCoordinatorStatus {
   auto lock = std::lock_guard{coord_instance_lock_};
 
   if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
@@ -708,7 +711,7 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
   return UnregisterInstanceCoordinatorStatus::SUCCESS;
 }
 
-auto CoordinatorInstance::RemoveCoordinatorInstance(int coordinator_id) -> RemoveCoordinatorInstanceStatus {
+auto CoordinatorInstance::RemoveCoordinatorInstance(int coordinator_id) const -> RemoveCoordinatorInstanceStatus {
   spdlog::trace("Started removing coordinator instance {}.", coordinator_id);
 
   auto const curr_instances = raft_state_->GetCoordinatorInstances();
@@ -722,7 +725,7 @@ auto CoordinatorInstance::RemoveCoordinatorInstance(int coordinator_id) -> Remov
   return RemoveCoordinatorInstanceStatus::SUCCESS;
 }
 
-auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config)
+auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) const
     -> AddCoordinatorInstanceStatus {
   spdlog::trace("Adding coordinator instance {} start in CoordinatorInstance for {}", config.coordinator_id,
                 raft_state_->InstanceName());
@@ -925,7 +928,7 @@ auto CoordinatorInstance::GetCoordinatorToCoordinatorConfigs() const -> std::vec
   return raft_state_->GetCoordinatorToCoordinatorConfigs();
 }
 
-auto CoordinatorInstance::GetMostUpToDateInstanceFromHistories(std::list<ReplicationInstanceConnector> &instances)
+auto CoordinatorInstance::GetMostUpToDateInstanceFromHistories(std::list<ReplicationInstanceConnector> const &instances)
     -> std::optional<std::string> {
   if (instances.empty()) {
     return std::nullopt;
@@ -951,7 +954,7 @@ auto CoordinatorInstance::GetMostUpToDateInstanceFromHistories(std::list<Replica
     }
   }
 
-  auto maybe_newest_instance = CoordinatorInstance::ChooseMostUpToDateInstance(instance_db_histories);
+  auto const maybe_newest_instance = CoordinatorInstance::ChooseMostUpToDateInstance(instance_db_histories);
   if (maybe_newest_instance.has_value()) {
     auto const [most_up_to_date_instance, latest_epoch, latest_commit_timestamp] = *maybe_newest_instance;
     spdlog::trace("The most up to date instance is {} with epoch {} and {} latest commit timestamp.",

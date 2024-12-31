@@ -551,6 +551,7 @@ class Storage {
 
   virtual void PrepareForNewEpoch() = 0;
 
+  // What's the point of this method, nobody seems to use it?
   auto ReplicasInfo() const { return repl_storage_state_.ReplicasInfo(this); }
   auto GetReplicaState(std::string_view name) const -> std::optional<replication::ReplicaState> {
     return repl_storage_state_.GetReplicaState(name);

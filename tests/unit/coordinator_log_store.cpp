@@ -172,19 +172,6 @@ TEST_F(CoordinatorLogStoreTests, TestMultipleInstancesSerialization) {
   ASSERT_EQ(log_store.next_slot(), 2);
   ASSERT_EQ(log_store.start_index(), 1);
 
-  auto const get_config = [&](int const &instance_id) {
-    switch (instance_id) {
-      case 1:
-        return config1;
-      case 2:
-        return config2;
-      case 3:
-        return config3;
-      default:
-        throw std::runtime_error("No instance with given id");
-    };
-  };
-
   // Check the contents of the logs
   auto const log_entries = log_store.log_entries(1, log_store.next_slot());
   ASSERT_EQ(log_entries->size(), 1);
