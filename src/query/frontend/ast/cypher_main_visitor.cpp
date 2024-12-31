@@ -2532,7 +2532,7 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipTypes(MemgraphCypher::Relation
       const auto *param_lookup = std::any_cast<ParameterLookup *>(edge_type->accept(this));
       const auto edge_type_name = parameters_->AtTokenPosition(param_lookup->token_position_).ValueString();
       types.emplace_back(storage_->GetEdgeTypeIx(edge_type_name));
-      query_info_.is_cacheable = false;  // We can't cache queries with label parameters.
+      query_info_.is_cacheable = false;  // We can't cache queries with edge type parameters.
     } else {
       auto variable = std::any_cast<std::string>(edge_type->variable()->accept(this));
       users_identifiers.insert(variable);
