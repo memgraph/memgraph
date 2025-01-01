@@ -141,6 +141,10 @@ macro(set_path_external_library name type library_location include_dir)
   mark_as_advanced(${name}_LIBRARY ${name}_INCLUDE_DIR)
 endmacro(set_path_external_library)
 
+# NOTE: Called under, e.g., src/kvstore/CMakeLists.txt
+# TODO(gitbuda): All this is just a tmp solution to rollout the new toolchain.
+# Make sure there is build vs link option and the below migration code can
+# easily be removed as soon as the new toolchain is rolled out.
 macro(mg_target_link_library toolchain_version mg_target_name package_name toolchain_lib_name local_lib_name)
     if(DEFINED ENV{MG_TOOLCHAIN_VERSION})
         if($ENV{MG_TOOLCHAIN_VERSION} GREATER_EQUAL ${toolchain_version})
