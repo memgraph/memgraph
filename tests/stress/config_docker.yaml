@@ -1,8 +1,9 @@
 memgraph:
   deployment:
     type: docker
-    image: memgraph/memgraph
-    tag: latest
+    options:
+      image: memgraph/memgraph
+      tag: latest
   args:
     - "--bolt-server-name-for-init=Neo4j/"
     - "--storage-properties-on-edges=true"
@@ -14,8 +15,11 @@ memgraph:
     - "--log-level=TRACE"
     - "--also-log-to-stderr=true"
 
-dataset:
+general:
+  verbose: false
   use_ssl: false
+
+dataset:
   tests:
     - name: bipartite.py
       test_args:

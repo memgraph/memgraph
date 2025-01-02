@@ -35,6 +35,54 @@ def wait_for_server(port, delay=0.5) -> None:
     time.sleep(delay)
 
 
+class Config:
+    def __init__(self, config):
+        self._verbose = config.get("general", {}).get("verbose", False)
+        self._use_ssl = config.get("general", {}).get("use_ssl", False)
+
+        # Memgraph configuration
+        memgraph = config.get("memgraph", {})
+        deployment = memgraph.get("deployment", {})
+        self._deployment_type = deployment.get("type", "default")
+        self._memgraph_args = memgraph.get("args", [])
+
+        # Dataset tests
+        dataset = config.get("dataset", {})
+        self._tests = dataset.get("tests", [])
+
+        if self._deployment_type == "docker":
+            self._image = deployment.get("options", {}).get("image")
+            self._tag = deployment.get("options", {}).get("tag")
+
+    @property
+    def uses_ssl(self):
+        return self._use_ssl
+
+    @property
+    def is_verbose(self):
+        return self._verbose
+
+    @property
+    def deployment_type(self):
+        return self._deployment_type
+
+    @property
+    def docker_image(self):
+        return self._image
+
+    @property
+    def docker_tag(self):
+        return self._tag
+
+    @property
+    def tests(self):
+        return self._tests
+
+    @property
+    def memgraph_args(self):
+        return self._memgraph_args
+
+
 class Deployment(ABC):
     def start_memgraph(self, flags: List[str]):
         pass
@@ -79,9 +127,9 @@ class DefaultDeployment(Deployment):
 class DockerDeployment(Deployment):
     def __init__(self, image: str, tag: str):
         super().__init__()
-        self.image = image
-        self.tag = tag
-        self.container_name = "mg_stress"
+        self._image = image
+        self._tag = tag
+        self._container_name = "mg_stress"
 
     def start_memgraph(self, flags: List[str]) -> None:
         """Starts Memgraph in a Docker container and returns the process."""
@@ -93,11 +141,11 @@ class DockerDeployment(Deployment):
                 "--rm",
                 "-d",
                 "--name",
-                self.container_name,
+                self._container_name,
                 "-p",
                 "7687:7687",
             ]
-            + [f"{self.image}:{self.tag}"]
+            + [f"{self._image}:{self._tag}"]
             + flags
         )
 
@@ -106,37 +154,26 @@ class DockerDeployment(Deployment):
         wait_for_server(7687)
 
         # Check if the container is running
-        status_cmd = ["docker", "ps", "--filter", f"name={self.container_name}", "--format", "{{.ID}}"]
+        status_cmd = ["docker", "ps", "--filter", f"name={self._container_name}", "--format", "{{.ID}}"]
         container_id = subprocess.check_output(status_cmd).decode("utf-8").strip()
 
         assert container_id, "The Memgraph Docker container failed to start!"
 
-        self.container_id = container_id
+        self._container_id = container_id
 
     def stop_memgraph(self) -> None:
         """Stops and removes the Memgraph Docker container."""
         # Stop the Docker container
-        cmd = ["docker", "stop", self.container_id]
+        cmd = ["docker", "stop", self._container_id]
         ret = subprocess.run(cmd)
         if ret.returncode != 0:
-            raise Exception(f"Failed to stop Docker container ({self.container_id})!")
-
-        # try:
-        #     # Ensure container is removed
-        #     rm_cmd = ["docker", "rm", self.container_id]
-        #     subprocess.run(rm_cmd, check=True)
-        # except subprocess.CalledProcessError as e:
-        #     # Handle "removal already in progress" error
-        #     if "removal of container" in str(e) and "is already in progress" in str(e):
-        #         print(f"Container {self.container_id} is already being removed, skipping.")
-        #     else:
-        #         raise
+            raise Exception(f"Failed to stop Docker container ({self._container_id})!")
 
     def cleanup(self) -> None:
         """Cleans up the Docker container if it is still running."""
         try:
             # Check if the container is running
-            status_cmd = ["docker", "ps", "--filter", f"name={self.container_name}", "--format", "{{.ID}}"]
+            status_cmd = ["docker", "ps", "--filter", f"name={self._container_name}", "--format", "{{.ID}}"]
             container_id = subprocess.check_output(status_cmd).decode("utf-8").strip()
 
             if container_id:
@@ -147,14 +184,13 @@ class DockerDeployment(Deployment):
             pass
 
 
-def deployment_factory(args, config):
-    deployment = config.get("memgraph").get("deployment")
-    deployment_type = deployment.get("type")
+def deployment_factory(args: Args, config: Config):
+    deployment_type = config.deployment_type
     if deployment_type == "default":
         return DefaultDeployment(args.memgraph)
 
     if deployment_type == "docker":
-        return DockerDeployment(deployment.get("image"), deployment.get("tag"))
+        return DockerDeployment(config.docker_image, config.docker_tag)
 
 
 def generate_temporary_ssl_certs():
@@ -191,17 +227,12 @@ def parse_arguments() -> Args:
     # parse arguments
     parser = argparse.ArgumentParser(description="Run stress tests on Memgraph.")
     parser.add_argument("--memgraph", default=os.path.join(BUILD_DIR, "memgraph"))
-    parser.add_argument("--config_file", default=os.path.join(SCRIPT_DIR, "config_docker.yaml"))
+    parser.add_argument("--config_file", default=os.path.join(SCRIPT_DIR, "config_small.yaml"))
     parser.add_argument("--python", default=os.path.join(SCRIPT_DIR, "ve3", "bin", "python3"), type=str)
-    parser.add_argument("--verbose", action="store_const", const=True, default=False)
     return parser.parse_args()
 
 
-def uses_ssl(config):
-    return "dataset" in config and "use_ssl" in config["dataset"] and config["dataset"]["use_ssl"]
-
-
-def run_test(args: Args, test: str, options: List[str], timeout: int) -> float:
+def run_test(args: Args, config: Config, test: str, options: List[str], timeout: int) -> float:
     """Runs tests for a set of specific database configuration.
 
     Args:
@@ -212,7 +243,7 @@ def run_test(args: Args, test: str, options: List[str], timeout: int) -> float:
     """
     print("Running test '{}'".format(test))
 
-    binary = _find_test_binary(args, test)
+    binary = _find_test_binary(args, config, test)
 
     # start test
     cmd = binary + ["--worker-count", str(THREADS)] + options
@@ -228,9 +259,9 @@ def run_test(args: Args, test: str, options: List[str], timeout: int) -> float:
     return runtime
 
 
-def _find_test_binary(args: Args, test: str) -> List[str]:
+def _find_test_binary(args: Args, config: Config, test: str) -> List[str]:
     if test.endswith(".py"):
-        logging = "DEBUG" if args.verbose else "WARNING"
+        logging = "DEBUG" if config.is_verbose else "WARNING"
         return [args.python, "-u", os.path.join(SCRIPT_DIR, test), "--logging", logging]
 
     if test.endswith(".cpp"):
@@ -240,19 +271,18 @@ def _find_test_binary(args: Args, test: str) -> List[str]:
     raise Exception("Test '{}' binary not supported!".format(test))
 
 
-def run_stress_test_suite(args: Args, config) -> Optional[Dict[str, float]]:
+def run_stress_test_suite(args: Args, config: Config) -> Optional[Dict[str, float]]:
     runtimes = {}
 
-    dataset = config["dataset"]["tests"]
     deployment = deployment_factory(args, config)
 
-    for test in dataset:
+    for test in config.tests:
         test_name = test["name"]
         test_flags = test["test_args"]
         timeout = test["timeout_min"]
         memgraph_flags = test["memgraph_args"] if "memgraph_args" in test else []
-        memgraph_flags += config["memgraph"]["args"]
-        if "use_ssl" in config["dataset"] and config["dataset"]["use_ssl"] is True:
+        memgraph_flags += config.memgraph_args
+        if config.uses_ssl:
             test_flags += ["--use-ssl"]
             memgraph_flags += [f"--bolt-cert-file={CERT_FILE}", f"--bolt-key-file={KEY_FILE}"]
 
@@ -263,7 +293,7 @@ def run_stress_test_suite(args: Args, config) -> Optional[Dict[str, float]]:
             return None
         err = False
         try:
-            runtime = run_test(args, test_name, test_flags, timeout)
+            runtime = run_test(args, config, test_name, test_flags, timeout)
             runtimes[os.path.splitext(test_name)[0]] = runtime
         except Exception as ex:
             print(f"Failed to execute {test_name} with following exception:", ex)
@@ -292,17 +322,19 @@ def write_stats(runtimes: Dict[str, float]) -> None:
 
 if __name__ == "__main__":
     args = parse_arguments()
-    config = yaml.safe_load(open(args.config_file))
+    config = Config(yaml.safe_load(open(args.config_file)))
 
-    if uses_ssl(config):
+    if config.uses_ssl:
         generate_temporary_ssl_certs()
 
     runtimes = run_stress_test_suite(args, config)
+
     if runtimes is None:
         print("Some stress tests have failed")
         exit(1)
     assert runtimes is not None
-    if uses_ssl(config):
+
+    if config.uses_ssl:
         remove_certificates()
     write_stats(runtimes)
 
