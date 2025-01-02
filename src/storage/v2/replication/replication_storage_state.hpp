@@ -41,37 +41,12 @@ class Storage;
 
 class ReplicationStorageClient;
 class ReplicaStream;
+class TransactionReplication;
 
 struct ReplicationStorageState {
   // Only MAIN can send
   auto InitializeTransaction(uint64_t seq_num, Storage *storage, DatabaseAccessProtector db_acc)
-      -> std::vector<std::optional<ReplicaStream>>;
-
-  template <typename... Args>
-  void AppendDelta(std::span<std::optional<ReplicaStream>> replica_streams, Args &&...args) {
-    replication_clients_.WithReadLock([&](auto const &clients) {
-      for (auto &&[client, replica_stream] : ranges::views::zip(clients, replica_streams)) {
-        client->IfStreamingTransaction([&](auto &stream) { stream.AppendDelta(args...); }, replica_stream);
-      }
-    });
-  }
-
-  template <typename Func>
-  void EncodeToReplicas(std::span<std::optional<ReplicaStream>> replica_streams, Func &&func) {
-    replication_clients_.WithReadLock([&](auto const &clients) {
-      for (auto &&[client, replica_stream] : ranges::views::zip(clients, replica_streams)) {
-        client->IfStreamingTransaction(
-            [&](auto &stream) {
-              auto encoder = stream.encoder();
-              func(encoder);
-            },
-            replica_stream);
-      }
-    });
-  }
-
-  bool FinalizeTransaction(uint64_t timestamp, Storage *storage, DatabaseAccessProtector db_acc,
-                           std::vector<std::optional<ReplicaStream>> replica_stream) const;
+      -> TransactionReplication;
 
   // Getters
   auto GetReplicaState(std::string_view name) const -> std::optional<replication::ReplicaState>;
