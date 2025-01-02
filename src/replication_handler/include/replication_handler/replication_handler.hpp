@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -233,12 +233,12 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
       // TODO: ATM only IN_MEMORY_TRANSACTIONAL, fix other modes
       if (storage->storage_mode_ != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) return;
 
+      auto client = std::make_unique<storage::ReplicationStorageClient>(*instance_client_ptr, main_uuid);
+      client->Start(storage, db_acc);
+
       all_clients_good &= storage->repl_storage_state_.replication_clients_.WithLock(
           [is_data_instance_managed_by_coord = flags::CoordinationSetupInstance().IsDataInstanceManagedByCoordinator(),
-           storage, &instance_client_ptr, db_acc = std::move(db_acc),
-           main_uuid](auto &storage_clients) mutable {  // NOLINT
-            auto client = std::make_unique<storage::ReplicationStorageClient>(*instance_client_ptr, main_uuid);
-            client->Start(storage, std::move(db_acc));
+           client = std::move(client)](auto &storage_clients) mutable {  // NOLINT
             bool const success = std::invoke([&is_data_instance_managed_by_coord, state = client->State()]() {
               // We force sync replicas in other situation
               if (state == storage::replication::ReplicaState::DIVERGED_FROM_MAIN) {

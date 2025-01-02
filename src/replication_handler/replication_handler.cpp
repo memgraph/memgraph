@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -351,8 +351,8 @@ auto ReplicationHandler::ShowReplicas() const -> utils::BasicResult<query::ShowR
         // ATM we only support IN_MEMORY_TRANSACTIONAL
         if (storage->storage_mode_ != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) return;
         if (!full_info && storage->name() != dbms::kDefaultDB) return;
-        [[maybe_unused]] auto ok =
-            storage->repl_storage_state_.WithClient(replica.name_, [&](storage::ReplicationStorageClient &client) {
+        [[maybe_unused]] auto ok = storage->repl_storage_state_.WithClient(
+            replica.name_, [&](const storage::ReplicationStorageClient &client) {
               auto ts_info = client.GetTimestampInfo(storage);
               auto state = client.State();
 
