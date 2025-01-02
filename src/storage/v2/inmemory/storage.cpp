@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -36,6 +36,7 @@
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
 #include "storage/v2/metadata_delta.hpp"
 #include "storage/v2/schema_info_glue.hpp"
+#include "utils/async_timer.hpp"
 
 /// REPLICATION ///
 #include "dbms/inmemory/replication_handlers.hpp"
@@ -248,6 +249,10 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       vertices_.run_gc();
       edges_.run_gc();
       edges_metadata_.run_gc();
+
+      // AsyncTimer resources are global, not particularly storage related, more query releated
+      // At some point in the future this should be scheduled by something else
+      utils::AsyncTimer::GCRun();
     };
   }
 
