@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,15 +11,16 @@
 
 #include <iostream>
 #include <mgp.hpp>
+#include <optional>
 #include "json/json.hpp"
 
-mgp::Value ParseJsonToMgpValue(const nlohmann::json &json_obj, mgp_memory *memory);
+std::optional<mgp::Value> ParseJsonToMgpValue(const nlohmann::json &json_obj, mgp_memory *memory);
 
 mgp::Value ParseJsonToMgpMap(const nlohmann::json &json_obj, mgp_memory *memory) {
   auto map = mgp::Map();
 
   for (auto &[key, value] : json_obj.items()) {
-    auto sub_value = ParseJsonToMgpValue(value, memory);
+    auto sub_value = ParseJsonToMgpValue(value, memory).value();
     map.Insert(key, std::move(sub_value));
   }
 
@@ -29,14 +30,14 @@ mgp::Value ParseJsonToMgpMap(const nlohmann::json &json_obj, mgp_memory *memory)
 mgp::Value ParseJsonToMgpList(const nlohmann::json &json_array, mgp_memory *memory) {
   auto list = mgp::List();
   for (const auto &element : json_array) {
-    auto value = ParseJsonToMgpValue(element, memory);
+    auto value = ParseJsonToMgpValue(element, memory).value();
     list.AppendExtend(std::move(value));
   }
 
   return mgp::Value(std::move(list));
 }
 
-mgp::Value ParseJsonToMgpValue(const nlohmann::json &json_obj, mgp_memory *memory) {
+std::optional<mgp::Value> ParseJsonToMgpValue(const nlohmann::json &json_obj, mgp_memory *memory) {
   if (json_obj.is_object()) {
     return ParseJsonToMgpMap(json_obj, memory);
   } else if (json_obj.is_array()) {
@@ -49,8 +50,10 @@ mgp::Value ParseJsonToMgpValue(const nlohmann::json &json_obj, mgp_memory *memor
     return mgp::Value(mgp::value_make_double(json_obj.get<double>(), memory));
   } else if (json_obj.is_boolean()) {
     return mgp::Value(mgp::value_make_bool(json_obj.get<bool>(), memory));
-  } else {
+  } else if (json_obj.is_null()) {
     return mgp::Value();
+  } else {
+    return std::nullopt;
   }
 }
 
@@ -61,16 +64,34 @@ void str2object(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp
     // Retrieve the string argument
     const auto string_arg = mgp::Value(mgp::list_at(args, 0));
     const auto json_object = nlohmann::json::parse(string_arg.ValueString());
-    const auto result = ParseJsonToMgpValue(json_object, memory);
+    std::optional<mgp::Value> maybe_result = ParseJsonToMgpValue(json_object, memory);
+
+    if (!maybe_result.has_value()) {
+      mgp::func_result_set_error_msg(
+          res,
+          "The end result is not one of the following JSON-language data types: object, array, "
+          "number, string, boolean, or null.",
+          memory);
+      return;
+    }
 
     auto func_result = mgp::Result(res);
 
+    auto result = *maybe_result;
     if (result.IsMap()) {
       func_result.SetValue(result.ValueMap());
     } else if (result.IsList()) {
       func_result.SetValue(result.ValueList());
-    } else {
-      mgp::func_result_set_error_msg(res, "The end result is not map or list!", memory);
+    } else if (result.IsString()) {
+      func_result.SetValue(result.ValueString());
+    } else if (result.IsInt()) {
+      func_result.SetValue(result.ValueInt());
+    } else if (result.IsDouble()) {
+      func_result.SetValue(result.ValueDouble());
+    } else if (result.IsBool()) {
+      func_result.SetValue(result.ValueBool());
+    } else if (result.IsNull()) {
+      func_result.SetValue();
     }
   } catch (const std::exception &e) {
     mgp::func_result_set_error_msg(res, e.what(), memory);

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -71,6 +71,10 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
       case SystemInfoQuery::InfoType::BUILD:
       case SystemInfoQuery::InfoType::ACTIVE_USERS:
         AddPrivilege(AuthQuery::Privilege::STATS);
+        break;
+      case SystemInfoQuery::InfoType::LICENSE:
+        // same privilege as for SHOW DATABASE SETTINGS
+        AddPrivilege(AuthQuery::Privilege::CONFIG);
         break;
     }
   }

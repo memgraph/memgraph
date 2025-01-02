@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -28,7 +28,9 @@ void SystemHeartbeatHandler(const uint64_t ts, const std::optional<utils::UUID> 
 
   // Ignore if no license
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
-    spdlog::error("Handling SystemHeartbeat, an enterprise RPC message, without license.");
+    spdlog::error(
+        "Handling SystemHeartbeat, an enterprise RPC message, without license. Check your license status by running "
+        "SHOW LICENSE INFO.");
     memgraph::slk::Save(res, res_builder);
     return;
   }

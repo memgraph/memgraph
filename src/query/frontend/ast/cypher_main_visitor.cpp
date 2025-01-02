@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -147,6 +147,10 @@ antlrcpp::Any CypherMainVisitor::visitSystemInfoQuery(MemgraphCypher::SystemInfo
   }
   if (ctx->activeUsersInfo()) {
     info_query->info_type_ = SystemInfoQuery::InfoType::ACTIVE_USERS;
+    return info_query;
+  }
+  if (ctx->licenseInfo()) {
+    info_query->info_type_ = SystemInfoQuery::InfoType::LICENSE;
     return info_query;
   }
   // Should never get here
