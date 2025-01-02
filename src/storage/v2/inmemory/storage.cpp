@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -1036,6 +1036,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
         auto validation_result = storage_->constraints_.existence_constraints_->Validate(*vertex);
         if (validation_result) {
           Abort();
+          // We have not started a commit timestamp no cleanup needed for that
           DMG_ASSERT(!commit_timestamp_.has_value());
           return StorageManipulationError{*validation_result};
         }
@@ -1181,8 +1182,10 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
 
     if (unique_constraint_violation) {
       Abort();
+      // We have aborted, hence we have not committed, need to release/cleanup commit_timestamp_ here
       DMG_ASSERT(commit_timestamp_.has_value());
-      // commit_timestamp_.reset();  // We have aborted, hence we have not committed
+      mem_storage->commit_log_->MarkFinished(*commit_timestamp_);
+      commit_timestamp_.reset();
       return StorageManipulationError{*unique_constraint_violation};
     }
 
@@ -1626,71 +1629,82 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
         garbage_undo_buffers.emplace_back(mark_timestamp, std::move(transaction_.deltas),
                                           std::move(transaction_.commit_timestamp));
       });
+    }
 
-      /// We MUST unlink (aka. remove) entries in indexes and constraints
-      /// before we unlink (aka. remove) vertices from storage
-      /// this is because they point into vertices skip_list
+    /// We MUST unlink (aka. remove) entries in indexes and constraints
+    /// before we unlink (aka. remove) vertices from storage
+    /// this is because they point into vertices skip_list
 
-      // auto index creation cleanup
-      if (storage_->config_.salient.items.enable_label_index_auto_creation) {
+    // auto index creation cleanup
+    if (storage_->config_.salient.items.enable_label_index_auto_creation &&
+        !transaction_.introduced_new_label_index_.empty()) {
+      storage_->labels_to_auto_index_.WithLock([&](auto &label_indices) {
         for (const auto label : transaction_.introduced_new_label_index_) {
-          storage_->labels_to_auto_index_.WithLock([&](auto &label_indices) { --label_indices.at(label); });
+          --label_indices.at(label);
         }
-      }
+      });
+    }
 
-      if (storage_->config_.salient.items.enable_edge_type_index_auto_creation) {
+    if (storage_->config_.salient.items.enable_edge_type_index_auto_creation &&
+        !transaction_.introduced_new_edge_type_index_.empty()) {
+      storage_->edge_types_to_auto_index_.WithLock([&](auto &edge_type_indices) {
         for (const auto edge_type : transaction_.introduced_new_edge_type_index_) {
-          storage_->edge_types_to_auto_index_.WithLock(
-              [&](auto &edge_type_indices) { --edge_type_indices.at(edge_type); });
+          --edge_type_indices.at(edge_type);
         }
-      }
+      });
+    }
 
-      // INDICES
-      for (auto const &[label, vertices] : label_cleanup) {
-        storage_->indices_.AbortEntries(label, vertices, transaction_.start_timestamp);
+    // INDICES
+    for (auto const &[label, vertices] : label_cleanup) {
+      storage_->indices_.AbortEntries(label, vertices, transaction_.start_timestamp);
+    }
+    for (auto const &[label, prop_vertices] : label_property_cleanup) {
+      storage_->indices_.AbortEntries(label, prop_vertices, transaction_.start_timestamp);
+    }
+    for (auto const &[property, prop_vertices] : property_cleanup) {
+      storage_->indices_.AbortEntries(property, prop_vertices, transaction_.start_timestamp);
+    }
+    if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+      storage_->indices_.text_index_.Rollback();
+    }
+    for (auto const &[edge_type, edge] : edge_type_cleanup) {
+      storage_->indices_.AbortEntries(edge_type, edge, transaction_.start_timestamp);
+    }
+    for (auto const &[edge_type_property, edge] : edge_type_property_cleanup) {
+      storage_->indices_.AbortEntries(edge_type_property, edge, transaction_.start_timestamp);
+    }
+    for (auto const &[edge_type_property, edge] : edge_property_cleanup) {
+      storage_->indices_.AbortEntries(edge_type_property, edge, transaction_.start_timestamp);
+    }
+    if (flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
+      for (auto const &[label_prop, vertices] : vector_label_property_cleanup) {
+        storage_->indices_.vector_index_.AbortEntries(label_prop, vertices);
       }
-      for (auto const &[label, prop_vertices] : label_property_cleanup) {
-        storage_->indices_.AbortEntries(label, prop_vertices, transaction_.start_timestamp);
+      for (auto const &[label_prop, prop_vertices] : vector_label_property_restore) {
+        storage_->indices_.vector_index_.RestoreEntries(label_prop, prop_vertices);
       }
-      for (auto const &[property, prop_vertices] : property_cleanup) {
-        storage_->indices_.AbortEntries(property, prop_vertices, transaction_.start_timestamp);
-      }
-      if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-        storage_->indices_.text_index_.Rollback();
-      }
-      for (auto const &[edge_type, edge] : edge_type_cleanup) {
-        storage_->indices_.AbortEntries(edge_type, edge, transaction_.start_timestamp);
-      }
-      for (auto const &[edge_type_property, edge] : edge_type_property_cleanup) {
-        storage_->indices_.AbortEntries(edge_type_property, edge, transaction_.start_timestamp);
-      }
-      for (auto const &[edge_type_property, edge] : edge_property_cleanup) {
-        storage_->indices_.AbortEntries(edge_type_property, edge, transaction_.start_timestamp);
-      }
-      if (flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
-        for (auto const &[label_prop, vertices] : vector_label_property_cleanup) {
-          storage_->indices_.vector_index_.AbortEntries(label_prop, vertices);
-        }
-        for (auto const &[label_prop, prop_vertices] : vector_label_property_restore) {
-          storage_->indices_.vector_index_.RestoreEntries(label_prop, prop_vertices);
-        }
-      }
+    }
 
-      // VERTICES
-      {
-        auto vertices_acc = mem_storage->vertices_.access();
-        for (auto gid : my_deleted_vertices) {
-          vertices_acc.remove(gid);
-        }
+    // VERTICES
+    if (!my_deleted_vertices.empty()) {
+      auto vertices_acc = mem_storage->vertices_.access();
+      for (auto gid : my_deleted_vertices) {
+        vertices_acc.remove(gid);
       }
+    }
 
-      // EDGES
-      {
-        auto edges_acc = mem_storage->edges_.access();
+    // EDGES
+    if (!my_deleted_edges.empty()) {
+      auto edges_acc = mem_storage->edges_.access();
+      if (mem_storage->config_.salient.items.enable_edges_metadata) {
         auto edges_metadata_acc = mem_storage->edges_metadata_.access();
         for (auto gid : my_deleted_edges) {
           edges_acc.remove(gid);
           edges_metadata_acc.remove(gid);
+        }
+      } else {
+        for (auto gid : my_deleted_edges) {
+          edges_acc.remove(gid);
         }
       }
     }
@@ -2390,11 +2404,15 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   }
   if (!current_deleted_edges.empty()) {
     auto edge_acc = edges_.access();
-    auto edge_metadata_acc = edges_metadata_.access();
-    for (auto edge : current_deleted_edges) {
-      MG_ASSERT(edge_acc.remove(edge), "Invalid database state!");
-      if (config_.salient.items.enable_edges_metadata) {
+    if (config_.salient.items.enable_edges_metadata) {
+      auto edge_metadata_acc = edges_metadata_.access();
+      for (auto edge : current_deleted_edges) {
+        MG_ASSERT(edge_acc.remove(edge), "Invalid database state!");
         MG_ASSERT(edge_metadata_acc.remove(edge), "Invalid database state!");
+      }
+    } else {
+      for (auto edge : current_deleted_edges) {
+        MG_ASSERT(edge_acc.remove(edge), "Invalid database state!");
       }
     }
   }
