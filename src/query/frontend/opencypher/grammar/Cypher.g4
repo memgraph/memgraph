@@ -205,7 +205,10 @@ labelName : symbolicName
           | variable ( propertyLookup )+
           ;
 
-relTypeName : symbolicName ;
+relTypeName : symbolicName
+            | parameter
+            | variable ( propertyLookup )+
+            ;
 
 expression : expression12 ;
 
