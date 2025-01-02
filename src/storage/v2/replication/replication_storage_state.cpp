@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -23,6 +23,14 @@ namespace memgraph::storage {
 auto ReplicationStorageState::InitializeTransaction(uint64_t seq_num, Storage *storage, DatabaseAccessProtector db_acc)
     -> std::vector<std::optional<ReplicaStream>> {
   std::vector<std::optional<ReplicaStream>> replica_streams;
+  // We take a stream at commit start and hold onto it until the end
+  // Locking order replication_clients then stream lock
+  // When appending deltas, the stream lock is already held and the replication_clients lock is taken
+  // Everywhere else, the only order is replication_clients then stream lock
+  // This will lead to a deadlock
+  // All operations that need to send a rpc message need to get a replication_clients read lock and then get the stream
+  // The excpetion is this function which generates the streams for commit
+  // The reason is that this is done under engine lock and so is protected from other transactions
   replication_clients_.WithLock([&, db_accessor = std::move(db_acc)](auto &clients) mutable {
     replica_streams.reserve(clients.size());
     for (auto &client : clients) {
@@ -33,9 +41,9 @@ auto ReplicationStorageState::InitializeTransaction(uint64_t seq_num, Storage *s
 }
 
 bool ReplicationStorageState::FinalizeTransaction(uint64_t timestamp, Storage *storage, DatabaseAccessProtector db_acc,
-                                                  std::vector<std::optional<ReplicaStream>> replica_streams) {
-  return replication_clients_.WithLock([=, db_acc = std::move(db_acc),
-                                        replica_streams = std::move(replica_streams)](auto &clients) mutable {
+                                                  std::vector<std::optional<ReplicaStream>> replica_streams) const {
+  return replication_clients_.WithReadLock([=, db_acc = std::move(db_acc),
+                                            replica_streams = std::move(replica_streams)](const auto &clients) mutable {
     bool finalized_on_all_replicas{true};
     MG_ASSERT(clients.empty() || db_acc.has_value(),
               "Any clients assumes we are MAIN, we should have gatekeeper_access_wrapper so we can correctly "
