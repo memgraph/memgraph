@@ -122,7 +122,7 @@ def test_vector_index_replication(connection, test_name):
     # 1/
     execute_and_fetch_all(
         cursor,
-        "CREATE VECTOR INDEX ON :Node(embedding);",
+        "CREATE VECTOR INDEX test_index ON :Node(embedding) WITH CONFIG {'dimension': 2, 'capacity': 10};",
     )
     wait_for_replication_change(cursor, 2)
 
@@ -142,7 +142,7 @@ def test_vector_index_replication(connection, test_name):
     # 3/
     execute_and_fetch_all(
         cursor,
-        "CREATE (:Node{embedding: [1.0, 2.0, 3.0]});",
+        "CREATE (:Node {embedding: [1.0, 2.0]});",
     )
     wait_for_replication_change(cursor, 4)
 
@@ -156,7 +156,7 @@ def test_vector_index_replication(connection, test_name):
     # 5/
     execute_and_fetch_all(
         cursor,
-        "DROP VECTOR INDEX ON :Node(embedding);",
+        "DROP VECTOR INDEX test_index;",
     )
     wait_for_replication_change(cursor, 6)
 
