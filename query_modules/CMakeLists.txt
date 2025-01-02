@@ -123,6 +123,7 @@ install(TARGETS convert example_c example_cpp schema text_search vector_search
 
 # Install the Python example and modules
 install(FILES example.py DESTINATION lib/memgraph/query_modules RENAME py_example.py)
+install(FILES test_module.py DESTINATION lib/memgraph/query_modules RENAME test_module.py)
 install(FILES graph_analyzer.py DESTINATION lib/memgraph/query_modules)
 install(FILES mgp_networkx.py DESTINATION lib/memgraph/query_modules)
 install(FILES nxalg.py DESTINATION lib/memgraph/query_modules)

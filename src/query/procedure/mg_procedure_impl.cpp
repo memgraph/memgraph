@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -233,6 +233,8 @@ bool MgpVertexIsMutable(const mgp_vertex &vertex) { return MgpGraphIsMutable(*ve
 
 bool MgpEdgeIsMutable(const mgp_edge &edge) { return MgpVertexIsMutable(edge.from); }
 }  // namespace
+
+bool mgp_is_enterprise_valid() { return memgraph::license::global_license_checker.IsEnterpriseValidFast(); }
 
 mgp_error mgp_alloc(mgp_memory *memory, size_t size_in_bytes, void **result) {
   return mgp_aligned_alloc(memory, size_in_bytes, alignof(std::max_align_t), result);
