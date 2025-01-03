@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <exception>
 #include <optional>
 #include <utility>
 #include "auth/auth.hpp"
@@ -33,6 +34,47 @@ extern const Event ActiveBoltSessions;
 }  // namespace memgraph::metrics
 
 namespace {
+
+class FakeScheduler {
+ public:
+  void AddTask(auto &&task) {
+    auto lock = std::unique_lock{mtx_};
+    if (tasks.size() >= 16 /* pool.size() */) {
+      // Need to yield something
+      for (auto &info : tasks) {
+        if (!info.yield_signal_) {
+          info.yield_signal_ = true;
+          break;
+        }
+      }
+      // TODO yield confirmation
+    }
+    const auto &yield = tasks.emplace_back(++id);
+    lock.unlock();
+    pool.AddTask([this, task = std::move(task), &yield]() {
+      task(yield.yield_signal_);
+      auto lock = std::unique_lock{mtx_};
+      tasks.remove(yield.id_);
+    });
+  }
+
+  struct TaskTracking {
+    TaskTracking(size_t id) : id_{id} {}
+    size_t id_{0};
+    std::atomic_bool yield_signal_{false};
+    bool operator==(const TaskTracking &other) const { return id_ == other.id_; }
+  };
+
+  memgraph::utils::ThreadPool pool{16};
+  std::list<TaskTracking> tasks;
+  mutable std::mutex mtx_;
+  static size_t id;
+};
+
+size_t FakeScheduler::id = 0;
+
+inline static FakeScheduler fake_scheduler{};
+
 auto ToQueryExtras(const memgraph::glue::bolt_value_t &extra) -> memgraph::query::QueryExtras {
   auto const &as_map = extra.ValueMap();
 
@@ -215,10 +257,10 @@ bool SessionHL::SSOAuthenticate(const std::string &scheme, const std::string &id
 
 void SessionHL::Abort() { interpreter_.Abort(); }
 
-bolt_map_t SessionHL::Discard(std::optional<int> n, std::optional<int> qid) {
+bolt_map_t SessionHL::Discard(std::optional<int> n, std::optional<int> qid, const std::atomic_bool &yield_signal) {
   try {
     memgraph::query::DiscardValueResultStream stream;
-    return DecodeSummary(interpreter_.Pull(&stream, n, qid));
+    return DecodeSummary(interpreter_.Pull(&stream, n, qid, yield_signal));
   } catch (const memgraph::query::QueryException &e) {
     // Count the number of specific exceptions thrown
     metrics::IncrementCounter(GetExceptionName(e));
@@ -227,12 +269,25 @@ bolt_map_t SessionHL::Discard(std::optional<int> n, std::optional<int> qid) {
     throw memgraph::communication::bolt::ClientError(e.what());
   }
 }
-bolt_map_t SessionHL::Pull(SessionHL::TEncoder *encoder, std::optional<int> n, std::optional<int> qid) {
+
+bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid, const std::atomic_bool &yield_signal) {
+  // We can access everything from here
+  // 3. we have the interpreter so we know the user, db, session uuid, etc
+  // 1. create a task
+  // 2. use dbms to enqueue it
+  // 4. how to return?
+  // 5. the only thing we need to do is to update the bolt session state
+  //  which is not us <- IT IS US
+  //  we can update the state, but post-pull there is some logic
+  //  move the pull/discard thing here?
+  //  > handler error might be dificult and bolt version specific
+  // 6. we need to also restart async read
+
   try {
     auto &db = interpreter_.current_db_.db_acc_;
     auto *storage = db ? db->get()->storage() : nullptr;
-    TypedValueResultStream<TEncoder> stream(encoder, storage);
-    return DecodeSummary(interpreter_.Pull(&stream, n, qid));
+    TypedValueResultStream<TEncoder> stream(&encoder_, storage);
+    return DecodeSummary(interpreter_.Pull(&stream, n, qid, yield_signal));
   } catch (const memgraph::query::QueryException &e) {
     // Count the number of specific exceptions thrown
     metrics::IncrementCounter(GetExceptionName(e));
@@ -416,24 +471,17 @@ void SessionHL::Configure(const bolt_map_t &run_time_info) {
   }
 #endif
 }
-SessionHL::SessionHL(memgraph::query::InterpreterContext *interpreter_context,
-                     memgraph::communication::v2::ServerEndpoint endpoint,
-                     memgraph::communication::v2::InputStream *input_stream,
-                     memgraph::communication::v2::OutputStream *output_stream, memgraph::auth::SynchedAuth *auth
-#ifdef MG_ENTERPRISE
-                     ,
-                     memgraph::audit::Log *audit_log
-#endif
-                     )
+SessionHL::SessionHL(Context context, memgraph::communication::v2::InputStream *input_stream,
+                     memgraph::communication::v2::OutputStream *output_stream)
     : Session<memgraph::communication::v2::InputStream, memgraph::communication::v2::OutputStream>(input_stream,
                                                                                                    output_stream),
-      interpreter_context_(interpreter_context),
+      interpreter_context_(context.ic),
       interpreter_(interpreter_context_),
 #ifdef MG_ENTERPRISE
-      audit_log_(audit_log),
+      audit_log_(context.audit_log),
 #endif
-      auth_(auth),
-      endpoint_(std::move(endpoint)),
+      auth_(context.auth),
+      endpoint_(std::move(context.endpoint)),
       implicit_db_(std::nullopt) {
   // Metrics update
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveBoltSessions);
@@ -474,4 +522,31 @@ bolt_map_t SessionHL::DecodeSummary(const std::map<std::string, memgraph::query:
 
   return decoded_summary;
 }
+
+void SessionHL::AsyncExecution(std::function<void(bool, std::exception_ptr)> &&cb) noexcept {
+  DMG_ASSERT(postoned_work, "No postponed work to execute");
+  // TODO Actually make this
+  // Safe to pass in this, since the cb actually holds on to the sesssion. Make this make sense...
+  fake_scheduler.AddTask(
+      [this, cb = std::move(cb), postponed_work = std::move(postponed_work)](const std::atomic_bool &yield_signal) {
+        std::exception_ptr eptr;
+        try {
+          if (postponed_work->is_pull) {
+            state_ = communication::bolt::details::HandlePullDiscard<true>(*this, postponed_work->n,
+                                                                           postponed_work->qid, yield_signal);
+          } else {
+            state_ = communication::bolt::details::HandlePullDiscard<false>(*this, postponed_work->n,
+                                                                            postponed_work->qid, yield_signal);
+          }
+          if (state_ == communication::bolt::State::Close) {
+            ClientFailureInvalidData();
+          }
+        } catch (const std::exception &) {
+          // Error occured while executing, stop and pass back the exception to the cb
+          eptr = std::current_exception();
+        }
+        cb(true, eptr);
+      });
+}
+
 }  // namespace memgraph::glue

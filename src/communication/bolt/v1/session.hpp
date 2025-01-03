@@ -13,6 +13,7 @@
 
 #include <concepts>
 #include <cstddef>
+#include <exception>
 #include <optional>
 #include <thread>
 
@@ -32,11 +33,11 @@
 #include "dbms/global.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
+#include "utils/thread_pool.hpp"
 #include "utils/timestamp.hpp"
 #include "utils/uuid.hpp"
 
 namespace memgraph::communication::bolt {
-
 /**
  * Bolt Session Exception
  *
@@ -74,7 +75,8 @@ class Session {
         session_uuid_(utils::GenerateUUID()),
         login_timestamp_(utils::Timestamp::Now().ToString(kTimestampFormat)) {}
 
-  virtual ~Session() = default;
+  // virtual ~Session() = default;
+  ~Session() = default;
 
   Session(const Session &) = delete;
   Session &operator=(const Session &) = delete;
@@ -86,14 +88,14 @@ class Session {
    * @return A pair which contains list of headers and qid which is set only
    * if an explicit transaction was started.
    */
-  virtual std::pair<std::vector<std::string>, std::optional<int>> Interpret(const std::string &query,
-                                                                            const map_t &params,
-                                                                            const map_t &extra) = 0;
+  // virtual std::pair<std::vector<std::string>, std::optional<int>> Interpret(const std::string &query,
+  //                                                                           const map_t &params,
+  //                                                                           const map_t &extra) = 0;
 
-  virtual void Configure(const map_t &run_time_info) = 0;
+  // virtual void Configure(const map_t &run_time_info) = 0;
 
 #ifdef MG_ENTERPRISE
-  virtual auto Route(map_t const &routing, std::vector<Value> const &bookmarks, map_t const &extra) -> map_t = 0;
+  // virtual auto Route(map_t const &routing, std::vector<Value> const &bookmarks, map_t const &extra) -> map_t = 0;
 #endif
 
   /**
@@ -104,7 +106,7 @@ class Session {
    * @param q If set, defines from which query to pull the results,
    * otherwise the last query is used.
    */
-  virtual map_t Pull(TEncoder *encoder, std::optional<int> n, std::optional<int> qid) = 0;
+  // virtual map_t Pull(std::optional<int> n, std::optional<int> qid) = 0;
 
   /**
    * Discard results of the processed query.
@@ -114,49 +116,52 @@ class Session {
    * @param q If set, defines from which query to discard the results,
    * otherwise the last query is used.
    */
-  virtual map_t Discard(std::optional<int> n, std::optional<int> qid) = 0;
+  // virtual map_t Discard(std::optional<int> n, std::optional<int> qid) = 0;
 
-  virtual void BeginTransaction(const map_t &params) = 0;
-  virtual void CommitTransaction() = 0;
-  virtual void RollbackTransaction() = 0;
+  // virtual void BeginTransaction(const map_t &params) = 0;
+  // virtual void CommitTransaction() = 0;
+  // virtual void RollbackTransaction() = 0;
 
   /** Aborts currently running query. */
-  virtual void Abort() = 0;
+  // virtual void Abort() = 0;
 
   /** Return `true` if the user was successfully authenticated. */
-  virtual bool Authenticate(const std::string &username, const std::string &password) = 0;
-  virtual bool SSOAuthenticate(const std::string &scheme, const std::string &identity_provider_response) = 0;
+  // virtual bool Authenticate(const std::string &username, const std::string &password) = 0;
+  // virtual bool SSOAuthenticate(const std::string &scheme, const std::string &identity_provider_response) = 0;
 
   /** Return the name of the server that should be used for the Bolt INIT
    * message. */
-  virtual std::optional<std::string> GetServerNameForInit() = 0;
+  // virtual std::optional<std::string> GetServerNameForInit() = 0;
   /**
    * Executes the session after data has been read into the buffer.
    * Goes through the bolt states in order to execute commands from the client.
    */
-  void Execute() {
-    if (UNLIKELY(!handshake_done_)) {
-      // Resize the input buffer to ensure that a whole chunk can fit into it.
-      // This can be done only once because the buffer holds its size.
-      input_stream_.Resize(kChunkWholeSize);
+  template <typename TImpl>
+  void Handshake_(TImpl &impl) {
+    // Resize the input buffer to ensure that a whole chunk can fit into it.
+    // This can be done only once because the buffer holds its size.
+    input_stream_.Resize(kChunkWholeSize);
 
-      // Receive the handshake.
-      if (input_stream_.size() < kHandshakeSize) {
-        spdlog::trace("Received partial handshake of size {}", input_stream_.size());
-        return;
-      }
-      state_ = StateHandshakeRun(*this);
-      if (UNLIKELY(state_ == State::Close)) {
-        ClientFailureInvalidData();
-        return;
-      }
-      handshake_done_ = true;
-      // Update the decoder's Bolt version (v5 has changed the undelying structure)
-      decoder_.UpdateVersion(version_.major);
-      encoder_.UpdateVersion(version_.major);
+    // Receive the handshake.
+    if (input_stream_.size() < kHandshakeSize) [[unlikely]] {
+      spdlog::trace("Received partial handshake of size {}", input_stream_.size());
+      state_ = State::Close;
+    } else {
+      state_ = StateHandshakeRun(impl);
     }
+    if (state_ == State::Close) [[unlikely]] {
+      ClientFailureInvalidData();
+      return;
+    }
+    // Update the decoder's Bolt version (v5 has changed the undelying structure)
+    decoder_.UpdateVersion(version_.major);
+    encoder_.UpdateVersion(version_.major);
+  }
 
+  template <typename TImpl>
+  void Execute_(TImpl &impl) {
     ChunkState chunk_state;
+    // TODO Have to handle single message at a time
     while ((chunk_state = decoder_buffer_.GetChunk()) != ChunkState::Partial) {
       if (chunk_state == ChunkState::Whole) {
         // The chunk is whole, we need to read one more chunk
@@ -166,31 +171,53 @@ class Session {
 
       switch (state_) {
         case State::Init:
-          state_ = StateInitRun(*this);
+          state_ = StateInitRun(impl);
           break;
         case State::Idle:
         case State::Result:
           at_least_one_run_ = true;
-          state_ = StateExecutingRun(*this, state_);
+          state_ = StateExecutingRun(impl, state_);
           break;
         case State::Error:
-          state_ = StateErrorRun(*this, state_);
+          state_ = StateErrorRun(impl, state_);
+          break;
+        case State::Postponed:
+          DMG_ASSERT(false, "Trying to execute new commands while in postponed state.");
           break;
         default:
           // State::Handshake is handled above
           // State::Close is handled below
           break;
       }
-
-      // State::Close is handled here because we always want to check for
-      // it after the above select. If any of the states above return a
-      // State::Close then the connection should be terminated immediately.
-      if (UNLIKELY(state_ == State::Close)) {
-        ClientFailureInvalidData();
+      if (state_ == State::Postponed) [[likely]] {
+        // We can execute a single command at a time.
+        // It is possible to receive multiple commands in a single read
+        // return here with true (has_more)
+        // higher level needs to handle this and recall execute without reading from the socket
         return;
+      } else if (state_ == State::Close) [[unlikely]] {
+        // State::Close is handled here because we always want to check for
+        // it after the above select. If any of the states above return a
+        // State::Close then the connection should be terminated immediately.
+        ClientFailureInvalidData();
       }
     }
   }
+
+  struct PostponedWork {
+    std::optional<int> n;
+    std::optional<int> qid;
+    bool is_pull;
+  };
+
+  std::optional<PostponedWork> postponed_work;
+
+  void PostponeWork(bool is_pull, std::optional<int> n, std::optional<int> qid) {
+    DMG_ASSERT(!postponed_work, "Work already postponed");
+    postponed_work.emplace(n, qid, is_pull);
+  }
+
+  // virtual void AsyncExecution(std::function<void(bool, std::exception_ptr)> &&cb) noexcept = 0;
 
   void HandleError() {
     if (!at_least_one_run_) {
@@ -221,11 +248,11 @@ class Session {
   std::vector<std::string> client_supported_bolt_versions_;
   std::optional<BoltMetrics::Metrics> metrics_;
 
-  virtual std::string GetCurrentDB() const = 0;
+  // virtual std::string GetCurrentDB() const = 0;
   std::string UUID() const { return session_uuid_; }
   std::string GetLoginTimestamp() const { return login_timestamp_; }
 
- private:
+ protected:
   void ClientFailureInvalidData() {
     // Set the state to Close.
     state_ = State::Close;
@@ -241,8 +268,8 @@ class Session {
     throw SessionException("Something went wrong during session execution!");
   }
 
+ private:
   const std::string kTimestampFormat = "{:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}.{:06d}";
-
   const std::string session_uuid_;  //!< unique identifier of the session (auto generated)
   const std::string login_timestamp_;
 };
