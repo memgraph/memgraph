@@ -190,7 +190,7 @@ class DefaultHADeployment(Deployment):
             f"--monitoring-port={data_config['monitoring-port']}",
             f"--metrics-port={data_config['metrics-port']}",
             f"--data-directory=mg_data_{data_config['id']}",
-            f"--log-file=stress_test_data_{data_config['id']}.log",
+            f"--log-file=mg_data_{data_config['id']}.log",
             f"--replication-restore-state-on-startup=false",
             f"--data-recovery-on-startup=false",
         ]
@@ -202,10 +202,10 @@ class DefaultHADeployment(Deployment):
             f"--bolt-port={coord_config['bolt-port']}",
             f"--management-port={coord_config['management-port']}",
             f"--coordinator-port={coord_config['coordinator-port']}",
+            f"--monitoring-port={coord_config['monitoring-port']}",
+            f"--metrics-port={coord_config['metrics-port']}",
             f"--data-directory=mg_coord_{coord_config['id']}",
-            f"--log-file=stress_test_coord_{coord_config['id']}.log",
-            f"--log-level=DEBUG",
-            f"--also-log-to-stderr=true",
+            f"--log-file=mg_coord_{coord_config['id']}.log",
             f"--replication-restore-state-on-startup=false",
             f"--data-recovery-on-startup=false",
         ]

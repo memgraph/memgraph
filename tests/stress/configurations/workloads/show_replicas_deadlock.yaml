@@ -12,11 +12,6 @@ memgraph:
     - "--storage-wal-enabled=true"
     - "--data-recovery-on-startup=false"
     - "--query-execution-timeout-sec=1200"
-    - "--log-file=stress_test.log"
-    - "--log-level=TRACE"
-    - "--also-log-to-stderr=true"
-    - "--data-directory=stress_data"
-
 
 general:
   verbose: false

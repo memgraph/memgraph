@@ -11,10 +11,8 @@ memgraph:
     - "--storage-snapshot-retention-count=1"
     - "--storage-wal-enabled=true"
     - "--query-execution-timeout-sec=1200"
-    - "--log-file=stress_test.log"
     - "--log-level=DEBUG"
     - "--also-log-to-stderr=true"
-    - "--data-directory=stress_data"
 
 general:
   verbose: false
