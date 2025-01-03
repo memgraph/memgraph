@@ -1,6 +1,6 @@
 memgraph:
   deployment:
-    type: standalone
+    type: ha
   installation:
     type: default
   args:
@@ -30,7 +30,7 @@ customWorkloads:
     - name: show-replicas-deadlock
       memgraph_args: []
       import:
-        queries: ["CREATE INDEX ON :Node;", "CREATE INDEX ON :NOde(id);"]
+        queries: ["CREATE INDEX ON :Node;", "CREATE INDEX ON :Node(id);"]
       workers:
         - name: periodic-import
           type: writer
