@@ -21,8 +21,8 @@
 #include "json/json.hpp"
 
 using memgraph::coordination::CoordinatorInstance;
+using memgraph::coordination::CoordinatorInstanceConfig;
 using memgraph::coordination::CoordinatorInstanceInitConfig;
-using memgraph::coordination::CoordinatorToCoordinatorConfig;
 using memgraph::io::network::Endpoint;
 
 // Networking is used in this test, be careful with ports used.
@@ -113,18 +113,18 @@ TEST_F(CoordinatorInstanceTest, ConnectCoordinators) {
   auto instance3 = CoordinatorInstance{init_config3};
 
   instance1.AddCoordinatorInstance(
-      CoordinatorToCoordinatorConfig{.coordinator_id = coordinator_ids[1],
-                                     .bolt_server = Endpoint{"localhost", bolt_ports[1]},
-                                     .coordinator_server = Endpoint{"localhost", coordinator_ports[1]},
-                                     .management_server = Endpoint{"localhost", management_ports[1]},
-                                     .coordinator_hostname = "localhost"});
+      CoordinatorInstanceConfig{.coordinator_id = coordinator_ids[1],
+                                .bolt_server = Endpoint{"localhost", bolt_ports[1]},
+                                .coordinator_server = Endpoint{"localhost", coordinator_ports[1]},
+                                .management_server = Endpoint{"localhost", management_ports[1]},
+                                .coordinator_hostname = "localhost"});
 
   instance1.AddCoordinatorInstance(
-      CoordinatorToCoordinatorConfig{.coordinator_id = coordinator_ids[2],
-                                     .bolt_server = Endpoint{"localhost", bolt_ports[2]},
-                                     .coordinator_server = Endpoint{"localhost", coordinator_ports[2]},
-                                     .management_server = Endpoint{"localhost", management_ports[2]},
-                                     .coordinator_hostname = "localhost"});
+      CoordinatorInstanceConfig{.coordinator_id = coordinator_ids[2],
+                                .bolt_server = Endpoint{"localhost", bolt_ports[2]},
+                                .coordinator_server = Endpoint{"localhost", coordinator_ports[2]},
+                                .management_server = Endpoint{"localhost", management_ports[2]},
+                                .coordinator_hostname = "localhost"});
 
   auto const wait_and_assert = [this](auto const &instance) {
     ASSERT_TRUE(HasBecomeEqual([&instance]() { return instance.ShowInstances().size(); }, 3));
@@ -143,86 +143,6 @@ TEST_F(CoordinatorInstanceTest, ConnectCoordinators) {
     ASSERT_NE(coord3_it, instances.end());
   };
 
-  { wait_and_assert(instance1); }
-  { wait_and_assert(instance2); }
-  { wait_and_assert(instance3); }
-}
-
-TEST_F(CoordinatorInstanceTest, GetConnectedCoordinatorsConfigs) {
-  GTEST_SKIP() << "skip flaky issue #https://github.com/memgraph/memgraph/issues/2212";
-  auto const wait_until_added = [](auto &instance) {
-    while (instance.ShowInstances().size() != 3) {
-    }
-  };
-  auto const init_config1 = CoordinatorInstanceInitConfig{coordinator_ids[0],
-                                                          coordinator_ports[0],
-                                                          bolt_ports[0],
-                                                          management_ports[0],
-                                                          main_data_directory / "high_availability1" / "coordinator",
-                                                          "localhost"};
-
-  auto instance1 = CoordinatorInstance{init_config1};
-
-  auto const init_config2 = CoordinatorInstanceInitConfig{coordinator_ids[1],
-                                                          coordinator_ports[1],
-                                                          bolt_ports[1],
-                                                          management_ports[1],
-                                                          main_data_directory / "high_availability2" / "coordinator",
-                                                          "localhost"};
-
-  auto instance2 = CoordinatorInstance{init_config2};
-
-  auto const init_config3 = CoordinatorInstanceInitConfig{coordinator_ids[2],
-                                                          coordinator_ports[2],
-                                                          bolt_ports[2],
-                                                          management_ports[2],
-                                                          main_data_directory / "high_availability3" / "coordinator",
-                                                          "localhost"};
-
-  auto instance3 = CoordinatorInstance{init_config3};
-
-  auto const coord2_coord_config =
-      CoordinatorToCoordinatorConfig{.coordinator_id = coordinator_ids[1],
-                                     .bolt_server = Endpoint{"localhost", bolt_ports[1]},
-                                     .coordinator_server = Endpoint{"localhost", coordinator_ports[1]},
-                                     .management_server = Endpoint{"localhost", management_ports[1]},
-                                     .coordinator_hostname = "localhost"};
-  instance1.AddCoordinatorInstance(coord2_coord_config);
-
-  auto const coord3_coord_config =
-      CoordinatorToCoordinatorConfig{.coordinator_id = coordinator_ids[2],
-                                     .bolt_server = Endpoint{"localhost", bolt_ports[2]},
-                                     .coordinator_server = Endpoint{"localhost", coordinator_ports[2]},
-                                     .management_server = Endpoint{"localhost", management_ports[2]},
-                                     .coordinator_hostname = "localhost"};
-
-  instance1.AddCoordinatorInstance(coord3_coord_config);
-
-  auto const coord1_coord_config =
-      CoordinatorToCoordinatorConfig{.coordinator_id = coordinator_ids[0],
-                                     .bolt_server = Endpoint{"localhost", bolt_ports[0]},
-                                     .coordinator_server = Endpoint{"localhost", coordinator_ports[0]},
-                                     .management_server = Endpoint{"localhost", management_ports[0]},
-                                     .coordinator_hostname = "localhost"};
-  auto const wait_and_assert = [&](auto const &instance) {
-    ASSERT_TRUE(HasBecomeEqual([&instance]() { return instance.ShowInstances().size(); }, 3));
-    ASSERT_TRUE(HasBecomeEqual([&instance]() { return instance.GetCoordinatorToCoordinatorConfigs().size(); }, 3));
-    auto const coord_to_coord_configs = instance.GetCoordinatorToCoordinatorConfigs();
-    auto const coord1_config_it = std::ranges::find_if(
-        coord_to_coord_configs, [this](auto const &config) { return config.coordinator_id == coordinator_ids[0]; });
-    auto const coord2_config_it = std::ranges::find_if(
-        coord_to_coord_configs, [this](auto const &config) { return config.coordinator_id == coordinator_ids[1]; });
-    auto const coord3_config_it = std::ranges::find_if(
-        coord_to_coord_configs, [this](auto const &config) { return config.coordinator_id == coordinator_ids[2]; });
-
-    ASSERT_NE(coord1_config_it, coord_to_coord_configs.end());
-    ASSERT_NE(coord2_config_it, coord_to_coord_configs.end());
-    ASSERT_NE(coord3_config_it, coord_to_coord_configs.end());
-
-    ASSERT_EQ(*coord1_config_it, coord1_coord_config);
-    ASSERT_EQ(*coord2_config_it, coord2_coord_config);
-    ASSERT_EQ(*coord3_config_it, coord3_coord_config);
-  };
   { wait_and_assert(instance1); }
   { wait_and_assert(instance2); }
   { wait_and_assert(instance3); }
@@ -262,23 +182,22 @@ TEST_F(CoordinatorInstanceTest, GetRoutingTable) {
   auto instance3 = CoordinatorInstance{init_config3};
 
   instance1.AddCoordinatorInstance(
-      CoordinatorToCoordinatorConfig{.coordinator_id = coordinator_ids[1],
-                                     .bolt_server = Endpoint{"localhost", bolt_ports[1]},
-                                     .coordinator_server = Endpoint{"localhost", coordinator_ports[1]},
-                                     .management_server = Endpoint{"localhost", management_ports[1]},
-                                     .coordinator_hostname = "localhost"});
+      CoordinatorInstanceConfig{.coordinator_id = coordinator_ids[1],
+                                .bolt_server = Endpoint{"localhost", bolt_ports[1]},
+                                .coordinator_server = Endpoint{"localhost", coordinator_ports[1]},
+                                .management_server = Endpoint{"localhost", management_ports[1]},
+                                .coordinator_hostname = "localhost"});
 
   instance1.AddCoordinatorInstance(
-      CoordinatorToCoordinatorConfig{.coordinator_id = coordinator_ids[2],
-                                     .bolt_server = Endpoint{"localhost", bolt_ports[2]},
-                                     .coordinator_server = Endpoint{"localhost", coordinator_ports[2]},
-                                     .management_server = Endpoint{"localhost", management_ports[2]},
-                                     .coordinator_hostname = "localhost"});
+      CoordinatorInstanceConfig{.coordinator_id = coordinator_ids[2],
+                                .bolt_server = Endpoint{"localhost", bolt_ports[2]},
+                                .coordinator_server = Endpoint{"localhost", coordinator_ports[2]},
+                                .management_server = Endpoint{"localhost", management_ports[2]},
+                                .coordinator_hostname = "localhost"});
 
   spdlog::trace("Added coordinator instances!");
   {
     ASSERT_TRUE(HasBecomeEqual([&instance1]() { return instance1.ShowInstances().size(); }, 3));
-    ASSERT_TRUE(HasBecomeEqual([&instance1]() { return instance1.GetCoordinatorToCoordinatorConfigs().size(); }, 3));
     auto const routing_table = instance1.GetRoutingTable();
     ASSERT_EQ(routing_table.size(), 1);
     auto const &routers = routing_table[0];
@@ -297,7 +216,6 @@ TEST_F(CoordinatorInstanceTest, GetRoutingTable) {
 
   {
     ASSERT_TRUE(HasBecomeEqual([&instance2]() { return instance2.ShowInstances().size(); }, 3));
-    ASSERT_TRUE(HasBecomeEqual([&instance2]() { return instance2.GetCoordinatorToCoordinatorConfigs().size(); }, 3));
     auto const routing_table = instance2.GetRoutingTable();
     ASSERT_EQ(routing_table.size(), 1);
     auto const &routers = routing_table[0];
@@ -316,7 +234,6 @@ TEST_F(CoordinatorInstanceTest, GetRoutingTable) {
 
   {
     ASSERT_TRUE(HasBecomeEqual([&instance3]() { return instance3.ShowInstances().size(); }, 3));
-    ASSERT_TRUE(HasBecomeEqual([&instance3]() { return instance3.GetCoordinatorToCoordinatorConfigs().size(); }, 3));
     auto const routing_table = instance3.GetRoutingTable();
     ASSERT_EQ(routing_table.size(), 1);
     auto const &routers = routing_table[0];

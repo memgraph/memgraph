@@ -30,7 +30,7 @@ using ReplicationClientsInfo = std::vector<ReplicationClientInfo>;
 
 class ReplicationInstanceClient {
  public:
-  explicit ReplicationInstanceClient(CoordinatorToReplicaConfig config, CoordinatorInstance *coord_instance);
+  explicit ReplicationInstanceClient(DataInstanceConfig config, CoordinatorInstance *coord_instance);
 
   virtual ~ReplicationInstanceClient() = default;
 
@@ -83,7 +83,7 @@ class ReplicationInstanceClient {
   communication::ClientContext rpc_context_;
   mutable rpc::Client rpc_client_;
 
-  CoordinatorToReplicaConfig config_;
+  DataInstanceConfig config_;
   CoordinatorInstance *coord_instance_;
 };
 

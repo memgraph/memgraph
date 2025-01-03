@@ -30,7 +30,7 @@ class ReplicationInstanceConnector;
 // Class used for managing the connection from coordinator to the data instance.
 class ReplicationInstanceConnector {
  public:
-  ReplicationInstanceConnector(CoordinatorToReplicaConfig const &config, CoordinatorInstance *coord_instance);
+  ReplicationInstanceConnector(DataInstanceConfig const &config, CoordinatorInstance *coord_instance);
 
   ReplicationInstanceConnector(ReplicationInstanceConnector const &other) = delete;
   ReplicationInstanceConnector &operator=(ReplicationInstanceConnector const &other) = delete;

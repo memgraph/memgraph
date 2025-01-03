@@ -11,27 +11,12 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "nuraft/coordinator_cluster_state.hpp"
+#include "coordination/coordinator_cluster_state.hpp"
 #include "utils/logging.hpp"
 
 #include <shared_mutex>
 
 namespace memgraph::coordination {
-
-void to_json(nlohmann::json &j, DataInstanceState const &instance_state) {
-  j = nlohmann::json{
-      {"config", instance_state.config}, {"status", instance_state.status}, {"uuid", instance_state.instance_uuid}};
-}
-
-void from_json(nlohmann::json const &j, DataInstanceState &instance_state) {
-  j.at("config").get_to(instance_state.config);
-  j.at("status").get_to(instance_state.status);
-  j.at("uuid").get_to(instance_state.instance_uuid);
-}
-
-CoordinatorClusterState::CoordinatorClusterState(std::vector<DataInstanceState> instances,
-                                                 utils::UUID current_main_uuid)
-    : data_instances_{std::move(instances)}, current_main_uuid_(current_main_uuid) {}
 
 CoordinatorClusterState::CoordinatorClusterState(CoordinatorClusterState const &other)
     : data_instances_{other.data_instances_}, current_main_uuid_(other.current_main_uuid_) {}
@@ -81,11 +66,14 @@ auto CoordinatorClusterState::IsCurrentMain(std::string_view instance_name) cons
   return it != data_instances_.end() && it->status == ReplicationRole::MAIN && it->instance_uuid == current_main_uuid_;
 }
 
-auto CoordinatorClusterState::DoAction(std::vector<DataInstanceState> data_instances, utils::UUID main_uuid) -> void {
+auto CoordinatorClusterState::DoAction(std::vector<DataInstanceContext> data_instances,
+                                       std::vector<CoordinatorInstanceContext> coordinator_instances,
+                                       utils::UUID main_uuid) -> void {
   auto lock = std::lock_guard{log_lock_};
   spdlog::trace("DoAction: update cluster state.");
   data_instances_ = std::move(data_instances);
   current_main_uuid_ = main_uuid;
+  coordinator_instances_ = std::move(coordinator_instances);
 }
 
 auto CoordinatorClusterState::Serialize(ptr<buffer> &data) -> void {
@@ -102,12 +90,18 @@ auto CoordinatorClusterState::Deserialize(buffer &data) -> CoordinatorClusterSta
   buffer_serializer bs(data);
   auto const j = nlohmann::json::parse(bs.get_str());
 
+  // TODO: (andi) Not the best
   CoordinatorClusterState cluster_state;
   j.get_to(cluster_state);
   return cluster_state;
 }
 
-auto CoordinatorClusterState::GetDataInstances() const -> std::vector<DataInstanceState> {
+auto CoordinatorClusterState::GetCoordinatorInstancesContext() const -> std::vector<CoordinatorInstanceContext> {
+  auto lock = std::shared_lock{log_lock_};
+  return coordinator_instances_;
+}
+
+auto CoordinatorClusterState::GetDataInstancesContext() const -> std::vector<DataInstanceContext> {
   auto lock = std::shared_lock{log_lock_};
   return data_instances_;
 }
@@ -123,7 +117,12 @@ auto CoordinatorClusterState::TryGetCurrentMainName() const -> std::optional<std
 
 auto CoordinatorClusterState::GetCurrentMainUUID() const -> utils::UUID { return current_main_uuid_; }
 
-void CoordinatorClusterState::SetDataInstances(std::vector<DataInstanceState> data_instances) {
+void CoordinatorClusterState::SetCoordinatorInstances(std::vector<CoordinatorInstanceContext> coordinator_instances) {
+  auto lock = std::unique_lock{log_lock_};
+  coordinator_instances_ = std::move(coordinator_instances);
+}
+
+void CoordinatorClusterState::SetDataInstances(std::vector<DataInstanceContext> data_instances) {
   auto lock = std::unique_lock{log_lock_};
   data_instances_ = std::move(data_instances);
 }
@@ -134,12 +133,15 @@ void CoordinatorClusterState::SetCurrentMainUUID(utils::UUID current_main_uuid) 
 }
 
 void to_json(nlohmann::json &j, CoordinatorClusterState const &state) {
-  j = nlohmann::json{{"data_instances", state.GetDataInstances()}, {"current_main_uuid", state.GetCurrentMainUUID()}};
+  j = nlohmann::json{{"data_instances", state.GetDataInstancesContext()},
+                     {"current_main_uuid", state.GetCurrentMainUUID()},
+                     {"coordinator_instances", state.GetCoordinatorInstancesContext()}};
 }
 
 void from_json(nlohmann::json const &j, CoordinatorClusterState &instance_state) {
-  instance_state.SetDataInstances(j.at("data_instances").get<std::vector<DataInstanceState>>());
+  instance_state.SetDataInstances(j.at("data_instances").get<std::vector<DataInstanceContext>>());
   instance_state.SetCurrentMainUUID(j.at("current_main_uuid").get<utils::UUID>());
+  instance_state.SetCoordinatorInstances(j.at("coordinator_instances").get<std::vector<CoordinatorInstanceContext>>());
 }
 
 }  // namespace memgraph::coordination

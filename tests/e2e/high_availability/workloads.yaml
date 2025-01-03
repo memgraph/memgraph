@@ -3,9 +3,10 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["high_availability/coordinator.py"]
 
-  - name: "Single coordinator"
-    binary: "tests/e2e/pytest_runner.sh"
-    args: ["high_availability/single_coordinator.py"]
+      # TODO: (andi) Restore once you have a decision from Lastre
+      #   - name: "Single coordinator"
+      #     binary: "tests/e2e/pytest_runner.sh"
+      #     args: ["high_availability/single_coordinator.py"]
 
   - name: "Disabled manual setting of replication cluster"
     binary: "tests/e2e/pytest_runner.sh"

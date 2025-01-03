@@ -9,31 +9,15 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
-
-#ifdef MG_ENTERPRISE
-
-#include "nuraft/log_level.hpp"
-#include "nuraft/logger.hpp"
-
-#include <source_location>
+#include <optional>
 #include <string>
 
+#include "coordination/coordinator_instance_context.hpp"
+#include "coordination/logger_wrapper.hpp"
+#include "kvstore/kvstore.hpp"
+
 namespace memgraph::coordination {
-
-class LoggerWrapper {
- public:
-  explicit LoggerWrapper(Logger *logger);
-
-  void Log(nuraft_log_level level, std::string const &log_line,
-           std::source_location location = std::source_location::current());
-
- private:
-  Logger *logger_;
-};
-
-static_assert(std::is_trivially_copyable_v<LoggerWrapper>, "LoggerWrapper must be trivially copyable");
+auto GetOrSetDefaultVersion(kvstore::KVStore &durability, std::string_view key, int default_value, LoggerWrapper logger)
+    -> int;
 
 }  // namespace memgraph::coordination
-
-#endif

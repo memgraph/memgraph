@@ -11,7 +11,7 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "nuraft/logger.hpp"
+#include "coordination/logger.hpp"
 
 namespace {
 constexpr int log_retention_count = 35;

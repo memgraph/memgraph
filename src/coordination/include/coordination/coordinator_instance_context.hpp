@@ -9,25 +9,26 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#ifdef MG_ENTERPRISE
-
 #pragma once
 
-#include "coordination/coordinator_instance_aux.hpp"
+#include <cstdint>
+#include <string>
+
+#include "json/json.hpp"
+
+#ifdef MG_ENTERPRISE
 
 namespace memgraph::coordination {
+// Context saved about each coordinator in Raft logs (app log)
+struct CoordinatorInstanceContext {
+  uint32_t id;
+  std::string bolt_server;
 
-class CoordinatorInstance;
-
-class CoordinationClusterChangeObserver {
- public:
-  explicit CoordinationClusterChangeObserver(CoordinatorInstance *instance);
-  void Update(std::vector<CoordinatorInstanceAux> const &coord_instances_aux);
-
- private:
-  CoordinatorInstance *instance_;
+  friend bool operator==(CoordinatorInstanceContext const &, CoordinatorInstanceContext const &) = default;
 };
 
+void to_json(nlohmann::json &j, CoordinatorInstanceContext const &context);
+void from_json(nlohmann::json const &j, CoordinatorInstanceContext &context);
 }  // namespace memgraph::coordination
 
 #endif

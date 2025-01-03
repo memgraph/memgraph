@@ -9,24 +9,30 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#ifdef MG_ENTERPRISE
-
 #pragma once
 
-#include "coordination/coordinator_instance_aux.hpp"
+#ifdef MG_ENTERPRISE
+
+#include "coordination/log_level.hpp"
+#include "coordination/logger.hpp"
+
+#include <source_location>
+#include <string>
 
 namespace memgraph::coordination {
 
-class CoordinatorInstance;
-
-class CoordinationClusterChangeObserver {
+class LoggerWrapper {
  public:
-  explicit CoordinationClusterChangeObserver(CoordinatorInstance *instance);
-  void Update(std::vector<CoordinatorInstanceAux> const &coord_instances_aux);
+  explicit LoggerWrapper(Logger *logger);
+
+  void Log(nuraft_log_level level, std::string const &log_line,
+           std::source_location location = std::source_location::current()) const;
 
  private:
-  CoordinatorInstance *instance_;
+  Logger *logger_;
 };
+
+static_assert(std::is_trivially_copyable_v<LoggerWrapper>, "LoggerWrapper must be trivially copyable");
 
 }  // namespace memgraph::coordination
 

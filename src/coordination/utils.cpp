@@ -8,9 +8,14 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
+
+#include "coordination/utils.hpp"
+
 #include <string_view>
+#include "json/json.hpp"
+
+#include "coordination/logger_wrapper.hpp"
 #include "kvstore/kvstore.hpp"
-#include "nuraft/logger_wrapper.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::coordination {
@@ -28,5 +33,6 @@ auto GetOrSetDefaultVersion(kvstore::KVStore &durability, std::string_view key, 
   MG_ASSERT(durability.Put(key, std::to_string(default_value)), "Failed to store durability version.");
   return default_value;
 }
+
 #endif
 }  // namespace memgraph::coordination

@@ -520,6 +520,27 @@ target_link_libraries(${test_prefix}coordinator_env_flag_handler gflags mg-flags
 target_include_directories(${test_prefix}coordinator_env_flag_handler PRIVATE ${CMAKE_SOURCE_DIR}/include)
 endif()
 
+# Test coordinator instance context
+if(MG_ENTERPRISE)
+add_unit_test(coordinator_instance_context.cpp)
+target_link_libraries(${test_prefix}coordinator_instance_context gflags mg-coordination)
+target_include_directories(${test_prefix}coordinator_instance_context PRIVATE ${CMAKE_SOURCE_DIR}/include)
+endif()
+
+# Test coordinator instance aux
+if(MG_ENTERPRISE)
+add_unit_test(coordinator_instance_aux.cpp)
+target_link_libraries(${test_prefix}coordinator_instance_aux gflags mg-coordination)
+target_include_directories(${test_prefix}coordinator_instance_aux PRIVATE ${CMAKE_SOURCE_DIR}/include)
+endif()
+
+# Test data instance context
+if(MG_ENTERPRISE)
+add_unit_test(data_instance_context.cpp)
+target_link_libraries(${test_prefix}data_instance_context gflags mg-coordination)
+target_include_directories(${test_prefix}data_instance_context PRIVATE ${CMAKE_SOURCE_DIR}/include)
+endif()
+
 # Test time to live
 if(MG_ENTERPRISE)
 add_unit_test(ttl.cpp)
