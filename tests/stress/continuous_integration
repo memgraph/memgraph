@@ -172,6 +172,23 @@ def _find_test_binary(args: Args, config: Config, test: str) -> List[str]:
     raise Exception("Test '{}' binary not supported!".format(test))
 
 
+def run_worker(worker, deployment):
+    """Function to be executed in a separate process for each worker."""
+    worker_name = worker["name"]
+    query = worker["query"]
+    repetitions = worker["num_repetitions"]
+    sleep_millis = worker["sleep_millis"]
+
+    print(f"Starting worker '{worker_name}'...")
+
+    for i in range(repetitions):
+        deployment.execute_query(query)
+        if sleep_millis > 0:
+            time.sleep(sleep_millis / 1000.0)
+
+    print(f"Worker '{worker_name}' finished.")
+
+
 def run_custom_workloads(deployment, config: Config):
     print("Running custom workloads...")
     for workload in config.custom_workloads:
@@ -190,17 +207,19 @@ def run_custom_workloads(deployment, config: Config):
                 deployment.execute_query(query)
             print(f"Finished import for workload '{workload_name}'")
 
-            # Worker queries
+            processes = []
             for worker in workload.get("workers", []):
-                worker_name = worker["name"]
-                query = worker["query"]
-                repetitions = worker["num_repetitions"]
-                sleep_millis = worker["sleep_millis"]
+                process = multiprocessing.Process(target=run_worker, args=(worker, deployment))
+                processes.append((process, workload.get("timeout_min", 10) * 60))  # Default to 10 minutes timeout
+                process.start()
 
-                for i in range(repetitions):
-                    deployment.execute_query(query)
-                    if sleep_millis > 0:
-                        time.sleep(sleep_millis / 1000.0)
+            # Monitor processes and enforce timeouts
+            for process, timeout in processes:
+                process.join(timeout)
+                if process.is_alive():
+                    print(f"Worker process exceeded timeout of {timeout // 60} minutes. Terminating...")
+                    process.terminate()
+                    process.join()
 
             print(f"Finished workload '{workload_name}'")
         except Exception as ex:

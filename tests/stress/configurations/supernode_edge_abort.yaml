@@ -37,3 +37,4 @@ customWorkloads:
           query: "MATCH (n1) MATCH (n2) CREATE (n1)-[:IS_CONNECTED_TO]->(n2)"
           num_repetitions: 1
           sleep_millis: 0
+      timeout_min: 2
