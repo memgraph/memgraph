@@ -318,11 +318,11 @@ void DumpPointIndex(std::ostream *os, query::DbAccessor *dba, storage::LabelId l
 
 void DumpVectorIndex(std::ostream *os, query::DbAccessor *dba, const std::shared_ptr<storage::VectorIndexSpec> &spec) {
   *os << "CREATE VECTOR INDEX " << EscapeName(spec->index_name) << " ON :" << EscapeName(dba->LabelToName(spec->label))
-      << "(" << EscapeName(dba->PropertyToName(spec->property)) << ") WITH CONFIG { " << EscapeName(query::kDimension)
-      << ": " << spec->dimension << ", " << EscapeName(query::kMetric) << ": "
-      << EscapeName(storage::kMetricToStringMap.at(spec->metric_kind).front()) << ", " << EscapeName(query::kCapacity)
-      << ": " << spec->capacity << ", " << EscapeName(query::kResizeCoefficient) << ": " << spec->resize_coefficient
-      << "};";
+      << "(" << EscapeName(dba->PropertyToName(spec->property)) << ") WITH CONFIG { "
+      << "\"dimension\": " << spec->dimension << ", "
+      << "\"metric\": \"" << storage::kMetricToStringMap.at(spec->metric_kind).front() << "\", "
+      << "\"capacity\": " << spec->capacity << ", "
+      << "\"resize_coefficient\": " << spec->resize_coefficient << " };";
 }
 
 void DumpExistenceConstraint(std::ostream *os, query::DbAccessor *dba, storage::LabelId label,
