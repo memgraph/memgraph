@@ -241,8 +241,8 @@ TEST(Scheduler, CronEveryNs) {
   std::function<void()> func{[&x]() { ++x; }};
   memgraph::utils::Scheduler scheduler;
 
-  const auto now = std::chrono::system_clock::now();
-  const auto timeout1 = now + std::chrono::seconds(6);
+  const auto start = std::chrono::system_clock::now();
+  const auto timeout1 = start + std::chrono::seconds(6);
 
   // Execute every second
   scheduler.SetInterval("*/2 * * * * *");
@@ -251,7 +251,9 @@ TEST(Scheduler, CronEveryNs) {
   while (x < 2 && std::chrono::system_clock::now() < timeout1) {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
-  ASSERT_GE(std::chrono::system_clock::now() - now, std::chrono::seconds{3});
+  const auto now = std::chrono::system_clock::now();
+  ASSERT_GT(now - start, std::chrono::seconds{2});
+  ASSERT_LT(now - start, std::chrono::seconds{5});
   ASSERT_GE(x, 2);
 }
 
