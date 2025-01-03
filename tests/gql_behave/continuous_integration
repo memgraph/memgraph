@@ -8,8 +8,8 @@ everything which is needed for the CI environment.
 List of responsibilities:
     * execute default suites
     * terminate execution if any of internal scenarios fails
-    * creates the report file that is needed by the Apollo plugin
-      to post the status on Phabricator. (.quality_assurance_status)
+    * creates the report file that is packaged and exposed under Github
+      (.quality_assurance_status).
 """
 
 import argparse
@@ -109,6 +109,8 @@ class MemgraphRunner:
             self.data_directory.name,
             "--log-file",
             str(os.path.join(BASE_DIR, "tests", "gql_behave", "memgraph.log")),
+            "--query-modules-directory",
+            str(os.path.join(BUILD_DIR, "query_modules")),
         ]
         self.proc_mg = subprocess.Popen(args_mg + self.args)
         wait_for_server(7687, 1)

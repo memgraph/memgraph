@@ -435,11 +435,6 @@ int main(int argc, char **argv) {
     db_config.durability.snapshot_wal_mode = DISABLED;
   }
 
-  if (memgraph::flags::AreExperimentsEnabled(memgraph::flags::Experiments::VECTOR_SEARCH) &&
-      db_config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL) {
-    LOG_FATAL("Vector indexes are not supported in ON_DISK_TRANSACTIONAL storage mode.");
-  }
-
 #ifdef MG_ENTERPRISE
   if (std::chrono::seconds(FLAGS_instance_down_timeout_sec) <
       std::chrono::seconds(FLAGS_instance_health_check_frequency_sec)) {

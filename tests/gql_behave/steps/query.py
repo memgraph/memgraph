@@ -70,6 +70,24 @@ def with_new_index_step(context, index_arg):
     context.add_cleanup(cleanup_point_index, index_arg, context, context.test_parameters.get_parameters())
 
 
+@step("with new vector index {index_name} on {index_arg} with dimension {dimension} and capacity {capacity}")
+def with_new_index_step(context, index_name, index_arg, dimension, capacity):
+    # Construct the index creation query using the provided index arg
+    index_creation_query = f"CREATE VECTOR INDEX {index_name} ON {index_arg} WITH CONFIG {{'dimension': {dimension}, 'capacity': {capacity}}};"
+
+    # Execute the query to create the index
+    context.results = database.query(index_creation_query, context, context.test_parameters.get_parameters())
+
+    # Register the cleanup function to remove the index after the test
+    context.add_cleanup(cleanup_vector_index, index_name, context, context.test_parameters.get_parameters())
+
+
+def cleanup_vector_index(index_name, context, params):
+    # Define the cleanup logic
+    drop_query = f"DROP VECTOR INDEX {index_name};"
+    database.query(drop_query, context, params)
+
+
 @when("executing query")
 def executing_query_step(context):
     context.results = database.query(context.text, context, context.test_parameters.get_parameters())

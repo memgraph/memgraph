@@ -20,94 +20,29 @@
 #include "flags/bolt.hpp"
 #include "flags/experimental.hpp"
 #include "query/exceptions.hpp"
+#include "spdlog/spdlog.h"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/vector_index.hpp"
-#include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
-#include "usearch/index.hpp"
 #include "usearch/index_dense.hpp"
-#include "usearch/index_plugins.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/counter.hpp"
-#include "utils/logging.hpp"
 #include "utils/rw_spin_lock.hpp"
 
 namespace memgraph::storage {
-
-static constexpr std::string_view kLabel = "label";
-static constexpr std::string_view kProperty = "property";
-static constexpr std::string_view kMetric = "metric";
-static constexpr std::string_view kScalar = "scalar";
-static constexpr std::string_view kDimension = "dimension";
-static constexpr std::string_view kCapacity = "capacity";
-static constexpr std::string_view kResizeCoefficient = "resize_coefficient";
-
-static constexpr std::uint64_t kDefaultResizeCoefficient = 2;
-static constexpr std::string_view kDefaultMetric = "l2sq";
-static constexpr std::string_view kDefaultScalar = "f32";
 
 using mg_vector_index_t = unum::usearch::index_dense_gt<Vertex *, unum::usearch::uint40_t>;
 
 // NOLINTNEXTLINE(bugprone-exception-escape)
 struct IndexItem {
   mg_vector_index_t mg_index;
-  VectorIndexSpec spec;
+  std::shared_ptr<VectorIndexSpec> spec;
   mutable utils::RWSpinLock lock;
 };
 
-/// @brief Converts a string representation of a metric kind to the corresponding
-/// `unum::usearch::metric_kind_t` value.
-///
-/// @param metric_str A string representing the metric kind (e.g., "ip", "cos").
-/// @return The corresponding `unum::usearch::metric_kind_t` value.
-/// @throws std::invalid_argument if the metric kind is unknown.
-unum::usearch::metric_kind_t GetMetricKindFromConfig(const std::string_view metric_str) {
-  static const std::unordered_map<std::string_view, unum::usearch::metric_kind_t> metric_map = {
-      {"ip", unum::usearch::metric_kind_t::ip_k},
-      {"cos", unum::usearch::metric_kind_t::cos_k},
-      {"l2sq", unum::usearch::metric_kind_t::l2sq_k},
-      {"pearson", unum::usearch::metric_kind_t::pearson_k},
-      {"haversine", unum::usearch::metric_kind_t::haversine_k},
-      {"divergence", unum::usearch::metric_kind_t::divergence_k},
-      {"hamming", unum::usearch::metric_kind_t::hamming_k},
-      {"tanimoto", unum::usearch::metric_kind_t::tanimoto_k},
-      {"sorensen", unum::usearch::metric_kind_t::sorensen_k},
-      {"jaccard", unum::usearch::metric_kind_t::jaccard_k}};
-
-  auto it = metric_map.find(metric_str);
-  if (it != metric_map.end()) {
-    return it->second;
-  }
-  throw std::invalid_argument("Unknown metric kind: " + std::string(metric_str));
-}
-
-/// @brief Converts a string representation of a scalar kind to the corresponding
-/// `unum::usearch::scalar_kind_t` value.
-///
-/// @param scalar_str A string representing the scalar kind (e.g., "f32", "i64").
-/// @return The corresponding `unum::usearch::scalar_kind_t` value.
-/// @throws std::invalid_argument if the scalar kind is unknown.
-unum::usearch::scalar_kind_t GetScalarKindFromConfig(const std::string_view scalar_str) {
-  static const std::unordered_map<std::string_view, unum::usearch::scalar_kind_t> scalar_map = {
-      {"b1x8", unum::usearch::scalar_kind_t::b1x8_k}, {"u40", unum::usearch::scalar_kind_t::u40_k},
-      {"uuid", unum::usearch::scalar_kind_t::uuid_k}, {"bf16", unum::usearch::scalar_kind_t::bf16_k},
-      {"f64", unum::usearch::scalar_kind_t::f64_k},   {"f32", unum::usearch::scalar_kind_t::f32_k},
-      {"f16", unum::usearch::scalar_kind_t::f16_k},   {"f8", unum::usearch::scalar_kind_t::f8_k},
-      {"u64", unum::usearch::scalar_kind_t::u64_k},   {"u32", unum::usearch::scalar_kind_t::u32_k},
-      {"u16", unum::usearch::scalar_kind_t::u16_k},   {"u8", unum::usearch::scalar_kind_t::u8_k},
-      {"i64", unum::usearch::scalar_kind_t::i64_k},   {"i32", unum::usearch::scalar_kind_t::i32_k},
-      {"i16", unum::usearch::scalar_kind_t::i16_k},   {"i8", unum::usearch::scalar_kind_t::i8_k}};
-
-  auto it = scalar_map.find(scalar_str);
-  if (it != scalar_map.end()) {
-    return it->second;
-  }
-  throw std::invalid_argument("Unknown scalar kind: " + std::string(scalar_str));
-}
-
 /// Map from usearch metric kind to similarity function
-/// TODO(@DavIvek): Check if this functions are correct -> l2sq and cosine are correct and they are most critical atm
+/// TODO(@DavIvek): Check if this functions are correct -> l2sq and cosine are correct and they are most critical ATM
 static const std::unordered_map<unum::usearch::metric_kind_t, std::function<double(double)>> similarity_map = {
     {unum::usearch::metric_kind_t::ip_k, [](double distance) { return 1.0 - distance; }},
     {unum::usearch::metric_kind_t::cos_k, [](double distance) { return 1.0 - distance; }},
@@ -139,72 +74,69 @@ struct VectorIndex::Impl {
 VectorIndex::VectorIndex() : pimpl(std::make_unique<Impl>()) {}
 VectorIndex::~VectorIndex() {}
 
-std::vector<VectorIndexSpec> VectorIndex::ParseIndexSpec(const nlohmann::json &index_spec,
-                                                         NameIdMapper *name_id_mapper) {
-  if (index_spec.empty()) {
-    throw std::invalid_argument("Vector index spec cannot be empty.");
-  }
-
-  std::vector<VectorIndexSpec> result;
-  result.reserve(index_spec.size());
-
-  try {
-    for (const auto &[index_name, index_spec] : index_spec.items()) {
-      // Check mandatory fields
-      MG_ASSERT(index_spec.contains(kLabel), "Vector index spec must have a 'label' field.");
-      MG_ASSERT(index_spec.contains(kProperty), "Vector index spec must have a 'property' field.");
-      MG_ASSERT(index_spec.contains(kDimension), "Vector index spec must have a 'dimension' field.");
-      MG_ASSERT(index_spec.contains(kCapacity), "Vector index spec must have a 'capacity' field.");
-
-      const auto label_name = index_spec[kLabel.data()].get<std::string>();
-      const auto property_name = index_spec[kProperty.data()].get<std::string>();
-      const std::string metric = index_spec.contains(kMetric.data()) ? index_spec[kMetric.data()].get<std::string>()
-                                                                     : std::string(kDefaultMetric);
-      const std::string scalar = index_spec.contains(kScalar.data()) ? index_spec[kScalar.data()].get<std::string>()
-                                                                     : std::string(kDefaultScalar);
-      const auto dimension = index_spec[kDimension.data()].get<std::uint64_t>();
-      const auto size_limit = index_spec[kCapacity.data()].get<std::uint64_t>();
-      const auto resize_coefficient = index_spec.contains(kResizeCoefficient.data())
-                                          ? index_spec[kResizeCoefficient.data()].get<std::uint64_t>()
-                                          : kDefaultResizeCoefficient;
-
-      const auto label = LabelId::FromUint(name_id_mapper->NameToId(label_name));
-      const auto property = PropertyId::FromUint(name_id_mapper->NameToId(property_name));
-
-      result.emplace_back(
-          VectorIndexSpec{index_name, label, property, metric, scalar, dimension, size_limit, resize_coefficient});
-    }
-  } catch (const std::exception &e) {
-    throw std::invalid_argument("Error parsing vector index spec: " + std::string(e.what()));
-  }
-
-  return result;
-}
-
-void VectorIndex::CreateIndex(const VectorIndexSpec &spec) {
-  const unum::usearch::metric_kind_t metric_kind = GetMetricKindFromConfig(spec.metric);
-  const unum::usearch::scalar_kind_t scalar_kind = GetScalarKindFromConfig(spec.scalar);
-
-  const unum::usearch::metric_punned_t metric(spec.dimension, metric_kind, scalar_kind);
+void VectorIndex::CreateIndex(const std::shared_ptr<VectorIndexSpec> &spec) {
+  const unum::usearch::metric_punned_t metric(
+      spec->dimension, spec->metric_kind,
+      unum::usearch::scalar_kind_t::f32_k);  // TODO(@DavIvek): scalar kind is hardcoded to f32 ATM -> changing this
+                                             // could be beneficial for memory usage
 
   // use the number of workers as the number of possible concurrent index operations
-  const unum::usearch::index_limits_t limits(spec.size_limit, FLAGS_bolt_num_workers);
+  const unum::usearch::index_limits_t limits(spec->capacity, FLAGS_bolt_num_workers);
 
-  const auto label_prop = LabelPropKey{spec.label, spec.property};
-  pimpl->index_name_to_label_prop_.emplace(spec.index_name, label_prop);
+  const auto label_prop = LabelPropKey{spec->label, spec->property};
+  if (pimpl->index_.contains(label_prop) || pimpl->index_name_to_label_prop_.contains(spec->index_name)) {
+    throw std::invalid_argument("Given vector index already exists.");
+  }
+  pimpl->index_name_to_label_prop_.emplace(spec->index_name, label_prop);
   pimpl->index_.emplace(label_prop, IndexItem{mg_vector_index_t::make(metric), spec, utils::RWSpinLock()});
   if (pimpl->index_[label_prop].mg_index.try_reserve(limits)) {
-    spdlog::info("Created vector index " + spec.index_name);
+    spdlog::info("Created vector index " + spec->index_name);
   } else {
-    throw std::invalid_argument("Failed to create vector index " + spec.index_name +
+    throw std::invalid_argument("Failed to create vector index " + spec->index_name +
                                 " due to failed memory allocation. Try again with a smaller size limit.");
   }
+}
+
+bool VectorIndex::CreateIndex(const std::shared_ptr<VectorIndexSpec> &spec,
+                              utils::SkipList<Vertex>::Accessor vertices) {
+  try {
+    CreateIndex(spec);
+    for (auto &vertex : vertices) {
+      UpdateVectorIndex(&vertex, LabelPropKey{spec->label, spec->property});
+    }
+  } catch (const std::exception &e) {
+    spdlog::error("Failed to create vector index {}: {}", spec->index_name, e.what());
+    return false;
+  }
+  return true;
+}
+
+bool VectorIndex::DropIndex(std::string_view index_name) {
+  auto it = pimpl->index_name_to_label_prop_.find(index_name.data());
+  if (it == pimpl->index_name_to_label_prop_.end()) {
+    return false;
+  }
+  const auto &label_prop = it->second;
+  auto &[index, _, lock] = pimpl->index_.at(label_prop);
+  index.reset();
+  pimpl->index_.erase(label_prop);
+  pimpl->index_name_to_label_prop_.erase(it);
+  spdlog::info("Dropped vector index " + std::string(index_name));
+  return true;
+}
+
+void VectorIndex::Clear() {
+  pimpl->index_name_to_label_prop_.clear();
+  for (auto &[_, index_item] : pimpl->index_) {
+    index_item.mg_index.reset();
+  }
+  pimpl->index_.clear();
 }
 
 void VectorIndex::UpdateVectorIndex(Vertex *vertex, const LabelPropKey &label_prop, const PropertyValue *value) const {
   auto &[index, spec, lock] = pimpl->index_.at(label_prop);
 
-  // first, try to remove entry (if it exists) and then add new one
+  // first, try to remove entry (if it exists) and then add a new one
   {
     auto guard = std::shared_lock{lock};
     index.remove(vertex);
@@ -224,7 +156,7 @@ void VectorIndex::UpdateVectorIndex(Vertex *vertex, const LabelPropKey &label_pr
   if (index.capacity() == index.size()) {
     spdlog::warn("Vector index is full, resizing...");
     auto guard = std::unique_lock{lock};
-    const auto new_size = spec.resize_coefficient * spec.size_limit;
+    const auto new_size = spec->resize_coefficient * index.capacity();
     const unum::usearch::index_limits_t new_limits(new_size, FLAGS_bolt_num_workers);
     if (!index.try_reserve(new_limits)) {
       throw std::invalid_argument("Vector index is full and can't be resized");
@@ -276,29 +208,52 @@ void VectorIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &
   }
 }
 
-std::vector<VectorIndexInfo> VectorIndex::ListAllIndices() const {
-  if (!flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
-    throw query::VectorSearchDisabledException();
-  }
+std::vector<VectorIndexInfo> VectorIndex::ListVectorIndicesInfo() const {
   std::vector<VectorIndexInfo> result;
-  result.reserve(pimpl->index_name_to_label_prop_.size());
-  std::ranges::transform(pimpl->index_name_to_label_prop_, std::back_inserter(result), [this](const auto &pair) {
-    const auto &[index_name, label_prop] = pair;
-    const auto &index = pimpl->index_.at(label_prop).mg_index;
-    return VectorIndexInfo{index_name,         label_prop.label(), label_prop.property(),
-                           index.dimensions(), index.capacity(),   index.size()};
-  });
+  for (const auto &[_, index_item] : pimpl->index_) {
+    const auto &[index, spec, lock] = index_item;
+    auto guard = std::shared_lock{lock};
+    result.emplace_back(
+        VectorIndexInfo{spec->index_name, spec->label, spec->property, kMetricToStringMap.at(spec->metric_kind).front(),
+                        static_cast<std::uint16_t>(index.dimensions()), index.capacity(), index.size()});
+  }
   return result;
+}
+
+std::vector<std::shared_ptr<VectorIndexSpec>> VectorIndex::ListIndices() const {
+  std::vector<std::shared_ptr<VectorIndexSpec>> result;
+  result.reserve(pimpl->index_.size());
+  std::ranges::transform(pimpl->index_, std::back_inserter(result),
+                         [](const auto &label_prop_index_item) { return label_prop_index_item.second.spec; });
+  return result;
+}
+
+std::vector<VectorIndexSpec> VectorIndex::ListIndexSpecs() const {
+  std::vector<VectorIndexSpec> result;
+  result.reserve(pimpl->index_.size());
+  std::ranges::transform(pimpl->index_ | std::views::values, std::back_inserter(result),
+                         [](const auto &index_item) { return *index_item.spec; });
+  return result;
+}
+
+std::optional<uint64_t> VectorIndex::ApproximateVectorCount(LabelId label, PropertyId property) const {
+  auto it = pimpl->index_.find(LabelPropKey{label, property});
+  if (it == pimpl->index_.end()) {
+    return std::nullopt;
+  }
+  auto &[index, _, lock] = it->second;
+  auto guard = std::shared_lock{lock};
+  return index.size();
 }
 
 std::vector<std::tuple<Vertex *, double, double>> VectorIndex::Search(std::string_view index_name,
                                                                       uint64_t result_set_size,
                                                                       const std::vector<float> &query_vector) const {
-  if (!flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
-    throw query::VectorSearchDisabledException();
+  const auto label_prop = pimpl->index_name_to_label_prop_.find(std::string(index_name));
+  if (label_prop == pimpl->index_name_to_label_prop_.end()) {
+    throw std::invalid_argument("Vector index " + std::string(index_name) + " does not exist.");
   }
-  const auto label_prop = pimpl->index_name_to_label_prop_.at(index_name.data());
-  const auto &[index, _, lock] = pimpl->index_.at(label_prop);
+  auto &[index, _, lock] = pimpl->index_.at(label_prop->second);
 
   // The result vector will contain pairs of vertices and their score.
   std::vector<std::tuple<Vertex *, double, double>> result;

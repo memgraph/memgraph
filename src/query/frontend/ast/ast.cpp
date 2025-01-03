@@ -203,6 +203,9 @@ constexpr utils::TypeInfo query::PointIndexQuery::kType{utils::TypeId::AST_POINT
 constexpr utils::TypeInfo query::TextIndexQuery::kType{utils::TypeId::AST_TEXT_INDEX_QUERY, "TextIndexQuery",
                                                        &query::Query::kType};
 
+constexpr utils::TypeInfo query::VectorIndexQuery::kType{utils::TypeId::AST_VECTOR_INDEX_QUERY, "VectorIndexQuery",
+                                                         &query::Query::kType};
+
 constexpr utils::TypeInfo query::Create::kType{utils::TypeId::AST_CREATE, "Create", &query::Clause::kType};
 
 constexpr utils::TypeInfo query::CallProcedure::kType{utils::TypeId::AST_CALL_PROCEDURE, "CallProcedure",
