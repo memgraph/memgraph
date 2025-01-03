@@ -9,7 +9,11 @@ from argparse import Namespace as Args
 from typing import Dict, List, Optional
 
 import yaml
-from deployments import DefaultDeployment, DockerDeployment
+from deployments import (
+    DefaultHADeployment,
+    DefaultStandaloneDeployment,
+    DockerStandaloneDeployment,
+)
 
 # paths
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -88,10 +92,15 @@ class Config:
 
 def deployment_factory(args: Args, config: Config):
     if config._installation_type == "default":
-        return DefaultDeployment(args.memgraph, config.memgraph_args)
+        if config._deployment_type == "standalone":
+            return DefaultStandaloneDeployment(args.memgraph, config.memgraph_args)
+        elif config._deployment_type == "ha":
+            return DefaultHADeployment(args.memgraph, config.memgraph_args)
+        else:
+            raise Exception("Unknown Memgraph deployment type!")
 
     if config._installation_type == "docker":
-        return DockerDeployment(config.docker_image, config.docker_tag, config.memgraph_args)
+        return DockerStandaloneDeployment(config.docker_image, config.docker_tag, config.memgraph_args)
 
 
 def generate_temporary_ssl_certs():
@@ -128,7 +137,7 @@ def parse_arguments() -> Args:
     # parse arguments
     parser = argparse.ArgumentParser(description="Run stress tests on Memgraph.")
     parser.add_argument("--memgraph", default=os.path.join(BUILD_DIR, "memgraph"))
-    parser.add_argument("--config-file", default=os.path.join(SCRIPT_DIR, "configurations/templates/config_small.yaml"))
+    parser.add_argument("--config-file", default=os.path.join(SCRIPT_DIR, "configurations/templates/config_ha.yaml"))
     parser.add_argument("--python", default=os.path.join(SCRIPT_DIR, "ve3", "bin", "python3"), type=str)
     return parser.parse_args()
 

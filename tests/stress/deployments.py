@@ -25,7 +25,7 @@ class Deployment(ABC):
         memgraph.execute(query)
 
 
-class DefaultDeployment(Deployment):
+class DefaultStandaloneDeployment(Deployment):
     def __init__(self, memgraph: str, flags: List[str]):
         super().__init__()
         self._memgraph = memgraph
@@ -38,24 +38,24 @@ class DefaultDeployment(Deployment):
         flags = [] if additional_flags is None else additional_flags
 
         cmd = [self._memgraph] + self._flags + flags
-        memgraph_proc = subprocess.Popen(cmd, cwd=cwd)
+        proc = subprocess.Popen(cmd, cwd=cwd)
         self.wait_for_server(7687)
 
-        assert memgraph_proc.poll() is None, "The database binary died prematurely!"
+        assert proc.poll() is None, "The database binary died prematurely!"
 
-        self.memgraph_proc = memgraph_proc
+        self._memgraph_proc = proc
 
     def stop_memgraph(self) -> None:
-        self.memgraph_proc.terminate()
-        ret_mg = self.memgraph_proc.wait()
+        self._memgraph_proc.terminate()
+        ret_mg = self._memgraph_proc.wait()
         if ret_mg != 0:
             raise Exception("Memgraph binary returned non-zero ({})!".format(ret_mg))
 
     def cleanup(self):
-        if self.memgraph_proc.poll() != None:
+        if self._memgraph_proc.poll() != None:
             return
-        self.memgraph_proc.kill()
-        self.memgraph_proc.wait()
+        self._memgraph_proc.kill()
+        self._memgraph_proc.wait()
 
     def wait_for_server(self, port) -> None:
         cmd = ["nc", "-z", "-w", "1", "127.0.0.1", str(port)]
@@ -64,7 +64,79 @@ class DefaultDeployment(Deployment):
         time.sleep(2)
 
 
-class DockerDeployment(Deployment):
+class DefaultHADeployment(Deployment):
+    def __init__(self, memgraph: str, flags: List[str]):
+        super().__init__()
+        self._memgraph = memgraph
+        self._flags = flags
+        self._data_proc = []
+        self._coord_proc = []
+
+    def start_memgraph(self, additional_flags: List[str] = None):
+        """Starts Memgraph and return the process"""
+        cwd = os.path.dirname(self._memgraph)
+
+        flags = [] if additional_flags is None else additional_flags
+
+        for data_id in [0, 1, 2]:
+            cmd = [self._memgraph] + self._flags + flags + self._get_data_instance_ha_flags(data_id)
+            proc = subprocess.Popen(cmd, cwd=cwd)
+            self.wait_for_server(7687 + data_id)
+
+            assert proc.poll() is None, "The database binary died prematurely!"
+            self._data_proc.append(proc)
+
+        for coordinator_id in [1, 2, 3]:
+            cmd = [self._memgraph] + self._get_coordinator_instance_ha_flags(coordinator_id)
+            proc = subprocess.Popen(cmd, cwd=cwd)
+            self.wait_for_server(7690 + coordinator_id)
+
+            assert proc.poll() is None, "The database binary died prematurely!"
+            self._coord_proc.append(proc)
+
+    def stop_memgraph(self) -> None:
+        for proc in self._data_proc + self._coord_proc:
+            proc.terminate()
+            ret_mg = proc.wait()
+            if ret_mg != 0:
+                raise Exception("Memgraph binary returned non-zero ({})!".format(ret_mg))
+
+    def cleanup(self):
+        for proc in self._data_proc + self._coord_proc:
+            if proc.poll() != None:
+                return
+            proc.kill()
+            proc.wait()
+
+    def wait_for_server(self, port) -> None:
+        cmd = ["nc", "-z", "-w", "1", "127.0.0.1", str(port)]
+        while subprocess.call(cmd) != 0:
+            time.sleep(0.5)
+        time.sleep(2)
+
+    def _get_data_instance_ha_flags(flags, data_id: int):
+        return [
+            f"--management_port={13011 + data_id}",
+            f"--bolt-port={7687 + data_id}",
+            f"--monitoring-port={7444 + data_id}",
+            f"--metrics-port={9091 + data_id}",
+            f"--data-directory=mg_data_{data_id}",
+            f"--log-file=stress_test_log_{data_id}.log",
+        ]
+
+    def _get_coordinator_instance_ha_flags(flags, coord_id: int):
+        return [
+            f"--coordinator-hostname=127.0.0.1",
+            f"--coordinator-id={coord_id}",
+            f"--bolt-port={7690 + coord_id}",
+            f"--management-port={12120 + coord_id}",
+            f"--coordinator-port={10110 + coord_id}",
+            f"--data-directory=mg_coord_{coord_id}",
+            f"--log-file=stress_test_log_{coord_id}.log",
+        ]
+
+
+class DockerStandaloneDeployment(Deployment):
     def __init__(self, image: str, tag: str, flags: List[str]):
         super().__init__()
         self._image = image
