@@ -43,6 +43,8 @@ class Config:
         dataset = config.get("dataset", {})
         self._tests = dataset.get("tests", [])
 
+        self._custom_workloads = config.get("customWorkloads", {}).get("tests", [])
+
         if self._installation_type == "docker":
             self._image = installation.get("options", {}).get("image", None)
             self._tag = installation.get("options", {}).get("tag", None)
@@ -76,16 +78,20 @@ class Config:
         return self._tests
 
     @property
+    def custom_workloads(self):
+        return self._custom_workloads
+
+    @property
     def memgraph_args(self):
         return self._memgraph_args
 
 
 def deployment_factory(args: Args, config: Config):
     if config._installation_type == "default":
-        return DefaultDeployment(args.memgraph)
+        return DefaultDeployment(args.memgraph, config.memgraph_args)
 
     if config._installation_type == "docker":
-        return DockerDeployment(config.docker_image, config.docker_tag)
+        return DockerDeployment(config.docker_image, config.docker_tag, config.memgraph_args)
 
 
 def generate_temporary_ssl_certs():
@@ -122,7 +128,7 @@ def parse_arguments() -> Args:
     # parse arguments
     parser = argparse.ArgumentParser(description="Run stress tests on Memgraph.")
     parser.add_argument("--memgraph", default=os.path.join(BUILD_DIR, "memgraph"))
-    parser.add_argument("--config_file", default=os.path.join(SCRIPT_DIR, "configurations/config_small.yaml"))
+    parser.add_argument("--config-file", default=os.path.join(SCRIPT_DIR, "configurations/config_small.yaml"))
     parser.add_argument("--python", default=os.path.join(SCRIPT_DIR, "ve3", "bin", "python3"), type=str)
     return parser.parse_args()
 
@@ -166,6 +172,44 @@ def _find_test_binary(args: Args, config: Config, test: str) -> List[str]:
     raise Exception("Test '{}' binary not supported!".format(test))
 
 
+def run_custom_workloads(deployment, config: Config):
+    print("Running custom workloads...")
+    for workload in config.custom_workloads:
+        workload_name = workload["name"]
+        print(f"Running workload '{workload_name}'")
+        try:
+            deployment.start_memgraph(workload["memgraph_args"])
+        except Exception as ex:
+            print("Exception occured while starting memgraph", ex)
+            return None
+
+        try:
+            # Import queries
+            print(f"Started import for workload '{workload_name}'")
+            for query in workload.get("import", {}).get("queries", []):
+                deployment.execute_query(query)
+            print(f"Finished import for workload '{workload_name}'")
+
+            # Worker queries
+            for worker in workload.get("workers", []):
+                worker_name = worker["name"]
+                query = worker["query"]
+                repetitions = worker["num_repetitions"]
+                sleep_millis = worker["sleep_millis"]
+
+                for i in range(repetitions):
+                    deployment.execute_query(query)
+                    if sleep_millis > 0:
+                        time.sleep(sleep_millis / 1000.0)
+
+            print(f"Finished workload '{workload_name}'")
+        except Exception as ex:
+            print(f"Failed to execute workload {workload_name} with following exception:", ex)
+        finally:
+            deployment.stop_memgraph()
+            deployment.cleanup()
+
+
 def run_stress_test_suite(args: Args, config: Config) -> Optional[Dict[str, float]]:
     runtimes = {}
 
@@ -176,7 +220,6 @@ def run_stress_test_suite(args: Args, config: Config) -> Optional[Dict[str, floa
         test_flags = test["test_args"]
         timeout = test["timeout_min"]
         memgraph_flags = test["memgraph_args"] if "memgraph_args" in test else []
-        memgraph_flags += config.memgraph_args
         if config.uses_ssl:
             test_flags += ["--use-ssl"]
             memgraph_flags += [f"--bolt-cert-file={CERT_FILE}", f"--bolt-key-file={KEY_FILE}"]
@@ -198,6 +241,8 @@ def run_stress_test_suite(args: Args, config: Config) -> Optional[Dict[str, floa
             deployment.cleanup()
         if err:
             return None
+
+    run_custom_workloads(deployment, config)
 
     return runtimes
 

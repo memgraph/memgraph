@@ -4,9 +4,11 @@ import time
 from abc import ABC
 from typing import List
 
+from gqlalchemy import Memgraph
+
 
 class Deployment(ABC):
-    def start_memgraph(self, flags: List[str]):
+    def start_memgraph(self, additional_flags: List[str] = None):
         pass
 
     def stop_memgraph(self) -> None:
@@ -18,17 +20,24 @@ class Deployment(ABC):
     def wait_for_server(self, port) -> None:
         pass
 
+    def execute_query(self, query: str) -> None:
+        memgraph = Memgraph()
+        memgraph.execute(query)
+
 
 class DefaultDeployment(Deployment):
-    def __init__(self, memgraph: str):
+    def __init__(self, memgraph: str, flags: List[str]):
         super().__init__()
-        self.memgraph = memgraph
+        self._memgraph = memgraph
+        self._flags = flags
 
-    def start_memgraph(self, flags: List[str]):
+    def start_memgraph(self, additional_flags: List[str] = None):
         """Starts Memgraph and return the process"""
-        cwd = os.path.dirname(self.memgraph)
+        cwd = os.path.dirname(self._memgraph)
 
-        cmd = [self.memgraph] + flags
+        flags = [] if additional_flags is None else additional_flags
+
+        cmd = [self._memgraph] + self._flags + flags
         memgraph_proc = subprocess.Popen(cmd, cwd=cwd)
         self.wait_for_server(7687)
 
@@ -56,15 +65,18 @@ class DefaultDeployment(Deployment):
 
 
 class DockerDeployment(Deployment):
-    def __init__(self, image: str, tag: str):
+    def __init__(self, image: str, tag: str, flags: List[str]):
         super().__init__()
         self._image = image
         self._tag = tag
         self._container_name = "mg_stress"
+        self._flags = flags
 
-    def start_memgraph(self, flags: List[str]) -> None:
+    def start_memgraph(self, additional_flags: List[str] = None) -> None:
         """Starts Memgraph in a Docker container and returns the process."""
         # Construct the docker run command
+
+        flags = [] if additional_flags is None else additional_flags
         cmd = (
             [
                 "docker",
@@ -77,6 +89,7 @@ class DockerDeployment(Deployment):
                 "7687:7687",
             ]
             + [f"{self._image}:{self._tag}"]
+            + self._flags
             + flags
         )
 
