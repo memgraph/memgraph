@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -27,7 +27,6 @@
 #include "query/procedure/mg_procedure_helpers.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "storage/v2/storage_mode.hpp"
-#include "utils/memory.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/pmr/vector.hpp"
 
@@ -871,6 +870,8 @@ py::Object MgpListToPyTuple(mgp_list *list, PyObject *py_graph) {
   }
   return MgpListToPyTuple(list, reinterpret_cast<PyGraph *>(py_graph));
 }
+
+PyObject *MgpIsEnterpriseValid() { return mgp_is_enterprise_valid() ? Py_True : Py_False; }
 
 void PyCollectGarbage() {
   // NOTE: No need to call _Py_IsFinalizing(), we ensure
@@ -2481,6 +2482,25 @@ static PyTypeObject PyLoggerType = {
 };
 // clang-format on
 
+struct PyUtils {
+  PyObject_HEAD
+};
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+static PyMethodDef PyUtilsMethods[] = {{"is_enterprise_valid", reinterpret_cast<PyCFunction>(MgpIsEnterpriseValid),
+                                        METH_NOARGS | METH_STATIC, "Check if enterprise license is valid."},
+                                       {nullptr, {}, {}, {}}};
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+static PyTypeObject PyUtilsType = {
+    PyVarObject_HEAD_INIT(nullptr, 0).tp_name = "_mgp.Utils",
+    .tp_basicsize = sizeof(PyLogger),
+    // NOLINTNEXTLINE(hicpp-signed-bitwise)
+    .tp_flags = Py_TPFLAGS_DEFAULT,
+    .tp_doc = "Utils API.",
+    .tp_methods = PyUtilsMethods,
+};
+
 struct PyMgpError {
   const char *name;
   PyObject *&exception;
@@ -2533,6 +2553,7 @@ PyObject *PyInitMgpModule() {
   if (!register_type(&PyMessagesType, "Messages")) return nullptr;
   if (!register_type(&PyMessageType, "Message")) return nullptr;
   if (!register_type(&PyLoggerType, "Logger")) return nullptr;
+  if (!register_type(&PyUtilsType, "Utils")) return nullptr;
 
   std::array py_mgp_errors{
       PyMgpError{"_mgp.UnknownError", gMgpUnknownError, PyExc_RuntimeError, nullptr},
