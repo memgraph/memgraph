@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -5650,7 +5650,9 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
 #ifdef MG_ENTERPRISE
     // TODO(antoniofilipovic) extend to cover Lab queries
     if (interpreter_context_->coordinator_state_ && interpreter_context_->coordinator_state_->get().IsCoordinator() &&
-        !utils::Downcast<CoordinatorQuery>(parsed_query.query) && !utils::Downcast<SettingQuery>(parsed_query.query)) {
+        !utils::Downcast<CoordinatorQuery>(parsed_query.query) && !utils::Downcast<SettingQuery>(parsed_query.query) &&
+        !(utils::Downcast<SystemInfoQuery>(parsed_query.query) &&
+          utils::Downcast<SystemInfoQuery>(parsed_query.query)->info_type_ == SystemInfoQuery::InfoType::LICENSE)) {
       throw QueryRuntimeException("Coordinator can run only coordinator queries!");
     }
 #endif
