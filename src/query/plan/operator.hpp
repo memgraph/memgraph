@@ -101,6 +101,7 @@ class ScanAllByEdgeTypeProperty;
 class ScanAllByEdgeTypePropertyValue;
 class ScanAllByEdgeTypePropertyRange;
 class ScanAllByEdgeId;
+class ScanAllByPoint;
 class ScanAllByPointDistance;
 class ScanAllByPointWithinbbox;
 class Expand;
@@ -141,11 +142,12 @@ class PeriodicSubquery;
 using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
     Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel, ScanAllByLabelPropertyRange, ScanAllByLabelPropertyValue,
     ScanAllByLabelProperty, ScanAllById, ScanAllByEdge, ScanAllByEdgeType, ScanAllByEdgeTypeProperty,
-    ScanAllByEdgeTypePropertyValue, ScanAllByEdgeTypePropertyRange, ScanAllByEdgeId, ScanAllByPointDistance,
-    ScanAllByPointWithinbbox, Expand, ExpandVariable, ConstructNamedPath, Filter, Produce, Delete, SetProperty,
-    SetProperties, SetLabels, RemoveProperty, RemoveLabels, EdgeUniquenessFilter, Accumulate, Aggregate, Skip, Limit,
-    OrderBy, Merge, Optional, Unwind, Distinct, Union, Cartesian, CallProcedure, LoadCsv, Foreach, EmptyResult,
-    EvaluatePatternFilter, Apply, IndexedJoin, HashJoin, RollUpApply, PeriodicCommit, PeriodicSubquery>;
+    ScanAllByEdgeTypePropertyValue, ScanAllByEdgeTypePropertyRange, ScanAllByEdgeId, ScanAllByPoint,
+    ScanAllByPointDistance, ScanAllByPointWithinbbox, Expand, ExpandVariable, ConstructNamedPath, Filter, Produce,
+    Delete, SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels, EdgeUniquenessFilter, Accumulate,
+    Aggregate, Skip, Limit, OrderBy, Merge, Optional, Unwind, Distinct, Union, Cartesian, CallProcedure, LoadCsv,
+    Foreach, EmptyResult, EvaluatePatternFilter, Apply, IndexedJoin, HashJoin, RollUpApply, PeriodicCommit,
+    PeriodicSubquery>;
 
 using LogicalOperatorLeafVisitor = utils::LeafVisitor<Once>;
 
@@ -967,6 +969,36 @@ class ScanAllByEdgeId : public memgraph::query::plan::ScanAllByEdge {
     object->common_ = common_;
     object->view_ = view_;
     object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
+    return object;
+  }
+};
+
+class ScanAllByPoint : public memgraph::query::plan::ScanAll {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  ScanAllByPoint() = default;
+  ScanAllByPoint(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::LabelId label,
+                 storage::PropertyId property, Expression *match);
+
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+  std::string ToString() const override;
+
+  storage::LabelId label_;
+  storage::PropertyId property_;
+  Expression *match_ = nullptr;
+
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
+    auto object = std::make_unique<ScanAllByPoint>();
+    object->input_ = input_ ? input_->Clone(storage) : nullptr;
+    object->output_symbol_ = output_symbol_;
+    object->view_ = view_;
+    object->label_ = label_;
+    object->property_ = property_;
+    object->match_ = match_ ? match_->Clone(storage) : nullptr;
+
     return object;
   }
 };

@@ -2151,12 +2151,12 @@ UniqueConstraints::DeletionStatus DiskStorage::DiskAccessor::DropUniqueConstrain
   return UniqueConstraints::DeletionStatus::SUCCESS;
 }
 
-utils::BasicResult<StorageExistenceConstraintDefinitionError, void> DiskStorage::DiskAccessor::CreateTypeConstraint(
+utils::BasicResult<StorageTypeConstraintDefinitionError, void> DiskStorage::DiskAccessor::CreateTypeConstraint(
     LabelId /**/, PropertyId /**/, TypeConstraintKind /**/) {
   throw utils::NotYetImplemented("Type constraints are not yet implemented for on-disk storage");
 }
 
-utils::BasicResult<StorageExistenceConstraintDroppingError, void> DiskStorage::DiskAccessor::DropTypeConstraint(
+utils::BasicResult<StorageTypeConstraintDroppingError, void> DiskStorage::DiskAccessor::DropTypeConstraint(
     LabelId /**/, PropertyId /**/, TypeConstraintKind /**/) {
   throw utils::NotYetImplemented("Type constraints are not yet implemented for on-disk storage");
 }
@@ -2164,6 +2164,12 @@ utils::BasicResult<StorageExistenceConstraintDroppingError, void> DiskStorage::D
 void DiskStorage::DiskAccessor::DropGraph() {
   throw utils::NotYetImplemented("Drop graph is not yet implemented for on-disk storage");
 }
+
+auto DiskStorage::DiskAccessor::PointVertices(LabelId /*label*/, PropertyId /*property*/,
+                                              CoordinateReferenceSystem /*crs*/, PropertyValue const & /*match*/)
+    -> PointIterable {
+  throw utils::NotYetImplemented("Point Vertices is not yet implemented for on-disk storage");
+};
 
 auto DiskStorage::DiskAccessor::PointVertices(LabelId /*label*/, PropertyId /*property*/,
                                               CoordinateReferenceSystem /*crs*/, PropertyValue const & /*point_value*/,

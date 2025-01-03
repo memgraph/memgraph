@@ -16,7 +16,6 @@
 #include <cppitertools/filter.hpp>
 #include <cppitertools/imap.hpp>
 #include "storage/v2/storage_mode.hpp"
-#include "utils/pmr/unordered_set.hpp"
 
 namespace memgraph::query {
 SubgraphDbAccessor::SubgraphDbAccessor(query::DbAccessor db_accessor, Graph *graph)
