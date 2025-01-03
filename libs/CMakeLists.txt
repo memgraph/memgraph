@@ -141,6 +141,19 @@ macro(set_path_external_library name type library_location include_dir)
   mark_as_advanced(${name}_LIBRARY ${name}_INCLUDE_DIR)
 endmacro(set_path_external_library)
 
+# TODO(gitbuda): Organize below comments
+# vcpkg OR conan install is generating the find_package
+
+# conan profile is a level above
+# recommendation is to actually use conan externally and providing the CMAKE_TOOLCHAIN
+# addtional benefit of conan is that it generates the find_package
+# https://cmake.org/cmake/help/latest/variable/CMAKE_TOOLCHAIN_FILE.html
+# NOTE: conan is also generating the cmake toolchain file
+# https://github.com/SX-Aurora/CMake-toolchain-file/blob/master/aurora-example.cmake
+# IMPORTANT: NO CONAN stuff under CMakeFiles
+
+# cmake build is better because cmake --build knows how to build internally
+
 # NOTE: Called under, e.g., src/kvstore/CMakeLists.txt
 # TODO(gitbuda): All this is just a tmp solution to rollout the new toolchain.
 # Make sure there is build vs link option and the below migration code can
