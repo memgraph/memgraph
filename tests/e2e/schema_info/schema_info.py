@@ -59,7 +59,7 @@ def test_spec(connect):
 
     # Check JSON
     nodes = schema_json["nodes"]
-    assert len(nodes) == 4  # Tested via unit tests
+    assert len(nodes) == 5  # Tested via unit tests
     edges = schema_json["edges"]
     assert len(edges) == 5  # Tested via unit tests
     node_constraints = schema_json["node_constraints"]
@@ -71,17 +71,13 @@ def test_spec(connect):
         elif constraint["type"] == "existence":
             assert constraint["labels"] == ["Person"]
             assert constraint["properties"] == ["name"]
-        elif index["labels"] == ["Node"]:
-            assert index["type"] == "label+property_vector"
-            assert index["properties"] == ["embedding"]
-            assert index["count"] == 1
         else:
             assert constraint["type"] == "data_type"
             assert constraint["labels"] == ["Person"]
             assert constraint["properties"] == ["age"]
             assert constraint["data_type"] == "INTEGER"
     node_indexes = schema_json["node_indexes"]
-    assert len(node_indexes) == 4
+    assert len(node_indexes) == 5
     for index in node_indexes:
         if index["labels"] == ["Student"]:
             assert index["properties"] == []
@@ -89,6 +85,10 @@ def test_spec(connect):
         elif index["labels"] == ["School"]:
             assert index["type"] == "label+property_point"
             assert index["properties"] == ["location"]
+            assert index["count"] == 1
+        elif index["labels"] == ["Node"]:
+            assert index["type"] == "label+property_vector"
+            assert index["properties"] == ["embedding"]
             assert index["count"] == 1
         else:
             assert index["labels"] == ["Person"]
