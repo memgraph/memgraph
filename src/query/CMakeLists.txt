@@ -141,6 +141,7 @@ set(antlr_opencypher_generated_include
     ${opencypher_generated}/MemgraphCypherVisitor.h
 )
 
+# TODO(gitbuda): Use the antlr generator from the toolchain.
 add_custom_command(
     OUTPUT ${antlr_opencypher_generated_src} ${antlr_opencypher_generated_include}
     COMMAND ${CMAKE_COMMAND} -E make_directory ${opencypher_generated}

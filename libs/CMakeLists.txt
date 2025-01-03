@@ -141,20 +141,92 @@ macro(set_path_external_library name type library_location include_dir)
   mark_as_advanced(${name}_LIBRARY ${name}_INCLUDE_DIR)
 endmacro(set_path_external_library)
 
+# TODO(gitbuda): Organize below comments
+# vcpkg OR conan install is generating the find_package
 
-# setup antlr
-import_external_library(antlr4 STATIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/antlr4/runtime/Cpp/lib/libantlr4-runtime.a
-  ${CMAKE_CURRENT_SOURCE_DIR}/antlr4/runtime/Cpp/include/antlr4-runtime
-  SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/antlr4/runtime/Cpp
-  CMAKE_ARGS # http://stackoverflow.com/questions/37096062/get-a-basic-c-program-to-compile-using-clang-on-ubuntu-16/38385967#38385967
-  -DWITH_LIBCXX=OFF # because of debian bug
-  -DCMAKE_SKIP_INSTALL_ALL_DEPENDENCY=true
-  -DCMAKE_CXX_STANDARD=20
-  -DANTLR_BUILD_CPP_TESTS=OFF
-  -DANTLR_BUILD_SHARED=OFF
-  BUILD_COMMAND $(MAKE) antlr4_static
-  INSTALL_COMMAND $(MAKE) install)
+# conan profile is a level above
+# recommendation is to actually use conan externally and providing the CMAKE_TOOLCHAIN
+# addtional benefit of conan is that it generates the find_package
+# https://cmake.org/cmake/help/latest/variable/CMAKE_TOOLCHAIN_FILE.html
+# NOTE: conan is also generating the cmake toolchain file
+# https://github.com/SX-Aurora/CMake-toolchain-file/blob/master/aurora-example.cmake
+# IMPORTANT: NO CONAN stuff under CMakeFiles
+
+# cmake build is better because cmake --build knows how to build internally
+
+# NOTE: Called under, e.g., src/kvstore/CMakeLists.txt
+# TODO(gitbuda): All this is just a tmp solution to rollout the new toolchain.
+# Make sure there is build vs link option and the below migration code can
+# easily be removed as soon as the new toolchain is rolled out.
+macro(mg_target_link_library_cmake toolchain_version mg_target_name package_name toolchain_lib_name local_lib_name)
+    if(DEFINED ENV{MG_TOOLCHAIN_VERSION})
+        if($ENV{MG_TOOLCHAIN_VERSION} GREATER_EQUAL ${toolchain_version})
+            message(STATUS "TOOLCHAIN v${toolchain_version}")
+            find_package(${package_name} REQUIRED)
+            target_link_libraries(${mg_target_name} ${toolchain_lib_name})
+        else()
+            message(STATUS "Not the right TOOLCHAIN")
+            target_link_libraries(${mg_target_name} ${local_lib_name})
+        endif()
+    else()
+        message(STATUS "Unknown TOOLCHAIN")
+        target_link_libraries(${mg_target_name} ${local_lib_name})
+    endif()
+endmacro()
+
+macro(mg_build_if_needed build_macro lib_name)
+    if(DEFINED ENV{MG_TOOLCHAIN_VERSION})
+        if($ENV{MG_TOOLCHAIN_VERSION} GREATER_EQUAL 6)
+            message(STATUS "NOTE: ${lib_name} should be under the toolchain.")
+        else()
+            cmake_language(CALL ${build_macro})
+        endif()
+    else()
+        cmake_language(CALL ${build_macro})
+    endif()
+endmacro()
+
+macro(mg_create_linkable_if_no_cmake lib_name lib_type lib_path include_path)
+    if(DEFINED ENV{MG_TOOLCHAIN_VERSION})
+        if($ENV{MG_TOOLCHAIN_VERSION} GREATER_EQUAL 6)
+            # NOTE: This is like the import_library, but the existing code
+            # couldn't be used because it depends on the building the
+            # project(lib) locally...
+            add_library(${lib_name} ${lib_type} IMPORTED GLOBAL)
+            set_property(TARGET ${lib_name} PROPERTY IMPORTED_LOCATION ${lib_path})
+            # We need to create the include directory first in order to be able to add it
+            # as an include directory. The header files in the include directory will be
+            # generated later during the build process.
+            file(MAKE_DIRECTORY ${include_path})
+            target_include_directories(${lib_name} INTERFACE ${include_path})
+            message(STATUS "NOTE: Imported ${lib_name} from ${lib_path} and ${include_path}")
+        else()
+            message(STATUS "NOTE: ${lib_name} should be built locally.")
+        endif()
+    else()
+        message(STATUS "NOTE: ${lib_name} should be built locally.")
+    endif()
+endmacro()
+
+macro(build_antlr4)
+    import_external_library(antlr4 STATIC
+      ${CMAKE_CURRENT_SOURCE_DIR}/antlr4/runtime/Cpp/lib/libantlr4-runtime.a
+      ${CMAKE_CURRENT_SOURCE_DIR}/antlr4/runtime/Cpp/include/antlr4-runtime
+      SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/antlr4/runtime/Cpp
+      CMAKE_ARGS # http://stackoverflow.com/questions/37096062/get-a-basic-c-program-to-compile-using-clang-on-ubuntu-16/38385967#38385967
+      -DWITH_LIBCXX=OFF # because of debian bug
+      -DCMAKE_SKIP_INSTALL_ALL_DEPENDENCY=true
+      -DCMAKE_CXX_STANDARD=20
+      -DANTLR_BUILD_CPP_TESTS=OFF
+      -DANTLR_BUILD_SHARED=OFF
+      BUILD_COMMAND $(MAKE) antlr4_static
+      INSTALL_COMMAND $(MAKE) install)
+endmacro()
+mg_build_if_needed(build_antlr4 "antlr4")
+mg_create_linkable_if_no_cmake(antlr4 STATIC
+    "/opt/toolchain-v6/lib/libantlr4-runtime.a"
+    "/opt/toolchain-v6/include/antlr4-runtime"
+)
 
 # Setup google benchmark.
 import_external_library(benchmark STATIC
@@ -197,16 +269,19 @@ import_header_library(cppitertools ${CMAKE_CURRENT_SOURCE_DIR})
 # Setup json
 import_header_library(json ${CMAKE_CURRENT_SOURCE_DIR})
 
-# Setup RocksDB
-import_external_library(rocksdb STATIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/rocksdb/lib/librocksdb.a
-  ${CMAKE_CURRENT_SOURCE_DIR}/rocksdb/include
-  CMAKE_ARGS -DUSE_RTTI=ON
-  -DWITH_TESTS=OFF
-  -DGFLAGS_NOTHREADS=OFF
-  -DCMAKE_INSTALL_LIBDIR=lib
-  -DCMAKE_SKIP_INSTALL_ALL_DEPENDENCY=true
-  BUILD_COMMAND $(MAKE) rocksdb)
+# TODO(gitbuda): The below macro seems hackly -> try to improve.
+macro(build_rocksdb)
+  import_external_library(rocksdb STATIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/rocksdb/lib/librocksdb.a
+    ${CMAKE_CURRENT_SOURCE_DIR}/rocksdb/include
+    CMAKE_ARGS -DUSE_RTTI=ON
+      -DWITH_TESTS=OFF
+      -DGFLAGS_NOTHREADS=OFF
+      -DCMAKE_INSTALL_LIBDIR=lib
+      -DCMAKE_SKIP_INSTALL_ALL_DEPENDENCY=true
+    BUILD_COMMAND $(MAKE) rocksdb)
+endmacro()
+mg_build_if_needed(build_rocksdb "rocksdb")
 
 # Setup libbcrypt
 import_external_library(libbcrypt STATIC
@@ -234,7 +309,6 @@ add_external_project(mgconsole
   CMAKE_ARGS
   -DCMAKE_INSTALL_PREFIX:PATH=${CMAKE_BINARY_DIR}
   BUILD_COMMAND $(MAKE) mgconsole)
-
 add_custom_target(mgconsole DEPENDS mgconsole-proj)
 
 # Setup spdlog
@@ -254,7 +328,6 @@ import_external_library(librdkafka STATIC
   -DWITH_SSL=ON
   -DWITH_SASL=ON)
 target_link_libraries(librdkafka INTERFACE ${OPENSSL_LIBRARIES} ZLIB::ZLIB sasl2)
-
 import_library(librdkafka++ STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/librdkafka/lib/librdkafka++.a
   ${CMAKE_CURRENT_SOURCE_DIR}/librdkafka/include
