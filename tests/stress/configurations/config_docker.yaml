@@ -1,5 +1,7 @@
 memgraph:
   deployment:
+    type: standalone
+  installation:
     type: docker
     options:
       image: memgraph/memgraph

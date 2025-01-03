@@ -1,8 +1,8 @@
 memgraph:
   deployment:
-    type: docker
-    image: memgraph/memgraph
-    tag: latest
+    type: standalone
+  installation:
+    type: default
   args:
     - "--bolt-server-name-for-init=Neo4j/"
     - "--storage-properties-on-edges=true"

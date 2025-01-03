@@ -34,16 +34,18 @@ class Config:
         # Memgraph configuration
         memgraph = config.get("memgraph", {})
         deployment = memgraph.get("deployment", {})
-        self._deployment_type = deployment.get("type", "default")
+        self._deployment_type = deployment.get("type", "standalone")
+        installation = memgraph.get("installation", {})
+        self._installation_type = installation.get("type", "default")
         self._memgraph_args = memgraph.get("args", [])
 
         # Dataset tests
         dataset = config.get("dataset", {})
         self._tests = dataset.get("tests", [])
 
-        if self._deployment_type == "docker":
-            self._image = deployment.get("options", {}).get("image")
-            self._tag = deployment.get("options", {}).get("tag")
+        if self._installation_type == "docker":
+            self._image = installation.get("options", {}).get("image", None)
+            self._tag = installation.get("options", {}).get("tag", None)
 
     @property
     def uses_ssl(self):
@@ -56,6 +58,10 @@ class Config:
     @property
     def deployment_type(self):
         return self._deployment_type
+
+    @property
+    def installation_type(self):
+        return self._installation_type
 
     @property
     def docker_image(self):
@@ -75,11 +81,10 @@ class Config:
 
 
 def deployment_factory(args: Args, config: Config):
-    deployment_type = config.deployment_type
-    if deployment_type == "default":
+    if config._installation_type == "default":
         return DefaultDeployment(args.memgraph)
 
-    if deployment_type == "docker":
+    if config._installation_type == "docker":
         return DockerDeployment(config.docker_image, config.docker_tag)
 
 
