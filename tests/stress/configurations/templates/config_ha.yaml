@@ -10,7 +10,6 @@ memgraph:
     - "--storage-snapshot-interval-sec=600"
     - "--storage-snapshot-retention-count=1"
     - "--storage-wal-enabled=true"
-    - "--data-recovery-on-startup=false"
     - "--query-execution-timeout-sec=1200"
     - "--log-file=stress_test.log"
     - "--log-level=DEBUG"

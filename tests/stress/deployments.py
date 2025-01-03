@@ -72,29 +72,80 @@ class DefaultHADeployment(Deployment):
         self._data_proc = []
         self._coord_proc = []
 
+        self._data_config = [
+            {
+                "id": 1,
+                "bolt-port": 7687,
+                "management-port": 13011,
+                "monitoring-port": 7444,
+                "metrics-port": 9091,
+            },
+            {
+                "id": 2,
+                "bolt-port": 7688,
+                "management-port": 13012,
+                "monitoring-port": 7445,
+                "metrics-port": 9092,
+            },
+            {
+                "id": 3,
+                "bolt-port": 7689,
+                "management-port": 13013,
+                "monitoring-port": 7446,
+                "metrics-port": 9093,
+            },
+        ]
+
+        self._coord_config = [
+            {
+                "id": 1,
+                "bolt-port": 7691,
+                "management-port": 12121,
+                "coordinator-port": 10111,
+                "monitoring-port": 7447,
+                "metrics-port": 9094,
+            },
+            {
+                "id": 2,
+                "bolt-port": 7692,
+                "management-port": 12122,
+                "coordinator-port": 10112,
+                "monitoring-port": 7448,
+                "metrics-port": 9095,
+            },
+            {
+                "id": 3,
+                "bolt-port": 7693,
+                "management-port": 12123,
+                "coordinator-port": 10113,
+                "monitoring-port": 7449,
+                "metrics-port": 9096,
+            },
+        ]
+
     def start_memgraph(self, additional_flags: List[str] = None):
         """Starts Memgraph and return the process"""
         cwd = os.path.dirname(self._memgraph)
 
         flags = [] if additional_flags is None else additional_flags
 
-        for data_id in [0, 1, 2]:
-            cmd = [self._memgraph] + self._flags + flags + self._get_data_instance_ha_flags(data_id)
+        for data_config in self._data_config:
+            cmd = [self._memgraph] + self._flags + flags + self._get_data_instance_ha_flags(data_config)
             proc = subprocess.Popen(cmd, cwd=cwd, env=os.environ.copy())
-            self.wait_for_server(7687 + data_id)
+            self.wait_for_server(data_config["bolt-port"])
 
             assert proc.poll() is None, "The database binary died prematurely!"
             self._data_proc.append(proc)
 
-        for coordinator_id in [1, 2, 3]:
-            cmd = [self._memgraph] + self._get_coordinator_instance_ha_flags(coordinator_id)
+        for coord_config in self._coord_config:
+            cmd = [self._memgraph] + self._get_coordinator_instance_ha_flags(coord_config)
             proc = subprocess.Popen(cmd, cwd=cwd, env=os.environ.copy())
-            self.wait_for_server(7690 + coordinator_id)
+            self.wait_for_server(coord_config["bolt-port"])
 
             assert proc.poll() is None, "The database binary died prematurely!"
             self._coord_proc.append(proc)
 
-        memgraph = Memgraph(port=7691)
+        memgraph = Memgraph(port=self._coord_config[0]["bolt-port"])
         memgraph.execute(
             'ADD COORDINATOR 2 WITH CONFIG {"bolt_server": "localhost:7692", "coordinator_server": "localhost:10112", "management_server": "localhost:12122"};'
         )
@@ -132,27 +183,27 @@ class DefaultHADeployment(Deployment):
             time.sleep(0.5)
         time.sleep(2)
 
-    def _get_data_instance_ha_flags(flags, data_id: int):
+    def _get_data_instance_ha_flags(self, data_config):
         return [
-            f"--management_port={13011 + data_id}",
-            f"--bolt-port={7687 + data_id}",
-            f"--monitoring-port={7444 + data_id}",
-            f"--metrics-port={9091 + data_id}",
-            f"--data-directory=mg_data_{data_id}",
-            f"--log-file=stress_test_data_{data_id}.log",
+            f"--management_port={data_config['management-port']}",
+            f"--bolt-port={data_config['bolt-port']}",
+            f"--monitoring-port={data_config['monitoring-port']}",
+            f"--metrics-port={data_config['metrics-port']}",
+            f"--data-directory=mg_data_{data_config['id']}",
+            f"--log-file=stress_test_data_{data_config['id']}.log",
             f"--replication-restore-state-on-startup=false",
             f"--data-recovery-on-startup=false",
         ]
 
-    def _get_coordinator_instance_ha_flags(flags, coord_id: int):
+    def _get_coordinator_instance_ha_flags(self, coord_config):
         return [
             f"--coordinator-hostname=127.0.0.1",
-            f"--coordinator-id={coord_id}",
-            f"--bolt-port={7690 + coord_id}",
-            f"--management-port={12120 + coord_id}",
-            f"--coordinator-port={10110 + coord_id}",
-            f"--data-directory=mg_coord_{coord_id}",
-            f"--log-file=stress_test_coord_{coord_id}.log",
+            f"--coordinator-id={coord_config['id']}",
+            f"--bolt-port={coord_config['bolt-port']}",
+            f"--management-port={coord_config['management-port']}",
+            f"--coordinator-port={coord_config['coordinator-port']}",
+            f"--data-directory=mg_coord_{coord_config['id']}",
+            f"--log-file=stress_test_coord_{coord_config['id']}.log",
             f"--log-level=DEBUG",
             f"--also-log-to-stderr=true",
             f"--replication-restore-state-on-startup=false",
