@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -124,7 +124,7 @@ class Synchronized {
   const { return ReadLockedPtr(&object_, &mutex_); }
 
   template <class TCallable>
-  requires SharedMutex<TMutex>
+  requires SharedMutex<TMutex> && requires(TCallable &&c, const T &v) { c(v); }
   decltype(auto) WithReadLock(TCallable &&callable) const { return callable(*ReadLock()); }
 
   template <typename = void>
