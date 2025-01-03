@@ -13,7 +13,7 @@ memgraph:
     - "--data-recovery-on-startup=false"
     - "--query-execution-timeout-sec=1200"
     - "--log-file=stress_test.log"
-    - "--log-level=TRACE"
+    - "--log-level=DEBUG"
     - "--also-log-to-stderr=true"
     - "--data-directory=stress_data"
 

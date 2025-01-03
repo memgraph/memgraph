@@ -80,7 +80,7 @@ class DefaultHADeployment(Deployment):
 
         for data_id in [0, 1, 2]:
             cmd = [self._memgraph] + self._flags + flags + self._get_data_instance_ha_flags(data_id)
-            proc = subprocess.Popen(cmd, cwd=cwd)
+            proc = subprocess.Popen(cmd, cwd=cwd, env=os.environ.copy())
             self.wait_for_server(7687 + data_id)
 
             assert proc.poll() is None, "The database binary died prematurely!"
@@ -88,11 +88,29 @@ class DefaultHADeployment(Deployment):
 
         for coordinator_id in [1, 2, 3]:
             cmd = [self._memgraph] + self._get_coordinator_instance_ha_flags(coordinator_id)
-            proc = subprocess.Popen(cmd, cwd=cwd)
+            proc = subprocess.Popen(cmd, cwd=cwd, env=os.environ.copy())
             self.wait_for_server(7690 + coordinator_id)
 
             assert proc.poll() is None, "The database binary died prematurely!"
             self._coord_proc.append(proc)
+
+        memgraph = Memgraph(port=7691)
+        memgraph.execute(
+            'ADD COORDINATOR 2 WITH CONFIG {"bolt_server": "localhost:7692", "coordinator_server": "localhost:10112", "management_server": "localhost:12122"};'
+        )
+        memgraph.execute(
+            'ADD COORDINATOR 3 WITH CONFIG {"bolt_server": "localhost:7693", "coordinator_server": "localhost:10113", "management_server": "localhost:12123"};'
+        )
+        memgraph.execute(
+            'REGISTER INSTANCE instance_1 WITH CONFIG {"bolt_server": "localhost:7687", "management_server": "localhost:13011", "replication_server": "localhost:10001"};'
+        )
+        memgraph.execute(
+            'REGISTER INSTANCE instance_2 WITH CONFIG {"bolt_server": "localhost:7688", "management_server": "localhost:13012", "replication_server": "localhost:10002"};'
+        )
+        memgraph.execute(
+            'REGISTER INSTANCE instance_3 WITH CONFIG {"bolt_server": "localhost:7689", "management_server": "localhost:13013", "replication_server": "localhost:10003"};'
+        )
+        memgraph.execute("SET INSTANCE instance_1 TO MAIN;")
 
     def stop_memgraph(self) -> None:
         for proc in self._data_proc + self._coord_proc:
@@ -121,7 +139,9 @@ class DefaultHADeployment(Deployment):
             f"--monitoring-port={7444 + data_id}",
             f"--metrics-port={9091 + data_id}",
             f"--data-directory=mg_data_{data_id}",
-            f"--log-file=stress_test_log_{data_id}.log",
+            f"--log-file=stress_test_data_{data_id}.log",
+            f"--replication-restore-state-on-startup=false",
+            f"--data-recovery-on-startup=false",
         ]
 
     def _get_coordinator_instance_ha_flags(flags, coord_id: int):
@@ -132,7 +152,11 @@ class DefaultHADeployment(Deployment):
             f"--management-port={12120 + coord_id}",
             f"--coordinator-port={10110 + coord_id}",
             f"--data-directory=mg_coord_{coord_id}",
-            f"--log-file=stress_test_log_{coord_id}.log",
+            f"--log-file=stress_test_coord_{coord_id}.log",
+            f"--log-level=DEBUG",
+            f"--also-log-to-stderr=true",
+            f"--replication-restore-state-on-startup=false",
+            f"--data-recovery-on-startup=false",
         ]
 
 
