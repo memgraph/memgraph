@@ -80,32 +80,38 @@ def run(args):
             print(f"PID: {hosts}")
             time.sleep(10)
 
-        # Test.
-        mg_test_binary = os.path.join(BUILD_DIR, workload["binary"])
-        subprocess.run([mg_test_binary] + workload["args"], check=True, stderr=subprocess.STDOUT)
+        try:
+            # Test.
+            mg_test_binary = os.path.join(BUILD_DIR, workload["binary"])
+            subprocess.run([mg_test_binary] + workload["args"], check=True, stderr=subprocess.STDOUT)
 
-        # Validation.
-        if "cluster" in workload:
-            for name, config in workload["cluster"].items():
-                mg_instance = interactive_mg_runner.MEMGRAPH_INSTANCES[name]
-                # Explicitely check if there are validation queries and skip if
-                # nothing is to validate. If setup queries are dealing with
-                # users, any new connection requires auth details.
-                validation_queries = config.get("validation_queries", [])
-                if not validation_queries:
-                    continue
+            # Validation.
+            if "cluster" in workload:
+                for name, config in workload["cluster"].items():
+                    mg_instance = interactive_mg_runner.MEMGRAPH_INSTANCES[name]
+                    # Explicitely check if there are validation queries and skip if
+                    # nothing is to validate. If setup queries are dealing with
+                    # users, any new connection requires auth details.
+                    validation_queries = config.get("validation_queries", [])
+                    if not validation_queries:
+                        continue
 
-                # NOTE: If the setup quries create users AND there are some
-                # validation queries, the connection here has to get the right
-                # username/password.
-                conn = mg_instance.get_connection()
-                for validation in validation_queries:
-                    data = mg_instance.query(validation["query"], conn)[0][0]
-                    assert data == validation["expected"]
-                conn.close()
+                    # NOTE: If the setup quries create users AND there are some
+                    # validation queries, the connection here has to get the right
+                    # username/password.
+                    conn = mg_instance.get_connection()
+                    for validation in validation_queries:
+                        data = mg_instance.query(validation["query"], conn)[0][0]
+                        assert data == validation["expected"]
+                    conn.close()
 
-        cleanup(workload, keep_directories=args.save_data_dir)
-        log.info("%s PASSED.", workload_name)
+            log.info("%s PASSED.", workload_name)
+
+        except Exception as e:
+            log.error("%s FAILED: %s", workload_name, e)
+
+        finally:
+            cleanup(workload, keep_directories=args.save_data_dir)
 
 
 if __name__ == "__main__":
