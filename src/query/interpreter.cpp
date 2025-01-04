@@ -3267,9 +3267,9 @@ PreparedQuery PrepareVectorIndexQuery(ParsedQuery parsed_query, bool in_explicit
   auto *storage = db_acc->storage();
   switch (vector_index_query->action_) {
     case VectorIndexQuery::Action::CREATE: {
-      handler = [dba, storage, invalidate_plan_cache = std::move(invalidate_plan_cache), &parsed_query,
-                 index_name = std::move(index_name), label_name = std::move(label_name),
-                 prop_name = std::move(prop_name), config = std::move(config)]() {
+      handler = [dba, storage, invalidate_plan_cache = std::move(invalidate_plan_cache),
+                 query_parameters = std::move(parsed_query.parameters), index_name = std::move(index_name),
+                 label_name = std::move(label_name), prop_name = std::move(prop_name), config = std::move(config)]() {
         Notification index_notification(SeverityLevel::INFO);
         index_notification.code = NotificationCode::CREATE_INDEX;
         index_notification.title = fmt::format("Created vector index on label {}, property {}.", label_name, prop_name);
@@ -3279,7 +3279,7 @@ PreparedQuery PrepareVectorIndexQuery(ParsedQuery parsed_query, bool in_explicit
 
         EvaluationContext evaluation_context;
         evaluation_context.timestamp = QueryTimestamp();
-        evaluation_context.parameters = parsed_query.parameters;
+        evaluation_context.parameters = std::move(query_parameters);
         auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
         auto vector_index_config = ParseVectorIndexConfigMap(config, evaluator);
 
