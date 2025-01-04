@@ -17,9 +17,9 @@ from workloads.base import Workload
 
 class VectorSearchIndex(Workload):
     NAME = "vector_search_index"
-    NUMBER_OF_NODES = 1000
-    NUMBER_OF_EDGES = 1000
-    VECTOR_DIMENSIONS = 1500
+    NUMBER_OF_NODES = 100
+    NUMBER_OF_EDGES = 100
+    VECTOR_DIMENSIONS = 128
 
     def __init__(self, variant: str = None, benchmark_context: BenchmarkContext = None):
         super().__init__(variant, benchmark_context=benchmark_context)
@@ -30,7 +30,11 @@ class VectorSearchIndex(Workload):
     def indexes_generator(self):
         return [
             ("CREATE INDEX ON :Node(id);", {}),
-            # ("CREATE VECTOR INDEX ON :Node(vector) OPTIONS { 'dimensions': 1500, 'similarity_function': 'cosine' };", {}),
+            (
+                'CREATE VECTOR INDEX index ON :Node(vector) WITH CONFIG {"dimension": %i, "capacity": %i};'
+                % (VectorSearchIndex.VECTOR_DIMENSIONS, VectorSearchIndex.NUMBER_OF_NODES),
+                {},
+            ),
         ]
 
     def dataset_generator(self):
@@ -66,7 +70,7 @@ class VectorSearchIndex(Workload):
         # NOTE: Vector is there but we are not returning it, that's on purpose to avoid measuring that part.
         return ("MATCH (n:Node {id:$id})-[*bfs..4]->() RETURN n.id;", {"id": self._get_random_node()})
 
-    def DELETE_ME__benchmark__vector__single_index_lookup(self):
+    def benchmark__vector__single_index_lookup(self):
         return (
             'CALL vector_search.search("index", 10, $query) YIELD * RETURN id(node), distance;',
             {"query": self._get_random_vector()},
