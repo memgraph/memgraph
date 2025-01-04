@@ -48,5 +48,6 @@ PREFIX=/opt/toolchain-v6
 # rm -rf "$PREFIX/lib/libprotobuf.a"
 # rm -rf "$PREFIX/lib/libpulsarwithdeps.a"
 # rm -rf "$PREFIX/lib/librdkafka++.a"
+# rm -rf "$PREFIX/lib/bcrypt.a"
 
 # rm -rf "$PREFIX"

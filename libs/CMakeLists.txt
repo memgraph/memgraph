@@ -283,15 +283,21 @@ macro(build_rocksdb)
 endmacro()
 mg_build_if_needed(build_rocksdb "rocksdb")
 
-# Setup libbcrypt
-import_external_library(libbcrypt STATIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/libbcrypt/bcrypt.a
-  ${CMAKE_CURRENT_SOURCE_DIR}/libbcrypt
-  CONFIGURE_COMMAND sed s/-Wcast-align// -i ${CMAKE_CURRENT_SOURCE_DIR}/libbcrypt/crypt_blowfish/Makefile
-  BUILD_COMMAND make -C ${CMAKE_CURRENT_SOURCE_DIR}/libbcrypt
-  CC=${CMAKE_C_COMPILER}
-  CXX=${CMAKE_CXX_COMPILER}
-  INSTALL_COMMAND true)
+macro(build_bcrypt)
+  import_external_library(libbcrypt STATIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/libbcrypt/bcrypt.a
+    ${CMAKE_CURRENT_SOURCE_DIR}/libbcrypt
+    CONFIGURE_COMMAND sed s/-Wcast-align// -i ${CMAKE_CURRENT_SOURCE_DIR}/libbcrypt/crypt_blowfish/Makefile
+    BUILD_COMMAND make -C ${CMAKE_CURRENT_SOURCE_DIR}/libbcrypt
+    CC=${CMAKE_C_COMPILER}
+    CXX=${CMAKE_CXX_COMPILER}
+    INSTALL_COMMAND true)
+endmacro()
+mg_build_if_needed(build_bcrypt "bcrypt")
+mg_create_linkable_if_no_cmake(libbcrypt STATIC
+    "/opt/toolchain-v6/lib/bcrypt.a"
+    "/opt/toolchain-v6/include"
+)
 
 # Setup mgclient
 import_external_library(mgclient STATIC

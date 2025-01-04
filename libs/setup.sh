@@ -204,7 +204,11 @@ declare -A secondary_urls=(
 
 # antlr
 file_get_try_double "${primary_urls[antlr4-generator]}" "${secondary_urls[antlr4-generator]}"
-repo_clone_try_double "${primary_urls[antlr4-code]}" "${secondary_urls[antlr4-code]}" "antlr4" "$antlr4_tag" true
+if [ -z "${MG_TOOLCHAIN_VERSION}" ]; then
+  repo_clone_try_double "${primary_urls[antlr4-code]}" "${secondary_urls[antlr4-code]}" "antlr4" "$antlr4_tag" true
+else
+  echo "Skipping antlr4 download because it's already under the toolchain v$MG_TOOLCHAIN_VERSION"
+fi
 
 cppitertools_ref="v2.1" # 2021-01-15
 repo_clone_try_double "${primary_urls[cppitertools]}" "${secondary_urls[cppitertools]}" "cppitertools" "$cppitertools_ref"
@@ -221,9 +225,12 @@ repo_clone_try_double "${primary_urls[gbenchmark]}" "${secondary_urls[gbenchmark
 googletest_tag="v1.14.0"
 repo_clone_try_double "${primary_urls[gtest]}" "${secondary_urls[gtest]}" "googletest" "$googletest_tag" true
 
-# libbcrypt
-libbcrypt_tag="8aa32ad94ebe06b76853b0767c910c9fbf7ccef4" # custom version (Dec 16, 2016)
-repo_clone_try_double "${primary_urls[libbcrypt]}" "${secondary_urls[libbcrypt]}" "libbcrypt" "$libbcrypt_tag"
+if [ -z "${MG_TOOLCHAIN_VERSION}" ]; then
+  libbcrypt_tag="8aa32ad94ebe06b76853b0767c910c9fbf7ccef4" # custom version (Dec 16, 2016)
+  repo_clone_try_double "${primary_urls[libbcrypt]}" "${secondary_urls[libbcrypt]}" "libbcrypt" "$libbcrypt_tag"
+else
+  echo "Skipping libbcrypt download because it's already under the toolchain v$MG_TOOLCHAIN_VERSION"
+fi
 
 # neo4j
 file_get_try_double "${primary_urls[neo4j]}" "${secondary_urls[neo4j]}"
@@ -239,11 +246,15 @@ cd json
 file_get_try_double "${primary_urls[nlohmann]}" "${secondary_urls[nlohmann]}"
 cd ..
 
-rocksdb_tag="v8.1.1" # (2023-04-21)
-repo_clone_try_double "${primary_urls[rocksdb]}" "${secondary_urls[rocksdb]}" "rocksdb" "$rocksdb_tag" true
-pushd rocksdb
-git apply ../rocksdb8.1.1.patch
-popd
+if [ -z "${MG_TOOLCHAIN_VERSION}" ]; then
+  rocksdb_tag="v8.1.1" # (2023-04-21)
+  repo_clone_try_double "${primary_urls[rocksdb]}" "${secondary_urls[rocksdb]}" "rocksdb" "$rocksdb_tag" true
+  pushd rocksdb
+  git apply ../rocksdb8.1.1.patch
+  popd
+else
+  echo "Skipping rocksdb download because it's already under the toolchain v$MG_TOOLCHAIN_VERSION"
+fi
 
 # mgclient
 mgclient_tag="v1.4.0" # (2022-06-14)

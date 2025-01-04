@@ -1298,6 +1298,24 @@ if [ ! -f $PREFIX/lib/librdkafka++.a ]; then
     popd
 fi
 
+LIBBCRYPT_TAG="8aa32ad94ebe06b76853b0767c910c9fbf7ccef4"
+log_tool_name "libbcrypt $LIBBCRYPT_TAG"
+if [ ! -f $PREFIX/lib/bcrypt.a ]; then
+    if [ -d libbcrypt ]; then
+        rm -rf libbcrypt
+    fi
+    git clone https://github.com/rg3/libbcrypt
+    pushd libbcrypt
+    git checkout $LIBBCRYPT_TAG
+    sed s/-Wcast-align// -i crypt_blowfish/Makefile
+    make
+    # NOTE: The libbcrypt doesn't come with the install target.
+    cp bcrypt.a $PREFIX/lib/
+    mkdir -p $PREFIX/include/libbcrypt/
+    cp bcrypt.h $PREFIX/include/libbcrypt/
+    popd
+fi
+
 # NOTE: Skip FBLIBS -> only used on project-pineapples
 #   * older versions don't compile on the latest GCC
 #   * newer versions don't work with OpenSSL 1.0 which is critical for CentOS7
