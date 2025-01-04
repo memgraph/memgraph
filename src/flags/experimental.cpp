@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,12 +26,11 @@
 // Bolt server flags.
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_string(experimental_enabled, "",
-                        "Experimental features to be used, comma-separated. Options [text-search, vector-search]",
+                        "Experimental features to be used, comma-separated. Options [text-search]",
                         { return memgraph::flags::ValidExperimentalFlag(value); });
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_VALIDATED_string(experimental_config, "",
-                        "Experimental features to be used, JSON object. Options [vector-search]",
+DEFINE_VALIDATED_string(experimental_config, "", "Experimental features to be used, JSON object. Options []",
                         { return memgraph::flags::ValidExperimentalConfig(value); });
 
 using namespace std::string_view_literals;
