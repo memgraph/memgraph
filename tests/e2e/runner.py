@@ -50,7 +50,6 @@ def load_workloads(root_directory):
     return workloads
 
 
-# TODO(gitbuda): Cleanup doesn't work properly if e2e test fails unexpectedly -> FIX.
 def cleanup(workload, keep_directories=True):
     # If we use cluster keyword in workloads.yaml, we will stop directories and keep them based on args.save_data_dir
     # If we manually control instances using interactive_mg_runner in tests, then we specify our cleanup function
