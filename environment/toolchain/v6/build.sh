@@ -613,7 +613,10 @@ fi
 # create activation script
 if [ ! -f $PREFIX/activate ]; then
     cat >$PREFIX/activate <<EOF
-# This file must be used with "source $PREFIX/activate" *from bash*
+SCRIPT_DIR=\$( cd -- "\$( dirname -- "\${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+PREFIX=\$SCRIPT_DIR
+
+# This file must be used with "source /path/to/toolchain/activate" *from bash*
 # You can't run it directly!
 
 env_error="You already have an active virtual environment!"
@@ -649,12 +652,12 @@ export ORIG_CXXFLAGS=\$CXXFLAGS
 export ORIG_CFLAGS=\$CFLAGS
 
 # activate new environment
-export PATH=$PREFIX:$PREFIX/bin:\$PATH
+export PATH=\$PREFIX:\$PREFIX/bin:\$PATH
 export PS1="($NAME) \$PS1"
-export LD_LIBRARY_PATH=$PREFIX/lib:$PREFIX/lib64
-export CXXFLAGS=-isystem\ $PREFIX/include\ \$CXXFLAGS
-export CFLAGS=-isystem\ $PREFIX/include\ \$CFLAGS
-export MG_TOOLCHAIN_ROOT=$PREFIX
+export LD_LIBRARY_PATH=\$PREFIX/lib:\$PREFIX/lib64
+export CXXFLAGS=-isystem\ \$PREFIX/include\ \$CXXFLAGS
+export CFLAGS=-isystem\ \$PREFIX/include\ \$CFLAGS
+export MG_TOOLCHAIN_ROOT=\$PREFIX
 export MG_TOOLCHAIN_VERSION=$TOOLCHAIN_VERSION
 
 # disable root
