@@ -143,23 +143,12 @@ endmacro(set_path_external_library)
 
 include(FetchContent)
 
-# TODO(gitbuda): Organize below comments
-# vcpkg OR conan install is generating the find_package
-
-# conan profile is a level above
-# recommendation is to actually use conan externally and providing the CMAKE_TOOLCHAIN
-# addtional benefit of conan is that it generates the find_package
-# https://cmake.org/cmake/help/latest/variable/CMAKE_TOOLCHAIN_FILE.html
-# NOTE: conan is also generating the cmake toolchain file
-# https://github.com/SX-Aurora/CMake-toolchain-file/blob/master/aurora-example.cmake
-# IMPORTANT: NO CONAN stuff under CMakeFiles
-
-# cmake build is better because cmake --build knows how to build internally
+# NOTE: A lot of the below code is just a tmp solution to rollout toolchain-v6.
+# All code depending on the toolchain version should be removed and replaced
+# with the code to load library from: 1) the system, 2) the toolchain, 3) build
+# custom version if wanted.
 
 # NOTE: Called under, e.g., src/kvstore/CMakeLists.txt
-# TODO(gitbuda): All this is just a tmp solution to rollout the new toolchain.
-# Make sure there is build vs link option and the below migration code can
-# easily be removed as soon as the new toolchain is rolled out.
 macro(mg_target_link_library_cmake toolchain_version mg_target_name package_name toolchain_lib_name local_lib_name)
     if(DEFINED ENV{MG_TOOLCHAIN_VERSION})
         if($ENV{MG_TOOLCHAIN_VERSION} GREATER_EQUAL ${toolchain_version})
@@ -226,8 +215,8 @@ macro(build_antlr4)
 endmacro()
 mg_build_if_needed(build_antlr4 "antlr4")
 mg_create_linkable_if_no_cmake(antlr4 STATIC
-    "/opt/toolchain-v6/lib/libantlr4-runtime.a"
-    "/opt/toolchain-v6/include/antlr4-runtime"
+    "${MG_TOOLCHAIN_ROOT}/lib/libantlr4-runtime.a"
+    "${MG_TOOLCHAIN_ROOT}/include/antlr4-runtime"
 )
 
 macro(build_gbenchmark)
@@ -239,8 +228,8 @@ macro(build_gbenchmark)
 endmacro()
 mg_build_if_needed(build_gbenchmark "gbenchmark")
 mg_create_linkable_if_no_cmake(benchmark STATIC
-    "/opt/toolchain-v6/lib/libbenchmark.a"
-    "/opt/toolchain-v6/include"
+    "${MG_TOOLCHAIN_ROOT}/lib/libbenchmark.a"
+    "${MG_TOOLCHAIN_ROOT}/include"
 )
 
 # setup rapidcheck (it cannot be external, since it doesn't have install
@@ -270,10 +259,10 @@ macro(build_gtest)
     import_library(gmock_main STATIC ${GMOCK_MAIN_LIBRARY} ${GTEST_INCLUDE_DIR} gtest-proj)
 endmacro()
 mg_build_if_needed(build_gtest "gtest")
-mg_create_linkable_if_no_cmake(gtest STATIC "/opt/toolchain-v6/lib/libgtest.a" "/opt/toolchain-v6/include")
-mg_create_linkable_if_no_cmake(gtest_main STATIC "/opt/toolchain-v6/lib/libgtest_main.a" "/opt/toolchain-v6/include")
-mg_create_linkable_if_no_cmake(gmock STATIC "/opt/toolchain-v6/lib/libgmock.a" "/opt/toolchain-v6/include")
-mg_create_linkable_if_no_cmake(gmock_main STATIC "/opt/toolchain-v6/lib/libgmock_main.a" "/opt/toolchain-v6/include")
+mg_create_linkable_if_no_cmake(gtest STATIC "${MG_TOOLCHAIN_ROOT}/lib/libgtest.a" "${MG_TOOLCHAIN_ROOT}/include")
+mg_create_linkable_if_no_cmake(gtest_main STATIC "${MG_TOOLCHAIN_ROOT}/lib/libgtest_main.a" "${MG_TOOLCHAIN_ROOT}/include")
+mg_create_linkable_if_no_cmake(gmock STATIC "${MG_TOOLCHAIN_ROOT}/lib/libgmock.a" "${MG_TOOLCHAIN_ROOT}/include")
+mg_create_linkable_if_no_cmake(gmock_main STATIC "${MG_TOOLCHAIN_ROOT}/lib/libgmock_main.a" "${MG_TOOLCHAIN_ROOT}/include")
 
 # Setup cppitertools
 import_header_library(cppitertools ${CMAKE_CURRENT_SOURCE_DIR})
@@ -281,7 +270,6 @@ import_header_library(cppitertools ${CMAKE_CURRENT_SOURCE_DIR})
 # Setup json
 import_header_library(json ${CMAKE_CURRENT_SOURCE_DIR})
 
-# TODO(gitbuda): The below macro seems hackly -> try to improve.
 macro(build_rocksdb)
   import_external_library(rocksdb STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/rocksdb/lib/librocksdb.a
@@ -307,8 +295,8 @@ macro(build_bcrypt)
 endmacro()
 mg_build_if_needed(build_bcrypt "bcrypt")
 mg_create_linkable_if_no_cmake(libbcrypt STATIC
-    "/opt/toolchain-v6/lib/bcrypt.a"
-    "/opt/toolchain-v6/include"
+    "${MG_TOOLCHAIN_ROOT}/lib/bcrypt.a"
+    "${MG_TOOLCHAIN_ROOT}/include"
 )
 
 macro(build_mgclient)
@@ -322,8 +310,8 @@ macro(build_mgclient)
 endmacro()
 mg_build_if_needed(build_mgclient "mgclient")
 mg_create_linkable_if_no_cmake(mgclient STATIC
-    "/opt/toolchain-v6/lib/libmgclient.a"
-    "/opt/toolchain-v6/include"
+    "${MG_TOOLCHAIN_ROOT}/lib/libmgclient.a"
+    "${MG_TOOLCHAIN_ROOT}/include"
 )
 # NOTE: the following is possible because both importet targets are called the
 # same. This setting should be moved under mgclient lib itself.
@@ -364,9 +352,9 @@ macro(build_kafka)
     target_link_libraries(librdkafka++ INTERFACE librdkafka)
 endmacro()
 mg_build_if_needed(build_kafka "librdkafka")
-mg_create_linkable_if_no_cmake(librdkafka STATIC "/opt/toolchain-v6/lib/librdkafka.a" "/opt/toolchain-v6/include")
+mg_create_linkable_if_no_cmake(librdkafka STATIC "${MG_TOOLCHAIN_ROOT}/lib/librdkafka.a" "${MG_TOOLCHAIN_ROOT}/include")
 target_link_libraries(librdkafka INTERFACE ${OPENSSL_LIBRARIES} ZLIB::ZLIB sasl2)
-mg_create_linkable_if_no_cmake(librdkafka++ STATIC "/opt/toolchain-v6/lib/librdkafka++.a" "/opt/toolchain-v6/include")
+mg_create_linkable_if_no_cmake(librdkafka++ STATIC "${MG_TOOLCHAIN_ROOT}/lib/librdkafka++.a" "${MG_TOOLCHAIN_ROOT}/include")
 target_link_libraries(librdkafka++ INTERFACE librdkafka)
 
 macro(build_protobuf)
@@ -403,7 +391,7 @@ macro(build_pulsar)
     add_dependencies(pulsar-proj protobuf)
 endmacro()
 mg_build_if_needed(build_pulsar "pulsar")
-mg_create_linkable_if_no_cmake(pulsar STATIC "/opt/toolchain-v6/lib/libpulsarwithdeps.a" "/opt/toolchain-v6/include")
+mg_create_linkable_if_no_cmake(pulsar STATIC "${MG_TOOLCHAIN_ROOT}/lib/libpulsarwithdeps.a" "${MG_TOOLCHAIN_ROOT}/include")
 
 macro(build_librdtsc)
   if(${MG_ARCH} STREQUAL "ARM64")
@@ -416,7 +404,7 @@ macro(build_librdtsc)
     BUILD_COMMAND $(MAKE) rdtsc)
 endmacro()
 mg_build_if_needed(build_librdtsc "librdtsc")
-mg_create_linkable_if_no_cmake(librdtsc STATIC "/opt/toolchain-v6/lib/librdtsc.a" "/opt/toolchain-v6/include")
+mg_create_linkable_if_no_cmake(librdtsc STATIC "${MG_TOOLCHAIN_ROOT}/lib/librdtsc.a" "${MG_TOOLCHAIN_ROOT}/include")
 
 # setup ctre
 import_header_library(ctre ${CMAKE_CURRENT_SOURCE_DIR})
@@ -431,7 +419,7 @@ macro(link_jmalloc)
       ${CMAKE_CURRENT_SOURCE_DIR}/jemalloc/include/)
 endmacro()
 mg_build_if_needed(link_jmalloc "jemalloc")
-set_path_external_library(jemalloc STATIC "/opt/toolchain-v6/lib/libjemalloc.a" "/opt/toolchain-v6/include")
+set_path_external_library(jemalloc STATIC "${MG_TOOLCHAIN_ROOT}/lib/libjemalloc.a" "${MG_TOOLCHAIN_ROOT}/include")
 
 import_header_library(rangev3 ${CMAKE_CURRENT_SOURCE_DIR}/rangev3/include)
 
@@ -441,7 +429,7 @@ macro(build_nuraft)
       ${CMAKE_CURRENT_SOURCE_DIR}/nuraft/include/)
 endmacro()
 mg_build_if_needed(build_nuraft "nuraft")
-mg_create_linkable_if_no_cmake(nuraft STATIC "/opt/toolchain-v6/lib/libnuraft.a" "/opt/toolchain-v6/include")
+mg_create_linkable_if_no_cmake(nuraft STATIC "${MG_TOOLCHAIN_ROOT}/lib/libnuraft.a" "${MG_TOOLCHAIN_ROOT}/include")
 find_package(OpenSSL REQUIRED)
 target_link_libraries(nuraft INTERFACE ${OPENSSL_LIBRARIES})
 
@@ -461,8 +449,8 @@ macro(build_mgcxx)
     import_library(mgcxx_text_search STATIC ${MGCXX_TEXT_SEARCH_LIBRARY} ${MGCXX_INCLUDE_DIR} mgcxx-proj)
 endmacro()
 mg_build_if_needed(build_mgcxx "mgcxx")
-mg_create_linkable_if_no_cmake(tantivy_text_search STATIC "/opt/toolchain-v6/lib/libtantivy_text_search.a" "/opt/toolchain-v6/include")
-mg_create_linkable_if_no_cmake(mgcxx_text_search STATIC "/opt/toolchain-v6/lib/libmgcxx_text_search.a" "/opt/toolchain-v6/include")
+mg_create_linkable_if_no_cmake(tantivy_text_search STATIC "${MG_TOOLCHAIN_ROOT}/lib/libtantivy_text_search.a" "${MG_TOOLCHAIN_ROOT}/include")
+mg_create_linkable_if_no_cmake(mgcxx_text_search STATIC "${MG_TOOLCHAIN_ROOT}/lib/libmgcxx_text_search.a" "${MG_TOOLCHAIN_ROOT}/include")
 
 # setup strong_type (cmake sub_directory tolerant)
 add_subdirectory(strong_type EXCLUDE_FROM_ALL)

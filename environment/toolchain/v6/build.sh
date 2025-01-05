@@ -697,37 +697,28 @@ fi
 # options:
 #   * extreme 1 -> move all libs + Memgraph compilation here, have one giant script
 #   * extreme 2 -> build a granular package manager, each lib (for all variable) separated
-# BOOST_SHA256=f55c340aa49763b1925ccf02b2e83f35fdcf634c9d5164a2acb87540173c741d
-# BOOST_VERSION=1.87.0
-# TODO(gitbuda): Delete the old uncommented boost versions.
-# TODO(gitbuda): pulsar client can't be compield on 1.87 of Boost -> pick the latest viable version.
-BOOST_SHA256=205666dea9f6a7cfed87c7a6dfbeb52a2c1b9de55712c9c1a87735d7181452b6
-BOOST_VERSION=1.81.0
-# BOOST_SHA256=94ced8b72956591c4775ae2207a9763d3600b30d9d7446562c552f0a14a63be7
-# BOOST_VERSION=1.78.0
+
+# NOTE: pulsar v2.8.1 client can't be compield on 1.87+ of Boost -> both have to be upgraded.
+# BOOST_SHA256=205666dea9f6a7cfed87c7a6dfbeb52a2c1b9de55712c9c1a87735d7181452b6
+# BOOST_VERSION=1.81.0
+BOOST_SHA256=be0d91732d5b0cc6fbb275c7939974457e79b54d6f07ce2e3dfdd68bef883b0b
+BOOST_VERSION=1.85.0
 BOOST_VERSION_UNDERSCORES=`echo "${BOOST_VERSION//./_}"`
 BZIP2_SHA256=a2848f34fcd5d6cf47def00461fcb528a0484d8edef8208d6d2e2909dc61d9cd
 BZIP2_VERSION=1.0.6
 DOUBLE_CONVERSION_SHA256=8a79e87d02ce1333c9d6c5e47f452596442a343d8c3e9b234e8a62fce1b1d49c
 DOUBLE_CONVERSION_VERSION=3.1.6
-
 # NOTE: At some point Folly stopped supporting OpenSSL 1.0 which is critical
 # for CentOS7. If you decide to bump FBLIBS_VERSION drop Folly of stop
 # supporting CentOS7.
 FBLIBS_VERSION=2022.01.31.00
-# FBLIBS_VERSION=2023.09.25.00
 FIZZ_SHA256=32a60e78d41ea2682ce7e5d741b964f0ea83642656e42d4fea90c0936d6d0c7d
-# FIZZ_SHA256=002949ec9e57e2b205e43a7ca4e2acd8730923ad124dba8ecbe4c0dc44e4627b
 FOLLY_SHA256=7b8d5dd2eb51757858247af0ad27af2e3e93823f84033a628722b01e06cd68a9
-# FOLLY_SHA256=195712d6ff7e08d64e1340ad8d21e39a261114da0119920e747f5d43b1b47aac
 PROXYGEN_SHA256=5360a8ccdfb2f5a6c7b3eed331ec7ab0e2c792d579c6fff499c85c516c11fe14
-# PROXYGEN_SHA256=7a0d9f048c1d8b0ffbf59ab401fe6970a39e88bf6293cf5c296e9eab4ca2a69e
 WANGLE_SHA256=1002e9c32b6f4837f6a760016e3b3e22f3509880ef3eaad191c80dc92655f23f
-# WANGLE_SHA256=0e493c03572bb27fe9ca03a9da5023e52fde99c95abdcaa919bb6190e7e69532
-
+# NOTE: spdlog depends on exact fmt versions -> UPGRADE fmt and spdlog TOGETHER.
 FMT_SHA256=78b8c0a72b1c35e4443a7e308df52498252d1cefc2b08c9a97bc9ee6cfe61f8b
 FMT_VERSION=10.1.1
-# NOTE: spdlog depends on exact fmt versions -> UPGRADE fmt and spdlog TOGETHER.
 SPDLOG_SHA256=4dccf2d10f410c1e2feaff89966bfc49a1abb29ef6f08246335b110e001e09a9
 SPDLOG_VERSION=1.12.0
 GFLAGS_COMMIT_HASH=b37ceb03a0e56c9f15ce80409438a555f8a67b7c
@@ -736,22 +727,25 @@ GLOG_VERSION=0.5.0
 JEMALLOC_VERSION=5.2.1 # Some people complained about 5.3.0 performance.
 LIBAIO_VERSION=0.3.112
 LIBEVENT_VERSION=2.1.12-stable
-LIBSODIUM_VERSION=1.0.18
-LIBUNWIND_VERSION=1.6.2
-LZ4_SHA256=0b0e3aa07c8c063ddf40b082bdf7e37a1562bda40a0ff5272957f3e987e0e54b
-LZ4_VERSION=1.9.4
-SNAPPY_SHA256=75c1fbb3d618dd3a0483bff0e26d0a92b495bbe5059c8b4f1c962b478b6e06e7
-SNAPPY_VERSION=1.1.9
-XZ_VERSION=5.2.5 # for LZMA
+LIBSODIUM_VERSION=1.0.20
+LIBUNWIND_VERSION=1.8.1
+# LZ4_SHA256=0b0e3aa07c8c063ddf40b082bdf7e37a1562bda40a0ff5272957f3e987e0e54b
+# LZ4_VERSION=1.9.4
+LZ4_SHA256=537512904744b35e232912055ccf8ec66d768639ff3abe5788d90d792ec5f48b
+LZ4_VERSION=1.10.0
+# SNAPPY_SHA256=75c1fbb3d618dd3a0483bff0e26d0a92b495bbe5059c8b4f1c962b478b6e06e7
+# SNAPPY_VERSION=1.1.9
+SNAPPY_SHA256=736aeb64d86566d2236ddffa2865ee5d7a82d26c9016b36218fcc27ea4f09f86
+SNAPPY_VERSION=1.2.1
+XZ_VERSION=5.6.3 # for LZMA
 ZLIB_VERSION=1.3.1
-ZSTD_VERSION=1.5.5
-
+ZSTD_VERSION=1.5.6
 
 pushd archives
 if [ ! -f boost_$BOOST_VERSION_UNDERSCORES.tar.gz ]; then
     # do not redirect the download into a file, because it will download the file into a ".1" postfixed file
     # I am not sure why this is happening, but I think because of some redirects that happens during the download
-    wget https://boostorg.jfrog.io/artifactory/main/release/$BOOST_VERSION/source/boost_$BOOST_VERSION_UNDERSCORES.tar.gz -O boost_$BOOST_VERSION_UNDERSCORES.tar.gz
+    wget https://archives.boost.io/release/$BOOST_VERSION/source/boost_$BOOST_VERSION_UNDERSCORES.tar.gz -O boost_$BOOST_VERSION_UNDERSCORES.tar.gz
 fi
 if [ ! -f bzip2-$BZIP2_VERSION.tar.gz ]; then
     wget https://sourceware.org/pub/bzip2/bzip2-$BZIP2_VERSION.tar.gz -O bzip2-$BZIP2_VERSION.tar.gz
@@ -846,11 +840,11 @@ if false; then
     $GPG --keyserver $KEYSERVER --recv-keys 0x0C7983A8FD9A104C623172CB62F25B592B6F76DA
     $GPG --verify libsodium-$LIBSODIUM_VERSION.tar.gz.sig libsodium-$LIBSODIUM_VERSION.tar.gz
 fi
-# verify libunwind
-if [ ! -f libunwind-$LIBUNWIND_VERSION.tar.gz.sig ]; then
-    wget https://github.com/libunwind/libunwind/releases/download/v$LIBUNWIND_VERSION/libunwind-$LIBUNWIND_VERSION.tar.gz.sig
-fi
 if false; then
+    # verify libunwind
+    if [ ! -f libunwind-$LIBUNWIND_VERSION.tar.gz.sig ]; then
+        wget https://github.com/libunwind/libunwind/releases/download/v$LIBUNWIND_VERSION/libunwind-$LIBUNWIND_VERSION.tar.gz.sig
+    fi
     $GPG --keyserver $KEYSERVER --recv-keys 0x75D2CFC56CC2E935A4143297015A268A17D55FA4
     $GPG --verify libunwind-$LIBUNWIND_VERSION.tar.gz.sig libunwind-$LIBUNWIND_VERSION.tar.gz
 fi
@@ -1552,9 +1546,6 @@ if false; then
       popd
   fi
 fi
-
-echo "success -> DELETE the exit 1 after all is added!"
-exit 1
 
 popd
 # NOTE: It's important/clean (e.g., easier upload to S3) to have a separated
