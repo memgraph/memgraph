@@ -1316,6 +1316,21 @@ if [ ! -f $PREFIX/lib/bcrypt.a ]; then
     popd
 fi
 
+GBENCH_TAG="v1.6.0"
+log_tool_name "gbenchmark $GBENCH_TAG"
+if [ ! -f $PREFIX/lib/libbenchmark.a ]; then
+    if [ -d gbenchmark ]; then
+        rm -rf gbenchmark
+    fi
+    git clone https://github.com/google/benchmark.git gbenchmark
+    pushd gbenchmark
+    git checkout $GBENCH_TAG
+    cmake -B build $COMMON_CMAKE_FLAGS \
+      -DBENCHMARK_ENABLE_TESTING=OFF
+    cmake --build build -j$CPUS --target install
+    popd
+fi
+
 # NOTE: Skip FBLIBS -> only used on project-pineapples
 #   * older versions don't compile on the latest GCC
 #   * newer versions don't work with OpenSSL 1.0 which is critical for CentOS7

@@ -228,12 +228,18 @@ mg_create_linkable_if_no_cmake(antlr4 STATIC
     "/opt/toolchain-v6/include/antlr4-runtime"
 )
 
-# Setup google benchmark.
-import_external_library(benchmark STATIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/benchmark/${CMAKE_INSTALL_LIBDIR}/libbenchmark.a
-  ${CMAKE_CURRENT_SOURCE_DIR}/benchmark/include
-  # Skip testing. The tests don't compile with Clang 8.
-  CMAKE_ARGS -DBENCHMARK_ENABLE_TESTING=OFF)
+macro(build_gbenchmark)
+    import_external_library(benchmark STATIC
+      ${CMAKE_CURRENT_SOURCE_DIR}/benchmark/${CMAKE_INSTALL_LIBDIR}/libbenchmark.a
+      ${CMAKE_CURRENT_SOURCE_DIR}/benchmark/include
+      # Skip testing. The tests don't compile with Clang 8.
+      CMAKE_ARGS -DBENCHMARK_ENABLE_TESTING=OFF)
+endmacro()
+mg_build_if_needed(build_gbenchmark "gbenchmark")
+mg_create_linkable_if_no_cmake(benchmark STATIC
+    "/opt/toolchain-v6/lib/libbenchmark.a"
+    "/opt/toolchain-v6/include"
+)
 
 include(FetchContent)
 

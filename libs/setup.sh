@@ -202,13 +202,21 @@ declare -A secondary_urls=(
   ["croncpp"]="https://github.com/mariusbancila/croncpp.git"
 )
 
-# antlr
+# Skip download if we are under the latest toolchains (>= 6).
+# IMPORTANT: If you want to use the latest version of a lib, just remove the
+# function name in front of the download/clone call. To make the library work,
+# you also have to adjust the CMake setup.
+skip_if_under_toolchain () {
+  artifact_name=$1 && shift 1
+  if [ -z "${MG_TOOLCHAIN_VERSION}" ]; then
+    $@
+  else
+    echo "Skipping $artifact_name download because it's already under the toolchain v$MG_TOOLCHAIN_VERSION"
+  fi
+}
+
 file_get_try_double "${primary_urls[antlr4-generator]}" "${secondary_urls[antlr4-generator]}"
-if [ -z "${MG_TOOLCHAIN_VERSION}" ]; then
-  repo_clone_try_double "${primary_urls[antlr4-code]}" "${secondary_urls[antlr4-code]}" "antlr4" "$antlr4_tag" true
-else
-  echo "Skipping antlr4 download because it's already under the toolchain v$MG_TOOLCHAIN_VERSION"
-fi
+skip_if_under_toolchain "antlr4-code" repo_clone_try_double "${primary_urls[antlr4-code]}" "${secondary_urls[antlr4-code]}" "antlr4" "$antlr4_tag" true
 
 cppitertools_ref="v2.1" # 2021-01-15
 repo_clone_try_double "${primary_urls[cppitertools]}" "${secondary_urls[cppitertools]}" "cppitertools" "$cppitertools_ref"
@@ -217,20 +225,15 @@ repo_clone_try_double "${primary_urls[cppitertools]}" "${secondary_urls[cppitert
 rapidcheck_tag="1c91f40e64d87869250cfb610376c629307bf77d" # (2023-08-15)
 repo_clone_try_double "${primary_urls[rapidcheck]}" "${secondary_urls[rapidcheck]}" "rapidcheck" "$rapidcheck_tag"
 
-# google benchmark
 benchmark_tag="v1.6.0"
-repo_clone_try_double "${primary_urls[gbenchmark]}" "${secondary_urls[gbenchmark]}" "benchmark" "$benchmark_tag" true
+skip_if_under_toolchain "gbenchmark" repo_clone_try_double "${primary_urls[gbenchmark]}" "${secondary_urls[gbenchmark]}" "benchmark" "$benchmark_tag" true
+
+libbcrypt_tag="8aa32ad94ebe06b76853b0767c910c9fbf7ccef4" # custom version (Dec 16, 2016)
+skip_if_under_toolchain "libbcrypt" repo_clone_try_double "${primary_urls[libbcrypt]}" "${secondary_urls[libbcrypt]}" "libbcrypt" "$libbcrypt_tag"
 
 # google test
 googletest_tag="v1.14.0"
 repo_clone_try_double "${primary_urls[gtest]}" "${secondary_urls[gtest]}" "googletest" "$googletest_tag" true
-
-if [ -z "${MG_TOOLCHAIN_VERSION}" ]; then
-  libbcrypt_tag="8aa32ad94ebe06b76853b0767c910c9fbf7ccef4" # custom version (Dec 16, 2016)
-  repo_clone_try_double "${primary_urls[libbcrypt]}" "${secondary_urls[libbcrypt]}" "libbcrypt" "$libbcrypt_tag"
-else
-  echo "Skipping libbcrypt download because it's already under the toolchain v$MG_TOOLCHAIN_VERSION"
-fi
 
 # neo4j
 file_get_try_double "${primary_urls[neo4j]}" "${secondary_urls[neo4j]}"
