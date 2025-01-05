@@ -440,7 +440,7 @@ macro(build_nuraft)
       ${CMAKE_CURRENT_SOURCE_DIR}/nuraft/lib/libnuraft.a
       ${CMAKE_CURRENT_SOURCE_DIR}/nuraft/include/)
 endmacro()
-mg_build_if_needed(link_jmalloc "nuraft")
+mg_build_if_needed(build_nuraft "nuraft")
 mg_create_linkable_if_no_cmake(nuraft STATIC "/opt/toolchain-v6/lib/libnuraft.a" "/opt/toolchain-v6/include")
 find_package(OpenSSL REQUIRED)
 target_link_libraries(nuraft INTERFACE ${OPENSSL_LIBRARIES})
