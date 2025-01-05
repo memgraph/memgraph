@@ -319,14 +319,16 @@ macro(build_mgclient)
       -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
       -DBUILD_TESTING=OFF
       -DBUILD_CPP_BINDINGS=ON)
-    find_package(OpenSSL REQUIRED)
-    target_link_libraries(mgclient INTERFACE ${OPENSSL_LIBRARIES})
 endmacro()
 mg_build_if_needed(build_mgclient "mgclient")
 mg_create_linkable_if_no_cmake(mgclient STATIC
     "/opt/toolchain-v6/lib/libmgclient.a"
     "/opt/toolchain-v6/include"
 )
+# NOTE: the following is possible because both importet targets are called the
+# same. This setting should be moved under mgclient lib itself.
+find_package(OpenSSL REQUIRED)
+target_link_libraries(mgclient INTERFACE ${OPENSSL_LIBRARIES})
 
 macro(build_mgconsole)
     add_external_project(mgconsole
@@ -342,63 +344,79 @@ mg_build_if_needed(build_mgconsole "mgconsole")
 set(SPDLOG_FMT_EXTERNAL ON)
 add_subdirectory(spdlog)
 
-# Setup librdkafka.
-import_external_library(librdkafka STATIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/librdkafka/lib/librdkafka.a
-  ${CMAKE_CURRENT_SOURCE_DIR}/librdkafka/include
-  CMAKE_ARGS -DRDKAFKA_BUILD_STATIC=ON
-  -DRDKAFKA_BUILD_EXAMPLES=OFF
-  -DRDKAFKA_BUILD_TESTS=OFF
-  -DWITH_ZSTD=OFF
-  -DENABLE_LZ4_EXT=OFF
-  -DCMAKE_INSTALL_LIBDIR=lib
-  -DWITH_SSL=ON
-  -DWITH_SASL=ON)
+macro(build_kafka)
+    import_external_library(librdkafka STATIC
+      ${CMAKE_CURRENT_SOURCE_DIR}/librdkafka/lib/librdkafka.a
+      ${CMAKE_CURRENT_SOURCE_DIR}/librdkafka/include
+      CMAKE_ARGS -DRDKAFKA_BUILD_STATIC=ON
+      -DRDKAFKA_BUILD_EXAMPLES=OFF
+      -DRDKAFKA_BUILD_TESTS=OFF
+      -DWITH_ZSTD=OFF
+      -DENABLE_LZ4_EXT=OFF
+      -DCMAKE_INSTALL_LIBDIR=lib
+      -DWITH_SSL=ON
+      -DWITH_SASL=ON)
+    target_link_libraries(librdkafka INTERFACE ${OPENSSL_LIBRARIES} ZLIB::ZLIB sasl2)
+    import_library(librdkafka++ STATIC
+      ${CMAKE_CURRENT_SOURCE_DIR}/librdkafka/lib/librdkafka++.a
+      ${CMAKE_CURRENT_SOURCE_DIR}/librdkafka/include
+    )
+    target_link_libraries(librdkafka++ INTERFACE librdkafka)
+endmacro()
+mg_build_if_needed(build_kafka "librdkafka")
+mg_create_linkable_if_no_cmake(librdkafka STATIC "/opt/toolchain-v6/lib/librdkafka.a" "/opt/toolchain-v6/include")
 target_link_libraries(librdkafka INTERFACE ${OPENSSL_LIBRARIES} ZLIB::ZLIB sasl2)
-import_library(librdkafka++ STATIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/librdkafka/lib/librdkafka++.a
-  ${CMAKE_CURRENT_SOURCE_DIR}/librdkafka/include
-)
+mg_create_linkable_if_no_cmake(librdkafka++ STATIC "/opt/toolchain-v6/lib/librdkafka++.a" "/opt/toolchain-v6/include")
 target_link_libraries(librdkafka++ INTERFACE librdkafka)
 
-set(PROTOBUF_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/protobuf/lib)
-import_external_library(protobuf STATIC
-  ${PROTOBUF_ROOT}/lib/libprotobuf.a
-  ${PROTOBUF_ROOT}/include
-  BUILD_IN_SOURCE 1
-  CONFIGURE_COMMAND true)
+macro(build_protobuf)
+    set(PROTOBUF_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/protobuf/lib)
+    import_external_library(protobuf STATIC
+      ${PROTOBUF_ROOT}/lib/libprotobuf.a
+      ${PROTOBUF_ROOT}/include
+      BUILD_IN_SOURCE 1
+      CONFIGURE_COMMAND true)
+endmacro()
+mg_build_if_needed(build_protobuf "protobuf")
 
-import_external_library(pulsar STATIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/pulsar/pulsar-client-cpp/lib/libpulsarwithdeps.a
-  ${CMAKE_CURRENT_SOURCE_DIR}/pulsar/install/include
-  BUILD_IN_SOURCE 1
-  CONFIGURE_COMMAND cmake pulsar-client-cpp
-  -DCMAKE_INSTALL_PREFIX=${CMAKE_CURRENT_SOURCE_DIR}/pulsar/install
-  -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
-  -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
-  -DBUILD_DYNAMIC_LIB=OFF
-  -DBUILD_STATIC_LIB=ON
-  -DBUILD_TESTS=OFF
-  -DLINK_STATIC=ON
-  -DPROTOC_PATH=${PROTOBUF_ROOT}/bin/protoc
-  -DBOOST_ROOT=${BOOST_ROOT}
-  "-DCMAKE_PREFIX_PATH=$<$<BOOL:${MG_TOOLCHAIN_ROOT}>:${MG_TOOLCHAIN_ROOT}${LIST_SEP}>${PROTOBUF_ROOT}"
-  -DProtobuf_INCLUDE_DIRS=${PROTOBUF_ROOT}/include
-  -DBUILD_PYTHON_WRAPPER=OFF
-  -DBUILD_PERF_TOOLS=OFF
-  -DUSE_LOG4CXX=OFF
-  BUILD_COMMAND $(MAKE) pulsarStaticWithDeps)
-add_dependencies(pulsar-proj protobuf)
+macro(build_pulsar)
+    import_external_library(pulsar STATIC
+      ${CMAKE_CURRENT_SOURCE_DIR}/pulsar/pulsar-client-cpp/lib/libpulsarwithdeps.a
+      ${CMAKE_CURRENT_SOURCE_DIR}/pulsar/install/include
+      BUILD_IN_SOURCE 1
+      CONFIGURE_COMMAND cmake pulsar-client-cpp
+      -DCMAKE_INSTALL_PREFIX=${CMAKE_CURRENT_SOURCE_DIR}/pulsar/install
+      -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+      -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+      -DBUILD_DYNAMIC_LIB=OFF
+      -DBUILD_STATIC_LIB=ON
+      -DBUILD_TESTS=OFF
+      -DLINK_STATIC=ON
+      -DPROTOC_PATH=${PROTOBUF_ROOT}/bin/protoc
+      -DBOOST_ROOT=${BOOST_ROOT}
+      "-DCMAKE_PREFIX_PATH=$<$<BOOL:${MG_TOOLCHAIN_ROOT}>:${MG_TOOLCHAIN_ROOT}${LIST_SEP}>${PROTOBUF_ROOT}"
+      -DProtobuf_INCLUDE_DIRS=${PROTOBUF_ROOT}/include
+      -DBUILD_PYTHON_WRAPPER=OFF
+      -DBUILD_PERF_TOOLS=OFF
+      -DUSE_LOG4CXX=OFF
+      BUILD_COMMAND $(MAKE) pulsarStaticWithDeps)
+    add_dependencies(pulsar-proj protobuf)
+endmacro()
+mg_build_if_needed(build_pulsar "pulsar")
+mg_create_linkable_if_no_cmake(pulsar STATIC "/opt/toolchain-v6/lib/libpulsarwithdeps.a" "/opt/toolchain-v6/include")
 
-if(${MG_ARCH} STREQUAL "ARM64")
-  set(MG_LIBRDTSC_CMAKE_ARGS -DLIBRDTSC_ARCH_x86=OFF -DLIBRDTSC_ARCH_ARM64=ON)
-endif()
-
-import_external_library(librdtsc STATIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/librdtsc/lib/librdtsc.a
-  ${CMAKE_CURRENT_SOURCE_DIR}/librdtsc/include
-  CMAKE_ARGS ${MG_LIBRDTSC_CMAKE_ARGS}
-  BUILD_COMMAND $(MAKE) rdtsc)
+macro(build_librdtsc)
+  if(${MG_ARCH} STREQUAL "ARM64")
+    set(MG_LIBRDTSC_CMAKE_ARGS -DLIBRDTSC_ARCH_x86=OFF -DLIBRDTSC_ARCH_ARM64=ON)
+  endif()
+  import_external_library(librdtsc STATIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/librdtsc/lib/librdtsc.a
+    ${CMAKE_CURRENT_SOURCE_DIR}/librdtsc/include
+    CMAKE_ARGS ${MG_LIBRDTSC_CMAKE_ARGS}
+    BUILD_COMMAND $(MAKE) rdtsc)
+endmacro()
+mg_build_if_needed(build_librdtsc "librdtsc")
+mg_create_linkable_if_no_cmake(librdtsc STATIC "/opt/toolchain-v6/lib/librdtsc.a" "/opt/toolchain-v6/include")
 
 # setup ctre
 import_header_library(ctre ${CMAKE_CURRENT_SOURCE_DIR})

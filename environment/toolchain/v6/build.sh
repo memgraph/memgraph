@@ -1252,27 +1252,53 @@ if [ ! -f $PREFIX/lib/libprotobuf.a ]; then
     popd
 fi
 
-PULSAR_TAG="v3.6.0"
+# NOTE: Latest pulsar is different -> migrate in a separated PR.
+# PULSAR_TAG="v3.6.0"
+# log_tool_name "pulsar $PULSAR_TAG"
+# if [ ! -f $PREFIX/lib/libpulsarwithdeps.a ]; then
+#     if [ -d pulsar ]; then
+#         rm -rf pulsar
+#     fi
+#     git clone https://github.com/apache/pulsar-client-cpp pulsar
+#     pushd pulsar
+#     git submodule update --init --recursive
+#     git checkout $PULSAR_TAG
+#     cmake -B build $COMMON_CMAKE_FLAGS \
+#       -DBUILD_DYNAMIC_LIB=OFF \
+#       -DBUILD_STATIC_LIB=ON \
+#       -DBUILD_TESTS=OFF \
+#       -DLINK_STATIC=ON \
+#       -DPROTOC_PATH=$PREFIX/bin/protoc \
+#       -DUSE_ASIO=OFF \
+#       -DUSE_LOG4CXX=OFF
+#     cmake --build build -j$CPUS --target install
+#     popd
+# fi
+PULSAR_TAG="v2.8.1"
 log_tool_name "pulsar $PULSAR_TAG"
 if [ ! -f $PREFIX/lib/libpulsarwithdeps.a ]; then
     if [ -d pulsar ]; then
         rm -rf pulsar
     fi
-    git clone https://github.com/apache/pulsar-client-cpp pulsar
+    git clone https://github.com/apache/pulsar.git pulsar
     pushd pulsar
-    git submodule update --init --recursive
     git checkout $PULSAR_TAG
-    # TODO(gitbuda): Double check if the pulsar patch is required.
-    # git apply $DIR/pulsar.patch
+    git apply $DIR/pulsar.patch
+      # -DBOOST_ROOT=${BOOST_ROOT}
+      # "-DCMAKE_PREFIX_PATH=$<$<BOOL:${MG_TOOLCHAIN_ROOT}>:${MG_TOOLCHAIN_ROOT}${LIST_SEP}>${PROTOBUF_ROOT}"
+      # -DProtobuf_INCLUDE_DIRS=${PROTOBUF_ROOT}/include
+    pushd pulsar-client-cpp
     cmake -B build $COMMON_CMAKE_FLAGS \
       -DBUILD_DYNAMIC_LIB=OFF \
       -DBUILD_STATIC_LIB=ON \
       -DBUILD_TESTS=OFF \
       -DLINK_STATIC=ON \
       -DPROTOC_PATH=$PREFIX/bin/protoc \
-      -DUSE_ASIO=OFF \
+      -DBUILD_PYTHON_WRAPPER=OFF \
+      -DBUILD_PERF_TOOLS=OFF \
       -DUSE_LOG4CXX=OFF
-    cmake --build build -j$CPUS --target install
+    cmake --build build -j$CPUS --target pulsarStaticWithDeps
+    popd
     popd
 fi
 
@@ -1374,6 +1400,25 @@ if [ ! -f $PREFIX/bin/mgconsole ]; then
     git checkout $MGCONSOLE_TAG
     cmake -B build $COMMON_CMAKE_FLAGS
     cmake --build build -j$CPUS --target mgconsole install
+    popd
+fi
+
+LIBRDTSC_TAG="v0.3"
+log_tool_name "librdtsc $LIBRDTSC_TAG"
+if [ ! -f $PREFIX/lib/librdtsc.a ]; then
+    if [ -d librdtsc ]; then
+      rm -rf librdtsc
+    fi
+    git clone https://github.com/gabrieleara/librdtsc.git librdtsc
+    pushd librdtsc
+    git checkout $LIBRDTSC_TAG
+    git apply "$DIR/librdtsc.patch"
+    if [[ "$for_arm" = "true" ]]; then
+      cmake -B build $COMMON_CMAKE_FLAGS -DLIBRDTSC_ARCH_x86=OFF -DLIBRDTSC_ARCH_ARM64=ON
+    else
+      cmake -B build $COMMON_CMAKE_FLAGS -DLIBRDTSC_ARCH_x86=ON -DLIBRDTSC_ARCH_ARM64=OFF
+    fi
+    cmake --build build -j$CPUS --target rdtsc install
     popd
 fi
 

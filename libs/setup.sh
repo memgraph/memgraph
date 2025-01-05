@@ -280,28 +280,37 @@ repo_clone_try_double "${primary_urls[spdlog]}" "${secondary_urls[spdlog]}" "spd
 
 # librdkafka
 librdkafka_tag="v2.6.1" # (2024-12-05)
-repo_clone_try_double "${primary_urls[librdkafka]}" "${secondary_urls[librdkafka]}" "librdkafka" "$librdkafka_tag" true
+skip_if_under_toolchain "librdkafka" repo_clone_try_double "${primary_urls[librdkafka]}" "${secondary_urls[librdkafka]}" "librdkafka" "$librdkafka_tag" true
 
-# protobuf
-protobuf_tag="v3.12.4"
-repo_clone_try_double "${primary_urls[protobuf]}" "${secondary_urls[protobuf]}" "protobuf" "$protobuf_tag" true
-pushd protobuf
-./autogen.sh && ./configure CC=clang CXX=clang++ --prefix=$(pwd)/lib
-popd
+if [ -z "${MG_TOOLCHAIN_VERSION}" ]; then
+  protobuf_tag="v3.12.4"
+  repo_clone_try_double "${primary_urls[protobuf]}" "${secondary_urls[protobuf]}" "protobuf" "$protobuf_tag" true
+  pushd protobuf
+  ./autogen.sh && ./configure CC=clang CXX=clang++ --prefix=$(pwd)/lib
+  popd
+else
+  echo "Skipping protobuf download because it's already under the toolchain v$MG_TOOLCHAIN_VERSION"
+fi
 
-#pulsar
-pulsar_tag="v2.8.1"
-repo_clone_try_double "${primary_urls[pulsar]}" "${secondary_urls[pulsar]}" "pulsar" "$pulsar_tag" true
-pushd pulsar
-git apply ../pulsar.patch
-popd
+if [ -z "${MG_TOOLCHAIN_VERSION}" ]; then
+  pulsar_tag="v2.8.1"
+  repo_clone_try_double "${primary_urls[pulsar]}" "${secondary_urls[pulsar]}" "pulsar" "$pulsar_tag" true
+  pushd pulsar
+  git apply ../pulsar.patch
+  popd
+else
+  echo "Skipping pulsar download because it's already under the toolchain v$MG_TOOLCHAIN_VERSION"
+fi
 
-#librdtsc
-librdtsc_tag="v0.3"
-repo_clone_try_double "${primary_urls[librdtsc]}" "${secondary_urls[librdtsc]}" "librdtsc" "$librdtsc_tag" true
-pushd librdtsc
-git apply ../librdtsc.patch
-popd
+if [ -z "${MG_TOOLCHAIN_VERSION}" ]; then
+  librdtsc_tag="v0.3"
+  repo_clone_try_double "${primary_urls[librdtsc]}" "${secondary_urls[librdtsc]}" "librdtsc" "$librdtsc_tag" true
+  pushd librdtsc
+  git apply ../librdtsc.patch
+  popd
+else
+  echo "Skipping librdtsc download because it's already under the toolchain v$MG_TOOLCHAIN_VERSION"
+fi
 
 #ctre
 mkdir -p ctre
