@@ -430,31 +430,39 @@ macro(link_jmalloc)
       ${CMAKE_CURRENT_SOURCE_DIR}/jemalloc/lib/libjemalloc.a
       ${CMAKE_CURRENT_SOURCE_DIR}/jemalloc/include/)
 endmacro()
-mg_build_if_needed(link_jmalloc)
-mg_create_linkable_if_no_cmake(jemalloc STATIC "/opt/toolchain-v6/lib/libjemalloc.a" "/opt/toolchain-v6/include")
+mg_build_if_needed(link_jmalloc "jemalloc")
+set_path_external_library(jemalloc STATIC "/opt/toolchain-v6/lib/libjemalloc.a" "/opt/toolchain-v6/include")
 
 import_header_library(rangev3 ${CMAKE_CURRENT_SOURCE_DIR}/rangev3/include)
 
-# Setup NuRaft
-import_external_library(nuraft STATIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/nuraft/lib/libnuraft.a
-  ${CMAKE_CURRENT_SOURCE_DIR}/nuraft/include/)
+macro(build_nuraft)
+    import_external_library(nuraft STATIC
+      ${CMAKE_CURRENT_SOURCE_DIR}/nuraft/lib/libnuraft.a
+      ${CMAKE_CURRENT_SOURCE_DIR}/nuraft/include/)
+endmacro()
+mg_build_if_needed(link_jmalloc "nuraft")
+mg_create_linkable_if_no_cmake(nuraft STATIC "/opt/toolchain-v6/lib/libnuraft.a" "/opt/toolchain-v6/include")
 find_package(OpenSSL REQUIRED)
 target_link_libraries(nuraft INTERFACE ${OPENSSL_LIBRARIES})
 
+macro(build_mgcxx)
 # Setup mgcxx (provides: text search)
-set(MGCXX_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx/include
-  CACHE PATH "Path to mgcxx include directory" FORCE)
-set(TANTIVY_TEXT_SEARCH_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx/lib/libtantivy_text_search.a
-  CACHE FILEPATH "Path to mgcxx tantivy library (internal one)" FORCE)
-set(MGCXX_TEXT_SEARCH_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx/lib/libmgcxx_text_search.a
-  CACHE FILEPATH "Path to mgcxx text search library" FORCE)
-add_external_project(mgcxx
-  SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx
-  CMAKE_ARGS -DENABLE_TESTS=OFF)
-mark_as_advanced(MGCXX_INCLUDE_DIR TANTIVY_TEXT_SEARCH_LIBRARY MGCXX_TEXT_SEARCH_LIBRARY)
-import_library(tantivy_text_search STATIC ${TANTIVY_TEXT_SEARCH_LIBRARY} ${MGCXX_INCLUDE_DIR} mgcxx-proj)
-import_library(mgcxx_text_search STATIC ${MGCXX_TEXT_SEARCH_LIBRARY} ${MGCXX_INCLUDE_DIR} mgcxx-proj)
+    set(MGCXX_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx/include
+      CACHE PATH "Path to mgcxx include directory" FORCE)
+    set(TANTIVY_TEXT_SEARCH_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx/lib/libtantivy_text_search.a
+      CACHE FILEPATH "Path to mgcxx tantivy library (internal one)" FORCE)
+    set(MGCXX_TEXT_SEARCH_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx/lib/libmgcxx_text_search.a
+      CACHE FILEPATH "Path to mgcxx text search library" FORCE)
+    add_external_project(mgcxx
+      SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx
+      CMAKE_ARGS -DENABLE_TESTS=OFF)
+    mark_as_advanced(MGCXX_INCLUDE_DIR TANTIVY_TEXT_SEARCH_LIBRARY MGCXX_TEXT_SEARCH_LIBRARY)
+    import_library(tantivy_text_search STATIC ${TANTIVY_TEXT_SEARCH_LIBRARY} ${MGCXX_INCLUDE_DIR} mgcxx-proj)
+    import_library(mgcxx_text_search STATIC ${MGCXX_TEXT_SEARCH_LIBRARY} ${MGCXX_INCLUDE_DIR} mgcxx-proj)
+endmacro()
+mg_build_if_needed(build_mgcxx "mgcxx")
+mg_create_linkable_if_no_cmake(tantivy_text_search STATIC "/opt/toolchain-v6/lib/libtantivy_text_search.a" "/opt/toolchain-v6/include")
+mg_create_linkable_if_no_cmake(mgcxx_text_search STATIC "/opt/toolchain-v6/lib/libmgcxx_text_search.a" "/opt/toolchain-v6/include")
 
 # setup strong_type (cmake sub_directory tolerant)
 add_subdirectory(strong_type EXCLUDE_FROM_ALL)

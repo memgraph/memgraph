@@ -53,5 +53,6 @@ PREFIX=/opt/toolchain-v6
 # rm -rf "$PREFIX/lib/libgtest.a"
 # rm -rf "$PREFIX/lib/libmgclient.a"
 # rm -rf "$PREFIX/bin/mgconsole"
+# rm -rf "$PREFIX/lib/libmgcxx_text_search.a"
 
 # rm -rf "$PREFIX"
