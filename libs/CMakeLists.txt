@@ -150,86 +150,86 @@ include(FetchContent)
 
 # NOTE: Called under, e.g., src/kvstore/CMakeLists.txt
 macro(mg_target_link_library_cmake toolchain_version mg_target_name package_name toolchain_lib_name local_lib_name)
-    if(DEFINED ENV{MG_TOOLCHAIN_VERSION})
-        if($ENV{MG_TOOLCHAIN_VERSION} GREATER_EQUAL ${toolchain_version})
-            message(STATUS "TOOLCHAIN v${toolchain_version}")
-            find_package(${package_name} REQUIRED)
-            target_link_libraries(${mg_target_name} ${toolchain_lib_name})
-        else()
-            message(STATUS "Not the right TOOLCHAIN")
-            target_link_libraries(${mg_target_name} ${local_lib_name})
-        endif()
+  if(DEFINED ENV{MG_TOOLCHAIN_VERSION})
+    if($ENV{MG_TOOLCHAIN_VERSION} GREATER_EQUAL ${toolchain_version})
+      message(STATUS "TOOLCHAIN v${toolchain_version}")
+      find_package(${package_name} REQUIRED)
+      target_link_libraries(${mg_target_name} ${toolchain_lib_name})
     else()
-        message(STATUS "Unknown TOOLCHAIN")
-        target_link_libraries(${mg_target_name} ${local_lib_name})
+      message(STATUS "Not the right TOOLCHAIN")
+      target_link_libraries(${mg_target_name} ${local_lib_name})
     endif()
+  else()
+    message(STATUS "Unknown TOOLCHAIN")
+    target_link_libraries(${mg_target_name} ${local_lib_name})
+  endif()
 endmacro()
 
 macro(mg_build_if_needed build_macro lib_name)
-    if(DEFINED ENV{MG_TOOLCHAIN_VERSION})
-        if($ENV{MG_TOOLCHAIN_VERSION} GREATER_EQUAL 6)
-            message(STATUS "NOTE: ${lib_name} should be under the toolchain.")
-        else()
-            cmake_language(CALL ${build_macro})
-        endif()
+  if(DEFINED ENV{MG_TOOLCHAIN_VERSION})
+    if($ENV{MG_TOOLCHAIN_VERSION} GREATER_EQUAL 6)
+      message(STATUS "NOTE: ${lib_name} should be under the toolchain.")
     else()
-        cmake_language(CALL ${build_macro})
+      cmake_language(CALL ${build_macro})
     endif()
+  else()
+    cmake_language(CALL ${build_macro})
+  endif()
 endmacro()
 
 macro(mg_create_linkable_if_no_cmake lib_name lib_type lib_path include_path)
-    if(DEFINED ENV{MG_TOOLCHAIN_VERSION})
-        if($ENV{MG_TOOLCHAIN_VERSION} GREATER_EQUAL 6)
-            # NOTE: This is like the import_library, but the existing code
-            # couldn't be used because it depends on the building the
-            # project(lib) locally...
-            add_library(${lib_name} ${lib_type} IMPORTED GLOBAL)
-            set_property(TARGET ${lib_name} PROPERTY IMPORTED_LOCATION ${lib_path})
-            # We need to create the include directory first in order to be able to add it
-            # as an include directory. The header files in the include directory will be
-            # generated later during the build process.
-            file(MAKE_DIRECTORY ${include_path})
-            target_include_directories(${lib_name} INTERFACE ${include_path})
-            message(STATUS "NOTE: Imported ${lib_name} from ${lib_path} and ${include_path}")
-        else()
-            message(STATUS "NOTE: ${lib_name} should be built locally.")
-        endif()
+  if(DEFINED ENV{MG_TOOLCHAIN_VERSION})
+    if($ENV{MG_TOOLCHAIN_VERSION} GREATER_EQUAL 6)
+      # NOTE: This is like the import_library, but the existing code
+      # couldn't be used because it depends on the building the
+      # project(lib) locally...
+      add_library(${lib_name} ${lib_type} IMPORTED GLOBAL)
+      set_property(TARGET ${lib_name} PROPERTY IMPORTED_LOCATION ${lib_path})
+      # We need to create the include directory first in order to be able to add it
+      # as an include directory. The header files in the include directory will be
+      # generated later during the build process.
+      file(MAKE_DIRECTORY ${include_path})
+      target_include_directories(${lib_name} INTERFACE ${include_path})
+      message(STATUS "NOTE: Imported ${lib_name} from ${lib_path} and ${include_path}")
     else()
-        message(STATUS "NOTE: ${lib_name} should be built locally.")
+      message(STATUS "NOTE: ${lib_name} should be built locally.")
     endif()
+  else()
+    message(STATUS "NOTE: ${lib_name} should be built locally.")
+  endif()
 endmacro()
 
 macro(build_antlr4)
-    import_external_library(antlr4 STATIC
-      ${CMAKE_CURRENT_SOURCE_DIR}/antlr4/runtime/Cpp/lib/libantlr4-runtime.a
-      ${CMAKE_CURRENT_SOURCE_DIR}/antlr4/runtime/Cpp/include/antlr4-runtime
-      SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/antlr4/runtime/Cpp
-      CMAKE_ARGS # http://stackoverflow.com/questions/37096062/get-a-basic-c-program-to-compile-using-clang-on-ubuntu-16/38385967#38385967
-      -DWITH_LIBCXX=OFF # because of debian bug
-      -DCMAKE_SKIP_INSTALL_ALL_DEPENDENCY=true
-      -DCMAKE_CXX_STANDARD=20
-      -DANTLR_BUILD_CPP_TESTS=OFF
-      -DANTLR_BUILD_SHARED=OFF
-      BUILD_COMMAND $(MAKE) antlr4_static
-      INSTALL_COMMAND $(MAKE) install)
+  import_external_library(antlr4 STATIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/antlr4/runtime/Cpp/lib/libantlr4-runtime.a
+    ${CMAKE_CURRENT_SOURCE_DIR}/antlr4/runtime/Cpp/include/antlr4-runtime
+    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/antlr4/runtime/Cpp
+    CMAKE_ARGS # http://stackoverflow.com/questions/37096062/get-a-basic-c-program-to-compile-using-clang-on-ubuntu-16/38385967#38385967
+    -DWITH_LIBCXX=OFF # because of debian bug
+    -DCMAKE_SKIP_INSTALL_ALL_DEPENDENCY=true
+    -DCMAKE_CXX_STANDARD=20
+    -DANTLR_BUILD_CPP_TESTS=OFF
+    -DANTLR_BUILD_SHARED=OFF
+    BUILD_COMMAND $(MAKE) antlr4_static
+    INSTALL_COMMAND $(MAKE) install)
 endmacro()
 mg_build_if_needed(build_antlr4 "antlr4")
 mg_create_linkable_if_no_cmake(antlr4 STATIC
-    "${MG_TOOLCHAIN_ROOT}/lib/libantlr4-runtime.a"
-    "${MG_TOOLCHAIN_ROOT}/include/antlr4-runtime"
+  "${MG_TOOLCHAIN_ROOT}/lib/libantlr4-runtime.a"
+  "${MG_TOOLCHAIN_ROOT}/include/antlr4-runtime"
 )
 
 macro(build_gbenchmark)
-    import_external_library(benchmark STATIC
-      ${CMAKE_CURRENT_SOURCE_DIR}/benchmark/${CMAKE_INSTALL_LIBDIR}/libbenchmark.a
-      ${CMAKE_CURRENT_SOURCE_DIR}/benchmark/include
-      # Skip testing. The tests don't compile with Clang 8.
-      CMAKE_ARGS -DBENCHMARK_ENABLE_TESTING=OFF)
+  import_external_library(benchmark STATIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/benchmark/${CMAKE_INSTALL_LIBDIR}/libbenchmark.a
+    ${CMAKE_CURRENT_SOURCE_DIR}/benchmark/include
+    # Skip testing. The tests don't compile with Clang 8.
+    CMAKE_ARGS -DBENCHMARK_ENABLE_TESTING=OFF)
 endmacro()
 mg_build_if_needed(build_gbenchmark "gbenchmark")
 mg_create_linkable_if_no_cmake(benchmark STATIC
-    "${MG_TOOLCHAIN_ROOT}/lib/libbenchmark.a"
-    "${MG_TOOLCHAIN_ROOT}/include"
+  "${MG_TOOLCHAIN_ROOT}/lib/libbenchmark.a"
+  "${MG_TOOLCHAIN_ROOT}/include"
 )
 
 # setup rapidcheck (it cannot be external, since it doesn't have install
@@ -240,23 +240,23 @@ mark_as_advanced(RC_ENABLE_GTEST RC_ENABLE_GMOCK)
 add_subdirectory(rapidcheck EXCLUDE_FROM_ALL)
 
 macro(build_gtest)
-    add_external_project(gtest SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/googletest
-      CMAKE_ARGS -DCMAKE_INSTALL_LIBDIR=lib)
-    set(GTEST_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/googletest/include
-      CACHE PATH "Path to gtest and gmock include directory" FORCE)
-    set(GMOCK_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/googletest/lib/libgmock.a
-      CACHE FILEPATH "Path to gmock library" FORCE)
-    set(GMOCK_MAIN_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/googletest/lib/libgmock_main.a
-      CACHE FILEPATH "Path to gmock_main library" FORCE)
-    set(GTEST_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/googletest/lib/libgtest.a
-      CACHE FILEPATH "Path to gtest library" FORCE)
-    set(GTEST_MAIN_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/googletest/lib/libgtest_main.a
-      CACHE FILEPATH "Path to gtest_main library" FORCE)
-    mark_as_advanced(GTEST_INCLUDE_DIR GMOCK_LIBRARY GMOCK_MAIN_LIBRARY GTEST_LIBRARY GTEST_MAIN_LIBRARY)
-    import_library(gtest STATIC ${GTEST_LIBRARY} ${GTEST_INCLUDE_DIR} gtest-proj)
-    import_library(gtest_main STATIC ${GTEST_MAIN_LIBRARY} ${GTEST_INCLUDE_DIR} gtest-proj)
-    import_library(gmock STATIC ${GMOCK_LIBRARY} ${GTEST_INCLUDE_DIR} gtest-proj)
-    import_library(gmock_main STATIC ${GMOCK_MAIN_LIBRARY} ${GTEST_INCLUDE_DIR} gtest-proj)
+  add_external_project(gtest SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/googletest
+    CMAKE_ARGS -DCMAKE_INSTALL_LIBDIR=lib)
+  set(GTEST_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/googletest/include
+    CACHE PATH "Path to gtest and gmock include directory" FORCE)
+  set(GMOCK_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/googletest/lib/libgmock.a
+    CACHE FILEPATH "Path to gmock library" FORCE)
+  set(GMOCK_MAIN_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/googletest/lib/libgmock_main.a
+    CACHE FILEPATH "Path to gmock_main library" FORCE)
+  set(GTEST_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/googletest/lib/libgtest.a
+    CACHE FILEPATH "Path to gtest library" FORCE)
+  set(GTEST_MAIN_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/googletest/lib/libgtest_main.a
+    CACHE FILEPATH "Path to gtest_main library" FORCE)
+  mark_as_advanced(GTEST_INCLUDE_DIR GMOCK_LIBRARY GMOCK_MAIN_LIBRARY GTEST_LIBRARY GTEST_MAIN_LIBRARY)
+  import_library(gtest STATIC ${GTEST_LIBRARY} ${GTEST_INCLUDE_DIR} gtest-proj)
+  import_library(gtest_main STATIC ${GTEST_MAIN_LIBRARY} ${GTEST_INCLUDE_DIR} gtest-proj)
+  import_library(gmock STATIC ${GMOCK_LIBRARY} ${GTEST_INCLUDE_DIR} gtest-proj)
+  import_library(gmock_main STATIC ${GMOCK_MAIN_LIBRARY} ${GTEST_INCLUDE_DIR} gtest-proj)
 endmacro()
 mg_build_if_needed(build_gtest "gtest")
 mg_create_linkable_if_no_cmake(gtest STATIC "${MG_TOOLCHAIN_ROOT}/lib/libgtest.a" "${MG_TOOLCHAIN_ROOT}/include")
@@ -295,23 +295,23 @@ macro(build_bcrypt)
 endmacro()
 mg_build_if_needed(build_bcrypt "bcrypt")
 mg_create_linkable_if_no_cmake(libbcrypt STATIC
-    "${MG_TOOLCHAIN_ROOT}/lib/bcrypt.a"
-    "${MG_TOOLCHAIN_ROOT}/include"
+  "${MG_TOOLCHAIN_ROOT}/lib/bcrypt.a"
+  "${MG_TOOLCHAIN_ROOT}/include"
 )
 
 macro(build_mgclient)
-    import_external_library(mgclient STATIC
-      ${CMAKE_CURRENT_SOURCE_DIR}/mgclient/lib/libmgclient.a
-      ${CMAKE_CURRENT_SOURCE_DIR}/mgclient/include
-      CMAKE_ARGS -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
-      -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
-      -DBUILD_TESTING=OFF
-      -DBUILD_CPP_BINDINGS=ON)
+  import_external_library(mgclient STATIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/mgclient/lib/libmgclient.a
+    ${CMAKE_CURRENT_SOURCE_DIR}/mgclient/include
+    CMAKE_ARGS -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+    -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+    -DBUILD_TESTING=OFF
+    -DBUILD_CPP_BINDINGS=ON)
 endmacro()
 mg_build_if_needed(build_mgclient "mgclient")
 mg_create_linkable_if_no_cmake(mgclient STATIC
-    "${MG_TOOLCHAIN_ROOT}/lib/libmgclient.a"
-    "${MG_TOOLCHAIN_ROOT}/include"
+  "${MG_TOOLCHAIN_ROOT}/lib/libmgclient.a"
+  "${MG_TOOLCHAIN_ROOT}/include"
 )
 # NOTE: the following is possible because both importet targets are called the
 # same. This setting should be moved under mgclient lib itself.
@@ -414,19 +414,23 @@ set(ABSL_PROPAGATE_CXX_STD ON)
 add_subdirectory(absl EXCLUDE_FROM_ALL)
 
 macro(link_jmalloc)
-    set_path_external_library(jemalloc STATIC
-      ${CMAKE_CURRENT_SOURCE_DIR}/jemalloc/lib/libjemalloc.a
-      ${CMAKE_CURRENT_SOURCE_DIR}/jemalloc/include/)
+  set_path_external_library(jemalloc STATIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/jemalloc/lib/libjemalloc.a
+    ${CMAKE_CURRENT_SOURCE_DIR}/jemalloc/include/)
 endmacro()
 mg_build_if_needed(link_jmalloc "jemalloc")
-set_path_external_library(jemalloc STATIC "${MG_TOOLCHAIN_ROOT}/lib/libjemalloc.a" "${MG_TOOLCHAIN_ROOT}/include")
+if(DEFINED ENV{MG_TOOLCHAIN_VERSION})
+  if($ENV{MG_TOOLCHAIN_VERSION} GREATER_EQUAL 6)
+    set_path_external_library(jemalloc STATIC "${MG_TOOLCHAIN_ROOT}/lib/libjemalloc.a" "${MG_TOOLCHAIN_ROOT}/include")
+  endif()
+endif()
 
 import_header_library(rangev3 ${CMAKE_CURRENT_SOURCE_DIR}/rangev3/include)
 
 macro(build_nuraft)
-    import_external_library(nuraft STATIC
-      ${CMAKE_CURRENT_SOURCE_DIR}/nuraft/lib/libnuraft.a
-      ${CMAKE_CURRENT_SOURCE_DIR}/nuraft/include/)
+  import_external_library(nuraft STATIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/nuraft/lib/libnuraft.a
+    ${CMAKE_CURRENT_SOURCE_DIR}/nuraft/include/)
 endmacro()
 mg_build_if_needed(build_nuraft "nuraft")
 mg_create_linkable_if_no_cmake(nuraft STATIC "${MG_TOOLCHAIN_ROOT}/lib/libnuraft.a" "${MG_TOOLCHAIN_ROOT}/include")
@@ -434,19 +438,19 @@ find_package(OpenSSL REQUIRED)
 target_link_libraries(nuraft INTERFACE ${OPENSSL_LIBRARIES})
 
 macro(build_mgcxx)
-    # Setup mgcxx (provides: text search)
-    set(MGCXX_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx/include
-      CACHE PATH "Path to mgcxx include directory" FORCE)
-    set(TANTIVY_TEXT_SEARCH_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx/lib/libtantivy_text_search.a
-      CACHE FILEPATH "Path to mgcxx tantivy library (internal one)" FORCE)
-    set(MGCXX_TEXT_SEARCH_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx/lib/libmgcxx_text_search.a
-      CACHE FILEPATH "Path to mgcxx text search library" FORCE)
-    add_external_project(mgcxx
-      SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx
-      CMAKE_ARGS -DENABLE_TESTS=OFF)
-    mark_as_advanced(MGCXX_INCLUDE_DIR TANTIVY_TEXT_SEARCH_LIBRARY MGCXX_TEXT_SEARCH_LIBRARY)
-    import_library(tantivy_text_search STATIC ${TANTIVY_TEXT_SEARCH_LIBRARY} ${MGCXX_INCLUDE_DIR} mgcxx-proj)
-    import_library(mgcxx_text_search STATIC ${MGCXX_TEXT_SEARCH_LIBRARY} ${MGCXX_INCLUDE_DIR} mgcxx-proj)
+  # Setup mgcxx (provides: text search)
+  set(MGCXX_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx/include
+    CACHE PATH "Path to mgcxx include directory" FORCE)
+  set(TANTIVY_TEXT_SEARCH_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx/lib/libtantivy_text_search.a
+    CACHE FILEPATH "Path to mgcxx tantivy library (internal one)" FORCE)
+  set(MGCXX_TEXT_SEARCH_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx/lib/libmgcxx_text_search.a
+    CACHE FILEPATH "Path to mgcxx text search library" FORCE)
+  add_external_project(mgcxx
+    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx
+    CMAKE_ARGS -DENABLE_TESTS=OFF)
+  mark_as_advanced(MGCXX_INCLUDE_DIR TANTIVY_TEXT_SEARCH_LIBRARY MGCXX_TEXT_SEARCH_LIBRARY)
+  import_library(tantivy_text_search STATIC ${TANTIVY_TEXT_SEARCH_LIBRARY} ${MGCXX_INCLUDE_DIR} mgcxx-proj)
+  import_library(mgcxx_text_search STATIC ${MGCXX_TEXT_SEARCH_LIBRARY} ${MGCXX_INCLUDE_DIR} mgcxx-proj)
 endmacro()
 mg_build_if_needed(build_mgcxx "mgcxx")
 mg_create_linkable_if_no_cmake(tantivy_text_search STATIC "${MG_TOOLCHAIN_ROOT}/lib/libtantivy_text_search.a" "${MG_TOOLCHAIN_ROOT}/include")
@@ -458,9 +462,9 @@ add_subdirectory(strong_type EXCLUDE_FROM_ALL)
 # setup usearch
 import_header_library(usearch ${CMAKE_CURRENT_SOURCE_DIR}/usearch/include)
 set_property(TARGET usearch PROPERTY INTERFACE_INCLUDE_DIRECTORIES
-    ${CMAKE_CURRENT_SOURCE_DIR}/usearch/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/usearch/fp16/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/usearch/stringzilla/include)
+  ${CMAKE_CURRENT_SOURCE_DIR}/usearch/include
+  ${CMAKE_CURRENT_SOURCE_DIR}/usearch/fp16/include
+  ${CMAKE_CURRENT_SOURCE_DIR}/usearch/stringzilla/include)
 
 # setup croncpp
 add_subdirectory(croncpp EXCLUDE_FROM_ALL)
