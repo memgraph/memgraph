@@ -49,5 +49,9 @@ PREFIX=/opt/toolchain-v6
 # rm -rf "$PREFIX/lib/libpulsarwithdeps.a"
 # rm -rf "$PREFIX/lib/librdkafka++.a"
 # rm -rf "$PREFIX/lib/bcrypt.a"
+# rm -rf "$PREFIX/lib/libbenchmark.a"
+# rm -rf "$PREFIX/lib/libgtest.a"
+# rm -rf "$PREFIX/lib/libmgclient.a"
+# rm -rf "$PREFIX/bin/mgconsole"
 
 # rm -rf "$PREFIX"

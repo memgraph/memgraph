@@ -250,24 +250,30 @@ set(RC_ENABLE_GMOCK ON CACHE BOOL "Build Google Mock integration" FORCE)
 mark_as_advanced(RC_ENABLE_GTEST RC_ENABLE_GMOCK)
 add_subdirectory(rapidcheck EXCLUDE_FROM_ALL)
 
-# setup google test
-add_external_project(gtest SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/googletest
-  CMAKE_ARGS -DCMAKE_INSTALL_LIBDIR=lib)
-set(GTEST_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/googletest/include
-  CACHE PATH "Path to gtest and gmock include directory" FORCE)
-set(GMOCK_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/googletest/lib/libgmock.a
-  CACHE FILEPATH "Path to gmock library" FORCE)
-set(GMOCK_MAIN_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/googletest/lib/libgmock_main.a
-  CACHE FILEPATH "Path to gmock_main library" FORCE)
-set(GTEST_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/googletest/lib/libgtest.a
-  CACHE FILEPATH "Path to gtest library" FORCE)
-set(GTEST_MAIN_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/googletest/lib/libgtest_main.a
-  CACHE FILEPATH "Path to gtest_main library" FORCE)
-mark_as_advanced(GTEST_INCLUDE_DIR GMOCK_LIBRARY GMOCK_MAIN_LIBRARY GTEST_LIBRARY GTEST_MAIN_LIBRARY)
-import_library(gtest STATIC ${GTEST_LIBRARY} ${GTEST_INCLUDE_DIR} gtest-proj)
-import_library(gtest_main STATIC ${GTEST_MAIN_LIBRARY} ${GTEST_INCLUDE_DIR} gtest-proj)
-import_library(gmock STATIC ${GMOCK_LIBRARY} ${GTEST_INCLUDE_DIR} gtest-proj)
-import_library(gmock_main STATIC ${GMOCK_MAIN_LIBRARY} ${GTEST_INCLUDE_DIR} gtest-proj)
+macro(build_gtest)
+    add_external_project(gtest SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/googletest
+      CMAKE_ARGS -DCMAKE_INSTALL_LIBDIR=lib)
+    set(GTEST_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/googletest/include
+      CACHE PATH "Path to gtest and gmock include directory" FORCE)
+    set(GMOCK_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/googletest/lib/libgmock.a
+      CACHE FILEPATH "Path to gmock library" FORCE)
+    set(GMOCK_MAIN_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/googletest/lib/libgmock_main.a
+      CACHE FILEPATH "Path to gmock_main library" FORCE)
+    set(GTEST_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/googletest/lib/libgtest.a
+      CACHE FILEPATH "Path to gtest library" FORCE)
+    set(GTEST_MAIN_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/googletest/lib/libgtest_main.a
+      CACHE FILEPATH "Path to gtest_main library" FORCE)
+    mark_as_advanced(GTEST_INCLUDE_DIR GMOCK_LIBRARY GMOCK_MAIN_LIBRARY GTEST_LIBRARY GTEST_MAIN_LIBRARY)
+    import_library(gtest STATIC ${GTEST_LIBRARY} ${GTEST_INCLUDE_DIR} gtest-proj)
+    import_library(gtest_main STATIC ${GTEST_MAIN_LIBRARY} ${GTEST_INCLUDE_DIR} gtest-proj)
+    import_library(gmock STATIC ${GMOCK_LIBRARY} ${GTEST_INCLUDE_DIR} gtest-proj)
+    import_library(gmock_main STATIC ${GMOCK_MAIN_LIBRARY} ${GTEST_INCLUDE_DIR} gtest-proj)
+endmacro()
+mg_build_if_needed(build_gtest "gtest")
+mg_create_linkable_if_no_cmake(gtest STATIC "/opt/toolchain-v6/lib/libgtest.a" "/opt/toolchain-v6/include")
+mg_create_linkable_if_no_cmake(gtest_main STATIC "/opt/toolchain-v6/lib/libgtest_main.a" "/opt/toolchain-v6/include")
+mg_create_linkable_if_no_cmake(gmock STATIC "/opt/toolchain-v6/lib/libgmock.a" "/opt/toolchain-v6/include")
+mg_create_linkable_if_no_cmake(gmock_main STATIC "/opt/toolchain-v6/lib/libgmock_main.a" "/opt/toolchain-v6/include")
 
 # Setup cppitertools
 import_header_library(cppitertools ${CMAKE_CURRENT_SOURCE_DIR})
@@ -305,23 +311,32 @@ mg_create_linkable_if_no_cmake(libbcrypt STATIC
     "/opt/toolchain-v6/include"
 )
 
-# Setup mgclient
-import_external_library(mgclient STATIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/mgclient/lib/libmgclient.a
-  ${CMAKE_CURRENT_SOURCE_DIR}/mgclient/include
-  CMAKE_ARGS -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
-  -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
-  -DBUILD_TESTING=OFF
-  -DBUILD_CPP_BINDINGS=ON)
-find_package(OpenSSL REQUIRED)
-target_link_libraries(mgclient INTERFACE ${OPENSSL_LIBRARIES})
+macro(build_mgclient)
+    import_external_library(mgclient STATIC
+      ${CMAKE_CURRENT_SOURCE_DIR}/mgclient/lib/libmgclient.a
+      ${CMAKE_CURRENT_SOURCE_DIR}/mgclient/include
+      CMAKE_ARGS -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+      -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+      -DBUILD_TESTING=OFF
+      -DBUILD_CPP_BINDINGS=ON)
+    find_package(OpenSSL REQUIRED)
+    target_link_libraries(mgclient INTERFACE ${OPENSSL_LIBRARIES})
+endmacro()
+mg_build_if_needed(build_mgclient "mgclient")
+mg_create_linkable_if_no_cmake(mgclient STATIC
+    "/opt/toolchain-v6/lib/libmgclient.a"
+    "/opt/toolchain-v6/include"
+)
 
-add_external_project(mgconsole
-  SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/mgconsole
-  CMAKE_ARGS
-  -DCMAKE_INSTALL_PREFIX:PATH=${CMAKE_BINARY_DIR}
-  BUILD_COMMAND $(MAKE) mgconsole)
-add_custom_target(mgconsole DEPENDS mgconsole-proj)
+macro(build_mgconsole)
+    add_external_project(mgconsole
+      SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/mgconsole
+      CMAKE_ARGS
+      -DCMAKE_INSTALL_PREFIX:PATH=${CMAKE_BINARY_DIR}
+      BUILD_COMMAND $(MAKE) mgconsole)
+    add_custom_target(mgconsole DEPENDS mgconsole-proj)
+endmacro()
+mg_build_if_needed(build_mgconsole "mgconsole")
 
 # Setup spdlog
 set(SPDLOG_FMT_EXTERNAL ON)

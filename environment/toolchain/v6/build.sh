@@ -1331,6 +1331,52 @@ if [ ! -f $PREFIX/lib/libbenchmark.a ]; then
     popd
 fi
 
+GTEST_TAG="v1.14.0"
+log_tool_name "gtest $GTEST_TAG"
+if [ ! -f $PREFIX/lib/libgtest.a ]; then
+    if [ -d googletest ]; then
+      rm -rf googletest
+    fi
+    git clone https://github.com/google/googletest.git googletest
+    pushd googletest
+    git checkout $GTEST_TAG
+    cmake -B build $COMMON_CMAKE_FLAGS \
+      -DCMAKE_INSTALL_LIBDIR="$PREFIX/lib"
+    cmake --build build -j$CPUS --target install
+    popd
+fi
+
+MGCLIENT_TAG="v1.4.4"
+log_tool_name "mgclient $MGCLIENT_TAG"
+if [ ! -f $PREFIX/lib/libmgclient.a ]; then
+    if [ -d mgclient ]; then
+      rm -rf mgclient
+    fi
+    git clone https://github.com/memgraph/mgclient.git mgclient
+    pushd mgclient
+    git checkout $MGCLIENT_TAG
+    sed -i 's/\${CMAKE_INSTALL_LIBDIR}/lib/' src/CMakeLists.txt
+    cmake -B build $COMMON_CMAKE_FLAGS \
+      -DBUILD_TESTING=OFF \
+      -DBUILD_CPP_BINDINGS=ON
+    cmake --build build -j$CPUS --target install
+    popd
+fi
+
+MGCONSOLE_TAG="v1.4.0"
+log_tool_name "mgconsole $MGCONSOLE_TAG"
+if [ ! -f $PREFIX/bin/mgconsole ]; then
+    if [ -d mgconsole ]; then
+      rm -rf mgconsole
+    fi
+    git clone https://github.com/memgraph/mgconsole.git mgconsole
+    pushd mgconsole
+    git checkout $MGCONSOLE_TAG
+    cmake -B build $COMMON_CMAKE_FLAGS
+    cmake --build build -j$CPUS --target mgconsole install
+    popd
+fi
+
 # NOTE: Skip FBLIBS -> only used on project-pineapples
 #   * older versions don't compile on the latest GCC
 #   * newer versions don't work with OpenSSL 1.0 which is critical for CentOS7

@@ -233,7 +233,7 @@ skip_if_under_toolchain "libbcrypt" repo_clone_try_double "${primary_urls[libbcr
 
 # google test
 googletest_tag="v1.14.0"
-repo_clone_try_double "${primary_urls[gtest]}" "${secondary_urls[gtest]}" "googletest" "$googletest_tag" true
+skip_if_under_toolchain "gtest" repo_clone_try_double "${primary_urls[gtest]}" "${secondary_urls[gtest]}" "googletest" "$googletest_tag" true
 
 # neo4j
 file_get_try_double "${primary_urls[neo4j]}" "${secondary_urls[neo4j]}"
@@ -259,10 +259,13 @@ else
   echo "Skipping rocksdb download because it's already under the toolchain v$MG_TOOLCHAIN_VERSION"
 fi
 
-# mgclient
-mgclient_tag="v1.4.0" # (2022-06-14)
-repo_clone_try_double "${primary_urls[mgclient]}" "${secondary_urls[mgclient]}" "mgclient" "$mgclient_tag"
-sed -i 's/\${CMAKE_INSTALL_LIBDIR}/lib/' mgclient/src/CMakeLists.txt
+if [ -z "${MG_TOOLCHAIN_VERSION}" ]; then
+  mgclient_tag="v1.4.0" # (2022-06-14)
+  repo_clone_try_double "${primary_urls[mgclient]}" "${secondary_urls[mgclient]}" "mgclient" "$mgclient_tag"
+  sed -i 's/\${CMAKE_INSTALL_LIBDIR}/lib/' mgclient/src/CMakeLists.txt
+else
+  echo "Skipping mgclient download because it's already under the toolchain v$MG_TOOLCHAIN_VERSION"
+fi
 
 # pymgclient
 pymgclient_tag="4f85c179e56302d46a1e3e2cf43509db65f062b3" # (2021-01-15)
@@ -270,7 +273,7 @@ repo_clone_try_double "${primary_urls[pymgclient]}" "${secondary_urls[pymgclient
 
 # mgconsole
 mgconsole_tag="v1.4.0" # (2023-05-21)
-repo_clone_try_double "${primary_urls[mgconsole]}" "${secondary_urls[mgconsole]}" "mgconsole" "$mgconsole_tag" true
+skip_if_under_toolchain "mgconsole" repo_clone_try_double "${primary_urls[mgconsole]}" "${secondary_urls[mgconsole]}" "mgconsole" "$mgconsole_tag" true
 
 spdlog_tag="v1.12.0" # (2022-11-02)
 repo_clone_try_double "${primary_urls[spdlog]}" "${secondary_urls[spdlog]}" "spdlog" "$spdlog_tag" true
