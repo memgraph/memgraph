@@ -141,6 +141,8 @@ macro(set_path_external_library name type library_location include_dir)
   mark_as_advanced(${name}_LIBRARY ${name}_INCLUDE_DIR)
 endmacro(set_path_external_library)
 
+include(FetchContent)
+
 # TODO(gitbuda): Organize below comments
 # vcpkg OR conan install is generating the find_package
 
@@ -240,8 +242,6 @@ mg_create_linkable_if_no_cmake(benchmark STATIC
     "/opt/toolchain-v6/lib/libbenchmark.a"
     "/opt/toolchain-v6/include"
 )
-
-include(FetchContent)
 
 # setup rapidcheck (it cannot be external, since it doesn't have install
 # target)
@@ -403,7 +403,7 @@ macro(build_pulsar)
     add_dependencies(pulsar-proj protobuf)
 endmacro()
 mg_build_if_needed(build_pulsar "pulsar")
-mg_create_linkable_if_no_cmake(pulsar STATIC "/opt/toolchain-v6/lib/libpulsar.a" "/opt/toolchain-v6/include")
+mg_create_linkable_if_no_cmake(pulsar STATIC "/opt/toolchain-v6/lib/libpulsarwithdeps.a" "/opt/toolchain-v6/include")
 
 macro(build_librdtsc)
   if(${MG_ARCH} STREQUAL "ARM64")
@@ -446,7 +446,7 @@ find_package(OpenSSL REQUIRED)
 target_link_libraries(nuraft INTERFACE ${OPENSSL_LIBRARIES})
 
 macro(build_mgcxx)
-# Setup mgcxx (provides: text search)
+    # Setup mgcxx (provides: text search)
     set(MGCXX_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx/include
       CACHE PATH "Path to mgcxx include directory" FORCE)
     set(TANTIVY_TEXT_SEARCH_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx/lib/libtantivy_text_search.a

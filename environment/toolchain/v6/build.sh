@@ -1283,7 +1283,7 @@ fi
 # fi
 PULSAR_TAG="v2.8.1"
 log_tool_name "pulsar $PULSAR_TAG"
-if [ ! -f $PREFIX/lib/libpulsar.a ]; then
+if [ ! -f $PREFIX/lib/libpulsarwithdeps.a ]; then
     if [ -d pulsar ]; then
         rm -rf pulsar
     fi
@@ -1301,7 +1301,10 @@ if [ ! -f $PREFIX/lib/libpulsar.a ]; then
       -DBUILD_PYTHON_WRAPPER=OFF \
       -DBUILD_PERF_TOOLS=OFF \
       -DUSE_LOG4CXX=OFF
-    cmake --build . -j$CPUS --target pulsarStaticWithDeps install
+    cmake --build . -j$CPUS --target pulsarStaticWithDeps
+    # NOTE: For some reason the withdeps is not make installed...
+    cp lib/libpulsarwithdeps.a $PREFIX/lib/
+    cmake --build . -j$CPUS --target install
     popd
     popd
 fi

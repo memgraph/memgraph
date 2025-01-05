@@ -46,7 +46,7 @@ PREFIX=/opt/toolchain-v6
 # rm -rf "$PREFIX/lib/linuraft.a"
 # rm -rf "$PREFIX/lib/libantlr4-runtime.a"
 # rm -rf "$PREFIX/lib/libprotobuf.a"
-# rm -rf "$PREFIX/lib/libpulsar.a"
+# rm -rf "$PREFIX/lib/libpulsarwithdeps.a"
 # rm -rf "$PREFIX/lib/librdkafka++.a"
 # rm -rf "$PREFIX/lib/bcrypt.a"
 # rm -rf "$PREFIX/lib/libbenchmark.a"
