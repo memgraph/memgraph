@@ -403,7 +403,7 @@ macro(build_pulsar)
     add_dependencies(pulsar-proj protobuf)
 endmacro()
 mg_build_if_needed(build_pulsar "pulsar")
-mg_create_linkable_if_no_cmake(pulsar STATIC "/opt/toolchain-v6/lib/libpulsarwithdeps.a" "/opt/toolchain-v6/include")
+mg_create_linkable_if_no_cmake(pulsar STATIC "/opt/toolchain-v6/lib/libpulsar.a" "/opt/toolchain-v6/include")
 
 macro(build_librdtsc)
   if(${MG_ARCH} STREQUAL "ARM64")
@@ -425,10 +425,13 @@ import_header_library(ctre ${CMAKE_CURRENT_SOURCE_DIR})
 set(ABSL_PROPAGATE_CXX_STD ON)
 add_subdirectory(absl EXCLUDE_FROM_ALL)
 
-# set Jemalloc
-set_path_external_library(jemalloc STATIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/jemalloc/lib/libjemalloc.a
-  ${CMAKE_CURRENT_SOURCE_DIR}/jemalloc/include/)
+macro(link_jmalloc)
+    set_path_external_library(jemalloc STATIC
+      ${CMAKE_CURRENT_SOURCE_DIR}/jemalloc/lib/libjemalloc.a
+      ${CMAKE_CURRENT_SOURCE_DIR}/jemalloc/include/)
+endmacro()
+mg_build_if_needed(link_jmalloc)
+mg_create_linkable_if_no_cmake(jemalloc STATIC "/opt/toolchain-v6/lib/libjemalloc.a" "/opt/toolchain-v6/include")
 
 import_header_library(rangev3 ${CMAKE_CURRENT_SOURCE_DIR}/rangev3/include)
 

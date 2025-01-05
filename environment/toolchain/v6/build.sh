@@ -1006,18 +1006,25 @@ if [ ! -d $PREFIX/include/jemalloc ]; then
     pushd jemalloc
     git checkout $JEMALLOC_VERSION
     ./autogen.sh
-    MALLOC_CONF="retain:false,percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000" \
     ./configure \
-         --disable-cxx \
-         $COMMON_CONFIGURE_FLAGS \
-         --with-malloc-conf="retain:false,percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000"
-    make -j$CPUS install
-    # NOTE: Old jmalloc config (toolchain-v4 and before).
+      --disable-cxx \
+      --with-lg-page=12 \
+      --with-lg-hugepage=21 \
+      --enable-shared=no --prefix=$PREFIX \
+      --with-malloc-conf="background_thread:true,retain:false,percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000"
+    ##### NOTE: Old jmalloc config (toolchain-v5)
+    # ./autogen.sh
+    # MALLOC_CONF="retain:false,percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000" \
+    # ./configure \
+    #      --disable-cxx \
+    #      $COMMON_CONFIGURE_FLAGS \
+    #      --with-malloc-conf="retain:false,percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000"
+    ##### NOTE: Old jmalloc config (toolchain-v4 and before).
     # ./autogen.sh --with-malloc-conf="percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000"
     # env \
     #     EXTRA_FLAGS="-DJEMALLOC_NO_PRIVATE_NAMESPACE -D_GNU_SOURCE -Wno-redundant-decls" \
     #     ./configure $COMMON_CONFIGURE_FLAGS --disable-cxx
-    # make -j$CPUS install
+    make -j$CPUS install
     popd
 fi
 
@@ -1276,7 +1283,7 @@ fi
 # fi
 PULSAR_TAG="v2.8.1"
 log_tool_name "pulsar $PULSAR_TAG"
-if [ ! -f $PREFIX/lib/libpulsarwithdeps.a ]; then
+if [ ! -f $PREFIX/lib/libpulsar.a ]; then
     if [ -d pulsar ]; then
         rm -rf pulsar
     fi
@@ -1284,11 +1291,8 @@ if [ ! -f $PREFIX/lib/libpulsarwithdeps.a ]; then
     pushd pulsar
     git checkout $PULSAR_TAG
     git apply $DIR/pulsar.patch
-      # -DBOOST_ROOT=${BOOST_ROOT}
-      # "-DCMAKE_PREFIX_PATH=$<$<BOOL:${MG_TOOLCHAIN_ROOT}>:${MG_TOOLCHAIN_ROOT}${LIST_SEP}>${PROTOBUF_ROOT}"
-      # -DProtobuf_INCLUDE_DIRS=${PROTOBUF_ROOT}/include
     pushd pulsar-client-cpp
-    cmake -B build $COMMON_CMAKE_FLAGS \
+    cmake -B . $COMMON_CMAKE_FLAGS \
       -DBUILD_DYNAMIC_LIB=OFF \
       -DBUILD_STATIC_LIB=ON \
       -DBUILD_TESTS=OFF \
@@ -1297,7 +1301,7 @@ if [ ! -f $PREFIX/lib/libpulsarwithdeps.a ]; then
       -DBUILD_PYTHON_WRAPPER=OFF \
       -DBUILD_PERF_TOOLS=OFF \
       -DUSE_LOG4CXX=OFF
-    cmake --build build -j$CPUS --target pulsarStaticWithDeps
+    cmake --build . -j$CPUS --target pulsarStaticWithDeps install
     popd
     popd
 fi
