@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -29,11 +29,9 @@
 #include "coordination/replication_instance_client.hpp"
 #include "coordination/replication_instance_connector.hpp"
 #include "utils/resource_lock.hpp"
-#include "utils/rw_lock.hpp"
 #include "utils/thread_pool.hpp"
 
 #include <list>
-#include <range/v3/range/primitives.hpp>
 
 namespace memgraph::coordination {
 
@@ -63,11 +61,11 @@ class CoordinatorInstance {
   ~CoordinatorInstance();
 
   // We don't need to open lock and close the lock since we need only one writing to raft log here.
-  // If some of actions fail like sending rpc, demoting or rpc failed, we clear in-memory structures that we have.
+  // If some of the actions fail like sending rpc, demoting or rpc failed, we clear in-memory structures that we have.
   // If writing to raft succeeds, we know what everything up to that point passed so all good.
   [[nodiscard]] auto RegisterReplicationInstance(DataInstanceConfig const &config) -> RegisterInstanceCoordinatorStatus;
 
-  // Here we reverse logic from RegisterReplicationInstance. 1st we write to raft log and then we try to unregister
+  // Here we reverse logic from RegisterReplicationInstance. 1st we write to raft log, and then we try to unregister
   // replication instance from in-memory structures. If raft passes and some of rpc actions or deletions fails, user
   // should repeat the action. Instance will be deleted twice from raft log but since that action is idempotent, no
   // failure will actually happen.
@@ -91,7 +89,7 @@ class CoordinatorInstance {
 
   auto ShowInstancesAsLeader() const -> std::optional<std::vector<InstanceStatus>>;
 
-  // Finds most up to date instance that could become new main. Only alive instances are taken into account.
+  // Finds most up-to-date instance that could become new main. Only alive instances are taken into account.
   [[nodiscard]] auto TryFailover() -> FailoverStatus;
 
   auto AddCoordinatorInstance(CoordinatorInstanceConfig const &config) -> AddCoordinatorInstanceStatus;

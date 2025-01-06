@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,6 +19,7 @@
 #include <gflags/gflags.h>
 #include <gtest/gtest.h>
 
+using memgraph::coordination::CoordinatorInstanceContext;
 using memgraph::coordination::CoordinatorLogStore;
 using memgraph::coordination::CoordinatorStateMachine;
 using memgraph::coordination::DataInstanceConfig;
@@ -66,10 +67,12 @@ TEST_F(CoordinatorLogStoreTests, TestBasicSerialization) {
                             .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
                             .ssl = std::nullopt};
 
-  auto cluster_state = std::vector<DataInstanceContext>();
-  cluster_state.emplace_back(config, ReplicationRole::REPLICA, UUID{});
+  auto data_instances = std::vector<DataInstanceContext>();
+  data_instances.emplace_back(config, ReplicationRole::REPLICA, UUID{});
 
-  auto buffer = CoordinatorStateMachine::SerializeUpdateClusterState(cluster_state, UUID{});
+  auto coord_instances = std::vector<CoordinatorInstanceContext>();
+
+  auto buffer = CoordinatorStateMachine::SerializeUpdateClusterState(data_instances, coord_instances, UUID{});
 
   // coordinator log store start
   {
@@ -100,7 +103,7 @@ TEST_F(CoordinatorLogStoreTests, TestBasicSerialization) {
 
     auto entry = log_store.entry_at(1);
 
-    auto const [payload, action] = CoordinatorStateMachine::DecodeLog(entry->get_buf());
+    auto const [ds, cs, uuid] = CoordinatorStateMachine::DecodeLog(entry->get_buf());
 
     ASSERT_EQ(log_store.next_slot(), 2);
     ASSERT_EQ(log_store.start_index(), 1);
@@ -149,13 +152,16 @@ TEST_F(CoordinatorLogStoreTests, TestMultipleInstancesSerialization) {
     ASSERT_EQ(log_store.next_slot(), 1);
     ASSERT_EQ(log_store.start_index(), 1);
 
-    auto cluster_state = std::vector<DataInstanceContext>();
-    cluster_state.emplace_back(config1, ReplicationRole::REPLICA, UUID{});
-    cluster_state.emplace_back(config2, ReplicationRole::REPLICA, UUID{});
-    cluster_state.emplace_back(config3, ReplicationRole::REPLICA, UUID{});
+    auto data_instances = std::vector<DataInstanceContext>();
+    data_instances.emplace_back(config1, ReplicationRole::REPLICA, UUID{});
+    data_instances.emplace_back(config2, ReplicationRole::REPLICA, UUID{});
+    data_instances.emplace_back(config3, ReplicationRole::REPLICA, UUID{});
+
+    auto coord_instances = std::vector<CoordinatorInstanceContext>();
 
     auto log_entry_update = cs_new<log_entry>(
-        1, CoordinatorStateMachine::SerializeUpdateClusterState(cluster_state, UUID{}), nuraft::log_val_type::app_log);
+        1, CoordinatorStateMachine::SerializeUpdateClusterState(data_instances, coord_instances, UUID{}),
+        nuraft::log_val_type::app_log);
 
     log_store.append(log_entry_update);
 
@@ -201,7 +207,7 @@ TEST_F(CoordinatorLogStoreTests, TestPackAndApplyPack) {
     memgraph::coordination::LogStoreDurability log_store_durability_2{log_store_storage_2};
     CoordinatorLogStore log_store2{GetLogger(), log_store_durability_2};
 
-    std::vector<DataInstanceContext> cluster_state{};
+    std::vector<DataInstanceContext> data_instances{};
 
     auto config = DataInstanceConfig{.instance_name = "instance1",
                                      .mgt_server = Endpoint{"127.0.0.1", 10112},
@@ -212,9 +218,11 @@ TEST_F(CoordinatorLogStoreTests, TestPackAndApplyPack) {
                                      .instance_down_timeout_sec = std::chrono::seconds{5},
                                      .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
                                      .ssl = std::nullopt};
-    cluster_state.emplace_back(config, ReplicationRole::REPLICA, UUID{});
+    data_instances.emplace_back(config, ReplicationRole::REPLICA, UUID{});
 
-    auto buffer = CoordinatorStateMachine::SerializeUpdateClusterState(cluster_state, UUID{});
+    auto coord_instances = std::vector<CoordinatorInstanceContext>();
+
+    auto buffer = CoordinatorStateMachine::SerializeUpdateClusterState(data_instances, coord_instances, UUID{});
 
     auto log_entry_common = cs_new<log_entry>(1, buffer, nuraft::log_val_type::app_log);
     log_store1.append(log_entry_common);
@@ -246,10 +254,12 @@ TEST_F(CoordinatorLogStoreTests, TestPackAndApplyPack) {
           .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
           .ssl = std::nullopt};
 
-      cluster_state.emplace_back(config1, ReplicationRole::REPLICA, UUID{});
-      auto buffer1 = CoordinatorStateMachine::SerializeUpdateClusterState(cluster_state, UUID{});
-      cluster_state.emplace_back(config2, ReplicationRole::REPLICA, UUID{});
-      auto buffer2 = CoordinatorStateMachine::SerializeUpdateClusterState(cluster_state, UUID{});
+      auto coord_instances = std::vector<CoordinatorInstanceContext>();
+
+      data_instances.emplace_back(config1, ReplicationRole::REPLICA, UUID{});
+      auto buffer1 = CoordinatorStateMachine::SerializeUpdateClusterState(data_instances, coord_instances, UUID{});
+      data_instances.emplace_back(config2, ReplicationRole::REPLICA, UUID{});
+      auto buffer2 = CoordinatorStateMachine::SerializeUpdateClusterState(data_instances, coord_instances, UUID{});
 
       auto log_entry1 = cs_new<log_entry>(i, buffer1, nuraft::log_val_type::app_log);
       auto log_entry2 = cs_new<log_entry>(i, buffer2, nuraft::log_val_type::app_log);
@@ -269,8 +279,8 @@ TEST_F(CoordinatorLogStoreTests, TestPackAndApplyPack) {
       auto entry1 = log_store1.entry_at(i);
       auto entry2 = log_store2.entry_at(i);
 
-      auto const [payload1, action1] = CoordinatorStateMachine::DecodeLog(entry1->get_buf());
-      auto const [payload2, action2] = CoordinatorStateMachine::DecodeLog(entry2->get_buf());
+      auto const [ds1, cs1, uuid1] = CoordinatorStateMachine::DecodeLog(entry1->get_buf());
+      auto const [ds2, cs2, uuid2] = CoordinatorStateMachine::DecodeLog(entry2->get_buf());
 
       ASSERT_EQ(entry1->get_term(), entry2->get_term());
       ASSERT_EQ(entry1->get_val_type(), entry2->get_val_type());
@@ -290,8 +300,8 @@ TEST_F(CoordinatorLogStoreTests, TestPackAndApplyPack) {
       auto entry1 = log_store1.entry_at(i);
       auto entry2 = log_store2.entry_at(i);
 
-      auto const [payload1, action1] = CoordinatorStateMachine::DecodeLog(entry1->get_buf());
-      auto const [payload2, action2] = CoordinatorStateMachine::DecodeLog(entry2->get_buf());
+      auto const [ds1, cs1, uuid1] = CoordinatorStateMachine::DecodeLog(entry1->get_buf());
+      auto const [ds2, cs2, uuid2] = CoordinatorStateMachine::DecodeLog(entry2->get_buf());
 
       ASSERT_EQ(entry1->get_term(), entry2->get_term());
       ASSERT_EQ(entry1->get_val_type(), entry2->get_val_type());
@@ -305,7 +315,7 @@ TEST_F(CoordinatorLogStoreTests, TestCompact) {
   memgraph::coordination::LogStoreDurability log_store_durability{log_store_storage};
   CoordinatorLogStore log_store{GetLogger(), log_store_durability};
 
-  std::vector<DataInstanceContext> cluster_state{};
+  std::vector<DataInstanceContext> data_instances{};
 
   // Add 5 logs to the store
   for (int i = 1; i <= 5; ++i) {
@@ -319,9 +329,11 @@ TEST_F(CoordinatorLogStoreTests, TestCompact) {
         .instance_down_timeout_sec = std::chrono::seconds{5},
         .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
         .ssl = std::nullopt};
-    cluster_state.emplace_back(config, ReplicationRole::REPLICA, UUID{});
+    data_instances.emplace_back(config, ReplicationRole::REPLICA, UUID{});
 
-    auto buffer = CoordinatorStateMachine::SerializeUpdateClusterState(cluster_state, UUID{});
+    auto coord_instances = std::vector<CoordinatorInstanceContext>();
+
+    auto buffer = CoordinatorStateMachine::SerializeUpdateClusterState(data_instances, coord_instances, UUID{});
 
     auto log_entry_obj = cs_new<log_entry>(i, buffer, nuraft::log_val_type::app_log);
     log_store.append(log_entry_obj);
@@ -334,7 +346,7 @@ TEST_F(CoordinatorLogStoreTests, TestCompact) {
   for (int i = 4; i <= 5; ++i) {
     auto entry = log_store.entry_at(i);
     ASSERT_TRUE(entry != nullptr);
-    auto const [payload, action] = CoordinatorStateMachine::DecodeLog(entry->get_buf());
+    auto const [ds, cs, uuid] = CoordinatorStateMachine::DecodeLog(entry->get_buf());
   }
 
   // Check that logs from 1 to 3 do not exist

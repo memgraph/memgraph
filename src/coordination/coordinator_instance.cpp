@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -33,7 +33,6 @@
 #include "coordination/coordinator_instance.hpp"
 #include "coordination/coordinator_instance_management_server.hpp"
 #include "coordination/coordinator_instance_management_server_handlers.hpp"
-#include "coordination/coordinator_rpc.hpp"
 #include "coordination/instance_status.hpp"
 #include "coordination/raft_state.hpp"
 #include "coordination/register_main_replica_coordinator_status.hpp"
@@ -44,7 +43,6 @@
 #include "utils/exponential_backoff.hpp"
 #include "utils/functional.hpp"
 #include "utils/logging.hpp"
-#include "utils/on_scope_exit.hpp"
 
 #include <spdlog/spdlog.h>
 #include <range/v3/range/conversion.hpp>
@@ -965,9 +963,7 @@ auto CoordinatorInstance::GetMostUpToDateInstanceFromHistories(std::list<Replica
   std::vector<std::pair<std::string, replication_coordination_glue::DatabaseHistories>> instance_db_histories;
 
   for (auto const &instance : instances) {
-    auto maybe_history = get_ts(instance);
-
-    if (maybe_history.has_value()) {
+    if (auto maybe_history = get_ts(instance); maybe_history.has_value()) {
       spdlog::trace("Received history for instance {}.", instance.InstanceName());
       instance_db_histories.emplace_back(instance.InstanceName(), *maybe_history);
     } else {
@@ -975,8 +971,8 @@ auto CoordinatorInstance::GetMostUpToDateInstanceFromHistories(std::list<Replica
     }
   }
 
-  auto maybe_newest_instance = CoordinatorInstance::ChooseMostUpToDateInstance(instance_db_histories);
-  if (maybe_newest_instance.has_value()) {
+  if (auto maybe_newest_instance = CoordinatorInstance::ChooseMostUpToDateInstance(instance_db_histories);
+      maybe_newest_instance.has_value()) {
     auto const [most_up_to_date_instance, latest_epoch, latest_commit_timestamp] = *maybe_newest_instance;
     spdlog::trace("The most up to date instance is {} with epoch {} and {} latest commit timestamp.",
                   most_up_to_date_instance, latest_epoch, latest_commit_timestamp);  // NOLINT

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,6 +19,7 @@
 #include <gtest/gtest.h>
 #include "json/json.hpp"
 
+using memgraph::coordination::CoordinatorInstanceContext;
 using memgraph::coordination::CoordinatorStateMachine;
 using memgraph::coordination::DataInstanceConfig;
 using memgraph::coordination::DataInstanceContext;
@@ -77,10 +78,11 @@ TEST_F(RaftLogSerialization, SerializeUpdateClusterState) {
                             .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
                             .ssl = std::nullopt};
 
-  std::vector<DataInstanceContext> cluster_state;
+  std::vector<DataInstanceContext> data_instances;
+  data_instances.emplace_back(config, ReplicationRole::REPLICA, UUID{});
 
-  cluster_state.emplace_back(config, ReplicationRole::REPLICA, UUID{});
+  auto coord_instances = std::vector<CoordinatorInstanceContext>();
 
-  auto buffer = CoordinatorStateMachine::SerializeUpdateClusterState(cluster_state, UUID{});
-  auto const [payload, action] = CoordinatorStateMachine::DecodeLog(*buffer);
+  auto buffer = CoordinatorStateMachine::SerializeUpdateClusterState(data_instances, coord_instances, UUID{});
+  auto const [ds, cs, uuid] = CoordinatorStateMachine::DecodeLog(*buffer);
 }

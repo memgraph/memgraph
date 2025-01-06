@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,6 +22,7 @@
 #include "libnuraft/nuraft.hxx"
 
 using memgraph::coordination::CoordinatorClusterState;
+using memgraph::coordination::CoordinatorInstanceContext;
 using memgraph::coordination::DataInstanceConfig;
 using memgraph::coordination::DataInstanceContext;
 using memgraph::coordination::InstanceUUIDUpdate;
@@ -58,9 +59,11 @@ TEST_F(CoordinatorClusterStateTest, RegisterReplicationInstance) {
   auto const uuid = UUID{};
   data_instances.emplace_back(config, ReplicationRole::REPLICA, uuid);
 
-  cluster_state.DoAction(data_instances, uuid);
+  std::vector<CoordinatorInstanceContext> coord_instances;
 
-  auto instances = cluster_state.GetDataInstances();
+  cluster_state.DoAction(data_instances, coord_instances, uuid);
+
+  auto instances = cluster_state.GetDataInstancesContext();
   ASSERT_EQ(instances.size(), 1);
   ASSERT_EQ(instances[0].config, config);
   ASSERT_EQ(instances[0].status, ReplicationRole::REPLICA);
@@ -82,7 +85,9 @@ TEST_F(CoordinatorClusterStateTest, SetInstanceToReplica) {
                                      .ssl = std::nullopt};
     auto const uuid = UUID{};
     data_instances.emplace_back(config, ReplicationRole::MAIN, uuid);
-    cluster_state.DoAction(data_instances, uuid);
+
+    std::vector<CoordinatorInstanceContext> coord_instances;
+    cluster_state.DoAction(data_instances, coord_instances, uuid);
   }
   {
     auto config = DataInstanceConfig{.instance_name = "instance2",
@@ -98,10 +103,13 @@ TEST_F(CoordinatorClusterStateTest, SetInstanceToReplica) {
 
     auto const uuid = UUID{};
     data_instances.emplace_back(config, ReplicationRole::REPLICA, uuid);
-    cluster_state.DoAction(data_instances, uuid);
+
+    std::vector<CoordinatorInstanceContext> coord_instances;
+
+    cluster_state.DoAction(data_instances, coord_instances, uuid);
   }
 
-  auto const repl_instances = cluster_state.GetDataInstances();
+  auto const repl_instances = cluster_state.GetDataInstancesContext();
   ASSERT_EQ(repl_instances.size(), 2);
   ASSERT_EQ(repl_instances[0].status, ReplicationRole::MAIN);
   ASSERT_EQ(repl_instances[1].status, ReplicationRole::REPLICA);
@@ -149,7 +157,10 @@ TEST_F(CoordinatorClusterStateTest, Marshalling) {
 
   auto const uuid = UUID{};
   data_instances.emplace_back(config, ReplicationRole::REPLICA, uuid);
-  cluster_state.DoAction(data_instances, uuid);
+
+  std::vector<CoordinatorInstanceContext> coord_instances;
+
+  cluster_state.DoAction(data_instances, coord_instances, uuid);
 
   ptr<buffer> data{};
   cluster_state.Serialize(data);
