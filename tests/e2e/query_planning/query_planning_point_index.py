@@ -54,7 +54,7 @@ def create_point_index(memgraph):
 
 
 def drop_point_index(memgraph):
-    drop_point_index(memgraph)
+    memgraph.execute("DROP POINT INDEX ON :Node(point);")
     memgraph.execute("DROP CONSTRAINT ON (n:Node) ASSERT n.point IS TYPED POINT;")
 
 
@@ -145,7 +145,7 @@ def test_ScanAllByPointWithinbbox_used_implicit_true(memgraph):
 
     assert EXPECTED_PLAN_WITHINBBOX_WITH == actual_explain
 
-    memgraph.execute("DROP POINT INDEX ON :Node(id);")
+    drop_point_index(memgraph)
 
 
 def test_ScanAllByPointWithinbbox_used_implicit_false(memgraph):
@@ -160,7 +160,7 @@ def test_ScanAllByPointWithinbbox_used_implicit_false(memgraph):
 
     assert EXPECTED_PLAN_WITHINBBOX_WITH == actual_explain
 
-    memgraph.execute("DROP POINT INDEX ON :Node(id);")
+    drop_point_index(memgraph)
 
 
 def test_ScanAllByPointWithinbboxNoWith1(memgraph):
@@ -175,7 +175,7 @@ def test_ScanAllByPointWithinbboxNoWith1(memgraph):
 
     assert EXPECTED_PLAN_WITHINBBOX_NO_WITH == actual_explain
 
-    memgraph.execute("DROP POINT INDEX ON :Node(id);")
+    drop_point_index(memgraph)
 
 
 def test_ScanAllByPointWithinbboxNoWith2(memgraph):
@@ -190,7 +190,7 @@ def test_ScanAllByPointWithinbboxNoWith2(memgraph):
 
     assert EXPECTED_PLAN_WITHINBBOX_NO_WITH == actual_explain
 
-    memgraph.execute("DROP POINT INDEX ON :Node(id);")
+    drop_point_index(memgraph)
 
 
 def test_ScanAllByPointWithinbboxNoWith3(memgraph):
@@ -205,7 +205,7 @@ def test_ScanAllByPointWithinbboxNoWith3(memgraph):
 
     assert EXPECTED_PLAN_WITHINBBOX_NO_WITH == actual_explain
 
-    memgraph.execute("DROP POINT INDEX ON :Node(id);")
+    drop_point_index(memgraph)
 
 
 def test_ScanAllByPointWithinbboxNoWith4(memgraph):
@@ -220,7 +220,7 @@ def test_ScanAllByPointWithinbboxNoWith4(memgraph):
 
     assert EXPECTED_PLAN_WITHINBBOX_NO_WITH == actual_explain
 
-    memgraph.execute("DROP POINT INDEX ON :Node(id);")
+    drop_point_index(memgraph)
 
 
 def test_ScanAllByPoint(memgraph):
@@ -244,7 +244,7 @@ def test_ScanAllByPoint(memgraph):
 
     assert EXPECTED_PLAN_EXACT_MATCH == actual_explain
 
-    memgraph.execute("DROP POINT INDEX ON :Node(id);")
+    drop_point_index(memgraph)
 
 
 if __name__ == "__main__":
