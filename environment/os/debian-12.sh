@@ -80,16 +80,22 @@ check() {
     for pkg in $1; do
         if [ "$pkg" == custom-maven3.9.3 ]; then
             if [ ! -f "/opt/apache-maven-3.9.3/bin/mvn" ]; then
-              missing="$pkg $missing"
+                missing="$pkg $missing"
             fi
             continue
         fi
         if [ "$pkg" == custom-golang1.18.9 ]; then
             if [ ! -f "/opt/go1.18.9/go/bin/go" ]; then
-              missing="$pkg $missing"
+                missing="$pkg $missing"
             fi
             continue
         fi
+        if [ "$pkg" == custom-rust ]; then
+            if [ ! -x "$HOME/.cargo/bin/rustup" ]; then
+                missing="$pkg $missing"
+            fi
+	    continue
+	fi
         if ! dpkg -s "$pkg" >/dev/null 2>/dev/null; then
             missing="$pkg $missing"
         fi
