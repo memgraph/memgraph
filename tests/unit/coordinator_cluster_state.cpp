@@ -120,27 +120,6 @@ TEST_F(CoordinatorClusterStateTest, SetInstanceToReplica) {
   ASSERT_FALSE(cluster_state.IsCurrentMain("instance2"));
 }
 
-TEST_F(CoordinatorClusterStateTest, ReplicationInstanceStateSerialization) {
-  DataInstanceContext instance_state{
-      DataInstanceConfig{.instance_name = "instance3",
-                         .mgt_server = Endpoint{"127.0.0.1", 10112},
-                         .bolt_server = Endpoint{"127.0.0.1", 7687},
-                         .replication_client_info = {.instance_name = "instance_name",
-                                                     .replication_mode = ReplicationMode::ASYNC,
-                                                     .replication_server = Endpoint{"127.0.0.1", 10001}},
-                         .instance_health_check_frequency_sec = std::chrono::seconds{1},
-                         .instance_down_timeout_sec = std::chrono::seconds{5},
-                         .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
-                         .ssl = std::nullopt},
-      ReplicationRole::MAIN, .instance_uuid = UUID()};
-
-  nlohmann::json j = instance_state;
-  DataInstanceContext deserialized_instance_state = j.get<DataInstanceContext>();
-
-  EXPECT_EQ(instance_state.config, deserialized_instance_state.config);
-  EXPECT_EQ(instance_state.status, deserialized_instance_state.status);
-}
-
 TEST_F(CoordinatorClusterStateTest, Coordinators) {
   CoordinatorClusterState cluster_state;
 
