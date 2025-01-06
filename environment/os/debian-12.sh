@@ -25,6 +25,8 @@ TOOLCHAIN_BUILD_DEPS=(
     git # for fbthrift
     custom-rust
     libtool # for protobuf
+    libssl-dev pkg-config # for pulsar
+    libsasl2-dev # for librdkafka
 )
 
 TOOLCHAIN_RUN_DEPS=(
