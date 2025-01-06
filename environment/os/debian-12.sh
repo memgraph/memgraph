@@ -132,7 +132,9 @@ install() {
         fi
         if [ "$pkg" == custom-rust ]; then
             RUST_VERSION="1.80"
-            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && rustup default ${RUST_VERSION}
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
+                && . "$HOME/.cargo/env" \
+                && rustup default ${RUST_VERSION}
             continue
         fi
         if [ "$pkg" == custom-node ]; then
