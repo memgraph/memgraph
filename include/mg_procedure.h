@@ -60,7 +60,9 @@ MGP_ENUM_CLASS MGP_NODISCARD mgp_error{
 
 /// Functions used for checking validity of the enterprise license
 
-bool mgp_is_enterprise_valid();
+/// Doesn't allocate anything and can't fail therefore doesn't use
+/// enum mgp_error
+int mgp_is_enterprise_valid();
 
 ///@}
 
