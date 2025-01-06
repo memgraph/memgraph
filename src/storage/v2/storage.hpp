@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -386,6 +386,8 @@ class Storage {
 
     virtual UniqueConstraints::DeletionStatus DropUniqueConstraint(LabelId label,
                                                                    const std::set<PropertyId> &properties) = 0;
+
+    virtual bool TypeConstraintExists(LabelId label, PropertyId property, TypeConstraintKind type) const = 0;
 
     virtual utils::BasicResult<StorageTypeConstraintDefinitionError, void> CreateTypeConstraint(
         LabelId label, PropertyId property, TypeConstraintKind type) = 0;

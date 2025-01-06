@@ -39,6 +39,7 @@
 #include "storage/v2/metadata_delta.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/schema_info_glue.hpp"
+#include "storage/v2/storage_error.hpp"
 #include "utils/async_timer.hpp"
 
 /// REPLICATION ///
@@ -1856,21 +1857,11 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   MG_ASSERT(unique_guard_.owns_lock(), "Creating point index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
 
-  auto status = CreateTypeConstraint(label, property, TypeConstraintKind::POINT);
-
-  auto point_constraint_exists = [](auto &&error) -> bool {
-    return std::visit(utils::Overloaded{[](TypeConstraintAlreadyUsedError &) { return false; },
-                                        [](ConstraintViolation) { return false; },
-                                        [](TypeConstraintAlreadyExistsError &) { return true; }},
-                      error);
-  };
-
-  // Don't create point index if point type constraint can't be created
-  // and doesn't already exist
-  if (status.HasError() && !point_constraint_exists(status.GetError())) {
-    return StorageIndexDefinitionError{IndexDefinitionError{}};
-  }
-
+  // Checking if a type constraint exists is done in interpreter.cpp
+  // and the query will throw otherwise. This way when loading a snapshot
+  // the order of loading doesn't matter (constraint->index or index->constraint)
+  // If the snapshot is corrupted ¯\_(ツ)_/¯
+  // Same holds for dropping the point index
   auto &point_index = in_memory->indices_.point_index_;
   if (!point_index.CreatePointIndex(label, property, in_memory->vertices_.access())) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
@@ -1892,8 +1883,6 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   transaction_.md_deltas.emplace_back(MetadataDelta::point_index_drop, label, property);
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActivePointIndices);
-
-  [[maybe_unused]] auto status = DropTypeConstraint(label, property, TypeConstraintKind::POINT);
   return {};
 }
 
@@ -1958,6 +1947,18 @@ UniqueConstraints::DeletionStatus InMemoryStorage::InMemoryAccessor::DropUniqueC
   return UniqueConstraints::DeletionStatus::SUCCESS;
 }
 
+bool InMemoryStorage::InMemoryAccessor::TypeConstraintExists(LabelId label, PropertyId property,
+                                                             TypeConstraintKind type) const {
+  MG_ASSERT(unique_guard_.owns_lock(),
+            "Checking if a given typed constraint exists requires a unique access to the storage!");
+  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  auto *type_constraints = in_memory->constraints_.type_constraints_.get();
+  auto status = type_constraints->ConstraintExists(label, property, type);
+
+  using Status = TypeConstraints::ExistenceStatus;
+  return status == Status::EXISTS_SAME;
+}
+
 utils::BasicResult<StorageTypeConstraintDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateTypeConstraint(
     LabelId label, PropertyId property, TypeConstraintKind type) {
   MG_ASSERT(unique_guard_.owns_lock(), "Creating IS TYPED constraint requires a unique access to the storage!");
@@ -1965,7 +1966,7 @@ utils::BasicResult<StorageTypeConstraintDefinitionError, void> InMemoryStorage::
   auto *type_constraints = in_memory->constraints_.type_constraints_.get();
 
   auto status = type_constraints->ConstraintExists(label, property, type);
-  using Status = TypeConstraints::ExistanceStatus;
+  using Status = TypeConstraints::ExistenceStatus;
   if (status == Status::EXISTS_SAME) {
     return StorageTypeConstraintDefinitionError{TypeConstraintAlreadyExistsError{}};
   }
@@ -1988,6 +1989,13 @@ utils::BasicResult<StorageTypeConstraintDroppingError, void> InMemoryStorage::In
   MG_ASSERT(unique_guard_.owns_lock(), "Dropping IS TYPED constraint requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *type_constraints = in_memory->constraints_.type_constraints_.get();
+
+  // Check for index violations
+  // Soon: vector search and text search
+  if (type == TypeConstraintKind::POINT && PointIndexExists(label, property)) {
+    return StorageTypeConstraintDroppingError{StorageTypeConstraintPointIndexViolation{}};
+  }
+
   auto deleted_constraint = type_constraints->DropConstraint(label, property, type);
   if (!deleted_constraint) {
     return StorageTypeConstraintDroppingError{ConstraintDefinitionError{}};

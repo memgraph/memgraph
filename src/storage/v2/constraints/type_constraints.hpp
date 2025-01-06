@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -36,7 +36,11 @@ class TypeConstraints {
                                                   const LabelId &label, const PropertyId &property);
   };
 
-  enum class ExistanceStatus : uint8_t { EMPTY = 0, EXISTS_SAME = 1, EXISTS_DIFFERENT = 2 };
+  enum class ExistenceStatus : uint8_t {
+    EMPTY = 0,
+    EXISTS_SAME = 1,
+    EXISTS_DIFFERENT = 2,
+  };
 
   [[nodiscard]] static std::optional<ConstraintViolation> ValidateVerticesOnConstraint(
       utils::SkipList<Vertex>::Accessor vertices, LabelId label, PropertyId property, TypeConstraintKind type);
@@ -48,7 +52,7 @@ class TypeConstraints {
   [[nodiscard]] std::optional<ConstraintViolation> ValidateVertices(utils::SkipList<Vertex>::Accessor vertices) const;
 
   bool empty() const;
-  ExistanceStatus ConstraintExists(LabelId label, PropertyId property, TypeConstraintKind type) const;
+  ExistenceStatus ConstraintExists(LabelId label, PropertyId property, TypeConstraintKind type) const;
   bool InsertConstraint(LabelId label, PropertyId property, TypeConstraintKind type);
   bool DropConstraint(LabelId label, PropertyId property, TypeConstraintKind type);
 

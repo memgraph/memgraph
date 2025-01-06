@@ -40,6 +40,7 @@ def test_spec(connect):
 
     memgraph.execute("CREATE INDEX ON :Student;")
     memgraph.execute("CREATE INDEX ON :Person(name);")
+    memgraph.execute("CREATE CONSTRAINT ON (n:School) ASSERT n.location IS TYPED POINT;")
     memgraph.execute("CREATE POINT INDEX ON :School(location);")
     memgraph.execute("CREATE TEXT INDEX personTextIndex ON :Person;")
     memgraph.execute("CREATE EDGE INDEX ON :IS_STUDENT;")
@@ -59,7 +60,7 @@ def test_spec(connect):
     edges = schema_json["edges"]
     assert len(edges) == 5  # Tested via unit tests
     node_constraints = schema_json["node_constraints"]
-    assert len(node_constraints) == 4 # point index creates one extra constraint
+    assert len(node_constraints) == 4
     for constraint in node_constraints:
         if constraint["type"] == "unique":
             assert constraint["labels"] == ["School"]

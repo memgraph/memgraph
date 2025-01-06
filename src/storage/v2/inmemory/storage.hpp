@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -432,6 +432,8 @@ class InMemoryStorage final : public Storage {
     /// * `PROPERTIES_SIZE_LIMIT_EXCEEDED` if the property set exceeds the limit of maximum number of properties.
     UniqueConstraints::DeletionStatus DropUniqueConstraint(LabelId label,
                                                            const std::set<PropertyId> &properties) override;
+
+    bool TypeConstraintExists(LabelId label, PropertyId property, TypeConstraintKind type) const override;
 
     /// Create type constraint,
     /// Returns error result if already exists, or if constraint is already violated

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -38,7 +38,6 @@
 #include "dbms/database.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "dbms/global.hpp"
-#include "flags/experimental.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "glue/communication.hpp"
 #include "io/network/endpoint.hpp"
@@ -3130,6 +3129,15 @@ PreparedQuery PreparePointIndexQuery(ParsedQuery parsed_query, bool in_explicit_
         auto label_id = storage->NameToLabel(label_name);
         auto prop_id = storage->NameToProperty(prop_name);
 
+        // TODO: is there a reason why we sometimes don't throw and use notifications?
+        auto valid_type_constraint = dba->TypeConstraintExists(label_id, prop_id, storage::TypeConstraintKind::POINT);
+        if (!valid_type_constraint) {
+          throw QueryException(
+              "Creating a point index on :{}({}) requires creating IS TYPED POINT constraint on the given "
+              "label-property pair",
+              label_name, prop_name);
+        }
+
         auto maybe_index_error = dba->CreatePointIndex(label_id, prop_id);
         utils::OnScopeExit const invalidator(invalidate_plan_cache);
 
@@ -4878,12 +4886,28 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                      properties_stringified = std::move(properties_stringified),
                      properties = std::move(properties)](Notification & /**/) {
             auto maybe_constraint_error = dba->DropTypeConstraint(label, properties[0], constraint_type);
+
             if (maybe_constraint_error.HasError()) {
-              throw QueryRuntimeException("Constraint IS TYPED {} on :{}({}) doesn't exist",
-                                          storage::TypeConstraintKindToString(constraint_type), label_name,
-                                          properties_stringified);
+              const auto &error = maybe_constraint_error.GetError();
+              std::visit(
+                  [&label_name, &properties_stringified, constraint_type]<typename T>(T const & /*arg*/) {
+                    using ErrorType = std::remove_cvref_t<T>;
+                    if constexpr (std::is_same_v<ErrorType, storage::ConstraintDefinitionError>) {
+                      throw QueryRuntimeException(
+                          "Unable to drop IS TYPED {} constraint on :{}({}), because "
+                          "it doesn't exist.",
+                          storage::TypeConstraintKindToString(constraint_type), label_name, properties_stringified);
+                    } else if constexpr (std::is_same_v<ErrorType, storage::StorageTypeConstraintPointIndexViolation>) {
+                      throw QueryRuntimeException(
+                          "Unable to drop IS TYPED {} constraint on :{}({}) because a point index exists on that "
+                          "label-property pair. To remove the constraint drop the point index first.",
+                          storage::TypeConstraintKindToString(constraint_type), label_name, properties_stringified);
+                    } else {
+                      static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
+                    }
+                  },
+                  error);
             }
-            return std::vector<std::vector<TypedValue>>();
           };
           break;
         }

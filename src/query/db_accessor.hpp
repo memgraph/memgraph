@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -23,6 +23,7 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
 #include "storage/v2/storage.hpp"
+#include "storage/v2/storage_error.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/vertices_iterable.hpp"
 #include "storage/v2/view.hpp"
@@ -695,6 +696,10 @@ class DbAccessor final {
   storage::UniqueConstraints::DeletionStatus DropUniqueConstraint(storage::LabelId label,
                                                                   const std::set<storage::PropertyId> &properties) {
     return accessor_->DropUniqueConstraint(label, properties);
+  }
+
+  bool TypeConstraintExists(storage::LabelId label, storage::PropertyId property, storage::TypeConstraintKind type) {
+    return accessor_->TypeConstraintExists(label, property, type);
   }
 
   utils::BasicResult<storage::StorageTypeConstraintDefinitionError, void> CreateTypeConstraint(

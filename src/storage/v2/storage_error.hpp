@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -50,6 +50,10 @@ using StorageUniqueConstraintDefinitionError = std::variant<ConstraintViolation,
 using StorageTypeConstraintDefinitionError =
     std::variant<ConstraintViolation, TypeConstraintAlreadyExistsError, TypeConstraintAlreadyUsedError>;
 
-using StorageTypeConstraintDroppingError = ConstraintDefinitionError;
+// Trying to drop a type constraint which is used by the point index
+struct StorageTypeConstraintPointIndexViolation {};
+
+using StorageTypeConstraintDroppingError =
+    std::variant<ConstraintDefinitionError, StorageTypeConstraintPointIndexViolation>;
 
 }  // namespace memgraph::storage

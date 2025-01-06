@@ -791,11 +791,19 @@ Feature: Spatial related features
         Given an empty graph
         And having executed
             """
-            CREATE POINT INDEX ON :L1(prop1);
+            CREATE CONSTRAINT ON (n:L1) ASSERT n.prop IS TYPED POINT;
             """
         And having executed
             """
-            DROP POINT INDEX ON :L1(prop1);
+            CREATE POINT INDEX ON :L1(prop);
+            """
+        And having executed
+            """
+            DROP POINT INDEX ON :L1(prop);
+            """
+        And having executed
+            """
+            DROP CONSTRAINT ON (n:L1) ASSERT n.prop IS TYPED POINT;
             """
         When executing query:
             """
@@ -803,6 +811,15 @@ Feature: Spatial related features
             """
         Then the result should be:
             | index type             | label | property | count |
+
+    Scenario: Create point index with no type constraint:
+        When executing query:
+            """
+            CREATE POINT INDEX ON :L1(prop);
+            """
+        Then an error should be raised
+
+    # test for dropping the type constraint is in e2e due to it causing an issue in gql_behave
 
     Scenario: Point index with distance cartesian2d:
         Given an empty graph

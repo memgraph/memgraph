@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -2149,6 +2149,10 @@ UniqueConstraints::DeletionStatus DiskStorage::DiskAccessor::DropUniqueConstrain
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::unique_constraint_create, label, properties);
   return UniqueConstraints::DeletionStatus::SUCCESS;
+}
+
+bool DiskStorage::DiskAccessor::TypeConstraintExists(LabelId /**/, PropertyId /**/, TypeConstraintKind /**/) const {
+  throw utils::NotYetImplemented("Type constraints are not yet implemented for on-disk storage");
 }
 
 utils::BasicResult<StorageTypeConstraintDefinitionError, void> DiskStorage::DiskAccessor::CreateTypeConstraint(
