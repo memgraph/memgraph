@@ -14,12 +14,14 @@ from mgclient import Relationship as relationship_mgclient
 log = logging.getLogger("memgraph.tests.query_modules")
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(asctime)s %(name)s] %(message)s")
 
-@pytest.fixture
+# one memgraph instance is used for all tests
+@pytest.fixture(scope="session")
 def db():
     SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
     PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", ".."))
     BUILD_PATH = os.path.join(PROJECT_DIR, "build", "memgraph")
-    BUILD_ARGS = ['--telemetry-enabled=false']
+    # not great to hardcode qm directory, works for now
+    BUILD_ARGS = ['--telemetry-enabled=false', '--query-modules-directory=/usr/lib/memgraph/query_modules']
 
     process = subprocess.Popen([BUILD_PATH] + BUILD_ARGS, stderr=subprocess.STDOUT)
     pid = process.pid
@@ -315,7 +317,6 @@ def test_end2end(test_dir: Path, db: Memgraph):
     else:
         _test_static(test_dir, db)
 
-    # Clean database once testing module is finished
     db.drop_database()
     db.drop_indexes()
     db.ensure_constraints([])
