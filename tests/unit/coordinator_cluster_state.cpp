@@ -18,8 +18,9 @@
 #include <gflags/gflags.h>
 #include <gtest/gtest.h>
 #include "json/json.hpp"
-
 #include "libnuraft/nuraft.hxx"
+
+#include <vector>
 
 using memgraph::coordination::CoordinatorClusterState;
 using memgraph::coordination::CoordinatorInstanceContext;
@@ -63,10 +64,10 @@ TEST_F(CoordinatorClusterStateTest, RegisterReplicationInstance) {
 
   cluster_state.DoAction(data_instances, coord_instances, uuid);
 
-  auto instances = cluster_state.GetDataInstancesContext();
-  ASSERT_EQ(instances.size(), 1);
-  ASSERT_EQ(instances[0].config, config);
-  ASSERT_EQ(instances[0].status, ReplicationRole::REPLICA);
+  auto const data_instances_res = cluster_state.GetDataInstancesContext();
+  ASSERT_EQ(data_instances_res.size(), 1);
+  ASSERT_EQ(data_instances_res[0].config, config);
+  ASSERT_EQ(data_instances_res[0].status, ReplicationRole::REPLICA);
 }
 
 TEST_F(CoordinatorClusterStateTest, SetInstanceToReplica) {
@@ -140,6 +141,24 @@ TEST_F(CoordinatorClusterStateTest, ReplicationInstanceStateSerialization) {
   EXPECT_EQ(instance_state.status, deserialized_instance_state.status);
 }
 
+TEST_F(CoordinatorClusterStateTest, Coordinators) {
+  CoordinatorClusterState cluster_state;
+
+  std::vector<CoordinatorInstanceContext> const coord_instances{
+      CoordinatorInstanceContext{.id = 1, .bolt_server = "127.0.0.1:7690"},
+      CoordinatorInstanceContext{.id = 2, .bolt_server = "127.0.0.1:7691"},
+  };
+
+  cluster_state.DoAction({}, coord_instances, UUID{});
+
+  auto const coord_instances_res = cluster_state.GetCoordinatorInstancesContext();
+  ASSERT_EQ(coord_instances_res.size(), 2);
+  ASSERT_EQ(coord_instances_res[0].bolt_server, "127.0.0.1:7690");
+  ASSERT_EQ(coord_instances_res[0].id, 1);
+  ASSERT_EQ(coord_instances_res[1].bolt_server, "127.0.0.1:7691");
+  ASSERT_EQ(coord_instances_res[1].id, 2);
+}
+
 TEST_F(CoordinatorClusterStateTest, Marshalling) {
   CoordinatorClusterState cluster_state{};
   std::vector<DataInstanceContext> data_instances;
@@ -158,7 +177,10 @@ TEST_F(CoordinatorClusterStateTest, Marshalling) {
   auto const uuid = UUID{};
   data_instances.emplace_back(config, ReplicationRole::REPLICA, uuid);
 
-  std::vector<CoordinatorInstanceContext> coord_instances;
+  std::vector<CoordinatorInstanceContext> coord_instances{
+      CoordinatorInstanceContext{.id = 1, .bolt_server = "127.0.0.1:7690"},
+      CoordinatorInstanceContext{.id = 2, .bolt_server = "127.0.0.1:7691"},
+  };
 
   cluster_state.DoAction(data_instances, coord_instances, uuid);
 

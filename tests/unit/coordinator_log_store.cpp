@@ -70,7 +70,10 @@ TEST_F(CoordinatorLogStoreTests, TestBasicSerialization) {
   auto data_instances = std::vector<DataInstanceContext>();
   data_instances.emplace_back(config, ReplicationRole::REPLICA, UUID{});
 
-  auto coord_instances = std::vector<CoordinatorInstanceContext>();
+  std::vector<CoordinatorInstanceContext> coord_instances{
+      CoordinatorInstanceContext{.id = 1, .bolt_server = "127.0.0.1:7690"},
+      CoordinatorInstanceContext{.id = 2, .bolt_server = "127.0.0.1:7691"},
+  };
 
   auto buffer = CoordinatorStateMachine::SerializeUpdateClusterState(data_instances, coord_instances, UUID{});
 
@@ -157,7 +160,10 @@ TEST_F(CoordinatorLogStoreTests, TestMultipleInstancesSerialization) {
     data_instances.emplace_back(config2, ReplicationRole::REPLICA, UUID{});
     data_instances.emplace_back(config3, ReplicationRole::REPLICA, UUID{});
 
-    auto coord_instances = std::vector<CoordinatorInstanceContext>();
+    std::vector<CoordinatorInstanceContext> coord_instances{
+        CoordinatorInstanceContext{.id = 1, .bolt_server = "127.0.0.1:7690"},
+        CoordinatorInstanceContext{.id = 2, .bolt_server = "127.0.0.1:7691"},
+    };
 
     auto log_entry_update = cs_new<log_entry>(
         1, CoordinatorStateMachine::SerializeUpdateClusterState(data_instances, coord_instances, UUID{}),
@@ -177,19 +183,6 @@ TEST_F(CoordinatorLogStoreTests, TestMultipleInstancesSerialization) {
   CoordinatorLogStore log_store{GetLogger(), log_store_durability};
   ASSERT_EQ(log_store.next_slot(), 2);
   ASSERT_EQ(log_store.start_index(), 1);
-
-  auto const get_config = [&](int const &instance_id) {
-    switch (instance_id) {
-      case 1:
-        return config1;
-      case 2:
-        return config2;
-      case 3:
-        return config3;
-      default:
-        throw std::runtime_error("No instance with given id");
-    };
-  };
 
   // Check the contents of the logs
   auto const log_entries = log_store.log_entries(1, log_store.next_slot());
@@ -220,7 +213,10 @@ TEST_F(CoordinatorLogStoreTests, TestPackAndApplyPack) {
                                      .ssl = std::nullopt};
     data_instances.emplace_back(config, ReplicationRole::REPLICA, UUID{});
 
-    auto coord_instances = std::vector<CoordinatorInstanceContext>();
+    std::vector<CoordinatorInstanceContext> coord_instances{
+        CoordinatorInstanceContext{.id = 1, .bolt_server = "127.0.0.1:7690"},
+        CoordinatorInstanceContext{.id = 2, .bolt_server = "127.0.0.1:7691"},
+    };
 
     auto buffer = CoordinatorStateMachine::SerializeUpdateClusterState(data_instances, coord_instances, UUID{});
 
@@ -253,8 +249,6 @@ TEST_F(CoordinatorLogStoreTests, TestPackAndApplyPack) {
           .instance_down_timeout_sec = std::chrono::seconds{5},
           .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
           .ssl = std::nullopt};
-
-      auto coord_instances = std::vector<CoordinatorInstanceContext>();
 
       data_instances.emplace_back(config1, ReplicationRole::REPLICA, UUID{});
       auto buffer1 = CoordinatorStateMachine::SerializeUpdateClusterState(data_instances, coord_instances, UUID{});

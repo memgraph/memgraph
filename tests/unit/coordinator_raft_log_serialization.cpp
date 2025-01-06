@@ -81,8 +81,11 @@ TEST_F(RaftLogSerialization, SerializeUpdateClusterState) {
   std::vector<DataInstanceContext> data_instances;
   data_instances.emplace_back(config, ReplicationRole::REPLICA, UUID{});
 
-  auto coord_instances = std::vector<CoordinatorInstanceContext>();
+  std::vector<CoordinatorInstanceContext> coord_instances{
+      CoordinatorInstanceContext{.id = 1, .bolt_server = "127.0.0.1:7690"},
+      CoordinatorInstanceContext{.id = 2, .bolt_server = "127.0.0.1:7691"},
+  };
 
-  auto buffer = CoordinatorStateMachine::SerializeUpdateClusterState(data_instances, coord_instances, UUID{});
+  auto const buffer = CoordinatorStateMachine::SerializeUpdateClusterState(data_instances, coord_instances, UUID{});
   auto const [ds, cs, uuid] = CoordinatorStateMachine::DecodeLog(*buffer);
 }
