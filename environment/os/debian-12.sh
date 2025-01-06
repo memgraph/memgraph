@@ -24,6 +24,7 @@ TOOLCHAIN_BUILD_DEPS=(
     gperf # for proxygen
     git # for fbthrift
     custom-rust
+    libtool # for protobuf
 )
 
 TOOLCHAIN_RUN_DEPS=(
