@@ -225,57 +225,82 @@ def test_point_index_replication(connection):
     # 1/
     execute_and_fetch_all(
         cursor,
-        "CREATE POINT INDEX ON :Node(location);",
+        "CREATE CONSTRAINT ON (n:Node) ASSERT n.location IS TYPED POINT;"
     )
-    wait_for_replication_change(cursor, 2)
+    execute_and_fetch_all(
+        cursor,
+        "CREATE POINT INDEX ON :Node(location);"
+    )
+    wait_for_replication_change(cursor, 4)
 
     # 2/
     def get_show_index_info(cursor):
         return execute_and_fetch_all(cursor, f"SHOW INDEX INFO;")
+
+    def get_show_constraint_info(cursor):
+        return execute_and_fetch_all(cursor, f"SHOW CONSTRAINT INFO;")
 
     def get_replica_cursor(name):
         return connection(BOLT_PORTS[name], "replica").cursor()
 
     expected_result = [("point", "Node", "location", 0)]
 
-    replica_1_enums = get_show_index_info(get_replica_cursor("replica_1"))
-    assert replica_1_enums == expected_result
+    replica_1_info = get_show_index_info(get_replica_cursor("replica_1"))
+    assert replica_1_info == expected_result
 
-    replica_2_enums = get_show_index_info(get_replica_cursor("replica_2"))
-    assert replica_2_enums == expected_result
+    replica_2_info = get_show_index_info(get_replica_cursor("replica_2"))
+    assert replica_2_info == expected_result
+
+    expected_result = [("data_type", "Node", "location", "POINT")]
+
+    replica_1_info = get_show_constraint_info(get_replica_cursor("replica_1"))
+    assert replica_1_info == expected_result
+
+    replica_2_info = get_show_constraint_info(get_replica_cursor("replica_2"))
+    assert replica_2_info == expected_result
 
     # 3/
     execute_and_fetch_all(
         cursor,
         "CREATE (:Node{location: point({x:1, y:1})});",
     )
-    wait_for_replication_change(cursor, 4)
+    wait_for_replication_change(cursor, 6)
 
     # 4/
     expected_result = [("point", "Node", "location", 1)]
 
-    replica_1_enums = get_show_index_info(get_replica_cursor("replica_1"))
-    assert replica_1_enums == expected_result
+    replica_1_info = get_show_index_info(get_replica_cursor("replica_1"))
+    assert replica_1_info == expected_result
 
-    replica_2_enums = get_show_index_info(get_replica_cursor("replica_2"))
-    assert replica_2_enums == expected_result
+    replica_2_info = get_show_index_info(get_replica_cursor("replica_2"))
+    assert replica_2_info == expected_result
 
     # 5/
     execute_and_fetch_all(
         cursor,
         "DROP POINT INDEX ON :Node(location);",
     )
-    wait_for_replication_change(cursor, 6)
+    execute_and_fetch_all(
+        cursor,
+        "DROP CONSTRAINT ON (n:Node) ASSERT n.location IS TYPED POINT;"
+    )
+
+    wait_for_replication_change(cursor, 10)
 
     # 6/
     expected_result = []
 
-    replica_1_enums = get_show_index_info(get_replica_cursor("replica_1"))
-    assert replica_1_enums == expected_result
+    replica_1_info = get_show_index_info(get_replica_cursor("replica_1"))
+    assert replica_1_info == expected_result
 
-    replica_2_enums = get_show_index_info(get_replica_cursor("replica_2"))
-    assert replica_2_enums == expected_result
+    replica_2_info = get_show_index_info(get_replica_cursor("replica_2"))
+    assert replica_2_info == expected_result
 
+    replica_1_info = get_show_constraint_info(get_replica_cursor("replica_1"))
+    assert replica_1_info == expected_result
+
+    replica_2_info = get_show_constraint_info(get_replica_cursor("replica_2"))
+    assert replica_2_info == expected_result
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
