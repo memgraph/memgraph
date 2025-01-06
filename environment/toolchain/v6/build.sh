@@ -83,6 +83,7 @@ echo "ALL BUILD PACKAGES: $(${ENV_SCRIPT} list TOOLCHAIN_BUILD_DEPS)"
 ${ENV_SCRIPT} check TOOLCHAIN_BUILD_DEPS
 echo "ALL RUN PACKAGES: $(${ENV_SCRIPT} list TOOLCHAIN_RUN_DEPS)"
 ${ENV_SCRIPT} check TOOLCHAIN_RUN_DEPS
+. "$HOME/.cargo/env"
 
 # check installation directory
 NAME=toolchain-v$TOOLCHAIN_VERSION

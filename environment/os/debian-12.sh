@@ -23,6 +23,7 @@ TOOLCHAIN_BUILD_DEPS=(
     libgmp-dev
     gperf # for proxygen
     git # for fbthrift
+    custom-rust
 )
 
 TOOLCHAIN_RUN_DEPS=(
@@ -127,6 +128,19 @@ install() {
                 apt-get update
                 apt-get install -y apt-transport-https dotnet-sdk-8.0
             fi
+            continue
+        fi
+        if [ "$pkg" == custom-rust ]; then
+            RUST_VERSION="1.80"
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && rustup default ${RUST_VERSION}
+            continue
+        fi
+        if [ "$pkg" == custom-node ]; then
+	    NODE_VERSION="20"
+            curl https://raw.githubusercontent.com/creationix/nvm/master/install.sh | bash \
+                && . ~/.nvm/nvm.sh \
+                && nvm install ${NODE_VERSION} \
+                && nvm use ${NODE_VERSION}
             continue
         fi
         apt install -y "$pkg"
