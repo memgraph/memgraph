@@ -276,6 +276,17 @@ def test_type_constraint_with_triggers_fail_create(memgraph):
     memgraph.execute("DROP CONSTRAINT ON (n:Node) ASSERT n.prop IS TYPED INTEGER;")
 
 
+def test_type_constraint_drop_with_point_index(memgraph):
+    memgraph.execute("CREATE CONSTRAINT ON (n:Node) ASSERT n.prop IS TYPED POINT;")
+    memgraph.execute("CREATE POINT INDEX ON :Node(prop);")
+
+    with pytest.raises(GQLAlchemyError):
+        memgraph.execute("DROP CONSTRAINT ON (n:Node) ASSERT n.prop IS TYPED POINT;")
+
+    memgraph.execute("DROP POINT INDEX ON :Node(prop);")
+    memgraph.execute("DROP CONSTRAINT ON (n:Node) ASSERT n.prop IS TYPED POINT;")
+
+
 def test_delta_release_on_unique_constraint_error(memgraph):
     memgraph.execute("create constraint on (n:Label) ASSERT n.id IS UNIQUE;")
     memgraph.execute("foreach (i in range(1, 100000) | CREATE (:Label {id: i}));")

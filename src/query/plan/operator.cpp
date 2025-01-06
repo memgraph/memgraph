@@ -110,6 +110,7 @@ extern const Event ScanAllByEdgeTypePropertyOperator;
 extern const Event ScanAllByEdgeTypePropertyValueOperator;
 extern const Event ScanAllByEdgeTypePropertyRangeOperator;
 extern const Event ScanAllByEdgeIdOperator;
+extern const Event ScanAllByPointOperator;
 extern const Event ScanAllByPointDistanceOperator;
 extern const Event ScanAllByPointWithinbboxOperator;
 extern const Event ExpandOperator;
@@ -6430,6 +6431,36 @@ UniqueCursorPtr PeriodicSubquery::MakeCursor(utils::MemoryResource *mem) const {
   return MakeUniqueCursorPtr<PeriodicSubqueryCursor>(mem, *this, mem);
 }
 
+ScanAllByPoint::ScanAllByPoint(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
+                               storage::LabelId label, storage::PropertyId property, Expression *match)
+    : ScanAll(input, output_symbol, storage::View::OLD), label_(label), property_(property), match_{match} {}
+
+ACCEPT_WITH_INPUT(ScanAllByPoint)
+
+UniqueCursorPtr ScanAllByPoint::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByPointOperator);
+
+  auto vertices = [this](Frame &frame, ExecutionContext &context) -> std::optional<PointIterable> {
+    auto evaluator =
+        ExpressionEvaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_);
+    auto match_value = match_->Accept(evaluator);
+
+    auto crs = GetCRS(match_value);
+    if (!crs) return std::nullopt;
+
+    return std::make_optional(context.db_accessor->PointVertices(label_, property_, *crs, match_value));
+  };
+  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
+                                                                view_, std::move(vertices), "ScanAllByPoint");
+}
+
+std::string ScanAllByPointDistance::ToString() const {
+  auto const &name = output_symbol_.name();
+  auto const &label = dba_->LabelToName(label_);
+  auto const &property = dba_->PropertyToName(property_);
+  return fmt::format("ScanAllByPointDistance ({0} :{1} {{{2}}})", name, label, property);
+}
+
 ScanAllByPointDistance::ScanAllByPointDistance(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
                                                storage::LabelId label, storage::PropertyId property,
                                                Expression *cmp_value, Expression *boundary_value,
@@ -6462,11 +6493,11 @@ UniqueCursorPtr ScanAllByPointDistance::MakeCursor(utils::MemoryResource *mem) c
                                                                 view_, std::move(vertices), "ScanAllByPointDistance");
 }
 
-std::string ScanAllByPointDistance::ToString() const {
+std::string ScanAllByPoint::ToString() const {
   auto const &name = output_symbol_.name();
   auto const &label = dba_->LabelToName(label_);
   auto const &property = dba_->PropertyToName(property_);
-  return fmt::format("ScanAllByPointDistance ({0} :{1} {{{2}}})", name, label, property);
+  return fmt::format("ScanAllByPoint ({0} :{1} {{{2}}})", name, label, property);
 }
 
 ScanAllByPointWithinbbox::ScanAllByPointWithinbbox(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,

@@ -11,15 +11,10 @@
 
 #pragma once
 
-#include "storage/v2/id_types.hpp"
-
 #include "storage/v2/property_store_types.hpp"
 #include "storage/v2/temporal.hpp"
 
 #include <cstdint>
-#include <string>
-
-#include "absl/container/flat_hash_map.h"
 
 namespace memgraph::storage {
 

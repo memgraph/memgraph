@@ -349,7 +349,10 @@ class PropertyFilter {
 
 /// Stores the symbols and expression used to filter a point.distance/withinbbox.
 struct PointFilter {
-  enum class Function : uint8_t { DISTANCE, WITHINBBOX };
+  enum class Function : uint8_t { EXACT_MATCH, DISTANCE, WITHINBBOX };
+
+  PointFilter(Symbol symbol, PropertyIx property, Expression *match)
+      : symbol_(std::move(symbol)), property_(std::move(property)), function_(Function::EXACT_MATCH), match_(match) {}
 
   PointFilter(Symbol symbol, PropertyIx property, Expression *cmp_value, PointDistanceCondition boundary_condition,
               Expression *boundary_value)
@@ -378,6 +381,8 @@ struct PointFilter {
   PropertyIx property_;
   Function function_;
   union {
+    Expression *match_ = nullptr;
+
     struct {
       Expression *cmp_value_ = nullptr;
       Expression *boundary_value_ = nullptr;

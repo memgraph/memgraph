@@ -15,11 +15,12 @@
 #include "replication/replication_server.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/durability/durability.hpp"
+#include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/version.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/inmemory/storage.hpp"
-#include "storage/v2/inmemory/unique_constraints.hpp"
+#include "storage/v2/mvcc.hpp"
 #include "storage/v2/schema_info.hpp"
 
 #include <spdlog/spdlog.h>

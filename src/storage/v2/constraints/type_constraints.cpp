@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -148,12 +148,20 @@ inline TypeConstraintKind PropertyValueToTypeConstraintKind(const PropertyValue 
 
 bool TypeConstraints::empty() const { return constraints_.empty(); }
 
-bool TypeConstraints::ConstraintExists(LabelId label, PropertyId property) const {
-  return constraints_.contains({label, property});
+TypeConstraints::ExistenceStatus TypeConstraints::ConstraintExists(LabelId label, PropertyId property,
+                                                                   TypeConstraintKind type) const {
+  auto it = constraints_.find({label, property});
+  if (it == constraints_.end()) {
+    return ExistenceStatus::EMPTY;
+  }
+  if (it->second == type) {
+    return ExistenceStatus::EXISTS_SAME;
+  }
+  return ExistenceStatus::EXISTS_DIFFERENT;
 }
 
 bool TypeConstraints::InsertConstraint(LabelId label, PropertyId property, TypeConstraintKind type) {
-  if (ConstraintExists(label, property)) {
+  if (ConstraintExists(label, property, type) != ExistenceStatus::EMPTY) {
     return false;
   }
   constraints_.emplace(std::make_pair(label, property), type);

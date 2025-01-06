@@ -11,6 +11,7 @@
 
 # -*- coding: utf-8 -*-
 
+import re
 import parser
 
 import database
@@ -52,19 +53,31 @@ def with_new_index_step(context, index_arg):
     context.add_cleanup(cleanup_index, index_arg, context, context.test_parameters.get_parameters())
 
 
+def _parse_label_prop(argument):
+    # :string1(string2)
+    pattern = r":(\w+)\((\w+)\)"
+    return re.findall(pattern, argument)[0]
+
+
 def cleanup_point_index(index_arg, context, params):
-    # Define the cleanup logic
+    label, property = _parse_label_prop(index_arg)
+
+    type_constraint_query = f"DROP CONSTRAINT ON (n:{label}) ASSERT n.{property} IS TYPED POINT;"
     drop_query = f"DROP POINT INDEX ON {index_arg};"
+
     database.query(drop_query, context, params)
+    database.query(type_constraint_query, context, params)
 
 
 @step("with new point index {index_arg}")
 def with_new_index_step(context, index_arg):
-    # Construct the index creation query using the provided index arg
+    label, property = _parse_label_prop(index_arg)
+
+    type_constraint_query = f"CREATE CONSTRAINT ON (n:{label}) ASSERT n.{property} IS TYPED POINT;"
     index_creation_query = f"CREATE POINT INDEX ON {index_arg};"
 
-    # Execute the query to create the index
-    context.results = database.query(index_creation_query, context, context.test_parameters.get_parameters())
+    database.query(type_constraint_query, context, context.test_parameters.get_parameters())
+    database.query(index_creation_query, context, context.test_parameters.get_parameters())
 
     # Register the cleanup function to remove the index after the test
     context.add_cleanup(cleanup_point_index, index_arg, context, context.test_parameters.get_parameters())

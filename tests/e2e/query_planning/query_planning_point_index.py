@@ -42,9 +42,24 @@ EXPECTED_PLAN_WITHINBBOX_NO_WITH = [
     f" * Once",
 ]
 
+EXPECTED_PLAN_EXACT_MATCH = [
+    f" * Produce {{a}}",
+    f" * ScanAllByPoint (a :Node {{point}})",
+    f" * Once",
+]
+
+def create_point_index(memgraph):
+    memgraph.execute("CREATE CONSTRAINT ON (n:Node) ASSERT n.point IS TYPED POINT;")
+    memgraph.execute("CREATE POINT INDEX ON :Node(point);")
+
+
+def drop_point_index(memgraph):
+    memgraph.execute("DROP POINT INDEX ON :Node(point);")
+    memgraph.execute("DROP CONSTRAINT ON (n:Node) ASSERT n.point IS TYPED POINT;")
+
 
 def test_ScanAllByPointDistance_used(memgraph):
-    memgraph.execute("CREATE POINT INDEX ON :Node(point);")
+    create_point_index(memgraph)
 
     results = list(
         memgraph.execute_and_fetch(
@@ -55,11 +70,11 @@ def test_ScanAllByPointDistance_used(memgraph):
 
     assert EXPECTED_PLAN_DISTANCE_WITH == actual_explain
 
-    memgraph.execute("DROP POINT INDEX ON :Node(point);")
+    drop_point_index(memgraph)
 
 
 def test_ScanAllByPointDistance_used_commutative(memgraph):
-    memgraph.execute("CREATE POINT INDEX ON :Node(point);")
+    create_point_index(memgraph)
 
     results = list(
         memgraph.execute_and_fetch(
@@ -70,11 +85,11 @@ def test_ScanAllByPointDistance_used_commutative(memgraph):
 
     assert EXPECTED_PLAN_DISTANCE_WITH == actual_explain
 
-    memgraph.execute("DROP POINT INDEX ON :Node(point);")
+    drop_point_index(memgraph)
 
 
 def test_ScanAllByPointDistance_no_with(memgraph):
-    memgraph.execute("CREATE POINT INDEX ON :Node(point);")
+    create_point_index(memgraph)
 
     results = list(
         memgraph.execute_and_fetch(
@@ -85,11 +100,11 @@ def test_ScanAllByPointDistance_no_with(memgraph):
 
     assert EXPECTED_PLAN_DISTANCE_NO_WITH == actual_explain
 
-    memgraph.execute("DROP POINT INDEX ON :Node(point);")
+    drop_point_index(memgraph)
 
 
 def test_ScanAllByPointDistance_no_with_commutative(memgraph):
-    memgraph.execute("CREATE POINT INDEX ON :Node(point);")
+    create_point_index(memgraph)
 
     results = list(
         memgraph.execute_and_fetch(
@@ -100,11 +115,11 @@ def test_ScanAllByPointDistance_no_with_commutative(memgraph):
 
     assert EXPECTED_PLAN_DISTANCE_NO_WITH == actual_explain
 
-    memgraph.execute("DROP POINT INDEX ON :Node(point);")
+    drop_point_index(memgraph)
 
 
 def test_ScanAllByPointWithinbbox_no_with_commutative(memgraph):
-    memgraph.execute("CREATE POINT INDEX ON :Node(point);")
+    create_point_index(memgraph)
 
     results = list(
         memgraph.execute_and_fetch(
@@ -115,11 +130,11 @@ def test_ScanAllByPointWithinbbox_no_with_commutative(memgraph):
 
     assert EXPECTED_PLAN_WITHINBBOX_WITH == actual_explain
 
-    memgraph.execute("DROP POINT INDEX ON :Node(point);")
+    drop_point_index(memgraph)
 
 
 def test_ScanAllByPointWithinbbox_used_implicit_true(memgraph):
-    memgraph.execute("CREATE POINT INDEX ON :Node(point);")
+    create_point_index(memgraph)
 
     results = list(
         memgraph.execute_and_fetch(
@@ -130,11 +145,11 @@ def test_ScanAllByPointWithinbbox_used_implicit_true(memgraph):
 
     assert EXPECTED_PLAN_WITHINBBOX_WITH == actual_explain
 
-    memgraph.execute("DROP POINT INDEX ON :Node(id);")
+    drop_point_index(memgraph)
 
 
 def test_ScanAllByPointWithinbbox_used_implicit_false(memgraph):
-    memgraph.execute("CREATE POINT INDEX ON :Node(point);")
+    create_point_index(memgraph)
 
     results = list(
         memgraph.execute_and_fetch(
@@ -145,11 +160,11 @@ def test_ScanAllByPointWithinbbox_used_implicit_false(memgraph):
 
     assert EXPECTED_PLAN_WITHINBBOX_WITH == actual_explain
 
-    memgraph.execute("DROP POINT INDEX ON :Node(id);")
+    drop_point_index(memgraph)
 
 
 def test_ScanAllByPointWithinbboxNoWith1(memgraph):
-    memgraph.execute("CREATE POINT INDEX ON :Node(point);")
+    create_point_index(memgraph)
 
     results = list(
         memgraph.execute_and_fetch(
@@ -160,11 +175,11 @@ def test_ScanAllByPointWithinbboxNoWith1(memgraph):
 
     assert EXPECTED_PLAN_WITHINBBOX_NO_WITH == actual_explain
 
-    memgraph.execute("DROP POINT INDEX ON :Node(id);")
+    drop_point_index(memgraph)
 
 
 def test_ScanAllByPointWithinbboxNoWith2(memgraph):
-    memgraph.execute("CREATE POINT INDEX ON :Node(point);")
+    create_point_index(memgraph)
 
     results = list(
         memgraph.execute_and_fetch(
@@ -175,11 +190,11 @@ def test_ScanAllByPointWithinbboxNoWith2(memgraph):
 
     assert EXPECTED_PLAN_WITHINBBOX_NO_WITH == actual_explain
 
-    memgraph.execute("DROP POINT INDEX ON :Node(id);")
+    drop_point_index(memgraph)
 
 
 def test_ScanAllByPointWithinbboxNoWith3(memgraph):
-    memgraph.execute("CREATE POINT INDEX ON :Node(point);")
+    create_point_index(memgraph)
 
     results = list(
         memgraph.execute_and_fetch(
@@ -190,11 +205,11 @@ def test_ScanAllByPointWithinbboxNoWith3(memgraph):
 
     assert EXPECTED_PLAN_WITHINBBOX_NO_WITH == actual_explain
 
-    memgraph.execute("DROP POINT INDEX ON :Node(id);")
+    drop_point_index(memgraph)
 
 
 def test_ScanAllByPointWithinbboxNoWith4(memgraph):
-    memgraph.execute("CREATE POINT INDEX ON :Node(point);")
+    create_point_index(memgraph)
 
     results = list(
         memgraph.execute_and_fetch(
@@ -205,7 +220,31 @@ def test_ScanAllByPointWithinbboxNoWith4(memgraph):
 
     assert EXPECTED_PLAN_WITHINBBOX_NO_WITH == actual_explain
 
-    memgraph.execute("DROP POINT INDEX ON :Node(id);")
+    drop_point_index(memgraph)
+
+
+def test_ScanAllByPoint(memgraph):
+    create_point_index(memgraph)
+
+    results = list(
+        memgraph.execute_and_fetch(
+            "EXPLAIN MATCH (a:Node) WHERE a.point = point({x:1, y:1}) return a;"
+        )
+    )
+    actual_explain = [x[QUERY_PLAN] for x in results]
+
+    assert EXPECTED_PLAN_EXACT_MATCH == actual_explain
+
+    results = list(
+        memgraph.execute_and_fetch(
+            "EXPLAIN MATCH (a:Node {point:point({x:1, y:1})}) return a;"
+        )
+    )
+    actual_explain = [x[QUERY_PLAN] for x in results]
+
+    assert EXPECTED_PLAN_EXACT_MATCH == actual_explain
+
+    drop_point_index(memgraph)
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -151,6 +151,14 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       ASSERT_FALSE(acc->Commit().HasError());
     }
     {
+      // Create type constraint before the point index
+      auto unique_acc = store->UniqueAccess();
+      ASSERT_FALSE(
+          unique_acc->CreateTypeConstraint(label_indexed, property_point, memgraph::storage::TypeConstraintKind::POINT)
+              .HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
+    {
       // Create point index.
       auto unique_acc = store->UniqueAccess();
       ASSERT_FALSE(unique_acc->CreatePointIndex(label_indexed, property_point).HasError());
@@ -167,14 +175,6 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       // Create unique constraint.
       auto unique_acc = store->UniqueAccess();
       ASSERT_FALSE(unique_acc->CreateUniqueConstraint(label_unindexed, {property_id, property_extra}).HasError());
-      ASSERT_FALSE(unique_acc->Commit().HasError());
-    }
-    {
-      // Create type constraint.
-      auto unique_acc = store->UniqueAccess();
-      ASSERT_FALSE(
-          unique_acc->CreateTypeConstraint(label_indexed, property_point, memgraph::storage::TypeConstraintKind::POINT)
-              .HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
 

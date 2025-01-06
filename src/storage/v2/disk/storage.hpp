@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -235,13 +235,18 @@ class DiskStorage final : public Storage {
     UniqueConstraints::DeletionStatus DropUniqueConstraint(LabelId label,
                                                            const std::set<PropertyId> &properties) override;
 
-    utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateTypeConstraint(
+    bool TypeConstraintExists(LabelId /**/, PropertyId /**/, TypeConstraintKind /**/) const override;
+
+    utils::BasicResult<StorageTypeConstraintDefinitionError, void> CreateTypeConstraint(
         LabelId label, PropertyId property, TypeConstraintKind type) override;
 
-    utils::BasicResult<StorageExistenceConstraintDroppingError, void> DropTypeConstraint(
-        LabelId label, PropertyId property, TypeConstraintKind type) override;
+    utils::BasicResult<StorageTypeConstraintDroppingError, void> DropTypeConstraint(LabelId label, PropertyId property,
+                                                                                    TypeConstraintKind type) override;
 
     void DropGraph() override;
+
+    auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs, PropertyValue const &match)
+        -> PointIterable override;
 
     auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
                        PropertyValue const &point_value, PropertyValue const &boundary_value,

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -2151,12 +2151,16 @@ UniqueConstraints::DeletionStatus DiskStorage::DiskAccessor::DropUniqueConstrain
   return UniqueConstraints::DeletionStatus::SUCCESS;
 }
 
-utils::BasicResult<StorageExistenceConstraintDefinitionError, void> DiskStorage::DiskAccessor::CreateTypeConstraint(
+bool DiskStorage::DiskAccessor::TypeConstraintExists(LabelId /**/, PropertyId /**/, TypeConstraintKind /**/) const {
+  throw utils::NotYetImplemented("Type constraints are not yet implemented for on-disk storage");
+}
+
+utils::BasicResult<StorageTypeConstraintDefinitionError, void> DiskStorage::DiskAccessor::CreateTypeConstraint(
     LabelId /**/, PropertyId /**/, TypeConstraintKind /**/) {
   throw utils::NotYetImplemented("Type constraints are not yet implemented for on-disk storage");
 }
 
-utils::BasicResult<StorageExistenceConstraintDroppingError, void> DiskStorage::DiskAccessor::DropTypeConstraint(
+utils::BasicResult<StorageTypeConstraintDroppingError, void> DiskStorage::DiskAccessor::DropTypeConstraint(
     LabelId /**/, PropertyId /**/, TypeConstraintKind /**/) {
   throw utils::NotYetImplemented("Type constraints are not yet implemented for on-disk storage");
 }
@@ -2164,6 +2168,12 @@ utils::BasicResult<StorageExistenceConstraintDroppingError, void> DiskStorage::D
 void DiskStorage::DiskAccessor::DropGraph() {
   throw utils::NotYetImplemented("Drop graph is not yet implemented for on-disk storage");
 }
+
+auto DiskStorage::DiskAccessor::PointVertices(LabelId /*label*/, PropertyId /*property*/,
+                                              CoordinateReferenceSystem /*crs*/, PropertyValue const & /*match*/)
+    -> PointIterable {
+  throw utils::NotYetImplemented("Point Vertices is not yet implemented for on-disk storage");
+};
 
 auto DiskStorage::DiskAccessor::PointVertices(LabelId /*label*/, PropertyId /*property*/,
                                               CoordinateReferenceSystem /*crs*/, PropertyValue const & /*point_value*/,

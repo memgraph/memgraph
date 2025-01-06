@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,7 +16,6 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
-#include <concepts>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -24,7 +23,6 @@
 #include <limits>
 #include <memory>
 #include <optional>
-#include <stdexcept>
 #include <string_view>
 #include <thread>
 #include <tuple>
@@ -34,17 +32,13 @@
 #include <vector>
 
 #include "auth/auth.hpp"
-#include "auth/models.hpp"
 #include "coordination/coordinator_state.hpp"
 #include "coordination/register_main_replica_coordinator_status.hpp"
-#include "csv/parsing.hpp"
 #include "dbms/coordinator_handler.hpp"
 #include "dbms/database.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "dbms/global.hpp"
-#include "dbms/inmemory/storage_helper.hpp"
 #include "flags/experimental.hpp"
-#include "flags/replication.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "glue/communication.hpp"
 #include "io/network/endpoint.hpp"
@@ -60,10 +54,6 @@
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
-#include "query/frontend/ast/cypher_main_visitor.hpp"
-#include "query/frontend/opencypher/parser.hpp"
-#include "query/frontend/semantic/required_privileges.hpp"
-#include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/hops_limit.hpp"
 #include "query/interpret/eval.hpp"
 #include "query/interpret/frame.hpp"
@@ -73,8 +63,6 @@
 #include "query/plan/hint_provider.hpp"
 #include "query/plan/planner.hpp"
 #include "query/plan/profile.hpp"
-#include "query/plan/vertex_count_cache.hpp"
-#include "query/procedure/module.hpp"
 #include "query/query_user.hpp"
 #include "query/replication_query_handler.hpp"
 #include "query/stream.hpp"
@@ -90,7 +78,6 @@
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/disk/storage.hpp"
-#include "storage/v2/edge.hpp"
 #include "storage/v2/edge_import_mode.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -102,14 +89,12 @@
 #include "utils/event_counter.hpp"
 #include "utils/event_histogram.hpp"
 #include "utils/exceptions.hpp"
-#include "utils/file.hpp"
 #include "utils/flag_validation.hpp"
 #include "utils/functional.hpp"
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
 #include "utils/memory_tracker.hpp"
-#include "utils/message.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/readable_size.hpp"
 #include "utils/settings.hpp"
@@ -828,21 +813,14 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         // If the license is not valid we create users with admin access
         if (!valid_enterprise_license) {
           spdlog::warn("Granting all the privileges to {}.", username);
-          auth->GrantPrivilege(
-              username, kPrivilegesAll
+          auth->GrantPrivilege(username, kPrivilegesAll
 #ifdef MG_ENTERPRISE
-              ,
-              {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}},
-              {
-                {
-                  {
-                    AuthQuery::FineGrainedPrivilege::CREATE_DELETE, { query::kAsterisk }
-                  }
-                }
-              }
+                               ,
+                               {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}},
+                               {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}}
 #endif
-              ,
-              &*interpreter->system_transaction_);
+                               ,
+                               &*interpreter->system_transaction_);
         }
 
         return std::vector<std::vector<TypedValue>>();
@@ -3152,13 +3130,24 @@ PreparedQuery PreparePointIndexQuery(ParsedQuery parsed_query, bool in_explicit_
         auto label_id = storage->NameToLabel(label_name);
         auto prop_id = storage->NameToProperty(prop_name);
 
+        // TODO: is there a reason why we sometimes don't throw and use notifications?
+        auto valid_type_constraint = dba->TypeConstraintExists(label_id, prop_id, storage::TypeConstraintKind::POINT);
+        if (!valid_type_constraint) {
+          throw QueryException(
+              "Creating a point index on :{}({}) requires creating IS TYPED POINT constraint on the given "
+              "label-property pair",
+              label_name, prop_name);
+        }
+
         auto maybe_index_error = dba->CreatePointIndex(label_id, prop_id);
         utils::OnScopeExit const invalidator(invalidate_plan_cache);
 
         if (maybe_index_error.HasError()) {
           index_notification.code = NotificationCode::EXISTENT_INDEX;
-          index_notification.title =
-              fmt::format("Point index on label {} and property {} already exists.", label_name, prop_name);
+          index_notification.title = fmt::format(
+              "Failed to create point index on label {} and property {}. Either the index already exists or all "
+              "properties with the given label are not of point data type.",
+              label_name, prop_name);
         }
         return index_notification;
       };
@@ -4800,10 +4789,14 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                           "Unable to create IS TYPED {} constraint on :{}({}), because an "
                           "existing node violates it.",
                           storage::TypeConstraintKindToString(constraint_type), label_name, property_name);
-                    } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintDefinitionError>) {
+                    } else if constexpr (std::is_same_v<ErrorType, storage::TypeConstraintAlreadyExistsError>) {
                       throw QueryRuntimeException("Constraint IS TYPED {} on :{}({}) already exists",
                                                   storage::TypeConstraintKindToString(constraint_type), label_name,
                                                   properties_stringified);
+                    } else if constexpr (std::is_same_v<ErrorType, storage::TypeConstraintAlreadyUsedError>) {
+                      throw QueryRuntimeException(
+                          "A type constraint different than IS TYPED {} already exists on :{}({})",
+                          storage::TypeConstraintKindToString(constraint_type), label_name, properties_stringified);
                     } else {
                       static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
                     }
@@ -4894,12 +4887,28 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                      properties_stringified = std::move(properties_stringified),
                      properties = std::move(properties)](Notification & /**/) {
             auto maybe_constraint_error = dba->DropTypeConstraint(label, properties[0], constraint_type);
+
             if (maybe_constraint_error.HasError()) {
-              throw QueryRuntimeException("Constraint IS TYPED {} on :{}({}) doesn't exist",
-                                          storage::TypeConstraintKindToString(constraint_type), label_name,
-                                          properties_stringified);
+              const auto &error = maybe_constraint_error.GetError();
+              std::visit(
+                  [&label_name, &properties_stringified, constraint_type]<typename T>(T const & /*arg*/) {
+                    using ErrorType = std::remove_cvref_t<T>;
+                    if constexpr (std::is_same_v<ErrorType, storage::ConstraintDefinitionError>) {
+                      throw QueryRuntimeException(
+                          "Unable to drop IS TYPED {} constraint on :{}({}), because "
+                          "it doesn't exist.",
+                          storage::TypeConstraintKindToString(constraint_type), label_name, properties_stringified);
+                    } else if constexpr (std::is_same_v<ErrorType, storage::StorageTypeConstraintPointIndexViolation>) {
+                      throw QueryRuntimeException(
+                          "Unable to drop IS TYPED {} constraint on :{}({}) because a point index exists on that "
+                          "label-property pair. To remove the constraint drop the point index first.",
+                          storage::TypeConstraintKindToString(constraint_type), label_name, properties_stringified);
+                    } else {
+                      static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
+                    }
+                  },
+                  error);
             }
-            return std::vector<std::vector<TypedValue>>();
           };
           break;
         }
