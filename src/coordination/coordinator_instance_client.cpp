@@ -15,6 +15,16 @@
 
 namespace memgraph::coordination {
 
+namespace {
+auto CreateClientContext(ManagementServerConfig const &config) -> communication::ClientContext {
+  return (config.ssl) ? communication::ClientContext{config.ssl->key_file, config.ssl->cert_file}
+                      : communication::ClientContext{};
+}
+}  // namespace
+
+CoordinatorInstanceClient::CoordinatorInstanceClient(ManagementServerConfig const &config)
+    : rpc_context_{CreateClientContext(config)}, rpc_client_{config.endpoint, &rpc_context_} {}
+
 auto CoordinatorInstanceClient::RpcClient() -> rpc::Client & { return rpc_client_; }
 }  // namespace memgraph::coordination
 #endif
