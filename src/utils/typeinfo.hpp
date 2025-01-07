@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,9 +18,6 @@ namespace memgraph::utils {
 
 enum class TypeId : uint64_t {
   UNKNOWN = 0,
-  SUM_REQ,       // used in unit tests
-  SUM_RES,       // used in unit tests
-  ECHO_MESSAGE,  // used in unit tests
 
   // Operators
   LOGICAL_OPERATOR = 1000,
