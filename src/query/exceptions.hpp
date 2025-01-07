@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -511,15 +511,6 @@ class TextSearchDisabledException : public TextSearchException {
 class VectorSearchException : public QueryException {
   using QueryException::QueryException;
   SPECIALIZE_GET_EXCEPTION_NAME(VectorSearchException)
-};
-
-class VectorSearchDisabledException : public VectorSearchException {
- public:
-  VectorSearchDisabledException()
-      : VectorSearchException(
-            "To use vector indices and vector search, start Memgraph with the experimental vector search feature "
-            "flag.") {}  // TODO(@DavIvek): Change this when vector search is stable.
-  SPECIALIZE_GET_EXCEPTION_NAME(VectorSearchDisabledException)
 };
 
 class EnumModificationInMulticommandTxException : public QueryException {
