@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -39,7 +39,7 @@ struct ReplicationInstanceInitConfig {
 };
 
 struct CoordinatorInstanceInitConfig {
-  uint32_t coordinator_id{0};
+  int32_t coordinator_id{0};
   int coordinator_port{0};
   int bolt_port{0};
   int management_port{0};
@@ -50,7 +50,7 @@ struct CoordinatorInstanceInitConfig {
 
   // If nuraft_log_file isn't provided, spdlog::logger for NuRaft will still get created but without sinks effectively
   // then being a no-op logger.
-  explicit CoordinatorInstanceInitConfig(uint32_t coordinator_id, int coordinator_port, int bolt_port,
+  explicit CoordinatorInstanceInitConfig(int32_t coordinator_id, int coordinator_port, int bolt_port,
                                          int management_port, std::filesystem::path durability_dir,
                                          std::string coordinator_hostname, std::string nuraft_log_file = "",
                                          bool use_durability = true)
@@ -73,7 +73,7 @@ struct LogStoreDurability {
 };
 
 struct CoordinatorStateManagerConfig {
-  uint32_t coordinator_id_{0};
+  int32_t coordinator_id_{0};
   int coordinator_port_{0};
   int bolt_port_{0};
   int management_port_{0};
@@ -81,7 +81,7 @@ struct CoordinatorStateManagerConfig {
   std::string coordinator_hostname;
   std::optional<LogStoreDurability> log_store_durability_;
 
-  CoordinatorStateManagerConfig(uint32_t coordinator_id, int coordinator_port, int bolt_port, int management_port,
+  CoordinatorStateManagerConfig(int32_t coordinator_id, int coordinator_port, int bolt_port, int management_port,
                                 std::filesystem::path state_manager_durability_dir, std::string coordinator_hostname,
                                 std::optional<LogStoreDurability> log_store_durability = std::nullopt)
       : coordinator_id_(coordinator_id),
@@ -139,7 +139,7 @@ struct LeaderCoordinatorData {
 };
 
 struct CoordinatorInstanceConfig {
-  uint32_t coordinator_id{0};
+  int32_t coordinator_id{0};
   io::network::Endpoint bolt_server;
   io::network::Endpoint coordinator_server;
   io::network::Endpoint management_server;

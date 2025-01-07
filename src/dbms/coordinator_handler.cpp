@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -62,7 +62,7 @@ auto CoordinatorHandler::AddCoordinatorInstance(coordination::CoordinatorInstanc
   return coordinator_state_.AddCoordinatorInstance(config);
 }
 
-auto CoordinatorHandler::RemoveCoordinatorInstance(int coordinator_id)
+auto CoordinatorHandler::RemoveCoordinatorInstance(int32_t coordinator_id)
     -> coordination::RemoveCoordinatorInstanceStatus {
   return coordinator_state_.RemoveCoordinatorInstance(coordinator_id);
 }

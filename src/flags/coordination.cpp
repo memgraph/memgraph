@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -23,7 +23,7 @@ DEFINE_VALIDATED_int32(coordinator_port, 0, "Port on which raft servers will be 
                        FLAG_IN_RANGE(0, std::numeric_limits<uint16_t>::max()));  // NOLINT
 // NOLINTEND(performance-avoid-endl)
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_uint32(coordinator_id, 0, "Unique ID of the raft server.");
+DEFINE_int32(coordinator_id, 0, "Unique ID of the raft server.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint32(instance_down_timeout_sec, 5, "Time duration after which an instance is considered down.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)

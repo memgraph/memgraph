@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -24,10 +24,7 @@
 #include <range/v3/view.hpp>
 #include "json/json.hpp"
 
-#include <map>
-#include <numeric>
 #include <string>
-#include <variant>
 
 namespace memgraph::coordination {
 
@@ -59,7 +56,7 @@ class CoordinatorClusterState {
   auto DoAction(std::vector<DataInstanceContext> data_instances,
                 std::vector<CoordinatorInstanceContext> coordinator_instances, utils::UUID main_uuid) -> void;
 
-  auto Serialize(ptr<buffer> &data) -> void;
+  auto Serialize(ptr<buffer> &data) const -> void;
 
   static auto Deserialize(buffer &data) -> CoordinatorClusterState;
 

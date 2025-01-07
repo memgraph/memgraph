@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -141,7 +141,7 @@ auto CoordinatorState::AddCoordinatorInstance(coordination::CoordinatorInstanceC
   return std::get<CoordinatorInstance>(data_).AddCoordinatorInstance(config);
 }
 
-auto CoordinatorState::RemoveCoordinatorInstance(int coordinator_id) -> RemoveCoordinatorInstanceStatus {
+auto CoordinatorState::RemoveCoordinatorInstance(int32_t coordinator_id) -> RemoveCoordinatorInstanceStatus {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Coordinator cannot be unregistered since variant holds wrong alternative");
   return std::get<CoordinatorInstance>(data_).RemoveCoordinatorInstance(coordinator_id);

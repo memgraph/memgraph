@@ -112,7 +112,7 @@ class CoordinatorInstance {
   void InstanceSuccessCallback(std::string_view instance_name, std::optional<InstanceState> instance_state);
   void InstanceFailCallback(std::string_view instance_name, std::optional<InstanceState> instance_state);
 
-  void UpdateClientConnectors(std::vector<CoordinatorInstanceAux> const &coord_instances_aux);
+  void UpdateClientConnectors(std::vector<CoordinatorInstanceAux> const &coord_instances_aux) const;
 
  private:
   auto FindReplicationInstance(std::string_view replication_instance_name) -> ReplicationInstanceConnector &;
@@ -150,7 +150,7 @@ class CoordinatorInstance {
   utils::ThreadPool thread_pool_{1};
 
   CoordinatorInstanceManagementServer coordinator_management_server_;
-  mutable utils::Synchronized<std::list<std::pair<uint32_t, CoordinatorInstanceConnector>>, utils::SpinLock>
+  mutable utils::Synchronized<std::list<std::pair<int32_t, CoordinatorInstanceConnector>>, utils::SpinLock>
       coordinator_connectors_;
 };
 

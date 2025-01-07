@@ -51,7 +51,7 @@ RaftState::RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb
       become_leader_cb_(std::move(become_leader_cb)),
       become_follower_cb_(std::move(become_follower_cb)) {
   auto const coordinator_state_manager_durability_dir = config.durability_dir / "network";
-  memgraph::utils::EnsureDirOrDie(coordinator_state_manager_durability_dir);
+  utils::EnsureDirOrDie(coordinator_state_manager_durability_dir);
 
   CoordinatorStateManagerConfig state_manager_config{config.coordinator_id,
                                                      config.coordinator_port,
@@ -64,7 +64,7 @@ RaftState::RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb
 
   if (config.use_durability) {
     auto const log_store_path = config.durability_dir / "logs";
-    memgraph::utils::EnsureDirOrDie(log_store_path);
+    utils::EnsureDirOrDie(log_store_path);
     auto const durability_store = std::make_shared<kvstore::KVStore>(log_store_path);
 
     log_store_durability.durability_store_ = durability_store;
@@ -180,13 +180,13 @@ auto RaftState::InitRaftServer() -> void {
     throw RaftServerStartException("Failed to allocate coordinator server on port {}", coordinator_port_);
   }
 
-  auto const coord_endpoint = raft_server_->get_srv_config(static_cast<int>(coordinator_id_))->get_endpoint();
+  auto const coord_endpoint = raft_server_->get_srv_config(coordinator_id_)->get_endpoint();
 
   spdlog::trace("Raft server allocated on {}", coord_endpoint);
 
   // If set to true, server won't be created and exception will be thrown.
   // By setting it to false, all coordinators are started as leaders.
-  bool const skip_initial_election_timeout{false};
+  bool constexpr skip_initial_election_timeout{false};
   raft_server_->start_server(skip_initial_election_timeout);
   spdlog::trace("Raft server started on {}", coord_endpoint);
 
@@ -258,11 +258,11 @@ auto RaftState::GetMyCoordinatorEndpoint() const -> std::string { return GetCoor
 
 auto RaftState::InstanceName() const -> std::string { return fmt::format("coordinator_{}", coordinator_id_); }
 
-auto RaftState::GetMyCoordinatorId() const -> uint32_t { return coordinator_id_; }
+auto RaftState::GetMyCoordinatorId() const -> int32_t { return coordinator_id_; }
 
 auto RaftState::GetMyBoltServer() const -> std::optional<std::string> { return GetBoltServer(coordinator_id_); }
 
-auto RaftState::GetBoltServer(uint32_t coordinator_id) const -> std::optional<std::string> {
+auto RaftState::GetBoltServer(int32_t coordinator_id) const -> std::optional<std::string> {
   auto const coord_instances_context = GetCoordinatorInstancesContext();
   auto const target_coordinator = std::ranges::find_if(
       coord_instances_context, [coordinator_id](auto const &coordinator) { return coordinator.id == coordinator_id; });
@@ -273,17 +273,16 @@ auto RaftState::GetBoltServer(uint32_t coordinator_id) const -> std::optional<st
   return target_coordinator->bolt_server;
 }
 
-auto RaftState::RemoveCoordinatorInstance(int coordinator_id) -> void {
+auto RaftState::RemoveCoordinatorInstance(int32_t coordinator_id) const -> void {
   spdlog::trace("Removing coordinator instance {}.", coordinator_id);
 
-  auto cmd_result = raft_server_->remove_srv(coordinator_id);
-
-  if (cmd_result->get_result_code() == nuraft::cmd_result_code::OK) {
+  if (auto cmd_result = raft_server_->remove_srv(coordinator_id);
+      cmd_result->get_result_code() == nuraft::cmd_result_code::OK) {
     spdlog::info("Request for removing coordinator {} from the cluster accepted", coordinator_id);
   } else {
     throw RaftRemoveServerException(
         "Failed to accept request for removing coordinator {} from the cluster with the error code {}", coordinator_id,
-        int(cmd_result->get_result_code()));
+        static_cast<int>(cmd_result->get_result_code()));
   }
 
   // Waiting for server to join
@@ -293,8 +292,7 @@ auto RaftState::RemoveCoordinatorInstance(int coordinator_id) -> void {
   bool removed{false};
   while (!maybe_stop()) {
     std::this_thread::sleep_for(waiting_period);
-    const auto server_config = raft_server_->get_srv_config(static_cast<nuraft::int32>(coordinator_id));
-    if (!server_config) {
+    if (const auto server_config = raft_server_->get_srv_config(coordinator_id); !server_config) {
       spdlog::trace("Coordinator with id {} removed from the cluster", coordinator_id);
       removed = true;
       break;
@@ -318,16 +316,15 @@ auto RaftState::AddCoordinatorInstance(CoordinatorInstanceConfig const &config) 
                                .coordinator_server = config.coordinator_server.SocketAddress(),
                                .management_server = config.management_server.SocketAddress()};
 
-    srv_config const srv_config_to_add(static_cast<int>(config.coordinator_id), 0, coordinator_server,
+    srv_config const srv_config_to_add(config.coordinator_id, 0, coordinator_server,
                                        nlohmann::json(coord_instance_aux).dump(), false);
 
-    auto cmd_result = raft_server_->add_srv(srv_config_to_add);
-
-    if (cmd_result->get_result_code() == nuraft::cmd_result_code::OK) {
+    if (auto cmd_result = raft_server_->add_srv(srv_config_to_add);
+        cmd_result->get_result_code() == nuraft::cmd_result_code::OK) {
       spdlog::info("Request to add server {} to the cluster accepted", coordinator_server);
     } else {
       throw RaftAddServerException("Failed to accept request to add server {} to the cluster with error code {}",
-                                   coordinator_server, int(cmd_result->get_result_code()));
+                                   coordinator_server, static_cast<int>(cmd_result->get_result_code()));
     }
     // Waiting for server to join
     constexpr int max_tries{10};
@@ -336,8 +333,7 @@ auto RaftState::AddCoordinatorInstance(CoordinatorInstanceConfig const &config) 
     bool added{false};
     while (!maybe_stop()) {
       std::this_thread::sleep_for(waiting_period);
-      const auto server_config = raft_server_->get_srv_config(static_cast<nuraft::int32>(config.coordinator_id));
-      if (server_config) {
+      if (const auto server_config = raft_server_->get_srv_config(config.coordinator_id)) {
         spdlog::trace("Server with id {} added to cluster", config.coordinator_id);
         added = true;
         break;
@@ -352,15 +348,15 @@ auto RaftState::AddCoordinatorInstance(CoordinatorInstanceConfig const &config) 
   // TODO: (andi) Add a breaking label
 }
 
-auto RaftState::CoordLastSuccRespMs(uint32_t srv_id) -> std::chrono::milliseconds {
+auto RaftState::CoordLastSuccRespMs(int32_t srv_id) const -> std::chrono::milliseconds {
   using std::chrono::duration_cast;
   using std::chrono::microseconds;
   using std::chrono::milliseconds;
 
-  auto const peer_info = raft_server_->get_peer_info(static_cast<int>(srv_id));
+  auto const peer_info = raft_server_->get_peer_info(srv_id);
   auto const elapsed_time_ms = duration_cast<milliseconds>(microseconds(peer_info.last_succ_resp_us_));
-  spdlog::trace("Elapsed time in miliseconds since last successful response from coordinator_{}: {}",
-                static_cast<int>(srv_id), elapsed_time_ms.count());
+  spdlog::trace("Elapsed time in milliseconds since last successful response from coordinator_{}: {}", srv_id,
+                elapsed_time_ms.count());
   return elapsed_time_ms;
 }
 
@@ -382,8 +378,8 @@ auto RaftState::GetLeaderCoordinatorData() const -> std::optional<LeaderCoordina
 auto RaftState::IsLeader() const -> bool { return raft_server_->is_leader(); }
 
 auto RaftState::AppendClusterUpdate(std::vector<DataInstanceContext> data_instances,
-                                    std::vector<CoordinatorInstanceContext> coordinator_instances, utils::UUID uuid)
-    -> bool {
+                                    std::vector<CoordinatorInstanceContext> coordinator_instances,
+                                    utils::UUID uuid) const -> bool {
   auto new_log = CoordinatorStateMachine::SerializeUpdateClusterState(std::move(data_instances),
                                                                       std::move(coordinator_instances), uuid);
   auto const res = raft_server_->append_entries({new_log});
@@ -394,7 +390,7 @@ auto RaftState::AppendClusterUpdate(std::vector<DataInstanceContext> data_instan
   spdlog::trace("Request for updating cluster state accepted.");
 
   if (res->get_result_code() != nuraft::cmd_result_code::OK) {
-    spdlog::error("Failed to update cluster state. Error code {}", int(res->get_result_code()));
+    spdlog::error("Failed to update cluster state. Error code {}", static_cast<int>(res->get_result_code()));
     return false;
   }
 
@@ -492,7 +488,7 @@ auto RaftState::GetRoutingTable() const -> RoutingTable {
   return res;
 }
 
-auto RaftState::GetLeaderId() const -> uint32_t { return raft_server_->get_leader(); }
+auto RaftState::GetLeaderId() const -> int32_t { return raft_server_->get_leader(); }
 
 }  // namespace memgraph::coordination
 #endif

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,8 +13,6 @@
 #include "interpreter_faker.hpp"
 #include "io/network/endpoint.hpp"
 #include "utils/counter.hpp"
-
-#include "utils/file.hpp"
 
 #include <gflags/gflags.h>
 #include <gtest/gtest.h>
@@ -41,7 +39,7 @@ class CoordinatorInstanceTest : public ::testing::Test {
   std::filesystem::path main_data_directory{std::filesystem::temp_directory_path() /
                                             "MG_tests_unit_coordinator_instance"};
 
-  std::vector<uint32_t> const coordinator_ids = {41, 42, 43};
+  std::vector<int32_t> const coordinator_ids = {41, 42, 43};
   std::vector<uint16_t> const bolt_ports = {2687, 2688, 2689};
   std::vector<uint16_t> const coordinator_ports = {40113, 40114, 40115};
   std::vector<uint16_t> const management_ports = {20113, 20114, 20115};
@@ -81,10 +79,7 @@ TEST_F(CoordinatorInstanceTest, ShowInstancesEmptyTest) {
 
 TEST_F(CoordinatorInstanceTest, ConnectCoordinators) {
   GTEST_SKIP() << "skip flaky issue #https://github.com/memgraph/memgraph/issues/2212";
-  auto const wait_until_added = [](auto &instance) {
-    while (instance.ShowInstances().size() != 3) {
-    }
-  };
+
   auto const init_config1 = CoordinatorInstanceInitConfig{coordinator_ids[0],
                                                           coordinator_ports[0],
                                                           bolt_ports[0],
@@ -150,10 +145,7 @@ TEST_F(CoordinatorInstanceTest, ConnectCoordinators) {
 
 TEST_F(CoordinatorInstanceTest, GetRoutingTable) {
   GTEST_SKIP() << "skip flaky issue #https://github.com/memgraph/memgraph/issues/2212";
-  auto const wait_until_added = [](auto &instance) {
-    while (instance.ShowInstances().size() != 3) {
-    }
-  };
+
   auto const init_config1 = CoordinatorInstanceInitConfig{coordinator_ids[0],
                                                           coordinator_ports[0],
                                                           bolt_ports[0],

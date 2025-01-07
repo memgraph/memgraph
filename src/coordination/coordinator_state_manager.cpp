@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -97,7 +97,7 @@ auto CoordinatorStateManager::HandleVersionMigration() -> void {
 }
 CoordinatorStateManager::CoordinatorStateManager(CoordinatorStateManagerConfig const &config, LoggerWrapper logger,
                                                  std::optional<CoordinationClusterChangeObserver> observer)
-    : my_id_(static_cast<int>(config.coordinator_id_)),
+    : my_id_(config.coordinator_id_),
       cur_log_store_(cs_new<CoordinatorLogStore>(logger, config.log_store_durability_)),
       logger_(logger),
       durability_(config.state_manager_durability_dir_),
@@ -125,7 +125,7 @@ void CoordinatorStateManager::TryUpdateClusterConfigFromDisk() {
     spdlog::trace("Didn't find anything stored on disk for cluster config.");
     return;
   }
-  auto cluster_config_json = nlohmann::json::parse(maybe_cluster_config.value());
+  const auto cluster_config_json = nlohmann::json::parse(maybe_cluster_config.value());
 
   from_json(cluster_config_json, cluster_config_);
   spdlog::trace("Loaded cluster config from the durable storage.");

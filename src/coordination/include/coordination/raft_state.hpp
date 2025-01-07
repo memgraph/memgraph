@@ -19,7 +19,6 @@
 #include "coordination/coordinator_state_machine.hpp"
 #include "coordination/coordinator_state_manager.hpp"
 #include "coordination_observer.hpp"
-#include "io/network/endpoint.hpp"
 
 #include <libnuraft/logger.hxx>
 #include <libnuraft/nuraft.hxx>
@@ -51,7 +50,7 @@ using raft_result = nuraft::cmd_result<ptr<buffer>>;
 class RaftState {
  public:
   auto InitRaftServer() -> void;
-  explicit RaftState(CoordinatorInstanceInitConfig const &instance_config, BecomeLeaderCb become_leader_cb,
+  explicit RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb become_leader_cb,
                      BecomeFollowerCb become_follower_cb,
                      std::optional<CoordinationClusterChangeObserver> observer = std::nullopt);
   RaftState() = delete;
@@ -63,17 +62,18 @@ class RaftState {
 
   auto GetCoordinatorEndpoint(int32_t coordinator_id) const -> std::string;
   auto GetMyCoordinatorEndpoint() const -> std::string;
-  auto GetMyCoordinatorId() const -> uint32_t;
+  auto GetMyCoordinatorId() const -> int32_t;
   auto InstanceName() const -> std::string;
 
   auto AddCoordinatorInstance(CoordinatorInstanceConfig const &config) -> void;
-  auto RemoveCoordinatorInstance(int coordinator_id) -> void;
+  auto RemoveCoordinatorInstance(int32_t coordinator_id) const -> void;
 
   auto IsLeader() const -> bool;
-  auto GetLeaderId() const -> uint32_t;
+  auto GetLeaderId() const -> int32_t;
 
   auto AppendClusterUpdate(std::vector<DataInstanceContext> data_instances,
-                           std::vector<CoordinatorInstanceContext> coordinator_instances, utils::UUID uuid) -> bool;
+                           std::vector<CoordinatorInstanceContext> coordinator_instances, utils::UUID uuid) const
+      -> bool;
 
   auto GetDataInstancesContext() const -> std::vector<DataInstanceContext>;
   auto GetCoordinatorInstancesContext() const -> std::vector<CoordinatorInstanceContext>;
@@ -91,14 +91,14 @@ class RaftState {
   auto GetRoutingTable() const -> RoutingTable;
 
   // Returns elapsed time in ms since last successful response from the coordinator with id srv_id
-  auto CoordLastSuccRespMs(uint32_t srv_id) -> std::chrono::milliseconds;
+  auto CoordLastSuccRespMs(int32_t srv_id) const -> std::chrono::milliseconds;
   // Return empty optional in the case when user didn't add coordinator on which setup of the cluster has been done
-  auto GetBoltServer(uint32_t coordinator_id) const -> std::optional<std::string>;
+  auto GetBoltServer(int32_t coordinator_id) const -> std::optional<std::string>;
   auto GetMyBoltServer() const -> std::optional<std::string>;
 
  private:
-  int coordinator_port_;
-  uint32_t coordinator_id_;
+  uint16_t coordinator_port_;
+  int32_t coordinator_id_;
 
   ptr<logger> logger_;
   ptr<raft_server> raft_server_;

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -68,7 +68,7 @@ class CoordinatorStateManager : public state_mgr {
   void HandleVersionMigration();
   void TryUpdateClusterConfigFromDisk();
 
-  int my_id_;
+  int32_t my_id_;
   ptr<CoordinatorLogStore> cur_log_store_;
   LoggerWrapper logger_;
   ptr<srv_config> my_srv_config_;

@@ -46,7 +46,7 @@ class RaftStateTest : public ::testing::Test {
 
   std::filesystem::path test_folder_{std::filesystem::temp_directory_path() / "MG_tests_unit_raft_state"};
 
-  uint32_t const coordinator_id = 21;
+  int32_t const coordinator_id = 21;
   uint16_t const bolt_port = 6687;
   uint16_t const coordinator_port = 40112;
   uint16_t const management_port = 21345;

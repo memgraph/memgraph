@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -76,7 +76,7 @@ auto CoordinatorClusterState::DoAction(std::vector<DataInstanceContext> data_ins
   coordinator_instances_ = std::move(coordinator_instances);
 }
 
-auto CoordinatorClusterState::Serialize(ptr<buffer> &data) -> void {
+auto CoordinatorClusterState::Serialize(ptr<buffer> &data) const -> void {
   auto lock = std::shared_lock{log_lock_};
   nlohmann::json json;
   to_json(json, *this);
@@ -109,7 +109,7 @@ auto CoordinatorClusterState::GetDataInstancesContext() const -> std::vector<Dat
 auto CoordinatorClusterState::TryGetCurrentMainName() const -> std::optional<std::string> {
   auto lock = std::shared_lock{log_lock_};
 
-  auto curr_main = std::ranges::find_if(data_instances_, [this](auto &&data_instance) {
+  const auto curr_main = std::ranges::find_if(data_instances_, [this](auto &&data_instance) {
     return data_instance.status == ReplicationRole::MAIN && data_instance.instance_uuid == current_main_uuid_;
   });
   return curr_main == data_instances_.end() ? std::nullopt : std::make_optional(curr_main->config.instance_name);

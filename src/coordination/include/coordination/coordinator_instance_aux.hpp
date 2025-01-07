@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,7 +22,7 @@ namespace memgraph::coordination {
 // Context saved about each coordinator in raft_server::aux field. This info is stored upon starting coordinator and
 // cannot change. We use json (de)serialization.
 struct CoordinatorInstanceAux {
-  uint32_t id;
+  int32_t id;
   std::string coordinator_server;
   std::string management_server;
 

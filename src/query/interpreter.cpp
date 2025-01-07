@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -34,7 +34,6 @@
 #include <vector>
 
 #include "auth/auth.hpp"
-#include "auth/models.hpp"
 #include "coordination/coordinator_state.hpp"
 #include "coordination/register_main_replica_coordinator_status.hpp"
 #include "csv/parsing.hpp"
@@ -44,7 +43,6 @@
 #include "dbms/global.hpp"
 #include "dbms/inmemory/storage_helper.hpp"
 #include "flags/experimental.hpp"
-#include "flags/replication.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "glue/communication.hpp"
 #include "io/network/endpoint.hpp"
@@ -62,7 +60,6 @@
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
-#include "query/frontend/semantic/required_privileges.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/hops_limit.hpp"
 #include "query/interpret/eval.hpp"
@@ -90,7 +87,6 @@
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/disk/storage.hpp"
-#include "storage/v2/edge.hpp"
 #include "storage/v2/edge_import_mode.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -102,14 +98,11 @@
 #include "utils/event_counter.hpp"
 #include "utils/event_histogram.hpp"
 #include "utils/exceptions.hpp"
-#include "utils/file.hpp"
-#include "utils/flag_validation.hpp"
 #include "utils/functional.hpp"
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
 #include "utils/memory_tracker.hpp"
-#include "utils/message.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/readable_size.hpp"
 #include "utils/settings.hpp"
@@ -619,7 +612,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     }
   }
 
-  void RemoveCoordinatorInstance(int coordinator_id) override {
+  void RemoveCoordinatorInstance(int32_t coordinator_id) override {
     auto const status = coordinator_handler_.RemoveCoordinatorInstance(coordinator_id);
     switch (status) {
       using enum memgraph::coordination::RemoveCoordinatorInstanceStatus;  // NOLINT
@@ -632,9 +625,8 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     spdlog::info("Removed coordinator {}.", coordinator_id);
   }
 
-  auto AddCoordinatorInstance(uint32_t coordinator_id, std::string_view bolt_server,
-                              std::string_view coordinator_server, std::string_view management_server)
-      -> void override {
+  auto AddCoordinatorInstance(int32_t coordinator_id, std::string_view bolt_server, std::string_view coordinator_server,
+                              std::string_view management_server) -> void override {
     auto const maybe_coordinator_server = io::network::Endpoint::ParseAndCreateSocketOrAddress(coordinator_server);
     if (!maybe_coordinator_server) {
       throw QueryRuntimeException("Invalid coordinator socket address!");

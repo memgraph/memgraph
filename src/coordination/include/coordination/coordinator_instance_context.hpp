@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,7 +21,7 @@
 namespace memgraph::coordination {
 // Context saved about each coordinator in Raft logs (app log)
 struct CoordinatorInstanceContext {
-  uint32_t id;
+  int32_t id;
   std::string bolt_server;
 
   friend bool operator==(CoordinatorInstanceContext const &, CoordinatorInstanceContext const &) = default;

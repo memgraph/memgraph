@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,7 +22,7 @@ void to_json(nlohmann::json &j, CoordinatorInstanceContext const &context) {
   j = nlohmann::json{{kId.data(), context.id}, {kBoltServer.data(), context.bolt_server}};
 }
 void from_json(nlohmann::json const &j, CoordinatorInstanceContext &context) {
-  context.id = j.at(kId.data()).get<uint32_t>();
+  context.id = j.at(kId.data()).get<int32_t>();
   context.bolt_server = j.at(kBoltServer.data()).get<std::string>();
 }
 

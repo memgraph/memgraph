@@ -124,9 +124,6 @@ TEST_P(CoordinatorStateMachineTestParam, SerializeDeserializeSnapshot) {
                                          log_store_durability};
     ptr<CoordinatorStateManager> state_manager_ = cs_new<CoordinatorStateManager>(config, my_logger);
     old_config = state_manager_->load_config();
-    auto const c2c = CoordinatorInstanceConfig{config.coordinator_id_, memgraph::io::network::Endpoint("0.0.0.0", 9091),
-                                               memgraph::io::network::Endpoint{"0.0.0.0", 12346},
-                                               memgraph::io::network::Endpoint("0.0.0.0", 20223), "localhost"};
 
     auto const coord_instance_aux = CoordinatorInstanceAux{
         .id = config.coordinator_id_, .coordinator_server = "0.0.0.0:12346", .management_server = "0.0.0.0:20223"};

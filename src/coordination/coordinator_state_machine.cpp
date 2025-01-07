@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,7 +17,6 @@
 #include "coordination/coordinator_cluster_state.hpp"
 #include "coordination/coordinator_exceptions.hpp"
 #include "coordination/coordinator_state_manager.hpp"
-#include "coordination/utils.hpp"
 #include "utils/logging.hpp"
 
 #include <regex>
@@ -117,12 +116,12 @@ void CoordinatorStateMachine::UpdateStateMachineFromSnapshotDurability() {
 
 bool CoordinatorStateMachine::HandleMigration(LogStoreVersion stored_version) {
   UpdateStateMachineFromSnapshotDurability();
-  if (kActiveVersion == LogStoreVersion::kV2) {
+  if constexpr (kActiveVersion == LogStoreVersion::kV2) {
     if (stored_version == LogStoreVersion::kV1) {
       return durability_->Put(kLastCommitedIdx, std::to_string(last_committed_idx_));
     }
     if (stored_version == LogStoreVersion::kV2) {
-      auto maybe_last_commited_idx = durability_->Get(kLastCommitedIdx);
+      const auto maybe_last_commited_idx = durability_->Get(kLastCommitedIdx);
       if (!maybe_last_commited_idx.has_value()) {
         logger_.Log(
             nuraft_log_level::ERROR,
@@ -131,7 +130,7 @@ bool CoordinatorStateMachine::HandleMigration(LogStoreVersion stored_version) {
                 last_committed_idx_.load()));
         return durability_->Put(kLastCommitedIdx, std::to_string(last_committed_idx_));
       }
-      auto last_committed_idx_value = std::stoul(maybe_last_commited_idx.value());
+      const auto last_committed_idx_value = std::stoul(maybe_last_commited_idx.value());
       if (last_committed_idx_value < last_committed_idx_) {
         logger_.Log(nuraft_log_level::ERROR, fmt::format("Last committed index stored in durability is smaller then "
                                                          "one found from snapshots, using one found in snapshots {}.",

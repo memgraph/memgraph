@@ -141,16 +141,16 @@ auto CoordinatorInstance::GetLeaderCoordinatorData() const -> std::optional<Lead
   return raft_state_->GetLeaderCoordinatorData();
 }
 
-void CoordinatorInstance::UpdateClientConnectors(std::vector<CoordinatorInstanceAux> const &coord_instances_aux) {
+void CoordinatorInstance::UpdateClientConnectors(std::vector<CoordinatorInstanceAux> const &coord_instances_aux) const {
   auto connectors = coordinator_connectors_.Lock();
 
   for (auto const &coordinator : coord_instances_aux) {
     if (coordinator.id == raft_state_->GetMyCoordinatorId()) {
       continue;
     }
-    auto const connector = std::ranges::find_if(
+    auto const coord_connector = std::ranges::find_if(
         *connectors, [coordinator_id = coordinator.id](auto &&connector) { return connector.first == coordinator_id; });
-    if (connector != connectors->end()) {
+    if (coord_connector != connectors->end()) {
       continue;
     }
     spdlog::trace("Creating new connector to coordinator with id {}, on endpoint:{}.", coordinator.id,
