@@ -17,8 +17,8 @@ from workloads.base import Workload
 
 class VectorSearchIndex(Workload):
     NAME = "vector_search_index"
-    NUMBER_OF_NODES = 100
-    NUMBER_OF_EDGES = 100
+    NUMBER_OF_NODES = 1000
+    NUMBER_OF_EDGES = 1000
     VECTOR_DIMENSIONS = 128
 
     def __init__(self, variant: str = None, benchmark_context: BenchmarkContext = None):
@@ -68,7 +68,10 @@ class VectorSearchIndex(Workload):
 
     def benchmark__vector__running_traversals(self):
         # NOTE: Vector is there but we are not returning it, that's on purpose to avoid measuring that part.
-        return ("MATCH (n:Node {id:$id})-[*bfs..4]->() RETURN n.id;", {"id": self._get_random_node()})
+        return (
+            "MATCH (a:Node {id:$A_id})-[*bfs..4]->(b:Node {id:$B_id}) RETURN a.id, b.id;",
+            {"A_id": self._get_random_node(), "B_id": self._get_random_node()},
+        )
 
     def benchmark__vector__single_index_lookup(self):
         return (
