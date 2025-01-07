@@ -23,6 +23,10 @@ TOOLCHAIN_BUILD_DEPS=(
     gperf # for proxygen
     libssl-dev
     libedit-dev libpcre2-dev libpcre3-dev automake bison # for swig
+    custom-rust
+    libtool # for protobuf
+    libssl-dev pkg-config # for pulsar
+    libsasl2-dev # for librdkafka
 )
 
 TOOLCHAIN_RUN_DEPS=(
@@ -34,6 +38,7 @@ TOOLCHAIN_RUN_DEPS=(
     libreadline8t64 # for cmake and llvm
     libffi8 libxml2 # for llvm
     libssl-dev # for libevent
+    ninja-build
 )
 
 MEMGRAPH_BUILD_DEPS=(
@@ -78,13 +83,19 @@ check() {
     for pkg in $1; do
         if [ "$pkg" == custom-maven3.9.3 ]; then
             if [ ! -f "/opt/apache-maven-3.9.3/bin/mvn" ]; then
-              missing="$pkg $missing"
+                missing="$pkg $missing"
             fi
             continue
         fi
         if [ "$pkg" == custom-golang1.18.9 ]; then
             if [ ! -f "/opt/go1.18.9/go/bin/go" ]; then
-              missing="$pkg $missing"
+                missing="$pkg $missing"
+            fi
+            continue
+        fi
+        if [ "$pkg" == custom-rust ]; then
+            if [ ! -x "$HOME/.cargo/bin/rustup" ]; then
+                missing="$pkg $missing"
             fi
             continue
         fi
@@ -135,6 +146,21 @@ install() {
                 update-alternatives --set java /usr/lib/jvm/java-17-openjdk-amd64/bin/java
                 update-alternatives --set javac /usr/lib/jvm/java-17-openjdk-amd64/bin/javac
             fi
+            continue
+        fi
+        if [ "$pkg" == custom-rust ]; then
+            RUST_VERSION="1.80"
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
+                && . "$HOME/.cargo/env" \
+                && rustup default ${RUST_VERSION}
+            continue
+        fi
+        if [ "$pkg" == custom-node ]; then
+	    NODE_VERSION="20"
+            curl https://raw.githubusercontent.com/creationix/nvm/master/install.sh | bash \
+                && . ~/.nvm/nvm.sh \
+                && nvm install ${NODE_VERSION} \
+                && nvm use ${NODE_VERSION}
             continue
         fi
         apt install -y "$pkg"
