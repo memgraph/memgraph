@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <communication/bolt/v1/encoder/base_encoder.hpp>
 #ifdef MG_ENTERPRISE
 
 #include <algorithm>
@@ -725,13 +726,39 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
 
 auto CoordinatorInstance::RemoveCoordinatorInstance(int coordinator_id) -> RemoveCoordinatorInstanceStatus {
   spdlog::trace("Started removing coordinator instance {}.", coordinator_id);
+  auto const coordinator_instances_aux = raft_state_->GetCoordinatorInstancesAux();
 
-  // auto const curr_instances = raft_state_->GetCoordinatorInstances();
-  // if (curr_instances.find(coordinator_id) == curr_instances.end()) {
-  //   return RemoveCoordinatorInstanceStatus::NO_SUCH_ID;
-  // }
+  auto const existing_coord = std::find_if(coordinator_instances_aux.cbegin(), coordinator_instances_aux.cend(),
+                                           [coordinator_id](auto const &coord) { return coord.id == coordinator_id; });
+
+  if (existing_coord != coordinator_instances_aux.end()) {
+    return RemoveCoordinatorInstanceStatus::NO_SUCH_ID;
+  }
 
   raft_state_->RemoveCoordinatorInstance(coordinator_id);
+
+  auto data_instances = raft_state_->GetDataInstancesContext();
+  auto uuid = raft_state_->GetCurrentMainUUID();
+  auto coordinator_instances_context = raft_state_->GetCoordinatorInstancesContext();
+
+  auto const num_removed = std::erase_if(coordinator_instances_context, [coordinator_id](auto const &coordinator) {
+    return coordinator.id == coordinator_id;
+  });
+
+  if (num_removed == 1) {
+    spdlog::trace("Removed coordinator {} from local coordinator instance.", coordinator_id);
+  } else {
+    LOG_FATAL(
+        "Couldn't find coordinator {} in local application logs, there was a mistake when starting cluster. Please "
+        "remove all your coordinator data directories and reconnect the cluster.",
+        coordinator_id);
+  }
+
+  // If we managed to remove it from the NuRaft configuration but not to our app logs.
+  if (!raft_state_->AppendClusterUpdate(std::move(data_instances), std::move(coordinator_instances_context), uuid)) {
+    LOG_FATAL("Couldn't append application log when removing coordinator {} from the cluster.", coordinator_id);
+  }
+
   return RemoveCoordinatorInstanceStatus::SUCCESS;
 }
 
@@ -740,38 +767,66 @@ auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorInstanceConfig const
   spdlog::trace("Adding coordinator instance {} start in CoordinatorInstance for {}", config.coordinator_id,
                 raft_state_->InstanceName());
 
-  // auto const curr_instances = raft_state_->GetCoordinatorInstances();
-  // if (curr_instances.find(config.coordinator_id) != curr_instances.end()) {
-  //   return AddCoordinatorInstanceStatus::ID_ALREADY_EXISTS;
-  // }
+  auto const bolt_server_to_add = config.bolt_server.SocketAddress();
 
-  // if (std::ranges::any_of(curr_instances, [&config](auto const &instance) {
-  //       return instance.second.bolt_server == config.bolt_server.SocketAddress();
-  //     })) {
-  //   return AddCoordinatorInstanceStatus::BOLT_ENDPOINT_ALREADY_EXISTS;
-  // }
+  auto const coordinator_instances_aux = raft_state_->GetCoordinatorInstancesAux();
 
-  // if (std::ranges::any_of(curr_instances, [&config](auto const &instance) {
-  //       return instance.second.management_server == config.management_server.SocketAddress();
-  //     })) {
-  //   return AddCoordinatorInstanceStatus::MGMT_ENDPOINT_ALREADY_EXISTS;
-  // }
+  {
+    auto const existing_coord = std::find_if(
+        coordinator_instances_aux.cbegin(), coordinator_instances_aux.cend(),
+        [coordinator_id = config.coordinator_id](auto const &coord) { return coord.id == coordinator_id; });
 
-  auto coordinator_instances = raft_state_->GetCoordinatorInstancesContext();
-  coordinator_instances.emplace_back(
-      CoordinatorInstanceContext{.id = config.coordinator_id, .bolt_server = config.bolt_server.SocketAddress()});
+    if (existing_coord != coordinator_instances_aux.end()) {
+      return AddCoordinatorInstanceStatus::ID_ALREADY_EXISTS;
+    }
+  }
+
+  {
+    auto const existing_coord = std::find_if(coordinator_instances_aux.cbegin(), coordinator_instances_aux.cend(),
+                                             [mgmt_server = config.management_server.SocketAddress()](
+                                                 auto const &coord) { return coord.management_server == mgmt_server; });
+
+    if (existing_coord != coordinator_instances_aux.end()) {
+      return AddCoordinatorInstanceStatus::MGMT_ENDPOINT_ALREADY_EXISTS;
+    }
+  }
+
+  {
+    auto const existing_coord =
+        std::find_if(coordinator_instances_aux.cbegin(), coordinator_instances_aux.cend(),
+                     [coord_server = config.coordinator_server.SocketAddress()](auto const &coord) {
+                       return coord.coordinator_server == coord_server;
+                     });
+
+    if (existing_coord != coordinator_instances_aux.end()) {
+      return AddCoordinatorInstanceStatus::COORDINATOR_ENDPOINT_ALREADY_EXISTS;
+    }
+  }
+
+  auto coordinator_instances_context = raft_state_->GetCoordinatorInstancesContext();
+
+  {
+    auto const existing_coord =
+        std::find_if(coordinator_instances_context.cbegin(), coordinator_instances_context.cend(),
+                     [&bolt_server_to_add](auto const &coord) { return coord.bolt_server == bolt_server_to_add; });
+
+    if (existing_coord != coordinator_instances_context.end()) {
+      return AddCoordinatorInstanceStatus::BOLT_ENDPOINT_ALREADY_EXISTS;
+    }
+  }
+
+  coordinator_instances_context.emplace_back(
+      CoordinatorInstanceContext{.id = config.coordinator_id, .bolt_server = bolt_server_to_add});
 
   auto data_instances = raft_state_->GetDataInstancesContext();
   auto uuid = raft_state_->GetCurrentMainUUID();
 
-  if (!raft_state_->AppendClusterUpdate(std::move(data_instances), std::move(coordinator_instances), uuid)) {
-    throw RaftAddServerException("Couldn't append application log when adding coordinator {} to the cluster.",
-                                 config.coordinator_id);
-  }
-
-  // The problem is that when I add myself, this won't trigger save_config in state manager, hence connectors won't be
-  // updated. Move if check here from raft state
   raft_state_->AddCoordinatorInstance(config);
+
+  // If we managed to add it to the NuRaft configuration but not to our app logs.
+  if (!raft_state_->AppendClusterUpdate(std::move(data_instances), std::move(coordinator_instances_context), uuid)) {
+    LOG_FATAL("Couldn't append application log when adding coordinator {} to the cluster.", config.coordinator_id);
+  }
 
   return AddCoordinatorInstanceStatus::SUCCESS;
 }

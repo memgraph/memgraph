@@ -276,7 +276,7 @@ auto RaftState::GetBoltServer(int32_t coordinator_id) const -> std::optional<std
 auto RaftState::RemoveCoordinatorInstance(int32_t coordinator_id) const -> void {
   spdlog::trace("Removing coordinator instance {}.", coordinator_id);
 
-  if (auto cmd_result = raft_server_->remove_srv(coordinator_id);
+  if (const auto cmd_result = raft_server_->remove_srv(coordinator_id);
       cmd_result->get_result_code() == nuraft::cmd_result_code::OK) {
     spdlog::info("Request for removing coordinator {} from the cluster accepted", coordinator_id);
   } else {
