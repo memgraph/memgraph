@@ -771,16 +771,6 @@ auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorInstanceConfig const
   auto const coordinator_instances_aux = raft_state_->GetCoordinatorInstancesAux();
 
   {
-    auto const existing_coord = std::find_if(
-        coordinator_instances_aux.cbegin(), coordinator_instances_aux.cend(),
-        [coordinator_id = config.coordinator_id](auto const &coord) { return coord.id == coordinator_id; });
-
-    if (existing_coord != coordinator_instances_aux.end()) {
-      return AddCoordinatorInstanceStatus::ID_ALREADY_EXISTS;
-    }
-  }
-
-  {
     auto const existing_coord = std::find_if(coordinator_instances_aux.cbegin(), coordinator_instances_aux.cend(),
                                              [mgmt_server = config.management_server.SocketAddress()](
                                                  auto const &coord) { return coord.management_server == mgmt_server; });
@@ -811,6 +801,16 @@ auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorInstanceConfig const
 
     if (existing_coord != coordinator_instances_context.end()) {
       return AddCoordinatorInstanceStatus::BOLT_ENDPOINT_ALREADY_EXISTS;
+    }
+  }
+
+  {
+    auto const existing_coord = std::find_if(
+        coordinator_instances_context.cbegin(), coordinator_instances_context.cend(),
+        [coordinator_id = config.coordinator_id](auto const &coord) { return coord.id == coordinator_id; });
+
+    if (existing_coord != coordinator_instances_context.end()) {
+      return AddCoordinatorInstanceStatus::ID_ALREADY_EXISTS;
     }
   }
 
