@@ -36,7 +36,7 @@ using namespace std::string_view_literals;
 /// Client is thread safe, but it is recommended to use thread_local clients.
 class Client {
  public:
-  inline static std::map<std::string_view, int> const default_rpc_timeouts_ms{
+  inline static std::unordered_map<std::string_view, int> const default_rpc_timeouts_ms{
       {"ShowInstancesReq"sv, 10000},          // coordinator sending to coordinator
       {"DemoteMainToReplicaReq"sv, 10000},    // coordinator sending to main
       {"PromoteToMainReq"sv, 10000},          // coordinator sending to replica
@@ -53,7 +53,7 @@ class Client {
   };
   // Dependency injection of rpc_timeouts
   Client(io::network::Endpoint endpoint, communication::ClientContext *context,
-         std::map<std::string_view, int> const &rpc_timeouts_ms = Client::default_rpc_timeouts_ms);
+         std::unordered_map<std::string_view, int> const &rpc_timeouts_ms = Client::default_rpc_timeouts_ms);
 
   /// Object used to handle streaming of request data to the RPC server.
   template <class TRequestResponse>
@@ -109,13 +109,6 @@ class Client {
 
       spdlog::trace("[RpcClient] sent {} to {}", req_type_name, self_->client_->endpoint().SocketAddress());
 
-      std::optional<int> timeout_ms{std::nullopt};
-      auto const maybe_timeout = std::ranges::find_if(
-          self_->rpc_timeouts_ms_, [req_type_name](auto const &entry) { return entry.first == req_type_name; });
-      if (maybe_timeout != self_->rpc_timeouts_ms_.end()) {
-        timeout_ms.emplace(maybe_timeout->second);
-      }
-
       // Receive the response.
       uint64_t response_data_size = 0;
       while (true) {
@@ -128,7 +121,7 @@ class Client {
         }
         if (ret.status == slk::StreamStatus::PARTIAL) {
           if (!self_->client_->Read(ret.stream_size - self_->client_->GetDataSize(),
-                                    /* exactly_len = */ false, /* timeout_ms = */ timeout_ms)) {
+                                    /* exactly_len = */ false, /* timeout_ms = */ timeout_ms_)) {
             // Failed connection, abort and let somebody retry in the future.
             defunct_ = true;
             self_->Abort();
@@ -303,7 +296,7 @@ class Client {
   io::network::Endpoint endpoint_;
   communication::ClientContext *context_;
   std::optional<communication::Client> client_;
-  std::map<std::string_view, int> rpc_timeouts_ms_;
+  std::unordered_map<std::string_view, int> rpc_timeouts_ms_;
 
   mutable std::mutex mutex_;
 };

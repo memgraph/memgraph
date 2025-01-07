@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -82,7 +82,7 @@ TEST(RpcTimeout, TimeoutNoFailure) {
   ASSERT_TRUE(rpc_server.Start());
   std::this_thread::sleep_for(100ms);
 
-  auto const rpc_timeouts = std::map{std::make_pair("EchoMessage"sv, 2000)};
+  auto const rpc_timeouts = std::unordered_map{std::make_pair("EchoMessage"sv, 2000)};
   ClientContext client_context;
   Client client{endpoint, &client_context, rpc_timeouts};
 
@@ -114,7 +114,7 @@ TEST(RpcTimeout, TimeoutExecutionBlocks) {
   ASSERT_TRUE(rpc_server.Start());
   std::this_thread::sleep_for(100ms);
 
-  auto const rpc_timeouts = std::map{std::make_pair("EchoMessage"sv, 1000)};
+  auto const rpc_timeouts = std::unordered_map{std::make_pair("EchoMessage"sv, 1000)};
   ClientContext client_context;
   Client client{endpoint, &client_context, rpc_timeouts};
 
@@ -154,7 +154,7 @@ TEST(RpcTimeout, TimeoutServerBusy) {
   ASSERT_TRUE(rpc_server.Start());
   std::this_thread::sleep_for(100ms);
 
-  auto const rpc_timeouts = std::map{std::make_pair("EchoMessage"sv, 1000)};
+  auto const rpc_timeouts = std::unordered_map{std::make_pair("EchoMessage"sv, 1000)};
   ClientContext sum_client_context;
   Client sum_client{endpoint, &sum_client_context};
 
@@ -194,7 +194,7 @@ TEST(RpcTimeout, SendingToWrongSocket) {
   ASSERT_TRUE(rpc_server.Start());
   std::this_thread::sleep_for(100ms);
 
-  auto const rpc_timeouts = std::map{std::make_pair("EchoMessage"sv, 1000)};
+  auto const rpc_timeouts = std::unordered_map{std::make_pair("EchoMessage"sv, 1000)};
   ClientContext client_context;
   Client client{endpoint, &client_context, rpc_timeouts};
 
