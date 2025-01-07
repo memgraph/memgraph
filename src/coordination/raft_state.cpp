@@ -309,6 +309,7 @@ auto RaftState::AddCoordinatorInstance(CoordinatorInstanceConfig const &config) 
   spdlog::trace("Adding coordinator instance {} start in RaftState for coordinator_{}", config.coordinator_id,
                 coordinator_id_);
 
+  // If I am not adding myself, I need to use add_srv and rely on NuRaft...
   if (config.coordinator_id != coordinator_id_) {
     auto const coordinator_server = config.coordinator_server.SocketAddress();  // non-resolved IP
     auto const coord_instance_aux =
@@ -319,7 +320,7 @@ auto RaftState::AddCoordinatorInstance(CoordinatorInstanceConfig const &config) 
     srv_config const srv_config_to_add(config.coordinator_id, 0, coordinator_server,
                                        nlohmann::json(coord_instance_aux).dump(), false);
 
-    if (auto cmd_result = raft_server_->add_srv(srv_config_to_add);
+    if (const auto cmd_result = raft_server_->add_srv(srv_config_to_add);
         cmd_result->get_result_code() == nuraft::cmd_result_code::OK) {
       spdlog::info("Request to add server {} to the cluster accepted", coordinator_server);
     } else {
@@ -330,22 +331,26 @@ auto RaftState::AddCoordinatorInstance(CoordinatorInstanceConfig const &config) 
     constexpr int max_tries{10};
     auto maybe_stop = utils::ResettableCounter<max_tries>();
     std::chrono::milliseconds const waiting_period{200};
-    bool added{false};
     while (!maybe_stop()) {
       std::this_thread::sleep_for(waiting_period);
       if (const auto server_config = raft_server_->get_srv_config(config.coordinator_id)) {
         spdlog::trace("Server with id {} added to cluster", config.coordinator_id);
-        added = true;
-        break;
+        return;
       }
     }
-    if (!added) {
-      throw RaftAddServerException("Failed to add server {} to the cluster in {}ms", coordinator_server,
-                                   max_tries * waiting_period);
-    }
+    throw RaftAddServerException("Failed to add server {} to the cluster in {}ms", coordinator_server,
+                                 max_tries * waiting_period);
   }
-
-  // TODO: (andi) Add a breaking label
+  // If I am adding myself, verify if this info is the same as given from the flags
+  auto const my_aux = GetMyCoordinatorInstanceAux();
+  if (config.coordinator_server.SocketAddress() != my_aux.coordinator_server) {
+    throw RaftAddServerException(
+        "Failed to add server since NuRaft server has been started with different network configuration!");
+  }
+  if (config.management_server.SocketAddress() != my_aux.management_server) {
+    throw RaftAddServerException(
+        "Failed to add server since management server has been started with different network configuration!");
+  }
 }
 
 auto RaftState::CoordLastSuccRespMs(int32_t srv_id) const -> std::chrono::milliseconds {
@@ -360,7 +365,6 @@ auto RaftState::CoordLastSuccRespMs(int32_t srv_id) const -> std::chrono::millis
   return elapsed_time_ms;
 }
 
-// TODO: (andi) Unit test it
 auto RaftState::GetLeaderCoordinatorData() const -> std::optional<LeaderCoordinatorData> {
   auto const leader_id = raft_server_->get_leader();
 

@@ -52,7 +52,6 @@ class CoordinatorClusterState {
 
   auto IsCurrentMain(std::string_view instance_name) const -> bool;
 
-  // TODO: (andi) Receive one argument with all values set to optional to avoid moving all the time
   auto DoAction(std::vector<DataInstanceContext> data_instances,
                 std::vector<CoordinatorInstanceContext> coordinator_instances, utils::UUID main_uuid) -> void;
 

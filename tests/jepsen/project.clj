@@ -18,7 +18,7 @@
                    [:role "developer"]
                    [:role "maintainer"]]]]
 
-  :profiles {:test {:dependencies [#_[org.neo4j.test/neo4j-harness "5.10.0"]]}}
+  :profiles {:test {:dependencies [#_[org.neo4j.test/neo4j-harness "5.10.0"]}}
   :plugins [[dev.weavejester/lein-cljfmt "0.12.0"]]
   ;; The below line is required to run after Jepsen 0.3.0.
   :aot :all

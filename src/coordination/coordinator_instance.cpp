@@ -386,8 +386,7 @@ auto CoordinatorInstance::ReconcileClusterState_() -> ReconcileClusterStateStatu
   auto const raft_state_data_instances = raft_state_->GetDataInstancesContext();
 
   // Reconciliation shouldn't be done on single coordinator
-  // TODO: (andi) This should use nuraft configuration
-  if (raft_state_->GetCoordinatorInstancesContext().size() == kDisconnectedCluster) {
+  if (raft_state_->GetCoordinatorInstancesAux().size() == kDisconnectedCluster) {
     return ReconcileClusterStateStatus::SUCCESS;
   }
 
