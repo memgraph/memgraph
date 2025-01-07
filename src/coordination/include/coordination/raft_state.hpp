@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -61,7 +61,7 @@ class RaftState {
   RaftState &operator=(RaftState &&other) noexcept = default;
   ~RaftState();
 
-  auto GetCoordinatorEndpoint(uint32_t coordinator_id) const -> std::string;
+  auto GetCoordinatorEndpoint(int32_t coordinator_id) const -> std::string;
   auto GetMyCoordinatorEndpoint() const -> std::string;
   auto GetMyCoordinatorId() const -> uint32_t;
   auto InstanceName() const -> std::string;
@@ -71,8 +71,6 @@ class RaftState {
 
   auto IsLeader() const -> bool;
   auto GetLeaderId() const -> uint32_t;
-
-  auto GetCoordinatorInstanceConfigs() const -> std::vector<CoordinatorInstanceConfig>;
 
   auto AppendClusterUpdate(std::vector<DataInstanceContext> data_instances,
                            std::vector<CoordinatorInstanceContext> coordinator_instances, utils::UUID uuid) -> bool;

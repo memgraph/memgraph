@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -250,7 +250,7 @@ RaftState::~RaftState() {
   spdlog::trace("Asio service closed");
 }
 
-auto RaftState::GetCoordinatorEndpoint(uint32_t coordinator_id) const -> std::string {
+auto RaftState::GetCoordinatorEndpoint(int32_t coordinator_id) const -> std::string {
   return raft_server_->get_srv_config(coordinator_id)->get_endpoint();
 }
 
