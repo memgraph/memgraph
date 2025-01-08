@@ -293,6 +293,7 @@ class Once : public memgraph::query::plan::LogicalOperator {
 
 using PropertiesMapList = std::vector<std::pair<storage::PropertyId, Expression *>>;
 using StorageLabelType = std::variant<storage::LabelId, Expression *>;
+using StorageEdgeType = std::variant<storage::EdgeTypeId, Expression *>;
 
 struct NodeCreationInfo {
   static const utils::TypeInfo kType;
@@ -397,20 +398,19 @@ struct EdgeCreationInfo {
   EdgeCreationInfo() = default;
 
   EdgeCreationInfo(Symbol symbol, std::variant<PropertiesMapList, ParameterLookup *> properties,
-                   storage::EdgeTypeId edge_type, EdgeAtom::Direction direction)
+                   StorageEdgeType edge_type, EdgeAtom::Direction direction)
       : symbol{std::move(symbol)}, properties{std::move(properties)}, edge_type{edge_type}, direction{direction} {};
 
-  EdgeCreationInfo(Symbol symbol, PropertiesMapList properties, storage::EdgeTypeId edge_type,
+  EdgeCreationInfo(Symbol symbol, PropertiesMapList properties, StorageEdgeType edge_type,
                    EdgeAtom::Direction direction)
       : symbol{std::move(symbol)}, properties{std::move(properties)}, edge_type{edge_type}, direction{direction} {};
 
-  EdgeCreationInfo(Symbol symbol, ParameterLookup *properties, storage::EdgeTypeId edge_type,
-                   EdgeAtom::Direction direction)
+  EdgeCreationInfo(Symbol symbol, ParameterLookup *properties, StorageEdgeType edge_type, EdgeAtom::Direction direction)
       : symbol{std::move(symbol)}, properties{properties}, edge_type{edge_type}, direction{direction} {};
 
   Symbol symbol;
   std::variant<PropertiesMapList, ParameterLookup *> properties;
-  storage::EdgeTypeId edge_type;
+  StorageEdgeType edge_type;
   EdgeAtom::Direction direction{EdgeAtom::Direction::BOTH};
 
   EdgeCreationInfo Clone(AstStorage *storage) const {
