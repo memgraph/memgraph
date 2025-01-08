@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -215,12 +215,12 @@ class DeltaGenerator final {
       enum_id = *result;
     }
 
-    std::optional<std::shared_ptr<memgraph::storage::VectorIndexSpec>> vector_index_spec;
+    std::optional<memgraph::storage::VectorIndexSpec> vector_index_spec;
     if (!vector_index_name.empty()) {
       auto first_property = *property_ids.begin();
-      vector_index_spec = std::make_shared<memgraph::storage::VectorIndexSpec>(
-          vector_index_name, label_id, first_property, unum::usearch::metric_from_name(kMetricKind).result,
-          vector_dimension, vector_capacity, kResizeCoefficient);
+      vector_index_spec = memgraph::storage::VectorIndexSpec{
+          vector_index_name, label_id,           first_property, unum::usearch::metric_from_name(kMetricKind).result,
+          vector_dimension,  kResizeCoefficient, vector_capacity};
     }
 
     auto const apply_encode = [&](memgraph::storage::durability::StorageMetadataOperation op, auto &&encode_operation) {

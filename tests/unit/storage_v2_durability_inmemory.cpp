@@ -119,9 +119,10 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     const auto vector_index_dim = 2;
     const auto vector_index_capacity = 100;
     const auto vector_index_resize_coefficient = 2;
-    const auto vector_index_spec = std::make_shared<memgraph::storage::VectorIndexSpec>(
-        vector_index_name, label_indexed, property_vector, vector_index_metric, vector_index_dim, vector_index_capacity,
-        vector_index_resize_coefficient);
+    const auto vector_index_spec =
+        memgraph::storage::VectorIndexSpec{vector_index_name,    label_indexed,    property_vector,
+                                           vector_index_metric,  vector_index_dim, vector_index_resize_coefficient,
+                                           vector_index_capacity};
 
     {
       // Create enum.
@@ -418,9 +419,10 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     const auto vector_index_dim = 2;
     const auto vector_index_capacity = 100;
     const auto vector_index_resize_coefficient = 2;
-    memgraph::storage::VectorIndexSpec vector_index_spec(vector_index_name, base_label_indexed, property_vector,
-                                                         vector_index_metric, vector_index_dim, vector_index_capacity,
-                                                         vector_index_resize_coefficient);
+    const auto vector_index_spec =
+        memgraph::storage::VectorIndexSpec{vector_index_name,    base_label_indexed, property_vector,
+                                           vector_index_metric,  vector_index_dim,   vector_index_resize_coefficient,
+                                           vector_index_capacity};
 
     ASSERT_TRUE(store->enum_store_.ToEnum("enum1", "v1").HasValue());
     ASSERT_TRUE(store->enum_store_.ToEnum("enum1", "v2").HasValue());
@@ -441,7 +443,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_THAT(info.point_label_property,
                       UnorderedElementsAre(std::make_pair(base_label_indexed, property_point)));
           ASSERT_TRUE(std::ranges::all_of(info.vector_indices_spec, [&vector_index_spec](const auto &index) {
-            return *index == vector_index_spec;
+            return index == vector_index_spec;
           }));
           break;
         case DatasetType::ONLY_EXTENDED:
@@ -460,7 +462,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_THAT(info.point_label_property,
                       UnorderedElementsAre(std::make_pair(base_label_indexed, property_point)));
           ASSERT_TRUE(std::ranges::all_of(info.vector_indices_spec, [&vector_index_spec](const auto &index) {
-            return *index == vector_index_spec;
+            return index == vector_index_spec;
           }));
           break;
         case DatasetType::BASE_WITH_EDGE_TYPE_INDEXED:
@@ -470,7 +472,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_THAT(info.point_label_property,
                       UnorderedElementsAre(std::make_pair(base_label_indexed, property_point)));
           ASSERT_TRUE(std::ranges::all_of(info.vector_indices_spec, [&vector_index_spec](const auto &index) {
-            return *index == vector_index_spec;
+            return index == vector_index_spec;
           }));
           break;
         case DatasetType::BASE_WITH_EDGE_TYPE_PROPERTY_INDEXED:
@@ -480,7 +482,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_THAT(info.point_label_property,
                       UnorderedElementsAre(std::make_pair(base_label_indexed, property_point)));
           ASSERT_TRUE(std::ranges::all_of(info.vector_indices_spec, [&vector_index_spec](const auto &index) {
-            return *index == vector_index_spec;
+            return index == vector_index_spec;
           }));
           break;
       }

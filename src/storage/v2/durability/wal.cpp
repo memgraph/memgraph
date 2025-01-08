@@ -1326,8 +1326,8 @@ void EncodeVectorIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper, c
   encoder.WriteString(name_id_mapper.IdToName(index_spec.property.AsUint()));
   encoder.WriteString(storage::kMetricToStringMap.at(index_spec.metric_kind).front());
   encoder.WriteUint(index_spec.dimension);
-  encoder.WriteUint(index_spec.capacity);
   encoder.WriteUint(index_spec.resize_coefficient);
+  encoder.WriteUint(index_spec.capacity);
 }
 
 void EncodeVectorIndexName(BaseEncoder &encoder, std::string_view index_name) { encoder.WriteString(index_name); }

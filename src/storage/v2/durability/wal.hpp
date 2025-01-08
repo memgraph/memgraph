@@ -348,7 +348,7 @@ void EncodeLabelPropertyStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper
 void EncodeLabelStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label, LabelIndexStats stats);
 void EncodeTextIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, std::string_view text_index_name,
                      LabelId label);
-void EncodeVectorIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper, VectorIndexSpec spec);
+void EncodeVectorIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper, const VectorIndexSpec &spec);
 void EncodeVectorIndexName(BaseEncoder &encoder, std::string_view index_name);
 
 void EncodeOperationPreamble(BaseEncoder &encoder, StorageMetadataOperation Op, uint64_t timestamp);

@@ -818,18 +818,26 @@ TYPED_TEST(DumpTest, VectorIndices) {
   }
 
   {
-    auto spec = std::make_shared<memgraph::storage::VectorIndexSpec>(
-        test_index1.data(), this->db->storage()->NameToLabel("Label1"),
-        this->db->storage()->NameToProperty("vector_property"), metric, dimension, capacity, resize_coefficient);
+    const auto spec = memgraph::storage::VectorIndexSpec{test_index1.data(),
+                                                         this->db->storage()->NameToLabel("Label1"),
+                                                         this->db->storage()->NameToProperty("vector_property"),
+                                                         metric,
+                                                         dimension,
+                                                         resize_coefficient,
+                                                         capacity};
     auto unique_acc = this->db->UniqueAccess();
     ASSERT_FALSE(unique_acc->CreateVectorIndex(spec).HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
   }
 
   {
-    auto spec = std::make_shared<memgraph::storage::VectorIndexSpec>(
-        test_index2.data(), this->db->storage()->NameToLabel("Label 2"), this->db->storage()->NameToProperty("prop `"),
-        metric, dimension, capacity, resize_coefficient);
+    const auto spec = memgraph::storage::VectorIndexSpec{test_index2.data(),
+                                                         this->db->storage()->NameToLabel("Label 2"),
+                                                         this->db->storage()->NameToProperty("prop `"),
+                                                         metric,
+                                                         dimension,
+                                                         resize_coefficient,
+                                                         capacity};
     auto unique_acc = this->db->UniqueAccess();
     ASSERT_FALSE(unique_acc->CreateVectorIndex(spec).HasError());
     ASSERT_FALSE(unique_acc->Commit().HasError());
