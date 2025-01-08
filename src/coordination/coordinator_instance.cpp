@@ -54,13 +54,16 @@ namespace memgraph::coordination {
 
 namespace {
 constexpr int kDisconnectedCluster = 1;
-
+constexpr std::string_view kUp{"up"};
+constexpr std::string_view kDown{"down"};
 }  // namespace
 
 using nuraft::ptr;
 
 CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &config)
-    : coordinator_management_server_{ManagementServerConfig{
+    : instance_down_timeout_sec_(config.instance_down_timeout_sec),
+      instance_health_check_frequency_sec_(config.instance_health_check_frequency_sec),
+      coordinator_management_server_{ManagementServerConfig{
           io::network::Endpoint{kDefaultManagementServerIp, static_cast<uint16_t>(config.management_port)}}} {
   CoordinatorInstanceManagementServerHandlers::Register(coordinator_management_server_, *this);
   MG_ASSERT(coordinator_management_server_.Start(), "Management server on coordinator couldn't be started.");
@@ -172,9 +175,7 @@ auto CoordinatorInstance::GetCoordinatorsInstanceStatus() const -> std::vector<I
       return "unknown";
     }
 
-    auto const last_succ_resp_ms = raft_state_->CoordLastSuccRespMs(coordinator_id);
-    // TODO: (andi) Change the way this is done
-    return last_succ_resp_ms < std::chrono::seconds(5) ? "up" : "down";
+    return raft_state_->CoordLastSuccRespMs(coordinator_id) < instance_down_timeout_sec_ ? kUp.data() : kDown.data();
   };
 
   auto const coordinators = raft_state_->GetCoordinatorInstancesAux();
@@ -409,7 +410,8 @@ auto CoordinatorInstance::ReconcileClusterState_() -> ReconcileClusterStateStatu
     auto main_instance = std::ranges::begin(current_mains);
     spdlog::trace("Found main instance {}.", main_instance->config.instance_name);
     std::ranges::for_each(raft_state_data_instances, [this](auto &&data_instance) {
-      auto &instance = repl_instances_.emplace_back(data_instance.config, this);
+      auto &instance = repl_instances_.emplace_back(data_instance.config, this, instance_down_timeout_sec_,
+                                                    instance_health_check_frequency_sec_);
       instance.StartStateCheck();
     });
   } else if (num_mains == 0) {
@@ -421,7 +423,8 @@ auto CoordinatorInstance::ReconcileClusterState_() -> ReconcileClusterStateStatu
       case FailoverStatus::SUCCESS: {
         spdlog::trace("Failover successful after failing to promote main instance.");
         std::ranges::for_each(raft_state_data_instances, [this](auto &&data_instance) {
-          auto &instance = repl_instances_.emplace_back(data_instance.config, this);
+          auto &instance = repl_instances_.emplace_back(data_instance.config, this, instance_down_timeout_sec_,
+                                                        instance_health_check_frequency_sec_);
           instance.StartStateCheck();
         });
 
@@ -634,7 +637,8 @@ auto CoordinatorInstance::RegisterReplicationInstance(DataInstanceConfig const &
 
   auto const curr_main_uuid = raft_state_->GetCurrentMainUUID();
 
-  auto *new_instance = &repl_instances_.emplace_back(config, this);
+  auto *new_instance =
+      &repl_instances_.emplace_back(config, this, instance_down_timeout_sec_, instance_health_check_frequency_sec_);
 
   // We do this here not under callbacks because we need to add replica to the current main.
   if (!new_instance->SendDemoteToReplicaRpc()) {

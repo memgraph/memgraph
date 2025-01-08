@@ -139,6 +139,9 @@ class CoordinatorInstance {
   // accept queries.
   std::atomic<CoordinatorStatus> status{CoordinatorStatus::FOLLOWER};
   std::atomic<bool> is_shutting_down_{false};
+
+  std::chrono::seconds instance_down_timeout_sec_{5};
+  std::chrono::seconds instance_health_check_frequency_sec_{1};
   // NOTE: Must be std::list because we rely on pointer stability.
   std::list<ReplicationInstanceConnector> repl_instances_;
   mutable utils::ResourceLock coord_instance_lock_{};

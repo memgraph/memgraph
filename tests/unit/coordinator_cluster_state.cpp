@@ -51,11 +51,7 @@ TEST_F(CoordinatorClusterStateTest, RegisterReplicationInstance) {
                                    .bolt_server = Endpoint{"127.0.0.1", 7687},
                                    .replication_client_info = {.instance_name = "instance_name",
                                                                .replication_mode = ReplicationMode::ASYNC,
-                                                               .replication_server = Endpoint{"127.0.0.1", 10001}},
-                                   .instance_health_check_frequency_sec = std::chrono::seconds{1},
-                                   .instance_down_timeout_sec = std::chrono::seconds{5},
-                                   .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
-                                   .ssl = std::nullopt};
+                                                               .replication_server = Endpoint{"127.0.0.1", 10001}}};
 
   auto const uuid = UUID{};
   data_instances.emplace_back(config, ReplicationRole::REPLICA, uuid);
@@ -79,11 +75,7 @@ TEST_F(CoordinatorClusterStateTest, SetInstanceToReplica) {
                                      .bolt_server = Endpoint{"127.0.0.1", 7687},
                                      .replication_client_info = {.instance_name = "instance1",
                                                                  .replication_mode = ReplicationMode::ASYNC,
-                                                                 .replication_server = Endpoint{"127.0.0.1", 10001}},
-                                     .instance_health_check_frequency_sec = std::chrono::seconds{1},
-                                     .instance_down_timeout_sec = std::chrono::seconds{5},
-                                     .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
-                                     .ssl = std::nullopt};
+                                                                 .replication_server = Endpoint{"127.0.0.1", 10001}}};
     auto const uuid = UUID{};
     data_instances.emplace_back(config, ReplicationRole::MAIN, uuid);
 
@@ -96,11 +88,7 @@ TEST_F(CoordinatorClusterStateTest, SetInstanceToReplica) {
                                      .bolt_server = Endpoint{"127.0.0.1", 7688},
                                      .replication_client_info = {.instance_name = "instance2",
                                                                  .replication_mode = ReplicationMode::ASYNC,
-                                                                 .replication_server = Endpoint{"127.0.0.1", 10010}},
-                                     .instance_health_check_frequency_sec = std::chrono::seconds{1},
-                                     .instance_down_timeout_sec = std::chrono::seconds{5},
-                                     .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
-                                     .ssl = std::nullopt};
+                                                                 .replication_server = Endpoint{"127.0.0.1", 10010}}};
 
     auto const uuid = UUID{};
     data_instances.emplace_back(config, ReplicationRole::REPLICA, uuid);
@@ -147,11 +135,7 @@ TEST_F(CoordinatorClusterStateTest, Marshalling) {
                                    .bolt_server = Endpoint{"127.0.0.1", 7688},
                                    .replication_client_info = {.instance_name = "instance_name",
                                                                .replication_mode = ReplicationMode::ASYNC,
-                                                               .replication_server = Endpoint{"127.0.0.1", 10010}},
-                                   .instance_health_check_frequency_sec = std::chrono::seconds{1},
-                                   .instance_down_timeout_sec = std::chrono::seconds{5},
-                                   .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
-                                   .ssl = std::nullopt};
+                                                               .replication_server = Endpoint{"127.0.0.1", 10010}}};
 
   auto const uuid = UUID{};
   data_instances.emplace_back(config, ReplicationRole::REPLICA, uuid);

@@ -25,7 +25,6 @@ void to_json(nlohmann::json &j, CoordinatorInstanceConfig const &config) {
                      {"coordinator_server", config.coordinator_server},
                      {"bolt_server", config.bolt_server},
                      {"management_server", config.management_server},
-                     {"instance_down_timeout_sec", config.instance_down_timeout_sec.count()},
                      {"coordinator_hostname", config.coordinator_hostname}};
 }
 
@@ -34,7 +33,6 @@ void from_json(nlohmann::json const &j, CoordinatorInstanceConfig &config) {
   config.coordinator_server = j.at("coordinator_server").get<io::network::Endpoint>();
   config.management_server = j.at("management_server").get<io::network::Endpoint>();
   config.bolt_server = j.at("bolt_server").get<io::network::Endpoint>();
-  config.instance_down_timeout_sec = std::chrono::seconds{j.at("instance_down_timeout_sec").get<int>()};
   config.coordinator_hostname = j.at("coordinator_hostname").get<std::string>();
 }
 
@@ -54,9 +52,6 @@ void to_json(nlohmann::json &j, DataInstanceConfig const &config) {
   j = nlohmann::json{{"instance_name", config.instance_name},
                      {"mgt_server", config.mgt_server},
                      {"bolt_server", config.bolt_server},
-                     {"instance_health_check_frequency_sec", config.instance_health_check_frequency_sec.count()},
-                     {"instance_down_timeout_sec", config.instance_down_timeout_sec.count()},
-                     {"instance_get_uuid_frequency_sec", config.instance_get_uuid_frequency_sec.count()},
                      {"replication_client_info", config.replication_client_info}};
 }
 
@@ -64,10 +59,6 @@ void from_json(nlohmann::json const &j, DataInstanceConfig &config) {
   config.instance_name = j.at("instance_name").get<std::string>();
   config.mgt_server = j.at("mgt_server").get<io::network::Endpoint>();
   config.bolt_server = j.at("bolt_server").get<io::network::Endpoint>();
-  config.instance_health_check_frequency_sec =
-      std::chrono::seconds{j.at("instance_health_check_frequency_sec").get<int>()};
-  config.instance_down_timeout_sec = std::chrono::seconds{j.at("instance_down_timeout_sec").get<int>()};
-  config.instance_get_uuid_frequency_sec = std::chrono::seconds{j.at("instance_get_uuid_frequency_sec").get<int>()};
   config.replication_client_info = j.at("replication_client_info").get<ReplicationClientInfo>();
 }
 

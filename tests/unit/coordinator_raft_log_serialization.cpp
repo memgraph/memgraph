@@ -55,11 +55,7 @@ TEST_F(RaftLogSerialization, DataInstanceConfig) {
                             .mgt_server = Endpoint{"127.0.0.1", 10112},
                             .replication_client_info = {.instance_name = "instance_name",
                                                         .replication_mode = ReplicationMode::ASYNC,
-                                                        .replication_server = Endpoint{"127.0.0.1", 10001}},
-                            .instance_health_check_frequency_sec = std::chrono::seconds{1},
-                            .instance_down_timeout_sec = std::chrono::seconds{5},
-                            .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
-                            .ssl = std::nullopt};
+                                                        .replication_server = Endpoint{"127.0.0.1", 10001}}};
 
   nlohmann::json j = config;
   DataInstanceConfig config2 = j.get<memgraph::coordination::DataInstanceConfig>();
@@ -72,11 +68,7 @@ TEST_F(RaftLogSerialization, SerializeUpdateClusterState) {
                             .mgt_server = Endpoint{"127.0.0.1", 10112},
                             .replication_client_info = {.instance_name = "instance_name",
                                                         .replication_mode = ReplicationMode::ASYNC,
-                                                        .replication_server = Endpoint{"127.0.0.1", 10001}},
-                            .instance_health_check_frequency_sec = std::chrono::seconds{1},
-                            .instance_down_timeout_sec = std::chrono::seconds{5},
-                            .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
-                            .ssl = std::nullopt};
+                                                        .replication_server = Endpoint{"127.0.0.1", 10001}}};
 
   std::vector<DataInstanceContext> data_instances;
   data_instances.emplace_back(config, ReplicationRole::REPLICA, UUID{});

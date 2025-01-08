@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,9 +22,12 @@
 
 namespace memgraph::coordination {
 
-ReplicationInstanceConnector::ReplicationInstanceConnector(DataInstanceConfig const &config,
-                                                           CoordinatorInstance *coord_instance)
-    : client_(ReplicationInstanceClient(config, coord_instance)) {}
+ReplicationInstanceConnector::ReplicationInstanceConnector(
+    DataInstanceConfig const &config, CoordinatorInstance *coord_instance,
+    const std::chrono::seconds instance_down_timeout_sec,
+    const std::chrono::seconds instance_health_check_frequency_sec)
+    : client_(ReplicationInstanceClient(config, coord_instance, instance_health_check_frequency_sec)),
+      instance_down_timeout_sec_(instance_down_timeout_sec) {}
 
 void ReplicationInstanceConnector::OnSuccessPing() {
   last_response_time_ = std::chrono::system_clock::now();
@@ -32,8 +35,8 @@ void ReplicationInstanceConnector::OnSuccessPing() {
 }
 
 auto ReplicationInstanceConnector::OnFailPing() -> bool {
-  auto elapsed_time = std::chrono::system_clock::now() - last_response_time_;
-  is_alive_ = elapsed_time < client_.InstanceDownTimeoutSec();
+  const auto elapsed_time = std::chrono::system_clock::now() - last_response_time_;
+  is_alive_ = elapsed_time < instance_down_timeout_sec_;
   return is_alive_;
 }
 
@@ -59,30 +62,30 @@ auto ReplicationInstanceConnector::ReplicationSocketAddress() const -> std::stri
 }
 
 auto ReplicationInstanceConnector::SendPromoteToMainRpc(utils::UUID const &new_uuid,
-                                                        ReplicationClientsInfo repl_clients_info) -> bool {
+                                                        ReplicationClientsInfo repl_clients_info) const -> bool {
   return client_.SendPromoteToMainRpc(new_uuid, std::move(repl_clients_info));
 }
 
-auto ReplicationInstanceConnector::SendDemoteToReplicaRpc() -> bool { return client_.SendDemoteToReplicaRpc(); }
+auto ReplicationInstanceConnector::SendDemoteToReplicaRpc() const -> bool { return client_.SendDemoteToReplicaRpc(); }
 
 auto ReplicationInstanceConnector::SendStateCheckRpc() const -> std::optional<InstanceState> {
   return client_.SendStateCheckRpc();
 }
 
 auto ReplicationInstanceConnector::SendRegisterReplicaRpc(utils::UUID const &uuid,
-                                                          ReplicationClientInfo replication_client_info) -> bool {
+                                                          ReplicationClientInfo replication_client_info) const -> bool {
   return client_.SendRegisterReplicaRpc(uuid, std::move(replication_client_info));
 }
 
-auto ReplicationInstanceConnector::SendSwapAndUpdateUUID(utils::UUID const &new_main_uuid) -> bool {
+auto ReplicationInstanceConnector::SendSwapAndUpdateUUID(utils::UUID const &new_main_uuid) const -> bool {
   return replication_coordination_glue::SendSwapMainUUIDRpc(client_.RpcClient(), new_main_uuid);
 }
 
-auto ReplicationInstanceConnector::SendUnregisterReplicaRpc(std::string_view instance_name) -> bool {
+auto ReplicationInstanceConnector::SendUnregisterReplicaRpc(std::string_view instance_name) const -> bool {
   return client_.SendUnregisterReplicaRpc(instance_name);
 }
 
-auto ReplicationInstanceConnector::SendEnableWritingOnMainRpc() -> bool { return client_.SendEnableWritingOnMainRpc(); }
+bool ReplicationInstanceConnector::SendEnableWritingOnMainRpc() const { return client_.SendEnableWritingOnMainRpc(); }
 
 auto ReplicationInstanceConnector::StartStateCheck() -> void { client_.StartStateCheck(); }
 auto ReplicationInstanceConnector::StopStateCheck() -> void { client_.StopStateCheck(); }

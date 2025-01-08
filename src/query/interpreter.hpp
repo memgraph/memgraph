@@ -136,11 +136,8 @@ class CoordinatorQueryHandler {
 
   /// @throw QueryRuntimeException if an error occurred.
   virtual void RegisterReplicationInstance(std::string_view bolt_server, std::string_view management_server,
-                                           std::string_view replication_server,
-                                           std::chrono::seconds const &instance_health_check_frequency,
-                                           std::chrono::seconds const &instance_down_timeout,
-                                           std::chrono::seconds const &instance_get_uuid_frequency,
-                                           std::string_view instance_name, CoordinatorQuery::SyncMode sync_mode) = 0;
+                                           std::string_view replication_server, std::string_view instance_name,
+                                           CoordinatorQuery::SyncMode sync_mode) = 0;
 
   /// @throw QueryRuntimeException if an error occurred.
   virtual void UnregisterInstance(std::string_view instance_name) = 0;

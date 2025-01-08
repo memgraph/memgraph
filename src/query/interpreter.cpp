@@ -533,11 +533,8 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
   }
 
   void RegisterReplicationInstance(std::string_view bolt_server, std::string_view management_server,
-                                   std::string_view replication_server,
-                                   std::chrono::seconds const &instance_check_frequency,
-                                   std::chrono::seconds const &instance_down_timeout,
-                                   std::chrono::seconds const &instance_get_uuid_frequency,
-                                   std::string_view instance_name, CoordinatorQuery::SyncMode sync_mode) override {
+                                   std::string_view replication_server, std::string_view instance_name,
+                                   CoordinatorQuery::SyncMode sync_mode) override {
     auto const maybe_bolt_server = io::network::Endpoint::ParseAndCreateSocketOrAddress(bolt_server);
     if (!maybe_bolt_server) {
       throw QueryRuntimeException("Invalid bolt socket address!");
@@ -558,19 +555,13 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
                                             .replication_mode = convertFromCoordinatorToReplicationMode(sync_mode),
                                             .replication_server = *maybe_replication_server};
 
-    auto coordinator_client_config =
-        coordination::DataInstanceConfig{.instance_name = std::string(instance_name),
-                                         .mgt_server = *maybe_management_server,
-                                         .bolt_server = *maybe_bolt_server,
-                                         .replication_client_info = repl_config,
-                                         .instance_health_check_frequency_sec = instance_check_frequency,
-                                         .instance_down_timeout_sec = instance_down_timeout,
-                                         .instance_get_uuid_frequency_sec = instance_get_uuid_frequency,
-                                         .ssl = std::nullopt};
+    auto coordinator_client_config = coordination::DataInstanceConfig{.instance_name = std::string(instance_name),
+                                                                      .mgt_server = *maybe_management_server,
+                                                                      .bolt_server = *maybe_bolt_server,
+                                                                      .replication_client_info = repl_config};
 
-    auto status = coordinator_handler_.RegisterReplicationInstance(coordinator_client_config);
-    switch (status) {
-      using enum memgraph::coordination::RegisterInstanceCoordinatorStatus;
+    switch (auto status = coordinator_handler_.RegisterReplicationInstance(coordinator_client_config)) {
+      using enum coordination::RegisterInstanceCoordinatorStatus;
       case NAME_EXISTS:
         throw QueryRuntimeException("Couldn't register replica instance since instance with such name already exists!");
       case MGMT_ENDPOINT_EXISTS:
@@ -613,8 +604,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
   }
 
   void RemoveCoordinatorInstance(int32_t coordinator_id) override {
-    auto const status = coordinator_handler_.RemoveCoordinatorInstance(coordinator_id);
-    switch (status) {
+    switch (auto const status = coordinator_handler_.RemoveCoordinatorInstance(coordinator_id)) {
       using enum memgraph::coordination::RemoveCoordinatorInstanceStatus;  // NOLINT
       case NO_SUCH_ID:
         throw QueryRuntimeException(
@@ -650,8 +640,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
 
         };
 
-    auto const status = coordinator_handler_.AddCoordinatorInstance(coord_coord_config);
-    switch (status) {
+    switch (auto const status = coordinator_handler_.AddCoordinatorInstance(coord_coord_config)) {
       using enum memgraph::coordination::AddCoordinatorInstanceStatus;  // NOLINT
       case ID_ALREADY_EXISTS:
         throw QueryRuntimeException("Couldn't add coordinator since instance with such id already exists!");
@@ -1510,19 +1499,14 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
         throw QueryRuntimeException("Config map must contain {} entry!", kBoltServer);
       }
 
-      callback.fn = [handler = CoordQueryHandler{*coordinator_state},
-                     instance_health_check_frequency_sec = config.instance_health_check_frequency_sec,
-                     bolt_server = bolt_server_it->second, management_server = management_server_it->second,
-                     replication_server = replication_server_it->second,
-                     instance_name = coordinator_query->instance_name_,
-                     instance_down_timeout_sec = config.instance_down_timeout_sec,
-                     instance_get_uuid_frequency_sec = config.instance_get_uuid_frequency_sec,
-                     sync_mode = coordinator_query->sync_mode_]() mutable {
-        handler.RegisterReplicationInstance(bolt_server, management_server, replication_server,
-                                            instance_health_check_frequency_sec, instance_down_timeout_sec,
-                                            instance_get_uuid_frequency_sec, instance_name, sync_mode);
-        return std::vector<std::vector<TypedValue>>();
-      };
+      callback.fn =
+          [handler = CoordQueryHandler{*coordinator_state}, bolt_server = bolt_server_it->second,
+           management_server = management_server_it->second, replication_server = replication_server_it->second,
+           instance_name = coordinator_query->instance_name_, sync_mode = coordinator_query->sync_mode_]() mutable {
+            handler.RegisterReplicationInstance(bolt_server, management_server, replication_server, instance_name,
+                                                sync_mode);
+            return std::vector<std::vector<TypedValue>>();
+          };
 
       notifications->emplace_back(SeverityLevel::INFO, NotificationCode::REGISTER_REPLICATION_INSTANCE,
                                   fmt::format("Coordinator has registered replication instance on {} for instance {}.",

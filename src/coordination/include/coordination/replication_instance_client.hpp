@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,11 +15,8 @@
 
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/instance_state.hpp"
-#include "coordination/rpc_errors.hpp"
 #include "replication_coordination_glue/common.hpp"
-#include "replication_coordination_glue/role.hpp"
 #include "rpc/client.hpp"
-#include "utils/result.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/uuid.hpp"
 
@@ -30,7 +27,8 @@ using ReplicationClientsInfo = std::vector<ReplicationClientInfo>;
 
 class ReplicationInstanceClient {
  public:
-  explicit ReplicationInstanceClient(DataInstanceConfig config, CoordinatorInstance *coord_instance);
+  explicit ReplicationInstanceClient(DataInstanceConfig config, CoordinatorInstance *coord_instance,
+                                     std::chrono::seconds instance_health_check_frequency_sec);
 
   virtual ~ReplicationInstanceClient() = default;
 
@@ -65,13 +63,9 @@ class ReplicationInstanceClient {
 
   auto SendGetInstanceTimestampsRpc() const -> std::optional<replication_coordination_glue::DatabaseHistories>;
 
-  virtual auto InstanceDownTimeoutSec() const -> std::chrono::seconds;
-
-  virtual auto InstanceGetUUIDFrequencySec() const -> std::chrono::seconds;
-
   auto GetReplicationClientInfo() const -> ReplicationClientInfo;
 
-  auto RpcClient() -> rpc::Client & { return rpc_client_; }
+  auto RpcClient() const -> rpc::Client & { return rpc_client_; }
 
   friend bool operator==(ReplicationInstanceClient const &first, ReplicationInstanceClient const &second) {
     return first.config_ == second.config_;
@@ -85,6 +79,8 @@ class ReplicationInstanceClient {
 
   DataInstanceConfig config_;
   CoordinatorInstance *coord_instance_;
+
+  std::chrono::seconds const instance_health_check_frequency_sec_{1};
 };
 
 }  // namespace memgraph::coordination

@@ -61,11 +61,7 @@ TEST_F(CoordinatorLogStoreTests, TestBasicSerialization) {
                             .mgt_server = Endpoint{"127.0.0.1", 10112},
                             .replication_client_info = {.instance_name = "instance_name",
                                                         .replication_mode = ReplicationMode::ASYNC,
-                                                        .replication_server = Endpoint{"127.0.0.1", 10001}},
-                            .instance_health_check_frequency_sec = std::chrono::seconds{1},
-                            .instance_down_timeout_sec = std::chrono::seconds{5},
-                            .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
-                            .ssl = std::nullopt};
+                                                        .replication_server = Endpoint{"127.0.0.1", 10001}}};
 
   auto data_instances = std::vector<DataInstanceContext>();
   data_instances.emplace_back(config, ReplicationRole::REPLICA, UUID{});
@@ -119,31 +115,19 @@ TEST_F(CoordinatorLogStoreTests, TestMultipleInstancesSerialization) {
                              .mgt_server = Endpoint{"127.0.0.1", 10112},
                              .replication_client_info = {.instance_name = "instance_name1",
                                                          .replication_mode = ReplicationMode::ASYNC,
-                                                         .replication_server = Endpoint{"127.0.0.1", 10001}},
-                             .instance_health_check_frequency_sec = std::chrono::seconds{1},
-                             .instance_down_timeout_sec = std::chrono::seconds{5},
-                             .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
-                             .ssl = std::nullopt};
+                                                         .replication_server = Endpoint{"127.0.0.1", 10001}}};
 
   DataInstanceConfig config2{.instance_name = "instance2",
                              .mgt_server = Endpoint{"127.0.0.1", 10113},
                              .replication_client_info = {.instance_name = "instance_name2",
                                                          .replication_mode = ReplicationMode::ASYNC,
-                                                         .replication_server = Endpoint{"127.0.0.1", 10002}},
-                             .instance_health_check_frequency_sec = std::chrono::seconds{1},
-                             .instance_down_timeout_sec = std::chrono::seconds{5},
-                             .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
-                             .ssl = std::nullopt};
+                                                         .replication_server = Endpoint{"127.0.0.1", 10002}}};
 
   DataInstanceConfig config3{.instance_name = "instance3",
                              .mgt_server = Endpoint{"127.0.0.1", 10114},
                              .replication_client_info = {.instance_name = "instance_name3",
                                                          .replication_mode = ReplicationMode::ASYNC,
-                                                         .replication_server = Endpoint{"127.0.0.1", 10003}},
-                             .instance_health_check_frequency_sec = std::chrono::seconds{1},
-                             .instance_down_timeout_sec = std::chrono::seconds{5},
-                             .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
-                             .ssl = std::nullopt};
+                                                         .replication_server = Endpoint{"127.0.0.1", 10003}}};
 
   // Create log store
   {
@@ -206,11 +190,7 @@ TEST_F(CoordinatorLogStoreTests, TestPackAndApplyPack) {
                                      .mgt_server = Endpoint{"127.0.0.1", 10112},
                                      .replication_client_info = {.instance_name = "instance_name1",
                                                                  .replication_mode = ReplicationMode::ASYNC,
-                                                                 .replication_server = Endpoint{"127.0.0.1", 10001}},
-                                     .instance_health_check_frequency_sec = std::chrono::seconds{1},
-                                     .instance_down_timeout_sec = std::chrono::seconds{5},
-                                     .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
-                                     .ssl = std::nullopt};
+                                                                 .replication_server = Endpoint{"127.0.0.1", 10001}}};
     data_instances.emplace_back(config, ReplicationRole::REPLICA, UUID{});
 
     std::vector<CoordinatorInstanceContext> coord_instances{
@@ -232,23 +212,15 @@ TEST_F(CoordinatorLogStoreTests, TestPackAndApplyPack) {
           .mgt_server = Endpoint{"127.0.0.1", static_cast<uint16_t>(10112 + i)},
           .replication_client_info = {.instance_name = "instance_name" + std::to_string(i),
                                       .replication_mode = ReplicationMode::ASYNC,
-                                      .replication_server = Endpoint{"127.0.0.1", static_cast<uint16_t>(10001 + i)}},
-          .instance_health_check_frequency_sec = std::chrono::seconds{1},
-          .instance_down_timeout_sec = std::chrono::seconds{5},
-          .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
-          .ssl = std::nullopt};
+                                      .replication_server = Endpoint{"127.0.0.1", static_cast<uint16_t>(10001 + i)}}};
 
-      auto config2 = DataInstanceConfig{
-          .instance_name = "instance" + std::to_string(i + 3),
-          .mgt_server = Endpoint{"127.0.0.1", static_cast<uint16_t>(10112 + i + 3)},
-          .replication_client_info = {.instance_name = "instance_name" + std::to_string(i + 3),
-                                      .replication_mode = ReplicationMode::ASYNC,
-                                      .replication_server =
-                                          Endpoint{"127.0.0.1", static_cast<uint16_t>(10001 + i + 3)}},
-          .instance_health_check_frequency_sec = std::chrono::seconds{1},
-          .instance_down_timeout_sec = std::chrono::seconds{5},
-          .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
-          .ssl = std::nullopt};
+      auto config2 =
+          DataInstanceConfig{.instance_name = "instance" + std::to_string(i + 3),
+                             .mgt_server = Endpoint{"127.0.0.1", static_cast<uint16_t>(10112 + i + 3)},
+                             .replication_client_info = {
+                                 .instance_name = "instance_name" + std::to_string(i + 3),
+                                 .replication_mode = ReplicationMode::ASYNC,
+                                 .replication_server = Endpoint{"127.0.0.1", static_cast<uint16_t>(10001 + i + 3)}}};
 
       data_instances.emplace_back(config1, ReplicationRole::REPLICA, UUID{});
       auto buffer1 = CoordinatorStateMachine::SerializeUpdateClusterState(data_instances, coord_instances, UUID{});
@@ -318,11 +290,7 @@ TEST_F(CoordinatorLogStoreTests, TestCompact) {
         .mgt_server = Endpoint{"127.0.0.1", static_cast<uint16_t>(10112 + i)},
         .replication_client_info = {.instance_name = "instance_name" + std::to_string(i),
                                     .replication_mode = ReplicationMode::ASYNC,
-                                    .replication_server = Endpoint{"127.0.0.1", static_cast<uint16_t>(10001 + i)}},
-        .instance_health_check_frequency_sec = std::chrono::seconds{1},
-        .instance_down_timeout_sec = std::chrono::seconds{5},
-        .instance_get_uuid_frequency_sec = std::chrono::seconds{10},
-        .ssl = std::nullopt};
+                                    .replication_server = Endpoint{"127.0.0.1", static_cast<uint16_t>(10001 + i)}}};
     data_instances.emplace_back(config, ReplicationRole::REPLICA, UUID{});
 
     auto coord_instances = std::vector<CoordinatorInstanceContext>();

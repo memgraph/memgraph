@@ -47,13 +47,16 @@ struct CoordinatorInstanceInitConfig {
   std::string coordinator_hostname;
   std::string nuraft_log_file;
   bool use_durability;
+  std::chrono::seconds instance_down_timeout_sec;
+  std::chrono::seconds instance_health_check_frequency_sec;
 
   // If nuraft_log_file isn't provided, spdlog::logger for NuRaft will still get created but without sinks effectively
   // then being a no-op logger.
-  explicit CoordinatorInstanceInitConfig(int32_t coordinator_id, int coordinator_port, int bolt_port,
-                                         int management_port, std::filesystem::path durability_dir,
-                                         std::string coordinator_hostname, std::string nuraft_log_file = "",
-                                         bool use_durability = true)
+  explicit CoordinatorInstanceInitConfig(
+      int32_t coordinator_id, int coordinator_port, int bolt_port, int management_port,
+      std::filesystem::path durability_dir, std::string coordinator_hostname, std::string nuraft_log_file = "",
+      bool use_durability = true, const std::chrono::seconds instance_down_timeout_sec = std::chrono::seconds{5},
+      const std::chrono::seconds instance_health_check_frequency_sec = std::chrono::seconds{1})
       : coordinator_id(coordinator_id),
         coordinator_port(coordinator_port),
         bolt_port(bolt_port),
@@ -61,7 +64,9 @@ struct CoordinatorInstanceInitConfig {
         durability_dir(std::move(durability_dir)),
         coordinator_hostname(std::move(coordinator_hostname)),
         nuraft_log_file(std::move(nuraft_log_file)),
-        use_durability(use_durability) {
+        use_durability(use_durability),
+        instance_down_timeout_sec(instance_down_timeout_sec),
+        instance_health_check_frequency_sec(instance_health_check_frequency_sec) {
     MG_ASSERT(!this->durability_dir.empty(), "Path empty");
     MG_ASSERT(!this->coordinator_hostname.empty(), "Hostname empty");
   }
@@ -118,18 +123,6 @@ struct DataInstanceConfig {
   io::network::Endpoint bolt_server;
   ReplicationClientInfo replication_client_info;
 
-  std::chrono::seconds instance_health_check_frequency_sec{1};
-  std::chrono::seconds instance_down_timeout_sec{5};
-  std::chrono::seconds instance_get_uuid_frequency_sec{10};
-
-  struct SSL {
-    std::string key_file;
-    std::string cert_file;
-    friend bool operator==(const SSL &, const SSL &) = default;
-  };
-
-  std::optional<SSL> ssl;
-
   friend bool operator==(DataInstanceConfig const &, DataInstanceConfig const &) = default;
 };
 
@@ -146,30 +139,19 @@ struct CoordinatorInstanceConfig {
   // Currently, this is needed additionally to the coordinator_server but maybe we could put hostname into bolt_server
   // and coordinator_server.
   std::string coordinator_hostname;
-  std::chrono::seconds instance_down_timeout_sec{5};
 
   friend bool operator==(CoordinatorInstanceConfig const &, CoordinatorInstanceConfig const &) = default;
 };
 
 struct ManagementServerConfig {
-  struct SSL {
-    std::string key_file;
-    std::string cert_file;
-    std::string ca_file;
-    bool verify_peer{};
-    friend bool operator==(SSL const &, SSL const &) = default;
-  };
-
   io::network::Endpoint endpoint;
-  std::optional<SSL> ssl;
-  explicit ManagementServerConfig(io::network::Endpoint endpoint, std::optional<SSL> ssl = std::nullopt)
-      : endpoint(std::move(endpoint)), ssl(std::move(ssl)) {}
+  explicit ManagementServerConfig(io::network::Endpoint endpoint) : endpoint(std::move(endpoint)) {}
   friend bool operator==(ManagementServerConfig const &, ManagementServerConfig const &) = default;
 };
 
 struct InstanceUUIDUpdate {
   std::string instance_name;
-  memgraph::utils::UUID uuid;
+  utils::UUID uuid;
 };
 
 void to_json(nlohmann::json &j, DataInstanceConfig const &config);

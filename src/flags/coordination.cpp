@@ -29,8 +29,6 @@ DEFINE_uint32(instance_down_timeout_sec, 5, "Time duration after which an instan
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint32(instance_health_check_frequency_sec, 1, "The time duration between two health checks/pings.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_uint32(instance_get_uuid_frequency_sec, 10, "The time duration between two instance uuid checks.");
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(nuraft_log_file, "", "Path to the file where NuRaft logs are saved.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(ha_durability, true, "Whether to use durability for coordinator logs and snapshots.");

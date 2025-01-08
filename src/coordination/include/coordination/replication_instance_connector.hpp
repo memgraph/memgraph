@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,15 +13,10 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "coordination/coordinator_exceptions.hpp"
 #include "coordination/replication_instance_client.hpp"
-#include "replication_coordination_glue/role.hpp"
 
-#include "utils/resource_lock.hpp"
 #include "utils/result.hpp"
 #include "utils/uuid.hpp"
-
-#include <libnuraft/nuraft.hxx>
 
 namespace memgraph::coordination {
 
@@ -30,7 +25,9 @@ class ReplicationInstanceConnector;
 // Class used for managing the connection from coordinator to the data instance.
 class ReplicationInstanceConnector {
  public:
-  ReplicationInstanceConnector(DataInstanceConfig const &config, CoordinatorInstance *coord_instance);
+  ReplicationInstanceConnector(DataInstanceConfig const &config, CoordinatorInstance *coord_instance,
+                               std::chrono::seconds instance_down_timeout_sec,
+                               std::chrono::seconds instance_health_check_frequency_sec);
 
   ReplicationInstanceConnector(ReplicationInstanceConnector const &other) = delete;
   ReplicationInstanceConnector &operator=(ReplicationInstanceConnector const &other) = delete;
@@ -49,13 +46,13 @@ class ReplicationInstanceConnector {
   auto ManagementSocketAddress() const -> std::string;
   auto ReplicationSocketAddress() const -> std::string;
 
-  auto SendDemoteToReplicaRpc() -> bool;
-  auto SendPromoteToMainRpc(utils::UUID const &uuid, ReplicationClientsInfo repl_clients_info) -> bool;
-  auto SendSwapAndUpdateUUID(utils::UUID const &new_main_uuid) -> bool;
-  auto SendUnregisterReplicaRpc(std::string_view instance_name) -> bool;
+  auto SendDemoteToReplicaRpc() const -> bool;
+  auto SendPromoteToMainRpc(utils::UUID const &uuid, ReplicationClientsInfo repl_clients_info) const -> bool;
+  auto SendSwapAndUpdateUUID(utils::UUID const &new_main_uuid) const -> bool;
+  auto SendUnregisterReplicaRpc(std::string_view instance_name) const -> bool;
   auto SendStateCheckRpc() const -> std::optional<InstanceState>;
-  auto SendRegisterReplicaRpc(utils::UUID const &uuid, ReplicationClientInfo replication_client_info) -> bool;
-  auto SendEnableWritingOnMainRpc() -> bool;
+  auto SendRegisterReplicaRpc(utils::UUID const &uuid, ReplicationClientInfo replication_client_info) const -> bool;
+  auto SendEnableWritingOnMainRpc() const -> bool;
 
   auto StartStateCheck() -> void;
   auto StopStateCheck() -> void;
@@ -68,6 +65,7 @@ class ReplicationInstanceConnector {
  protected:
   ReplicationInstanceClient client_;
   std::chrono::system_clock::time_point last_response_time_{};
+  std::chrono::seconds instance_down_timeout_sec_{5};
   bool is_alive_{false};
 
   friend bool operator==(ReplicationInstanceConnector const &first, ReplicationInstanceConnector const &second) {
