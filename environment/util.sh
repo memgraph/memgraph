@@ -125,3 +125,20 @@ function install_dotnet_sdk ()
   fi
   echo "dotnet sdk $DOTNETSDKVERSION installed under $DOTNETSDKINSTALLDIR"
 }
+
+function install_rust () {
+  RUST_VERSION="$1"
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
+    && . "$HOME/.cargo/env" \
+    && rustup default ${RUST_VERSION}
+  continue
+}
+
+function install_node () {
+  NODE_VERSION="$1"
+  curl https://raw.githubusercontent.com/creationix/nvm/master/install.sh | bash \
+      && . ~/.nvm/nvm.sh \
+      && nvm install ${NODE_VERSION} \
+      && nvm use ${NODE_VERSION}
+  continue
+}
