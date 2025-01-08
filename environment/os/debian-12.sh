@@ -140,18 +140,11 @@ install() {
             continue
         fi
         if [ "$pkg" == custom-rust ]; then
-            RUST_VERSION="1.80"
-            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
-                && . "$HOME/.cargo/env" \
-                && rustup default ${RUST_VERSION}
+            install_rust "1.80"
             continue
         fi
         if [ "$pkg" == custom-node ]; then
-	    NODE_VERSION="20"
-            curl https://raw.githubusercontent.com/creationix/nvm/master/install.sh | bash \
-                && . ~/.nvm/nvm.sh \
-                && nvm install ${NODE_VERSION} \
-                && nvm use ${NODE_VERSION}
+            install_node "20"
             continue
         fi
         apt install -y "$pkg"
