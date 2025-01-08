@@ -15,9 +15,16 @@
 #ifdef MG_ENTERPRISE
 namespace memgraph::coordination {
 
+namespace {
+static auto CreateClientContext(ManagementServerConfig const &config) -> communication::ClientContext {
+  return (config.ssl) ? communication::ClientContext{config.ssl->key_file, config.ssl->cert_file}
+                      : communication::ClientContext{};
+}
+}  // namespace
 class CoordinatorInstanceClient {
  public:
-  explicit CoordinatorInstanceClient(ManagementServerConfig const &config);
+  explicit CoordinatorInstanceClient(ManagementServerConfig const &config)
+      : rpc_context_{CreateClientContext(config)}, rpc_client_{config.endpoint, &rpc_context_} {}
 
   auto RpcClient() -> rpc::Client &;
 
