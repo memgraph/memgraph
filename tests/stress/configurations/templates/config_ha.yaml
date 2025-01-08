@@ -22,8 +22,8 @@ dataset:
   tests:
     - name: bipartite.py
       test_args:
-        - "--u-count=1"
-        - "--v-count=1"
+        - "--u-count=100"
+        - "--v-count=100"
       timeout_min: 5
     - name: detach_delete.py
       test_args:
