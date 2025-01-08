@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -3475,6 +3475,15 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
       for (uint64_t i = 0; i < *size; ++i) {
         auto index_name = snapshot.ReadString();
         if (!index_name.has_value()) throw RecoveryFailure("Couldn't read vector index name!");
+
+        // We only need to check for the existence of the vector index name -> we can't have two vector indices with the
+        // same name
+        if (std::ranges::any_of(indices_constraints.indices.vector_indices, [&index_name](const auto &vector_index) {
+              return vector_index.index_name == index_name;
+            })) {
+          throw RecoveryFailure("The vector index already exists!");
+        }
+
         auto label = snapshot.ReadUint();
         if (!label) throw RecoveryFailure("Couldn't read vector index label!");
         auto property = snapshot.ReadUint();
@@ -3485,22 +3494,20 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
         if (usearch_metric.error) throw RecoveryFailure("Invalid vector index metric recovered!");
         auto dimension = snapshot.ReadUint();
         if (!dimension) throw RecoveryFailure("Couldn't read vector index dimension!");
-        auto capacity = snapshot.ReadUint();
-        if (!capacity) throw RecoveryFailure("Couldn't read vector index capacity!");
         auto resize_coefficient = snapshot.ReadUint();
         if (!resize_coefficient) throw RecoveryFailure("Couldn't read vector index resize coefficient!");
-        auto spec = std::make_shared<VectorIndexSpec>(
-            std::move(index_name.value()), get_label_from_id(*label), get_property_from_id(*property), usearch_metric,
-            static_cast<std::uint16_t>(*dimension), *capacity, static_cast<std::uint16_t>(*resize_coefficient));
-
-        if (std::ranges::any_of(indices_constraints.indices.vector_indices, [&spec](const auto &vector_index) {
-              return vector_index->index_name == spec->index_name;
-            })) {
-          throw RecoveryFailure("The vector index already exists!");
-        }
+        auto capacity = snapshot.ReadUint();
+        if (!capacity) throw RecoveryFailure("Couldn't read vector index capacity!");
+        const auto spec = VectorIndexSpec{std::move(index_name.value()),
+                                          get_label_from_id(*label),
+                                          get_property_from_id(*property),
+                                          usearch_metric,
+                                          static_cast<std::uint16_t>(*dimension),
+                                          static_cast<std::uint16_t>(*resize_coefficient),
+                                          *capacity};
 
         indices_constraints.indices.vector_indices.push_back(spec);
-        SPDLOG_TRACE("Recovered metadata of vector index {} for :{}({})", spec->index_name,
+        SPDLOG_TRACE("Recovered metadata of vector index {} for :{}({})", spec.index_name,
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
       }
@@ -4081,15 +4088,15 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
     {
       auto vector_indices = storage->indices_.vector_index_.ListIndices();
       snapshot.WriteUint(vector_indices.size());
-      for (const auto &spec : vector_indices) {
-        const auto &[index_name, label, property, metric, dimension, capacity, resize_coefficient] = *spec;
+      for (const auto &[index_name, label, property, metric, dimension, resize_coefficient, capacity] :
+           vector_indices) {
         snapshot.WriteString(index_name);
         write_mapping(label);
         write_mapping(property);
         snapshot.WriteString(kMetricToStringMap.at(metric).front());
         snapshot.WriteUint(dimension);
-        snapshot.WriteUint(capacity);
         snapshot.WriteUint(resize_coefficient);
+        snapshot.WriteUint(capacity);
       }
     }
 

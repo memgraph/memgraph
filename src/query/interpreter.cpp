@@ -93,6 +93,7 @@
 #include "storage/v2/edge.hpp"
 #include "storage/v2/edge_import_mode.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage_error.hpp"
@@ -3279,14 +3280,19 @@ PreparedQuery PrepareVectorIndexQuery(ParsedQuery parsed_query, bool in_explicit
 
         EvaluationContext evaluation_context;
         evaluation_context.timestamp = QueryTimestamp();
-        evaluation_context.parameters = std::move(query_parameters);
+        evaluation_context.parameters = query_parameters;
         auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
         auto vector_index_config = ParseVectorIndexConfigMap(config, evaluator);
 
-        auto spec = std::make_shared<storage::VectorIndexSpec>(
-            index_name, label_id, prop_id, vector_index_config.metric, vector_index_config.dimension,
-            vector_index_config.capacity, vector_index_config.resize_coefficient);
-        auto maybe_error = dba->CreateVectorIndex(spec);
+        auto maybe_error = dba->CreateVectorIndex(storage::VectorIndexSpec{
+            .index_name = index_name,
+            .label = label_id,
+            .property = prop_id,
+            .metric_kind = vector_index_config.metric,
+            .dimension = vector_index_config.dimension,
+            .resize_coefficient = vector_index_config.resize_coefficient,
+            .capacity = vector_index_config.capacity,
+        });
         utils::OnScopeExit const invalidator(invalidate_plan_cache);
         if (maybe_error.HasError()) {
           index_notification.code = NotificationCode::EXISTENT_INDEX;
@@ -4514,11 +4520,10 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         }
 
         for (const auto &spec : info.vector_indices_spec) {
-          results.push_back(
-              {TypedValue(vector_label_property_index_mark), TypedValue(storage->LabelToName(spec->label)),
-               TypedValue(storage->PropertyToName(spec->property)),
-               TypedValue(static_cast<int>(
-                   storage_acc->ApproximateVerticesVectorCount(spec->label, spec->property).value_or(0)))});
+          results.push_back({TypedValue(vector_label_property_index_mark), TypedValue(storage->LabelToName(spec.label)),
+                             TypedValue(storage->PropertyToName(spec.property)),
+                             TypedValue(static_cast<int>(
+                                 storage_acc->ApproximateVerticesVectorCount(spec.label, spec.property).value_or(0)))});
         }
 
         std::sort(results.begin(), results.end(), [&label_index_mark](const auto &record_1, const auto &record_2) {
@@ -5517,9 +5522,9 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       // Vertex label property_vector
       for (const auto &spec : index_info.vector_indices_spec) {
         node_indexes.push_back(nlohmann::json::object(
-            {{"labels", {storage->LabelToName(spec->label)}},
-             {"properties", {storage->PropertyToName(spec->property)}},
-             {"count", storage_acc->ApproximateVerticesVectorCount(spec->label, spec->property).value_or(0)},
+            {{"labels", {storage->LabelToName(spec.label)}},
+             {"properties", {storage->PropertyToName(spec.property)}},
+             {"count", storage_acc->ApproximateVerticesVectorCount(spec.label, spec.property).value_or(0)},
              {"type", "label+property_vector"}}));
       }
 

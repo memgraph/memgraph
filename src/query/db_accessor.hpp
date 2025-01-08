@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -679,12 +679,11 @@ class DbAccessor final {
 
   void DropTextIndex(const std::string &index_name) { accessor_->DropTextIndex(index_name); }
 
-  utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateVectorIndex(
-      const std::shared_ptr<storage::VectorIndexSpec> &spec) {
-    return accessor_->CreateVectorIndex(spec);
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateVectorIndex(storage::VectorIndexSpec spec) {
+    return accessor_->CreateVectorIndex(std::move(spec));
   }
 
-  utils::BasicResult<storage::StorageIndexDefinitionError, void> DropVectorIndex(const std::string &index_name) {
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> DropVectorIndex(std::string_view index_name) {
     return accessor_->DropVectorIndex(index_name);
   }
 

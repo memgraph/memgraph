@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -1059,10 +1059,15 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
                 "Failed to create vector index on :{}({}), invalid metric kind: {}, supported metric kinds are: {}",
                 data.label, data.property, data.metric_kind, storage::SupportedMetricKindsToString());
           }
-          auto const spec =
-              std::make_shared<storage::VectorIndexSpec>(data.index_name, labelId, propId, unum_metric_kind.result,
-                                                         data.dimension, data.capacity, data.resize_coefficient);
-          auto res = transaction->CreateVectorIndex(spec);
+          auto res = transaction->CreateVectorIndex(storage::VectorIndexSpec{
+              .index_name = data.index_name,
+              .label = labelId,
+              .property = propId,
+              .metric_kind = unum_metric_kind.result,
+              .dimension = data.dimension,
+              .resize_coefficient = data.resize_coefficient,
+              .capacity = data.capacity,
+          });
           if (res.HasError()) {
             throw utils::BasicException("Failed to create vector index on :{}({})", data.label, data.property);
           }

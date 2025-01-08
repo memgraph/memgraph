@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,8 +18,6 @@
 #include <string_view>
 
 #include "flags/bolt.hpp"
-#include "flags/experimental.hpp"
-#include "query/exceptions.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/vector_index.hpp"
@@ -37,7 +35,7 @@ using mg_vector_index_t = unum::usearch::index_dense_gt<Vertex *, unum::usearch:
 // NOLINTNEXTLINE(bugprone-exception-escape)
 struct IndexItem {
   mg_vector_index_t mg_index;
-  std::shared_ptr<VectorIndexSpec> spec;
+  VectorIndexSpec spec;
   mutable utils::RWSpinLock lock;
 };
 
@@ -74,38 +72,37 @@ struct VectorIndex::Impl {
 VectorIndex::VectorIndex() : pimpl(std::make_unique<Impl>()) {}
 VectorIndex::~VectorIndex() {}
 
-void VectorIndex::CreateIndex(const std::shared_ptr<VectorIndexSpec> &spec) {
+void VectorIndex::CreateIndex(VectorIndexSpec spec) {
   const unum::usearch::metric_punned_t metric(
-      spec->dimension, spec->metric_kind,
+      spec.dimension, spec.metric_kind,
       unum::usearch::scalar_kind_t::f32_k);  // TODO(@DavIvek): scalar kind is hardcoded to f32 ATM -> changing this
                                              // could be beneficial for memory usage
 
   // use the number of workers as the number of possible concurrent index operations
-  const unum::usearch::index_limits_t limits(spec->capacity, FLAGS_bolt_num_workers);
+  const unum::usearch::index_limits_t limits(spec.capacity, FLAGS_bolt_num_workers);
 
-  const auto label_prop = LabelPropKey{spec->label, spec->property};
-  if (pimpl->index_.contains(label_prop) || pimpl->index_name_to_label_prop_.contains(spec->index_name)) {
+  const auto label_prop = LabelPropKey{spec.label, spec.property};
+  if (pimpl->index_.contains(label_prop) || pimpl->index_name_to_label_prop_.contains(spec.index_name)) {
     throw std::invalid_argument("Given vector index already exists.");
   }
-  pimpl->index_name_to_label_prop_.emplace(spec->index_name, label_prop);
+  pimpl->index_name_to_label_prop_.emplace(spec.index_name, label_prop);
   pimpl->index_.emplace(label_prop, IndexItem{mg_vector_index_t::make(metric), spec, utils::RWSpinLock()});
   if (pimpl->index_[label_prop].mg_index.try_reserve(limits)) {
-    spdlog::info("Created vector index " + spec->index_name);
+    spdlog::info("Created vector index " + spec.index_name);
   } else {
-    throw std::invalid_argument("Failed to create vector index " + spec->index_name +
+    throw std::invalid_argument("Failed to create vector index " + spec.index_name +
                                 " due to failed memory allocation. Try again with a smaller size limit.");
   }
 }
 
-bool VectorIndex::CreateIndex(const std::shared_ptr<VectorIndexSpec> &spec,
-                              utils::SkipList<Vertex>::Accessor vertices) {
+bool VectorIndex::CreateIndex(VectorIndexSpec spec, utils::SkipList<Vertex>::Accessor vertices) {
   try {
     CreateIndex(spec);
     for (auto &vertex : vertices) {
-      UpdateVectorIndex(&vertex, LabelPropKey{spec->label, spec->property});
+      UpdateVectorIndex(&vertex, LabelPropKey{spec.label, spec.property});
     }
   } catch (const std::exception &e) {
-    spdlog::error("Failed to create vector index {}: {}", spec->index_name, e.what());
+    spdlog::error("Failed to create vector index {}: {}", spec.index_name, e.what());
     return false;
   }
   return true;
@@ -156,7 +153,7 @@ void VectorIndex::UpdateVectorIndex(Vertex *vertex, const LabelPropKey &label_pr
   if (index.capacity() == index.size()) {
     spdlog::warn("Vector index is full, resizing...");
     auto guard = std::unique_lock{lock};
-    const auto new_size = spec->resize_coefficient * index.capacity();
+    const auto new_size = spec.resize_coefficient * index.capacity();
     const unum::usearch::index_limits_t new_limits(new_size, FLAGS_bolt_num_workers);
     if (!index.try_reserve(new_limits)) {
       throw std::invalid_argument("Vector index is full and can't be resized");
@@ -210,18 +207,19 @@ void VectorIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &
 
 std::vector<VectorIndexInfo> VectorIndex::ListVectorIndicesInfo() const {
   std::vector<VectorIndexInfo> result;
+  result.reserve(pimpl->index_.size());
   for (const auto &[_, index_item] : pimpl->index_) {
     const auto &[index, spec, lock] = index_item;
     auto guard = std::shared_lock{lock};
     result.emplace_back(
-        VectorIndexInfo{spec->index_name, spec->label, spec->property, kMetricToStringMap.at(spec->metric_kind).front(),
+        VectorIndexInfo{spec.index_name, spec.label, spec.property, kMetricToStringMap.at(spec.metric_kind).front(),
                         static_cast<std::uint16_t>(index.dimensions()), index.capacity(), index.size()});
   }
   return result;
 }
 
-std::vector<std::shared_ptr<VectorIndexSpec>> VectorIndex::ListIndices() const {
-  std::vector<std::shared_ptr<VectorIndexSpec>> result;
+std::vector<VectorIndexSpec> VectorIndex::ListIndices() const {
+  std::vector<VectorIndexSpec> result;
   result.reserve(pimpl->index_.size());
   std::ranges::transform(pimpl->index_, std::back_inserter(result),
                          [](const auto &label_prop_index_item) { return label_prop_index_item.second.spec; });
@@ -232,7 +230,7 @@ std::vector<VectorIndexSpec> VectorIndex::ListIndexSpecs() const {
   std::vector<VectorIndexSpec> result;
   result.reserve(pimpl->index_.size());
   std::ranges::transform(pimpl->index_ | std::views::values, std::back_inserter(result),
-                         [](const auto &index_item) { return *index_item.spec; });
+                         [](const auto &index_item) { return index_item.spec; });
   return result;
 }
 

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,6 +12,7 @@
 #pragma once
 
 #include <set>
+#include <utility>
 
 #include "storage/v2/constraints/type_constraints.hpp"
 #include "storage/v2/id_types.hpp"
@@ -153,11 +154,11 @@ struct MetadataDelta {
   MetadataDelta(PointIndexDrop /*tag*/, LabelId label, PropertyId property)
       : action(Action::POINT_INDEX_DROP), label_property{label, property} {}
 
-  MetadataDelta(VectorIndexCreate /*tag*/, const std::shared_ptr<VectorIndexSpec> &spec)
-      : action(Action::VECTOR_INDEX_CREATE), vector_index_spec(spec) {}
+  MetadataDelta(VectorIndexCreate /*tag*/, VectorIndexSpec spec)
+      : action(Action::VECTOR_INDEX_CREATE), vector_index_spec(std::move(spec)) {}
 
-  MetadataDelta(VectorIndexDrop /*tag*/, std::string index_name)
-      : action(Action::VECTOR_INDEX_DROP), vector_index_name{std::move(index_name)} {}
+  MetadataDelta(VectorIndexDrop /*tag*/, std::string_view index_name)
+      : action(Action::VECTOR_INDEX_DROP), vector_index_name{index_name} {}
 
   MetadataDelta(ExistenceConstraintCreate /*tag*/, LabelId label, PropertyId property)
       : action(Action::EXISTENCE_CONSTRAINT_CREATE), label_property{label, property} {}
@@ -215,6 +216,7 @@ struct MetadataDelta {
       case POINT_INDEX_CREATE:
       case POINT_INDEX_DROP:
       case VECTOR_INDEX_CREATE:
+        std::destroy_at(&vector_index_spec);
         break;
       case VECTOR_INDEX_DROP: {
         std::destroy_at(&vector_index_name);
@@ -290,7 +292,7 @@ struct MetadataDelta {
       std::string old_value;
     } enum_alter_update_info;
 
-    std::shared_ptr<VectorIndexSpec> vector_index_spec;
+    VectorIndexSpec vector_index_spec;
     std::string vector_index_name;
   };
 };

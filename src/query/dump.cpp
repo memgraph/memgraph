@@ -316,13 +316,13 @@ void DumpPointIndex(std::ostream *os, query::DbAccessor *dba, storage::LabelId l
       << EscapeName(dba->PropertyToName(property)) << ");";
 }
 
-void DumpVectorIndex(std::ostream *os, query::DbAccessor *dba, const std::shared_ptr<storage::VectorIndexSpec> &spec) {
-  *os << "CREATE VECTOR INDEX " << EscapeName(spec->index_name) << " ON :" << EscapeName(dba->LabelToName(spec->label))
-      << "(" << EscapeName(dba->PropertyToName(spec->property)) << ") WITH CONFIG { "
-      << "\"dimension\": " << spec->dimension << ", "
-      << "\"metric\": \"" << storage::kMetricToStringMap.at(spec->metric_kind).front() << "\", "
-      << "\"capacity\": " << spec->capacity << ", "
-      << "\"resize_coefficient\": " << spec->resize_coefficient << " };";
+void DumpVectorIndex(std::ostream *os, query::DbAccessor *dba, const storage::VectorIndexSpec &spec) {
+  *os << "CREATE VECTOR INDEX " << EscapeName(spec.index_name) << " ON :" << EscapeName(dba->LabelToName(spec.label))
+      << "(" << EscapeName(dba->PropertyToName(spec.property)) << ") WITH CONFIG { "
+      << "\"dimension\": " << spec.dimension << ", "
+      << "\"metric\": \"" << storage::kMetricToStringMap.at(spec.metric_kind).front() << "\", "
+      << "\"capacity\": " << spec.capacity << ", "
+      << "\"resize_coefficient\": " << spec.resize_coefficient << " };";
 }
 
 void DumpExistenceConstraint(std::ostream *os, query::DbAccessor *dba, storage::LabelId label,
@@ -372,7 +372,7 @@ PullPlanDump::PullPlanDump(DbAccessor *dba, dbms::DatabaseAccess db_acc)
                    // Dump all point indices
                    CreatePointIndicesPullChunk(),
                    // Dump all vector indices
-                   CreateVectorIndexPullChunk(),
+                   CreateVectorIndicesPullChunk(),
                    // Dump all existence constraints
                    CreateExistenceConstraintsPullChunk(),
                    // Dump all unique constraints
@@ -614,7 +614,7 @@ PullPlanDump::PullChunk PullPlanDump::CreatePointIndicesPullChunk() {
   };
 }
 
-PullPlanDump::PullChunk PullPlanDump::CreateVectorIndexPullChunk() {
+PullPlanDump::PullChunk PullPlanDump::CreateVectorIndicesPullChunk() {
   return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
     // Delay the construction of indices vectors
     if (!indices_info_) {

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -348,8 +348,7 @@ void EncodeLabelPropertyStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper
 void EncodeLabelStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label, LabelIndexStats stats);
 void EncodeTextIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, std::string_view text_index_name,
                      LabelId label);
-void EncodeVectorIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper,
-                           const std::shared_ptr<VectorIndexSpec> &spec);
+void EncodeVectorIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper, VectorIndexSpec spec);
 void EncodeVectorIndexName(BaseEncoder &encoder, std::string_view index_name);
 
 void EncodeOperationPreamble(BaseEncoder &encoder, StorageMetadataOperation Op, uint64_t timestamp);

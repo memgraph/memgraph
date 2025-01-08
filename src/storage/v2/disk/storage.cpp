@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -2109,14 +2109,14 @@ utils::BasicResult<storage::StorageIndexDefinitionError, void> DiskStorage::Disk
 }
 
 utils::BasicResult<storage::StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateVectorIndex(
-    std::shared_ptr<VectorIndexSpec> const & /*spec*/) {
+    VectorIndexSpec /*spec*/) {
   throw utils::NotYetImplemented(
       std::string("Vector index related operations are not yet supported using on-disk storage mode. ") +
       kErrorMessage);
 }
 
 utils::BasicResult<storage::StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropVectorIndex(
-    std::string const & /*index_name*/) {
+    std::string_view /*index_name*/) {
   throw utils::NotYetImplemented(
       std::string("Vector index related operations are not yet supported using on-disk storage mode. ") +
       kErrorMessage);

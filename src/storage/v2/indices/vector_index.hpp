@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,11 +16,11 @@
 #include <json/json.hpp>
 #include <string>
 
-#include "query/frontend/ast/ast.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
 #include "usearch/index_plugins.hpp"
+#include "utils/skip_list.hpp"
 
 namespace memgraph::storage {
 
@@ -91,8 +91,8 @@ struct VectorIndexSpec {
   PropertyId property;
   unum::usearch::metric_kind_t metric_kind;
   std::uint16_t dimension;
-  std::size_t capacity;
   std::uint16_t resize_coefficient;  // TODO(@DavIvek): Revisit resizing options (maybe using float?)
+  std::size_t capacity;
 
   friend bool operator==(const VectorIndexSpec &, const VectorIndexSpec &) = default;
 };
@@ -122,12 +122,12 @@ class VectorIndex {
 
   /// @brief Creates a new index based on the specified configuration.
   /// @param spec The specification for the index to be created.
-  void CreateIndex(const std::shared_ptr<VectorIndexSpec> &spec);
+  void CreateIndex(VectorIndexSpec spec);
 
   /// @brief Creates a new index based on the name, label, property and vertices.
   /// @param spec The specification for the index to be created.
   /// @return true if the index was created successfully, false otherwise.
-  bool CreateIndex(const std::shared_ptr<VectorIndexSpec> &spec, utils::SkipList<Vertex>::Accessor vertices);
+  bool CreateIndex(VectorIndexSpec spec, utils::SkipList<Vertex>::Accessor vertices);
 
   /// @brief Drops an existing index.
   /// @param index_name The name of the index to be dropped.
@@ -159,7 +159,7 @@ class VectorIndex {
 
   /// @brief Lists the labels and properties that have vector indices.
   /// @return A vector of specs representing vector indices configurations.
-  std::vector<std::shared_ptr<VectorIndexSpec>> ListIndices() const;
+  std::vector<VectorIndexSpec> ListIndices() const;
 
   /// @brief Lists vector index specifications.
   /// @return A vector of VectorIndexSpec objects representing the index specifications.

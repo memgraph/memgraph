@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -74,7 +74,7 @@ struct IndicesInfo {
   std::vector<std::pair<EdgeTypeId, PropertyId>> edge_type_property;
   std::vector<std::pair<std::string, LabelId>> text_indices;
   std::vector<std::pair<LabelId, PropertyId>> point_label_property;
-  std::vector<std::shared_ptr<VectorIndexSpec>> vector_indices_spec;
+  std::vector<VectorIndexSpec> vector_indices_spec;
 };
 
 struct ConstraintsInfo {
@@ -388,11 +388,10 @@ class Storage {
 
     void DropTextIndex(const std::string &index_name);
 
-    virtual utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateVectorIndex(
-        const std::shared_ptr<VectorIndexSpec> &spec) = 0;
+    virtual utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateVectorIndex(VectorIndexSpec spec) = 0;
 
     virtual utils::BasicResult<storage::StorageIndexDefinitionError, void> DropVectorIndex(
-        const std::string &index_name) = 0;
+        std::string_view index_name) = 0;
 
     void TryInsertVertexIntoVectorIndex(const VertexAccessor &vertex);
 

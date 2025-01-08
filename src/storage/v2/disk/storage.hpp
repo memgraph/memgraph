@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -230,11 +230,10 @@ class DiskStorage final : public Storage {
     utils::BasicResult<storage::StorageIndexDefinitionError, void> DropPointIndex(
         storage::LabelId label, storage::PropertyId property) override;
 
-    utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateVectorIndex(
-        const std::shared_ptr<VectorIndexSpec> &spec) override;
+    utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateVectorIndex(VectorIndexSpec spec) override;
 
     utils::BasicResult<storage::StorageIndexDefinitionError, void> DropVectorIndex(
-        const std::string &index_name) override;
+        std::string_view index_name) override;
 
     utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
         LabelId label, PropertyId property) override;

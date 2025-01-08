@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -282,8 +282,8 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
     if (!indices->vector_index_.CreateIndex(spec, vertices->access())) {
       throw RecoveryFailure("The vector index must be created here!");
     }
-    spdlog::info("Vector index on :{}({}) is recreated from metadata", name_id_mapper->IdToName(spec->label.AsUint()),
-                 name_id_mapper->IdToName(spec->property.AsUint()));
+    spdlog::info("Vector index on :{}({}) is recreated from metadata", name_id_mapper->IdToName(spec.label.AsUint()),
+                 name_id_mapper->IdToName(spec.property.AsUint()));
   }
   spdlog::info("Vector indices are recreated.");
 

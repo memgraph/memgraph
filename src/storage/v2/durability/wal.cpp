@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -1080,17 +1080,17 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
           throw RecoveryFailure("Invalid metric kind for vector index!");
         }
         const auto spec =
-            std::make_shared<VectorIndexSpec>(data.index_name, label_id, property_id, unum_metric_kind.result,
-                                              data.dimension, data.capacity, data.resize_coefficient);
+            VectorIndexSpec{data.index_name,         label_id,     property_id, unum_metric_kind.result, data.dimension,
+                            data.resize_coefficient, data.capacity};
         if (std::ranges::any_of(indices_constraints->indices.vector_indices,
-                                [&](const auto &index) { return index->index_name == spec->index_name; })) {
+                                [&](const auto &index) { return index.index_name == spec.index_name; })) {
           throw RecoveryFailure("The vector index already exists!");
         }
         indices_constraints->indices.vector_indices.push_back(spec);
       },
       [&](WalVectorIndexDrop const &data) {
         std::erase_if(indices_constraints->indices.vector_indices,
-                      [&](const auto &index) { return index->index_name == data.index_name; });
+                      [&](const auto &index) { return index.index_name == data.index_name; });
       },
   };
 
@@ -1320,15 +1320,14 @@ void EncodeTextIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, std::st
   encoder.WriteString(name_id_mapper.IdToName(label.AsUint()));
 }
 
-void EncodeVectorIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper,
-                           const std::shared_ptr<VectorIndexSpec> &index_spec) {
-  encoder.WriteString(index_spec->index_name);
-  encoder.WriteString(name_id_mapper.IdToName(index_spec->label.AsUint()));
-  encoder.WriteString(name_id_mapper.IdToName(index_spec->property.AsUint()));
-  encoder.WriteString(storage::kMetricToStringMap.at(index_spec->metric_kind).front());
-  encoder.WriteUint(index_spec->dimension);
-  encoder.WriteUint(index_spec->capacity);
-  encoder.WriteUint(index_spec->resize_coefficient);
+void EncodeVectorIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper, const VectorIndexSpec &index_spec) {
+  encoder.WriteString(index_spec.index_name);
+  encoder.WriteString(name_id_mapper.IdToName(index_spec.label.AsUint()));
+  encoder.WriteString(name_id_mapper.IdToName(index_spec.property.AsUint()));
+  encoder.WriteString(storage::kMetricToStringMap.at(index_spec.metric_kind).front());
+  encoder.WriteUint(index_spec.dimension);
+  encoder.WriteUint(index_spec.capacity);
+  encoder.WriteUint(index_spec.resize_coefficient);
 }
 
 void EncodeVectorIndexName(BaseEncoder &encoder, std::string_view index_name) { encoder.WriteString(index_name); }
