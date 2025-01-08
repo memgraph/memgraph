@@ -25,6 +25,7 @@ TOOLCHAIN_BUILD_DEPS=(
     diffutils
     libipt libipt-devel # intel
     patch
+    custom-rust # for mgcxx
 )
 
 TOOLCHAIN_RUN_DEPS=(
@@ -83,13 +84,19 @@ check() {
     for pkg in $1; do
         if [ "$pkg" == custom-maven3.9.3 ]; then
             if [ ! -f "/opt/apache-maven-3.9.3/bin/mvn" ]; then
-              missing="$pkg $missing"
+                missing="$pkg $missing"
             fi
             continue
         fi
         if [ "$pkg" == custom-golang1.18.9 ]; then
             if [ ! -f "/opt/go1.18.9/go/bin/go" ]; then
-              missing="$pkg $missing"
+                missing="$pkg $missing"
+            fi
+            continue
+        fi
+        if [ "$pkg" == custom-rust ]; then
+            if [ ! -x "$HOME/.cargo/bin/rustup" ]; then
+                missing="$pkg $missing"
             fi
             continue
         fi
@@ -137,6 +144,14 @@ install() {
         fi
         if [ "$pkg" == custom-golang1.18.9 ]; then
             install_custom_golang "1.18.9"
+            continue
+        fi
+        if [ "$pkg" == custom-rust ]; then
+            install_rust "1.80"
+            continue
+        fi
+        if [ "$pkg" == custom-node ]; then
+            install_node "20"
             continue
         fi
         # Since there is no support for libipt-devel for CentOS 9 we install
