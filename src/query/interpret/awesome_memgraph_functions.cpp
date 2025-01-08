@@ -1031,64 +1031,66 @@ TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext
   FType<Or<Null, String, Number, Date, LocalTime, LocalDateTime, Duration, ZonedDateTime, Bool, Enum>>("toString", args,
                                                                                                        nargs);
   const auto &arg = args[0];
+  using enum TypedValue::Type;
   switch (arg.type()) {
-    case TypedValue::Type::Null: {
+    case Null: {
       return TypedValue(ctx.memory);
     }
 
-    case TypedValue::Type::String: {
+    case String: {
       return TypedValue(arg, ctx.memory);
     }
 
-    case TypedValue::Type::Int: {
+    case Int: {
       // TODO: This is making a pointless copy of std::string, we may want to
       // use a different conversion to string
       return TypedValue(std::to_string(arg.ValueInt()), ctx.memory);
     }
 
-    case TypedValue::Type::Double: {
+    case Double: {
       return TypedValue(memgraph::utils::DoubleToString(arg.ValueDouble()), ctx.memory);
     }
 
-    case TypedValue::Type::Date: {
+    case Date: {
       return TypedValue(arg.ValueDate().ToString(), ctx.memory);
     }
 
-    case TypedValue::Type::LocalTime: {
+    case LocalTime: {
       return TypedValue(arg.ValueLocalTime().ToString(), ctx.memory);
     }
 
-    case TypedValue::Type::LocalDateTime: {
+    case LocalDateTime: {
       return TypedValue(arg.ValueLocalDateTime().ToString(), ctx.memory);
     }
 
-    case TypedValue::Type::Duration: {
+    case Duration: {
       return TypedValue(arg.ValueDuration().ToString(), ctx.memory);
     }
-    case TypedValue::Type::ZonedDateTime: {
+
+    case ZonedDateTime: {
       return TypedValue(arg.ValueZonedDateTime().ToString(), ctx.memory);
     }
 
-    case TypedValue::Type::Enum: {
+    case Enum: {
       auto opt_str = ctx.db_accessor->EnumToName(arg.ValueEnum());
       if (opt_str.HasError()) throw QueryRuntimeException("'toString' the given enum can't be converted to a string");
       return TypedValue(*opt_str, ctx.memory);
     }
 
-    case TypedValue::Type::Bool: {
+    case Bool: {
       return TypedValue(arg.ValueBool() ? "true" : "false", ctx.memory);
     }
 
-    case TypedValue::Type::List:
-    case TypedValue::Type::Map:
-    case TypedValue::Type::Vertex:
-    case TypedValue::Type::Edge:
-    case TypedValue::Type::Path:
-    case TypedValue::Type::Graph:
-    case TypedValue::Type::Function:
-    case TypedValue::Type::Point2d:
-    case TypedValue::Type::Point3d: {
-      MG_ASSERT(false, "unexpected TypedValue::type");
+    case List:
+    case Map:
+    case Vertex:
+    case Edge:
+    case Path:
+    case Graph:
+    case Function:
+    case Point2d:
+    case Point3d: {
+      MG_ASSERT(false, "unexpected TypedValue::Type");
     }
   }
 }
@@ -1099,60 +1101,61 @@ TypedValue ToStringOrNull(const TypedValue *args, int64_t nargs, const FunctionC
   }
 
   const auto &arg = args[0];
+  using enum TypedValue::Type;
   switch (arg.type()) {
-    case TypedValue::Type::String: {
+    case String: {
       return TypedValue(arg, ctx.memory);
     }
 
-    case TypedValue::Type::Int: {
+    case Int: {
       // TODO: This is making a pointless copy of std::string, we may want to
       // use a different conversion to string
       return TypedValue(std::to_string(arg.ValueInt()), ctx.memory);
     }
 
-    case TypedValue::Type::Double: {
+    case Double: {
       return TypedValue(memgraph::utils::DoubleToString(arg.ValueDouble()), ctx.memory);
     }
 
-    case TypedValue::Type::Date: {
+    case Date: {
       return TypedValue(arg.ValueDate().ToString(), ctx.memory);
     }
 
-    case TypedValue::Type::LocalTime: {
+    case LocalTime: {
       return TypedValue(arg.ValueLocalTime().ToString(), ctx.memory);
     }
 
-    case TypedValue::Type::LocalDateTime: {
+    case LocalDateTime: {
       return TypedValue(arg.ValueLocalDateTime().ToString(), ctx.memory);
     }
 
-    case TypedValue::Type::Duration: {
+    case Duration: {
       return TypedValue(arg.ValueDuration().ToString(), ctx.memory);
     }
-    case TypedValue::Type::ZonedDateTime: {
+    case ZonedDateTime: {
       return TypedValue(arg.ValueZonedDateTime().ToString(), ctx.memory);
     }
 
-    case TypedValue::Type::Enum: {
+    case Enum: {
       auto opt_str = ctx.db_accessor->EnumToName(arg.ValueEnum());
       if (opt_str.HasError()) throw QueryRuntimeException("'toString' the given enum can't be converted to a string");
       return TypedValue(*opt_str, ctx.memory);
     }
 
-    case TypedValue::Type::Bool: {
+    case Bool: {
       return TypedValue(arg.ValueBool() ? "true" : "false", ctx.memory);
     }
 
-    case TypedValue::Type::Null:
-    case TypedValue::Type::List:
-    case TypedValue::Type::Map:
-    case TypedValue::Type::Vertex:
-    case TypedValue::Type::Edge:
-    case TypedValue::Type::Path:
-    case TypedValue::Type::Graph:
-    case TypedValue::Type::Function:
-    case TypedValue::Type::Point2d:
-    case TypedValue::Type::Point3d: {
+    case Null:
+    case List:
+    case Map:
+    case Vertex:
+    case Edge:
+    case Path:
+    case Graph:
+    case Function:
+    case Point2d:
+    case Point3d: {
       return TypedValue(ctx.memory);
     }
   }
