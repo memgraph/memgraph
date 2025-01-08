@@ -114,6 +114,26 @@ set_target_properties(convert PROPERTIES
     OUTPUT_NAME "convert"
 )
 
+# Copy python query modules into build/query_modules
+# This is to avoid doing make install during CI
+# C and C++ modules .so files will already be there
+set(BUILD_QUERY_MODULES_DIR ${CMAKE_BINARY_DIR}/query_modules)
+file(MAKE_DIRECTORY ${BUILD_QUERY_MODULES_DIR})
+
+set(PYTHON_QUERY_MODULES_FILES
+    ${CMAKE_CURRENT_SOURCE_DIR}/test_module.py
+    ${CMAKE_CURRENT_SOURCE_DIR}/graph_analyzer.py
+    ${CMAKE_CURRENT_SOURCE_DIR}/mgp_networkx.py
+    ${CMAKE_CURRENT_SOURCE_DIR}/nxalg.py
+    ${CMAKE_CURRENT_SOURCE_DIR}/wcc.py
+    ${CMAKE_CURRENT_SOURCE_DIR}/mgps.py
+)
+add_custom_target(copy_python_query_modules ALL
+    COMMAND ${CMAKE_COMMAND} -E copy ${PYTHON_QUERY_MODULES_FILES} ${BUILD_QUERY_MODULES_DIR}
+    COMMENT "Copying Python query modules to build/query_modules"
+)
+
+
 install(FILES convert.cpp DESTINATION lib/memgraph/query_modules/src)
 
 # Install C++ query modules
