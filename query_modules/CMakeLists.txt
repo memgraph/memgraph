@@ -121,7 +121,7 @@ set(BUILD_QUERY_MODULES_DIR ${CMAKE_BINARY_DIR}/query_modules)
 file(MAKE_DIRECTORY ${BUILD_QUERY_MODULES_DIR})
 
 set(PYTHON_QUERY_MODULES_FILES
-    ${CMAKE_CURRENT_SOURCE_DIR}/test_module.py
+    ${CMAKE_CURRENT_SOURCE_DIR}/test_enterprise.py
     ${CMAKE_CURRENT_SOURCE_DIR}/graph_analyzer.py
     ${CMAKE_CURRENT_SOURCE_DIR}/mgp_networkx.py
     ${CMAKE_CURRENT_SOURCE_DIR}/nxalg.py
@@ -143,7 +143,6 @@ install(TARGETS convert example_c example_cpp schema text_search vector_search
 
 # Install the Python example and modules
 install(FILES example.py DESTINATION lib/memgraph/query_modules RENAME py_example.py)
-install(FILES test_module.py DESTINATION lib/memgraph/query_modules)
 install(FILES graph_analyzer.py DESTINATION lib/memgraph/query_modules)
 install(FILES mgp_networkx.py DESTINATION lib/memgraph/query_modules)
 install(FILES nxalg.py DESTINATION lib/memgraph/query_modules)

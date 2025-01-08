@@ -1,5 +1,0 @@
-query: >
-  CALL test_module.is_enterprise_valid() YIELD valid RETURN valid;
-
-output:
-  - valid: true
