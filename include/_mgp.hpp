@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -305,16 +305,6 @@ inline void graph_detach_delete_vertex(mgp_graph *graph, mgp_vertex *vertex) {
 inline mgp_edge *graph_create_edge(mgp_graph *graph, mgp_vertex *from, mgp_vertex *to, mgp_edge_type type,
                                    mgp_memory *memory) {
   return MgInvoke<mgp_edge *>(mgp_graph_create_edge, graph, from, to, type, memory);
-}
-
-inline mgp_edge *graph_edge_set_to(struct mgp_graph *graph, struct mgp_edge *e, struct mgp_vertex *new_to,
-                                   mgp_memory *memory) {
-  return MgInvoke<mgp_edge *>(mgp_graph_edge_set_to, graph, e, new_to, memory);
-}
-
-inline mgp_edge *graph_edge_change_type(struct mgp_graph *graph, struct mgp_edge *e, struct mgp_edge_type new_type,
-                                        mgp_memory *memory) {
-  return MgInvoke<mgp_edge *>(mgp_graph_edge_change_type, graph, e, new_type, memory);
 }
 
 inline void graph_delete_edge(mgp_graph *graph, mgp_edge *edge) { MgInvokeVoid(mgp_graph_delete_edge, graph, edge); }
