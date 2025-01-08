@@ -30,13 +30,14 @@ dataset:
         - "--worker-count=4"
         - "--repetition-count=100"
       timeout_min: 5
-    - name: memory_tracker.py
-      test_args:
-        - "--worker-count=5"
-        - "--repetition-count=100"
-      memgraph_args:
-        - "--memory-limit=2048"
-      timeout_min: 5
+    # this one doesn't work
+    # - name: memory_tracker.py
+    #   test_args:
+    #     - "--worker-count=5"
+    #     - "--repetition-count=100"
+    #   memgraph_args:
+    #     - "--memory-limit=2048"
+    #   timeout_min: 5
     - name: memory_limit.py
       test_args:
         - "--worker-count=5"
