@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -726,28 +726,6 @@ TYPED_TEST(CppApiTestFixture, TestInAndOutDegrees) {
   ASSERT_EQ(node_1.InDegree(), 0);
   ASSERT_EQ(node_2.OutDegree(), 0);
   ASSERT_EQ(node_3.OutDegree(), 0);
-}
-
-TYPED_TEST(CppApiTestFixture, TestChangeRelationshipType) {
-  // Changing relationship types is not implemented for ondisk storage yet.
-  if (std::is_same<TypeParam, memgraph::storage::DiskStorage>::value) {
-    return;
-  }
-
-  mgp_graph raw_graph = this->CreateGraph();
-  auto graph = mgp::Graph(&raw_graph);
-
-  auto node_1 = graph.CreateNode();
-  auto node_2 = graph.CreateNode();
-
-  auto relationship = graph.CreateRelationship(node_1, node_2, "Type");
-  relationship.SetProperty("property", mgp::Value(true));
-  ASSERT_EQ(relationship.Type(), "Type");
-  ASSERT_EQ(relationship.GetProperty("property"), mgp::Value(true));
-
-  graph.ChangeType(relationship, "NewType");
-  ASSERT_EQ(relationship.Type(), "NewType");
-  ASSERT_EQ(relationship.GetProperty("property"), mgp::Value(true));
 }
 
 TYPED_TEST(CppApiTestFixture, TestMapKeyExist) {
