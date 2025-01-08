@@ -1,10 +1,16 @@
 import os
+import shutil
 import subprocess
 import time
 from abc import ABC
 from typing import List
 
 from gqlalchemy import Memgraph
+
+# paths
+SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
+BASE_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", ".."))
+BUILD_DIR = os.path.join(BASE_DIR, "build")
 
 
 class Deployment(ABC):
@@ -171,11 +177,33 @@ class DefaultHADeployment(Deployment):
                 raise Exception("Memgraph binary returned non-zero ({})!".format(ret_mg))
 
     def cleanup(self):
+        """Terminate all processes and clean up data directories."""
+        # Stop running processes
         for proc in self._data_proc + self._coord_proc:
-            if proc.poll() != None:
-                return
-            proc.kill()
-            proc.wait()
+            if proc.poll() is None:
+                proc.terminate()
+                proc.wait()
+
+        # Remove data directories and log files from the build directory
+        for data_config in self._data_config:
+            data_dir = os.path.join(BUILD_DIR, f"mg_data_{data_config['id']}")
+            log_file = os.path.join(BUILD_DIR, f"mg_data_{data_config['id']}.log")
+            if os.path.exists(data_dir):
+                shutil.rmtree(data_dir)
+                print(f"Removed data directory: {data_dir}")
+            if os.path.exists(log_file):
+                os.remove(log_file)
+                print(f"Removed log file: {log_file}")
+
+        for coord_config in self._coord_config:
+            coord_dir = os.path.join(BUILD_DIR, f"mg_coord_{coord_config['id']}")
+            log_file = os.path.join(BUILD_DIR, f"mg_coord_{coord_config['id']}.log")
+            if os.path.exists(coord_dir):
+                shutil.rmtree(coord_dir)
+                print(f"Removed coordinator directory: {coord_dir}")
+            if os.path.exists(log_file):
+                os.remove(log_file)
+                print(f"Removed coordinator log file: {log_file}")
 
     def wait_for_server(self, port) -> None:
         cmd = ["nc", "-z", "-w", "1", "127.0.0.1", str(port)]
