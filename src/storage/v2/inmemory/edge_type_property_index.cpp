@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,6 +16,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
 #include "storage/v2/inmemory/property_constants.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/counter.hpp"
 
@@ -174,8 +175,7 @@ void InMemoryEdgeTypePropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active
                                        it->from_vertex == next_it->from_vertex && it->to_vertex == next_it->to_vertex &&
                                        it->edge == next_it->edge;
       if (redundant_duplicate || vertices_deleted || edge_deleted ||
-          !AnyVersionHasLabelProperty(*it->edge, specific_index.first.second, it->value,
-                                      oldest_active_start_timestamp)) {
+          !AnyVersionHasProperty(*it->edge, specific_index.first.second, it->value, oldest_active_start_timestamp)) {
         edges_acc.remove(*it);
       }
 
@@ -267,12 +267,16 @@ void InMemoryEdgeTypePropertyIndex::UpdateOnEdgeModification(Vertex *old_from, V
 
 void InMemoryEdgeTypePropertyIndex::DropGraphClearIndices() { index_.clear(); }
 
-InMemoryEdgeTypePropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor, EdgeTypeId edge_type,
-                                                  PropertyId property,
+InMemoryEdgeTypePropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor,
+                                                  utils::SkipList<Vertex>::ConstAccessor vertex_accessor,
+                                                  utils::SkipList<Edge>::ConstAccessor edge_accessor,
+                                                  EdgeTypeId edge_type, PropertyId property,
                                                   const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                                   const std::optional<utils::Bound<PropertyValue>> &upper_bound,
                                                   View view, Storage *storage, Transaction *transaction)
-    : index_accessor_(std::move(index_accessor)),
+    : pin_accessor_edge_(std::move(edge_accessor)),
+      pin_accessor_vertex_(std::move(vertex_accessor)),
+      index_accessor_(std::move(index_accessor)),
       edge_type_(edge_type),
       property_(property),
       lower_bound_(lower_bound),
@@ -468,7 +472,18 @@ InMemoryEdgeTypePropertyIndex::Iterable InMemoryEdgeTypePropertyIndex::Edges(
   auto it = index_.find({edge_type, property});
   MG_ASSERT(it != index_.end(), "Index for edge type {} and property {} doesn't exist", edge_type.AsUint(),
             property.AsUint());
-  return {it->second.access(), edge_type, property, lower_bound, upper_bound, view, storage, transaction};
+  auto vertex_acc = static_cast<InMemoryStorage const *>(storage)->vertices_.access();
+  auto edge_acc = static_cast<InMemoryStorage const *>(storage)->edges_.access();
+  return {it->second.access(),
+          std::move(vertex_acc),
+          std::move(edge_acc),
+          edge_type,
+          property,
+          lower_bound,
+          upper_bound,
+          view,
+          storage,
+          transaction};
 }
 
 }  // namespace memgraph::storage
