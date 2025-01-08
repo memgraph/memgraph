@@ -26,6 +26,9 @@ TOOLCHAIN_BUILD_DEPS=(
     libipt libipt-devel # intel
     patch
     custom-rust # for mgcxx
+    libtool # for protobuf
+    openssl-devel pkgconf-pkg-config # for pulsar
+    cyrus-sasl-devel # for librdkafka
 )
 
 TOOLCHAIN_RUN_DEPS=(
@@ -62,6 +65,7 @@ MEMGRAPH_BUILD_DEPS=(
     sbcl # for custom Lisp C++ preprocessing
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
+    cyrus-sasl-devel
     cyrus-sasl-devel
 )
 
