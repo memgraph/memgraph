@@ -734,7 +734,7 @@ auto CoordinatorInstance::RemoveCoordinatorInstance(int coordinator_id) -> Remov
   auto const existing_coord = std::find_if(coordinator_instances_aux.cbegin(), coordinator_instances_aux.cend(),
                                            [coordinator_id](auto const &coord) { return coord.id == coordinator_id; });
 
-  if (existing_coord != coordinator_instances_aux.end()) {
+  if (existing_coord == coordinator_instances_aux.end()) {
     return RemoveCoordinatorInstanceStatus::NO_SUCH_ID;
   }
 

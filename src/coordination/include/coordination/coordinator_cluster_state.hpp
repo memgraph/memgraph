@@ -35,7 +35,7 @@ using replication_coordination_glue::ReplicationRole;
 
 // Represents the state of the cluster from the coordinator's perspective.
 // Source of truth since it is modified only as the result of RAFT's commiting.
-// Needs to be thread safe because NuRaft's thread is committing and changing the state
+// Needs to be thread safe because the NuRaft's thread is committing and changing the state
 // while possibly the user thread interacts with the API and asks for information.
 class CoordinatorClusterState {
  public:
