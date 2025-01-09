@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2023 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -68,9 +68,7 @@ struct EchoMessage {
   std::string data;
 };
 
-// Intentionally set to a random value to avoid polluting typeinfo.hpp
-const memgraph::utils::TypeInfo EchoMessage::kType{memgraph::utils::TypeId::COORD_UNREGISTER_REPLICA_REQ,
-                                                   "EchoMessage"};
+const memgraph::utils::TypeInfo EchoMessage::kType{memgraph::utils::TypeId::UNKNOWN, "EchoMessage"};
 
 namespace memgraph::slk {
 void Save(const EchoMessage &echo, Builder *builder);
