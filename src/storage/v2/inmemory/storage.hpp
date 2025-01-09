@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -99,6 +99,7 @@ class InMemoryStorage final : public Storage {
   friend class InMemoryLabelIndex;
   friend class InMemoryLabelPropertyIndex;
   friend class InMemoryEdgeTypeIndex;
+  friend class InMemoryEdgeTypePropertyIndex;
 
  public:
   using free_mem_fn = std::function<void(std::unique_lock<utils::ResourceLock>, bool)>;
