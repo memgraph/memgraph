@@ -19,7 +19,7 @@ TOOLCHAIN_BUILD_DEPS=(
     libffi-devel libxml2-devel # for llvm
     libedit-devel pcre-devel pcre2-devel automake bison # for swig
     file
-    openssl-devel
+    openssl openssl-devel openssl-devel-engine # for pulsar
     gmp-devel
     gperf
     diffutils
