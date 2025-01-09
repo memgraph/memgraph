@@ -24,17 +24,19 @@ customWorkloads:
       workers:
         - name: dummy-worker
           type: writer
+          step: 1
           query: "CREATE ();"
           num_repetitions: 1
           sleep_millis: 0
-      timeout_min: 2
-    - name: dummy-workload-2
-      memgraph_args: []
-      import:
-        queries: ["CREATE ()"]
-      workers:
         - name: dummy-worker
           type: writer
+          step: 1
+          query: "CREATE ();"
+          num_repetitions: 1
+          sleep_millis: 0
+        - name: dummy-worker
+          type: writer
+          step: 2
           query: "CREATE ();"
           num_repetitions: 1
           sleep_millis: 0

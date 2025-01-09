@@ -457,13 +457,6 @@ class MinikubeHelmStandaloneDeployment(Deployment):
         """Set Kubernetes context to Minikube's current environment"""
         subprocess.run(["kubectl", "config", "use-context", "minikube"], check=True)
 
-    def _generate_values_string(self) -> str:
-        """Generates a string of values to pass to Helm"""
-        values_string = []
-        for key, value in self.values.items():
-            values_string.append(f"{key}={value}")
-        return ",".join(values_string)
-
 
 class MinikubeHelmHADeployment(Deployment):
     def __init__(self, release_name: str, chart_name: str, values_path: str):
@@ -530,35 +523,35 @@ class MinikubeHelmHADeployment(Deployment):
         minikube_ip = self.get_minikube_ip()
 
         coordinator_2_nodeport = self.get_service_nodeport(self._coord_ext_service_names[1])
-        self._execute_query(
-            f'ADD COORDINATOR 2 WITH CONFIG {{"bolt_server": "{minikube_ip}:{coordinator_2_nodeport}", "coordinator_server": "{self._coord_service_names[1]}.default.svc.cluster.local:12000", "management_server": "{self._coord_service_names[1]}.default.svc.cluster.local:10000"}};',
+        self._execute_query_on_service(
             coordinator_service_name,
+            f'ADD COORDINATOR 2 WITH CONFIG {{"bolt_server": "{minikube_ip}:{coordinator_2_nodeport}", "coordinator_server": "{self._coord_service_names[1]}.default.svc.cluster.local:12000", "management_server": "{self._coord_service_names[1]}.default.svc.cluster.local:10000"}};',
         )
 
         coordinator_3_nodeport = self.get_service_nodeport(self._coord_ext_service_names[2])
-        self._execute_query(
-            f'ADD COORDINATOR 3 WITH CONFIG {{"bolt_server": "{minikube_ip}:{coordinator_3_nodeport}", "coordinator_server": "{self._coord_service_names[2]}.default.svc.cluster.local:12000", "management_server": "{self._coord_service_names[2]}.default.svc.cluster.local:10000"}};',
+        self._execute_query_on_service(
             coordinator_service_name,
+            f'ADD COORDINATOR 3 WITH CONFIG {{"bolt_server": "{minikube_ip}:{coordinator_3_nodeport}", "coordinator_server": "{self._coord_service_names[2]}.default.svc.cluster.local:12000", "management_server": "{self._coord_service_names[2]}.default.svc.cluster.local:10000"}};',
         )
 
         data_0_nodeport = self.get_service_nodeport(self._data_ext_service_names[0])
-        self._execute_query(
-            f'REGISTER INSTANCE instance_1 WITH CONFIG {{"bolt_server": "{minikube_ip}:{data_0_nodeport}", "management_server": "{self._data_service_names[0]}.default.svc.cluster.local:10000", "replication_server": "{self._data_service_names[0]}.default.svc.cluster.local:20000"}};',
+        self._execute_query_on_service(
             coordinator_service_name,
+            f'REGISTER INSTANCE instance_1 WITH CONFIG {{"bolt_server": "{minikube_ip}:{data_0_nodeport}", "management_server": "{self._data_service_names[0]}.default.svc.cluster.local:10000", "replication_server": "{self._data_service_names[0]}.default.svc.cluster.local:20000"}};',
         )
 
         data_1_nodeport = self.get_service_nodeport(self._data_ext_service_names[1])
-        self._execute_query(
-            f'REGISTER INSTANCE instance_2 WITH CONFIG {{"bolt_server": "{minikube_ip}:{data_1_nodeport}", "management_server": "{self._data_service_names[1]}.default.svc.cluster.local:10000", "replication_server": "{self._data_service_names[1]}.default.svc.cluster.local:20000"}};',
+        self._execute_query_on_service(
             coordinator_service_name,
+            f'REGISTER INSTANCE instance_2 WITH CONFIG {{"bolt_server": "{minikube_ip}:{data_1_nodeport}", "management_server": "{self._data_service_names[1]}.default.svc.cluster.local:10000", "replication_server": "{self._data_service_names[1]}.default.svc.cluster.local:20000"}};',
         )
 
         data_2_nodeport = self.get_service_nodeport(self._data_ext_service_names[2])
-        self._execute_query(
-            f'REGISTER INSTANCE instance_3 WITH CONFIG {{"bolt_server": "{minikube_ip}:{data_2_nodeport}", "management_server": "{self._data_service_names[2]}.default.svc.cluster.local:10000", "replication_server": "{self._data_service_names[2]}.default.svc.cluster.local:20000"}};',
+        self._execute_query_on_service(
             coordinator_service_name,
+            f'REGISTER INSTANCE instance_3 WITH CONFIG {{"bolt_server": "{minikube_ip}:{data_2_nodeport}", "management_server": "{self._data_service_names[2]}.default.svc.cluster.local:10000", "replication_server": "{self._data_service_names[2]}.default.svc.cluster.local:20000"}};',
         )
-        self._execute_query("SET INSTANCE instance_1 TO MAIN;", coordinator_service_name)
+        self._execute_query_on_service(coordinator_service_name, "SET INSTANCE instance_1 TO MAIN;")
 
     def stop_memgraph(self) -> None:
         """Uninstalls Memgraph using Helm"""
@@ -640,7 +633,7 @@ class MinikubeHelmHADeployment(Deployment):
         # Execute the Cypher query
         memgraph.execute(query)
 
-    def _execute_query(self, query: str, service_name: str):
+    def _execute_query_on_service(self, service_name: str, query: str):
         minikube_ip = self.get_minikube_ip()
         if not minikube_ip:
             print("Failed to get Minikube IP.")
@@ -681,10 +674,3 @@ class MinikubeHelmHADeployment(Deployment):
     def _set_k8s_context(self):
         """Set Kubernetes context to Minikube's current environment"""
         subprocess.run(["kubectl", "config", "use-context", "minikube"], check=True)
-
-    def _generate_values_string(self) -> str:
-        """Generates a string of values to pass to Helm"""
-        values_string = []
-        for key, value in self.values.items():
-            values_string.append(f"{key}={value}")
-        return ",".join(values_string)

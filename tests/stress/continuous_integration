@@ -266,6 +266,16 @@ def run_lab_simulator(worker, deployment):
     print(f"Worker '{worker_name}' finished.")
 
 
+def get_worker_steps(workers):
+    steps = [worker.get("step", 1) for worker in workers]
+
+    for step in steps:
+        if step <= 0:
+            raise Exception(f"Step can not be {step}!")
+
+    return sorted(set(steps))
+
+
 def run_custom_workloads(deployment, config: Config):
     print("Running custom workloads...")
     for workload in config.custom_workloads:
@@ -285,19 +295,23 @@ def run_custom_workloads(deployment, config: Config):
             print(f"Finished import for workload '{workload_name}'")
 
             processes = []
-            for worker in workload.get("workers", []):
-                worker_function = get_worker_function(worker["type"])
-                process = multiprocessing.Process(target=worker_function, args=(worker, deployment))
-                processes.append((process, workload.get("timeout_min", 10) * 60))  # Default to 10 minutes timeout
-                process.start()
+            workers = workload.get("workers", [])
+            steps = get_worker_steps(workers)
+            for step in steps:
+                print(f"Running step {step}.")
+                for worker in [x for x in workers if x.get("step", 1) == step]:
+                    worker_function = get_worker_function(worker["type"])
+                    process = multiprocessing.Process(target=worker_function, args=(worker, deployment))
+                    processes.append((process, workload.get("timeout_min", 10) * 60))  # Default to 10 minutes timeout
+                    process.start()
 
-            # Monitor processes and enforce timeouts
-            for process, timeout in processes:
-                process.join(timeout)
-                if process.is_alive():
-                    print(f"Worker process exceeded timeout of {timeout // 60} minutes. Terminating...")
-                    process.terminate()
-                    process.join()
+                # Monitor processes and enforce timeouts
+                for process, timeout in processes:
+                    process.join(timeout)
+                    if process.is_alive():
+                        print(f"Worker process exceeded timeout of {timeout // 60} minutes. Terminating...")
+                        process.terminate()
+                        process.join()
 
             print(f"Finished workload '{workload_name}'")
         except Exception as ex:
