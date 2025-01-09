@@ -93,10 +93,11 @@ void TextSearch::Aggregate(mgp_list *args, mgp_graph *memgraph_graph, mgp_result
   auto arguments = mgp::List(args);
 
   try {
-    auto index_name = arguments[0].ValueString();
-    auto search_query = arguments[1].ValueString();
-    auto aggregation_query = arguments[2].ValueString();
-    auto aggregation_result = mgp::AggregateOverTextIndex(memgraph_graph, index_name, search_query, aggregation_query);
+    const auto index_name = std::string(arguments[0].ValueString());
+    const auto search_query = std::string(arguments[1].ValueString());
+    const auto aggregation_query = std::string(arguments[2].ValueString());
+    const auto aggregation_result =
+        std::string(mgp::AggregateOverTextIndex(memgraph_graph, index_name, search_query, aggregation_query));
     auto record = record_factory.NewRecord();
     record.Insert(TextSearch::kReturnAggregation.data(), aggregation_result.data());
   } catch (const std::exception &e) {
