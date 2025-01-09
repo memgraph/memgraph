@@ -23,7 +23,7 @@ class Deployment(ABC):
     def cleanup(self) -> None:
         pass
 
-    def wait_for_server(self, port) -> None:
+    def wait_for_server(self, port=None) -> None:
         pass
 
     def execute_query(self, query: str) -> None:
@@ -309,3 +309,161 @@ class DockerStandaloneDeployment(Deployment):
             time.sleep(0.5)
         time.sleep(2)
         print(f"Server is now accessible on host port {port}.")
+
+
+class MinikubeHelmStandaloneDeployment(Deployment):
+    def __init__(self, release_name: str, chart_name: str, values: dict):
+        super().__init__()
+        self.release_name = release_name
+        self.chart_name = chart_name
+        self.values = values
+        self._memgraph_pod = None
+
+    def start_minikube(self) -> None:
+        """Start Minikube if it is not already running"""
+        print("Checking Minikube status...")
+        status_cmd = ["minikube", "status", "--format", "{{.Host}}"]
+        try:
+            minikube_status = subprocess.check_output(status_cmd).decode("utf-8").strip()
+            if minikube_status == "Running":
+                print("Minikube is already running. Cleaning up for a fresh minikube start.")
+                self.delete_minikube()
+
+            print("Starting Minikube...")
+            subprocess.run(["minikube", "start"], check=True)
+        except subprocess.CalledProcessError:
+            print("Minikube is not running. Starting Minikube...")
+            subprocess.run(["minikube", "start"], check=True)
+
+    def delete_minikube(self) -> None:
+        """Deletes the Minikube cluster"""
+        print("Deleting Minikube cluster...")
+        subprocess.run(["minikube", "delete"], check=True)
+
+    def start_memgraph(self, additional_flags: List[str] = None):
+        """Deploys Memgraph using Helm on Minikube"""
+        # Start Minikube if it's not running
+        self.start_minikube()
+        print("Started minikube!")
+
+        # Set the appropriate namespace for Helm release (default)
+        self._set_k8s_context()
+        print("Set K8s context!")
+
+        # Prepare the Helm command
+        helm_cmd = ["helm", "install", self.release_name, self.chart_name, "--set", "service.type=NodePort"]
+        if self.values is not None and len(self.values) > 0:
+            helm_cmd += ["--set", self._generate_values_string()]
+
+        if additional_flags:
+            helm_cmd.extend(additional_flags)
+
+        # Execute the Helm command to install Memgraph
+        subprocess.run(helm_cmd, check=True)
+        print("Helm charts installed!")
+
+        # Wait for Memgraph to be fully deployed
+        self.wait_for_server()
+        print("Server ready!")
+
+    def stop_memgraph(self) -> None:
+        """Uninstalls Memgraph using Helm"""
+        helm_cmd = ["helm", "uninstall", self.release_name]
+        subprocess.run(helm_cmd, check=True)
+
+    def cleanup(self):
+        # Delete Minikube cluster after cleanup
+        self.delete_minikube()
+
+    def wait_for_server(self) -> None:
+        """Wait for Memgraph pod to be running and ready"""
+        print("Waiting for Memgraph pod to be running and ready...")
+        while True:
+            try:
+                # Get the pod name
+                pod_name_cmd = [
+                    "kubectl",
+                    "get",
+                    "pods",
+                    "-l",
+                    f"app.kubernetes.io/instance={self.release_name}",
+                    "-o",
+                    "jsonpath='{.items[0].metadata.name}'",
+                ]
+                pod_name = subprocess.check_output(pod_name_cmd).decode("utf-8").strip().strip("'")
+
+                # Get the pod status
+                pod_status_cmd = ["kubectl", "get", "pod", pod_name, "-o", "jsonpath='{.status.phase}'"]
+                pod_status = subprocess.check_output(pod_status_cmd).decode("utf-8").strip().strip("'")
+
+                # Get the container readiness (1/1)
+                container_status_cmd = [
+                    "kubectl",
+                    "get",
+                    "pod",
+                    pod_name,
+                    "-o",
+                    "jsonpath='{.status.containerStatuses[0].ready}'",
+                ]
+                container_status = subprocess.check_output(container_status_cmd).decode("utf-8").strip().strip("'")
+
+                if pod_status == "Running" and container_status == "true":
+                    print(f"Pod {pod_name} is running and ready!")
+                    break
+                else:
+                    print(f"Pod {pod_name} not ready yet, status: {pod_status}, container ready: {container_status}")
+                    time.sleep(5)
+            except Exception as e:
+                print(f"Pod not ready yet!")
+                time.sleep(1)
+
+    def execute_query(self, query: str) -> None:
+        """Execute a Cypher query on Memgraph"""
+        # Get Minikube IP and NodePort
+        minikube_ip = self.get_minikube_ip()
+        if not minikube_ip:
+            print("Failed to get Minikube IP.")
+            return
+
+        nodeport = self.get_service_nodeport(self.release_name)
+        if not nodeport:
+            print("Failed to get NodePort for Memgraph service.")
+            return
+
+        # Connect to Memgraph using the Minikube IP and NodePort
+        memgraph = Memgraph(host=minikube_ip, port=nodeport)
+
+        # Execute the Cypher query
+        memgraph.execute(query)
+
+    def get_minikube_ip(self) -> str:
+        """Get Minikube external IP."""
+        try:
+            # Run minikube ip command to get the Minikube external IP
+            minikube_ip = subprocess.check_output(["minikube", "ip"]).decode("utf-8").strip()
+            return minikube_ip
+        except subprocess.CalledProcessError as e:
+            print(f"Error getting Minikube IP: {e}")
+            return None
+
+    def get_service_nodeport(self, service_name: str) -> int:
+        """Get the NodePort for the Memgraph service."""
+        try:
+            # Run kubectl get svc to get the service details and extract the NodePort
+            command = ["kubectl", "get", "svc", service_name, "-o", "jsonpath='{.spec.ports[0].nodePort}'"]
+            nodeport = subprocess.check_output(command).decode("utf-8").strip().strip("'")
+            return int(nodeport)
+        except subprocess.CalledProcessError as e:
+            print(f"Error getting NodePort for service {service_name}: {e}")
+            return None
+
+    def _set_k8s_context(self):
+        """Set Kubernetes context to Minikube's current environment"""
+        subprocess.run(["kubectl", "config", "use-context", "minikube"], check=True)
+
+    def _generate_values_string(self) -> str:
+        """Generates a string of values to pass to Helm"""
+        values_string = []
+        for key, value in self.values.items():
+            values_string.append(f"{key}={value}")
+        return ",".join(values_string)

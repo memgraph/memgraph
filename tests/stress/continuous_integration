@@ -14,6 +14,7 @@ from deployments import (
     DefaultHADeployment,
     DefaultStandaloneDeployment,
     DockerStandaloneDeployment,
+    MinikubeHelmStandaloneDeployment,
 )
 
 # paths
@@ -54,6 +55,10 @@ class Config:
             self._image = installation.get("options", {}).get("image", None)
             self._tag = installation.get("options", {}).get("tag", None)
 
+        if self._installation_type == "k8s":
+            self._release_name = installation.get("options", {}).get("release_name", None)
+            self._chart_name = installation.get("options", {}).get("chart_name", None)
+
     @property
     def uses_ssl(self):
         return self._use_ssl
@@ -90,6 +95,14 @@ class Config:
     def memgraph_args(self):
         return self._memgraph_args
 
+    @property
+    def release_name(self):
+        return self._release_name
+
+    @property
+    def chart_name(self):
+        return self._chart_name
+
 
 def deployment_factory(args: Args, config: Config):
     if config._installation_type == "default":
@@ -102,6 +115,9 @@ def deployment_factory(args: Args, config: Config):
 
     if config._installation_type == "docker":
         return DockerStandaloneDeployment(config.docker_image, config.docker_tag, config.memgraph_args)
+
+    if config._installation_type == "k8s":
+        return MinikubeHelmStandaloneDeployment(config.release_name, config.chart_name, {})
 
 
 def generate_temporary_ssl_certs():
