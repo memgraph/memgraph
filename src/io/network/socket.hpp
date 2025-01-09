@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -43,7 +43,7 @@ class Socket {
   /**
    * Shutdown the socket if it is open.
    */
-  void Shutdown();
+  void Shutdown() const;
 
   /**
    * Checks whether the socket is open.
@@ -86,7 +86,7 @@ class Socket {
    *             true if the listen succeeded
    *             false if the listen failed
    */
-  bool Listen(int backlog);
+  bool Listen(int backlog) const;
 
   /**
    * Accepts a new connection.
@@ -94,24 +94,24 @@ class Socket {
    *
    * @return socket if accepted, nullopt otherwise.
    */
-  std::optional<Socket> Accept();
+  std::optional<Socket> Accept() const;
 
   /**
    * Sets the socket to non-blocking.
    */
-  void SetNonBlocking();
+  void SetNonBlocking() const;
 
   /**
    * Enables TCP keep-alive on the socket.
    */
-  void SetKeepAlive();
+  void SetKeepAlive() const;
 
   /**
    * Enables TCP no_delay on the socket.
    * When enabled, the socket doesn't wait for an ACK of every data packet
    * before sending the next packet.
    */
-  void SetNoDelay();
+  void SetNoDelay() const;
 
   /**
    * Sets the socket timeout.
@@ -149,8 +149,8 @@ class Socket {
    *             true if write succeeded
    *             false if write failed
    */
-  bool Write(const uint8_t *data, size_t len, bool have_more = false);
-  bool Write(std::string_view s, bool have_more = false);
+  bool Write(const uint8_t *data, size_t len, bool have_more = false) const;
+  bool Write(std::string_view s, bool have_more = false) const;
 
   /**
    * Read data from the socket.
@@ -165,7 +165,7 @@ class Socket {
    *             == 0 if the client closed the connection
    *             < 0 if an error has occurred
    */
-  ssize_t Read(void *buffer, size_t len, bool nonblock = false);
+  ssize_t Read(void *buffer, size_t len, bool nonblock = false) const;
 
   /**
    * Wait until the socket becomes ready for a `Read` operation.
@@ -182,7 +182,7 @@ class Socket {
    *             true if the wait succeeded
    *             false if the wait failed
    */
-  bool WaitForReadyRead();
+  bool WaitForReadyRead() const;
 
   /**
    * Wait until the socket becomes ready for a `Write` operation.
@@ -199,7 +199,7 @@ class Socket {
    *             true if the wait succeeded
    *             false if the wait failed
    */
-  bool WaitForReadyWrite();
+  bool WaitForReadyWrite() const;
 
  private:
   Socket(int fd, Endpoint endpoint) : socket_(fd), endpoint_(std::move(endpoint)) {}

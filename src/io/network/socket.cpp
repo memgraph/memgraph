@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -48,7 +48,7 @@ void Socket::Close() {
   socket_ = -1;
 }
 
-void Socket::Shutdown() {
+void Socket::Shutdown() const {
   if (socket_ == -1) return;
   shutdown(socket_, SHUT_RDWR);
 }
@@ -147,14 +147,14 @@ bool Socket::Bind(const Endpoint &endpoint) {
   return true;
 }
 
-void Socket::SetNonBlocking() {
+void Socket::SetNonBlocking() const {
   const unsigned flags = fcntl(socket_, F_GETFL);
   constexpr unsigned o_nonblock = O_NONBLOCK;
   MG_ASSERT(flags != -1, "Can't get socket mode");
   MG_ASSERT(fcntl(socket_, F_SETFL, flags | o_nonblock) != -1, "Can't set socket nonblocking");
 }
 
-void Socket::SetKeepAlive() {
+void Socket::SetKeepAlive() const {
   int optval = 1;
   MG_ASSERT(!setsockopt(socket_, SOL_SOCKET, SO_KEEPALIVE, &optval, sizeof(optval)), "Can't set socket keep alive");
 
@@ -170,7 +170,7 @@ void Socket::SetKeepAlive() {
             "Can't set socket keep alive");
 }
 
-void Socket::SetNoDelay() {
+void Socket::SetNoDelay() const {
   int optval = 1;
   MG_ASSERT(!setsockopt(socket_, SOL_TCP, TCP_NODELAY, (void *)&optval, sizeof(optval)), "Can't set socket no delay");
 }
@@ -194,9 +194,9 @@ int Socket::ErrorStatus() const {
   return optval;
 }
 
-bool Socket::Listen(int backlog) { return listen(socket_, backlog) == 0; }
+bool Socket::Listen(int backlog) const { return listen(socket_, backlog) == 0; }
 
-std::optional<Socket> Socket::Accept() {
+std::optional<Socket> Socket::Accept() const {
   sockaddr_storage addr;
   socklen_t addr_size = sizeof addr;
   char addr_decoded[INET6_ADDRSTRLEN];
@@ -222,7 +222,7 @@ std::optional<Socket> Socket::Accept() {
   return Socket(sfd, endpoint);
 }
 
-bool Socket::Write(const uint8_t *data, size_t len, bool have_more) {
+bool Socket::Write(const uint8_t *data, size_t len, bool have_more) const {
   // MSG_NOSIGNAL is here to disable raising a SIGPIPE signal when a
   // connection dies mid-write, the socket will only return an EPIPE error.
   constexpr unsigned msg_nosignal = MSG_NOSIGNAL;
@@ -250,35 +250,35 @@ bool Socket::Write(const uint8_t *data, size_t len, bool have_more) {
   return true;
 }
 
-bool Socket::Write(std::string_view s, bool have_more) {
+bool Socket::Write(std::string_view s, bool have_more) const {
   return Write(reinterpret_cast<const uint8_t *>(s.data()), s.size(), have_more);
 }
 
-ssize_t Socket::Read(void *buffer, size_t len, bool nonblock) {
+ssize_t Socket::Read(void *buffer, size_t len, bool nonblock) const {
   return recv(socket_, buffer, len, nonblock ? MSG_DONTWAIT : 0);
 }
 
-bool Socket::WaitForReadyRead() {
+bool Socket::WaitForReadyRead() const {
   struct pollfd p;
   p.fd = socket_;
   p.events = POLLIN;
   // We call poll with one element in the poll fds array (first and second
   // arguments), also we set the timeout to -1 to block indefinitely until an
   // event occurs.
-  int ret = poll(&p, 1, -1);
+  int const ret = poll(&p, 1, -1);
   if (ret < 1) return false;
   constexpr unsigned pollin = POLLIN;
   return static_cast<unsigned>(p.revents) & pollin;
 }
 
-bool Socket::WaitForReadyWrite() {
+bool Socket::WaitForReadyWrite() const {
   struct pollfd p;
   p.fd = socket_;
   p.events = POLLOUT;
   // We call poll with one element in the poll fds array (first and second
   // arguments), also we set the timeout to -1 to block indefinitely until an
   // event occurs.
-  int ret = poll(&p, 1, -1);
+  int const ret = poll(&p, 1, -1);
   if (ret < 1) return false;
   constexpr unsigned pollout = POLLOUT;
   return static_cast<unsigned>(p.revents) & pollout;
