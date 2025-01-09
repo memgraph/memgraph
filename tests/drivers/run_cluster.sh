@@ -178,7 +178,8 @@ run_command() {
 }
 
 commands=(
-    "echo 'ADD COORDINATOR 2 WITH CONFIG {\"bolt_server\": \"localhost:7691\", \"coordinator_server\":  \"localhost:10112\", \"management_server\": \"localhost:10112\"};' | $binary_dir/bin/mgconsole --port 7690"
+    "echo 'ADD COORDINATOR 1 WITH CONFIG {\"bolt_server\": \"localhost:7690\", \"coordinator_server\":  \"localhost:10111\", \"management_server\": \"localhost:10121\"};' | $binary_dir/bin/mgconsole --port 7690"
+    "echo 'ADD COORDINATOR 2 WITH CONFIG {\"bolt_server\": \"localhost:7691\", \"coordinator_server\":  \"localhost:10112\", \"management_server\": \"localhost:10122\"};' | $binary_dir/bin/mgconsole --port 7690"
     "echo 'ADD COORDINATOR 3 WITH CONFIG {\"bolt_server\": \"localhost:7692\", \"coordinator_server\":  \"localhost:10113\", \"management_server\": \"localhost:10123\"};' | $binary_dir/bin/mgconsole --port 7690"
     "echo 'REGISTER INSTANCE instance_1 WITH CONFIG {\"bolt_server\": \"localhost:7687\", \"management_server\": \"localhost:10011\", \"replication_server\": \"localhost:10001\"};' | $binary_dir/bin/mgconsole --port 7690"
     "echo 'REGISTER INSTANCE instance_2 WITH CONFIG {\"bolt_server\": \"localhost:7688\", \"management_server\": \"localhost:10012\", \"replication_server\": \"localhost:10002\"};' | $binary_dir/bin/mgconsole --port 7690"

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -27,12 +27,12 @@ constexpr const char *kMgCoordinatorHostname = "MEMGRAPH_COORDINATOR_HOSTNAME";
 struct CoordinationSetup {
   int management_port{0};
   int coordinator_port{0};
-  uint32_t coordinator_id{0};
+  int32_t coordinator_id{0};
   std::string nuraft_log_file;
   bool ha_durability{false};
   std::string coordinator_hostname;
 
-  explicit CoordinationSetup(int management_port, int coordinator_port, uint32_t coordinator_id,
+  explicit CoordinationSetup(int management_port, int coordinator_port, int32_t coordinator_id,
                              std::string nuraft_log_file, bool ha_durability, std::string coordinator_hostname);
   CoordinationSetup() = default;
 
