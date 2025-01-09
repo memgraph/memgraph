@@ -757,9 +757,9 @@ auto CoordinatorInstance::RemoveCoordinatorInstance(int coordinator_id) -> Remov
         coordinator_id);
   }
 
-  // If we managed to remove it from the NuRaft configuration but not to our app logs.
+  // If we managed to remove it from the NuRaft configuration but not to our app logs. If this fails, not good.
   if (!raft_state_->AppendClusterUpdate(std::move(data_instances), std::move(coordinator_instances_context), uuid)) {
-    LOG_FATAL("Couldn't append application log when removing coordinator {} from the cluster.", coordinator_id);
+    LOG_FATAL("Couldn't append application log when removing coordinator {} from the cluster. ", coordinator_id);
   }
 
   return RemoveCoordinatorInstanceStatus::SUCCESS;
@@ -846,7 +846,11 @@ auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorInstanceConfig const
 
   // If we managed to add it to the NuRaft configuration but not to our app logs.
   if (!raft_state_->AppendClusterUpdate(std::move(data_instances), std::move(coordinator_instances_context), uuid)) {
-    LOG_FATAL("Couldn't append application log when adding coordinator {} to the cluster.", config.coordinator_id);
+    LOG_FATAL(
+        "Couldn't append application log when adding coordinator {} to the cluster. Please restart your instance with "
+        "a fresh data directory and try again. If you already partially connected a cluster, please delete data "
+        "directories of other coordinators too.",
+        config.coordinator_id);
   }
 
   return AddCoordinatorInstanceStatus::SUCCESS;
