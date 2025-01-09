@@ -312,11 +312,11 @@ class DockerStandaloneDeployment(Deployment):
 
 
 class MinikubeHelmStandaloneDeployment(Deployment):
-    def __init__(self, release_name: str, chart_name: str, values: dict):
+    def __init__(self, release_name: str, chart_name: str, values_path: str):
         super().__init__()
         self.release_name = release_name
         self.chart_name = chart_name
-        self.values = values
+        self.values_path = values_path
         self._memgraph_pod = None
 
     def start_minikube(self) -> None:
@@ -351,12 +351,7 @@ class MinikubeHelmStandaloneDeployment(Deployment):
         print("Set K8s context!")
 
         # Prepare the Helm command
-        helm_cmd = ["helm", "install", self.release_name, self.chart_name, "--set", "service.type=NodePort"]
-        if self.values is not None and len(self.values) > 0:
-            helm_cmd += ["--set", self._generate_values_string()]
-
-        if additional_flags:
-            helm_cmd.extend(additional_flags)
+        helm_cmd = ["helm", "install", self.release_name, self.chart_name, "-f", self.values_path]
 
         # Execute the Helm command to install Memgraph
         subprocess.run(helm_cmd, check=True)

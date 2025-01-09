@@ -58,6 +58,7 @@ class Config:
         if self._installation_type == "k8s":
             self._release_name = installation.get("options", {}).get("release_name", None)
             self._chart_name = installation.get("options", {}).get("chart_name", None)
+            self._values_file = installation.get("options", {}).get("values_file", None)
 
     @property
     def uses_ssl(self):
@@ -103,6 +104,14 @@ class Config:
     def chart_name(self):
         return self._chart_name
 
+    @property
+    def values_file(self):
+        return self._values_file
+
+    @property
+    def values_path(self):
+        return os.path.join(SCRIPT_DIR, f"configurations/chart_values/{self.values_file}")
+
 
 def deployment_factory(args: Args, config: Config):
     if config._installation_type == "default":
@@ -117,7 +126,7 @@ def deployment_factory(args: Args, config: Config):
         return DockerStandaloneDeployment(config.docker_image, config.docker_tag, config.memgraph_args)
 
     if config._installation_type == "k8s":
-        return MinikubeHelmStandaloneDeployment(config.release_name, config.chart_name, {})
+        return MinikubeHelmStandaloneDeployment(config.release_name, config.chart_name, config.values_path)
 
 
 def generate_temporary_ssl_certs():
