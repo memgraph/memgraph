@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -95,7 +95,8 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
 
   class Iterable {
    public:
-    Iterable(utils::SkipList<Entry>::Accessor index_accessor, EdgeTypeId edge_type, PropertyId property,
+    Iterable(utils::SkipList<Entry>::Accessor index_accessor, utils::SkipList<Vertex>::ConstAccessor vertex_accessor,
+             utils::SkipList<Edge>::ConstAccessor edge_accessor, EdgeTypeId edge_type, PropertyId property,
              const std::optional<utils::Bound<PropertyValue>> &lower_bound,
              const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
              Transaction *transaction);
@@ -124,6 +125,8 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
     Iterator end() { return {this, index_accessor_.end()}; }
 
    private:
+    utils::SkipList<Edge>::ConstAccessor pin_accessor_edge_;
+    utils::SkipList<Vertex>::ConstAccessor pin_accessor_vertex_;
     utils::SkipList<Entry>::Accessor index_accessor_;
     [[maybe_unused]] EdgeTypeId edge_type_;
     [[maybe_unused]] PropertyId property_;
