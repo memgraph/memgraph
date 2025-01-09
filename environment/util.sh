@@ -131,7 +131,6 @@ function install_rust () {
   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
     && . "$HOME/.cargo/env" \
     && rustup default ${RUST_VERSION}
-  continue
 }
 
 function install_node () {
@@ -140,5 +139,4 @@ function install_node () {
       && . ~/.nvm/nvm.sh \
       && nvm install ${NODE_VERSION} \
       && nvm use ${NODE_VERSION}
-  continue
 }
