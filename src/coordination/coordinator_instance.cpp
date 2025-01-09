@@ -9,7 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <communication/bolt/v1/encoder/base_encoder.hpp>
 #ifdef MG_ENTERPRISE
 
 #include <algorithm>
@@ -27,6 +26,7 @@
 #include <utility>
 #include <vector>
 
+#include <communication/bolt/v1/encoder/base_encoder.hpp>
 #include "coordination/coordination_observer.hpp"
 #include "coordination/coordinator_cluster_state.hpp"
 #include "coordination/coordinator_communication_config.hpp"

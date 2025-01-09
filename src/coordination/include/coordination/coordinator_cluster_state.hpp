@@ -35,6 +35,8 @@ using replication_coordination_glue::ReplicationRole;
 
 // Represents the state of the cluster from the coordinator's perspective.
 // Source of truth since it is modified only as the result of RAFT's commiting.
+// Needs to be thread safe because NuRaft's thread is committing and changing the state
+// while possibly the user thread interacts with the API and asks for information.
 class CoordinatorClusterState {
  public:
   CoordinatorClusterState() = default;
@@ -81,10 +83,10 @@ class CoordinatorClusterState {
   }
 
  private:
-  std::vector<DataInstanceContext> data_instances_{};
-  std::vector<CoordinatorInstanceContext> coordinator_instances_{};
-  utils::UUID current_main_uuid_{};
-  mutable utils::ResourceLock log_lock_{};
+  std::vector<DataInstanceContext> data_instances_;
+  std::vector<CoordinatorInstanceContext> coordinator_instances_;
+  utils::UUID current_main_uuid_;
+  mutable utils::ResourceLock app_lock_;
 };
 
 void to_json(nlohmann::json &j, CoordinatorClusterState const &state);
