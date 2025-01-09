@@ -24,7 +24,7 @@ std::chrono::milliseconds ExponentialBackoffInternals::calculate_delay() {
   if (cached_delay_ < max_delay_) {
     ++retry_count_;
     auto const base_delay = std::chrono::milliseconds{initial_delay_.count() * (1U << (retry_count_ - 1))};
-    cached_delay_ = base_delay < max_delay_ ? base_delay : max_delay_;
+    cached_delay_ = std::min(base_delay, max_delay_);
   }
   return cached_delay_;
 }

@@ -71,7 +71,7 @@ class CoordinatorLogStore : public log_store {
 
   void DeleteLogs(uint64_t start, uint64_t end);
 
-  auto GetAllEntriesRange(uint64_t start, uint64_t end) -> std::vector<std::pair<int64_t, ptr<log_entry>>>;
+  auto GetAllEntriesRange(uint64_t start, uint64_t end) const -> std::vector<std::pair<int64_t, ptr<log_entry>>>;
 
   /*
    * Stores log entry to disk. We need to store our logs which in nuraft are encoded with log_val_type::app_log
