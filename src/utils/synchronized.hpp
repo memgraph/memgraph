@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include <concepts>
 #include <mutex>
 #include <shared_mutex>
 #include <utility>
@@ -110,6 +109,21 @@ class Synchronized {
     std::shared_lock<TMutex> guard_;
   };
 
+  class NonConstReadLockedPtr {
+   private:
+    friend class Synchronized<T, TMutex>;
+
+    NonConstReadLockedPtr(T *object_ptr, TMutex *mutex) : object_ptr_(object_ptr), guard_(*mutex) {}
+
+   public:
+    T *operator->() { return object_ptr_; }
+    T &operator*() { return *object_ptr_; }
+
+   private:
+    T *object_ptr_;
+    std::shared_lock<TMutex> guard_;
+  };
+
   LockedPtr Lock() { return LockedPtr(&object_, &mutex_); }
 
   template <class TCallable>
@@ -129,6 +143,18 @@ class Synchronized {
 
   template <typename = void>
   requires SharedMutex<TMutex> ReadLockedPtr operator->() const { return ReadLockedPtr(&object_, &mutex_); }
+
+  template <typename = void>
+  requires SharedMutex<TMutex> NonConstReadLockedPtr NonConstReadLock() {
+    return NonConstReadLockedPtr(&object_, &mutex_);
+  }
+
+  template <class TCallable>
+  requires SharedMutex<TMutex>
+  decltype(auto) WithNonConstReadLock(TCallable &&callable) { return callable(*NonConstReadLock()); }
+
+  template <typename = void>
+  requires SharedMutex<TMutex> NonConstReadLockedPtr operator->() { return NonConstReadLockedPtr(&object_, &mutex_); }
 
  private:
   T object_;
