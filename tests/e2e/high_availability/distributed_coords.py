@@ -2817,7 +2817,7 @@ def test_first_coord_restarts(test_name):
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
 
     # Empty because 'ADD COORDINATOR 1' wasn't run
-    leader_data = [("coordinator_1", "" "localhost:10111", "localhost:10121", "up", "leader")]
+    leader_data = [("coordinator_1", "", "localhost:10111", "localhost:10121", "up", "leader")]
     mg_sleep_and_assert(leader_data, partial(show_instances, coord_cursor_1))
 
     interactive_mg_runner.kill_all(keep_directories=True)
