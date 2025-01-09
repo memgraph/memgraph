@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -36,7 +36,7 @@ class CoordinationUtils : public ::testing::Test {
   int const bolt_port{8688};
   int const coordinator_port{20111};
   int const management_port{30111};
-  uint32_t const coordinator_id{11};
+  int32_t const coordinator_id{11};
 };
 
 // Networking is used in this test, be careful with ports used.
@@ -202,7 +202,7 @@ TEST_F(CoordinationUtils, MemgraphDbHistoryOneInstanceAheadFewEpochs) {
 }
 
 TEST_F(CoordinationUtils, MemgraphDbHistoryInstancesHistoryDiverged) {
-  // When history diverged, also prioritize one with biggest last durable timestamp
+  // When history diverged, also prioritize one with the biggest last durable timestamp
   // Main      : A(1)  B(2)   C(3)    X
   // replica  1: A(1)  B(2)   C(3)    X     X up
   // replica  2: A(1)  B(2)    X     D(5)   X up

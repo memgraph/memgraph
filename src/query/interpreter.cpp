@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -34,7 +34,6 @@
 #include <vector>
 
 #include "auth/auth.hpp"
-#include "auth/models.hpp"
 #include "coordination/coordinator_state.hpp"
 #include "coordination/register_main_replica_coordinator_status.hpp"
 #include "csv/parsing.hpp"
@@ -44,7 +43,6 @@
 #include "dbms/global.hpp"
 #include "dbms/inmemory/storage_helper.hpp"
 #include "flags/experimental.hpp"
-#include "flags/replication.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "glue/communication.hpp"
 #include "io/network/endpoint.hpp"
@@ -62,7 +60,6 @@
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
-#include "query/frontend/semantic/required_privileges.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/hops_limit.hpp"
 #include "query/interpret/eval.hpp"
@@ -90,7 +87,6 @@
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/disk/storage.hpp"
-#include "storage/v2/edge.hpp"
 #include "storage/v2/edge_import_mode.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -102,14 +98,11 @@
 #include "utils/event_counter.hpp"
 #include "utils/event_histogram.hpp"
 #include "utils/exceptions.hpp"
-#include "utils/file.hpp"
-#include "utils/flag_validation.hpp"
 #include "utils/functional.hpp"
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
 #include "utils/memory_tracker.hpp"
-#include "utils/message.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/readable_size.hpp"
 #include "utils/settings.hpp"
@@ -452,11 +445,12 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException("UNREGISTER INSTANCE query can only be run on a coordinator!");
       case NOT_LEADER: {
         auto const maybe_leader_coordinator = coordinator_handler_.GetLeaderCoordinatorData();
-        auto const *common_message = "Couldn't unregister replica instance since coordinator is not a leader!";
+        constexpr std::string_view common_message =
+            "Couldn't unregister replica instance since coordinator is not a leader!";
         if (maybe_leader_coordinator) {
           throw QueryRuntimeException("{} Current leader is coordinator with id {} with bolt socket address {}",
-                                      common_message, maybe_leader_coordinator->coordinator_id,
-                                      maybe_leader_coordinator->bolt_server.SocketAddress());
+                                      common_message, maybe_leader_coordinator->id,
+                                      maybe_leader_coordinator->bolt_server);
         }
         throw QueryRuntimeException(
             "{} Try contacting other coordinators as there might be leader election happening or other coordinators "
@@ -490,11 +484,12 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException("DEMOTE INSTANCE query can only be run on a coordinator!");
       case NOT_LEADER: {
         auto const maybe_leader_coordinator = coordinator_handler_.GetLeaderCoordinatorData();
-        auto const *common_message = "Couldn't demote instance to replica since coordinator is not a leader!";
+        constexpr std::string_view common_message =
+            "Couldn't demote instance to replica since coordinator is not a leader!";
         if (maybe_leader_coordinator) {
           throw QueryRuntimeException("{} Current leader is coordinator with id {} with bolt socket address {}",
-                                      common_message, maybe_leader_coordinator->coordinator_id,
-                                      maybe_leader_coordinator->bolt_server.SocketAddress());
+                                      common_message, maybe_leader_coordinator->id,
+                                      maybe_leader_coordinator->bolt_server);
         }
         throw QueryRuntimeException(
             "{} Try contacting other coordinators as there might be leader election happening or other coordinators "
@@ -538,11 +533,8 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
   }
 
   void RegisterReplicationInstance(std::string_view bolt_server, std::string_view management_server,
-                                   std::string_view replication_server,
-                                   std::chrono::seconds const &instance_check_frequency,
-                                   std::chrono::seconds const &instance_down_timeout,
-                                   std::chrono::seconds const &instance_get_uuid_frequency,
-                                   std::string_view instance_name, CoordinatorQuery::SyncMode sync_mode) override {
+                                   std::string_view replication_server, std::string_view instance_name,
+                                   CoordinatorQuery::SyncMode sync_mode) override {
     auto const maybe_bolt_server = io::network::Endpoint::ParseAndCreateSocketOrAddress(bolt_server);
     if (!maybe_bolt_server) {
       throw QueryRuntimeException("Invalid bolt socket address!");
@@ -563,19 +555,13 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
                                             .replication_mode = convertFromCoordinatorToReplicationMode(sync_mode),
                                             .replication_server = *maybe_replication_server};
 
-    auto coordinator_client_config =
-        coordination::CoordinatorToReplicaConfig{.instance_name = std::string(instance_name),
-                                                 .mgt_server = *maybe_management_server,
-                                                 .bolt_server = *maybe_bolt_server,
-                                                 .replication_client_info = repl_config,
-                                                 .instance_health_check_frequency_sec = instance_check_frequency,
-                                                 .instance_down_timeout_sec = instance_down_timeout,
-                                                 .instance_get_uuid_frequency_sec = instance_get_uuid_frequency,
-                                                 .ssl = std::nullopt};
+    auto coordinator_client_config = coordination::DataInstanceConfig{.instance_name = std::string(instance_name),
+                                                                      .mgt_server = *maybe_management_server,
+                                                                      .bolt_server = *maybe_bolt_server,
+                                                                      .replication_client_info = repl_config};
 
-    auto status = coordinator_handler_.RegisterReplicationInstance(coordinator_client_config);
-    switch (status) {
-      using enum memgraph::coordination::RegisterInstanceCoordinatorStatus;
+    switch (auto status = coordinator_handler_.RegisterReplicationInstance(coordinator_client_config)) {
+      using enum coordination::RegisterInstanceCoordinatorStatus;
       case NAME_EXISTS:
         throw QueryRuntimeException("Couldn't register replica instance since instance with such name already exists!");
       case MGMT_ENDPOINT_EXISTS:
@@ -591,8 +577,8 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         auto const *common_message = "Couldn't register replica instance since coordinator is not a leader!";
         if (maybe_leader_coordinator) {
           throw QueryRuntimeException("{} Current leader is coordinator with id {} with bolt socket address {}",
-                                      common_message, maybe_leader_coordinator->coordinator_id,
-                                      maybe_leader_coordinator->bolt_server.SocketAddress());
+                                      common_message, maybe_leader_coordinator->id,
+                                      maybe_leader_coordinator->bolt_server);
         }
         throw QueryRuntimeException(
             "{} Try contacting other coordinators as there might be leader election happening or other coordinators "
@@ -617,9 +603,8 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     }
   }
 
-  void RemoveCoordinatorInstance(int coordinator_id) override {
-    auto const status = coordinator_handler_.RemoveCoordinatorInstance(coordinator_id);
-    switch (status) {
+  void RemoveCoordinatorInstance(int32_t coordinator_id) override {
+    switch (auto const status = coordinator_handler_.RemoveCoordinatorInstance(coordinator_id)) {
       using enum memgraph::coordination::RemoveCoordinatorInstanceStatus;  // NOLINT
       case NO_SUCH_ID:
         throw QueryRuntimeException(
@@ -630,9 +615,8 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     spdlog::info("Removed coordinator {}.", coordinator_id);
   }
 
-  auto AddCoordinatorInstance(uint32_t coordinator_id, std::string_view bolt_server,
-                              std::string_view coordinator_server, std::string_view management_server)
-      -> void override {
+  auto AddCoordinatorInstance(int32_t coordinator_id, std::string_view bolt_server, std::string_view coordinator_server,
+                              std::string_view management_server) -> void override {
     auto const maybe_coordinator_server = io::network::Endpoint::ParseAndCreateSocketOrAddress(coordinator_server);
     if (!maybe_coordinator_server) {
       throw QueryRuntimeException("Invalid coordinator socket address!");
@@ -649,20 +633,22 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     }
 
     auto const coord_coord_config =
-        coordination::CoordinatorToCoordinatorConfig{.coordinator_id = coordinator_id,
-                                                     .bolt_server = *maybe_bolt_server,
-                                                     .coordinator_server = *maybe_coordinator_server,
-                                                     .management_server = *maybe_management_server
+        coordination::CoordinatorInstanceConfig{.coordinator_id = coordinator_id,
+                                                .bolt_server = *maybe_bolt_server,
+                                                .coordinator_server = *maybe_coordinator_server,
+                                                .management_server = *maybe_management_server
 
         };
 
-    auto const status = coordinator_handler_.AddCoordinatorInstance(coord_coord_config);
-    switch (status) {
+    switch (auto const status = coordinator_handler_.AddCoordinatorInstance(coord_coord_config)) {
       using enum memgraph::coordination::AddCoordinatorInstanceStatus;  // NOLINT
       case ID_ALREADY_EXISTS:
         throw QueryRuntimeException("Couldn't add coordinator since instance with such id already exists!");
       case BOLT_ENDPOINT_ALREADY_EXISTS:
         throw QueryRuntimeException("Couldn't add coordinator since instance with such bolt endpoint already exists!");
+      case MGMT_ENDPOINT_ALREADY_EXISTS:
+        throw QueryRuntimeException(
+            "Couldn't add coordinator since instance with such management endpoint already exists!");
       case COORDINATOR_ENDPOINT_ALREADY_EXISTS:
         throw QueryRuntimeException(
             "Couldn't add coordinator since instance with such coordinator server already exists!");
@@ -684,11 +670,11 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException("SET INSTANCE TO MAIN query can only be run on a coordinator!");
       case NOT_LEADER: {
         auto const maybe_leader_coordinator = coordinator_handler_.GetLeaderCoordinatorData();
-        auto const *common_message = "Couldn't set instance to main since coordinator is not a leader!";
+        constexpr std::string_view common_message = "Couldn't set instance to main since coordinator is not a leader!";
         if (maybe_leader_coordinator) {
           throw QueryRuntimeException("{} Current leader is coordinator with id {} with bolt socket address {}",
-                                      common_message, maybe_leader_coordinator->coordinator_id,
-                                      maybe_leader_coordinator->bolt_server.SocketAddress());
+                                      common_message, maybe_leader_coordinator->id,
+                                      maybe_leader_coordinator->bolt_server);
         }
         throw QueryRuntimeException(
             "{} Try contacting other coordinators as there might be leader election happening or other coordinators "
@@ -1513,19 +1499,14 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
         throw QueryRuntimeException("Config map must contain {} entry!", kBoltServer);
       }
 
-      callback.fn = [handler = CoordQueryHandler{*coordinator_state},
-                     instance_health_check_frequency_sec = config.instance_health_check_frequency_sec,
-                     bolt_server = bolt_server_it->second, management_server = management_server_it->second,
-                     replication_server = replication_server_it->second,
-                     instance_name = coordinator_query->instance_name_,
-                     instance_down_timeout_sec = config.instance_down_timeout_sec,
-                     instance_get_uuid_frequency_sec = config.instance_get_uuid_frequency_sec,
-                     sync_mode = coordinator_query->sync_mode_]() mutable {
-        handler.RegisterReplicationInstance(bolt_server, management_server, replication_server,
-                                            instance_health_check_frequency_sec, instance_down_timeout_sec,
-                                            instance_get_uuid_frequency_sec, instance_name, sync_mode);
-        return std::vector<std::vector<TypedValue>>();
-      };
+      callback.fn =
+          [handler = CoordQueryHandler{*coordinator_state}, bolt_server = bolt_server_it->second,
+           management_server = management_server_it->second, replication_server = replication_server_it->second,
+           instance_name = coordinator_query->instance_name_, sync_mode = coordinator_query->sync_mode_]() mutable {
+            handler.RegisterReplicationInstance(bolt_server, management_server, replication_server, instance_name,
+                                                sync_mode);
+            return std::vector<std::vector<TypedValue>>();
+          };
 
       notifications->emplace_back(SeverityLevel::INFO, NotificationCode::REGISTER_REPLICATION_INSTANCE,
                                   fmt::format("Coordinator has registered replication instance on {} for instance {}.",

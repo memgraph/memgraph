@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -38,8 +38,7 @@ class CoordinatorState {
   CoordinatorState(CoordinatorState &&) noexcept = delete;
   CoordinatorState &operator=(CoordinatorState &&) noexcept = delete;
 
-  [[nodiscard]] auto RegisterReplicationInstance(CoordinatorToReplicaConfig const &config)
-      -> RegisterInstanceCoordinatorStatus;
+  [[nodiscard]] auto RegisterReplicationInstance(DataInstanceConfig const &config) -> RegisterInstanceCoordinatorStatus;
   [[nodiscard]] auto UnregisterReplicationInstance(std::string_view instance_name)
       -> UnregisterInstanceCoordinatorStatus;
 
@@ -53,12 +52,11 @@ class CoordinatorState {
 
   [[nodiscard]] auto ShowInstances() const -> std::vector<InstanceStatus>;
 
-  auto AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config)
-      -> AddCoordinatorInstanceStatus;
+  auto AddCoordinatorInstance(CoordinatorInstanceConfig const &config) -> AddCoordinatorInstanceStatus;
 
-  auto RemoveCoordinatorInstance(int coordinator_id) -> RemoveCoordinatorInstanceStatus;
+  auto RemoveCoordinatorInstance(int32_t coordinator_id) -> RemoveCoordinatorInstanceStatus;
 
-  [[nodiscard]] auto GetLeaderCoordinatorData() const -> std::optional<coordination::CoordinatorToCoordinatorConfig>;
+  [[nodiscard]] auto GetLeaderCoordinatorData() const -> std::optional<LeaderCoordinatorData>;
 
   // NOTE: The client code must check that the server exists before calling this method.
   auto GetDataInstanceManagementServer() const -> DataInstanceManagementServer &;

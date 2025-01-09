@@ -14,12 +14,13 @@
 #ifdef MG_ENTERPRISE
 
 #include <spdlog/spdlog.h>
+#include "coordination/constants_log_durability.hpp"
+#include "coordination/coordination_observer.hpp"
+#include "coordination/coordinator_cluster_state.hpp"
 #include "coordination/coordinator_communication_config.hpp"
+#include "coordination/coordinator_log_store.hpp"
+#include "coordination/logger_wrapper.hpp"
 #include "kvstore/kvstore.hpp"
-#include "nuraft/constants_log_durability.hpp"
-#include "nuraft/coordinator_cluster_state.hpp"
-#include "nuraft/coordinator_log_store.hpp"
-#include "nuraft/logger_wrapper.hpp"
 
 #include <optional>
 #include <variant>
@@ -59,10 +60,12 @@ class CoordinatorStateMachine : public state_machine {
   ~CoordinatorStateMachine() override = default;
 
   static auto CreateLog(nlohmann::json &&log) -> ptr<buffer>;
-  static auto SerializeUpdateClusterState(std::vector<DataInstanceState> cluster_state, utils::UUID uuid)
-      -> ptr<buffer>;
+  static auto SerializeUpdateClusterState(std::vector<DataInstanceContext> data_instances,
+                                          std::vector<CoordinatorInstanceContext> coordinator_instances,
+                                          utils::UUID uuid) -> ptr<buffer>;
 
-  static auto DecodeLog(buffer &data) -> std::pair<std::vector<DataInstanceState>, utils::UUID>;
+  static auto DecodeLog(buffer &data)
+      -> std::tuple<std::vector<DataInstanceContext>, std::vector<CoordinatorInstanceContext>, utils::UUID>;
 
   auto pre_commit(ulong log_idx, buffer &data) -> ptr<buffer> override;
 
@@ -88,7 +91,8 @@ class CoordinatorStateMachine : public state_machine {
 
   auto create_snapshot(snapshot &s, async_result<bool>::handler_type &when_done) -> void override;
 
-  auto GetDataInstances() const -> std::vector<DataInstanceState>;
+  auto GetDataInstancesContext() const -> std::vector<DataInstanceContext>;
+  auto GetCoordinatorInstancesContext() const -> std::vector<CoordinatorInstanceContext>;
 
   void UpdateStateMachineFromSnapshotDurability();
 

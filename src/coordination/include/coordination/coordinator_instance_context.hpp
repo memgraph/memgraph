@@ -10,21 +10,25 @@
 // licenses/APL.txt.
 
 #pragma once
-#include <chrono>
+
+#include <cstdint>
 #include <string>
 
-namespace memgraph::query {
-struct InterpreterConfig {
-  struct Query {
-    bool allow_load_csv{true};
-  } query;
+#include "json/json.hpp"
 
-  // The same as \ref memgraph::replication::ReplicationClientConfig
-  std::chrono::seconds replication_replica_check_frequency{1};
+#ifdef MG_ENTERPRISE
 
-  std::string default_kafka_bootstrap_servers;
-  std::string default_pulsar_service_url;
-  uint32_t stream_transaction_conflict_retries;
-  std::chrono::milliseconds stream_transaction_retry_interval;
+namespace memgraph::coordination {
+// Context saved about each coordinator in Raft logs (app log)
+struct CoordinatorInstanceContext {
+  int32_t id;
+  std::string bolt_server;
+
+  friend bool operator==(CoordinatorInstanceContext const &, CoordinatorInstanceContext const &) = default;
 };
-}  // namespace memgraph::query
+
+void to_json(nlohmann::json &j, CoordinatorInstanceContext const &context);
+void from_json(nlohmann::json const &j, CoordinatorInstanceContext &context);
+}  // namespace memgraph::coordination
+
+#endif

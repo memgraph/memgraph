@@ -174,7 +174,6 @@
   "Add coordinator instances."
   [session myself nodes-config]
   (doseq [coord-config (->> nodes-config
-                            (filter #(not= (key %) myself)) ; Don't register itself
                             (filter #(contains? (val %) :coordinator-id)))]
     (try
       ((mgquery/add-coordinator-instance
