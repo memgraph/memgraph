@@ -7,6 +7,7 @@ from typing import List
 
 import yaml
 from gqlalchemy import Memgraph
+from neo4j import GraphDatabase
 
 # paths
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -474,6 +475,9 @@ class MinikubeHelmHADeployment(Deployment):
         self._data_ext_service_names = [f"memgraph-data-{x}-external" for x in self._data_ids]
         self._coord_ext_service_names = [f"memgraph-coordinator-{x}-external" for x in self._coordinator_ids]
 
+        # data, bolt+routing
+        self._querying_type = "data"
+
     def start_minikube(self) -> None:
         """Start Minikube if it is not already running"""
         print("Checking Minikube status...")
@@ -615,6 +619,12 @@ class MinikubeHelmHADeployment(Deployment):
         print("All pods ready!")
 
     def execute_query(self, query: str) -> None:
+        if self._querying_type == "data":
+            self._execute_query_on_data_instance(query)
+        elif self._querying_type == "bolt+routing":
+            self._execute_bolt_routing_query(query)
+
+    def _execute_query_on_data_instance(self, query: str):
         """Execute a Cypher query on Memgraph"""
         # Get Minikube IP and NodePort
         minikube_ip = self.get_minikube_ip()
@@ -632,6 +642,19 @@ class MinikubeHelmHADeployment(Deployment):
 
         # Execute the Cypher query
         memgraph.execute(query)
+
+    def _execute_bolt_routing_query(self, query: str):
+        minikube_ip = self.get_minikube_ip()
+        service_nodeports = [self.get_service_nodeport(x) for x in self._coord_ext_service_names]
+
+        for nodeport in service_nodeports:
+            try:
+                driver = GraphDatabase.driver(f"neo4j://{minikube_ip}:{nodeport}")
+                with driver.session() as session:
+                    session.run(query)
+                    break
+            except Exception as e:
+                print(f"Nodeport {nodeport} failed to execute query.")
 
     def _execute_query_on_service(self, service_name: str, query: str):
         minikube_ip = self.get_minikube_ip()
