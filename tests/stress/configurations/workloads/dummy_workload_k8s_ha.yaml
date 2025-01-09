@@ -1,0 +1,41 @@
+memgraph:
+  deployment:
+    type: ha
+  installation:
+    type: k8s
+    options:
+      release_name: memgraph-ha
+      chart_name: memgraph/memgraph-high-availability
+      values_file: memgraph_ha_chart_values.yaml
+
+general:
+  verbose: false
+  use_ssl: false
+
+dataset:
+  tests: []
+
+customWorkloads:
+  tests:
+    - name: dummy-workload-1
+      memgraph_args: []
+      import:
+        queries: ["CREATE ()"]
+      workers:
+        - name: dummy-worker
+          type: writer
+          query: "CREATE ();"
+          num_repetitions: 1
+          sleep_millis: 0
+      timeout_min: 2
+    - name: dummy-workload-2
+      memgraph_args: []
+      import:
+        queries: ["CREATE ()"]
+      workers:
+        - name: dummy-worker
+          type: writer
+          query: "CREATE ();"
+          num_repetitions: 1
+          sleep_millis: 0
+      timeout_min: 2

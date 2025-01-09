@@ -3,6 +3,9 @@ memgraph:
     repository: memgraph/memgraph
     tag: latest
     pullPolicy: IfNotPresent
+  env:
+    MEMGRAPH_ENTERPRISE_LICENSE: <MEMGRAPH_ENTERPRISE_LICENSE>
+    MEMGRAPH_ORGANIZATION_NAME: <MEMGRAPH_ORGANIZATION_NAME>
   probes:
     startup:
       failureThreshold: 30

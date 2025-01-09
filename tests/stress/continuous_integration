@@ -14,6 +14,7 @@ from deployments import (
     DefaultHADeployment,
     DefaultStandaloneDeployment,
     DockerStandaloneDeployment,
+    MinikubeHelmHADeployment,
     MinikubeHelmStandaloneDeployment,
 )
 
@@ -114,19 +115,24 @@ class Config:
 
 
 def deployment_factory(args: Args, config: Config):
-    if config._installation_type == "default":
-        if config._deployment_type == "standalone":
+    if config.installation_type == "default":
+        if config.deployment_type == "standalone":
             return DefaultStandaloneDeployment(args.memgraph, config.memgraph_args)
-        elif config._deployment_type == "ha":
+        elif config.deployment_type == "ha":
             return DefaultHADeployment(args.memgraph, config.memgraph_args)
         else:
             raise Exception("Unknown Memgraph deployment type!")
 
-    if config._installation_type == "docker":
+    if config.installation_type == "docker":
         return DockerStandaloneDeployment(config.docker_image, config.docker_tag, config.memgraph_args)
 
-    if config._installation_type == "k8s":
-        return MinikubeHelmStandaloneDeployment(config.release_name, config.chart_name, config.values_path)
+    if config.installation_type == "k8s":
+        if config.deployment_type == "standalone":
+            return MinikubeHelmStandaloneDeployment(config.release_name, config.chart_name, config.values_path)
+        elif config.deployment_type == "ha":
+            return MinikubeHelmHADeployment(config.release_name, config.chart_name, config.values_path)
+        else:
+            raise Exception("Unknown Memgraph deployment type!")
 
 
 def generate_temporary_ssl_certs():
