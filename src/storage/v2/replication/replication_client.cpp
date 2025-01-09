@@ -39,7 +39,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
   auto &replStorageState = storage->repl_storage_state_;
 
   // stream should be destroyed so that RPC lock is released before taking engine lock
-  replication::HeartbeatRes const replica = std::invoke([&] {
+  replication::HeartbeatRes replica = std::invoke([&] {
     // stream should be destroyed so that RPC lock is released
     // before taking engine lock
     auto hb_stream = client_.rpc_client_.Stream<replication::HeartbeatRpc>(main_uuid_, storage->uuid(),

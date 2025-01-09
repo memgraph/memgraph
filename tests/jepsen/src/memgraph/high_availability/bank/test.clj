@@ -440,18 +440,6 @@
   [generator]
   (gen/each-thread (gen/phases (cycle [(gen/time-limit 5 generator)]))))
 
-(defn client-generator
-  "Client generator"
-  []
-  (gen/each-thread
-   (gen/phases
-    (gen/once setup-cluster)
-    (gen/sleep 5)
-    (gen/once initialize-data)
-    (gen/sleep 5)
-    (gen/delay 3
-               (gen/mix [show-instances-reads read-balances valid-transfer])))))
-
 (defn workload
   "Basic HA workload."
   [opts]
@@ -464,5 +452,5 @@
      :checker   (checker/compose
                  {:habank     (habank-checker)
                   :timeline (timeline/html)})
-     :generator (client-generator)
+     :generator (ha-gen (gen/mix [setup-cluster initialize-data show-instances-reads read-balances valid-transfer]))
      :nemesis-config (nemesis/create nodes-config)}))
