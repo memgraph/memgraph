@@ -3,6 +3,7 @@
 import argparse
 import multiprocessing
 import os
+import random
 import subprocess
 import time
 from argparse import Namespace as Args
@@ -181,6 +182,16 @@ def _find_test_binary(args: Args, config: Config, test: str) -> List[str]:
     raise Exception("Test '{}' binary not supported!".format(test))
 
 
+def get_worker_function(type: str):
+    if type == "reader":
+        return run_worker
+    if type == "writer":
+        return run_worker
+    if type == "lab-simulator":
+        return run_lab_simulator
+    raise Exception(f"Unknown worker type: '{type}'!")
+
+
 def run_worker(worker, deployment):
     """Function to be executed in a separate process for each worker."""
     worker_name = worker["name"]
@@ -191,6 +202,32 @@ def run_worker(worker, deployment):
     print(f"Starting worker '{worker_name}'...")
 
     for i in range(repetitions):
+        deployment.execute_query(query)
+        if sleep_millis > 0:
+            time.sleep(sleep_millis / 1000.0)
+
+    print(f"Worker '{worker_name}' finished.")
+
+
+def run_lab_simulator(worker, deployment):
+    worker_name = worker["name"]
+    repetitions = worker["num_repetitions"]
+    sleep_millis = worker["sleep_millis"]
+
+    print(f"Starting worker '{worker_name}'...")
+    queries = [
+        "SHOW INDEX INFO;",
+        "SHOW CONSTRAINT INFO;",
+        "SHOW TRIGGERS;",
+        "SHOW REPLICATION ROLE;",
+        "SHOW REPLICAS;",
+        "SHOW METRICS INFO;",
+        "RETURN 1;",
+        "SHOW STORAGE INFO;",
+        "SHOW TRANSACTIONS;",
+    ]
+    for i in range(repetitions):
+        query = random.choice(queries)
         deployment.execute_query(query)
         if sleep_millis > 0:
             time.sleep(sleep_millis / 1000.0)
@@ -218,7 +255,8 @@ def run_custom_workloads(deployment, config: Config):
 
             processes = []
             for worker in workload.get("workers", []):
-                process = multiprocessing.Process(target=run_worker, args=(worker, deployment))
+                worker_function = get_worker_function(worker["type"])
+                process = multiprocessing.Process(target=worker_function, args=(worker, deployment))
                 processes.append((process, workload.get("timeout_min", 10) * 60))  # Default to 10 minutes timeout
                 process.start()
 
