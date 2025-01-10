@@ -233,7 +233,7 @@ constexpr bool IsMarkerImplicitTransactionEndVersion15(Marker marker) {
     case SECTION_ENUMS:
     case VALUE_FALSE:
     case VALUE_TRUE:
-      throw RecoveryFailure(kInvalidWalErrorMessage.data());
+      throw RecoveryFailure(kInvalidWalErrorMessage);
   }
 }
 
@@ -249,7 +249,7 @@ template <bool is_read>
 auto Decode(utils::tag_type<Gid> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
     -> std::conditional_t<is_read, Gid, void> {
   const auto gid = decoder->ReadUint();
-  if (!gid) throw RecoveryFailure(kInvalidWalErrorMessage.data());
+  if (!gid) throw RecoveryFailure(kInvalidWalErrorMessage);
   if constexpr (is_read) {
     return Gid::FromUint(*gid);
   }
@@ -260,10 +260,10 @@ auto Decode(utils::tag_type<std::string> /*unused*/, BaseDecoder *decoder, const
     -> std::conditional_t<is_read, std::string, void> {
   if constexpr (is_read) {
     auto str = decoder->ReadString();
-    if (!str) throw RecoveryFailure(kInvalidWalErrorMessage.data());
+    if (!str) throw RecoveryFailure(kInvalidWalErrorMessage);
     return *std::move(str);
   } else {
-    if (!decoder->SkipString()) throw RecoveryFailure(kInvalidWalErrorMessage.data());
+    if (!decoder->SkipString()) throw RecoveryFailure(kInvalidWalErrorMessage);
   }
 }
 
@@ -272,10 +272,10 @@ auto Decode(utils::tag_type<PropertyValue> /*unused*/, BaseDecoder *decoder, con
     -> std::conditional_t<is_read, PropertyValue, void> {
   if constexpr (is_read) {
     auto str = decoder->ReadPropertyValue();
-    if (!str) throw RecoveryFailure(kInvalidWalErrorMessage.data());
+    if (!str) throw RecoveryFailure(kInvalidWalErrorMessage);
     return *std::move(str);
   } else {
-    if (!decoder->SkipPropertyValue()) throw RecoveryFailure(kInvalidWalErrorMessage.data());
+    if (!decoder->SkipPropertyValue()) throw RecoveryFailure(kInvalidWalErrorMessage);
   }
 }
 
@@ -296,18 +296,18 @@ auto Decode(utils::tag_type<std::set<std::string, std::less<>>> /*unused*/, Base
   if constexpr (is_read) {
     std::set<std::string, std::less<>> strings;
     const auto count = decoder->ReadUint();
-    if (!count) throw RecoveryFailure(kInvalidWalErrorMessage.data());
+    if (!count) throw RecoveryFailure(kInvalidWalErrorMessage);
     for (uint64_t i = 0; i < *count; ++i) {
       auto str = decoder->ReadString();
-      if (!str) throw RecoveryFailure(kInvalidWalErrorMessage.data());
+      if (!str) throw RecoveryFailure(kInvalidWalErrorMessage);
       strings.emplace(*std::move(str));
     }
     return strings;
   } else {
     const auto count = decoder->ReadUint();
-    if (!count) throw RecoveryFailure(kInvalidWalErrorMessage.data());
+    if (!count) throw RecoveryFailure(kInvalidWalErrorMessage);
     for (uint64_t i = 0; i < *count; ++i) {
-      if (!decoder->SkipString()) throw RecoveryFailure(kInvalidWalErrorMessage.data());
+      if (!decoder->SkipString()) throw RecoveryFailure(kInvalidWalErrorMessage);
     }
   }
 }
@@ -317,20 +317,20 @@ auto Decode(utils::tag_type<std::vector<std::string>> /*unused*/, BaseDecoder *d
     -> std::conditional_t<is_read, std::vector<std::string>, void> {
   if constexpr (is_read) {
     const auto count = decoder->ReadUint();
-    if (!count) throw RecoveryFailure(kInvalidWalErrorMessage.data());
+    if (!count) throw RecoveryFailure(kInvalidWalErrorMessage);
     std::vector<std::string> strings;
     strings.reserve(*count);
     for (uint64_t i = 0; i < *count; ++i) {
       auto str = decoder->ReadString();
-      if (!str) throw RecoveryFailure(kInvalidWalErrorMessage.data());
+      if (!str) throw RecoveryFailure(kInvalidWalErrorMessage);
       strings.emplace_back(*std::move(str));
     }
     return strings;
   } else {
     const auto count = decoder->ReadUint();
-    if (!count) throw RecoveryFailure(kInvalidWalErrorMessage.data());
+    if (!count) throw RecoveryFailure(kInvalidWalErrorMessage);
     for (uint64_t i = 0; i < *count; ++i) {
-      if (!decoder->SkipString()) throw RecoveryFailure(kInvalidWalErrorMessage.data());
+      if (!decoder->SkipString()) throw RecoveryFailure(kInvalidWalErrorMessage);
     }
   }
 }
@@ -340,10 +340,10 @@ auto Decode(utils::tag_type<TypeConstraintKind> /*unused*/, BaseDecoder *decoder
     -> std::conditional_t<is_read, TypeConstraintKind, void> {
   if constexpr (is_read) {
     auto kind = decoder->ReadUint();
-    if (!kind) throw RecoveryFailure(kInvalidWalErrorMessage.data());
+    if (!kind) throw RecoveryFailure(kInvalidWalErrorMessage);
     return static_cast<TypeConstraintKind>(*kind);
   } else {
-    if (!decoder->ReadUint()) throw RecoveryFailure(kInvalidWalErrorMessage.data());
+    if (!decoder->ReadUint()) throw RecoveryFailure(kInvalidWalErrorMessage);
   }
 }
 
@@ -351,7 +351,7 @@ template <bool is_read>
 auto Decode(utils::tag_type<uint16_t> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
     -> std::conditional_t<is_read, uint16_t, void> {
   const auto uint16 = decoder->ReadUint();
-  if (!uint16) throw RecoveryFailure(kInvalidWalErrorMessage.data());
+  if (!uint16) throw RecoveryFailure(kInvalidWalErrorMessage);
   if constexpr (is_read) {
     return static_cast<uint16_t>(*uint16);
   }
@@ -361,7 +361,7 @@ template <bool is_read>
 auto Decode(utils::tag_type<std::size_t> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
     -> std::conditional_t<is_read, std::size_t, void> {
   const auto size = decoder->ReadUint();
-  if (!size) throw RecoveryFailure(kInvalidWalErrorMessage.data());
+  if (!size) throw RecoveryFailure(kInvalidWalErrorMessage);
   if constexpr (is_read) {
     return static_cast<std::size_t>(*size);
   }
@@ -400,7 +400,7 @@ template <bool read_data>
 auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
     -> std::conditional_t<read_data, WalDeltaData, bool> {
   auto action = decoder->ReadMarker();
-  if (!action) throw RecoveryFailure(kInvalidWalErrorMessage.data());
+  if (!action) throw RecoveryFailure(kInvalidWalErrorMessage);
 
     // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define read_skip(enum_val, decode_to)                     \
@@ -478,7 +478,7 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
     case Marker::SECTION_ENUMS:
     case Marker::VALUE_FALSE:
     case Marker::VALUE_TRUE:
-      throw RecoveryFailure(kInvalidWalErrorMessage.data());
+      throw RecoveryFailure(kInvalidWalErrorMessage);
   }
 #undef read_skip
 }
@@ -499,10 +499,10 @@ WalInfo ReadWalInfo(const std::filesystem::path &path) {
   // Read offsets.
   {
     auto marker = wal.ReadMarker();
-    if (!marker || *marker != Marker::SECTION_OFFSETS) throw RecoveryFailure(kInvalidWalErrorMessage.data());
+    if (!marker || *marker != Marker::SECTION_OFFSETS) throw RecoveryFailure(kInvalidWalErrorMessage);
 
     auto wal_size = wal.GetSize();
-    if (!wal_size) throw RecoveryFailure(kInvalidWalErrorMessage.data());
+    if (!wal_size) throw RecoveryFailure(kInvalidWalErrorMessage);
 
     auto read_offset = [&wal, wal_size] {
       auto maybe_offset = wal.ReadUint();
@@ -521,18 +521,18 @@ WalInfo ReadWalInfo(const std::filesystem::path &path) {
     wal.SetPosition(info.offset_metadata);
 
     auto marker = wal.ReadMarker();
-    if (!marker || *marker != Marker::SECTION_METADATA) throw RecoveryFailure(kInvalidWalErrorMessage.data());
+    if (!marker || *marker != Marker::SECTION_METADATA) throw RecoveryFailure(kInvalidWalErrorMessage);
 
     auto maybe_uuid = wal.ReadString();
-    if (!maybe_uuid) throw RecoveryFailure(kInvalidWalErrorMessage.data());
+    if (!maybe_uuid) throw RecoveryFailure(kInvalidWalErrorMessage);
     info.uuid = std::move(*maybe_uuid);
 
     auto maybe_epoch_id = wal.ReadString();
-    if (!maybe_epoch_id) throw RecoveryFailure(kInvalidWalErrorMessage.data());
+    if (!maybe_epoch_id) throw RecoveryFailure(kInvalidWalErrorMessage);
     info.epoch_id = std::move(*maybe_epoch_id);
 
     auto maybe_seq_num = wal.ReadUint();
-    if (!maybe_seq_num) throw RecoveryFailure(kInvalidWalErrorMessage.data());
+    if (!maybe_seq_num) throw RecoveryFailure(kInvalidWalErrorMessage);
     info.seq_num = *maybe_seq_num;
   }
 
@@ -577,7 +577,7 @@ WalInfo ReadWalInfo(const std::filesystem::path &path) {
     }
   }
 
-  if (info.num_deltas == 0) throw RecoveryFailure(kInvalidWalErrorMessage.data());
+  if (info.num_deltas == 0) throw RecoveryFailure(kInvalidWalErrorMessage);
 
   return info;
 }
@@ -586,10 +586,10 @@ WalInfo ReadWalInfo(const std::filesystem::path &path) {
 // timestamp.
 uint64_t ReadWalDeltaHeader(BaseDecoder *decoder) {
   auto marker = decoder->ReadMarker();
-  if (!marker || *marker != Marker::SECTION_DELTA) throw RecoveryFailure(kInvalidWalErrorMessage.data());
+  if (!marker || *marker != Marker::SECTION_DELTA) throw RecoveryFailure(kInvalidWalErrorMessage);
 
   auto timestamp = decoder->ReadUint();
-  if (!timestamp) throw RecoveryFailure(kInvalidWalErrorMessage.data());
+  if (!timestamp) throw RecoveryFailure(kInvalidWalErrorMessage);
   return *timestamp;
 }
 
@@ -1073,20 +1073,20 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
         }
       },
       [&](WalVectorIndexCreate const &data) {
+        if (std::ranges::any_of(indices_constraints->indices.vector_indices,
+                                [&](const auto &index) { return index.index_name == data.index_name; })) {
+          throw RecoveryFailure("The vector index already exists!");
+        }
+
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
         auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
         const auto unum_metric_kind = unum::usearch::metric_from_name(data.metric_kind.data(), data.metric_kind.size());
         if (unum_metric_kind.error) {
           throw RecoveryFailure("Invalid metric kind for vector index!");
         }
-        const auto spec =
-            VectorIndexSpec{data.index_name,         label_id,     property_id, unum_metric_kind.result, data.dimension,
-                            data.resize_coefficient, data.capacity};
-        if (std::ranges::any_of(indices_constraints->indices.vector_indices,
-                                [&](const auto &index) { return index.index_name == spec.index_name; })) {
-          throw RecoveryFailure("The vector index already exists!");
-        }
-        indices_constraints->indices.vector_indices.push_back(spec);
+        indices_constraints->indices.vector_indices.emplace_back(data.index_name, label_id, property_id,
+                                                                 unum_metric_kind.result, data.dimension,
+                                                                 data.resize_coefficient, data.capacity);
       },
       [&](WalVectorIndexDrop const &data) {
         std::erase_if(indices_constraints->indices.vector_indices,

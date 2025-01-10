@@ -1858,7 +1858,8 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   MG_ASSERT(unique_guard_.owns_lock(), "Creating vector index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto &vector_index = in_memory->indices_.vector_index_;
-  if (!vector_index.CreateIndex(std::move(spec), in_memory->vertices_.access())) {
+  auto vertices_acc = in_memory->vertices_.access();
+  if (!vector_index.CreateIndex(std::move(spec), vertices_acc)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::vector_index_create, spec);

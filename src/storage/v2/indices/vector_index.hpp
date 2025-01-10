@@ -120,14 +120,10 @@ class VectorIndex {
   VectorIndex(VectorIndex &&) noexcept;
   VectorIndex &operator=(VectorIndex &&) noexcept;
 
-  /// @brief Creates a new index based on the specified configuration.
-  /// @param spec The specification for the index to be created.
-  void CreateIndex(VectorIndexSpec spec);
-
   /// @brief Creates a new index based on the name, label, property and vertices.
   /// @param spec The specification for the index to be created.
   /// @return true if the index was created successfully, false otherwise.
-  bool CreateIndex(VectorIndexSpec spec, utils::SkipList<Vertex>::Accessor vertices);
+  bool CreateIndex(VectorIndexSpec spec, utils::SkipList<Vertex>::Accessor &vertices);
 
   /// @brief Drops an existing index.
   /// @param index_name The name of the index to be dropped.
