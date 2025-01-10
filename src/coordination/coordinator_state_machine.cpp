@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,13 +11,12 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "nuraft/coordinator_state_machine.hpp"
+#include "coordination/coordinator_state_machine.hpp"
 
+#include "coordination/constants_log_durability.hpp"
+#include "coordination/coordinator_cluster_state.hpp"
 #include "coordination/coordinator_exceptions.hpp"
-#include "nuraft/constants_log_durability.hpp"
-#include "nuraft/coordinator_cluster_state.hpp"
-#include "nuraft/coordinator_state_manager.hpp"
-#include "utils.hpp"
+#include "coordination/coordinator_state_manager.hpp"
 #include "utils/logging.hpp"
 
 #include <regex>
@@ -117,12 +116,12 @@ void CoordinatorStateMachine::UpdateStateMachineFromSnapshotDurability() {
 
 bool CoordinatorStateMachine::HandleMigration(LogStoreVersion stored_version) {
   UpdateStateMachineFromSnapshotDurability();
-  if (kActiveVersion == LogStoreVersion::kV2) {
+  if constexpr (kActiveVersion == LogStoreVersion::kV2) {
     if (stored_version == LogStoreVersion::kV1) {
       return durability_->Put(kLastCommitedIdx, std::to_string(last_committed_idx_));
     }
     if (stored_version == LogStoreVersion::kV2) {
-      auto maybe_last_commited_idx = durability_->Get(kLastCommitedIdx);
+      const auto maybe_last_commited_idx = durability_->Get(kLastCommitedIdx);
       if (!maybe_last_commited_idx.has_value()) {
         logger_.Log(
             nuraft_log_level::ERROR,
@@ -131,7 +130,7 @@ bool CoordinatorStateMachine::HandleMigration(LogStoreVersion stored_version) {
                 last_committed_idx_.load()));
         return durability_->Put(kLastCommitedIdx, std::to_string(last_committed_idx_));
       }
-      auto last_committed_idx_value = std::stoul(maybe_last_commited_idx.value());
+      const auto last_committed_idx_value = std::stoul(maybe_last_commited_idx.value());
       if (last_committed_idx_value < last_committed_idx_) {
         logger_.Log(nuraft_log_level::ERROR, fmt::format("Last committed index stored in durability is smaller then "
                                                          "one found from snapshots, using one found in snapshots {}.",
@@ -165,26 +164,31 @@ auto CoordinatorStateMachine::CreateLog(nlohmann::json &&log) -> ptr<buffer> {
   return log_buf;
 }
 
-auto CoordinatorStateMachine::SerializeUpdateClusterState(std::vector<DataInstanceState> cluster_state,
+auto CoordinatorStateMachine::SerializeUpdateClusterState(std::vector<DataInstanceContext> data_instances,
+                                                          std::vector<CoordinatorInstanceContext> coordinator_instances,
                                                           utils::UUID uuid) -> ptr<buffer> {
-  return CreateLog({{"cluster_state", cluster_state}, {"uuid", uuid}});
+  return CreateLog(
+      {{"cluster_state", data_instances}, {"coordinator_instances", coordinator_instances}, {"uuid", uuid}});
 }
 
-auto CoordinatorStateMachine::DecodeLog(buffer &data) -> std::pair<std::vector<DataInstanceState>, utils::UUID> {
+auto CoordinatorStateMachine::DecodeLog(buffer &data)
+    -> std::tuple<std::vector<DataInstanceContext>, std::vector<CoordinatorInstanceContext>, utils::UUID> {
   buffer_serializer bs(data);
   auto const json = nlohmann::json::parse(bs.get_str());
 
-  auto const &cluster_state = json.at("cluster_state");
-  auto const &uuid = json.at("uuid");
-  return std::make_pair(cluster_state.get<std::vector<DataInstanceState>>(), uuid.get<utils::UUID>());
+  auto const data_instances = json.at("cluster_state");
+  auto const uuid = json.at("uuid");
+  auto const coordinator_instances = json.at("coordinator_instances");
+  return std::make_tuple(data_instances.get<std::vector<DataInstanceContext>>(),
+                         coordinator_instances.get<std::vector<CoordinatorInstanceContext>>(), uuid.get<utils::UUID>());
 }
 
 auto CoordinatorStateMachine::pre_commit(ulong const /*log_idx*/, buffer & /*data*/) -> ptr<buffer> { return nullptr; }
 
 auto CoordinatorStateMachine::commit(ulong const log_idx, buffer &data) -> ptr<buffer> {
   logger_.Log(nuraft_log_level::TRACE, fmt::format("Commit: log_idx={}, data.size()={}", log_idx, data.size()));
-  auto [data_instances, main_uuid] = DecodeLog(data);
-  cluster_state_.DoAction(std::move(data_instances), main_uuid);
+  auto [data_instances, coordinator_instances, main_uuid] = DecodeLog(data);
+  cluster_state_.DoAction(std::move(data_instances), std::move(coordinator_instances), main_uuid);
   if (durability_) {
     durability_->Put(kLastCommitedIdx, std::to_string(log_idx));
   }
@@ -347,8 +351,12 @@ auto CoordinatorStateMachine::CreateSnapshotInternal(ptr<snapshot> const &snapsh
   }
 }
 
-auto CoordinatorStateMachine::GetDataInstances() const -> std::vector<DataInstanceState> {
-  return cluster_state_.GetDataInstances();
+auto CoordinatorStateMachine::GetDataInstancesContext() const -> std::vector<DataInstanceContext> {
+  return cluster_state_.GetDataInstancesContext();
+}
+
+auto CoordinatorStateMachine::GetCoordinatorInstancesContext() const -> std::vector<CoordinatorInstanceContext> {
+  return cluster_state_.GetCoordinatorInstancesContext();
 }
 
 auto CoordinatorStateMachine::GetCurrentMainUUID() const -> utils::UUID { return cluster_state_.GetCurrentMainUUID(); }

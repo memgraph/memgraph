@@ -354,24 +354,6 @@ class DbAccessor final {
     return EdgeAccessor(*maybe_edge);
   }
 
-  storage::Result<EdgeAccessor> EdgeSetFrom(EdgeAccessor *edge, VertexAccessor *new_from) {
-    auto changed_edge = accessor_->EdgeSetFrom(&edge->impl_, &new_from->impl_);
-    if (changed_edge.HasError()) return storage::Result<EdgeAccessor>(changed_edge.GetError());
-    return EdgeAccessor(*changed_edge);
-  }
-
-  storage::Result<EdgeAccessor> EdgeSetTo(EdgeAccessor *edge, VertexAccessor *new_to) {
-    auto changed_edge = accessor_->EdgeSetTo(&edge->impl_, &new_to->impl_);
-    if (changed_edge.HasError()) return storage::Result<EdgeAccessor>(changed_edge.GetError());
-    return EdgeAccessor(*changed_edge);
-  }
-
-  storage::Result<EdgeAccessor> EdgeChangeType(EdgeAccessor *edge, storage::EdgeTypeId new_edge_type) {
-    auto changed_edge = accessor_->EdgeChangeType(&edge->impl_, new_edge_type);
-    if (changed_edge.HasError()) return storage::Result<EdgeAccessor>{changed_edge.GetError()};
-    return EdgeAccessor(*changed_edge);
-  }
-
   storage::Result<std::optional<EdgeAccessor>> RemoveEdge(EdgeAccessor *edge) {
     auto res = accessor_->DeleteEdge(&edge->impl_);
     if (res.HasError()) {
@@ -774,12 +756,6 @@ class SubgraphDbAccessor final {
 
   storage::Result<EdgeAccessor> InsertEdge(SubgraphVertexAccessor *from, SubgraphVertexAccessor *to,
                                            const storage::EdgeTypeId &edge_type);
-
-  storage::Result<EdgeAccessor> EdgeSetFrom(EdgeAccessor *edge, SubgraphVertexAccessor *new_from);
-
-  storage::Result<EdgeAccessor> EdgeSetTo(EdgeAccessor *edge, SubgraphVertexAccessor *new_to);
-
-  storage::Result<EdgeAccessor> EdgeChangeType(EdgeAccessor *edge, storage::EdgeTypeId new_edge_type);
 
   storage::Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachRemoveVertex(
       SubgraphVertexAccessor *vertex_accessor);

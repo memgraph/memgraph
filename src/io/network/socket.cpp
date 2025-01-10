@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -222,7 +222,7 @@ std::optional<Socket> Socket::Accept() const {
   return Socket(sfd, endpoint);
 }
 
-bool Socket::Write(const uint8_t *data, size_t len, bool have_more, std::optional<int> timeout_ms) const {
+bool Socket::Write(const uint8_t *data, size_t len, bool have_more) const {
   // MSG_NOSIGNAL is here to disable raising a SIGPIPE signal when a
   // connection dies mid-write, the socket will only return an EPIPE error.
   constexpr unsigned msg_nosignal = MSG_NOSIGNAL;
@@ -238,7 +238,7 @@ bool Socket::Write(const uint8_t *data, size_t len, bool have_more, std::optiona
       // Non-fatal error, retry after the socket is ready. This is here to
       // implement a non-busy wait. If we just continue with the loop we have a
       // busy wait.
-      if (!WaitForReadyWrite(timeout_ms)) return false;
+      if (!WaitForReadyWrite()) return false;
     } else if (written == 0) {
       // The client closed the connection.
       return false;
@@ -250,57 +250,36 @@ bool Socket::Write(const uint8_t *data, size_t len, bool have_more, std::optiona
   return true;
 }
 
-bool Socket::Write(std::string_view s, bool have_more, std::optional<int> timeout_ms) const {
-  return Write(reinterpret_cast<const uint8_t *>(s.data()), s.size(), have_more, timeout_ms);
+bool Socket::Write(std::string_view s, bool have_more) const {
+  return Write(reinterpret_cast<const uint8_t *>(s.data()), s.size(), have_more);
 }
 
 ssize_t Socket::Read(void *buffer, size_t len, bool nonblock) const {
   return recv(socket_, buffer, len, nonblock ? MSG_DONTWAIT : 0);
 }
 
-bool Socket::WaitForReadyRead(std::optional<int> timeout_ms) const {
+bool Socket::WaitForReadyRead() const {
   struct pollfd p;
   p.fd = socket_;
   p.events = POLLIN;
   // We call poll with one element in the poll fds array (first and second
   // arguments), also we set the timeout to -1 to block indefinitely until an
   // event occurs.
-
-  // -1 for blocking indefinitely, otherwise wait for timeout_ms.
-  int const timeout = timeout_ms ? *timeout_ms : -1;
-  int const ret = poll(&p, 1, timeout);
-  if (ret == -1) {
-    spdlog::error("Error occurred while polling for file descriptors.");
-    return false;
-  }
-  if (ret == 0) {
-    spdlog::error("Waiting too long to get in ready state for reading. Timeout occurred.");
-    return false;
-  }
-
+  int const ret = poll(&p, 1, -1);
+  if (ret < 1) return false;
   constexpr unsigned pollin = POLLIN;
   return static_cast<unsigned>(p.revents) & pollin;
 }
 
-bool Socket::WaitForReadyWrite(std::optional<int> timeout_ms) const {
+bool Socket::WaitForReadyWrite() const {
   struct pollfd p;
   p.fd = socket_;
   p.events = POLLOUT;
   // We call poll with one element in the poll fds array (first and second
   // arguments), also we set the timeout to -1 to block indefinitely until an
   // event occurs.
-
-  // -1 for blocking indefinitely, otherwise wait for timeout_ms.
-  int const timeout = timeout_ms ? *timeout_ms : -1;
-  int const ret = poll(&p, 1, timeout);
-  if (ret == -1) {
-    spdlog::error("Error occurred while polling for file descriptors.");
-    return false;
-  }
-  if (ret == 0) {
-    spdlog::error("Waiting too long to get in ready state for writing. Timeout occurred.");
-    return false;
-  }
+  int const ret = poll(&p, 1, -1);
+  if (ret < 1) return false;
   constexpr unsigned pollout = POLLOUT;
   return static_cast<unsigned>(p.revents) & pollout;
 }

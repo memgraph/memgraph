@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,28 +17,19 @@
 #include "coordination/coordinator_instance.hpp"
 #include "coordination/coordinator_rpc.hpp"
 #include "replication_coordination_glue/common.hpp"
-#include "replication_coordination_glue/messages.hpp"
-#include "utils/result.hpp"
 #include "utils/uuid.hpp"
 
 #include <string>
 
 namespace memgraph::coordination {
 
-namespace {
-auto CreateClientContext(memgraph::coordination::CoordinatorToReplicaConfig const &config)
-    -> communication::ClientContext {
-  return (config.ssl) ? communication::ClientContext{config.ssl->key_file, config.ssl->cert_file}
-                      : communication::ClientContext{};
-}
-}  // namespace
-
-ReplicationInstanceClient::ReplicationInstanceClient(CoordinatorToReplicaConfig config,
-                                                     CoordinatorInstance *coord_instance)
-    : rpc_context_{CreateClientContext(config)},
+ReplicationInstanceClient::ReplicationInstanceClient(DataInstanceConfig config, CoordinatorInstance *coord_instance,
+                                                     const std::chrono::seconds instance_health_check_frequency_sec)
+    : rpc_context_{communication::ClientContext{}},
       rpc_client_{config.mgt_server, &rpc_context_},
       config_{std::move(config)},
-      coord_instance_(coord_instance) {}
+      coord_instance_(coord_instance),
+      instance_health_check_frequency_sec_(instance_health_check_frequency_sec) {}
 
 auto ReplicationInstanceClient::InstanceName() const -> std::string { return config_.instance_name; }
 
@@ -51,28 +42,19 @@ auto ReplicationInstanceClient::ReplicationSocketAddress() const -> std::string 
   return config_.ReplicationSocketAddress();
 }
 
-auto ReplicationInstanceClient::InstanceDownTimeoutSec() const -> std::chrono::seconds {
-  return config_.instance_down_timeout_sec;
-}
-
-auto ReplicationInstanceClient::InstanceGetUUIDFrequencySec() const -> std::chrono::seconds {
-  return config_.instance_get_uuid_frequency_sec;
-}
-
 void ReplicationInstanceClient::StartStateCheck() {
   if (instance_checker_.IsRunning()) {
     return;
   }
 
-  MG_ASSERT(config_.instance_health_check_frequency_sec > std::chrono::seconds(0),
+  MG_ASSERT(instance_health_check_frequency_sec_ > std::chrono::seconds(0),
             "Health check frequency must be greater than 0");
 
-  instance_checker_.SetInterval(config_.instance_health_check_frequency_sec);
+  instance_checker_.SetInterval(instance_health_check_frequency_sec_);
   instance_checker_.Run(config_.instance_name, [this, instance_name = config_.instance_name] {
     spdlog::trace("Sending state check message to instance {} on {}.", instance_name,
                   config_.ManagementSocketAddress());
-    auto const res = SendStateCheckRpc();
-    if (res) {
+    if (auto const res = SendStateCheckRpc()) {
       coord_instance_->InstanceSuccessCallback(instance_name, res);
     } else {
       coord_instance_->InstanceFailCallback(instance_name, res);
@@ -113,7 +95,7 @@ auto ReplicationInstanceClient::SendDemoteToReplicaRpc() const -> bool {
       spdlog::error("Failed to receive successful RPC response for setting instance {} to replica!", instance_name);
       return false;
     }
-    spdlog::trace("Received successful response to DemoteMainToReplicaRpc!");
+    spdlog::info("Sent request RPC from coordinator to instance to set it as replica!");
     return true;
   } catch (rpc::RpcFailedException const &) {
     spdlog::error("Failed to receive RPC response when demoting instance {} to replica!", instance_name);
@@ -131,7 +113,7 @@ auto ReplicationInstanceClient::SendRegisterReplicaRpc(utils::UUID const &uuid,
                     instance_name);
       return false;
     }
-    spdlog::trace("Received successful response to RegisterReplicaOnMainRpc!");
+    spdlog::trace("Sent request RPC from coordinator to register replica instance on main.");
     return true;
   } catch (rpc::RpcFailedException const &) {
     spdlog::error("Failed to receive RPC response when registering instance {} to replica!", instance_name);

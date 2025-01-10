@@ -11,11 +11,11 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "nuraft/coordinator_log_store.hpp"
+#include "coordination/coordinator_log_store.hpp"
+#include "coordination/constants_log_durability.hpp"
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_exceptions.hpp"
-#include "nuraft/constants_log_durability.hpp"
-#include "utils.hpp"
+#include "coordination/utils.hpp"
 #include "utils/logging.hpp"
 
 #include "kvstore/kvstore.hpp"
@@ -49,7 +49,7 @@ CoordinatorLogStore::CoordinatorLogStore(LoggerWrapper logger, std::optional<Log
   }
 
   MG_ASSERT(HandleVersionMigration(log_store_durability->stored_log_store_version_),
-            "Couldn't handle version migration");
+            "Couldn't handle version migration in coordinator log store.");
 }
 
 bool CoordinatorLogStore::HandleVersionMigration(memgraph::coordination::LogStoreVersion stored_version) {
@@ -110,8 +110,10 @@ CoordinatorLogStore::~CoordinatorLogStore() = default;
 auto CoordinatorLogStore::FindOrDefault_(uint64_t index) const -> ptr<log_entry> {
   auto entry = logs_.find(index);
   if (entry == logs_.end()) {
+    logger_.Log(nuraft_log_level::TRACE, fmt::format("Couldn't find log with index {} in the log storage.", index));
     return cs_new<log_entry>(0, buffer::alloc(sizeof(uint64_t)));
   }
+  logger_.Log(nuraft_log_level::TRACE, fmt::format("Found log with index {} in the log storage.", index));
   return entry->second;
 }
 
@@ -151,10 +153,11 @@ uint64_t CoordinatorLogStore::append(ptr<log_entry> &entry) {
   uint64_t const next_slot = GetNextSlot();
 
   if (durability_) {
-    bool const is_entry_with_biggest_id = true;
+    bool constexpr is_entry_with_biggest_id{true};
     StoreEntryToDisk(clone, next_slot, is_entry_with_biggest_id);
   }
 
+  spdlog::trace("Appended log at index {} to the log storage.", next_slot);
   logs_[next_slot] = clone;
 
   return next_slot;
@@ -326,19 +329,26 @@ bool CoordinatorLogStore::compact(uint64_t last_log_index) {
   return true;
 }
 
+// Configuration logs are flushed immeditately. This is called from NuRaft.
+// Otherwise, the possibility of split brain occurs inside Raft cluster.
 bool CoordinatorLogStore::flush() {
   if (durability_) {
+    spdlog::trace("Synced WAL to make Raft logs durable.");
     return durability_->SyncWal();
   }
   return true;
 }
 
 bool CoordinatorLogStore::StoreEntryToDisk(const ptr<log_entry> &clone, uint64_t key_id, bool is_newest_entry) {
-  auto const data_string = [&clone]() -> std::string {
+  auto const data_string = [&clone, logger = &logger_]() -> std::string {
     if (clone->get_val_type() != nuraft::log_val_type::app_log) {  // this is only our log, others nuraft creates and we
                                                                    // don't have actions for them
+      logger->Log(nuraft_log_level::TRACE,
+                  "Received non-application log, data will be empty string.");  // TODO: (andi) Not sure this is correct
+                                                                                // behavior.
       return {};
     }
+    logger->Log(nuraft_log_level::TRACE, "Received application log, serializing it.");
     buffer_serializer bs(clone->get_buf());  // data buff, nlohmann::json
     return bs.get_str();
   }();  // iile

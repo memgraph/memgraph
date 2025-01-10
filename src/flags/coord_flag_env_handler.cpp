@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -27,7 +27,7 @@
 
 namespace memgraph::flags {
 
-CoordinationSetup::CoordinationSetup(int management_port, int coordinator_port, uint32_t coordinator_id,
+CoordinationSetup::CoordinationSetup(int management_port, int coordinator_port, int32_t coordinator_id,
                                      std::string nuraft_log_file, bool ha_durability, std::string coordinator_hostname)
     : management_port(management_port),  // data instance management port or coordinator instance management port
       coordinator_port(coordinator_port),
@@ -96,7 +96,7 @@ void SetFinalCoordinationSetup() {
       spdlog::trace("Coordinator will be initialized using environment variables.");
       return CoordinationSetup(coord_envs[0] ? std::stoi(coord_envs[0].value()) : 0,
                                coord_envs[1] ? std::stoi(coord_envs[1].value()) : 0,
-                               coord_envs[2] ? static_cast<uint32_t>(std::stoul(coord_envs[2].value())) : 0,
+                               coord_envs[2] ? static_cast<int32_t>(std::stoul(coord_envs[2].value())) : 0,
                                coord_envs[3] ? coord_envs[3].value() : "",
                                coord_envs[4] ? static_cast<bool>(std::stoi(coord_envs[4].value())) : false,
                                coord_envs[5] ? coord_envs[5].value() : "");

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -145,15 +145,12 @@ class Socket {
    * @param have_more set to true if you plan to send more data to allow the
    * kernel to buffer the data instead of immediately sending it out
    *
-   * @param timeout_ms Timeout in miliseconds for writing operation
-   *
    * @return write success status:
    *             true if write succeeded
    *             false if write failed
    */
-  bool Write(const uint8_t *data, size_t len, bool have_more = false,
-             std::optional<int> timeout_ms = std::nullopt) const;
-  bool Write(std::string_view s, bool have_more = false, std::optional<int> timeout_ms = std::nullopt) const;
+  bool Write(const uint8_t *data, size_t len, bool have_more = false) const;
+  bool Write(std::string_view s, bool have_more = false) const;
 
   /**
    * Read data from the socket.
@@ -181,13 +178,11 @@ class Socket {
    * be read from the socket) and returns `false` if the wait failed (the socket
    * was closed or something else bad happened).
    *
-   * @param timeout_ms Timeout in miliseconds.
-   *
    * @return wait success status:
    *             true if the wait succeeded
    *             false if the wait failed
    */
-  bool WaitForReadyRead(std::optional<int> timeout_ms = std::nullopt) const;
+  bool WaitForReadyRead() const;
 
   /**
    * Wait until the socket becomes ready for a `Write` operation.
@@ -200,15 +195,11 @@ class Socket {
    * to) and returns `false` if the wait failed (the socket was closed or
    * something else bad happened).
    *
-   * @param timeout_ms Timeout in miliseconds. Max time allowed for waiting before socket becomes writeable.
-   *
    * @return wait success status:
    *             true if the wait succeeded
    *             false if the wait failed
    */
-  // TODO: (andi) Does this mean that if the RPC message needs to be sent but waits too long because some other requests
-  // are there from before, we won't send this RPC message?
-  bool WaitForReadyWrite(std::optional<int> timeout_ms = std::nullopt) const;
+  bool WaitForReadyWrite() const;
 
  private:
   Socket(int fd, Endpoint endpoint) : socket_(fd), endpoint_(std::move(endpoint)) {}
