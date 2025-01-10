@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -147,7 +147,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
   });
 }
 
-TimestampInfo ReplicationStorageClient::GetTimestampInfo(Storage const *storage) {
+TimestampInfo ReplicationStorageClient::GetTimestampInfo(Storage const *storage) const {
   TimestampInfo info;
   info.current_timestamp_of_replica = 0;
   info.current_number_of_timestamp_behind_main = 0;
@@ -252,7 +252,7 @@ auto ReplicationStorageClient::StartTransactionReplication(const uint64_t curren
 }
 
 bool ReplicationStorageClient::FinalizeTransactionReplication(Storage *storage, DatabaseAccessProtector db_acc,
-                                                              std::optional<ReplicaStream> &&replica_stream) {
+                                                              std::optional<ReplicaStream> &&replica_stream) const {
   // We can only check the state because it guarantees to be only
   // valid during a single transaction replication (if the assumption
   // that this and other transaction replication functions can only be
@@ -323,7 +323,7 @@ void ReplicationStorageClient::Start(Storage *storage, DatabaseAccessProtector d
   TryCheckReplicaStateSync(storage, std::move(db_acc));
 }
 
-void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, memgraph::storage::Storage *storage) {
+void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, memgraph::storage::Storage *storage) const {
   if (storage->storage_mode_ != StorageMode::IN_MEMORY_TRANSACTIONAL) {
     throw utils::BasicException("Only InMemoryTransactional mode supports replication!");
   }

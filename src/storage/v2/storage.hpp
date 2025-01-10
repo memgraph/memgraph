@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -36,8 +36,8 @@
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/replication/enums.hpp"
-#include "storage/v2/replication/replication_client.hpp"
 #include "storage/v2/replication/replication_storage_state.hpp"
+#include "storage/v2/replication/replication_transaction.hpp"
 #include "storage/v2/schema_info.hpp"
 #include "storage/v2/storage_error.hpp"
 #include "storage/v2/storage_mode.hpp"
