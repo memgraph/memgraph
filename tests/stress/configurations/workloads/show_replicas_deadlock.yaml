@@ -37,4 +37,9 @@ customWorkloads:
         #   type: lab-simulator
         #   num_repetitions: 100
         #   sleep_millis: 500
+        - name: show-replicas
+          type: reader
+          query: "SHOW REPLICAS;"
+          num_repetitions: 100
+          sleep_millis: 1000
       timeout_min: 2
