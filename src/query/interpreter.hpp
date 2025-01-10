@@ -365,6 +365,7 @@ class Interpreter final {
   void Abort();
 
   std::atomic<TransactionStatus> transaction_status_{TransactionStatus::IDLE};  // Tie to current_transaction_
+  std::atomic<bool> is_verifying_{false};
   std::optional<uint64_t> current_transaction_;
 
   void ResetUser();

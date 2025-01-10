@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -49,6 +49,11 @@ std::vector<std::vector<TypedValue>> InterpreterContext::TerminateTransactions(
   interpreters.WithLock([&not_found_midpoint, &maybe_kill_transaction_ids, user_or_role,
                          privilege_checker = std::move(privilege_checker)](const auto &interpreters) {
     for (Interpreter *interpreter : interpreters) {
+      interpreter->is_verifying_.store(true);
+
+      utils::OnScopeExit clean_verifying_status(
+          [interpreter]() { interpreter->is_verifying_.store(false, std::memory_order_release); });
+
       TransactionStatus alive_status = TransactionStatus::ACTIVE;
       // if it is just checking kill, commit and abort should wait for the end of the check
       // The only way to start checking if the transaction will get killed is if the transaction_status is
