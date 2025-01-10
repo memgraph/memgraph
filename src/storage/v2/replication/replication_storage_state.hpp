@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -41,37 +41,12 @@ class Storage;
 
 class ReplicationStorageClient;
 class ReplicaStream;
+class TransactionReplication;
 
 struct ReplicationStorageState {
   // Only MAIN can send
   auto InitializeTransaction(uint64_t seq_num, Storage *storage, DatabaseAccessProtector db_acc)
-      -> std::vector<std::optional<ReplicaStream>>;
-
-  template <typename... Args>
-  void AppendDelta(std::span<std::optional<ReplicaStream>> replica_streams, Args &&...args) {
-    replication_clients_.WithLock([&](auto &clients) {
-      for (auto &&[client, replica_stream] : ranges::views::zip(clients, replica_streams)) {
-        client->IfStreamingTransaction([&](auto &stream) { stream.AppendDelta(args...); }, replica_stream);
-      }
-    });
-  }
-
-  template <typename Func>
-  void EncodeToReplicas(std::span<std::optional<ReplicaStream>> replica_streams, Func &&func) {
-    replication_clients_.WithLock([&](auto &clients) {
-      for (auto &&[client, replica_stream] : ranges::views::zip(clients, replica_streams)) {
-        client->IfStreamingTransaction(
-            [&](auto &stream) {
-              auto encoder = stream.encoder();
-              func(encoder);
-            },
-            replica_stream);
-      }
-    });
-  }
-
-  bool FinalizeTransaction(uint64_t timestamp, Storage *storage, DatabaseAccessProtector db_acc,
-                           std::vector<std::optional<ReplicaStream>> replica_stream);
+      -> TransactionReplication;
 
   // Getters
   auto GetReplicaState(std::string_view name) const -> std::optional<replication::ReplicaState>;
@@ -85,7 +60,7 @@ struct ReplicationStorageState {
 
   template <typename F>
   bool WithClient(std::string_view replica_name, F &&callback) {
-    return replication_clients_.WithLock([replica_name, cb = std::forward<F>(callback)](auto &clients) {
+    return replication_clients_.WithReadLock([replica_name, cb = std::forward<F>(callback)](auto const &clients) {
       for (const auto &client : clients) {
         if (client->Name() == replica_name) {
           cb(*client);
