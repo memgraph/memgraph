@@ -213,6 +213,15 @@ class InMemoryStorage final : public Storage {
           label, property, value);
     }
 
+    /// Return approximate number of vertices with the given label and the given
+    /// values for the given properties. Note that this is always an over-estimate
+    /// and never an under-estimate.
+    uint64_t ApproximateVertexCount(LabelId label, const std::vector<PropertyId> &properties,
+                                    const std::vector<PropertyValue> &values) const override {
+      return static_cast<InMemoryStorage *>(storage_)->indices_.label_property_composite_index_->ApproximateVertexCount(
+          label, properties, values);
+    }
+
     /// Return approximate number of vertices with the given label and value for
     /// the given property in the range defined by provided upper and lower
     /// bounds.

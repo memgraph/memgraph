@@ -127,11 +127,7 @@ class InMemoryLabelPropertyCompositeIndex : public storage::LabelPropertyComposi
   /// `value`. If the `value` specified is `Null`, then an average number of
   /// equal elements is returned.
   uint64_t ApproximateVertexCount(LabelId label, const std::vector<PropertyId> &properties,
-                                  const PropertyValue &value) const override;
-
-  uint64_t ApproximateVertexCount(LabelId label, const std::vector<PropertyId> &properties,
-                                  const std::optional<utils::Bound<PropertyValue>> &lower,
-                                  const std::optional<utils::Bound<PropertyValue>> &upper) const override;
+                                  const std::vector<PropertyValue> &values) const override;
 
   std::vector<std::pair<LabelId, PropertyId>> ClearIndexStats();
 

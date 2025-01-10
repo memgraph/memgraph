@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -52,6 +52,13 @@ bool PlanPrinter::PreVisit(query::plan::ScanAllByLabel &op) {
 }
 
 bool PlanPrinter::PreVisit(query::plan::ScanAllByLabelPropertyValue &op) {
+  op.dba_ = dba_;
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
+  op.dba_ = nullptr;
+  return true;
+}
+
+bool PlanPrinter::PreVisit(query::plan::ScanAllByLabelPropertyCompositeValue &op) {
   op.dba_ = dba_;
   WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   op.dba_ = nullptr;
@@ -510,6 +517,21 @@ bool PlanToJsonVisitor::PreVisit(ScanAllByLabelPropertyValue &op) {
   self["label"] = ToJson(op.label_, *dba_);
   self["property"] = ToJson(op.property_, *dba_);
   self["expression"] = ToJson(op.expression_, *dba_);
+  self["output_symbol"] = ToJson(op.output_symbol_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(ScanAllByLabelPropertyCompositeValue &op) {
+  json self;
+  self["name"] = "ScanAllByLabelPropertyCompositeValue";
+  self["label"] = ToJson(op.label_, *dba_);
+  self["properties"] = ToJson(op.properties_, *dba_);
+  self["expressions"] = ToJson(op.expressions_, *dba_);
   self["output_symbol"] = ToJson(op.output_symbol_);
 
   op.input_->Accept(*this);

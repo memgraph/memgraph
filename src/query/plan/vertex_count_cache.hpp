@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -67,6 +67,14 @@ class VertexCountCache {
     return it->second;
   }
 
+  int64_t VerticesCount(storage::LabelId label, const std::vector<storage::PropertyId> &properties) {
+    // auto key = std::make_pair(label, property);
+    // if (label_property_vertex_count_.find(key) == label_property_vertex_count_.end())
+    //   label_property_vertex_count_[key] = db_->VerticesCount(label, property);
+    // return label_property_vertex_count_.at(key);
+    return 10;
+  }
+
   int64_t VerticesCount(storage::LabelId label, storage::PropertyId property, const storage::PropertyValue &value) {
     auto label_prop = std::make_pair(label, property);
     auto &value_vertex_count = property_value_vertex_count_[label_prop];
@@ -75,6 +83,18 @@ class VertexCountCache {
     if (value_vertex_count.find(tv_value) == value_vertex_count.end())
       value_vertex_count[tv_value] = db_->VerticesCount(label, property, value);
     return value_vertex_count.at(tv_value);
+  }
+
+  int64_t VerticesCount(storage::LabelId label, const std::vector<storage::PropertyId> &properties,
+                        const std::vector<storage::PropertyValue> &values) {
+    // auto label_prop = std::make_pair(label, property);
+    // auto &value_vertex_count = property_value_vertex_count_[label_prop];
+    // // TODO: Why do we even need TypedValue in this whole file?
+    // TypedValue tv_value(value);
+    // if (value_vertex_count.find(tv_value) == value_vertex_count.end())
+    //   value_vertex_count[tv_value] = db_->VerticesCount(label, property, value);
+    // return value_vertex_count.at(tv_value);
+    return 10;
   }
 
   int64_t VerticesCount(storage::LabelId label, storage::PropertyId property,

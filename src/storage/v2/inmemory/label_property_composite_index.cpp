@@ -422,7 +422,7 @@ uint64_t InMemoryLabelPropertyCompositeIndex::ApproximateVertexCount(LabelId lab
 
 uint64_t InMemoryLabelPropertyCompositeIndex::ApproximateVertexCount(LabelId label,
                                                                      const std::vector<PropertyId> &properties,
-                                                                     const PropertyValue &value) const {
+                                                                     const std::vector<PropertyValue> &values) const {
   // auto it = index_.find({label, property});
   // MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(),
   // property.AsUint()); auto acc = it->second.access(); if (!value.IsNull()) {
@@ -437,18 +437,6 @@ uint64_t InMemoryLabelPropertyCompositeIndex::ApproximateVertexCount(LabelId lab
   //     [](const auto &first, const auto &second) { return first.value == second.value; },
   //     // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
   //     utils::SkipListLayerForAverageEqualsEstimation(acc.size()));
-  throw utils::NotYetImplemented(
-      "Label-property composite index related operations are not yet supported using in-memory storage mode.");
-}
-
-uint64_t InMemoryLabelPropertyCompositeIndex::ApproximateVertexCount(
-    LabelId label, const std::vector<PropertyId> &properties, const std::optional<utils::Bound<PropertyValue>> &lower,
-    const std::optional<utils::Bound<PropertyValue>> &upper) const {
-  // auto it = index_.find({label, property});
-  // MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(),
-  // property.AsUint()); auto acc = it->second.access();
-  // // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
-  // return acc.estimate_range_count(lower, upper, utils::SkipListLayerForCountEstimation(acc.size()));
   throw utils::NotYetImplemented(
       "Label-property composite index related operations are not yet supported using in-memory storage mode.");
 }

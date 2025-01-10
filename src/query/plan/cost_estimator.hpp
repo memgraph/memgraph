@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -88,6 +88,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     static constexpr double kScanAll{1.0};
     static constexpr double kScanAllByLabel{1.1};
     static constexpr double MakeScanAllByLabelPropertyValue{1.1};
+    static constexpr double MakeScanAllByLabelPropertyCompositeValue{1.1};
     static constexpr double MakeScanAllByLabelPropertyRange{1.1};
     static constexpr double MakeScanAllByLabelProperty{1.1};
     static constexpr double MakeScanAllByPointDistance{1.1};
@@ -177,6 +178,42 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 
     // ScanAll performs some work for every element that is produced
     IncrementCost(CostParam::MakeScanAllByLabelPropertyValue);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByLabelPropertyCompositeValue &logical_op) override {
+    // This cardinality estimation depends on the property value (expression).
+    // If it's a constant, we can evaluate cardinality exactly, otherwise
+    // we estimate
+    // auto index_stats = db_accessor_->GetIndexStats(logical_op.label_, logical_op.property_);
+    // if (index_stats.has_value()) {
+    //   SaveStatsFor(logical_op.output_symbol_, index_stats.value());
+    // }
+    std::vector<storage::PropertyValue> property_values;
+    property_values.reserve(logical_op.expressions_.size());
+    for (auto *expression : logical_op.expressions_) {
+      auto maybe_property_value = ConstPropertyValue(expression);
+      if (maybe_property_value.has_value()) {
+        property_values.emplace_back(maybe_property_value.value());
+      }
+    }
+
+    double factor = 1.0;
+    if (property_values.size() == logical_op.expressions_.size())
+      // get the exact influence based on ScanAll(label, property, value)
+      factor = db_accessor_->VerticesCount(logical_op.label_, logical_op.properties_, property_values);
+    else
+      // estimate the influence as ScanAll(label, property) * filtering
+      factor = db_accessor_->VerticesCount(logical_op.label_, logical_op.properties_) * CardParam::kFilter;
+
+    cardinality_ *= factor;
+
+    // if (index_hints_.HasLabelPropertyIndex(db_accessor_, logical_op.label_, logical_op.property_)) {
+    //   use_index_hints_ = true;
+    // }
+
+    // ScanAll performs some work for every element that is produced
+    IncrementCost(CostParam::MakeScanAllByLabelPropertyCompositeValue);
     return true;
   }
 
