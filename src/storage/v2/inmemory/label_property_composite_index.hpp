@@ -145,15 +145,16 @@ class InMemoryLabelPropertyCompositeIndex : public storage::LabelPropertyComposi
 
   void RunGC();
 
-  Iterable Vertices(LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
-                    Transaction *transaction);
+  Iterable Vertices(LabelId label, const std::vector<PropertyId> &properties,
+                    const std::optional<utils::Bound<std::vector<PropertyValue>>> &lower_bound,
+                    const std::optional<utils::Bound<std::vector<PropertyValue>>> &upper_bound, View view,
+                    Storage *storage, Transaction *transaction);
 
-  Iterable Vertices(LabelId label, PropertyId property,
+  Iterable Vertices(LabelId label, const std::vector<PropertyId> &properties,
                     memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc,
-                    const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
-                    Transaction *transaction);
+                    const std::optional<utils::Bound<std::vector<PropertyValue>>> &lower_bound,
+                    const std::optional<utils::Bound<std::vector<PropertyValue>>> &upper_bound, View view,
+                    Storage *storage, Transaction *transaction);
 
   void DropGraphClearIndices() override;
 

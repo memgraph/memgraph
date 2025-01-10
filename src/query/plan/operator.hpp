@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -93,6 +93,7 @@ class ScanAll;
 class ScanAllByLabel;
 class ScanAllByLabelPropertyRange;
 class ScanAllByLabelPropertyValue;
+class ScanAllByLabelPropertyCompositeValue;
 class ScanAllByLabelProperty;
 class ScanAllById;
 class ScanAllByEdge;
@@ -145,7 +146,8 @@ using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
     ScanAllByPointWithinbbox, Expand, ExpandVariable, ConstructNamedPath, Filter, Produce, Delete, SetProperty,
     SetProperties, SetLabels, RemoveProperty, RemoveLabels, EdgeUniquenessFilter, Accumulate, Aggregate, Skip, Limit,
     OrderBy, Merge, Optional, Unwind, Distinct, Union, Cartesian, CallProcedure, LoadCsv, Foreach, EmptyResult,
-    EvaluatePatternFilter, Apply, IndexedJoin, HashJoin, RollUpApply, PeriodicCommit, PeriodicSubquery>;
+    EvaluatePatternFilter, Apply, IndexedJoin, HashJoin, RollUpApply, PeriodicCommit, PeriodicSubquery,
+    ScanAllByLabelPropertyCompositeValue>;
 
 using LogicalOperatorLeafVisitor = utils::LeafVisitor<Once>;
 
@@ -876,6 +878,53 @@ class ScanAllByLabelPropertyValue : public memgraph::query::plan::ScanAll {
     object->label_ = label_;
     object->property_ = property_;
     object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
+    return object;
+  }
+};
+
+/// Behaves like @c ScanAll, but produces only vertices with given label and
+/// property values.
+///
+/// @sa ScanAll
+/// @sa ScanAllByLabel
+/// @sa ScanAllByLabelPropertyRange
+class ScanAllByLabelPropertyCompositeValue : public memgraph::query::plan::ScanAll {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  ScanAllByLabelPropertyCompositeValue() = default;
+  /**
+   * Constructs the operator for given label and property value.
+   *
+   * @param input Preceding operator which will serve as the input.
+   * @param output_symbol Symbol where the vertices will be stored.
+   * @param label Label which the vertex must have.
+   * @param properties Properties from which the value will be looked up from.
+   * @param expression Expression producing the value of the vertex property.
+   * @param view storage::View used when obtaining vertices.
+   */
+  ScanAllByLabelPropertyCompositeValue(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
+                                       storage::LabelId label, std::vector<storage::PropertyId> properties,
+                                       std::vector<Expression *> expressions, storage::View view = storage::View::OLD);
+
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+
+  storage::LabelId label_;
+  std::vector<storage::PropertyId> properties_;
+  std::vector<Expression *> expressions_;
+
+  std::string ToString() const override;
+
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
+    auto object = std::make_unique<ScanAllByLabelPropertyCompositeValue>();
+    object->input_ = input_ ? input_->Clone(storage) : nullptr;
+    object->output_symbol_ = output_symbol_;
+    object->view_ = view_;
+    object->label_ = label_;
+    object->properties_ = properties_;
+    object->expressions_ = expressions_;
     return object;
   }
 };

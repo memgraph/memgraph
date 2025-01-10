@@ -508,8 +508,9 @@ void InMemoryLabelPropertyCompositeIndex::RunGC() {
 }
 
 InMemoryLabelPropertyCompositeIndex::Iterable InMemoryLabelPropertyCompositeIndex::Vertices(
-    LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
+    LabelId label, const std::vector<PropertyId> &properties,
+    const std::optional<utils::Bound<std::vector<PropertyValue>>> &lower_bound,
+    const std::optional<utils::Bound<std::vector<PropertyValue>>> &upper_bound, View view, Storage *storage,
     Transaction *transaction) {
   // DMG_ASSERT(storage->storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL ||
   //                storage->storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL,
@@ -525,10 +526,10 @@ InMemoryLabelPropertyCompositeIndex::Iterable InMemoryLabelPropertyCompositeInde
 }
 
 InMemoryLabelPropertyCompositeIndex::Iterable InMemoryLabelPropertyCompositeIndex::Vertices(
-    LabelId label, PropertyId property,
+    LabelId label, const std::vector<PropertyId> &properties,
     memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc,
-    const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
+    const std::optional<utils::Bound<std::vector<PropertyValue>>> &lower_bound,
+    const std::optional<utils::Bound<std::vector<PropertyValue>>> &upper_bound, View view, Storage *storage,
     Transaction *transaction) {
   // auto it = index_.find({label, property});
   // MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(),

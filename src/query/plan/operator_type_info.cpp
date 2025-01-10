@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -43,6 +43,10 @@ constexpr utils::TypeInfo query::plan::ScanAllByLabelPropertyRange::kType{
 
 constexpr utils::TypeInfo query::plan::ScanAllByLabelPropertyValue::kType{
     utils::TypeId::SCAN_ALL_BY_LABEL_PROPERTY_VALUE, "ScanAllByLabelPropertyValue", &query::plan::ScanAll::kType};
+
+constexpr utils::TypeInfo query::plan::ScanAllByLabelPropertyCompositeValue::kType{
+    utils::TypeId::SCAN_ALL_BY_LABEL_PROPERTY_COMPOSITE_VALUE, "ScanAllByLabelPropertyCompositeValue",
+    &query::plan::ScanAll::kType};
 
 constexpr utils::TypeInfo query::plan::ScanAllByLabelProperty::kType{
     utils::TypeId::SCAN_ALL_BY_LABEL_PROPERTY, "ScanAllByLabelProperty", &query::plan::ScanAll::kType};

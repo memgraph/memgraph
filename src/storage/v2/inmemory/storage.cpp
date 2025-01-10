@@ -1662,6 +1662,15 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, Prop
                                                              &transaction_));
 }
 
+VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, const std::vector<PropertyId> &properties,
+                                                             const std::vector<PropertyValue> &values, View view) {
+  auto *mem_label_property_composite_index =
+      static_cast<InMemoryLabelPropertyCompositeIndex *>(storage_->indices_.label_property_composite_index_.get());
+  return VerticesIterable(
+      mem_label_property_composite_index->Vertices(label, properties, utils::MakeBoundInclusive(values),
+                                                   utils::MakeBoundInclusive(values), view, storage_, &transaction_));
+}
+
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(
     LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) {

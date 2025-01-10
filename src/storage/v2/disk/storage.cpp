@@ -595,6 +595,11 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
   return VerticesIterable(AllVerticesIterable(indexed_vertices->access(), storage_, &transaction_, view));
 }
 
+VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, const std::vector<PropertyId> &properties,
+                                                     const std::vector<PropertyValue> &values, View view) {
+  throw utils::NotYetImplemented("Label-property composite indexing is not yet implemented on on-disk storage mode.");
+}
+
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property,
                                                      const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                                      const std::optional<utils::Bound<PropertyValue>> &upper_bound,

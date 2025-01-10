@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -103,6 +103,7 @@ extern const Event ScanAllByLabelOperator;
 extern const Event ScanAllByLabelPropertyRangeOperator;
 extern const Event ScanAllByLabelPropertyValueOperator;
 extern const Event ScanAllByLabelPropertyOperator;
+extern const Event ScanAllByLabelPropertyCompositeValueOperator;
 extern const Event ScanAllByIdOperator;
 extern const Event ScanAllByEdgeOperator;
 extern const Event ScanAllByEdgeTypeOperator;
@@ -984,6 +985,54 @@ UniqueCursorPtr ScanAllByLabelPropertyValue::MakeCursor(utils::MemoryResource *m
 std::string ScanAllByLabelPropertyValue::ToString() const {
   return fmt::format("ScanAllByLabelPropertyValue ({0} :{1} {{{2}}})", output_symbol_.name(), dba_->LabelToName(label_),
                      dba_->PropertyToName(property_));
+}
+
+ScanAllByLabelPropertyCompositeValue::ScanAllByLabelPropertyCompositeValue(
+    const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::LabelId label,
+    std::vector<storage::PropertyId> properties, std::vector<Expression *> expressions, storage::View view)
+    : ScanAll(input, output_symbol, view), label_(label), properties_(properties), expressions_(expressions) {
+  for (const auto *expression : expressions) {
+    DMG_ASSERT(expression, "Expression is not optional.");
+  }
+}
+
+ACCEPT_WITH_INPUT(ScanAllByLabelPropertyCompositeValue)
+
+UniqueCursorPtr ScanAllByLabelPropertyCompositeValue::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByLabelPropertyCompositeValueOperator);
+
+  auto vertices = [this](Frame &frame, ExecutionContext &context)
+      -> std::optional<decltype(context.db_accessor->Vertices(view_, label_, properties_,
+                                                              std::vector<storage::PropertyValue>{}))> {
+    auto *db = context.db_accessor;
+    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_);
+    std::vector<storage::PropertyValue> property_values;
+    property_values.reserve(expressions_.size());
+    for (auto *expression : expressions_) {
+      auto value = expression->Accept(evaluator);
+      if (value.IsNull()) return std::nullopt;
+      if (!value.IsPropertyValue()) {
+        throw QueryRuntimeException("'{}' cannot be used as a property value.", value.type());
+      }
+      property_values.emplace_back(storage::PropertyValue(value));
+    }
+
+    return std::make_optional(db->Vertices(view_, label_, properties_, property_values));
+  };
+  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
+                                                                view_, std::move(vertices),
+                                                                "ScanAllByLabelPropertyCompositeValue");
+}
+
+std::string ScanAllByLabelPropertyCompositeValue::ToString() const {
+  std::vector<std::string> properties_string;
+  properties_string.reserve(properties_.size());
+  for (const auto &prop : properties_) {
+    properties_string.emplace_back(dba_->PropertyToName(prop));
+  }
+
+  return fmt::format("ScanAllByLabelPropertyCompositeValue ({0} :{1} {{{2}}})", output_symbol_.name(),
+                     dba_->LabelToName(label_), utils::Join(properties_string, ", "));
 }
 
 ScanAllByLabelProperty::ScanAllByLabelProperty(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
