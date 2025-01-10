@@ -57,6 +57,7 @@ extern const Event SnapshotCreationLatency_us;
 
 extern const Event ActiveLabelIndices;
 extern const Event ActiveLabelPropertyIndices;
+extern const Event ActiveLabelPropertyCompositeIndices;
 extern const Event ActivePointIndices;
 extern const Event ActiveTextIndices;
 }  // namespace memgraph::metrics

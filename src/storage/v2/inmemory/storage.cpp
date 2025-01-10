@@ -94,6 +94,8 @@ constexpr auto ActionToStorageOperation(MetadataDelta::Action action) -> durabil
     add_case(ENUM_ALTER_UPDATE);
     add_case(POINT_INDEX_CREATE);
     add_case(POINT_INDEX_DROP);
+    add_case(LABEL_PROPERTY_COMPOSITE_INDEX_CREATE);
+    add_case(LABEL_PROPERTY_COMPOSITE_INDEX_DROP);
   }
 #undef add_case
 }
@@ -1409,18 +1411,19 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
     LabelId label, const std::vector<PropertyId> &properties) {
-  // MG_ASSERT(unique_guard_.owns_lock(), "Creating label-property index requires a unique access to the storage!");
-  // auto *in_memory = static_cast<InMemoryStorage *>(storage_);
-  // auto *mem_label_property_index =
-  //     static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
-  // if (!mem_label_property_index->CreateIndex(label, property, in_memory->vertices_.access(), std::nullopt)) {
-  //   return StorageIndexDefinitionError{IndexDefinitionError{}};
-  // }
-  // transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_create, label, property);
-  // // We don't care if there is a replication error because on main node the change will go through
-  // memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
-  throw utils::NotYetImplemented(
-      "Label-property composite index related operations are not yet supported using in-memory storage mode.");
+  MG_ASSERT(unique_guard_.owns_lock(),
+            "Creating label-property composite index requires a unique access to the storage!");
+  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  auto *mem_label_property_composite_index =
+      static_cast<InMemoryLabelPropertyCompositeIndex *>(in_memory->indices_.label_property_composite_index_.get());
+  if (!mem_label_property_composite_index->CreateIndex(label, properties, in_memory->vertices_.access(),
+                                                       std::nullopt)) {
+    return StorageIndexDefinitionError{IndexDefinitionError{}};
+  }
+  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_composite_index_create, label, properties);
+  // We don't care if there is a replication error because on main node the change will go through
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelPropertyCompositeIndices);
+  return {};
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
@@ -1480,18 +1483,17 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(
     LabelId label, const std::vector<PropertyId> &properties) {
-  // MG_ASSERT(unique_guard_.owns_lock(), "Dropping label-property index requires a unique access to the storage!");
-  // auto *in_memory = static_cast<InMemoryStorage *>(storage_);
-  // auto *mem_label_property_index =
-  //     static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
-  // if (!mem_label_property_index->DropIndex(label, property)) {
-  //   return StorageIndexDefinitionError{IndexDefinitionError{}};
-  // }
-  // transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop, label, property);
-  // // We don't care if there is a replication error because on main node the change will go through
-  // memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
-  throw utils::NotYetImplemented(
-      "Label-property composite index related operations are not yet supported using in-memory storage mode.");
+  MG_ASSERT(unique_guard_.owns_lock(), "Dropping label-property index requires a unique access to the storage!");
+  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  auto *mem_label_property_composite_index =
+      static_cast<InMemoryLabelPropertyCompositeIndex *>(in_memory->indices_.label_property_composite_index_.get());
+  if (!mem_label_property_composite_index->DropIndex(label, properties)) {
+    return StorageIndexDefinitionError{IndexDefinitionError{}};
+  }
+  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_composite_index_drop, label, properties);
+  // We don't care if there is a replication error because on main node the change will go through
+  memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelPropertyCompositeIndices);
+  return {};
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(
@@ -2305,6 +2307,14 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
         });
         break;
       }
+      case MetadataDelta::Action::LABEL_PROPERTY_COMPOSITE_INDEX_CREATE:
+      case MetadataDelta::Action::LABEL_PROPERTY_COMPOSITE_INDEX_DROP: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeLabelPropertiesVector(encoder, *name_id_mapper_, md_delta.label_property_composite.label,
+                                      md_delta.label_property_composite.properties);
+        });
+        break;
+      }
       case MetadataDelta::Action::TEXT_INDEX_CREATE:
       case MetadataDelta::Action::TEXT_INDEX_DROP: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
@@ -2315,8 +2325,8 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
       case MetadataDelta::Action::UNIQUE_CONSTRAINT_CREATE:
       case MetadataDelta::Action::UNIQUE_CONSTRAINT_DROP: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeLabelProperties(encoder, *name_id_mapper_, md_delta.label_properties.label,
-                                md_delta.label_properties.properties);
+          EncodeLabelPropertiesSet(encoder, *name_id_mapper_, md_delta.label_properties.label,
+                                   md_delta.label_properties.properties);
         });
         break;
       }

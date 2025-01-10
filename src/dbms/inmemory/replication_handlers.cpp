@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -1044,6 +1044,33 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
           auto res = transaction->DropPointIndex(labelId, propId);
           if (res.HasError()) {
             throw utils::BasicException("Failed to drop point index on :{}({})", data.label, data.property);
+          }
+        },
+        [&](WalLabelPropertyCompositeIndexCreate const &data) {
+          std::stringstream ss;
+          utils::PrintIterable(ss, data.properties);
+          spdlog::trace("       Create label+property composite index on :{} ({})", data.label, ss.str());
+          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          std::vector<PropertyId> properties;
+          for (const auto &prop : data.properties) {
+            properties.emplace_back(storage->NameToProperty(prop));
+          }
+          if (transaction->CreateIndex(storage->NameToLabel(data.label), properties).HasError())
+            throw utils::BasicException("Failed to create label+property composite index on :{} ({}).", data.label,
+                                        ss.str());
+        },
+        [&](WalLabelPropertyCompositeIndexDrop const &data) {
+          std::stringstream ss;
+          utils::PrintIterable(ss, data.properties);
+          spdlog::trace("       Drop label+property composite index on :{} ({})", data.label, ss.str());
+          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          std::vector<PropertyId> properties;
+          for (const auto &prop : data.properties) {
+            properties.emplace_back(storage->NameToProperty(prop));
+          }
+          if (transaction->DropIndex(storage->NameToLabel(data.label), properties).HasError()) {
+            throw utils::BasicException("Failed to drop label+property composite index on :{} ({}).", data.label,
+                                        ss.str());
           }
         },
     };

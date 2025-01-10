@@ -1664,6 +1664,11 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
             return StorageManipulationError{PersistenceError{}};
           }
         } break;
+        case MetadataDelta::Action::LABEL_PROPERTY_COMPOSITE_INDEX_CREATE:
+        case MetadataDelta::Action::LABEL_PROPERTY_COMPOSITE_INDEX_DROP: {
+          throw utils::NotYetImplemented(
+              "Label-property composite indexing is not yet implemented on on-disk storage mode.");
+        }
         case MetadataDelta::Action::EDGE_INDEX_CREATE: {
           throw utils::NotYetImplemented("Edge-type indexing is not yet implemented on on-disk storage mode.");
         }
