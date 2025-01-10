@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -613,6 +613,11 @@ class DbAccessor final {
     return accessor_->CreateIndex(label, property);
   }
 
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateIndex(
+      storage::LabelId label, const std::vector<storage::PropertyId> &properties) {
+    return accessor_->CreateIndex(label, properties);
+  }
+
   utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateIndex(storage::EdgeTypeId edge_type) {
     return accessor_->CreateIndex(edge_type);
   }
@@ -629,6 +634,11 @@ class DbAccessor final {
   utils::BasicResult<storage::StorageIndexDefinitionError, void> DropIndex(storage::LabelId label,
                                                                            storage::PropertyId property) {
     return accessor_->DropIndex(label, property);
+  }
+
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> DropIndex(
+      storage::LabelId label, const std::vector<storage::PropertyId> &properties) {
+    return accessor_->DropIndex(label, properties);
   }
 
   utils::BasicResult<storage::StorageIndexDefinitionError, void> DropIndex(storage::EdgeTypeId edge_type) {

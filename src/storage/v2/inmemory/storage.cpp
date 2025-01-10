@@ -1408,6 +1408,21 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
+    LabelId label, const std::vector<PropertyId> &properties) {
+  // MG_ASSERT(unique_guard_.owns_lock(), "Creating label-property index requires a unique access to the storage!");
+  // auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  // auto *mem_label_property_index =
+  //     static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
+  // if (!mem_label_property_index->CreateIndex(label, property, in_memory->vertices_.access(), std::nullopt)) {
+  //   return StorageIndexDefinitionError{IndexDefinitionError{}};
+  // }
+  // transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_create, label, property);
+  // // We don't care if there is a replication error because on main node the change will go through
+  // memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
+  return {};
+}
+
+utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
     EdgeTypeId edge_type, bool unique_access_needed) {
   if (unique_access_needed) {
     MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
@@ -1459,6 +1474,21 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop, label, property);
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
+  return {};
+}
+
+utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(
+    LabelId label, const std::vector<PropertyId> &properties) {
+  // MG_ASSERT(unique_guard_.owns_lock(), "Dropping label-property index requires a unique access to the storage!");
+  // auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  // auto *mem_label_property_index =
+  //     static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
+  // if (!mem_label_property_index->DropIndex(label, property)) {
+  //   return StorageIndexDefinitionError{IndexDefinitionError{}};
+  // }
+  // transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop, label, property);
+  // // We don't care if there is a replication error because on main node the change will go through
+  // memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
   return {};
 }
 
