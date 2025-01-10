@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,12 +14,14 @@
 #include "storage/v2/disk/edge_type_index.hpp"
 #include "storage/v2/disk/edge_type_property_index.hpp"
 #include "storage/v2/disk/label_index.hpp"
+#include "storage/v2/disk/label_property_composite_index.hpp"
 #include "storage/v2/disk/label_property_index.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
+#include "storage/v2/inmemory/label_property_composite_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/storage.hpp"
 
@@ -117,11 +119,13 @@ Indices::Indices(const Config &config, StorageMode storage_mode) {
     if (storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL || storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
       label_index_ = std::make_unique<InMemoryLabelIndex>();
       label_property_index_ = std::make_unique<InMemoryLabelPropertyIndex>();
+      label_property_composite_index_ = std::make_unique<InMemoryLabelPropertyCompositeIndex>();
       edge_type_index_ = std::make_unique<InMemoryEdgeTypeIndex>();
       edge_type_property_index_ = std::make_unique<InMemoryEdgeTypePropertyIndex>();
     } else {
       label_index_ = std::make_unique<DiskLabelIndex>(config);
       label_property_index_ = std::make_unique<DiskLabelPropertyIndex>(config);
+      label_property_composite_index_ = std::make_unique<DiskLabelPropertyCompositeIndex>(config);
       edge_type_index_ = std::make_unique<DiskEdgeTypeIndex>();
       edge_type_property_index_ = std::make_unique<DiskEdgeTypePropertyIndex>();
     }
@@ -131,6 +135,7 @@ Indices::Indices(const Config &config, StorageMode storage_mode) {
 Indices::IndexStats Indices::Analysis() const {
   return {static_cast<InMemoryLabelIndex *>(label_index_.get())->Analysis(),
           static_cast<InMemoryLabelPropertyIndex *>(label_property_index_.get())->Analysis(),
+          static_cast<InMemoryLabelPropertyCompositeIndex *>(label_property_composite_index_.get())->Analysis(),
           static_cast<InMemoryEdgeTypeIndex *>(edge_type_index_.get())->Analysis(),
           static_cast<InMemoryEdgeTypePropertyIndex *>(edge_type_property_index_.get())->Analysis(),
           vector_index_.Analysis()};

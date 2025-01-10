@@ -69,11 +69,11 @@ class InMemoryLabelPropertyCompositeIndex : public storage::LabelPropertyComposi
 
   IndexStats Analysis() const {
     IndexStats res{};
-    for (const auto &[lp, _] : index_) {
-      const auto &[label, property] = lp;
-      res.l2p[label].emplace_back(property);
-      res.p2l[property].emplace_back(label);
-    }
+    // for (const auto &[lp, _] : index_) {
+    //   const auto &[label, property] = lp;
+    //   res.l2p[label].emplace_back(property);
+    //   res.p2l[property].emplace_back(label);
+    // }
     return res;
   }
 
@@ -158,9 +158,9 @@ class InMemoryLabelPropertyCompositeIndex : public storage::LabelPropertyComposi
   void DropGraphClearIndices() override;
 
  private:
-  std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>> index_;
-  std::unordered_map<PropertyId, std::unordered_map<LabelId, utils::SkipList<Entry> *>> indices_by_property_;
-  utils::Synchronized<std::map<std::pair<LabelId, PropertyId>, storage::LabelPropertyCompositeIndexStats>,
+  std::map<std::pair<LabelId, std::vector<PropertyId>>, utils::SkipList<Entry>> index_;
+  // std::unordered_map<PropertyId, std::unordered_map<LabelId, utils::SkipList<Entry> *>> indices_by_property_;
+  utils::Synchronized<std::map<std::pair<LabelId, std::vector<PropertyId>>, storage::LabelPropertyCompositeIndexStats>,
                       utils::ReadPrioritizedRWLock>
       stats_;
 };

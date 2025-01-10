@@ -338,6 +338,25 @@ inline void TryInsertLabelPropertyIndex(Vertex &vertex, std::pair<LabelId, Prope
   index_accessor.insert({std::move(value), &vertex, 0});
 }
 
+template <typename TIndexAccessor>
+inline void TryInsertLabelPropertyCompositeIndex(
+    Vertex &vertex, std::pair<LabelId, std::vector<PropertyId>> label_property_composite_pair,
+    TIndexAccessor &index_accessor) {
+  if (vertex.deleted || !utils::Contains(vertex.labels, label_property_composite_pair.first)) {
+    return;
+  }
+  std::vector<PropertyValue> values;
+  values.reserve(label_property_composite_pair.second.size());
+  for (const auto &property_id : label_property_composite_pair.second) {
+    auto value = vertex.properties.GetProperty(property_id);
+    if (value.IsNull()) {
+      return;
+    }
+    values.emplace_back(std::move(value));
+  }
+  index_accessor.insert({std::move(values), &vertex, 0});
+}
+
 template <typename TSkiplistIter, typename TIndex, typename TIndexKey, typename TFunc>
 inline void CreateIndexOnSingleThread(utils::SkipList<Vertex>::Accessor &vertices, TSkiplistIter it, TIndex &index,
                                       TIndexKey key, const TFunc &func) {

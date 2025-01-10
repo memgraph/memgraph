@@ -47,51 +47,52 @@ bool InMemoryLabelPropertyCompositeIndex::Entry::operator==(const std::vector<Pr
 bool InMemoryLabelPropertyCompositeIndex::CreateIndex(
     LabelId label, const std::vector<PropertyId> &properties, utils::SkipList<Vertex>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info) {
-  // spdlog::trace("Vertices size when creating index: {}", vertices.size());
-  // auto create_index_seq = [this](LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor &vertices,
-  //                                std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>>::iterator it) {
-  //   using IndexAccessor = decltype(it->second.access());
+  spdlog::trace("Vertices size when creating index: {}", vertices.size());
+  auto create_index_seq =
+      [this](LabelId label, const std::vector<PropertyId> &properties, utils::SkipList<Vertex>::Accessor &vertices,
+             std::map<std::pair<LabelId, std::vector<PropertyId>>, utils::SkipList<Entry>>::iterator it) {
+        using IndexAccessor = decltype(it->second.access());
 
-  //   CreateIndexOnSingleThread(vertices, it, index_, std::make_pair(label, property),
-  //                             [](Vertex &vertex, std::pair<LabelId, PropertyId> key, IndexAccessor &index_accessor) {
-  //                               TryInsertLabelPropertyIndex(vertex, key, index_accessor);
-  //                             });
+        CreateIndexOnSingleThread(
+            vertices, it, index_, std::make_pair(label, properties),
+            [](Vertex &vertex, std::pair<LabelId, std::vector<PropertyId>> key, IndexAccessor &index_accessor) {
+              TryInsertLabelPropertyCompositeIndex(vertex, key, index_accessor);
+            });
 
-  //   return true;
-  // };
+        return true;
+      };
 
-  // auto create_index_par =
-  //     [this](LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor &vertices,
-  //            std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>>::iterator label_property_it,
-  //            const durability::ParallelizedSchemaCreationInfo &parallel_exec_info) {
-  //       using IndexAccessor = decltype(label_property_it->second.access());
+  auto create_index_par =
+      [this](LabelId label, const std::vector<PropertyId> &properties, utils::SkipList<Vertex>::Accessor &vertices,
+             std::map<std::pair<LabelId, std::vector<PropertyId>>, utils::SkipList<Entry>>::iterator it,
+             const durability::ParallelizedSchemaCreationInfo &parallel_exec_info) {
+        using IndexAccessor = decltype(it->second.access());
 
-  //       CreateIndexOnMultipleThreads(
-  //           vertices, label_property_it, index_, std::make_pair(label, property), parallel_exec_info,
-  //           [](Vertex &vertex, std::pair<LabelId, PropertyId> key, IndexAccessor &index_accessor) {
-  //             TryInsertLabelPropertyIndex(vertex, key, index_accessor);
-  //           });
+        CreateIndexOnMultipleThreads(
+            vertices, it, index_, std::make_pair(label, properties), parallel_exec_info,
+            [](Vertex &vertex, std::pair<LabelId, std::vector<PropertyId>> key, IndexAccessor &index_accessor) {
+              TryInsertLabelPropertyCompositeIndex(vertex, key, index_accessor);
+            });
 
-  //       return true;
-  //     };
+        return true;
+      };
 
-  // auto [it, emplaced] =
-  //     index_.emplace(std::piecewise_construct, std::forward_as_tuple(label, property), std::forward_as_tuple());
+  auto [it, emplaced] =
+      index_.emplace(std::piecewise_construct, std::forward_as_tuple(label, properties), std::forward_as_tuple());
 
-  // indices_by_property_[property].insert({label, &it->second});
+  // TODO: Figure out
+  // indices_by_property_[properties].insert({label, &it->second});
 
-  // if (!emplaced) {
-  //   // Index already exists.
-  //   return false;
-  // }
+  if (!emplaced) {
+    // Index already exists.
+    return false;
+  }
 
-  // if (parallel_exec_info) {
-  //   return create_index_par(label, property, vertices, it, *parallel_exec_info);
-  // }
+  if (parallel_exec_info) {
+    return create_index_par(label, properties, vertices, it, *parallel_exec_info);
+  }
 
-  // return create_index_seq(label, property, vertices, it);
-  throw utils::NotYetImplemented(
-      "Label-property composite index related operations are not yet supported using in-memory storage mode.");
+  return create_index_seq(label, properties, vertices, it);
 }
 
 void InMemoryLabelPropertyCompositeIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update,
@@ -151,14 +152,12 @@ bool InMemoryLabelPropertyCompositeIndex::IndexExists(LabelId label, const std::
 }
 
 std::vector<std::pair<LabelId, std::vector<PropertyId>>> InMemoryLabelPropertyCompositeIndex::ListIndices() const {
-  // std::vector<std::pair<LabelId, PropertyId>> ret;
-  // ret.reserve(index_.size());
-  // for (const auto &item : index_) {
-  //   ret.push_back(item.first);
-  // }
-  // return ret;
-  throw utils::NotYetImplemented(
-      "Label-property composite index related operations are not yet supported using in-memory storage mode.");
+  std::vector<std::pair<LabelId, std::vector<PropertyId>>> ret;
+  ret.reserve(index_.size());
+  for (const auto &item : index_) {
+    ret.push_back(item.first);
+  }
+  return ret;
 }
 
 void InMemoryLabelPropertyCompositeIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp,
@@ -405,11 +404,13 @@ InMemoryLabelPropertyCompositeIndex::Iterable::Iterator InMemoryLabelPropertyCom
 
 uint64_t InMemoryLabelPropertyCompositeIndex::ApproximateVertexCount(LabelId label,
                                                                      const std::vector<PropertyId> &properties) const {
-  // auto it = index_.find({label, property});
+  auto it = index_.find({label, properties});
+  // TODO: Correct print
   // MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(),
-  // property.AsUint()); return it->second.size();
-  throw utils::NotYetImplemented(
-      "Label-property composite index related operations are not yet supported using in-memory storage mode.");
+  // property.AsUint());
+  MG_ASSERT(it != index_.end(), "Index for label {} composite doesn't exist", label.AsUint());
+
+  return it->second.size();
 }
 
 uint64_t InMemoryLabelPropertyCompositeIndex::ApproximateVertexCount(LabelId label,

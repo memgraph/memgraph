@@ -4326,6 +4326,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         auto *storage = database->storage();
         const std::string_view label_index_mark{"label"};
         const std::string_view label_property_index_mark{"label+property"};
+        const std::string_view label_property_composite_index_mark{"label+property composite"};
         const std::string_view edge_type_index_mark{"edge-type"};
         const std::string_view edge_type_property_index_mark{"edge-type+property"};
         const std::string_view text_index_mark{"text"};
@@ -4342,6 +4343,18 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
           results.push_back(
               {TypedValue(label_property_index_mark), TypedValue(storage->LabelToName(item.first)),
                TypedValue(storage->PropertyToName(item.second)),
+               TypedValue(static_cast<int>(storage_acc->ApproximateVertexCount(item.first, item.second)))});
+        }
+        for (const auto &item : info.label_property_composite) {
+          std::vector<std::string> property_names;
+          for (const auto &property : item.second) {
+            property_names.push_back(storage->PropertyToName(property));
+          }
+          std::stringstream ss;
+          utils::PrintIterable(ss, property_names);
+          results.push_back(
+              {TypedValue(label_property_composite_index_mark), TypedValue(storage->LabelToName(item.first)),
+               TypedValue(ss.str()),
                TypedValue(static_cast<int>(storage_acc->ApproximateVertexCount(item.first, item.second)))});
         }
         for (const auto &item : info.edge_type) {
