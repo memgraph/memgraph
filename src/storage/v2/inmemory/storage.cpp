@@ -2197,7 +2197,7 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
   // A single transaction will always be contained in a single WAL file.
   auto current_commit_timestamp = transaction.commit_timestamp->load(std::memory_order_acquire);
 
-  auto streams = repl_storage_state_.InitializeTransaction(wal_file_->SequenceNumber(), this, db_acc);
+  auto tx_replication = repl_storage_state_.InitializeTransaction(wal_file_->SequenceNumber(), this, db_acc);
 
   // IMPORTANT: In most transactions there can only be one, either data or metadata deltas.
   //            But since we introduced auto index creation, a data transaction can also introduce a metadata delta.
@@ -2213,7 +2213,7 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
     full_encode_operation(wal_file_->encoder());
     wal_file_->UpdateStats(durability_commit_timestamp);
     // replication
-    repl_storage_state_.EncodeToReplicas(streams, full_encode_operation);
+    tx_replication.EncodeToReplicas(full_encode_operation);
   };
 
   // Handle metadata deltas
@@ -2469,7 +2469,7 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
   if (!transaction.deltas.empty()) {
     append_deltas([&](const Delta &delta, const auto &parent, uint64_t durability_commit_timestamp) {
       wal_file_->AppendDelta(delta, parent, durability_commit_timestamp);
-      repl_storage_state_.AppendDelta(streams, delta, parent, durability_commit_timestamp);
+      tx_replication.AppendDelta(delta, parent, durability_commit_timestamp);
     });
   }
 
@@ -2479,8 +2479,7 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
   wal_file_->AppendTransactionEnd(durability_commit_timestamp);
   FinalizeWalFile();
 
-  return repl_storage_state_.FinalizeTransaction(durability_commit_timestamp, this, std::move(db_acc),
-                                                 std::move(streams));
+  return tx_replication.FinalizeTransaction(durability_commit_timestamp, this, std::move(db_acc));
 }
 
 utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(
