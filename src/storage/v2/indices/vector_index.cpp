@@ -74,7 +74,7 @@ struct VectorIndex::Impl {
 VectorIndex::VectorIndex() : pimpl(std::make_unique<Impl>()) {}
 VectorIndex::~VectorIndex() {}
 
-bool VectorIndex::CreateIndex(VectorIndexSpec spec, utils::SkipList<Vertex>::Accessor &vertices) {
+bool VectorIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices) {
   try {
     // Create the index
     const unum::usearch::metric_punned_t metric(spec.dimension, spec.metric_kind, unum::usearch::scalar_kind_t::f32_k);
@@ -86,7 +86,7 @@ bool VectorIndex::CreateIndex(VectorIndexSpec spec, utils::SkipList<Vertex>::Acc
     if (pimpl->index_.contains(label_prop) || pimpl->index_name_to_label_prop_.contains(spec.index_name)) {
       throw query::VectorSearchException("Given vector index already exists.");
     }
-    pimpl->index_name_to_label_prop_.emplace(spec.index_name, label_prop);
+    pimpl->index_name_to_label_prop_.try_emplace(spec.index_name, label_prop);
     auto mg_vector_index = mg_vector_index_t::make(metric);
     if (!mg_vector_index) {
       throw query::VectorSearchException(fmt::format("Failed to create vector index {}, error message: {}",
@@ -101,7 +101,7 @@ bool VectorIndex::CreateIndex(VectorIndexSpec spec, utils::SkipList<Vertex>::Acc
     pimpl->index_.try_emplace(label_prop,
                               IndexItem{std::make_shared<utils::Synchronized<mg_vector_index_t, std::shared_mutex>>(
                                             std::move(mg_vector_index.index)),
-                                        std::move(spec)});
+                                        spec});
 
     // Update the index with the vertices
     for (auto &vertex : vertices) {

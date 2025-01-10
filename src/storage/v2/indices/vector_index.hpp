@@ -91,7 +91,7 @@ struct VectorIndexSpec {
   PropertyId property;
   unum::usearch::metric_kind_t metric_kind;
   std::uint16_t dimension;
-  std::uint16_t resize_coefficient;  // TODO(@DavIvek): Revisit resizing options (maybe using float?)
+  std::uint16_t resize_coefficient;
   std::size_t capacity;
 
   friend bool operator==(const VectorIndexSpec &, const VectorIndexSpec &) = default;
@@ -123,7 +123,7 @@ class VectorIndex {
   /// @brief Creates a new index based on the provided specification.
   /// @param spec The specification for the index to be created.
   /// @return true if the index was created successfully, false otherwise.
-  bool CreateIndex(VectorIndexSpec spec, utils::SkipList<Vertex>::Accessor &vertices);
+  bool CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices);
 
   /// @brief Drops an existing index.
   /// @param index_name The name of the index to be dropped.
