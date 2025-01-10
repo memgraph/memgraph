@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,6 +18,7 @@
 #include "storage/v2/indices/edge_type_index.hpp"
 #include "storage/v2/indices/edge_type_property_index.hpp"
 #include "storage/v2/indices/label_index.hpp"
+#include "storage/v2/indices/label_property_composite_index.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
 #include "storage/v2/indices/point_index.hpp"
 #include "storage/v2/indices/text_index.hpp"
@@ -94,6 +95,7 @@ struct Indices {
 
   std::unique_ptr<LabelIndex> label_index_;
   std::unique_ptr<LabelPropertyIndex> label_property_index_;
+  std::unique_ptr<LabelPropertyCompositeIndex> label_property_composite_index_;
   std::unique_ptr<EdgeTypeIndex> edge_type_index_;
   std::unique_ptr<EdgeTypePropertyIndex> edge_type_property_index_;
   mutable TextIndex text_index_;

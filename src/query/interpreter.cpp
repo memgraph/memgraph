@@ -2933,10 +2933,6 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
     properties_string.push_back(prop.name);
   }
 
-  if (properties.size() > 1) {
-    throw utils::NotYetImplemented("index on multiple properties");
-  }
-
   auto properties_stringified = utils::Join(properties_string, ", ");
 
   Notification index_notification(SeverityLevel::INFO);
@@ -2950,8 +2946,9 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
       handler = [dba, label, properties_stringified = std::move(properties_stringified),
                  label_name = index_query->label_.name, properties = std::move(properties),
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
-        MG_ASSERT(properties.size() <= 1U);
-        auto maybe_index_error = properties.empty() ? dba->CreateIndex(label) : dba->CreateIndex(label, properties[0]);
+        auto maybe_index_error = properties.empty()       ? dba->CreateIndex(label)
+                                 : properties.size() == 1 ? dba->CreateIndex(label, properties[0])
+                                                          : dba->CreateIndex(label, properties);
         utils::OnScopeExit invalidator(invalidate_plan_cache);
 
         if (maybe_index_error.HasError()) {
@@ -2971,8 +2968,9 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
       handler = [dba, label, properties_stringified = std::move(properties_stringified),
                  label_name = index_query->label_.name, properties = std::move(properties),
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
-        MG_ASSERT(properties.size() <= 1U);
-        auto maybe_index_error = properties.empty() ? dba->DropIndex(label) : dba->DropIndex(label, properties[0]);
+        auto maybe_index_error = properties.empty()       ? dba->DropIndex(label)
+                                 : properties.size() == 1 ? dba->DropIndex(label, properties[0])
+                                                          : dba->DropIndex(label, properties);
         utils::OnScopeExit invalidator(invalidate_plan_cache);
 
         if (maybe_index_error.HasError()) {
