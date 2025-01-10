@@ -398,7 +398,7 @@ class DeltaGenerator final {
             return {WalPointIndexDrop{label, *properties.begin()}};
           case VECTOR_INDEX_CREATE:
             return {WalVectorIndexCreate{vector_index_name, label, *properties.begin(), kMetricKind, vector_dimension,
-                                         vector_capacity, kResizeCoefficient}};
+                                         kResizeCoefficient, vector_capacity}};
           case VECTOR_INDEX_DROP:
             return {WalVectorIndexDrop{vector_index_name}};
         }

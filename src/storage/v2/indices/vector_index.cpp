@@ -32,6 +32,8 @@
 
 namespace memgraph::storage {
 
+// unum::usearch::index_dense_gt is the index type used for vector indices. It is thread-safe and supports concurrent
+// operations.
 using mg_vector_index_t = unum::usearch::index_dense_gt<Vertex *, unum::usearch::uint40_t>;
 
 // NOLINTNEXTLINE(bugprone-exception-escape)
@@ -60,8 +62,7 @@ static const std::unordered_map<unum::usearch::metric_kind_t, std::function<doub
 /// the interface of `VectorIndex` from its implementation
 struct VectorIndex::Impl {
   /// The `index_` member is a map that associates a `LabelPropKey` (a combination of label and property)
-  /// with the pair of a `mg_vector_index_t` and a `utils::RWSpinLock`.
-  /// Lock is needed because when resize is performed, no other operation should be performed on the index.
+  /// with the pair of a IndexItem.
   std::map<LabelPropKey, IndexItem> index_;
 
   /// The `index_name_to_label_prop_` is a hash map that maps an index name (as a string) to the corresponding
@@ -76,10 +77,7 @@ VectorIndex::~VectorIndex() {}
 bool VectorIndex::CreateIndex(VectorIndexSpec spec, utils::SkipList<Vertex>::Accessor &vertices) {
   try {
     // Create the index
-    const unum::usearch::metric_punned_t metric(
-        spec.dimension, spec.metric_kind,
-        unum::usearch::scalar_kind_t::f32_k);  // TODO(@DavIvek): scalar kind is hardcoded to f32 ATM -> changing this
-                                               // could be beneficial for memory usage
+    const unum::usearch::metric_punned_t metric(spec.dimension, spec.metric_kind, unum::usearch::scalar_kind_t::f32_k);
 
     // use the number of workers as the number of possible concurrent index operations
     const unum::usearch::index_limits_t limits(spec.capacity, FLAGS_bolt_num_workers);
@@ -158,6 +156,8 @@ void VectorIndex::UpdateVectorIndex(Vertex *vertex, const LabelPropKey &label_pr
 
   if (is_index_full) {
     spdlog::warn("Vector index is full, resizing...");
+
+    // we need unique lock when we are resizing the index
     auto uniquely_locked_index = mg_index->Lock();
     const auto new_size = spec.resize_coefficient * uniquely_locked_index->capacity();
     const unum::usearch::index_limits_t new_limits(new_size, FLAGS_bolt_num_workers);
@@ -229,14 +229,6 @@ std::vector<VectorIndexSpec> VectorIndex::ListIndices() const {
   result.reserve(pimpl->index_.size());
   std::ranges::transform(pimpl->index_, std::back_inserter(result),
                          [](const auto &label_prop_index_item) { return label_prop_index_item.second.spec; });
-  return result;
-}
-
-std::vector<VectorIndexSpec> VectorIndex::ListIndexSpecs() const {
-  std::vector<VectorIndexSpec> result;
-  result.reserve(pimpl->index_.size());
-  std::ranges::transform(pimpl->index_ | std::views::values, std::back_inserter(result),
-                         [](const auto &index_item) { return index_item.spec; });
   return result;
 }
 

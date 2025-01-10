@@ -120,7 +120,7 @@ class VectorIndex {
   VectorIndex(VectorIndex &&) noexcept;
   VectorIndex &operator=(VectorIndex &&) noexcept;
 
-  /// @brief Creates a new index based on the name, label, property and vertices.
+  /// @brief Creates a new index based on the provided specification.
   /// @param spec The specification for the index to be created.
   /// @return true if the index was created successfully, false otherwise.
   bool CreateIndex(VectorIndexSpec spec, utils::SkipList<Vertex>::Accessor &vertices);
@@ -157,10 +157,6 @@ class VectorIndex {
   /// @return A vector of specs representing vector indices configurations.
   std::vector<VectorIndexSpec> ListIndices() const;
 
-  /// @brief Lists vector index specifications.
-  /// @return A vector of VectorIndexSpec objects representing the index specifications.
-  std::vector<VectorIndexSpec> ListIndexSpecs() const;
-
   /// @brief Returns number of vertices in the index.
   /// @param label_prop The label and property key for the index.
   /// @return The number of vertices in the index.
@@ -171,17 +167,17 @@ class VectorIndex {
   /// @param start_timestamp The timestamp of transaction in which the search is performed.
   /// @param result_set_size The number of results to return.
   /// @param query_vector The vector to be used for the search query.
-  /// @return A vector of pairs containing the global ID (Gid) and the associated score (distance).
+  /// @return A vector of tuples containing the vertex, distance, and similarity of the search results.
   std::vector<std::tuple<Vertex *, double, double>> Search(std::string_view index_name, uint64_t result_set_size,
                                                            const std::vector<float> &query_vector) const;
 
   /// @brief Aborts the entries that were inserted in the specified transaction.
-  /// @param label The label of the vertices to be removed.
+  /// @param label_prop The label of the vertices to be removed.
   /// @param vertices The vertices to be removed.
   void AbortEntries(const LabelPropKey &label_prop, std::span<Vertex *const> vertices);
 
   /// @brief Restores the entries that were removed in the specified transaction.
-  /// @param label The label of the vertices to be restored.
+  /// @param label_prop The label and property of the vertices to be restored.
   /// @param vertices The vertices to be restored.
   void RestoreEntries(const LabelPropKey &label_prop,
                       std::span<std::pair<PropertyValue, Vertex *> const> prop_vertices);
@@ -200,7 +196,8 @@ class VectorIndex {
   /// @brief Adds a vertex to an existing index.
   /// @param vertex The vertex to be added.
   /// @param label_prop The label and property key for the index.
-  /// @param commit_timestamp The commit timestamp for the operation.
+  /// @param value The value of the property.
+  /// @throw query::VectorSearchException
   void UpdateVectorIndex(Vertex *vertex, const LabelPropKey &label_prop, const PropertyValue *value = nullptr);
 
   struct Impl;
