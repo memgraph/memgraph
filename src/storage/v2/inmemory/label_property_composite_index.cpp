@@ -405,10 +405,17 @@ InMemoryLabelPropertyCompositeIndex::Iterable::Iterator InMemoryLabelPropertyCom
 uint64_t InMemoryLabelPropertyCompositeIndex::ApproximateVertexCount(LabelId label,
                                                                      const std::vector<PropertyId> &properties) const {
   auto it = index_.find({label, properties});
-  // TODO: Correct print
-  // MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(),
-  // property.AsUint());
-  MG_ASSERT(it != index_.end(), "Index for label {} composite doesn't exist", label.AsUint());
+
+  std::vector<uint64_t> properties_uints;
+  properties_uints.reserve(properties.size());
+  for (const auto &prop : properties) {
+    properties_uints.emplace_back(prop.AsUint());
+  }
+
+  std::stringstream ss;
+  utils::PrintIterable(ss, properties_uints);
+
+  MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(), ss.str());
 
   return it->second.size();
 }
