@@ -135,8 +135,17 @@ void VectorIndex::Clear() {
 
 void VectorIndex::UpdateVectorIndex(Vertex *vertex, const LabelPropKey &label_prop, const PropertyValue *value) {
   auto &[mg_index, spec] = pimpl->index_.at(label_prop);
+  bool is_index_full = false;
+  // try to remove entry (if it exists) and then add a new one + check if index is full
+  {
+    auto locked_index = mg_index->NonConstReadLock();
+    locked_index->remove(vertex);
+    is_index_full = locked_index->size() == locked_index->capacity();
+  }
+
   const auto &property = (value != nullptr ? *value : vertex->properties.GetProperty(label_prop.property()));
   if (property.IsNull()) {
+    // if property is null, that means that the vertex should not be in the index and we shouldn't do any other updates
     return;
   }
   if (!property.IsList()) {
@@ -145,14 +154,6 @@ void VectorIndex::UpdateVectorIndex(Vertex *vertex, const LabelPropKey &label_pr
   const auto &vector_property = property.ValueList();
   if (spec.dimension != vector_property.size()) {
     throw query::VectorSearchException("Vector index property must have the same number of dimensions as the index.");
-  }
-
-  bool is_index_full = false;
-  // try to remove entry (if it exists) and then add a new one + check if index is full
-  {
-    auto locked_index = mg_index->NonConstReadLock();
-    locked_index->remove(vertex);
-    is_index_full = locked_index->size() == locked_index->capacity();
   }
 
   if (is_index_full) {

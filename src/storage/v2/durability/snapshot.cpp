@@ -3498,13 +3498,13 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
         if (!resize_coefficient) throw RecoveryFailure("Couldn't read vector index resize coefficient!");
         auto capacity = snapshot.ReadUint();
         if (!capacity) throw RecoveryFailure("Couldn't read vector index capacity!");
+        SPDLOG_TRACE("Recovered metadata of vector index {} for :{}({})", *index_name,
+                     name_id_mapper->IdToName(snapshot_id_map.at(*label)),
+                     name_id_mapper->IdToName(snapshot_id_map.at(*property)));
 
         indices_constraints.indices.vector_indices.emplace_back(
             std::move(index_name.value()), get_label_from_id(*label), get_property_from_id(*property), usearch_metric,
             static_cast<std::uint16_t>(*dimension), static_cast<std::uint16_t>(*resize_coefficient), *capacity);
-        SPDLOG_TRACE("Recovered metadata of vector index {} for :{}({})", spec.index_name,
-                     name_id_mapper->IdToName(snapshot_id_map.at(*label)),
-                     name_id_mapper->IdToName(snapshot_id_map.at(*property)));
       }
       spdlog::info("Metadata of vector indices are recovered.");
     }

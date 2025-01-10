@@ -13,8 +13,8 @@
 #include <string_view>
 #include <thread>
 
-#include "flags/experimental.hpp"
 #include "query/db_accessor.hpp"
+#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
@@ -125,7 +125,8 @@ TYPED_TEST(VectorSearchTest, InvalidDimensionTest) {
   std::vector<PropertyValue> properties(3, PropertyValue(1.0));
   PropertyValue property_value(properties);
 
-  EXPECT_THROW(this->CreateVertex(acc.get(), test_property, property_value, test_label), std::invalid_argument);
+  EXPECT_THROW(this->CreateVertex(acc.get(), test_property, property_value, test_label),
+               memgraph::query::VectorSearchException);
 }
 
 TYPED_TEST(VectorSearchTest, SearchWithMultipleNodes) {
