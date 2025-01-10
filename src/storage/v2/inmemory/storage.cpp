@@ -1262,6 +1262,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
               return !remove_in_edges.contains(std::get<EdgeRef>(edge_tuple));
             });
             vertex->in_edges.erase(mid, vertex->in_edges.end());
+            vertex->in_edges.shrink_to_fit();
           }
 
           // bulk remove out_edges
@@ -1270,6 +1271,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
               return !remove_out_edges.contains(std::get<EdgeRef>(edge_tuple));
             });
             vertex->out_edges.erase(mid, vertex->out_edges.end());
+            vertex->out_edges.shrink_to_fit();
           }
 
           vertex->delta = current;
