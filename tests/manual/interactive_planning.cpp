@@ -171,12 +171,14 @@ class InteractiveDbAccessor {
   int64_t VerticesCount(memgraph::storage::LabelId label_id,
                         const std::vector<memgraph::storage::PropertyId> &property_ids) {
     // auto label = dba_->LabelToName(label_id);
-    // auto property = dba_->PropertyToName(property_id);
-    // auto key = std::make_pair(label, property);
-    // if (label_property_vertex_count_.find(key) == label_property_vertex_count_.end()) {
-    //   label_property_vertex_count_[key] = ReadVertexCount("label '" + label + "' and property '" + property + "'");
+    // auto properties = dba_->PropertiesToNames(property_ids);
+    // auto key = std::make_pair(label, properties);
+    // auto properties_name = memgraph::utils::Join(properties, ", ");
+    // if (label_property_composite_vertex_count_.find(key) == label_property_composite_vertex_count_.end()) {
+    //   label_property_composite_vertex_count_[key] =
+    //       ReadVertexCount("label '" + label + "' and properties '" + properties_name + "'");
     // }
-    // return label_property_vertex_count_.at(key);
+    // return label_property_composite_vertex_count_.at(key);
     return 10;
   }
 
@@ -202,19 +204,21 @@ class InteractiveDbAccessor {
                         const std::vector<memgraph::storage::PropertyId> &property_ids,
                         const std::vector<memgraph::storage::PropertyValue> &values) {
     // auto label = dba_->LabelToName(label_id);
-    // auto property = dba_->PropertyToName(property_id);
-    // auto label_prop = std::make_pair(label, property);
-    // if (label_property_index_.find(label_prop) == label_property_index_.end()) {
+    // auto properties = dba_->PropertiesToNames(property_ids);
+    // auto properties_name = memgraph::utils::Join(properties, ", ");
+    // auto label_prop = std::make_pair(label, properties);
+    // if (label_property_composite_index_.find(label_prop) == label_property_composite_index_.end()) {
     //   return 0;
     // }
-    // auto &value_vertex_count = property_value_vertex_count_[label_prop];
-    // if (value_vertex_count.find(value) == value_vertex_count.end()) {
+    // auto &value_composite_vertex_count = property_value_composite_vertex_count_[label_prop];
+    // if (value_composite_vertex_count.find(values) == value_composite_vertex_count.end()) {
     //   std::stringstream ss;
-    //   ss << value;
-    //   int64_t count = ReadVertexCount("label '" + label + "' and property '" + property + "' value '" + ss.str() +
-    //   "'"); value_vertex_count[value] = count;
+    //   ss << values;
+    //   int64_t count =
+    //       ReadVertexCount("label '" + label + "' and properties '" + properties_name + "' value '" + ss.str() + "'");
+    //   value_composite_vertex_count[values] = count;
     // }
-    // return value_vertex_count.at(value);
+    // return value_composite_vertex_count.at(values);
     return 10;
   }
 
@@ -471,11 +475,15 @@ class InteractiveDbAccessor {
   std::map<std::string, int64_t> label_vertex_count_;
   std::map<std::string, int64_t> edge_type_edge_count_;
   std::map<std::pair<std::string, std::string>, int64_t> label_property_vertex_count_;
+  std::map<std::pair<std::string, std::vector<std::string>>, int64_t> label_property_composite_vertex_count_;
   std::map<std::pair<std::string, std::string>, int64_t> edge_type_property_edge_count_;
   std::map<std::pair<std::string, std::string>, bool> label_property_index_;
+  std::map<std::pair<std::string, std::vector<std::string>>, bool> label_property_composite_index_;
   std::map<std::pair<std::string, std::string>, bool> edge_type_property_index_;
   std::map<std::pair<std::string, std::string>, std::map<memgraph::storage::PropertyValue, int64_t>>
       property_value_vertex_count_;
+  std::map<std::pair<std::string, std::vector<std::string>>, std::map<memgraph::storage::PropertyValue, int64_t>>
+      property_value_composite_vertex_count_;
   std::map<std::pair<std::string, std::string>, std::map<memgraph::storage::PropertyValue, int64_t>>
       property_value_edge_count_;
   // TODO: Cache faked index counts by range.

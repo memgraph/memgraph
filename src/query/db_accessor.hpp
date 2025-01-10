@@ -468,6 +468,10 @@ class DbAccessor final {
 
   const std::string &PropertyToName(storage::PropertyId prop) const { return accessor_->PropertyToName(prop); }
 
+  std::vector<std::string> PropertiesToNames(const std::vector<storage::PropertyId> &properties) const {
+    return accessor_->PropertiesToNames(properties);
+  };
+
   const std::string &LabelToName(storage::LabelId label) const { return accessor_->LabelToName(label); }
 
   const std::string &EdgeTypeToName(storage::EdgeTypeId type) const { return accessor_->EdgeTypeToName(type); }
@@ -772,6 +776,10 @@ class SubgraphDbAccessor final {
   storage::EdgeTypeId NameToEdgeType(std::string_view name);
 
   const std::string &PropertyToName(storage::PropertyId prop) const;
+
+  const std::string &PropertiesToName(const std::vector<storage::PropertyId> &properties) const;
+
+  std::vector<std::string> PropertiesToNames(const std::vector<storage::PropertyId> &properties) const;
 
   const std::string &LabelToName(storage::LabelId label) const;
 

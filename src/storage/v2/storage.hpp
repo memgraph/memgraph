@@ -337,6 +337,10 @@ class Storage {
 
     const std::string &PropertyToName(PropertyId property) const { return storage_->PropertyToName(property); }
 
+    std::vector<std::string> PropertiesToNames(const std::vector<PropertyId> &properties) const {
+      return storage_->PropertiesToNames(properties);
+    }
+
     const std::string &EdgeTypeToName(EdgeTypeId edge_type) const { return storage_->EdgeTypeToName(edge_type); }
 
     LabelId NameToLabel(std::string_view name) { return storage_->NameToLabel(name); }
@@ -506,6 +510,15 @@ class Storage {
   const std::string &LabelToName(LabelId label) const { return name_id_mapper_->IdToName(label.AsUint()); }
 
   const std::string &PropertyToName(PropertyId property) const { return name_id_mapper_->IdToName(property.AsUint()); }
+
+  std::vector<std::string> PropertiesToNames(const std::vector<PropertyId> &properties) const {
+    std::vector<std::string> names;
+    names.reserve(properties.size());
+    for (const auto &prop : properties) {
+      names.emplace_back(name_id_mapper_->IdToName(prop.AsUint()));
+    }
+    return names;
+  }
 
   const std::string &EdgeTypeToName(EdgeTypeId edge_type) const {
     return name_id_mapper_->IdToName(edge_type.AsUint());
