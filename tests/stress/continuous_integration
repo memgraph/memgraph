@@ -17,6 +17,7 @@ from deployments import (
     MinikubeHelmHADeployment,
     MinikubeHelmStandaloneDeployment,
 )
+from workers import get_worker_object, get_worker_steps
 
 # paths
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -213,69 +214,6 @@ def _find_test_binary(args: Args, config: Config, test: str) -> List[str]:
     raise Exception("Test '{}' binary not supported!".format(test))
 
 
-def get_worker_function(type: str):
-    if type == "reader":
-        return run_worker
-    if type == "writer":
-        return run_worker
-    if type == "lab-simulator":
-        return run_lab_simulator
-    raise Exception(f"Unknown worker type: '{type}'!")
-
-
-def run_worker(worker, deployment):
-    """Function to be executed in a separate process for each worker."""
-    worker_name = worker["name"]
-    query = worker["query"]
-    repetitions = worker["num_repetitions"]
-    sleep_millis = worker["sleep_millis"]
-
-    print(f"Starting worker '{worker_name}'...")
-
-    for i in range(repetitions):
-        deployment.execute_query(query)
-        if sleep_millis > 0:
-            time.sleep(sleep_millis / 1000.0)
-
-    print(f"Worker '{worker_name}' finished.")
-
-
-def run_lab_simulator(worker, deployment):
-    worker_name = worker["name"]
-    repetitions = worker["num_repetitions"]
-    sleep_millis = worker["sleep_millis"]
-
-    print(f"Starting worker '{worker_name}'...")
-    queries = [
-        "SHOW INDEX INFO;",
-        "SHOW CONSTRAINT INFO;",
-        "SHOW TRIGGERS;",
-        "SHOW REPLICATION ROLE;",
-        "SHOW REPLICAS;",
-        "SHOW METRICS INFO;",
-        "RETURN 1;",
-        "SHOW STORAGE INFO;",
-        "SHOW TRANSACTIONS;",
-    ]
-    for i in range(repetitions):
-        query = random.choice(queries)
-        deployment.execute_query(query)
-        if sleep_millis > 0:
-            time.sleep(sleep_millis / 1000.0)
-
-    print(f"Worker '{worker_name}' finished.")
-
-
-def get_worker_steps(workers):
-    steps = [worker.get("step", 1) for worker in workers]
-
-    for step in steps:
-        if step <= 0:
-            raise Exception(f"Step can not be {step}!")
-
-    return sorted(set(steps))
-
-
 def run_custom_workloads(deployment, config: Config):
     print("Running custom workloads...")
     for workload in config.custom_workloads:
@@ -300,8 +238,8 @@ def run_custom_workloads(deployment, config: Config):
             for step in steps:
                 print(f"Running step {step}.")
                 for worker in [x for x in workers if x.get("step", 1) == step]:
-                    worker_function = get_worker_function(worker["type"])
-                    process = multiprocessing.Process(target=worker_function, args=(worker, deployment))
+                    worker_object = get_worker_object(worker)
+                    process = multiprocessing.Process(target=worker_object.run, args=(deployment,))
                     processes.append((process, workload.get("timeout_min", 10) * 60))  # Default to 10 minutes timeout
                     process.start()
 

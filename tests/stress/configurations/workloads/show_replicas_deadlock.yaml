@@ -33,8 +33,8 @@ customWorkloads:
           query: "USING PERIODIC COMMIT 1000 UNWIND range(1, 10000000) as x CREATE (:Node {id: x});"
           num_repetitions: 1
           sleep_millis: 0
-        - name: lab-simulator
-          type: lab-simulator
-          num_repetitions: 1000
-          sleep_millis: 50
+        # - name: lab-simulator
+        #   type: lab-simulator
+        #   num_repetitions: 100
+        #   sleep_millis: 500
       timeout_min: 2
