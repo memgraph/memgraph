@@ -202,70 +202,64 @@ InMemoryLabelPropertyCompositeIndex::Iterable::Iterator::Iterator(Iterable *self
       index_iterator_(index_iterator),
       current_vertex_accessor_(nullptr, self_->storage_, nullptr),
       current_vertex_(nullptr) {
-  // AdvanceUntilValid();
-  throw utils::NotYetImplemented(
-      "Label-property composite index related operations are not yet supported using in-memory storage mode.");
+  AdvanceUntilValid();
 }
 
 InMemoryLabelPropertyCompositeIndex::Iterable::Iterator &
 InMemoryLabelPropertyCompositeIndex::Iterable::Iterator::operator++() {
-  // ++index_iterator_;
-  // AdvanceUntilValid();
-  // return *this;
-  throw utils::NotYetImplemented(
-      "Label-property composite index related operations are not yet supported using in-memory storage mode.");
+  ++index_iterator_;
+  AdvanceUntilValid();
+  return *this;
 }
 
 void InMemoryLabelPropertyCompositeIndex::Iterable::Iterator::AdvanceUntilValid() {
-  // for (; index_iterator_ != self_->index_accessor_.end(); ++index_iterator_) {
-  //   if (index_iterator_->vertex == current_vertex_) {
-  //     continue;
-  //   }
+  for (; index_iterator_ != self_->index_accessor_.end(); ++index_iterator_) {
+    if (index_iterator_->vertex == current_vertex_) {
+      continue;
+    }
 
-  //   if (!CanSeeEntityWithTimestamp(index_iterator_->timestamp, self_->transaction_)) {
-  //     continue;
-  //   }
+    if (!CanSeeEntityWithTimestamp(index_iterator_->timestamp, self_->transaction_)) {
+      continue;
+    }
 
-  //   if (self_->lower_bound_) {
-  //     if (index_iterator_->value < self_->lower_bound_->value()) {
-  //       continue;
-  //     }
-  //     if (!self_->lower_bound_->IsInclusive() && index_iterator_->value == self_->lower_bound_->value()) {
-  //       continue;
-  //     }
-  //   }
-  //   if (self_->upper_bound_) {
-  //     if (self_->upper_bound_->value() < index_iterator_->value) {
-  //       index_iterator_ = self_->index_accessor_.end();
-  //       break;
-  //     }
-  //     if (!self_->upper_bound_->IsInclusive() && index_iterator_->value == self_->upper_bound_->value()) {
-  //       index_iterator_ = self_->index_accessor_.end();
-  //       break;
-  //     }
-  //   }
+    // if (self_->lower_bound_[0]) {
+    //   if (index_iterator_->value < self_->lower_bound_->value()) {
+    //     continue;
+    //   }
+    //   if (!self_->lower_bound_[0]->IsInclusive() && index_iterator_->value == self_->lower_bound_->value()) {
+    //     continue;
+    //   }
+    // }
+    // if (self_->upper_bound_[0]) {
+    //   if (self_->upper_bound_->value() < index_iterator_->value) {
+    //     index_iterator_ = self_->index_accessor_.end();
+    //     break;
+    //   }
+    //   if (!self_->upper_bound_[0]->IsInclusive() && index_iterator_->value == self_->upper_bound_->value()) {
+    //     index_iterator_ = self_->index_accessor_.end();
+    //     break;
+    //   }
+    // }
 
-  //   if (CurrentVersionHasLabelProperty(*index_iterator_->vertex, self_->label_, self_->property_,
-  //                                      index_iterator_->value, self_->transaction_, self_->view_)) {
-  //     current_vertex_ = index_iterator_->vertex;
-  //     current_vertex_accessor_ = VertexAccessor(current_vertex_, self_->storage_, self_->transaction_);
-  //     break;
-  //   }
-  // }
-  throw utils::NotYetImplemented(
-      "Label-property composite index related operations are not yet supported using in-memory storage mode.");
+    if (CurrentVersionHasLabelProperty(*index_iterator_->vertex, self_->label_, self_->properties_,
+                                       index_iterator_->value, self_->transaction_, self_->view_)) {
+      current_vertex_ = index_iterator_->vertex;
+      current_vertex_accessor_ = VertexAccessor(current_vertex_, self_->storage_, self_->transaction_);
+      break;
+    }
+  }
 }
 
-InMemoryLabelPropertyCompositeIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor,
-                                                        utils::SkipList<Vertex>::ConstAccessor vertices_accessor,
-                                                        LabelId label, PropertyId property,
-                                                        const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                                                        const std::optional<utils::Bound<PropertyValue>> &upper_bound,
-                                                        View view, Storage *storage, Transaction *transaction)
+InMemoryLabelPropertyCompositeIndex::Iterable::Iterable(
+    utils::SkipList<Entry>::Accessor index_accessor, utils::SkipList<Vertex>::ConstAccessor vertices_accessor,
+    LabelId label, const std::vector<PropertyId> &properties,
+    const std::vector<std::optional<utils::Bound<PropertyValue>>> &lower_bound,
+    const std::vector<std::optional<utils::Bound<PropertyValue>>> &upper_bound, View view, Storage *storage,
+    Transaction *transaction)
     : pin_accessor_(std::move(vertices_accessor)),
       index_accessor_(std::move(index_accessor)),
       label_(label),
-      property_(property),
+      properties_(properties),
       lower_bound_(lower_bound),
       upper_bound_(upper_bound),
       view_(view),
@@ -379,27 +373,21 @@ InMemoryLabelPropertyCompositeIndex::Iterable::Iterable(utils::SkipList<Entry>::
   //       break;
   //   }
   // }
-  throw utils::NotYetImplemented(
-      "Label-property composite index related operations are not yet supported using in-memory storage mode.");
 }
 
 InMemoryLabelPropertyCompositeIndex::Iterable::Iterator InMemoryLabelPropertyCompositeIndex::Iterable::begin() {
-  // // If the bounds are set and don't have comparable types we don't yield any
-  // // items from the index.
-  // if (!bounds_valid_) return {this, index_accessor_.end()};
-  // auto index_iterator = index_accessor_.begin();
-  // if (lower_bound_) {
-  //   index_iterator = index_accessor_.find_equal_or_greater(lower_bound_->value());
-  // }
-  // return {this, index_iterator};
-  throw utils::NotYetImplemented(
-      "Label-property composite index related operations are not yet supported using in-memory storage mode.");
+  // If the bounds are set and don't have comparable types we don't yield any
+  // items from the index.
+  if (!bounds_valid_) return {this, index_accessor_.end()};
+  auto index_iterator = index_accessor_.begin();
+  if (lower_bound_[0]) {
+    index_iterator = index_accessor_.find_equal_or_greater(std::vector<PropertyValue>{lower_bound_[0]->value()});
+  }
+  return {this, index_iterator};
 }
 
 InMemoryLabelPropertyCompositeIndex::Iterable::Iterator InMemoryLabelPropertyCompositeIndex::Iterable::end() {
-  // return {this, index_accessor_.end()};
-  throw utils::NotYetImplemented(
-      "Label-property composite index related operations are not yet supported using in-memory storage mode.");
+  return {this, index_accessor_.end()};
 }
 
 uint64_t InMemoryLabelPropertyCompositeIndex::ApproximateVertexCount(LabelId label,
@@ -495,35 +483,33 @@ void InMemoryLabelPropertyCompositeIndex::RunGC() {
 
 InMemoryLabelPropertyCompositeIndex::Iterable InMemoryLabelPropertyCompositeIndex::Vertices(
     LabelId label, const std::vector<PropertyId> &properties,
-    const std::optional<utils::Bound<std::vector<PropertyValue>>> &lower_bound,
-    const std::optional<utils::Bound<std::vector<PropertyValue>>> &upper_bound, View view, Storage *storage,
+    const std::vector<std::optional<utils::Bound<PropertyValue>>> &lower_bound,
+    const std::vector<std::optional<utils::Bound<PropertyValue>>> &upper_bound, View view, Storage *storage,
     Transaction *transaction) {
-  // DMG_ASSERT(storage->storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL ||
-  //                storage->storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL,
-  //            "PropertyLabel index trying to access InMemory vertices from OnDisk!");
-  // auto vertices_acc = static_cast<InMemoryStorage const *>(storage)->vertices_.access();
-  // auto it = index_.find({label, property});
+  DMG_ASSERT(storage->storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL ||
+                 storage->storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL,
+             "PropertyLabelComposite index trying to access InMemory vertices from OnDisk!");
+  auto vertices_acc = static_cast<InMemoryStorage const *>(storage)->vertices_.access();
+  auto it = index_.find({label, properties});
   // MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(),
-  // property.AsUint()); return {it->second.access(), std::move(vertices_acc), label, property, lower_bound,
-  // upper_bound, view, storage,
-  //         transaction};
-  throw utils::NotYetImplemented(
-      "Label-property composite index related operations are not yet supported using in-memory storage mode.");
+  // property.AsUint());
+
+  return {it->second.access(), std::move(vertices_acc), label, properties, lower_bound, upper_bound, view, storage,
+          transaction};
 }
 
 InMemoryLabelPropertyCompositeIndex::Iterable InMemoryLabelPropertyCompositeIndex::Vertices(
     LabelId label, const std::vector<PropertyId> &properties,
     memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc,
-    const std::optional<utils::Bound<std::vector<PropertyValue>>> &lower_bound,
-    const std::optional<utils::Bound<std::vector<PropertyValue>>> &upper_bound, View view, Storage *storage,
+    const std::vector<std::optional<utils::Bound<PropertyValue>>> &lower_bound,
+    const std::vector<std::optional<utils::Bound<PropertyValue>>> &upper_bound, View view, Storage *storage,
     Transaction *transaction) {
-  // auto it = index_.find({label, property});
+  auto it = index_.find({label, properties});
   // MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(),
-  // property.AsUint()); return {it->second.access(), std::move(vertices_acc), label, property, lower_bound,
-  // upper_bound, view, storage,
-  //         transaction};
-  throw utils::NotYetImplemented(
-      "Label-property composite index related operations are not yet supported using in-memory storage mode.");
+  // property.AsUint());
+
+  return {it->second.access(), std::move(vertices_acc), label, properties, lower_bound, upper_bound, view, storage,
+          transaction};
 }
 
 void InMemoryLabelPropertyCompositeIndex::AbortEntries(PropertyId property,

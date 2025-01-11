@@ -283,6 +283,12 @@ inline bool CurrentVersionHasLabelProperty(const Vertex &vertex, LabelId label, 
   return exists && !deleted && has_label && current_value_equal_to_value;
 }
 
+inline bool CurrentVersionHasLabelProperty(const Vertex &vertex, LabelId label, const std::vector<PropertyId> key,
+                                           const std::vector<PropertyValue> &values, Transaction *transaction,
+                                           View view) {
+  return true;
+}
+
 // Helper function for iterating through label-property index. Returns true if
 // this transaction can see the given vertex, and the visible version has the
 // given label and property.

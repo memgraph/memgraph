@@ -80,8 +80,9 @@ class InMemoryLabelPropertyCompositeIndex : public storage::LabelPropertyComposi
   class Iterable {
    public:
     Iterable(utils::SkipList<Entry>::Accessor index_accessor, utils::SkipList<Vertex>::ConstAccessor vertices_accessor,
-             LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-             const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
+             LabelId label, const std::vector<PropertyId> &properties,
+             const std::vector<std::optional<utils::Bound<PropertyValue>>> &lower_bound,
+             const std::vector<std::optional<utils::Bound<PropertyValue>>> &upper_bound, View view, Storage *storage,
              Transaction *transaction);
 
     class Iterator {
@@ -111,9 +112,9 @@ class InMemoryLabelPropertyCompositeIndex : public storage::LabelPropertyComposi
     utils::SkipList<Vertex>::ConstAccessor pin_accessor_;
     utils::SkipList<Entry>::Accessor index_accessor_;
     LabelId label_;
-    PropertyId property_;
-    std::optional<utils::Bound<PropertyValue>> lower_bound_;
-    std::optional<utils::Bound<PropertyValue>> upper_bound_;
+    std::vector<PropertyId> properties_;
+    std::vector<std::optional<utils::Bound<PropertyValue>>> lower_bound_;
+    std::vector<std::optional<utils::Bound<PropertyValue>>> upper_bound_;
     bool bounds_valid_{true};
     View view_;
     Storage *storage_;
@@ -142,14 +143,14 @@ class InMemoryLabelPropertyCompositeIndex : public storage::LabelPropertyComposi
   void RunGC();
 
   Iterable Vertices(LabelId label, const std::vector<PropertyId> &properties,
-                    const std::optional<utils::Bound<std::vector<PropertyValue>>> &lower_bound,
-                    const std::optional<utils::Bound<std::vector<PropertyValue>>> &upper_bound, View view,
+                    const std::vector<std::optional<utils::Bound<PropertyValue>>> &lower_bound,
+                    const std::vector<std::optional<utils::Bound<PropertyValue>>> &upper_bound, View view,
                     Storage *storage, Transaction *transaction);
 
   Iterable Vertices(LabelId label, const std::vector<PropertyId> &properties,
                     memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc,
-                    const std::optional<utils::Bound<std::vector<PropertyValue>>> &lower_bound,
-                    const std::optional<utils::Bound<std::vector<PropertyValue>>> &upper_bound, View view,
+                    const std::vector<std::optional<utils::Bound<PropertyValue>>> &lower_bound,
+                    const std::vector<std::optional<utils::Bound<PropertyValue>>> &upper_bound, View view,
                     Storage *storage, Transaction *transaction);
 
   void DropGraphClearIndices() override;

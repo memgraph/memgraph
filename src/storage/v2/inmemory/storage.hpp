@@ -99,6 +99,7 @@ class InMemoryStorage final : public Storage {
                                                     const InMemoryStorage *storage);
   friend class InMemoryLabelIndex;
   friend class InMemoryLabelPropertyIndex;
+  friend class InMemoryLabelPropertyCompositeIndex;
   friend class InMemoryEdgeTypeIndex;
   friend class InMemoryEdgeTypePropertyIndex;
 
