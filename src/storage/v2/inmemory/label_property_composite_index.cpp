@@ -222,24 +222,24 @@ void InMemoryLabelPropertyCompositeIndex::Iterable::Iterator::AdvanceUntilValid(
       continue;
     }
 
-    // if (self_->lower_bound_[0]) {
-    //   if (index_iterator_->value < self_->lower_bound_->value()) {
-    //     continue;
-    //   }
-    //   if (!self_->lower_bound_[0]->IsInclusive() && index_iterator_->value == self_->lower_bound_->value()) {
-    //     continue;
-    //   }
-    // }
-    // if (self_->upper_bound_[0]) {
-    //   if (self_->upper_bound_->value() < index_iterator_->value) {
-    //     index_iterator_ = self_->index_accessor_.end();
-    //     break;
-    //   }
-    //   if (!self_->upper_bound_[0]->IsInclusive() && index_iterator_->value == self_->upper_bound_->value()) {
-    //     index_iterator_ = self_->index_accessor_.end();
-    //     break;
-    //   }
-    // }
+    if (self_->lower_bound_[0]) {
+      // if (index_iterator_->value < self_->lower_bound_->value()) {
+      //   continue;
+      // }
+      // if (!self_->lower_bound_[0]->IsInclusive() && index_iterator_->value == self_->lower_bound_->value()) {
+      //   continue;
+      // }
+    }
+    if (self_->upper_bound_[0]) {
+      // if (self_->upper_bound_->value() < index_iterator_->value) {
+      //   index_iterator_ = self_->index_accessor_.end();
+      //   break;
+      // }
+      // if (!self_->upper_bound_[0]->IsInclusive() && index_iterator_->value == self_->upper_bound_->value()) {
+      //   index_iterator_ = self_->index_accessor_.end();
+      //   break;
+      // }
+    }
 
     if (CurrentVersionHasLabelProperty(*index_iterator_->vertex, self_->label_, self_->properties_,
                                        index_iterator_->value, self_->transaction_, self_->view_)) {

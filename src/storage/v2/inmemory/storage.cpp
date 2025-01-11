@@ -1662,19 +1662,6 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, Prop
                                                              &transaction_));
 }
 
-VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(LabelId label, const std::vector<PropertyId> &properties,
-                                                             const std::vector<PropertyValue> &values, View view) {
-  auto *mem_label_property_composite_index =
-      static_cast<InMemoryLabelPropertyCompositeIndex *>(storage_->indices_.label_property_composite_index_.get());
-  std::vector<std::optional<utils::Bound<PropertyValue>>> bound_values;
-  bound_values.reserve(values.size());
-  for (const auto &value : values) {
-    bound_values.emplace_back(utils::MakeBoundInclusive(value));
-  }
-  return VerticesIterable(mem_label_property_composite_index->Vertices(label, properties, bound_values, bound_values,
-                                                                       view, storage_, &transaction_));
-}
-
 VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(
     LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) {
@@ -1682,6 +1669,16 @@ VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(
       static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get());
   return VerticesIterable(
       mem_label_property_index->Vertices(label, property, lower_bound, upper_bound, view, storage_, &transaction_));
+}
+
+VerticesIterable InMemoryStorage::InMemoryAccessor::Vertices(
+    LabelId label, const std::vector<PropertyId> &properties,
+    const std::vector<std::optional<utils::Bound<PropertyValue>>> &lower_bounds,
+    const std::vector<std::optional<utils::Bound<PropertyValue>>> &upper_bounds, View view) {
+  auto *mem_label_property_composite_index =
+      static_cast<InMemoryLabelPropertyCompositeIndex *>(storage_->indices_.label_property_composite_index_.get());
+  return VerticesIterable(mem_label_property_composite_index->Vertices(label, properties, lower_bounds, upper_bounds,
+                                                                       view, storage_, &transaction_));
 }
 
 EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, View view) {

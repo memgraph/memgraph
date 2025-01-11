@@ -189,24 +189,24 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     // if (index_stats.has_value()) {
     //   SaveStatsFor(logical_op.output_symbol_, index_stats.value());
     // }
-    std::vector<storage::PropertyValue> property_values;
-    property_values.reserve(logical_op.expressions_.size());
-    for (auto *expression : logical_op.expressions_) {
-      auto maybe_property_value = ConstPropertyValue(expression);
-      if (maybe_property_value.has_value()) {
-        property_values.emplace_back(maybe_property_value.value());
-      }
-    }
+    // std::vector<storage::PropertyValue> property_values;
+    // property_values.reserve(logical_op.expressions_.size());
+    // for (auto *expression : logical_op.expressions_) {
+    //   auto maybe_property_value = ConstPropertyValue(expression);
+    //   if (maybe_property_value.has_value()) {
+    //     property_values.emplace_back(maybe_property_value.value());
+    //   }
+    // }
 
-    double factor = 1.0;
-    if (property_values.size() == logical_op.expressions_.size())
-      // get the exact influence based on ScanAll(label, property, value)
-      factor = db_accessor_->VerticesCount(logical_op.label_, logical_op.properties_, property_values);
-    else
-      // estimate the influence as ScanAll(label, property) * filtering
-      factor = db_accessor_->VerticesCount(logical_op.label_, logical_op.properties_) * CardParam::kFilter;
+    // double factor = 1.0;
+    // if (property_values.size() == logical_op.expressions_.size())
+    //   // get the exact influence based on ScanAll(label, property, value)
+    //   factor = db_accessor_->VerticesCount(logical_op.label_, logical_op.properties_, property_values);
+    // else
+    //   // estimate the influence as ScanAll(label, property) * filtering
+    //   factor = db_accessor_->VerticesCount(logical_op.label_, logical_op.properties_) * CardParam::kFilter;
 
-    cardinality_ *= factor;
+    // cardinality_ *= factor;
 
     // if (index_hints_.HasLabelPropertyIndex(db_accessor_, logical_op.label_, logical_op.property_)) {
     //   use_index_hints_ = true;

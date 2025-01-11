@@ -31,6 +31,7 @@
 #include "query/plan/rewrite/general.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
+#include "utils/bound.hpp"
 
 DECLARE_int64(query_vertex_count_to_expand_existing);
 
@@ -1202,13 +1203,22 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     if (maybe_composite_index) {
       std::vector<PropertyIx> prop_ids;
       std::vector<Expression *> prop_values;
+      std::vector<std::optional<utils::Bound<Expression *>>> lower_bounds;
+      std::vector<std::optional<utils::Bound<Expression *>>> upper_bounds;
       prop_ids.reserve(maybe_composite_index->filters.size());
-      prop_values.reserve(maybe_composite_index->filters.size());
+      lower_bounds.reserve(maybe_composite_index->filters.size());
+      upper_bounds.reserve(maybe_composite_index->filters.size());
       for (const auto &filter : maybe_composite_index->filters) {
         filters_.EraseFilter(filter);
         filter_exprs_for_removal_.insert(filter.expression);
         prop_ids.push_back(filter.property_filter->property_);
-        prop_values.push_back(filter.property_filter->value_);
+        if (filter.property_filter->value_) {
+          lower_bounds.push_back(utils::MakeBoundInclusive(filter.property_filter->value_));
+          upper_bounds.push_back(utils::MakeBoundInclusive(filter.property_filter->value_));
+        } else {
+          lower_bounds.push_back(filter.property_filter->lower_bound_);
+          upper_bounds.push_back(filter.property_filter->upper_bound_);
+        }
       }
       std::vector<Expression *> removed_expressions;
       filters_.EraseLabelFilter(node_symbol, maybe_composite_index->label, &removed_expressions);
@@ -1216,7 +1226,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
       return std::make_unique<ScanAllByLabelPropertyCompositeValue>(
           std::move(input), node_symbol, GetLabel(maybe_composite_index->label), GetProperties(prop_ids),
-          std::move(prop_values), view);
+          std::move(lower_bounds), std::move(upper_bounds), view);
     }
 
     if (view == storage::View::OLD) {

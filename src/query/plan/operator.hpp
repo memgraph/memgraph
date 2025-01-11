@@ -893,6 +893,8 @@ class ScanAllByLabelPropertyCompositeValue : public memgraph::query::plan::ScanA
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
+  /** Bound with expression which when evaluated produces the bound value. */
+  using Bound = utils::Bound<Expression *>;
   ScanAllByLabelPropertyCompositeValue() = default;
   /**
    * Constructs the operator for given label and property value.
@@ -906,14 +908,17 @@ class ScanAllByLabelPropertyCompositeValue : public memgraph::query::plan::ScanA
    */
   ScanAllByLabelPropertyCompositeValue(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
                                        storage::LabelId label, std::vector<storage::PropertyId> properties,
-                                       std::vector<Expression *> expressions, storage::View view = storage::View::OLD);
+                                       std::vector<std::optional<Bound>> lower_bounds,
+                                       std::vector<std::optional<Bound>> upper_bounds,
+                                       storage::View view = storage::View::OLD);
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
 
   storage::LabelId label_;
   std::vector<storage::PropertyId> properties_;
-  std::vector<Expression *> expressions_;
+  std::vector<std::optional<Bound>> lower_bounds_;
+  std::vector<std::optional<Bound>> upper_bounds_;
 
   std::string ToString() const override;
 
@@ -924,7 +929,8 @@ class ScanAllByLabelPropertyCompositeValue : public memgraph::query::plan::ScanA
     object->view_ = view_;
     object->label_ = label_;
     object->properties_ = properties_;
-    object->expressions_ = expressions_;
+    object->lower_bounds_ = lower_bounds_;
+    object->upper_bounds_ = upper_bounds_;
     return object;
   }
 };

@@ -207,7 +207,9 @@ class Storage {
                                       const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) = 0;
 
     virtual VerticesIterable Vertices(LabelId label, const std::vector<PropertyId> &properties,
-                                      const std::vector<PropertyValue> &values, View view) = 0;
+                                      const std::vector<std::optional<utils::Bound<PropertyValue>>> &lower_bound,
+                                      const std::vector<std::optional<utils::Bound<PropertyValue>>> &upper_bound,
+                                      View view) = 0;
 
     virtual std::optional<EdgeAccessor> FindEdge(Gid gid, View view) = 0;
 

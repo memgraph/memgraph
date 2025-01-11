@@ -595,11 +595,6 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
   return VerticesIterable(AllVerticesIterable(indexed_vertices->access(), storage_, &transaction_, view));
 }
 
-VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, const std::vector<PropertyId> &properties,
-                                                     const std::vector<PropertyValue> &values, View view) {
-  throw utils::NotYetImplemented("Label-property composite indexing is not yet implemented on on-disk storage mode.");
-}
-
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property,
                                                      const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                                      const std::optional<utils::Bound<PropertyValue>> &upper_bound,
@@ -624,6 +619,13 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
       &transaction_, label, property, gids, lower_bound, upper_bound, index_deltas, indexed_vertices.get());
 
   return VerticesIterable(AllVerticesIterable(indexed_vertices->access(), storage_, &transaction_, view));
+}
+
+VerticesIterable DiskStorage::DiskAccessor::Vertices(
+    LabelId label, const std::vector<PropertyId> &properties,
+    const std::vector<std::optional<utils::Bound<PropertyValue>>> &lower_bound,
+    const std::vector<std::optional<utils::Bound<PropertyValue>>> &upper_bound, View view) {
+  throw utils::NotYetImplemented("Label-property composite indexing is not yet implemented on on-disk storage mode.");
 }
 
 /// TODO: (andi) This should probably go into some other class not the storage. All utils methods
