@@ -984,31 +984,32 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
       std::vector<FilterInfo> properties_of_composite_index;
       std::vector<PropertyIx> properties;
-      bool found = true;
-      for (const auto &filter : property_filters) {
-        if (filter.property_filter->is_symbol_in_value_ || !are_bound(filter.used_symbols)) {
-          // Skip filter expressions which use the symbol whose property we are
-          // looking up or aren't bound. We cannot scan by such expressions. For
-          // example, in `n.a = 2 + n.b` both sides of `=` refer to `n`, so we
-          // cannot scan `n` by property index.
-          continue;
-        }
-
-        for (const auto &prop : comp_index.second) {
-          if (prop != GetProperty(filter.property_filter->property_)) {
-            found = false;
-            break;
+      bool outer_found = true;
+      for (const auto &prop : comp_index.second) {
+        bool found = false;
+        for (const auto &filter : property_filters) {
+          if (filter.property_filter->is_symbol_in_value_ || !are_bound(filter.used_symbols)) {
+            // Skip filter expressions which use the symbol whose property we are
+            // looking up or aren't bound. We cannot scan by such expressions. For
+            // example, in `n.a = 2 + n.b` both sides of `=` refer to `n`, so we
+            // cannot scan `n` by property index.
+            continue;
           }
 
-          properties_of_composite_index.push_back(filter);
-          properties.push_back(filter.property_filter->property_);
+          if (prop == GetProperty(filter.property_filter->property_)) {
+            properties_of_composite_index.push_back(filter);
+            properties.push_back(filter.property_filter->property_);
+            found = true;
+            break;
+          }
         }
+
         if (!found) {
+          outer_found = false;
           break;
         }
       }
-
-      if (found) {
+      if (outer_found) {
         candidate_indices.emplace_back(IndexHint{.index_type_ = IndexHint::IndexType::LABEL_PROPERTY_COMPOSITE,
                                                  .label_ = maybe_label.value(),
                                                  .properties_ = properties},

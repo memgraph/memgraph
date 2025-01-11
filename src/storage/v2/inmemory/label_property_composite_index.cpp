@@ -423,22 +423,20 @@ uint64_t InMemoryLabelPropertyCompositeIndex::ApproximateVertexCount(LabelId lab
 uint64_t InMemoryLabelPropertyCompositeIndex::ApproximateVertexCount(LabelId label,
                                                                      const std::vector<PropertyId> &properties,
                                                                      const std::vector<PropertyValue> &values) const {
-  // auto it = index_.find({label, property});
-  // MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(),
-  // property.AsUint()); auto acc = it->second.access(); if (!value.IsNull()) {
-  //   // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
-  //   return acc.estimate_count(value, utils::SkipListLayerForCountEstimation(acc.size()));
-  // }
-  // // The value `Null` won't ever appear in the index because it indicates that
-  // // the property shouldn't exist. Instead, this value is used as an indicator
-  // // to estimate the average number of equal elements in the list (for any
-  // // given value).
+  auto it = index_.find({label, properties});
+  // MG_ASSERT(it != index_.end(), "Index for label {} and property composite {} doesn't exist", label.AsUint(),
+  //           property.AsUint());
+  auto acc = it->second.access();
+  // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
+  return acc.estimate_count(values, utils::SkipListLayerForCountEstimation(acc.size()));
+  // The value `Null` won't ever appear in the index because it indicates that
+  // the property shouldn't exist. Instead, this value is used as an indicator
+  // to estimate the average number of equal elements in the list (for any
+  // given value).
   // return acc.estimate_average_number_of_equals(
   //     [](const auto &first, const auto &second) { return first.value == second.value; },
   //     // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
   //     utils::SkipListLayerForAverageEqualsEstimation(acc.size()));
-  throw utils::NotYetImplemented(
-      "Label-property composite index related operations are not yet supported using in-memory storage mode.");
 }
 
 std::vector<std::pair<LabelId, PropertyId>> InMemoryLabelPropertyCompositeIndex::ClearIndexStats() {
