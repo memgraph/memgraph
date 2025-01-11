@@ -2920,6 +2920,16 @@ IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
           text_index.ListIndices(),
           point_index.ListIndices()};
 }
+
+std::vector<std::pair<LabelId, std::vector<PropertyId>>> InMemoryStorage::InMemoryAccessor::ListAllCompositeIndices()
+    const {
+  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  auto *mem_label_property_composite_index =
+      static_cast<InMemoryLabelPropertyCompositeIndex *>(in_memory->indices_.label_property_composite_index_.get());
+
+  return mem_label_property_composite_index->ListIndices();
+}
+
 ConstraintsInfo InMemoryStorage::InMemoryAccessor::ListAllConstraints() const {
   const auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   return {mem_storage->constraints_.existence_constraints_->ListConstraints(),

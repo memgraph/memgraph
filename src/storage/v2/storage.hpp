@@ -315,6 +315,8 @@ class Storage {
 
     virtual IndicesInfo ListAllIndices() const = 0;
 
+    virtual std::vector<std::pair<LabelId, std::vector<PropertyId>>> ListAllCompositeIndices() const = 0;
+
     virtual ConstraintsInfo ListAllConstraints() const = 0;
 
     // NOLINTNEXTLINE(google-default-arguments)

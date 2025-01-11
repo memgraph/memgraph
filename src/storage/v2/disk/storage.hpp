@@ -188,6 +188,8 @@ class DiskStorage final : public Storage {
 
     IndicesInfo ListAllIndices() const override;
 
+    std::vector<std::pair<LabelId, std::vector<PropertyId>>> ListAllCompositeIndices() const override;
+
     ConstraintsInfo ListAllConstraints() const override;
 
     // NOLINTNEXTLINE(google-default-arguments)

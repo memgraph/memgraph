@@ -2273,4 +2273,9 @@ ConstraintsInfo DiskStorage::DiskAccessor::ListAllConstraints() const {
           disk_storage->constraints_.unique_constraints_->ListConstraints(),
           disk_storage->constraints_.type_constraints_->ListConstraints()};
 }
+
+std::vector<std::pair<LabelId, std::vector<PropertyId>>> DiskStorage::DiskAccessor::ListAllCompositeIndices() const {
+  spdlog::info("Label-property composite indexing is not yet implemented on on-disk storage mode.");
+  return {};
+}
 }  // namespace memgraph::storage

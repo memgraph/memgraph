@@ -619,6 +619,10 @@ class DbAccessor final {
 
   storage::IndicesInfo ListAllIndices() const { return accessor_->ListAllIndices(); }
 
+  std::vector<std::pair<storage::LabelId, std::vector<storage::PropertyId>>> ListAllCompositeIndices() const {
+    return accessor_->ListAllCompositeIndices();
+  }
+
   storage::ConstraintsInfo ListAllConstraints() const { return accessor_->ListAllConstraints(); }
 
   const std::string &id() const { return accessor_->id(); }
