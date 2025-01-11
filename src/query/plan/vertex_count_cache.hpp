@@ -168,6 +168,10 @@ class VertexCountCache {
     return db_->GetIndexStats(label, property);
   }
 
+  std::vector<std::pair<storage::LabelId, std::vector<storage::PropertyId>>> ListAllCompositeIndices() const {
+    return db_->ListAllCompositeIndices();
+  }
+
  private:
   using LabelPropertyKey = std::pair<storage::LabelId, storage::PropertyId>;
   // using LabelPropertyCompositeKey = std::pair<storage::LabelId, std::vector<storage::PropertyId>>;

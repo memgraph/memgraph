@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -693,6 +693,11 @@ class FakeDbAccessor {
     return 0;
   }
 
+  int64_t VerticesCount(memgraph::storage::LabelId label,
+                        const std::vector<memgraph::storage::PropertyId> &properties) const {
+    return 0;
+  }
+
   bool PointIndexExists(memgraph::storage::LabelId label, memgraph::storage::PropertyId property) const {
     return false;
   }
@@ -727,6 +732,11 @@ class FakeDbAccessor {
       }
     }
     return false;
+  }
+
+  std::vector<std::pair<memgraph::storage::LabelId, std::vector<memgraph::storage::PropertyId>>>
+  ListAllCompositeIndices() const {
+    return {};
   }
 
   bool EdgeTypeIndexExists(memgraph::storage::EdgeTypeId edge_type) const {

@@ -773,6 +773,14 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     int64_t vertex_count;
   };
 
+  struct LabelPropertyCompositeIndex {
+    LabelIx label;
+    // FilterInfo with PropertyFilter
+    std::vector<FilterInfo> filters;
+    int64_t vertex_count;
+    std::optional<storage::LabelPropertyIndexStats> index_stats;
+  };
+
   bool DefaultPreVisit() override { throw utils::NotYetImplemented("optimizing index lookup"); }
 
   void SetOnParent(const std::shared_ptr<LogicalOperator> &input) {
@@ -817,6 +825,15 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   storage::LabelId GetLabel(const LabelIx &label) { return db_->NameToLabel(label.name); }
 
   storage::PropertyId GetProperty(const PropertyIx &prop) { return db_->NameToProperty(prop.name); }
+  std::vector<storage::PropertyId> GetProperties(const std::vector<PropertyIx> &props) {
+    std::vector<storage::PropertyId> storage_props;
+    storage_props.reserve(props.size());
+    for (const auto &prop : props) {
+      storage_props.emplace_back(GetProperty(prop));
+    }
+
+    return storage_props;
+  }
 
   std::optional<LabelIx> FindBestLabelIndex(const std::unordered_set<LabelIx> &labels) {
     MG_ASSERT(!labels.empty(), "Trying to find the best label without any labels.");
@@ -846,8 +863,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   struct CandidateCompositeIndices {
     std::vector<std::pair<IndexHint, std::vector<FilterInfo>>> candidate_indices_{};
-    std::unordered_map<std::pair<LabelIx, std::vector<PropertyIx>>, std::vector<FilterInfo>, HashPair>
-        candidate_index_lookup_{};
   };
 
   CandidateIndices GetCandidatePointIndices(const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols) {
@@ -936,28 +951,23 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     };
 
     std::vector<std::pair<IndexHint, std::vector<FilterInfo>>> candidate_indices{};
-    std::unordered_map<std::pair<LabelIx, std::vector<PropertyIx>>, std::vector<FilterInfo>, HashPair>
-        candidate_index_lookup{};
 
     auto all_composite_indices = db_->ListAllCompositeIndices();
 
     if (all_composite_indices.empty()) {
-      return CandidateCompositeIndices{.candidate_indices_ = candidate_indices,
-                                       .candidate_index_lookup_ = candidate_index_lookup};
+      return CandidateCompositeIndices{.candidate_indices_ = candidate_indices};
     }
 
     auto labels = filters_.FilteredLabels(symbol);
 
     if (labels.empty()) {
-      return CandidateCompositeIndices{.candidate_indices_ = candidate_indices,
-                                       .candidate_index_lookup_ = candidate_index_lookup};
+      return CandidateCompositeIndices{.candidate_indices_ = candidate_indices};
     }
 
     auto property_filters = filters_.PropertyFilters(symbol);
 
     if (property_filters.size() <= 1) {
-      return CandidateCompositeIndices{.candidate_indices_ = candidate_indices,
-                                       .candidate_index_lookup_ = candidate_index_lookup};
+      return CandidateCompositeIndices{.candidate_indices_ = candidate_indices};
     }
 
     for (const auto &comp_index : all_composite_indices) {
@@ -1003,12 +1013,10 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                                                  .label_ = maybe_label.value(),
                                                  .properties_ = properties},
                                        properties_of_composite_index);
-        candidate_index_lookup.insert({std::make_pair(maybe_label.value(), properties), properties_of_composite_index});
       }
     }
 
-    return CandidateCompositeIndices{.candidate_indices_ = candidate_indices,
-                                     .candidate_index_lookup_ = candidate_index_lookup};
+    return CandidateCompositeIndices{.candidate_indices_ = candidate_indices};
   }
 
   CandidateIndices GetCandidateIndices(const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols) {
@@ -1047,11 +1055,26 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return CandidateIndices{.candidate_indices_ = candidate_indices, .candidate_index_lookup_ = candidate_index_lookup};
   }
 
+  std::optional<LabelPropertyCompositeIndex> FindBestLabelPropertyCompositeIndex(
+      const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols) {
+    auto candidates = GetCandidateCompositeIndices(symbol, bound_symbols);
+
+    std::optional<LabelPropertyCompositeIndex> found;
+    for (const auto &[candidate, filters] : candidates.candidate_indices_) {
+      const auto &[_, label, properties] = candidate;
+      int64_t vertex_count = db_->VerticesCount(GetLabel(label), GetProperties(properties));
+      if (!found || vertex_count < found->vertex_count) {
+        found = LabelPropertyCompositeIndex{label, filters, vertex_count};
+      }
+    }
+    return found;
+  }
+
   // Finds the label-property combination. The first criteria based on number of vertices indexed -> if one index has
-  // 10x less than the other one, always choose the smaller one. Otherwise, choose the index with smallest average group
-  // size based on key distribution. If average group size is equal, choose the index that has distribution closer to
-  // uniform distribution. Conditions based on average group size and key distribution can be only taken into account if
-  // the user has run `ANALYZE GRAPH` query before If the index cannot be found, nullopt is returned.
+  // 10x less than the other one, always choose the smaller one. Otherwise, choose the index with smallest average
+  // group size based on key distribution. If average group size is equal, choose the index that has distribution
+  // closer to uniform distribution. Conditions based on average group size and key distribution can be only taken
+  // into account if the user has run `ANALYZE GRAPH` query before If the index cannot be found, nullopt is returned.
   std::optional<LabelPropertyIndex> FindBestLabelPropertyIndex(const Symbol &symbol,
                                                                const std::unordered_set<Symbol> &bound_symbols) {
     /*
@@ -1174,6 +1197,27 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
     // Point index prefered over regular label+property index
     // TODO: figure out how to make NEW work
+    auto maybe_composite_index = FindBestLabelPropertyCompositeIndex(node_symbol, bound_symbols);
+    if (maybe_composite_index) {
+      std::vector<PropertyIx> prop_ids;
+      std::vector<Expression *> prop_values;
+      prop_ids.reserve(maybe_composite_index->filters.size());
+      prop_values.reserve(maybe_composite_index->filters.size());
+      for (const auto &filter : maybe_composite_index->filters) {
+        filters_.EraseFilter(filter);
+        filter_exprs_for_removal_.insert(filter.expression);
+        prop_ids.push_back(filter.property_filter->property_);
+        prop_values.push_back(filter.property_filter->value_);
+      }
+      std::vector<Expression *> removed_expressions;
+      filters_.EraseLabelFilter(node_symbol, maybe_composite_index->label, &removed_expressions);
+      filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
+
+      return std::make_unique<ScanAllByLabelPropertyCompositeValue>(
+          std::move(input), node_symbol, GetLabel(maybe_composite_index->label), GetProperties(prop_ids),
+          std::move(prop_values), view);
+    }
+
     if (view == storage::View::OLD) {
       auto found_index = FindBestPointLabelPropertyIndex(node_symbol, bound_symbols);
 
