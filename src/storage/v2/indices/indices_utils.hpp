@@ -21,12 +21,12 @@
 
 namespace memgraph::storage {
 
-namespace {
-
 template <Delta::Action... actions>
 struct ActionSet {
   constexpr bool contains(Delta::Action action) const { return ((action == actions) || ...); }
 };
+
+namespace {
 
 /// Traverses deltas visible from transaction with start timestamp greater than
 /// the provided timestamp, and calls the provided callback function for each
@@ -174,14 +174,85 @@ inline bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, Prop
 
 inline bool AnyVersionHasLabelProperties(const Vertex &vertex, LabelId label, const std::vector<PropertyId> &properties,
                                          const std::vector<PropertyValue> &values, uint64_t timestamp) {
-  // for (uint64_t i = 0; i < properties.size(); i++) {
-  //   if (!AnyVersionHasLabelProperty(vertex, label, properties[i], values[i], timestamp)) {
-  //     false;
-  //   }
-  // }
+  Delta const *delta;
+  bool deleted;
+  bool has_label;
+  std::unordered_map<PropertyId, bool> equality_values;
+  std::unordered_map<PropertyId, uint64_t> equality_indices;
 
-  // return true;
-  return true;
+  auto initialize_maps = [&vertex, &properties, &values, &equality_values, &equality_indices]() {
+    for (uint64_t i = 0; i < properties.size(); i++) {
+      equality_indices[properties[i]] = i;
+      if (vertex.properties.IsPropertyEqual(properties[i], values[i])) {
+        equality_values[properties[i]] = true;
+      } else {
+        equality_values[properties[i]] = false;
+      }
+    }
+  };
+
+  auto equality_valid = [](const auto &map) -> bool {
+    return std::all_of(map.begin(), map.end(), [](const auto &pair) { return pair.second; });
+  };
+
+  {
+    auto guard = std::shared_lock{vertex.lock};
+    delta = vertex.delta;
+    deleted = vertex.deleted;
+    has_label = utils::Contains(vertex.labels, label);
+    // Avoid IsPropertyEqual if already not possible
+    if (delta == nullptr && (deleted || !has_label)) return false;
+    initialize_maps();
+  }
+
+  if (!deleted && has_label && equality_valid(equality_values)) {
+    return true;
+  }
+
+  constexpr auto interesting = ActionSet<Delta::Action::ADD_LABEL, Delta::Action::REMOVE_LABEL,
+                                         Delta::Action::SET_PROPERTY, Delta::Action::RECREATE_OBJECT,
+                                         Delta::Action::DELETE_DESERIALIZED_OBJECT, Delta::Action::DELETE_OBJECT>{};
+  return AnyVersionSatisfiesPredicate<interesting>(
+      timestamp, delta,
+      [&has_label, &equality_values, &equality_indices, &equality_valid, &deleted, label, &values](const Delta &delta) {
+        switch (delta.action) {
+          case Delta::Action::ADD_LABEL:
+            if (delta.label.value == label) {
+              MG_ASSERT(!has_label, "Invalid database state!");
+              has_label = true;
+            }
+            break;
+          case Delta::Action::REMOVE_LABEL:
+            if (delta.label.value == label) {
+              MG_ASSERT(has_label, "Invalid database state!");
+              has_label = false;
+            }
+            break;
+          case Delta::Action::SET_PROPERTY:
+            if (equality_values.find(delta.property.key) != equality_values.end()) {
+              equality_values[delta.property.key] =
+                  *delta.property.value == values[equality_indices[delta.property.key]];
+            }
+            break;
+          case Delta::Action::RECREATE_OBJECT: {
+            MG_ASSERT(deleted, "Invalid database state!");
+            deleted = false;
+            break;
+          }
+          case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+          case Delta::Action::DELETE_OBJECT: {
+            MG_ASSERT(!deleted, "Invalid database state!");
+            deleted = true;
+            break;
+          }
+          case Delta::Action::ADD_IN_EDGE:
+          case Delta::Action::ADD_OUT_EDGE:
+          case Delta::Action::REMOVE_IN_EDGE:
+          case Delta::Action::REMOVE_OUT_EDGE:
+            break;
+        }
+        return !deleted && has_label && equality_valid(equality_values);
+      });
 }
 
 /// Helper function for edgetype-property index garbage collection. Returns true if

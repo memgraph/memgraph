@@ -12,7 +12,7 @@
 #include <cstdint>
 
 #include "storage/v2/indices/indices_utils.hpp"
-#include "storage/v2/inmemory/label_property_index.hpp"
+#include "storage/v2/inmemory/label_property_composite_index.hpp"
 #include "storage/v2/inmemory/property_constants.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
