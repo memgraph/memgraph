@@ -22,6 +22,8 @@
 
 namespace memgraph::storage {
 
+using LabelPropertyCompositeIndexKey = InMemoryLabelPropertyCompositeIndex::LabelPropertyCompositeIndexKey;
+
 bool InMemoryLabelPropertyCompositeIndex::Entry::operator<(const Entry &rhs) const {
   if (value < rhs.value) {
     return true;
@@ -48,40 +50,39 @@ bool InMemoryLabelPropertyCompositeIndex::CreateIndex(
     LabelId label, const std::vector<PropertyId> &properties, utils::SkipList<Vertex>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info) {
   spdlog::trace("Vertices size when creating index: {}", vertices.size());
-  auto create_index_seq =
-      [this](LabelId label, const std::vector<PropertyId> &properties, utils::SkipList<Vertex>::Accessor &vertices,
-             std::map<std::pair<LabelId, std::vector<PropertyId>>, utils::SkipList<Entry>>::iterator it) {
-        using IndexAccessor = decltype(it->second.access());
+  auto create_index_seq = [this](LabelId label, const std::vector<PropertyId> &properties,
+                                 utils::SkipList<Vertex>::Accessor &vertices,
+                                 std::map<LabelPropertyCompositeIndexKey, utils::SkipList<Entry>>::iterator it) {
+    using IndexAccessor = decltype(it->second.access());
 
-        CreateIndexOnSingleThread(
-            vertices, it, index_, std::make_pair(label, properties),
-            [](Vertex &vertex, std::pair<LabelId, std::vector<PropertyId>> key, IndexAccessor &index_accessor) {
-              TryInsertLabelPropertyCompositeIndex(vertex, key, index_accessor);
-            });
+    CreateIndexOnSingleThread(vertices, it, index_, std::make_pair(label, properties),
+                              [](Vertex &vertex, LabelPropertyCompositeIndexKey key, IndexAccessor &index_accessor) {
+                                TryInsertLabelPropertyCompositeIndex(vertex, key, index_accessor);
+                              });
 
-        return true;
-      };
+    return true;
+  };
 
-  auto create_index_par =
-      [this](LabelId label, const std::vector<PropertyId> &properties, utils::SkipList<Vertex>::Accessor &vertices,
-             std::map<std::pair<LabelId, std::vector<PropertyId>>, utils::SkipList<Entry>>::iterator it,
-             const durability::ParallelizedSchemaCreationInfo &parallel_exec_info) {
-        using IndexAccessor = decltype(it->second.access());
+  auto create_index_par = [this](LabelId label, const std::vector<PropertyId> &properties,
+                                 utils::SkipList<Vertex>::Accessor &vertices,
+                                 std::map<LabelPropertyCompositeIndexKey, utils::SkipList<Entry>>::iterator it,
+                                 const durability::ParallelizedSchemaCreationInfo &parallel_exec_info) {
+    using IndexAccessor = decltype(it->second.access());
 
-        CreateIndexOnMultipleThreads(
-            vertices, it, index_, std::make_pair(label, properties), parallel_exec_info,
-            [](Vertex &vertex, std::pair<LabelId, std::vector<PropertyId>> key, IndexAccessor &index_accessor) {
-              TryInsertLabelPropertyCompositeIndex(vertex, key, index_accessor);
-            });
+    CreateIndexOnMultipleThreads(vertices, it, index_, std::make_pair(label, properties), parallel_exec_info,
+                                 [](Vertex &vertex, LabelPropertyCompositeIndexKey key, IndexAccessor &index_accessor) {
+                                   TryInsertLabelPropertyCompositeIndex(vertex, key, index_accessor);
+                                 });
 
-        return true;
-      };
+    return true;
+  };
 
   auto [it, emplaced] =
       index_.emplace(std::piecewise_construct, std::forward_as_tuple(label, properties), std::forward_as_tuple());
 
-  // TODO: Figure out
-  // indices_by_property_[properties].insert({label, &it->second});
+  for (const auto &property : properties) {
+    indices_by_property_[property].insert({std::make_pair(label, properties), &it->second});
+  }
 
   if (!emplaced) {
     // Index already exists.
@@ -97,62 +98,65 @@ bool InMemoryLabelPropertyCompositeIndex::CreateIndex(
 
 void InMemoryLabelPropertyCompositeIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update,
                                                            const Transaction &tx) {
-  // for (auto &[label_prop, storage] : index_) {
-  //   if (label_prop.first != added_label) {
-  //     continue;
-  //   }
-  //   auto prop_value = vertex_after_update->properties.GetProperty(label_prop.second);
-  //   if (!prop_value.IsNull()) {
-  //     auto acc = storage.access();
-  //     acc.insert(Entry{std::move(prop_value), vertex_after_update, tx.start_timestamp});
-  //   }
-  // }
-  throw utils::NotYetImplemented(
-      "Label-property composite index related operations are not yet supported using in-memory storage mode.");
+  for (auto &[label_props, storage] : index_) {
+    if (label_props.first != added_label) {
+      continue;
+    }
+
+    auto props_values =
+        vertex_after_update->properties.ExtractPropertyValues({label_props.second.begin(), label_props.second.end()});
+    if (!props_values) {
+      return;
+    }
+    auto acc = storage.access();
+    acc.insert(Entry{std::move(*props_values), vertex_after_update, tx.start_timestamp});
+  }
 }
 
 void InMemoryLabelPropertyCompositeIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &value,
                                                               Vertex *vertex, const Transaction &tx) {
-  // if (value.IsNull()) {
-  //   return;
-  // }
+  if (value.IsNull()) {
+    return;
+  }
 
-  // auto index = indices_by_property_.find(property);
-  // if (index == indices_by_property_.end()) {
-  //   return;
-  // }
+  auto it = indices_by_property_.find(property);
+  if (it == indices_by_property_.end()) {
+    return;
+  }
 
-  // for (const auto &[label, storage] : index->second) {
-  //   if (!utils::Contains(vertex->labels, label)) continue;
-  //   auto acc = storage->access();
-  //   acc.insert(Entry{value, vertex, tx.start_timestamp});
-  // }
-  throw utils::NotYetImplemented(
-      "Label-property composite index related operations are not yet supported using in-memory storage mode.");
+  for (const auto &[key, storage] : it->second) {
+    if (!utils::Contains(vertex->labels, key.first)) continue;
+    auto props_values = vertex->properties.ExtractPropertyValues({key.second.begin(), key.second.end()});
+    if (!props_values) {
+      return;
+    }
+
+    auto acc = storage->access();
+    acc.insert(Entry{std::move(*props_values), vertex, tx.start_timestamp});
+  }
 }
 
 bool InMemoryLabelPropertyCompositeIndex::DropIndex(LabelId label, const std::vector<PropertyId> &properties) {
-  // if (indices_by_property_.find(property) != indices_by_property_.end()) {
-  //   indices_by_property_.at(property).erase(label);
+  for (const auto &property : properties) {
+    auto it = indices_by_property_.find(property);
+    if (it != indices_by_property_.end()) {
+      it->second.erase({label, properties});
 
-  //   if (indices_by_property_.at(property).empty()) {
-  //     indices_by_property_.erase(property);
-  //   }
-  // }
+      if (it->second.empty()) {
+        indices_by_property_.erase(it);
+      }
+    }
+  }
 
-  // return index_.erase({label, property}) > 0;
-  throw utils::NotYetImplemented(
-      "Label-property composite index related operations are not yet supported using in-memory storage mode.");
+  return index_.erase({label, properties}) > 0;
 }
 
 bool InMemoryLabelPropertyCompositeIndex::IndexExists(LabelId label, const std::vector<PropertyId> &properties) const {
-  // return index_.find({label, property}) != index_.end();
-  throw utils::NotYetImplemented(
-      "Label-property composite index related operations are not yet supported using in-memory storage mode.");
+  return index_.find({label, properties}) != index_.end();
 }
 
-std::vector<std::pair<LabelId, std::vector<PropertyId>>> InMemoryLabelPropertyCompositeIndex::ListIndices() const {
-  std::vector<std::pair<LabelId, std::vector<PropertyId>>> ret;
+std::vector<LabelPropertyCompositeIndexKey> InMemoryLabelPropertyCompositeIndex::ListIndices() const {
+  std::vector<LabelPropertyCompositeIndexKey> ret;
   ret.reserve(index_.size());
   for (const auto &item : index_) {
     ret.push_back(item.first);
@@ -454,58 +458,51 @@ uint64_t InMemoryLabelPropertyCompositeIndex::ApproximateVertexCount(LabelId lab
   //     utils::SkipListLayerForAverageEqualsEstimation(acc.size()));
 }
 
-std::vector<std::pair<LabelId, PropertyId>> InMemoryLabelPropertyCompositeIndex::ClearIndexStats() {
-  // std::vector<std::pair<LabelId, PropertyId>> deleted_indexes;
-  // auto locked_stats = stats_.Lock();
-  // deleted_indexes.reserve(locked_stats->size());
-  // std::transform(locked_stats->begin(), locked_stats->end(), std::back_inserter(deleted_indexes),
-  //                [](const auto &elem) { return elem.first; });
-  // locked_stats->clear();
-  // return deleted_indexes;
-  throw utils::NotYetImplemented(
-      "Label-property composite index related operations are not yet supported using in-memory storage mode.");
+std::vector<LabelPropertyCompositeIndexKey> InMemoryLabelPropertyCompositeIndex::ClearIndexStats() {
+  std::vector<LabelPropertyCompositeIndexKey> deleted_indexes;
+  auto locked_stats = stats_.Lock();
+  deleted_indexes.reserve(locked_stats->size());
+  std::transform(locked_stats->begin(), locked_stats->end(), std::back_inserter(deleted_indexes),
+                 [](const auto &elem) { return elem.first; });
+  locked_stats->clear();
+  return deleted_indexes;
 }
 
 // stats_ is a map where the key is a pair of label and property, so for one label many pairs can be deleted
-std::vector<std::pair<LabelId, PropertyId>> InMemoryLabelPropertyCompositeIndex::DeleteIndexStats(
+std::vector<LabelPropertyCompositeIndexKey> InMemoryLabelPropertyCompositeIndex::DeleteIndexStats(
     const storage::LabelId &label) {
-  // std::vector<std::pair<LabelId, PropertyId>> deleted_indexes;
-  // auto locked_stats = stats_.Lock();
-  // for (auto it = locked_stats->cbegin(); it != locked_stats->cend();) {
-  //   if (it->first.first == label) {
-  //     deleted_indexes.push_back(it->first);
-  //     it = locked_stats->erase(it);
-  //   } else {
-  //     ++it;
-  //   }
-  // }
-  // return deleted_indexes;
-  throw utils::NotYetImplemented(
-      "Label-property composite index related operations are not yet supported using in-memory storage mode.");
+  std::vector<LabelPropertyCompositeIndexKey> deleted_indexes;
+  auto locked_stats = stats_.Lock();
+  for (auto it = locked_stats->cbegin(); it != locked_stats->cend();) {
+    if (it->first.first == label) {
+      deleted_indexes.push_back(it->first);
+      it = locked_stats->erase(it);
+    } else {
+      ++it;
+    }
+  }
+  return deleted_indexes;
 }
 
-void InMemoryLabelPropertyCompositeIndex::SetIndexStats(const std::pair<storage::LabelId, storage::PropertyId> &key,
+void InMemoryLabelPropertyCompositeIndex::SetIndexStats(const LabelPropertyCompositeIndexKey &key,
                                                         const LabelPropertyCompositeIndexStats &stats) {
-  // auto locked_stats = stats_.Lock();
-  // locked_stats->insert_or_assign(key, stats);
+  auto locked_stats = stats_.Lock();
+  locked_stats->insert_or_assign(key, stats);
 }
 
 std::optional<LabelPropertyCompositeIndexStats> InMemoryLabelPropertyCompositeIndex::GetIndexStats(
-    const std::pair<storage::LabelId, storage::PropertyId> &key) const {
-  // auto locked_stats = stats_.ReadLock();
-  // if (auto it = locked_stats->find(key); it != locked_stats->end()) {
-  //   return it->second;
-  // }
-  throw utils::NotYetImplemented(
-      "Label-property composite index related operations are not yet supported using in-memory storage mode.");
+    const LabelPropertyCompositeIndexKey &key) const {
+  auto locked_stats = stats_.ReadLock();
+  if (auto it = locked_stats->find(key); it != locked_stats->end()) {
+    return it->second;
+  }
+  return {};
 }
 
 void InMemoryLabelPropertyCompositeIndex::RunGC() {
-  // for (auto &index_entry : index_) {
-  //   index_entry.second.run_gc();
-  // }
-  throw utils::NotYetImplemented(
-      "Label-property composite index related operations are not yet supported using in-memory storage mode.");
+  for (auto &index_entry : index_) {
+    index_entry.second.run_gc();
+  }
 }
 
 InMemoryLabelPropertyCompositeIndex::Iterable InMemoryLabelPropertyCompositeIndex::Vertices(
@@ -576,11 +573,9 @@ void InMemoryLabelPropertyCompositeIndex::AbortEntries(LabelId label,
 }
 
 void InMemoryLabelPropertyCompositeIndex::DropGraphClearIndices() {
-  // index_.clear();
-  // indices_by_property_.clear();
-  // stats_->clear();
-  throw utils::NotYetImplemented(
-      "Label-property composite index related operations are not yet supported using in-memory storage mode.");
+  index_.clear();
+  indices_by_property_.clear();
+  stats_->clear();
 }
 
 }  // namespace memgraph::storage

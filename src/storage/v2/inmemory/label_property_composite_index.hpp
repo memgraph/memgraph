@@ -24,6 +24,22 @@
 
 namespace memgraph::storage {
 
+// Custom hash function for std::vector<PropertyId>
+struct VectorHash {
+  std::size_t operator()(const std::vector<PropertyId> &vec) const {
+    std::size_t seed = 0;
+    for (const auto &val : vec) {
+      seed ^= std::hash<PropertyId>{}(val) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+    }
+    return seed;
+  }
+};
+
+// Custom equality function for std::vector<PropertyId>
+struct VectorEqual {
+  bool operator()(const std::vector<PropertyId> &lhs, const std::vector<PropertyId> &rhs) const { return lhs == rhs; }
+};
+
 class InMemoryLabelPropertyCompositeIndex : public storage::LabelPropertyCompositeIndex {
  private:
   struct Entry {
@@ -39,6 +55,7 @@ class InMemoryLabelPropertyCompositeIndex : public storage::LabelPropertyComposi
   };
 
  public:
+  using LabelPropertyCompositeIndexKey = std::pair<LabelId, std::vector<PropertyId>>;
   InMemoryLabelPropertyCompositeIndex() = default;
 
   /// @throw std::bad_alloc
@@ -58,7 +75,7 @@ class InMemoryLabelPropertyCompositeIndex : public storage::LabelPropertyComposi
 
   bool IndexExists(LabelId label, const std::vector<PropertyId> &properties) const override;
 
-  std::vector<std::pair<LabelId, std::vector<PropertyId>>> ListIndices() const override;
+  std::vector<LabelPropertyCompositeIndexKey> ListIndices() const override;
 
   void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token);
 
@@ -132,15 +149,14 @@ class InMemoryLabelPropertyCompositeIndex : public storage::LabelPropertyComposi
   uint64_t ApproximateVertexCount(LabelId label, const std::vector<PropertyId> &properties,
                                   const std::vector<PropertyValue> &values) const override;
 
-  std::vector<std::pair<LabelId, PropertyId>> ClearIndexStats();
+  std::vector<LabelPropertyCompositeIndexKey> ClearIndexStats();
 
-  std::vector<std::pair<LabelId, PropertyId>> DeleteIndexStats(const storage::LabelId &label);
+  std::vector<LabelPropertyCompositeIndexKey> DeleteIndexStats(const storage::LabelId &label);
 
-  void SetIndexStats(const std::pair<storage::LabelId, storage::PropertyId> &key,
-                     const storage::LabelPropertyCompositeIndexStats &stats);
+  void SetIndexStats(const LabelPropertyCompositeIndexKey &key, const storage::LabelPropertyCompositeIndexStats &stats);
 
   std::optional<storage::LabelPropertyCompositeIndexStats> GetIndexStats(
-      const std::pair<storage::LabelId, storage::PropertyId> &key) const;
+      const LabelPropertyCompositeIndexKey &key) const;
 
   void RunGC();
 
@@ -158,9 +174,11 @@ class InMemoryLabelPropertyCompositeIndex : public storage::LabelPropertyComposi
   void DropGraphClearIndices() override;
 
  private:
-  std::map<std::pair<LabelId, std::vector<PropertyId>>, utils::SkipList<Entry>> index_;
-  // std::unordered_map<PropertyId, std::unordered_map<LabelId, utils::SkipList<Entry> *>> indices_by_property_;
-  utils::Synchronized<std::map<std::pair<LabelId, std::vector<PropertyId>>, storage::LabelPropertyCompositeIndexStats>,
+  std::map<LabelPropertyCompositeIndexKey, utils::SkipList<Entry>> index_;
+  std::unordered_map<PropertyId, std::map<LabelPropertyCompositeIndexKey, utils::SkipList<Entry> *>, VectorHash,
+                     VectorEqual>
+      indices_by_property_;
+  utils::Synchronized<std::map<LabelPropertyCompositeIndexKey, storage::LabelPropertyCompositeIndexStats>,
                       utils::ReadPrioritizedRWLock>
       stats_;
 };
