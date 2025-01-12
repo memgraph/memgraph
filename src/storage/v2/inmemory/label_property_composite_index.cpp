@@ -222,24 +222,38 @@ void InMemoryLabelPropertyCompositeIndex::Iterable::Iterator::AdvanceUntilValid(
       continue;
     }
 
-    if (self_->lower_bound_[0]) {
-      // if (index_iterator_->value < self_->lower_bound_->value()) {
-      //   continue;
-      // }
-      // if (!self_->lower_bound_[0]->IsInclusive() && index_iterator_->value == self_->lower_bound_->value()) {
-      //   continue;
-      // }
+    // if (self_->lower_bound_[0]) {
+    if (index_iterator_->value < self_->lower_bound_) {
+      continue;
     }
-    if (self_->upper_bound_[0]) {
-      // if (self_->upper_bound_->value() < index_iterator_->value) {
-      //   index_iterator_ = self_->index_accessor_.end();
-      //   break;
-      // }
-      // if (!self_->upper_bound_[0]->IsInclusive() && index_iterator_->value == self_->upper_bound_->value()) {
-      //   index_iterator_ = self_->index_accessor_.end();
-      //   break;
-      // }
+
+    bool passes = true;
+    for (uint64_t i = 0; i < self_->upper_bound_.size(); i++) {
+      if (!self_->lower_bounds_[i]->IsInclusive() && index_iterator_->value[i] == self_->lower_bound_[i]) {
+        passes = false;
+        break;
+      }
     }
+    if (!passes) {
+      continue;
+    }
+    // }
+    // if (self_->upper_bound_[0]) {
+    if (self_->upper_bound_ < index_iterator_->value) {
+      index_iterator_ = self_->index_accessor_.end();
+      break;
+    }
+    passes = true;
+    for (uint64_t i = 0; i < self_->upper_bound_.size(); i++) {
+      if (!self_->upper_bounds_[i]->IsInclusive() && index_iterator_->value[i] == self_->upper_bound_[i]) {
+        index_iterator_ = self_->index_accessor_.end();
+        break;
+      }
+    }
+    if (!passes) {
+      break;
+    }
+    // }
 
     if (CurrentVersionHasLabelProperty(*index_iterator_->vertex, self_->label_, self_->properties_,
                                        index_iterator_->value, self_->transaction_, self_->view_)) {
@@ -253,136 +267,149 @@ void InMemoryLabelPropertyCompositeIndex::Iterable::Iterator::AdvanceUntilValid(
 InMemoryLabelPropertyCompositeIndex::Iterable::Iterable(
     utils::SkipList<Entry>::Accessor index_accessor, utils::SkipList<Vertex>::ConstAccessor vertices_accessor,
     LabelId label, const std::vector<PropertyId> &properties,
-    const std::vector<std::optional<utils::Bound<PropertyValue>>> &lower_bound,
-    const std::vector<std::optional<utils::Bound<PropertyValue>>> &upper_bound, View view, Storage *storage,
+    const std::vector<std::optional<utils::Bound<PropertyValue>>> &lower_bounds,
+    const std::vector<std::optional<utils::Bound<PropertyValue>>> &upper_bounds, View view, Storage *storage,
     Transaction *transaction)
     : pin_accessor_(std::move(vertices_accessor)),
       index_accessor_(std::move(index_accessor)),
       label_(label),
       properties_(properties),
-      lower_bound_(lower_bound),
-      upper_bound_(upper_bound),
+      lower_bounds_(lower_bounds),
+      upper_bounds_(upper_bounds),
       view_(view),
       storage_(storage),
       transaction_(transaction) {
-  // // We have to fix the bounds that the user provided to us. If the user
-  // // provided only one bound we should make sure that only values of that type
-  // // are returned by the iterator. We ensure this by supplying either an
-  // // inclusive lower bound of the same type, or an exclusive upper bound of the
-  // // following type. If neither bound is set we yield all items in the index.
+  // We have to fix the bounds that the user provided to us. If the user
+  // provided only one bound we should make sure that only values of that type
+  // are returned by the iterator. We ensure this by supplying either an
+  // inclusive lower bound of the same type, or an exclusive upper bound of the
+  // following type. If neither bound is set we yield all items in the index.
+  std::vector<PropertyValue> lower_bound_values;
+  std::vector<PropertyValue> upper_bound_values;
+  lower_bound_values.reserve(lower_bounds_.size());
+  upper_bound_values.reserve(upper_bounds_.size());
 
-  // // Remove any bounds that are set to `Null` because that isn't a valid value.
-  // if (lower_bound_ && lower_bound_->value().IsNull()) {
-  //   lower_bound_ = std::nullopt;
-  // }
-  // if (upper_bound_ && upper_bound_->value().IsNull()) {
-  //   upper_bound_ = std::nullopt;
-  // }
+  for (uint64_t i = 0; i < lower_bounds_.size(); i++) {
+    auto &lower_bound = lower_bounds_[i];
+    auto &upper_bound = upper_bounds_[i];
+    // Remove any bounds that are set to `Null` because that isn't a valid value.
+    if (lower_bound && lower_bound->value().IsNull()) {
+      lower_bound = std::nullopt;
+    }
+    if (upper_bound && upper_bound->value().IsNull()) {
+      upper_bound = std::nullopt;
+    }
 
-  // // Check whether the bounds are of comparable types if both are supplied.
-  // if (lower_bound_ && upper_bound_ && !AreComparableTypes(lower_bound_->value().type(),
-  // upper_bound_->value().type())) {
-  //   bounds_valid_ = false;
-  //   return;
-  // }
+    // Check whether the bounds are of comparable types if both are supplied.
+    if (lower_bound && upper_bound && !AreComparableTypes(lower_bound->value().type(), upper_bound->value().type())) {
+      bounds_valid_ = false;
+      return;
+    }
 
-  // // Set missing bounds.
-  // if (lower_bound_ && !upper_bound_) {
-  //   // Here we need to supply an upper bound. The upper bound is set to an
-  //   // exclusive lower bound of the following type.
-  //   switch (lower_bound_->value().type()) {
-  //     case PropertyValue::Type::Null:
-  //       // This shouldn't happen because of the nullopt-ing above.
-  //       LOG_FATAL("Invalid database state!");
-  //       break;
-  //     case PropertyValue::Type::Bool:
-  //       upper_bound_ = utils::MakeBoundExclusive(kSmallestNumber);
-  //       break;
-  //     case PropertyValue::Type::Int:
-  //     case PropertyValue::Type::Double:
-  //       // Both integers and doubles are treated as the same type in
-  //       // `PropertyValue` and they are interleaved when sorted.
-  //       upper_bound_ = utils::MakeBoundExclusive(kSmallestString);
-  //       break;
-  //     case PropertyValue::Type::String:
-  //       upper_bound_ = utils::MakeBoundExclusive(kSmallestList);
-  //       break;
-  //     case PropertyValue::Type::List:
-  //       upper_bound_ = utils::MakeBoundExclusive(kSmallestMap);
-  //       break;
-  //     case PropertyValue::Type::Map:
-  //       upper_bound_ = utils::MakeBoundExclusive(kSmallestTemporalData);
-  //       break;
-  //     case PropertyValue::Type::TemporalData:
-  //       upper_bound_ = utils::MakeBoundExclusive(kSmallestZonedTemporalData);
-  //       break;
-  //     case PropertyValue::Type::ZonedTemporalData:
-  //       upper_bound_ = utils::MakeBoundExclusive(kSmallestEnum);
-  //       break;
-  //     case PropertyValue::Type::Enum:
-  //       upper_bound_ = utils::MakeBoundExclusive(kSmallestPoint2d);
-  //       break;
-  //     case PropertyValue::Type::Point2d:
-  //       upper_bound_ = utils::MakeBoundExclusive(kSmallestPoint3d);
-  //       break;
-  //     case PropertyValue::Type::Point3d:
-  //       // This is the last type in the order so we leave the upper bound empty.
-  //       break;
-  //   }
-  // }
-  // if (upper_bound_ && !lower_bound_) {
-  //   // Here we need to supply a lower bound. The lower bound is set to an
-  //   // inclusive lower bound of the current type.
-  //   switch (upper_bound_->value().type()) {
-  //     case PropertyValue::Type::Null:
-  //       // This shouldn't happen because of the nullopt-ing above.
-  //       LOG_FATAL("Invalid database state!");
-  //       break;
-  //     case PropertyValue::Type::Bool:
-  //       lower_bound_ = utils::MakeBoundInclusive(kSmallestBool);
-  //       break;
-  //     case PropertyValue::Type::Int:
-  //     case PropertyValue::Type::Double:
-  //       // Both integers and doubles are treated as the same type in
-  //       // `PropertyValue` and they are interleaved when sorted.
-  //       lower_bound_ = utils::MakeBoundInclusive(kSmallestNumber);
-  //       break;
-  //     case PropertyValue::Type::String:
-  //       lower_bound_ = utils::MakeBoundInclusive(kSmallestString);
-  //       break;
-  //     case PropertyValue::Type::List:
-  //       lower_bound_ = utils::MakeBoundInclusive(kSmallestList);
-  //       break;
-  //     case PropertyValue::Type::Map:
-  //       lower_bound_ = utils::MakeBoundInclusive(kSmallestMap);
-  //       break;
-  //     case PropertyValue::Type::TemporalData:
-  //       lower_bound_ = utils::MakeBoundInclusive(kSmallestTemporalData);
-  //       break;
-  //     case PropertyValue::Type::ZonedTemporalData:
-  //       lower_bound_ = utils::MakeBoundInclusive(kSmallestZonedTemporalData);
-  //       break;
-  //     case PropertyValue::Type::Enum:
-  //       lower_bound_ = utils::MakeBoundInclusive(kSmallestEnum);
-  //       break;
-  //     case PropertyValue::Type::Point2d:
-  //       lower_bound_ = utils::MakeBoundExclusive(kSmallestPoint2d);
-  //       break;
-  //     case PropertyValue::Type::Point3d:
-  //       lower_bound_ = utils::MakeBoundExclusive(kSmallestPoint3d);
-  //       break;
-  //   }
-  // }
+    // Set missing bounds.
+    if (lower_bound && !upper_bound) {
+      // Here we need to supply an upper bound. The upper bound is set to an
+      // exclusive lower bound of the following type.
+      switch (lower_bound->value().type()) {
+        case PropertyValue::Type::Null:
+          // This shouldn't happen because of the nullopt-ing above.
+          LOG_FATAL("Invalid database state!");
+          break;
+        case PropertyValue::Type::Bool:
+          upper_bound = utils::MakeBoundExclusive(kSmallestNumber);
+          break;
+        case PropertyValue::Type::Int:
+        case PropertyValue::Type::Double:
+          // Both integers and doubles are treated as the same type in
+          // `PropertyValue` and they are interleaved when sorted.
+          upper_bound = utils::MakeBoundExclusive(kSmallestString);
+          break;
+        case PropertyValue::Type::String:
+          upper_bound = utils::MakeBoundExclusive(kSmallestList);
+          break;
+        case PropertyValue::Type::List:
+          upper_bound = utils::MakeBoundExclusive(kSmallestMap);
+          break;
+        case PropertyValue::Type::Map:
+          upper_bound = utils::MakeBoundExclusive(kSmallestTemporalData);
+          break;
+        case PropertyValue::Type::TemporalData:
+          upper_bound = utils::MakeBoundExclusive(kSmallestZonedTemporalData);
+          break;
+        case PropertyValue::Type::ZonedTemporalData:
+          upper_bound = utils::MakeBoundExclusive(kSmallestEnum);
+          break;
+        case PropertyValue::Type::Enum:
+          upper_bound = utils::MakeBoundExclusive(kSmallestPoint2d);
+          break;
+        case PropertyValue::Type::Point2d:
+          upper_bound = utils::MakeBoundExclusive(kSmallestPoint3d);
+          break;
+        case PropertyValue::Type::Point3d:
+          // This is the last type in the order so we leave the upper bound empty.
+          break;
+      }
+    }
+    if (upper_bound && !lower_bound) {
+      // Here we need to supply a lower bound. The lower bound is set to an
+      // inclusive lower bound of the current type.
+      switch (upper_bound->value().type()) {
+        case PropertyValue::Type::Null:
+          // This shouldn't happen because of the nullopt-ing above.
+          LOG_FATAL("Invalid database state!");
+          break;
+        case PropertyValue::Type::Bool:
+          lower_bound = utils::MakeBoundInclusive(kSmallestBool);
+          break;
+        case PropertyValue::Type::Int:
+        case PropertyValue::Type::Double:
+          // Both integers and doubles are treated as the same type in
+          // `PropertyValue` and they are interleaved when sorted.
+          lower_bound = utils::MakeBoundInclusive(kSmallestNumber);
+          break;
+        case PropertyValue::Type::String:
+          lower_bound = utils::MakeBoundInclusive(kSmallestString);
+          break;
+        case PropertyValue::Type::List:
+          lower_bound = utils::MakeBoundInclusive(kSmallestList);
+          break;
+        case PropertyValue::Type::Map:
+          lower_bound = utils::MakeBoundInclusive(kSmallestMap);
+          break;
+        case PropertyValue::Type::TemporalData:
+          lower_bound = utils::MakeBoundInclusive(kSmallestTemporalData);
+          break;
+        case PropertyValue::Type::ZonedTemporalData:
+          lower_bound = utils::MakeBoundInclusive(kSmallestZonedTemporalData);
+          break;
+        case PropertyValue::Type::Enum:
+          lower_bound = utils::MakeBoundInclusive(kSmallestEnum);
+          break;
+        case PropertyValue::Type::Point2d:
+          lower_bound = utils::MakeBoundExclusive(kSmallestPoint2d);
+          break;
+        case PropertyValue::Type::Point3d:
+          lower_bound = utils::MakeBoundExclusive(kSmallestPoint3d);
+          break;
+      }
+    }
+
+    lower_bound_values.push_back(lower_bound->value());
+    upper_bound_values.push_back(upper_bound->value());
+  }
+
+  lower_bound_ = std::move(lower_bound_values);
+  upper_bound_ = std::move(upper_bound_values);
 }
 
 InMemoryLabelPropertyCompositeIndex::Iterable::Iterator InMemoryLabelPropertyCompositeIndex::Iterable::begin() {
   // If the bounds are set and don't have comparable types we don't yield any
   // items from the index.
   if (!bounds_valid_) return {this, index_accessor_.end()};
-  auto index_iterator = index_accessor_.begin();
-  if (lower_bound_[0]) {
-    index_iterator = index_accessor_.find_equal_or_greater(std::vector<PropertyValue>{lower_bound_[0]->value()});
-  }
+  // auto index_iterator = index_accessor_.begin();
+  // if (lower_bound_) {
+  auto index_iterator = index_accessor_.find_equal_or_greater(lower_bound_);
+  // }
   return {this, index_iterator};
 }
 
