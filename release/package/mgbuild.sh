@@ -424,14 +424,20 @@ package_memgraph() {
 }
 
 package_docker() {
+  # TODO(gitbuda): Write the below ifs in a better way (make it automatic with new toolchain versions).
   if [[ "$toolchain_version" == "v4" ]]; then
     if [[ "$os" != "debian-11" && "$os" != "debian-11-arm" ]]; then
       echo -e "Error: When passing '--toolchain v4' the 'docker' command accepts only '--os debian-11' and '--os debian-11-arm'"
       exit 1
     fi
-  else
+  elif [[ "$toolchain_version" == "v5" ]]; then
     if [[ "$os" != "debian-12" && "$os" != "debian-12-arm" ]]; then
       echo -e "Error: When passing '--toolchain v5' the 'docker' command accepts only '--os debian-12' and '--os debian-12-arm'"
+      exit 1
+    fi
+  else
+    if [[ "$os" != "ubuntu-24.04" && "$os" != "ubuntu-24.04-arm" ]]; then
+      echo -e "Error: When passing '--toolchain v6' the 'docker' command accepts only '--os ubuntu-24.04' and '--os ubuntu-24.04-arm'"
       exit 1
     fi
   fi

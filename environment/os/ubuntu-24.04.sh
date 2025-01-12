@@ -66,7 +66,7 @@ MEMGRAPH_BUILD_DEPS=(
 MEMGRAPH_TEST_DEPS="${MEMGRAPH_BUILD_DEPS[*]}"
 
 MEMGRAPH_RUN_DEPS=(
-    logrotate openssl python3 libseccomp2
+    logrotate openssl python3 libseccomp2 libatomic1 adduser
 )
 
 NEW_DEPS=(
