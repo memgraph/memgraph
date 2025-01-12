@@ -166,38 +166,36 @@ std::vector<LabelPropertyCompositeIndexKey> InMemoryLabelPropertyCompositeIndex:
 
 void InMemoryLabelPropertyCompositeIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp,
                                                                 std::stop_token token) {
-  // auto maybe_stop = utils::ResettableCounter<2048>();
+  auto maybe_stop = utils::ResettableCounter<2048>();
 
-  // for (auto &[label_property, index] : index_) {
-  //   auto [label_id, prop_id] = label_property;
-  //   // before starting index, check if stop_requested
-  //   if (token.stop_requested()) return;
+  for (auto &[label_properties, index] : index_) {
+    auto [label_id, prop_ids] = label_properties;
+    // before starting index, check if stop_requested
+    if (token.stop_requested()) return;
 
-  //   auto index_acc = index.access();
-  //   auto it = index_acc.begin();
-  //   auto end_it = index_acc.end();
-  //   if (it == end_it) continue;
-  //   while (true) {
-  //     // Hot loop, don't check stop_requested every time
-  //     if (maybe_stop() && token.stop_requested()) return;
+    auto index_acc = index.access();
+    auto it = index_acc.begin();
+    auto end_it = index_acc.end();
+    if (it == end_it) continue;
+    while (true) {
+      // Hot loop, don't check stop_requested every time
+      if (maybe_stop() && token.stop_requested()) return;
 
-  //     auto next_it = it;
-  //     ++next_it;
+      auto next_it = it;
+      ++next_it;
 
-  //     bool has_next = next_it != end_it;
-  //     if (it->timestamp < oldest_active_start_timestamp) {
-  //       bool redundant_duplicate = has_next && it->vertex == next_it->vertex && it->value == next_it->value;
-  //       if (redundant_duplicate ||
-  //           !AnyVersionHasLabelProperty(*it->vertex, label_id, prop_id, it->value, oldest_active_start_timestamp)) {
-  //         index_acc.remove(*it);
-  //       }
-  //     }
-  //     if (!has_next) break;
-  //     it = next_it;
-  //   }
-  // }
-  throw utils::NotYetImplemented(
-      "Label-property composite index related operations are not yet supported using in-memory storage mode.");
+      bool has_next = next_it != end_it;
+      if (it->timestamp < oldest_active_start_timestamp) {
+        bool redundant_duplicate = has_next && it->vertex == next_it->vertex && it->value == next_it->value;
+        if (redundant_duplicate ||
+            !AnyVersionHasLabelProperties(*it->vertex, label_id, prop_ids, it->value, oldest_active_start_timestamp)) {
+          index_acc.remove(*it);
+        }
+      }
+      if (!has_next) break;
+      it = next_it;
+    }
+  }
 }
 
 InMemoryLabelPropertyCompositeIndex::Iterable::Iterator::Iterator(Iterable *self,

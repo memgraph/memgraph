@@ -24,22 +24,6 @@
 
 namespace memgraph::storage {
 
-// Custom hash function for std::vector<PropertyId>
-struct VectorHash {
-  std::size_t operator()(const std::vector<PropertyId> &vec) const {
-    std::size_t seed = 0;
-    for (const auto &val : vec) {
-      seed ^= std::hash<PropertyId>{}(val) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-    }
-    return seed;
-  }
-};
-
-// Custom equality function for std::vector<PropertyId>
-struct VectorEqual {
-  bool operator()(const std::vector<PropertyId> &lhs, const std::vector<PropertyId> &rhs) const { return lhs == rhs; }
-};
-
 class InMemoryLabelPropertyCompositeIndex : public storage::LabelPropertyCompositeIndex {
  private:
   struct Entry {
@@ -175,8 +159,7 @@ class InMemoryLabelPropertyCompositeIndex : public storage::LabelPropertyComposi
 
  private:
   std::map<LabelPropertyCompositeIndexKey, utils::SkipList<Entry>> index_;
-  std::unordered_map<PropertyId, std::map<LabelPropertyCompositeIndexKey, utils::SkipList<Entry> *>, VectorHash,
-                     VectorEqual>
+  std::unordered_map<PropertyId, std::map<LabelPropertyCompositeIndexKey, utils::SkipList<Entry> *>>
       indices_by_property_;
   utils::Synchronized<std::map<LabelPropertyCompositeIndexKey, storage::LabelPropertyCompositeIndexStats>,
                       utils::ReadPrioritizedRWLock>

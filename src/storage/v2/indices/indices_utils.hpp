@@ -172,6 +172,18 @@ inline bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, Prop
       });
 }
 
+inline bool AnyVersionHasLabelProperties(const Vertex &vertex, LabelId label, const std::vector<PropertyId> &properties,
+                                         const std::vector<PropertyValue> &values, uint64_t timestamp) {
+  // for (uint64_t i = 0; i < properties.size(); i++) {
+  //   if (!AnyVersionHasLabelProperty(vertex, label, properties[i], values[i], timestamp)) {
+  //     false;
+  //   }
+  // }
+
+  // return true;
+  return true;
+}
+
 /// Helper function for edgetype-property index garbage collection. Returns true if
 /// there's a reachable version of the edge that has the given property value.
 inline bool AnyVersionHasProperty(const Edge &edge, PropertyId key, const PropertyValue &value, uint64_t timestamp) {
