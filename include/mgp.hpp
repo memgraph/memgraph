@@ -1266,7 +1266,7 @@ class Value {
 
   ~Value();
 
-  /// @brief Returns the pointer to the stored value.
+  /// @brief Returns the pointer to the stored value with the least significat bit set to 0.
   mgp_value *ptr() const;
 
   /// @brief Returns the type of the value.
@@ -1360,6 +1360,7 @@ class Value {
   std::string ToString() const;
 
  private:
+  /// least signifact bit signifies whether the value is a reference type
   mgp_value *ptr_;
 };
 
