@@ -366,10 +366,89 @@ inline bool CurrentVersionHasLabelProperty(const Vertex &vertex, LabelId label, 
   return exists && !deleted && has_label && current_value_equal_to_value;
 }
 
-inline bool CurrentVersionHasLabelProperty(const Vertex &vertex, LabelId label, const std::vector<PropertyId> key,
-                                           const std::vector<PropertyValue> &values, Transaction *transaction,
-                                           View view) {
-  return true;
+inline bool CurrentVersionHasLabelProperties(const Vertex &vertex, LabelId label,
+                                             const std::vector<PropertyId> &properties,
+                                             const std::vector<PropertyValue> &values, Transaction *transaction,
+                                             View view) {
+  bool exists = true;
+  bool deleted = false;
+  bool has_label = false;
+  const Delta *delta = nullptr;
+  std::unordered_map<PropertyId, bool> equality_values;
+  std::unordered_map<PropertyId, PropertyValue> property_values;
+
+  auto initialize_maps = [&equality_values, &property_values, &vertex, &properties, &values]() {
+    for (uint64_t i = 0; i < properties.size(); i++) {
+      equality_values[properties[i]] = vertex.properties.IsPropertyEqual(properties[i], values[i]);
+      property_values[properties[i]] = values[i];
+    }
+  };
+
+  auto all_true_func = [](const auto &map) -> bool {
+    return std::all_of(map.begin(), map.end(), [](const auto &pair) { return pair.second; });
+  };
+
+  bool are_all_properties_equal = true;
+  {
+    auto guard = std::shared_lock{vertex.lock};
+    deleted = vertex.deleted;
+    has_label = utils::Contains(vertex.labels, label);
+    initialize_maps();
+    are_all_properties_equal = all_true_func(equality_values);
+    delta = vertex.delta;
+  }
+
+  // Checking cache has a cost, only do it if we have any deltas
+  // if we have no deltas then what we already have from the vertex is correct.
+  if (delta && transaction->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
+    // IsolationLevel::READ_COMMITTED would be tricky to propagate invalidation to
+    // so for now only cache for IsolationLevel::SNAPSHOT_ISOLATION
+
+    auto const useCache = transaction->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION;
+    if (useCache) {
+      auto const &cache = transaction->manyDeltasCache;
+      if (auto resError = HasError(view, cache, &vertex, false); resError) return false;
+      auto resLabel = cache.GetHasLabel(view, &vertex, label);
+      if (resLabel && *resLabel) {
+        bool all_match =
+            std::ranges::all_of(ranges::views::zip(properties, values), [&cache, view, &vertex](const auto &pair) {
+              const auto &[key, value] = pair;
+              auto resProp = cache.GetProperty(view, &vertex, key);
+              return resProp && resProp->get() == value;
+            });
+        if (all_match) {
+          return true;
+        }
+      }
+    }
+
+    auto const n_processed = ApplyDeltasForRead(transaction, delta, view, [&, label](const Delta &delta) {
+      // clang-format off
+
+      DeltaDispatch(delta, utils::ChainedOverloaded{
+        Deleted_ActionMethod(deleted),
+        Exists_ActionMethod(exists),
+        HasLabel_ActionMethod(has_label, label),
+        PropertyValuesMatch_ActionMethod(equality_values, property_values),
+      });
+
+      // clang-format on
+    });
+
+    if (useCache && n_processed >= FLAGS_delta_chain_cache_threshold) {
+      auto &cache = transaction->manyDeltasCache;
+      cache.StoreExists(view, &vertex, exists);
+      cache.StoreDeleted(view, &vertex, deleted);
+      cache.StoreHasLabel(view, &vertex, label, has_label);
+      if (are_all_properties_equal) {
+        for (const auto &[key, value] : ranges::views::zip(properties, values)) {
+          cache.StoreProperty(view, &vertex, key, value);
+        }
+      }
+    }
+  }
+
+  return exists && !deleted && has_label && are_all_properties_equal;
 }
 
 // Helper function for iterating through label-property index. Returns true if
