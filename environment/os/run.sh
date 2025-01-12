@@ -19,6 +19,7 @@ OPERATING_SYSTEMS=(
   # "mgrun ubuntu-18.04 ubuntu:18.04"
   # "mgrun ubuntu-20.04 ubuntu:20.04"
   # "mgrun ubuntu-22.04 ubuntu:22.04"
+  # "mgrun ubuntu-24.04 ubuntu:24.04"
   # "mgbuild debian-12 memgraph/memgraph-builder:v5_debian-12"
 )
 

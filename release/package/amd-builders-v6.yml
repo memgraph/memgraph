@@ -1,0 +1,25 @@
+version: "3"
+services:
+  # NOTE: build > context > args are injected via mgbuild.sh script.
+
+  mgbuild_v6_debian-12:
+    image: "memgraph/mgbuild:v6_debian-12"
+    build:
+      context: debian-12
+      args:
+        TOOLCHAIN_VERSION: "v6"
+    extra_hosts:
+      - "mgdeps-cache:10.42.16.10"
+      - "bench-graph-api:10.42.16.10"
+    container_name: "mgbuild_v6_debian-12"
+
+  mgbuild_v6_ubuntu-24.04:
+    image: "memgraph/mgbuild:v6_ubuntu-24.04"
+    build:
+      context: ubuntu-24.04
+      args:
+        TOOLCHAIN_VERSION: "v6"
+    extra_hosts:
+      - "mgdeps-cache:10.42.16.10"
+      - "bench-graph-api:10.42.16.10"
+    container_name: "mgbuild_v6_ubuntu-24.04"

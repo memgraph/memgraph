@@ -38,7 +38,6 @@ TOOLCHAIN_RUN_DEPS=(
     libreadline8t64 # for cmake and llvm
     libffi8 libxml2 # for llvm
     libssl-dev # for libevent
-    ninja-build
 )
 
 MEMGRAPH_BUILD_DEPS=(
