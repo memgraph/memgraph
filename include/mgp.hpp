@@ -2656,14 +2656,13 @@ inline size_t Map::Size() const { return mgp::map_size(ptr_); }
 
 inline bool Map::Empty() const { return Size() == 0; }
 
-inline Value Map::operator[](std::string_view key) const { return Value(mgp::map_at(ptr_, key.data())); }
+inline Value Map::operator[](std::string_view key) const { return Value(ref_type, mgp::map_at(ptr_, key.data())); }
 
 inline Value Map::At(std::string_view key) const {
   auto *ptr = mgp::map_at(ptr_, key.data());
   if (ptr) {
-    return Value(ptr);
+    return Value(ref_type, ptr);
   }
-
   return Value();
 }
 
@@ -4513,8 +4512,8 @@ inline List SearchTextIndex(mgp_graph *memgraph_graph, std::string_view index_na
   return results_or_error.At(kSearchResultsKey).ValueList();
 }
 
-inline std::string_view AggregateOverTextIndex(mgp_graph *memgraph_graph, std::string_view index_name,
-                                               std::string_view search_query, std::string_view aggregation_query) {
+inline std::string AggregateOverTextIndex(mgp_graph *memgraph_graph, std::string_view index_name,
+                                          std::string_view search_query, std::string_view aggregation_query) {
   auto results_or_error =
       Map(mgp::MemHandlerCallback(graph_aggregate_over_text_index, memgraph_graph, index_name.data(),
                                   search_query.data(), aggregation_query.data()));
@@ -4534,7 +4533,8 @@ inline std::string_view AggregateOverTextIndex(mgp_graph *memgraph_graph, std::s
     throw TextSearchException{"Text index aggregation results have wrong type!"};
   }
 
-  return results_or_error.At(kAggregationResultsKey).ValueString();
+  // results_or_error is temporary -> need to copy
+  return std::string(results_or_error.At(kAggregationResultsKey).ValueString());
 }
 
 inline List SearchVectorIndex(mgp_graph *memgraph_graph, std::string_view index_name, List &query_vector,
