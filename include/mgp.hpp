@@ -114,7 +114,10 @@ class ExecutionHeaders;
 class ExecutionRow;
 
 struct StealType {};
-inline constexpr StealType steal{};
+inline constexpr StealType steal_type{};
+
+struct RefType {};
+inline constexpr RefType ref_type{};
 
 namespace MemoryDispatcher {
 
@@ -1182,6 +1185,8 @@ class Value {
   explicit Value(mgp_value *ptr);
 
   explicit Value(StealType /*steal*/, mgp_value *ptr);
+
+  explicit Value(RefType /*ref*/, mgp_value *ptr);
 
   // Null constructor:
   explicit Value();
@@ -2521,9 +2526,9 @@ inline size_t List::Size() const { return mgp::list_size(ptr_); }
 
 inline bool List::Empty() const { return Size() == 0; }
 
-inline Value List::operator[](size_t index) const { return Value(mgp::list_at(ptr_, index)); }
+inline Value List::operator[](size_t index) const { return Value(ref_type, mgp::list_at(ptr_, index)); }
 
-inline Value List::operator[](size_t index) { return Value(mgp::list_at(ptr_, index)); }
+inline Value List::operator[](size_t index) { return Value(ref_type, mgp::list_at(ptr_, index)); }
 
 inline bool List::Iterator::operator==(const Iterator &other) const {
   return iterable_ == other.iterable_ && index_ == other.index_;
@@ -2881,7 +2886,7 @@ inline void Node::RemoveProperty(std::string property) { SetProperty(property, V
 
 inline Value Node::GetProperty(const std::string &property) const {
   mgp_value *vertex_prop = mgp::MemHandlerCallback(vertex_get_property, ptr_, property.data());
-  return Value(steal, vertex_prop);
+  return Value(steal_type, vertex_prop);
 }
 
 inline bool Node::operator<(const Node &other) const { return Id() < other.Id(); }
@@ -3001,7 +3006,7 @@ inline void Relationship::RemoveProperty(std::string property) { SetProperty(pro
 
 inline Value Relationship::GetProperty(const std::string &property) const {
   mgp_value *edge_prop = mgp::MemHandlerCallback(edge_get_property, ptr_, property.data());
-  return Value(steal, edge_prop);
+  return Value(steal_type, edge_prop);
 }
 
 inline Node Relationship::From() const { return Node(mgp::edge_get_from(ptr_)); }
@@ -3550,6 +3555,8 @@ inline std::string Duration::ToString() const { return std::to_string(Microsecon
 
 inline Value::Value(mgp_value *ptr) : ptr_(mgp::MemHandlerCallback(value_copy, ptr)) {}
 inline Value::Value(StealType /*steal*/, mgp_value *ptr) : ptr_{ptr} {}
+inline Value::Value(RefType /*ref*/, mgp_value *ptr)
+    : ptr_(reinterpret_cast<mgp_value *>(reinterpret_cast<uintptr_t>(ptr) | static_cast<std::uintptr_t>(1))) {}
 
 inline Value::Value() : ptr_(mgp::MemHandlerCallback(value_make_null)) {}
 
@@ -3654,52 +3661,52 @@ inline Value &Value::operator=(Value &&other) noexcept {
 }
 
 inline Value::~Value() {
-  if (ptr_ != nullptr) {
+  if (ptr_ != nullptr && (reinterpret_cast<uintptr_t>(ptr_) & 1) == 0) {
     mgp::value_destroy(ptr_);
   }
 }
 
-inline mgp_value *Value::ptr() const { return ptr_; }
+inline mgp_value *Value::ptr() const { return reinterpret_cast<mgp_value *>(reinterpret_cast<uintptr_t>(ptr_) & ~1); }
 
-inline mgp::Type Value::Type() const { return util::ToAPIType(mgp::value_get_type(ptr_)); }
+inline mgp::Type Value::Type() const { return util::ToAPIType(mgp::value_get_type(this->ptr())); }
 
 inline bool Value::ValueBool() const {
   if (Type() != Type::Bool) {
     throw ValueException("Type of value is wrong: expected Bool.");
   }
-  return mgp::value_get_bool(ptr_);
+  return mgp::value_get_bool(this->ptr());
 }
 inline bool Value::ValueBool() {
   if (Type() != Type::Bool) {
     throw ValueException("Type of value is wrong: expected Bool.");
   }
-  return mgp::value_get_bool(ptr_);
+  return mgp::value_get_bool(this->ptr());
 }
 
 inline std::int64_t Value::ValueInt() const {
   if (Type() != Type::Int) {
     throw ValueException("Type of value is wrong: expected Int.");
   }
-  return mgp::value_get_int(ptr_);
+  return mgp::value_get_int(this->ptr());
 }
 inline std::int64_t Value::ValueInt() {
   if (Type() != Type::Int) {
     throw ValueException("Type of value is wrong: expected Int.");
   }
-  return mgp::value_get_int(ptr_);
+  return mgp::value_get_int(this->ptr());
 }
 
 inline double Value::ValueDouble() const {
   if (Type() != Type::Double) {
     throw ValueException("Type of value is wrong: expected Double.");
   }
-  return mgp::value_get_double(ptr_);
+  return mgp::value_get_double(this->ptr());
 }
 inline double Value::ValueDouble() {
   if (Type() != Type::Double) {
     throw ValueException("Type of value is wrong: expected Double.");
   }
-  return mgp::value_get_double(ptr_);
+  return mgp::value_get_double(this->ptr());
 }
 
 inline double Value::ValueNumeric() const {
@@ -3707,183 +3714,183 @@ inline double Value::ValueNumeric() const {
     throw ValueException("Type of value is wrong: expected Int or Double.");
   }
   if (Type() == Type::Int) {
-    return static_cast<double>(mgp::value_get_int(ptr_));
+    return static_cast<double>(mgp::value_get_int(this->ptr()));
   }
-  return mgp::value_get_double(ptr_);
+  return mgp::value_get_double(this->ptr());
 }
 inline double Value::ValueNumeric() {
   if (Type() != Type::Int && Type() != Type::Double) {
     throw ValueException("Type of value is wrong: expected Int or Double.");
   }
   if (Type() == Type::Int) {
-    return static_cast<double>(mgp::value_get_int(ptr_));
+    return static_cast<double>(mgp::value_get_int(this->ptr()));
   }
-  return mgp::value_get_double(ptr_);
+  return mgp::value_get_double(this->ptr());
 }
 
 inline std::string_view Value::ValueString() const {
   if (Type() != Type::String) {
     throw ValueException("Type of value is wrong: expected String.");
   }
-  return mgp::value_get_string(ptr_);
+  return mgp::value_get_string(this->ptr());
 }
 inline std::string_view Value::ValueString() {
   if (Type() != Type::String) {
     throw ValueException("Type of value is wrong: expected String.");
   }
-  return mgp::value_get_string(ptr_);
+  return mgp::value_get_string(this->ptr());
 }
 
 inline List Value::ValueList() const {
   if (Type() != Type::List) {
     throw ValueException("Type of value is wrong: expected List.");
   }
-  return List(mgp::value_get_list(ptr_));
+  return List(mgp::value_get_list(this->ptr()));
 }
 inline List Value::ValueList() {
   if (Type() != Type::List) {
     throw ValueException("Type of value is wrong: expected List.");
   }
-  return List(mgp::value_get_list(ptr_));
+  return List(mgp::value_get_list(this->ptr()));
 }
 
 inline Map Value::ValueMap() const {
   if (Type() != Type::Map) {
     throw ValueException("Type of value is wrong: expected Map.");
   }
-  return Map(mgp::value_get_map(ptr_));
+  return Map(mgp::value_get_map(this->ptr()));
 }
 inline Map Value::ValueMap() {
   if (Type() != Type::Map) {
     throw ValueException("Type of value is wrong: expected Map.");
   }
-  return Map(mgp::value_get_map(ptr_));
+  return Map(mgp::value_get_map(this->ptr()));
 }
 
 inline Node Value::ValueNode() const {
   if (Type() != Type::Node) {
     throw ValueException("Type of value is wrong: expected Node.");
   }
-  return Node(mgp::value_get_vertex(ptr_));
+  return Node(mgp::value_get_vertex(this->ptr()));
 }
 inline Node Value::ValueNode() {
   if (Type() != Type::Node) {
     throw ValueException("Type of value is wrong: expected Node.");
   }
-  return Node(mgp::value_get_vertex(ptr_));
+  return Node(mgp::value_get_vertex(this->ptr()));
 }
 
 inline Relationship Value::ValueRelationship() const {
   if (Type() != Type::Relationship) {
     throw ValueException("Type of value is wrong: expected Relationship.");
   }
-  return Relationship(mgp::value_get_edge(ptr_));
+  return Relationship(mgp::value_get_edge(this->ptr()));
 }
 inline Relationship Value::ValueRelationship() {
   if (Type() != Type::Relationship) {
     throw ValueException("Type of value is wrong: expected Relationship.");
   }
-  return Relationship(mgp::value_get_edge(ptr_));
+  return Relationship(mgp::value_get_edge(this->ptr()));
 }
 
 inline Path Value::ValuePath() const {
   if (Type() != Type::Path) {
     throw ValueException("Type of value is wrong: expected Path.");
   }
-  return Path(mgp::value_get_path(ptr_));
+  return Path(mgp::value_get_path(this->ptr()));
 }
 inline Path Value::ValuePath() {
   if (Type() != Type::Path) {
     throw ValueException("Type of value is wrong: expected Path.");
   }
-  return Path(mgp::value_get_path(ptr_));
+  return Path(mgp::value_get_path(this->ptr()));
 }
 
 inline Date Value::ValueDate() const {
   if (Type() != Type::Date) {
     throw ValueException("Type of value is wrong: expected Date.");
   }
-  return Date(mgp::value_get_date(ptr_));
+  return Date(mgp::value_get_date(this->ptr()));
 }
 inline Date Value::ValueDate() {
   if (Type() != Type::Date) {
     throw ValueException("Type of value is wrong: expected Date.");
   }
-  return Date(mgp::value_get_date(ptr_));
+  return Date(mgp::value_get_date(this->ptr()));
 }
 
 inline LocalTime Value::ValueLocalTime() const {
   if (Type() != Type::LocalTime) {
     throw ValueException("Type of value is wrong: expected LocalTime.");
   }
-  return LocalTime(mgp::value_get_local_time(ptr_));
+  return LocalTime(mgp::value_get_local_time(this->ptr()));
 }
 inline LocalTime Value::ValueLocalTime() {
   if (Type() != Type::LocalTime) {
     throw ValueException("Type of value is wrong: expected LocalTime.");
   }
-  return LocalTime(mgp::value_get_local_time(ptr_));
+  return LocalTime(mgp::value_get_local_time(this->ptr()));
 }
 
 inline LocalDateTime Value::ValueLocalDateTime() const {
   if (Type() != Type::LocalDateTime) {
     throw ValueException("Type of value is wrong: expected LocalDateTime.");
   }
-  return LocalDateTime(mgp::value_get_local_date_time(ptr_));
+  return LocalDateTime(mgp::value_get_local_date_time(this->ptr()));
 }
 inline LocalDateTime Value::ValueLocalDateTime() {
   if (Type() != Type::LocalDateTime) {
     throw ValueException("Type of value is wrong: expected LocalDateTime.");
   }
-  return LocalDateTime(mgp::value_get_local_date_time(ptr_));
+  return LocalDateTime(mgp::value_get_local_date_time(this->ptr()));
 }
 
 inline Duration Value::ValueDuration() const {
   if (Type() != Type::Duration) {
     throw ValueException("Type of value is wrong: expected Duration.");
   }
-  return Duration(mgp::value_get_duration(ptr_));
+  return Duration(mgp::value_get_duration(this->ptr()));
 }
 inline Duration Value::ValueDuration() {
   if (Type() != Type::Duration) {
     throw ValueException("Type of value is wrong: expected Duration.");
   }
-  return Duration(mgp::value_get_duration(ptr_));
+  return Duration(mgp::value_get_duration(this->ptr()));
 }
 
-inline bool Value::IsNull() const { return mgp::value_is_null(ptr_); }
+inline bool Value::IsNull() const { return mgp::value_is_null(this->ptr()); }
 
-inline bool Value::IsBool() const { return mgp::value_is_bool(ptr_); }
+inline bool Value::IsBool() const { return mgp::value_is_bool(this->ptr()); }
 
-inline bool Value::IsInt() const { return mgp::value_is_int(ptr_); }
+inline bool Value::IsInt() const { return mgp::value_is_int(this->ptr()); }
 
-inline bool Value::IsDouble() const { return mgp::value_is_double(ptr_); }
+inline bool Value::IsDouble() const { return mgp::value_is_double(this->ptr()); }
 
 inline bool Value::IsNumeric() const { return IsInt() || IsDouble(); }
 
-inline bool Value::IsString() const { return mgp::value_is_string(ptr_); }
+inline bool Value::IsString() const { return mgp::value_is_string(this->ptr()); }
 
-inline bool Value::IsList() const { return mgp::value_is_list(ptr_); }
+inline bool Value::IsList() const { return mgp::value_is_list(this->ptr()); }
 
-inline bool Value::IsMap() const { return mgp::value_is_map(ptr_); }
+inline bool Value::IsMap() const { return mgp::value_is_map(this->ptr()); }
 
-inline bool Value::IsNode() const { return mgp::value_is_vertex(ptr_); }
+inline bool Value::IsNode() const { return mgp::value_is_vertex(this->ptr()); }
 
-inline bool Value::IsRelationship() const { return mgp::value_is_edge(ptr_); }
+inline bool Value::IsRelationship() const { return mgp::value_is_edge(this->ptr()); }
 
-inline bool Value::IsPath() const { return mgp::value_is_path(ptr_); }
+inline bool Value::IsPath() const { return mgp::value_is_path(this->ptr()); }
 
-inline bool Value::IsDate() const { return mgp::value_is_date(ptr_); }
+inline bool Value::IsDate() const { return mgp::value_is_date(this->ptr()); }
 
-inline bool Value::IsLocalTime() const { return mgp::value_is_local_time(ptr_); }
+inline bool Value::IsLocalTime() const { return mgp::value_is_local_time(this->ptr()); }
 
-inline bool Value::IsLocalDateTime() const { return mgp::value_is_local_date_time(ptr_); }
+inline bool Value::IsLocalDateTime() const { return mgp::value_is_local_date_time(this->ptr()); }
 
-inline bool Value::IsDuration() const { return mgp::value_is_duration(ptr_); }
+inline bool Value::IsDuration() const { return mgp::value_is_duration(this->ptr()); }
 
-inline bool Value::operator==(const Value &other) const { return util::ValuesEqual(ptr_, other.ptr_); }
+inline bool Value::operator==(const Value &other) const { return util::ValuesEqual(this->ptr(), other.ptr()); }
 
-inline bool Value::operator!=(const Value &other) const { return !(*this == other); }
+inline bool Value::operator!=(const Value &other) const { return !(this->ptr() == other.ptr()); }
 
 inline bool Value::operator<(const Value &other) const {
   const mgp::Type &type = Type();
