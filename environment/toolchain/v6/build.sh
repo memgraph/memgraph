@@ -289,15 +289,21 @@ if [ ! -f $PREFIX/bin/ld.gold ]; then
     tar -xvf ../archives/binutils-$BINUTILS_VERSION.tar.gz
     pushd binutils-$BINUTILS_VERSION
     mkdir build && pushd build
+    BINUTILS_SPECIAL_FLAGS=""
     if [[ "$for_arm" = true ]]; then
         # influenced by: https://buildd.debian.org/status/fetch.php?pkg=binutils&arch=arm64&ver=2.37.90.20220130-2&stamp=1643576183&raw=0
+        # NOTE: On ARM, on Debian 11, there are errors like gprofng/libcollector/dispatcher.c: multiple definition of pthread_sigmask.
+        # A simple solution is to disable gprofng because Debian 11 is not the main OS used.
+        if [[ "${DISTRO}" == "debian-11" ]]; then
+            BINUTILS_SPECIAL_FLAGS="--disable-gprofng"
+        fi
         env \
             CC=gcc \
             CXX=g++ \
             CFLAGS="-g -O2" \
             CXXFLAGS="-g -O2" \
             LDFLAGS="" \
-            ../configure \
+            ../configure $BINUTILS_SPECIAL_FLAGS \
                 --build=aarch64-linux-gnu \
                 --host=aarch64-linux-gnu \
                 --prefix=$PREFIX \
