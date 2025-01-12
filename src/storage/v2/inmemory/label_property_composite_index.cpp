@@ -537,6 +537,7 @@ InMemoryLabelPropertyCompositeIndex::Iterable InMemoryLabelPropertyCompositeInde
 void InMemoryLabelPropertyCompositeIndex::AbortEntries(PropertyId property,
                                                        std::span<std::pair<PropertyValue, Vertex *> const> vertices,
                                                        uint64_t exact_start_timestamp) {
+  // TODO: Figure out
   // auto const it = indices_by_property_.find(property);
   // if (it == indices_by_property_.end()) return;
 
@@ -554,6 +555,7 @@ void InMemoryLabelPropertyCompositeIndex::AbortEntries(PropertyId property,
 void InMemoryLabelPropertyCompositeIndex::AbortEntries(LabelId label,
                                                        std::span<std::pair<PropertyValue, Vertex *> const> vertices,
                                                        uint64_t exact_start_timestamp) {
+  // TODO: Figure out
   // for (auto &[label_prop, storage] : index_) {
   //   if (label_prop.first != label) {
   //     continue;
