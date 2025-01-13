@@ -2486,15 +2486,16 @@ struct PyUtils {
   PyObject_HEAD
 };
 
+namespace {
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-static PyMethodDef PyUtilsMethods[] = {  // NOSONAR
+PyMethodDef PyUtilsMethods[] = {  // NOSONAR
     {"is_enterprise_valid", reinterpret_cast<PyCFunction>(MgpIsEnterpriseValid), METH_NOARGS | METH_STATIC,
      "Check if enterprise license is valid."},
     {nullptr, {}, {}, {}}};
 
 // clang-format off
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-static PyTypeObject PyUtilsType = {  // NOSONAR
+PyTypeObject PyUtilsType = {  // NOSONAR
     PyVarObject_HEAD_INIT(nullptr, 0).tp_name = "_mgp.Utils",
     .tp_basicsize = sizeof(PyLogger),
     // NOLINTNEXTLINE(hicpp-signed-bitwise)
@@ -2503,6 +2504,7 @@ static PyTypeObject PyUtilsType = {  // NOSONAR
     .tp_methods = PyUtilsMethods,
 };
 // clang-format on
+}  // namespace
 
 struct PyMgpError {
   const char *name;
