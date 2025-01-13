@@ -7,6 +7,7 @@ memgraph:
       release_name: memgraph-ha
       chart_name: memgraph/memgraph-high-availability
       values_file: memgraph_ha_chart_values.yaml
+      querying_type: bolt+routing
 
 general:
   verbose: false

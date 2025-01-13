@@ -61,6 +61,7 @@ class Config:
             self._release_name = installation.get("options", {}).get("release_name", None)
             self._chart_name = installation.get("options", {}).get("chart_name", None)
             self._values_file = installation.get("options", {}).get("values_file", None)
+            self._querying_type = installation.get("options", {}).get("querying_type", "data")
 
     @property
     def uses_ssl(self):
@@ -111,6 +112,10 @@ class Config:
         return self._values_file
 
     @property
+    def querying_type(self):
+        return self._querying_type
+
+    @property
     def values_path(self):
         return os.path.join(SCRIPT_DIR, f"configurations/chart_values/{self.values_file}")
 
@@ -131,7 +136,9 @@ def deployment_factory(args: Args, config: Config):
         if config.deployment_type == "standalone":
             return MinikubeHelmStandaloneDeployment(config.release_name, config.chart_name, config.values_path)
         elif config.deployment_type == "ha":
-            return MinikubeHelmHADeployment(config.release_name, config.chart_name, config.values_path)
+            return MinikubeHelmHADeployment(
+                config.release_name, config.chart_name, config.values_path, config.querying_type
+            )
         else:
             raise Exception("Unknown Memgraph deployment type!")
 
@@ -214,8 +221,9 @@ def _find_test_binary(args: Args, config: Config, test: str) -> List[str]:
     raise Exception("Test '{}' binary not supported!".format(test))
 
 
-def run_custom_workloads(deployment, config: Config):
+def run_custom_workloads(deployment, config: Config) -> bool:
     print("Running custom workloads...")
+    err = False
     for workload in config.custom_workloads:
         workload_name = workload["name"]
         print(f"Running workload '{workload_name}'")
@@ -223,7 +231,8 @@ def run_custom_workloads(deployment, config: Config):
             deployment.start_memgraph(workload["memgraph_args"])
         except Exception as ex:
             print("Exception occured while starting memgraph", ex)
-            return None
+            err = True
+            break
 
         try:
             # Import queries
@@ -254,9 +263,14 @@ def run_custom_workloads(deployment, config: Config):
             print(f"Finished workload '{workload_name}'")
         except Exception as ex:
             print(f"Failed to execute workload {workload_name} with following exception:", ex)
+            err = True
         finally:
             deployment.stop_memgraph()
             deployment.cleanup()
+        if err:
+            return None
+
+    return True
 
 
 def run_stress_test_suite(args: Args, config: Config) -> Optional[Dict[str, float]]:

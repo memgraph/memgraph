@@ -460,7 +460,7 @@ class MinikubeHelmStandaloneDeployment(Deployment):
 
 
 class MinikubeHelmHADeployment(Deployment):
-    def __init__(self, release_name: str, chart_name: str, values_path: str):
+    def __init__(self, release_name: str, chart_name: str, values_path: str, querying_type: str):
         super().__init__()
         self.release_name = release_name
         self.chart_name = chart_name
@@ -476,7 +476,7 @@ class MinikubeHelmHADeployment(Deployment):
         self._coord_ext_service_names = [f"memgraph-coordinator-{x}-external" for x in self._coordinator_ids]
 
         # data, bolt+routing
-        self._querying_type = "data"
+        self._querying_type = querying_type
 
     def start_minikube(self) -> None:
         """Start Minikube if it is not already running"""
@@ -646,15 +646,19 @@ class MinikubeHelmHADeployment(Deployment):
     def _execute_bolt_routing_query(self, query: str):
         minikube_ip = self.get_minikube_ip()
         service_nodeports = [self.get_service_nodeport(x) for x in self._coord_ext_service_names]
-
+        successful_query = False
         for nodeport in service_nodeports:
             try:
                 driver = GraphDatabase.driver(f"neo4j://{minikube_ip}:{nodeport}")
                 with driver.session() as session:
                     session.run(query)
+                    successful_query = True
                     break
             except Exception as e:
                 print(f"Nodeport {nodeport} failed to execute query.")
+
+        if not successful_query:
+            raise Exception(f"Driver wasn't able to execute query {query} across all coordinators!")
 
     def _execute_query_on_service(self, service_name: str, query: str):
         minikube_ip = self.get_minikube_ip()
