@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,6 +15,7 @@
 #include <gtest/internal/gtest-type-util.h>
 
 #include "disk_test_utils.hpp"
+#include "flags/general.hpp"
 #include "storage/v2/disk/label_index.hpp"
 #include "storage/v2/disk/label_property_index.hpp"
 #include "storage/v2/disk/storage.hpp"
@@ -36,6 +37,8 @@ template <typename StorageType>
 class IndexTest : public testing::Test {
  protected:
   void SetUp() override {
+    FLAGS_storage_properties_on_edges = true;
+    config_.salient.items.properties_on_edges = true;
     config_ = disk_test_utils::GenerateOnDiskConfig(testSuite);
     this->storage = std::make_unique<StorageType>(config_);
     auto acc = this->storage->Access();
