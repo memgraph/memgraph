@@ -649,7 +649,8 @@ class MinikubeHelmHADeployment(Deployment):
         successful_query = False
         for nodeport in service_nodeports:
             try:
-                driver = GraphDatabase.driver(f"neo4j://{minikube_ip}:{nodeport}")
+                uri = f"neo4j://{minikube_ip}:{nodeport}"
+                driver = GraphDatabase.driver(uri, auth=("", ""))
                 with driver.session() as session:
                     session.run(query)
                     successful_query = True

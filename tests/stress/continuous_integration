@@ -223,19 +223,15 @@ def _find_test_binary(args: Args, config: Config, test: str) -> List[str]:
 
 def run_custom_workloads(deployment, config: Config) -> bool:
     print("Running custom workloads...")
+    runtimes = {}
     err = False
     for workload in config.custom_workloads:
         workload_name = workload["name"]
         print(f"Running workload '{workload_name}'")
+        start = time.time()
         try:
             deployment.start_memgraph(workload["memgraph_args"])
-        except Exception as ex:
-            print("Exception occured while starting memgraph", ex)
-            err = True
-            break
 
-        try:
-            # Import queries
             print(f"Started import for workload '{workload_name}'")
             for query in workload.get("import", {}).get("queries", []):
                 deployment.execute_query(query)
@@ -261,6 +257,8 @@ def run_custom_workloads(deployment, config: Config) -> bool:
                         process.join()
 
             print(f"Finished workload '{workload_name}'")
+            duration = time.time() - start
+            runtimes[workload_name] = duration
         except Exception as ex:
             print(f"Failed to execute workload {workload_name} with following exception:", ex)
             err = True
@@ -270,7 +268,7 @@ def run_custom_workloads(deployment, config: Config) -> bool:
         if err:
             return None
 
-    return True
+    return runtimes
 
 
 def run_stress_test_suite(args: Args, config: Config) -> Optional[Dict[str, float]]:
@@ -305,9 +303,11 @@ def run_stress_test_suite(args: Args, config: Config) -> Optional[Dict[str, floa
         if err:
             return None
 
-    run_custom_workloads(deployment, config)
+    workload_runtimes = run_custom_workloads(deployment, config)
+    if workload_runtimes is None:
+        return None
 
-    return runtimes
+    return runtimes | workload_runtimes
 
 
 def write_stats(runtimes: Dict[str, float]) -> None:
