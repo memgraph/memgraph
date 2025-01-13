@@ -30,16 +30,16 @@ customWorkloads:
       workers:
         - name: periodic-import
           type: writer
-          query: "USING PERIODIC COMMIT 1000 UNWIND range(1, 10000000) as x CREATE (:Node {id: x});"
+          query: "USING PERIODIC COMMIT 1000 UNWIND range(1, 1000000) as x CREATE (:Node {id: x});"
           num_repetitions: 1
           sleep_millis: 0
-        # - name: lab-simulator
-        #   type: lab-simulator
-        #   num_repetitions: 100
-        #   sleep_millis: 500
-        # - name: show-replicas
-        #   type: reader
-        #   query: "SHOW REPLICAS;"
-        #   num_repetitions: 100
-        #   sleep_millis: 1000
+        - name: lab-simulator
+          type: lab-simulator
+          num_repetitions: 100
+          sleep_millis: 500
+        - name: show-replicas
+          type: reader
+          query: "SHOW REPLICAS;"
+          num_repetitions: 100
+          sleep_millis: 500
       timeout_min: 2
