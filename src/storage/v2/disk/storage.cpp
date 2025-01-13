@@ -2272,7 +2272,7 @@ IndicesInfo DiskStorage::DiskAccessor::ListAllIndices() const {
   auto &text_index = storage_->indices_.text_index_;
   return {disk_label_index->ListIndices(), disk_label_property_index->ListIndices(),
           {/* edge type indices */},       {/* edge_type_property */},
-          text_index.ListIndices(),        {/*  */},
+          text_index.ListIndices(),        {/* point indices */},
           {/* vector indices */}};
 }
 ConstraintsInfo DiskStorage::DiskAccessor::ListAllConstraints() const {
