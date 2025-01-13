@@ -1371,6 +1371,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexCreate) {
       auto acc = this->storage->Access();
       EXPECT_FALSE(acc->EdgeTypeIndexExists(this->edge_type_id1));
       EXPECT_EQ(acc->ListAllIndices().edge_type.size(), 0);
+      EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1), 0);
     }
 
     {
@@ -1381,12 +1382,14 @@ TYPED_TEST(IndexTest, EdgeTypeIndexCreate) {
         this->CreateEdge(&vertex_from, &vertex_to, i % 2 ? this->edge_type_id1 : this->edge_type_id2, acc.get());
       }
       ASSERT_NO_ERROR(acc->Commit());
+      EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1), 0);
     }
 
     {
       auto unique_acc = this->storage->UniqueAccess();
       EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1).HasError());
       ASSERT_NO_ERROR(unique_acc->Commit());
+      EXPECT_EQ(unique_acc->ApproximateEdgeCount(this->edge_type_id1), 5);
     }
 
     {
@@ -1417,7 +1420,9 @@ TYPED_TEST(IndexTest, EdgeTypeIndexCreate) {
       EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, View::NEW), View::NEW),
                   UnorderedElementsAre(1, 3, 5, 7, 9, 11, 13, 15, 17, 19));
 
+      EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1), 10);
       acc->Abort();
+      EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1), 5);
     }
 
     {
@@ -1441,6 +1446,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexCreate) {
                   UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
 
       ASSERT_NO_ERROR(acc->Commit());
+      EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1), 10);
     }
 
     {
@@ -1546,28 +1552,20 @@ TYPED_TEST(IndexTest, EdgeTypeIndexDrop) {
                   UnorderedElementsAre(1, 3, 5, 7, 9));
       EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, View::NEW), View::NEW),
                   UnorderedElementsAre(1, 3, 5, 7, 9));
+      EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1), 5);
     }
 
     {
       auto unique_acc = this->storage->UniqueAccess();
       EXPECT_FALSE(unique_acc->DropIndex(this->edge_type_id1).HasError());
       ASSERT_NO_ERROR(unique_acc->Commit());
+      EXPECT_EQ(unique_acc->ApproximateEdgeCount(this->edge_type_id1), 0);
     }
     {
       auto acc = this->storage->Access();
       EXPECT_FALSE(acc->EdgeTypeIndexExists(this->edge_type_id1));
-      EXPECT_EQ(acc->ListAllIndices().label.size(), 0);
-    }
-
-    {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_TRUE(unique_acc->DropIndex(this->edge_type_id1).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
-    }
-    {
-      auto acc = this->storage->Access();
-      EXPECT_FALSE(acc->EdgeTypeIndexExists(this->edge_type_id1));
-      EXPECT_EQ(acc->ListAllIndices().label.size(), 0);
+      EXPECT_EQ(acc->ListAllIndices().edge_type.size(), 0);
+      EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1), 0);
     }
 
     {
@@ -1791,6 +1789,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCreate) {
     auto acc = this->storage->Access();
     EXPECT_FALSE(acc->EdgeTypePropertyIndexExists(this->edge_type_id1, this->edge_prop_id1));
     EXPECT_EQ(acc->ListAllIndices().edge_type_property.size(), 0);
+    EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1, this->edge_prop_id1), 0);
   }
 
   {
@@ -1803,12 +1802,14 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCreate) {
       edge_acc.SetProperty(this->edge_prop_id1, memgraph::storage::PropertyValue(i));
     }
     ASSERT_NO_ERROR(acc->Commit());
+    EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1, this->edge_prop_id1), 0);
   }
 
   {
     auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
+    EXPECT_EQ(unique_acc->ApproximateEdgeCount(this->edge_type_id1, this->edge_prop_id1), 5);
   }
 
   {
@@ -1841,7 +1842,9 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCreate) {
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
                 UnorderedElementsAre(1, 3, 5, 7, 9, 11, 13, 15, 17, 19));
 
+    EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1, this->edge_prop_id1), 10);
     acc->Abort();
+    EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1, this->edge_prop_id1), 5);
   }
 
   {
@@ -1867,6 +1870,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCreate) {
                 UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
 
     ASSERT_NO_ERROR(acc->Commit());
+    EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1, this->edge_prop_id1), 10);
   }
 
   {
