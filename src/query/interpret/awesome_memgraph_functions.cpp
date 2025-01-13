@@ -1038,7 +1038,7 @@ TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext
     }
 
     case String: {
-      return TypedValue(arg, ctx.memory);
+      return {arg, ctx.memory};
     }
 
     case Int: {
@@ -1104,7 +1104,7 @@ TypedValue ToStringOrNull(const TypedValue *args, int64_t nargs, const FunctionC
   using enum TypedValue::Type;
   switch (arg.type()) {
     case String: {
-      return TypedValue(arg, ctx.memory);
+      return {arg, ctx.memory};
     }
 
     case Int: {
