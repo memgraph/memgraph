@@ -68,7 +68,7 @@ struct VectorIndex::Impl {
   /// The `index_name_to_label_prop_` is a hash map that maps an index name (as a string) to the corresponding
   /// `LabelPropKey`. This allows the system to quickly resolve an index name to the spec
   /// associated with that index, enabling easy lookup and management of indexes by name.
-  std::map<std::string, LabelPropKey> index_name_to_label_prop_;
+  std::map<std::string, LabelPropKey, std::less<>> index_name_to_label_prop_;
 };
 
 VectorIndex::VectorIndex() : pimpl(std::make_unique<Impl>()) {}
@@ -93,7 +93,7 @@ bool VectorIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Verte
                                                      spec.index_name, mg_vector_index.error.what()));
     }
     if (mg_vector_index.index.try_reserve(limits)) {
-      spdlog::info("Created vector index " + spec.index_name);
+      spdlog::info("Created vector index {}", spec.index_name);
     } else {
       throw query::VectorSearchException(
           fmt::format("Failed to create vector index {}", spec.index_name, ". Failed to reserve memory for the index"));
@@ -122,7 +122,7 @@ bool VectorIndex::DropIndex(std::string_view index_name) {
   const auto &label_prop = it->second;
   pimpl->index_.erase(label_prop);
   pimpl->index_name_to_label_prop_.erase(it);
-  spdlog::info("Dropped vector index " + std::string(index_name));
+  spdlog::info("Dropped vector index {}", index_name);
   return true;
 }
 
@@ -245,7 +245,7 @@ std::optional<uint64_t> VectorIndex::ApproximateVectorCount(LabelId label, Prope
 std::vector<std::tuple<Vertex *, double, double>> VectorIndex::Search(std::string_view index_name,
                                                                       uint64_t result_set_size,
                                                                       const std::vector<float> &query_vector) const {
-  const auto label_prop = pimpl->index_name_to_label_prop_.find(std::string(index_name));
+  const auto label_prop = pimpl->index_name_to_label_prop_.find(index_name);
   if (label_prop == pimpl->index_name_to_label_prop_.end()) {
     throw query::VectorSearchException(fmt::format("Vector index {} does not exist.", index_name));
   }

@@ -158,7 +158,8 @@ class VectorIndex {
   std::vector<VectorIndexSpec> ListIndices() const;
 
   /// @brief Returns number of vertices in the index.
-  /// @param label_prop The label and property key for the index.
+  /// @param label The label of the vertices in the index.
+  /// @param property The property of the vertices in the index.
   /// @return The number of vertices in the index.
   std::optional<uint64_t> ApproximateVectorCount(LabelId label, PropertyId property) const;
 
