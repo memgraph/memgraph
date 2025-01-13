@@ -135,7 +135,7 @@ class ReplicationStorageClient {
         return "Unknown ReplicaState";
     }
   }
-  auto GetTimestampInfo(Storage const *storage) -> TimestampInfo;
+  auto GetTimestampInfo(Storage const *storage) const -> TimestampInfo;
 
   /**
    * @brief Check the replica state
@@ -198,7 +198,7 @@ class ReplicationStorageClient {
    * @return false
    */
   [[nodiscard]] bool FinalizeTransactionReplication(Storage *storage, DatabaseAccessProtector db_acc,
-                                                    std::optional<ReplicaStream> &&replica_stream);
+                                                    std::optional<ReplicaStream> &&replica_stream) const;
 
   /**
    * @brief Asynchronously try to check the replica state and start a recovery thread if necessary
@@ -217,7 +217,7 @@ class ReplicationStorageClient {
    * @param replica_commit the commit up to which we should recover to
    * @param gk gatekeeper access that protects the database; std::any to have separation between dbms and storage
    */
-  void RecoverReplica(uint64_t replica_commit, memgraph::storage::Storage *storage);
+  void RecoverReplica(uint64_t replica_commit, memgraph::storage::Storage *storage) const;
 
   /**
    * @brief Check replica state
