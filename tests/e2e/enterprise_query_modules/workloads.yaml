@@ -1,0 +1,14 @@
+enterprise_query_modules_cluster: &enterprise_query_modules_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      log_file: "enterprise_query_modules.log"
+      setup_queries: []
+      validation_queries: []
+
+workloads:
+  - name: "Test enterprise license checking"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/enterprise_query_modules/query_modules/"
+    args: ["enterprise_query_modules/test_enterprise.py"]
+    <<: *enterprise_query_modules_cluster
