@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -98,6 +98,8 @@ constexpr std::string_view GetCodeString(const NotificationCode code) {
       return "DisableTTL"sv;
     case NotificationCode::STOP_TTL:
       return "StopTTL"sv;
+    case NotificationCode::SYNC_REPLICA_NOT_CONFIRMED:
+      return "SyncReplicaNotConfirmed"sv;
   }
 }
 }  // namespace

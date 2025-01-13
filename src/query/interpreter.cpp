@@ -2242,7 +2242,8 @@ auto CreateTimeoutTimer(QueryExtras const &extras, InterpreterConfig const &conf
   return {};
 }
 
-PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper, QueryExtras const &extras) {
+PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper, QueryExtras const &extras,
+                                                   std::vector<Notification> *const notifications) {
   std::function<void()> handler;
 
   if (query_upper == "BEGIN") {
@@ -2259,7 +2260,7 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper,
       SetupDatabaseTransaction(true);
     };
   } else if (query_upper == "COMMIT") {
-    handler = [this] {
+    handler = [this, notifications] {
       if (!in_explicit_transaction_) {
         throw ExplicitTransactionUsageException("No current transaction to commit.");
       }
@@ -2270,7 +2271,7 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper,
       }
 
       try {
-        Commit();
+        Commit(notifications);
       } catch (const utils::BasicException &) {
         AbortCommand(nullptr);
         throw;
@@ -5443,10 +5444,20 @@ void Interpreter::BeginTransaction(QueryExtras const &extras) {
   prepared_query.query_handler(nullptr, {});
 }
 
-void Interpreter::CommitTransaction() {
-  const auto prepared_query = PrepareTransactionQuery("COMMIT");
-  prepared_query.query_handler(nullptr, {});
-  ResetInterpreter();
+std::map<std::string, TypedValue> Interpreter::CommitTransaction() {
+  std::vector<Notification> commit_notifications;
+  const auto prepared_query = PrepareTransactionQuery("COMMIT", {/* no extras */}, &commit_notifications);
+
+  std::vector<TypedValue> notifications;
+  notifications.reserve(commit_notifications.size());
+  for (const auto &notification : commit_notifications) {
+    notifications.emplace_back(notification.ConvertToMap());
+  }
+
+  if (notifications.empty()) {
+    return {{"notifications", TypedValue{std::move(notifications)}}};
+  }
+  return {};
 }
 
 void Interpreter::RollbackTransaction() {
@@ -5513,7 +5524,7 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       ResetInterpreter();
     }
     auto &query_execution = query_executions_.emplace_back(QueryExecution::Create());
-    query_execution->prepared_query = PrepareTransactionQuery(trimmed_query, extras);
+    query_execution->prepared_query = PrepareTransactionQuery(trimmed_query, extras, &query_execution->notifications);
     auto qid = in_explicit_transaction_ ? static_cast<int>(query_executions_.size() - 1) : std::optional<int>{};
     return {query_execution->prepared_query->header, query_execution->prepared_query->privileges, qid, {}};
   }
@@ -6016,7 +6027,7 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
 }
 }  // namespace
 
-void Interpreter::Commit() {
+void Interpreter::Commit(std::vector<Notification> *const notifications) {
   LogQueryMessage("Query commit started.");
   utils::OnScopeExit const commit_end([this]() {
     this->LogQueryMessage("Query commit ended.");
@@ -6219,8 +6230,9 @@ void Interpreter::Commit() {
   }
 
   SPDLOG_DEBUG("Finished committing the transaction");
-  if (!commit_confirmed_by_all_sync_replicas) {
-    throw ReplicationException("At least one SYNC replica has not confirmed committing last transaction.");
+  if (notifications && !commit_confirmed_by_all_sync_replicas) {
+    notifications->emplace_back(SeverityLevel::WARNING, NotificationCode::SYNC_REPLICA_NOT_CONFIRMED,
+                                "At least one SYNC replica has not confirmed committing last transaction.");
   }
 
   if (IsQueryLoggingActive()) {
