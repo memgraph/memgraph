@@ -853,7 +853,13 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
     CommitReplArgs reparg, DatabaseAccessProtector db_acc) {
   auto result = Commit(reparg, db_acc);
 
-  if (result.HasError()) {
+  // Ignoring replication errors for periodic commits
+  if (result.HasError() && std::visit(
+                               [](const auto &e) {
+                                 // TODO: Handle all errors correctly
+                                 return !std::is_same_v<std::remove_cvref_t<decltype(e)>, storage::ReplicationError>;
+                               },
+                               result.GetError())) {
     return result;
   }
 
@@ -2018,9 +2024,8 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
       guard.unlock();
       // if lucky, there are no active transactions, hence nothing looking at the deltas
       // remove them now
-      auto const released_delta_count =
-          std::accumulate(unlinked_undo_buffers.cbegin(), unlinked_undo_buffers.cend(), uint64_t{0},
-                          [](uint64_t curr, GCDeltas const &gc_deltas) { return curr + gc_deltas.deltas_.size(); });
+      std::accumulate(unlinked_undo_buffers.cbegin(), unlinked_undo_buffers.cend(), uint64_t{0},
+                      [](uint64_t curr, GCDeltas const &gc_deltas) { return curr + gc_deltas.deltas_.size(); });
 
       // Now total_deltas contains the sum of all deltas in the unlinked_undo_buffers list
       unlinked_undo_buffers.clear();
