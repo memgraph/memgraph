@@ -156,17 +156,9 @@ TimestampInfo ReplicationStorageClient::GetTimestampInfo(Storage const *storage)
     // Exclusive access to client
     auto stream{client_.rpc_client_.Stream<replication::TimestampRpc>(main_uuid_, storage->uuid())};
     const auto response = stream.AwaitResponse();
-    const auto is_success = response.success;
-
     auto main_time_stamp = storage->repl_storage_state_.last_durable_timestamp_.load();
     info.current_timestamp_of_replica = response.current_commit_timestamp;
     info.current_number_of_timestamp_behind_main = response.current_commit_timestamp - main_time_stamp;
-
-    if (!is_success || info.current_number_of_timestamp_behind_main != 0) {
-      // Still under client lock, all good
-      replica_state_.WithLock([](auto &val) { val = replication::ReplicaState::MAYBE_BEHIND; });
-      LogRpcFailure();
-    }
   } catch (const rpc::RpcFailedException &) {
     replica_state_.WithLock([](auto &val) { val = replication::ReplicaState::MAYBE_BEHIND; });
     LogRpcFailure();  // mutex already unlocked, if the new enqueued task dispatches immediately it probably
