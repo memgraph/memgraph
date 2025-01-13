@@ -5910,12 +5910,13 @@ void Interpreter::Abort() {
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
 
-  while (is_verifying_.load()) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(1));
-  }
+  utils::OnScopeExit clean_status([this]() {
+    while (is_verifying_.load()) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
 
-  utils::OnScopeExit clean_status(
-      [this]() { transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release); });
+    transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release);
+  });
 
   expect_rollback_ = false;
   in_explicit_transaction_ = false;
@@ -6096,8 +6097,13 @@ void Interpreter::Commit() {
   }
 
   // Clean transaction status if something went wrong
-  utils::OnScopeExit clean_status(
-      [this]() { transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release); });
+  utils::OnScopeExit clean_status([this]() {
+    while (is_verifying_.load()) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+
+    transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release);
+  });
 
   auto current_storage_mode = db->GetStorageMode();
   auto creation_mode = current_db_.db_transactional_accessor_->GetCreationStorageMode();
@@ -6137,10 +6143,6 @@ void Interpreter::Commit() {
       }
     }
     SPDLOG_DEBUG("Finished executing before commit triggers");
-  }
-
-  while (is_verifying_.load()) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
 
   const auto reset_necessary_members = [this]() {
