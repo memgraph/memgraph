@@ -147,3 +147,5 @@ install(FILES mgp_networkx.py DESTINATION lib/memgraph/query_modules)
 install(FILES nxalg.py DESTINATION lib/memgraph/query_modules)
 install(FILES wcc.py DESTINATION lib/memgraph/query_modules)
 install(FILES mgps.py DESTINATION lib/memgraph/query_modules)
+
+# IMPORTANT: when adding enterprise module add its name to kEnterpriseModuleList in src/query/procedure/module.cpp
