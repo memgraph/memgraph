@@ -37,8 +37,16 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
 
     uint64_t timestamp;
 
-    bool operator<(const Entry &rhs) const;
-    bool operator==(const Entry &rhs) const;
+    friend bool operator<(Entry const &lhs, Entry const &rhs) {
+      return std::tie(lhs.value, lhs.edge, lhs.from_vertex, lhs.to_vertex, lhs.timestamp) <
+             std::tie(rhs.value, rhs.edge, rhs.from_vertex, rhs.to_vertex, rhs.timestamp);
+    };
+
+    friend bool operator==(Entry const &lhs, Entry const &rhs) {
+      return std::tie(lhs.value, lhs.edge, lhs.from_vertex, lhs.to_vertex, lhs.timestamp) ==
+             std::tie(rhs.value, rhs.edge, rhs.from_vertex, rhs.to_vertex, rhs.timestamp);
+    }
+
     bool operator<(const PropertyValue &rhs) const;
     bool operator==(const PropertyValue &rhs) const;
   };
