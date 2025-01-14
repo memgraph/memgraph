@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -465,6 +465,35 @@ class ModOperator : public memgraph::query::BinaryOperator {
 
   ModOperator *Clone(AstStorage *storage) const override {
     ModOperator *object = storage->Create<ModOperator>();
+    object->expression1_ = expression1_ ? expression1_->Clone(storage) : nullptr;
+    object->expression2_ = expression2_ ? expression2_->Clone(storage) : nullptr;
+    return object;
+  }
+
+ protected:
+  using BinaryOperator::BinaryOperator;
+
+ private:
+  friend class AstStorage;
+};
+
+class ExponentiationOperator : public memgraph::query::BinaryOperator {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DEFVISITABLE(ExpressionVisitor<TypedValue>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<void>);
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
+    if (visitor.PreVisit(*this)) {
+      expression1_->Accept(visitor) && expression2_->Accept(visitor);
+    }
+    return visitor.PostVisit(*this);
+  }
+
+  ExponentiationOperator *Clone(AstStorage *storage) const override {
+    ExponentiationOperator *object = storage->Create<ExponentiationOperator>();
     object->expression1_ = expression1_ ? expression1_->Clone(storage) : nullptr;
     object->expression2_ = expression2_ ? expression2_->Clone(storage) : nullptr;
     return object;

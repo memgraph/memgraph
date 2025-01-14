@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -810,6 +810,18 @@ TypedValue operator*(const TypedValue &a, const TypedValue &b);
  * @throw TypedValueException if the values are not numeric or Null.
  */
 TypedValue operator%(const TypedValue &a, const TypedValue &b);
+
+/**
+ * Perform an exponentation operation on two values.
+ *
+ * If any of the values is Null, then Null is returned. The return value
+ * is always a floating-point value, even when called with integers.
+ * The resulting value uses the same MemoryResource as the left hand side
+ * argument.
+ *
+ * @throw TypedValueException if the values are not numeric or Null.
+ */
+TypedValue pow(const TypedValue &a, const TypedValue &b);
 
 /** Output the TypedValue::Type value as a string */
 std::ostream &operator<<(std::ostream &os, const TypedValue::Type &type);

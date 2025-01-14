@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -58,6 +58,8 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
         return storage_->Create<DivisionOperator>(e1, e2);
       case MemgraphCypher::PERCENT:
         return storage_->Create<ModOperator>(e1, e2);
+      case MemgraphCypher::CARET:
+        return storage_->Create<ExponentiationOperator>(e1, e2);
       case MemgraphCypher::EQ:
         return storage_->Create<EqualOperator>(e1, e2);
       case MemgraphCypher::NEQ1:
@@ -925,7 +927,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitExpression6(MemgraphCypher::Expression6Context *ctx) override;
 
   /**
-   * Power.
+   * Exponentiation.
    *
    * @return Expression*
    */

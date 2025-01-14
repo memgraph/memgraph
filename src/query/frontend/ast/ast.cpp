@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -56,6 +56,9 @@ constexpr utils::TypeInfo query::DivisionOperator::kType{utils::TypeId::AST_DIVI
 
 constexpr utils::TypeInfo query::ModOperator::kType{utils::TypeId::AST_MOD_OPERATOR, "ModOperator",
                                                     &query::BinaryOperator::kType};
+
+constexpr utils::TypeInfo query::ExponentiationOperator::kType{utils::TypeId::AST_EXPONENTIATION_OPERATOR,
+                                                               "ExponentiationOperator", &query::BinaryOperator::kType};
 
 constexpr utils::TypeInfo query::NotEqualOperator::kType{utils::TypeId::AST_NOT_EQUAL_OPERATOR, "NotEqualOperator",
                                                          &query::BinaryOperator::kType};
