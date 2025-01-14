@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -49,6 +49,7 @@
 #include "utils/event_counter.hpp"
 #include "utils/logging.hpp"
 #include "utils/on_scope_exit.hpp"
+#include "utils/priority_thread_pool.hpp"
 #include "utils/variant_helpers.hpp"
 
 template <typename T>
@@ -202,7 +203,8 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
         session_{*session_context, input_buffer_.read_end(), &output_stream_},
         session_context_{session_context},
         remote_endpoint_{GetRemoteEndpoint()},
-        service_name_{service_name} {
+        service_name_{service_name},
+        worker_pool_(server_context.worker_pool_) {
     std::visit(utils::Overloaded{[](WebSocket & /* unused */) { DMG_ASSERT(false, "Shouldn't get here..."); },
                                  [](auto &socket) {
                                    socket.lowest_layer().set_option(tcp::no_delay(true));  // enable PSH
@@ -349,22 +351,30 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
 
     input_buffer_.write_end()->Written(bytes_transferred);
 
-    session_.Execute([shared_this = shared_from_this()](bool has_more, std::exception_ptr eptr) {
-      // Handle any generated errors (connection shutdown)
-      if (eptr) {
-        shared_this->HandleException(eptr);
-        return;
-      }
-      // More to read from the previous message
-      if (has_more) {
-        // Async work has been done, move back to session's thread pool
-        boost::asio::dispatch(shared_this->strand_,
-                              [shared_this] { shared_this->OnRead({/* no error */}, /* new bytes read = */ 0); });
-      } else {
-        // Handled all data,  async wait for new incoming data
-        shared_this->DoRead();
-      }
-    });
+    worker_pool_->ScheduledAddTask(
+        [shared_this = shared_from_this()]() {
+          // TODO Colapse back here
+          shared_this->session_.Execute(
+              [shared_this](bool has_more, std::exception_ptr eptr) {
+                // Handle any generated errors (connection shutdown)
+                if (eptr) {
+                  shared_this->HandleException(eptr);
+                  return;
+                }
+                // More to read from the previous message
+                if (has_more) {
+                  // Async work has been done, move back to session's thread pool
+                  boost::asio::dispatch(shared_this->strand_, [shared_this] {
+                    shared_this->OnRead({/* no error */}, /* new bytes read = */ 0);
+                  });
+                } else {
+                  // Handled all data,  async wait for new incoming data
+                  shared_this->DoRead();
+                }
+              },
+              shared_this->worker_pool_);
+        },
+        utils::PriorityThreadPool::TaskPriority::HIGH);
   }
 
   void OnError(const boost::system::error_code &ec) {
@@ -484,5 +494,8 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   std::optional<tcp::endpoint> remote_endpoint_;
   std::string_view service_name_;
   std::atomic_bool execution_active_{false};
+
+ public:
+  utils::PriorityThreadPool *worker_pool_;  // TODO Need to think about where to put this
 };
 }  // namespace memgraph::communication::v2

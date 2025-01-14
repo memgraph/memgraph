@@ -94,15 +94,14 @@ inline std::pair<std::string, std::string> ExceptionToErrorMessage(const std::ex
 namespace details {
 
 template <bool is_pull, typename TSession>
-State HandlePullDiscard(TSession &session, std::optional<int> n, std::optional<int> qid,
-                        const std::atomic_bool &yield_signal) {
+State HandlePullDiscard(TSession &session, std::optional<int> n, std::optional<int> qid) {
   try {
     map_t summary;
     if constexpr (is_pull) {
       // Pull can throw.
-      summary = session.Pull(n, qid, yield_signal);
+      summary = session.Pull(n, qid);
     } else {
-      summary = session.Discard(n, qid, yield_signal);
+      summary = session.Discard(n, qid);
     }
 
     if (!session.encoder_.MessageSuccess(summary)) {

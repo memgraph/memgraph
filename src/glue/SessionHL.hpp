@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -60,9 +60,9 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
       -> bolt_map_t;
 #endif
 
-  bolt_map_t Pull(std::optional<int> n, std::optional<int> qid, const std::atomic_bool &yield_signal);
+  bolt_map_t Pull(std::optional<int> n, std::optional<int> qid);
 
-  bolt_map_t Discard(std::optional<int> n, std::optional<int> qid, const std::atomic_bool &yield_signal);
+  bolt_map_t Discard(std::optional<int> n, std::optional<int> qid);
 
   void Abort();
 
@@ -76,26 +76,25 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 
   std::optional<std::string> GetServerNameForInit();
 
-  void AsyncExecution(std::function<void(bool, std::exception_ptr)> &&cb) noexcept;
+  void AsyncExecution(std::function<void(bool, std::exception_ptr)> &&cb,
+                      utils::PriorityThreadPool *worker_pool) noexcept;
 
   // TODO Better this, but I need to catch exceptions and pass them back
-  void Execute(auto &&async_cb) {
+  void Execute(auto &&async_cb, utils::PriorityThreadPool *worker_pool) {
+    std::exception_ptr eptr{};
     try {
       Execute_(*this);
       if (state_ == memgraph::communication::bolt::State::Postponed) [[likely]] {
-        AsyncExecution(std::move(async_cb));
+        AsyncExecution(std::move(async_cb), worker_pool);
         return;
       }
-      async_cb(false, std::exception_ptr{/* no expections */});
     } catch (const std::exception & /* unused */) {
-      async_cb(false, std::current_exception());
+      eptr = std::current_exception();
     }
+    async_cb(/* no more data */ false, eptr);
   }
 
-  void Handshake() {
-    // TODO Handle excp
-    Handshake_(*this);
-  }
+  void Handshake() { Handshake_(*this); }
 
   std::string GetCurrentDB() const;
 

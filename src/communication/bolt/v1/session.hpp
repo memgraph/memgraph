@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -161,7 +161,6 @@ class Session {
   template <typename TImpl>
   void Execute_(TImpl &impl) {
     ChunkState chunk_state;
-    // TODO Have to handle single message at a time
     while ((chunk_state = decoder_buffer_.GetChunk()) != ChunkState::Partial) {
       if (chunk_state == ChunkState::Whole) {
         // The chunk is whole, we need to read one more chunk
@@ -189,6 +188,7 @@ class Session {
           // State::Close is handled below
           break;
       }
+
       if (state_ == State::Postponed) [[likely]] {
         // We can execute a single command at a time.
         // It is possible to receive multiple commands in a single read
@@ -204,6 +204,20 @@ class Session {
     }
   }
 
+  template <typename TImpl>
+  void PostponedExecute_(TImpl &impl) {
+    DMG_ASSERT(postponed_work, "No postponed work to execute");
+    if (postponed_work->is_pull) {
+      state_ = details::HandlePullDiscard<true>(impl, postponed_work->n, postponed_work->qid);
+    } else {
+      state_ = details::HandlePullDiscard<false>(impl, postponed_work->n, postponed_work->qid);
+    }
+    postponed_work.reset();
+    if (state_ == State::Close) {
+      ClientFailureInvalidData();
+    }
+  }
+
   struct PostponedWork {
     std::optional<int> n;
     std::optional<int> qid;
@@ -216,8 +230,6 @@ class Session {
     DMG_ASSERT(!postponed_work, "Work already postponed");
     postponed_work.emplace(n, qid, is_pull);
   }
-
-  // virtual void AsyncExecution(std::function<void(bool, std::exception_ptr)> &&cb) noexcept = 0;
 
   void HandleError() {
     if (!at_least_one_run_) {

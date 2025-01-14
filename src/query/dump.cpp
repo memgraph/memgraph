@@ -397,7 +397,7 @@ PullPlanDump::PullPlanDump(DbAccessor *dba, dbms::DatabaseAccess db_acc)
                    // Dump all edge-type property indices
                    CreateEdgeTypePropertyIndicesPullChunk()} {}
 
-bool PullPlanDump::Pull(AnyStream *stream, std::optional<int> n, const std::atomic_bool &yield_signal) {
+bool PullPlanDump::Pull(AnyStream *stream, std::optional<int> n) {
   // Iterate all functions that stream some results.
   // Each function should return number of results it streamed after it
   // finishes. If the function did not finish streaming all the results,
@@ -857,7 +857,7 @@ PullPlanDump::PullChunk PullPlanDump::CreateTriggersPullChunk() {
 }
 
 void DumpDatabaseToCypherQueries(query::DbAccessor *dba, AnyStream *stream, dbms::DatabaseAccess db_acc) {
-  PullPlanDump(dba, db_acc).Pull(stream, {}, {});
+  PullPlanDump(dba, db_acc).Pull(stream, {});
 }
 
 }  // namespace memgraph::query

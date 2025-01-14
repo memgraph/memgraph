@@ -96,6 +96,7 @@
 #include "utils/memory.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/on_scope_exit.hpp"
+#include "utils/priority_thread_pool.hpp"
 #include "utils/query_memory_tracker.hpp"
 #include "utils/readable_size.hpp"
 #include "utils/settings.hpp"
@@ -2020,7 +2021,7 @@ struct PullPlanVector {
 
   // @return true if there are more unstreamed elements in vector,
   // false otherwise.
-  bool Pull(AnyStream *stream, std::optional<int> n, const std::atomic_bool &yield_signal) {
+  bool Pull(AnyStream *stream, std::optional<int> n) {
     int local_counter{0};
     while (global_counter < values_.size() && (!n || local_counter < n)) {
       stream->Result(values_[global_counter]);
@@ -2065,8 +2066,7 @@ struct PullPlan {
 
   std::optional<plan::ProfilingStatsWithTotalTime> Pull(AnyStream *stream, std::optional<int> n,
                                                         const std::vector<Symbol> &output_symbols,
-                                                        std::map<std::string, TypedValue> *summary,
-                                                        const std::atomic_bool &yield_signal);
+                                                        std::map<std::string, TypedValue> *summary);
 
  private:
   std::shared_ptr<PlanWrapper> plan_ = nullptr;
@@ -2136,8 +2136,7 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
 
 std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *stream, std::optional<int> nnnn,
                                                                 const std::vector<Symbol> &output_symbols,
-                                                                std::map<std::string, TypedValue> *summary,
-                                                                const std::atomic_bool &yield_signal) {
+                                                                std::map<std::string, TypedValue> *summary) {
   std::optional<uint64_t> transaction_id = ctx_.db_accessor->GetTransactionId();
   MG_ASSERT(transaction_id.has_value());
 
@@ -2184,9 +2183,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
     ++i;
   }
 
-  // We are only paritally pulling if n is defined. This means we can yield earlier, since the driver will pull until
-  // has_more isn't false
-  for (; !nnnn || (i < nnnn && !yield_signal); ++i) {
+  for (; !nnnn || i < nnnn; ++i) {
     if (!pull_result()) {
       break;
     }
@@ -2201,7 +2198,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   // If there is additional result, we leave the pulled result in the frame
   // and set the flag to true.
   // TODO Any way to avoid another pull???
-  has_unsent_results_ = (i == nnnn || yield_signal) && pull_result();
+  has_unsent_results_ = i == nnnn && pull_result();
 
   execution_time_ += timer.Elapsed();
 
@@ -2353,7 +2350,7 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper,
 
   return {{},
           {},
-          [handler = std::move(handler)](AnyStream *, std::optional<int>, const std::atomic_bool &) {
+          [handler = std::move(handler)](AnyStream *, std::optional<int>) {
             handler();
             return QueryHandlerResult::NOTHING;
           },
@@ -2463,16 +2460,18 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
       std::move(user_or_role), transaction_status, std::move(tx_timer), current_db.db_acc_, interpreter.query_logger_,
       trigger_context_collector, memory_limit,
       frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr, hops_limit);
-  return PreparedQuery{std::move(header), std::move(parsed_query.required_privileges),
+  return PreparedQuery{std::move(header),
+                       std::move(parsed_query.required_privileges),
                        [pull_plan = std::move(pull_plan), output_symbols = std::move(output_symbols), summary](
-                           AnyStream *stream, std::optional<int> n,
-                           const std::atomic_bool &yield_signal) -> std::optional<QueryHandlerResult> {
-                         if (pull_plan->Pull(stream, n, output_symbols, summary, yield_signal)) {
+                           AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+                         if (pull_plan->Pull(stream, n, output_symbols, summary)) {
                            return QueryHandlerResult::COMMIT;
                          }
                          return std::nullopt;
                        },
-                       rw_type_checker.type};
+                       rw_type_checker.type,
+                       current_db.db_acc_->get()->name(),
+                       utils::PriorityThreadPool::TaskPriority::LOW};
 }
 
 PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
@@ -2522,9 +2521,8 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string
   return PreparedQuery{{"QUERY PLAN"},
                        std::move(parsed_query.required_privileges),
                        [pull_plan = std::make_shared<PullPlanVector>(std::move(printed_plan_rows))](
-                           AnyStream *stream, std::optional<int> n,
-                           const std::atomic_bool &yield_signal) -> std::optional<QueryHandlerResult> {
-                         if (pull_plan->Pull(stream, n, yield_signal)) {
+                           AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+                         if (pull_plan->Pull(stream, n)) {
                            return QueryHandlerResult::COMMIT;
                          }
                          return std::nullopt;
@@ -2615,22 +2613,21 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
        stats_and_total_time = std::optional<plan::ProfilingStatsWithTotalTime>{},
        pull_plan = std::shared_ptr<PullPlanVector>(nullptr), transaction_status, frame_change_collector,
        tx_timer = std::move(tx_timer), db_acc = current_db.db_acc_, hops_limit,
-       &query_logger = interpreter.query_logger_](
-          AnyStream *stream, std::optional<int> n,
-          const std::atomic_bool &yield_signal) mutable -> std::optional<QueryHandlerResult> {
+       &query_logger = interpreter.query_logger_](AnyStream *stream,
+                                                  std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
         // No output symbols are given so that nothing is streamed.
         if (!stats_and_total_time) {
           stats_and_total_time =
               PullPlan(plan, parameters, true, dba, interpreter_context, execution_memory, std::move(user_or_role),
                        transaction_status, std::move(tx_timer), db_acc, query_logger, nullptr, memory_limit,
                        frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr, hops_limit)
-                  .Pull(stream, {}, {}, summary, yield_signal);
+                  .Pull(stream, {}, {}, summary);
           pull_plan = std::make_shared<PullPlanVector>(ProfilingStatsToTable(*stats_and_total_time));
         }
 
         MG_ASSERT(stats_and_total_time, "Failed to execute the query!");
 
-        if (pull_plan->Pull(stream, n, yield_signal)) {
+        if (pull_plan->Pull(stream, n)) {
           summary->insert_or_assign("profile", ProfilingStatsToJson(*stats_and_total_time).dump());
           return QueryHandlerResult::ABORT;
         }
@@ -2647,9 +2644,8 @@ PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, CurrentDB &current_db) 
   return PreparedQuery{
       {"QUERY"},
       std::move(parsed_query.required_privileges),
-      [pull_plan = std::move(plan)](AnyStream *stream, std::optional<int> n,
-                                    const std::atomic_bool &yield_signal) -> std::optional<QueryHandlerResult> {
-        if (pull_plan->Pull(stream, n, yield_signal)) {
+      [pull_plan = std::move(plan)](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+        if (pull_plan->Pull(stream, n)) {
           return QueryHandlerResult::COMMIT;
         }
         return std::nullopt;
@@ -2943,13 +2939,12 @@ PreparedQuery PrepareAnalyzeGraphQuery(ParsedQuery parsed_query, bool in_explici
 
   return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
-                           AnyStream *stream, std::optional<int> n,
-                           const std::atomic_bool &yield_signal) mutable -> std::optional<QueryHandlerResult> {
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
                          if (UNLIKELY(!pull_plan)) {
                            pull_plan = std::make_shared<PullPlanVector>(callback_fn());
                          }
 
-                         if (pull_plan->Pull(stream, n, yield_signal)) {
+                         if (pull_plan->Pull(stream, n)) {
                            return QueryHandlerResult::COMMIT;
                          }
                          return std::nullopt;
@@ -3046,7 +3041,7 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
       {},
       std::move(parsed_query.required_privileges),
       [handler = std::move(handler), notifications, index_notification = std::move(index_notification)](
-          AnyStream * /*stream*/, std::optional<int> /*unused*/, const std::atomic_bool & /* unused */) mutable {
+          AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable {
         handler(index_notification);
         notifications->push_back(index_notification);
         return QueryHandlerResult::COMMIT;  // TODO: Will need to become COMMIT when we fix replication
@@ -3148,7 +3143,7 @@ PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
       {},
       std::move(parsed_query.required_privileges),
       [handler = std::move(handler), notifications, index_notification = std::move(index_notification)](
-          AnyStream * /*stream*/, std::optional<int> /*unused*/, const std::atomic_bool & /* unused */) mutable {
+          AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable {
         handler(index_notification);
         notifications->push_back(index_notification);
         return QueryHandlerResult::COMMIT;
@@ -3229,8 +3224,7 @@ PreparedQuery PreparePointIndexQuery(ParsedQuery parsed_query, bool in_explicit_
   return PreparedQuery{
       {},
       std::move(parsed_query.required_privileges),
-      [handler = std::move(handler), notifications](AnyStream * /*stream*/, std::optional<int> /*unused*/,
-                                                    const std::atomic_bool & /* unused */) mutable {
+      [handler = std::move(handler), notifications](AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable {
         notifications->push_back(handler());
         return QueryHandlerResult::COMMIT;
       },
@@ -3382,7 +3376,7 @@ PreparedQuery PrepareTextIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
       {},
       std::move(parsed_query.required_privileges),
       [handler = std::move(handler), notifications, index_notification = std::move(index_notification)](
-          AnyStream * /*stream*/, std::optional<int> /*unused*/, const std::atomic_bool & /* unused */) mutable {
+          AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable {
         handler(index_notification);
         notifications->push_back(index_notification);
         return QueryHandlerResult::COMMIT;  // TODO: Will need to become COMMIT when we fix replication
@@ -3492,16 +3486,15 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
     }
   }
 
-  return PreparedQuery{
-      {},
-      std::move(parsed_query.required_privileges),
-      [handler = std::move(handler), notifications, notification = std::move(notification)](
-          AnyStream * /*stream*/, std::optional<int> /*unused*/, const std::atomic_bool & /* unused */) mutable {
-        handler(notification);
-        notifications->push_back(notification);
-        return QueryHandlerResult::COMMIT;  // TODO: Will need to become COMMIT when we fix replication
-      },
-      RWType::NONE};
+  return PreparedQuery{{},
+                       std::move(parsed_query.required_privileges),
+                       [handler = std::move(handler), notifications, notification = std::move(notification)](
+                           AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable {
+                         handler(notification);
+                         notifications->push_back(notification);
+                         return QueryHandlerResult::COMMIT;  // TODO: Will need to become COMMIT when we fix replication
+                       },
+                       RWType::NONE};
 }
 #endif
 
@@ -3518,15 +3511,14 @@ PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transa
   return PreparedQuery{
       std::move(callback.header), std::move(parsed_query.required_privileges),
       [handler = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](  // NOLINT
-          AnyStream *stream, std::optional<int> n,
-          const std::atomic_bool &yield_signal) mutable -> std::optional<QueryHandlerResult> {
+          AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
         if (!pull_plan) {
           // Run the specific query
           auto results = handler();
           pull_plan = std::make_shared<PullPlanVector>(std::move(results));
         }
 
-        if (pull_plan->Pull(stream, n, yield_signal)) {
+        if (pull_plan->Pull(stream, n)) {
           return QueryHandlerResult::COMMIT;
         }
         return std::nullopt;
@@ -3557,13 +3549,12 @@ PreparedQuery PrepareReplicationQuery(
 
   return PreparedQuery{callback.header, std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
-                           AnyStream *stream, std::optional<int> n,
-                           const std::atomic_bool &yield_signal) mutable -> std::optional<QueryHandlerResult> {
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
                          if (UNLIKELY(!pull_plan)) {
                            pull_plan = std::make_shared<PullPlanVector>(callback_fn());
                          }
 
-                         if (pull_plan->Pull(stream, n, yield_signal)) {
+                         if (pull_plan->Pull(stream, n)) {
                            return QueryHandlerResult::COMMIT;
                          }
                          return std::nullopt;
@@ -3613,13 +3604,12 @@ PreparedQuery PrepareCoordinatorQuery(ParsedQuery parsed_query, bool in_explicit
 
   return PreparedQuery{callback.header, std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
-                           AnyStream *stream, std::optional<int> n,
-                           const std::atomic_bool &yield_signal) mutable -> std::optional<QueryHandlerResult> {
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
                          if (UNLIKELY(!pull_plan)) {
                            pull_plan = std::make_shared<PullPlanVector>(callback_fn());
                          }
 
-                         if (pull_plan->Pull(stream, n, yield_signal)) [[likely]] {
+                         if (pull_plan->Pull(stream, n)) [[likely]] {
                            return QueryHandlerResult::COMMIT;
                          }
                          return std::nullopt;
@@ -3647,9 +3637,8 @@ PreparedQuery PrepareLockPathQuery(ParsedQuery parsed_query, bool in_explicit_tr
   return PreparedQuery{
       {"STATUS"},
       std::move(parsed_query.required_privileges),
-      [storage, action = lock_path_query->action_](
-          AnyStream *stream, std::optional<int> n,
-          const std::atomic_bool &yield_signal) -> std::optional<QueryHandlerResult> {
+      [storage, action = lock_path_query->action_](AnyStream *stream,
+                                                   std::optional<int> n) -> std::optional<QueryHandlerResult> {
         auto *mem_storage = static_cast<storage::InMemoryStorage *>(storage);
         std::vector<std::vector<TypedValue>> status;
         std::string res;
@@ -3683,7 +3672,7 @@ PreparedQuery PrepareLockPathQuery(ParsedQuery parsed_query, bool in_explicit_tr
 
         status.emplace_back(std::vector<TypedValue>{TypedValue(res)});
         auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
-        if (pull_plan->Pull(stream, n, yield_signal)) {
+        if (pull_plan->Pull(stream, n)) {
           return QueryHandlerResult::COMMIT;
         }
         return std::nullopt;
@@ -3705,8 +3694,7 @@ PreparedQuery PrepareFreeMemoryQuery(ParsedQuery parsed_query, bool in_explicit_
 
   return PreparedQuery{{},
                        std::move(parsed_query.required_privileges),
-                       [storage](AnyStream *stream, std::optional<int> n,
-                                 const std::atomic_bool &yield_signal) -> std::optional<QueryHandlerResult> {
+                       [storage](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
                          storage->FreeMemory();
                          memory::PurgeUnusedMemory();
                          return QueryHandlerResult::COMMIT;
@@ -3723,13 +3711,12 @@ PreparedQuery PrepareShowConfigQuery(ParsedQuery parsed_query, bool in_explicit_
 
   return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
-                           AnyStream *stream, std::optional<int> n,
-                           const std::atomic_bool &yield_signal) mutable -> std::optional<QueryHandlerResult> {
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
                          if (!pull_plan) [[unlikely]] {
                            pull_plan = std::make_shared<PullPlanVector>(callback_fn());
                          }
 
-                         if (pull_plan->Pull(stream, n, yield_signal)) {
+                         if (pull_plan->Pull(stream, n)) {
                            return QueryHandlerResult::COMMIT;
                          }
                          return std::nullopt;
@@ -3860,13 +3847,12 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, bool in_explicit_tra
   return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr},
                         trigger_notification = std::move(trigger_notification), notifications](
-                           AnyStream *stream, std::optional<int> n,
-                           const std::atomic_bool &yield_signal) mutable -> std::optional<QueryHandlerResult> {
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
                          if (UNLIKELY(!pull_plan)) {
                            pull_plan = std::make_shared<PullPlanVector>(callback_fn());
                          }
 
-                         if (pull_plan->Pull(stream, n, yield_signal)) {
+                         if (pull_plan->Pull(stream, n)) {
                            if (trigger_notification) {
                              notifications->push_back(std::move(*trigger_notification));
                            }
@@ -3897,13 +3883,12 @@ PreparedQuery PrepareStreamQuery(ParsedQuery parsed_query, bool in_explicit_tran
 
   return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
-                           AnyStream *stream, std::optional<int> n,
-                           const std::atomic_bool &yield_signal) mutable -> std::optional<QueryHandlerResult> {
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
                          if (UNLIKELY(!pull_plan)) {
                            pull_plan = std::make_shared<PullPlanVector>(callback_fn());
                          }
 
-                         if (pull_plan->Pull(stream, n, yield_signal)) {
+                         if (pull_plan->Pull(stream, n)) {
                            return QueryHandlerResult::COMMIT;
                          }
                          return std::nullopt;
@@ -3994,15 +3979,14 @@ PreparedQuery PrepareIsolationLevelQuery(ParsedQuery parsed_query, const bool in
     }
   }
 
-  return PreparedQuery{
-      {},
-      std::move(parsed_query.required_privileges),
-      [callback = std::move(callback)](AnyStream * /*stream*/, std::optional<int> /*n*/,
-                                       const std::atomic_bool & /* yield */) -> std::optional<QueryHandlerResult> {
-        callback();
-        return QueryHandlerResult::COMMIT;
-      },
-      RWType::NONE};
+  return PreparedQuery{{},
+                       std::move(parsed_query.required_privileges),
+                       [callback = std::move(callback)](AnyStream * /*stream*/,
+                                                        std::optional<int> /*n*/) -> std::optional<QueryHandlerResult> {
+                         callback();
+                         return QueryHandlerResult::COMMIT;
+                       },
+                       RWType::NONE};
 }
 
 Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageMode requested_mode,
@@ -4140,15 +4124,14 @@ PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_ex
     }();
   }
 
-  return PreparedQuery{
-      {},
-      std::move(parsed_query.required_privileges),
-      [callback = std::move(callback)](AnyStream * /*stream*/, std::optional<int> /*n*/,
-                                       const std::atomic_bool & /* yield */) -> std::optional<QueryHandlerResult> {
-        callback();
-        return QueryHandlerResult::COMMIT;
-      },
-      RWType::NONE};
+  return PreparedQuery{{},
+                       std::move(parsed_query.required_privileges),
+                       [callback = std::move(callback)](AnyStream * /*stream*/,
+                                                        std::optional<int> /*n*/) -> std::optional<QueryHandlerResult> {
+                         callback();
+                         return QueryHandlerResult::COMMIT;
+                       },
+                       RWType::NONE};
 }
 
 PreparedQuery PrepareDropGraphQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
@@ -4163,15 +4146,14 @@ PreparedQuery PrepareDropGraphQuery(ParsedQuery parsed_query, CurrentDB &current
 
   std::function<void()> callback = DropGraph(db_acc, dba).fn;
 
-  return PreparedQuery{
-      {},
-      std::move(parsed_query.required_privileges),
-      [callback = std::move(callback)](AnyStream * /*stream*/, std::optional<int> /*n*/,
-                                       const std::atomic_bool & /* yield */) -> std::optional<QueryHandlerResult> {
-        callback();
-        return QueryHandlerResult::COMMIT;
-      },
-      RWType::NONE};
+  return PreparedQuery{{},
+                       std::move(parsed_query.required_privileges),
+                       [callback = std::move(callback)](AnyStream * /*stream*/,
+                                                        std::optional<int> /*n*/) -> std::optional<QueryHandlerResult> {
+                         callback();
+                         return QueryHandlerResult::COMMIT;
+                       },
+                       RWType::NONE};
 }
 
 PreparedQuery PrepareEdgeImportModeQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
@@ -4193,15 +4175,14 @@ PreparedQuery PrepareEdgeImportModeQuery(ParsedQuery parsed_query, CurrentDB &cu
     };
   }();
 
-  return PreparedQuery{
-      {},
-      std::move(parsed_query.required_privileges),
-      [callback = std::move(callback)](AnyStream * /*stream*/, std::optional<int> /*n*/,
-                                       const std::atomic_bool & /* yield */) -> std::optional<QueryHandlerResult> {
-        callback();
-        return QueryHandlerResult::COMMIT;
-      },
-      RWType::NONE};
+  return PreparedQuery{{},
+                       std::move(parsed_query.required_privileges),
+                       [callback = std::move(callback)](AnyStream * /*stream*/,
+                                                        std::optional<int> /*n*/) -> std::optional<QueryHandlerResult> {
+                         callback();
+                         return QueryHandlerResult::COMMIT;
+                       },
+                       RWType::NONE};
 }
 
 PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_explicit_transaction, CurrentDB &current_db,
@@ -4220,8 +4201,8 @@ PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_expli
   return PreparedQuery{
       {},
       std::move(parsed_query.required_privileges),
-      [storage, replication_role](AnyStream * /*stream*/, std::optional<int> /*n*/,
-                                  const std::atomic_bool & /* yield */) -> std::optional<QueryHandlerResult> {
+      [storage, replication_role](AnyStream * /*stream*/,
+                                  std::optional<int> /*n*/) -> std::optional<QueryHandlerResult> {
         auto *mem_storage = static_cast<storage::InMemoryStorage *>(storage);
         if (auto maybe_error = mem_storage->CreateSnapshot(replication_role); maybe_error.HasError()) {
           switch (maybe_error.GetError()) {
@@ -4259,8 +4240,8 @@ PreparedQuery PrepareRecoverSnapshotQuery(ParsedQuery parsed_query, bool in_expl
       {},
       std::move(parsed_query.required_privileges),
       [storage, replication_role, path = recover_query->snapshot_->Accept(evaluator).ValueString(),
-       force = recover_query->force_](AnyStream * /*stream*/, std::optional<int> /*n*/,
-                                      const std::atomic_bool & /* yield */) -> std::optional<QueryHandlerResult> {
+       force = recover_query->force_](AnyStream * /*stream*/,
+                                      std::optional<int> /*n*/) -> std::optional<QueryHandlerResult> {
         auto *mem_storage = static_cast<storage::InMemoryStorage *>(storage);
         if (auto maybe_error = mem_storage->RecoverSnapshot(path, force, replication_role); maybe_error.HasError()) {
           switch (maybe_error.GetError()) {
@@ -4314,14 +4295,13 @@ PreparedQuery PrepareShowSnapshotsQuery(ParsedQuery parsed_query, bool in_explic
 
   return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
                        [handler = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
-                           AnyStream *stream, std::optional<int> n,
-                           const std::atomic_bool &yield_signal) mutable -> std::optional<QueryHandlerResult> {
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
                          if (!pull_plan) {
                            auto results = handler();
                            pull_plan = std::make_shared<PullPlanVector>(std::move(results));
                          }
 
-                         if (pull_plan->Pull(stream, n, yield_signal)) {
+                         if (pull_plan->Pull(stream, n)) {
                            return QueryHandlerResult::NOTHING;
                          }
                          return std::nullopt;
@@ -4340,13 +4320,12 @@ PreparedQuery PrepareSettingQuery(ParsedQuery parsed_query, bool in_explicit_tra
 
   return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
-                           AnyStream *stream, std::optional<int> n,
-                           const std::atomic_bool &yield_signal) mutable -> std::optional<QueryHandlerResult> {
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
                          if (UNLIKELY(!pull_plan)) {
                            pull_plan = std::make_shared<PullPlanVector>(callback_fn());
                          }
 
-                         if (pull_plan->Pull(stream, n, yield_signal)) {
+                         if (pull_plan->Pull(stream, n)) {
                            return QueryHandlerResult::COMMIT;
                          }
                          return std::nullopt;
@@ -4458,13 +4437,12 @@ PreparedQuery PrepareTransactionQueueQuery(ParsedQuery parsed_query, std::shared
 
   return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
                        [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
-                           AnyStream *stream, std::optional<int> n,
-                           const std::atomic_bool &yield_signal) mutable -> std::optional<QueryHandlerResult> {
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
                          if (UNLIKELY(!pull_plan)) {
                            pull_plan = std::make_shared<PullPlanVector>(callback_fn());
                          }
 
-                         if (pull_plan->Pull(stream, n, yield_signal)) {
+                         if (pull_plan->Pull(stream, n)) {
                            return QueryHandlerResult::COMMIT;
                          }
                          return std::nullopt;
@@ -4479,7 +4457,7 @@ PreparedQuery PrepareVersionQuery(ParsedQuery parsed_query, bool in_explicit_tra
 
   return PreparedQuery{{"version"},
                        std::move(parsed_query.required_privileges),
-                       [](AnyStream *stream, std::optional<int> /*n*/, const std::atomic_bool & /* yield */) {
+                       [](AnyStream *stream, std::optional<int> /*n*/) {
                          std::vector<TypedValue> version_value;
                          version_value.reserve(1);
 
@@ -4688,15 +4666,14 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
   return PreparedQuery{std::move(header), std::move(parsed_query.required_privileges),
                        [handler = std::move(handler), action = QueryHandlerResult::NOTHING,
                         pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
-                           AnyStream *stream, std::optional<int> n,
-                           const std::atomic_bool &yield_signal) mutable -> std::optional<QueryHandlerResult> {
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
                          if (!pull_plan) {
                            auto [results, action_on_complete] = handler();
                            action = action_on_complete;
                            pull_plan = std::make_shared<PullPlanVector>(std::move(results));
                          }
 
-                         if (pull_plan->Pull(stream, n, yield_signal)) {
+                         if (pull_plan->Pull(stream, n)) {
                            return action;
                          }
                          return std::nullopt;
@@ -4793,14 +4770,13 @@ PreparedQuery PrepareSystemInfoQuery(ParsedQuery parsed_query, bool in_explicit_
   return PreparedQuery{std::move(header), std::move(parsed_query.required_privileges),
                        [handler = std::move(handler), action = QueryHandlerResult::NOTHING,
                         pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
-                           AnyStream *stream, std::optional<int> n,
-                           const std::atomic_bool &yield_signal) mutable -> std::optional<QueryHandlerResult> {
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
                          if (!pull_plan) {
                            auto [results, action_on_complete] = handler();
                            action = action_on_complete;
                            pull_plan = std::make_shared<PullPlanVector>(std::move(results));
                          }
-                         if (pull_plan->Pull(stream, n, yield_signal)) {
+                         if (pull_plan->Pull(stream, n)) {
                            return action;
                          }
                          return std::nullopt;
@@ -5079,16 +5055,15 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
     } break;
   }
 
-  return PreparedQuery{
-      {},
-      std::move(parsed_query.required_privileges),
-      [handler = std::move(handler), constraint_notification = std::move(constraint_notification), notifications](
-          AnyStream * /*stream*/, std::optional<int> /*n*/, const std::atomic_bool & /* yield */) mutable {
-        handler(constraint_notification);
-        notifications->push_back(constraint_notification);
-        return QueryHandlerResult::COMMIT;
-      },
-      RWType::NONE};
+  return PreparedQuery{{},
+                       std::move(parsed_query.required_privileges),
+                       [handler = std::move(handler), constraint_notification = std::move(constraint_notification),
+                        notifications](AnyStream * /*stream*/, std::optional<int> /*n*/) mutable {
+                         handler(constraint_notification);
+                         notifications->push_back(constraint_notification);
+                         return QueryHandlerResult::COMMIT;
+                       },
+                       RWType::NONE};
 }
 
 PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterContext *interpreter_context,
@@ -5113,8 +5088,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
           {"STATUS"},
           std::move(parsed_query.required_privileges),
           [db_name = query->db_name_, db_handler, interpreter = &interpreter](
-              AnyStream *stream, std::optional<int> n,
-              const std::atomic_bool &yield_signal) -> std::optional<QueryHandlerResult> {
+              AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
             if (!interpreter->system_transaction_) {
               throw QueryException("Expected to be in a system transaction");
             }
@@ -5143,7 +5117,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
             }
             status.emplace_back(std::vector<TypedValue>{TypedValue(res)});
             auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
-            if (pull_plan->Pull(stream, n, yield_signal)) {
+            if (pull_plan->Pull(stream, n)) {
               return QueryHandlerResult::COMMIT;
             }
             return std::nullopt;
@@ -5161,8 +5135,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
           {"STATUS"},
           std::move(parsed_query.required_privileges),
           [db_name = query->db_name_, db_handler, auth = interpreter_context->auth, interpreter = &interpreter](
-              AnyStream *stream, std::optional<int> n,
-              const std::atomic_bool &yield_signal) -> std::optional<QueryHandlerResult> {
+              AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
             if (!interpreter->system_transaction_) {
               throw QueryException("Expected to be in a system transaction");
             }
@@ -5195,7 +5168,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
 
             status.emplace_back(std::vector<TypedValue>{TypedValue("Successfully deleted " + db_name)});
             auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
-            if (pull_plan->Pull(stream, n, yield_signal)) {
+            if (pull_plan->Pull(stream, n)) {
               return QueryHandlerResult::COMMIT;
             }
             return std::nullopt;
@@ -5362,14 +5335,13 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
   return PreparedQuery{
       std::move(callback.header), std::move(parsed_query.required_privileges),
       [handler = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
-          AnyStream *stream, std::optional<int> n,
-          const std::atomic_bool &yield_signal) mutable -> std::optional<QueryHandlerResult> {
+          AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
         if (!pull_plan) {
           auto results = handler();
           pull_plan = std::make_shared<PullPlanVector>(std::move(results));
         }
 
-        if (pull_plan->Pull(stream, n, yield_signal)) {
+        if (pull_plan->Pull(stream, n)) {
           return QueryHandlerResult::NOTHING;
         }
         return std::nullopt;
@@ -5392,8 +5364,7 @@ PreparedQuery PrepareCreateEnumQuery(ParsedQuery parsed_query, CurrentDB &curren
           std::move(parsed_query.required_privileges),
           [dba = *current_db.execution_db_accessor_, enum_name = std::move(create_enum_query->enum_name_),
            enum_values = std::move(create_enum_query->enum_values_)](
-              AnyStream * /*stream*/, std::optional<int> /*unused*/,
-              const std::atomic_bool & /* unused */) mutable -> std::optional<QueryHandlerResult> {
+              AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable -> std::optional<QueryHandlerResult> {
             auto res = dba.CreateEnum(enum_name, enum_values);
             if (res.HasError()) {
               switch (res.GetError()) {
@@ -5416,15 +5387,14 @@ PreparedQuery PrepareShowEnumsQuery(ParsedQuery parsed_query, CurrentDB &current
       {"Enum Name", "Enum Values"},
       std::move(parsed_query.required_privileges),
       [dba = *current_db.execution_db_accessor_, pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
-          AnyStream *stream, std::optional<int> n,
-          const std::atomic_bool &yield_signal) mutable -> std::optional<QueryHandlerResult> {
+          AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
         if (!pull_plan) {
           auto enums = dba.ShowEnums();
           auto to_row = [](auto &&p) { return std::vector{TypedValue{p.first}, TypedValue{p.second}}; };
           pull_plan = std::make_shared<PullPlanVector>(enums | rv::transform(to_row) | r::to_vector);
         }
 
-        if (pull_plan->Pull(stream, n, yield_signal)) {
+        if (pull_plan->Pull(stream, n)) {
           return QueryHandlerResult::COMMIT;
         }
         return std::nullopt;
@@ -5444,8 +5414,7 @@ PreparedQuery PrepareEnumAlterAddQuery(ParsedQuery parsed_query, CurrentDB &curr
           std::move(parsed_query.required_privileges),
           [dba = *current_db.execution_db_accessor_, enum_name = std::move(alter_enum_add_query->enum_name_),
            enum_value = std::move(alter_enum_add_query->enum_value_)](
-              AnyStream * /*stream*/, std::optional<int> /*unused*/,
-              const std::atomic_bool & /* unused */) mutable -> std::optional<QueryHandlerResult> {
+              AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable -> std::optional<QueryHandlerResult> {
             auto res = dba.EnumAlterAdd(enum_name, enum_value);
             if (res.HasError()) {
               switch (res.GetError()) {
@@ -5474,8 +5443,7 @@ PreparedQuery PrepareEnumAlterUpdateQuery(ParsedQuery parsed_query, CurrentDB &c
           [dba = *current_db.execution_db_accessor_, enum_name = std::move(alter_enum_update_query->enum_name_),
            enum_value_old = std::move(alter_enum_update_query->old_enum_value_),
            enum_value_new = std::move(alter_enum_update_query->new_enum_value_)](
-              AnyStream * /*stream*/, std::optional<int> /*unused*/,
-              const std::atomic_bool & /* unused */) mutable -> std::optional<QueryHandlerResult> {
+              AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable -> std::optional<QueryHandlerResult> {
             auto res = dba.EnumAlterUpdate(enum_name, enum_value_old, enum_value_new);
             if (res.HasError()) {
               switch (res.GetError()) {
@@ -5527,15 +5495,14 @@ PreparedQuery PrepareSessionTraceQuery(ParsedQuery parsed_query, CurrentDB &curr
                        std::move(parsed_query.required_privileges),
                        [handler = std::move(handler), action = QueryHandlerResult::NOTHING,
                         pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
-                           AnyStream *stream, std::optional<int> n,
-                           const std::atomic_bool &yield_signal) mutable -> std::optional<QueryHandlerResult> {
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
                          if (!pull_plan) {
                            auto [results, action_on_complete] = handler();
                            action = action_on_complete;
                            pull_plan = std::make_shared<PullPlanVector>(std::move(results));
                          }
 
-                         if (pull_plan->Pull(stream, n, yield_signal)) {
+                         if (pull_plan->Pull(stream, n)) {
                            return action;
                          }
                          return std::nullopt;
@@ -5667,14 +5634,13 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
 
   return PreparedQuery{std::move(callback.header), parsed_query.required_privileges,
                        [handler = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
-                           AnyStream *stream, std::optional<int> n,
-                           const std::atomic_bool &yield_signal) mutable -> std::optional<QueryHandlerResult> {
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
                          if (!pull_plan) {
                            auto results = handler();
                            pull_plan = std::make_shared<PullPlanVector>(std::move(results));
                          }
 
-                         if (pull_plan->Pull(stream, n, yield_signal)) {
+                         if (pull_plan->Pull(stream, n)) {
                            return QueryHandlerResult::COMMIT;
                          }
                          return std::nullopt;
@@ -5687,18 +5653,18 @@ std::optional<uint64_t> Interpreter::GetTransactionId() const { return current_t
 void Interpreter::BeginTransaction(QueryExtras const &extras) {
   ResetInterpreter();
   const auto prepared_query = PrepareTransactionQuery("BEGIN", extras);
-  prepared_query.query_handler(nullptr, {}, {});
+  prepared_query.query_handler(nullptr, {});
 }
 
 void Interpreter::CommitTransaction() {
   const auto prepared_query = PrepareTransactionQuery("COMMIT");
-  prepared_query.query_handler(nullptr, {}, {});
+  prepared_query.query_handler(nullptr, {});
   ResetInterpreter();
 }
 
 void Interpreter::RollbackTransaction() {
   const auto prepared_query = PrepareTransactionQuery("ROLLBACK");
-  prepared_query.query_handler(nullptr, {}, {});
+  prepared_query.query_handler(nullptr, {});
   ResetInterpreter();
 }
 

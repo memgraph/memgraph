@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -32,6 +32,7 @@
 #include "communication/v2/session.hpp"
 #include "utils/logging.hpp"
 #include "utils/message.hpp"
+#include "utils/priority_thread_pool.hpp"
 #include "utils/thread.hpp"
 
 namespace memgraph::communication::v2 {
@@ -91,15 +92,14 @@ class Server final {
   bool Start();
 
   void Shutdown() {
-    listener_thread_.Shutdown();
-    context_thread_pool_.Shutdown();
+    spdlog::info("{} workers shutting down.", service_name_);
+    worker_pool_.ShutDown();  // Workers can enqueue io tasks, so they need to be stopped first
+    spdlog::info("{} io shutting down.", service_name_);
+    io_thread_pool_.Shutdown();
     spdlog::info("{} shutdown.", service_name_);
   }
 
-  void AwaitShutdown() {
-    listener_thread_.AwaitShutdown();
-    context_thread_pool_.AwaitShutdown();
-  }
+  void AwaitShutdown() { io_thread_pool_.AwaitShutdown(); }
 
   bool IsRunning() const noexcept;
 
@@ -119,12 +119,13 @@ class Server final {
   ServerEndpoint endpoint_;
   std::string service_name_;
 
+  utils::PriorityThreadPool worker_pool_;
+
   TSessionContext *session_context_;
   ServerContext *server_context_;
 
-  IOContextThreadPool context_thread_pool_;
-  IOContextThreadPool listener_thread_{1};
-  tcp::acceptor acceptor_{listener_thread_.GetIOContext()};
+  IOContextThreadPool io_thread_pool_;
+  tcp::acceptor acceptor_{io_thread_pool_.GetIOContext()};
 };
 
 template <typename TSession, typename TSessionContext>
@@ -138,9 +139,12 @@ Server<TSession, TSessionContext>::Server(ServerEndpoint &endpoint, TSessionCont
                                           size_t workers_count)
     : endpoint_{endpoint},
       service_name_{service_name},
+      worker_pool_{workers_count, /* high priority */ 1},
       session_context_(session_context),
       server_context_(server_context),
-      context_thread_pool_{workers_count} {
+      io_thread_pool_{1} {
+  // TODO: Better
+  server_context_->worker_pool_ = &worker_pool_;
   boost::system::error_code ec;
   // Open the acceptor
   (void)acceptor_.open(endpoint_.protocol(), ec);
@@ -183,8 +187,7 @@ bool Server<TSession, TSessionContext>::Start() {
     return false;
   }
 
-  context_thread_pool_.Run();
-  listener_thread_.Run();
+  io_thread_pool_.Run();
   DoAccept();
 
   spdlog::info("{} server is fully armed and operational", service_name_);
@@ -198,11 +201,7 @@ inline void Server<TSession, TSessionContext>::OnAccept(boost::system::error_cod
     return OnError(ec, "accept");
   }
 
-  // Move socket from the listener thread to worker pool and create a new session
-  auto fd = socket.release();
-  boost::asio::ip::tcp::socket connected_socket(context_thread_pool_.GetIOContext());
-  connected_socket.assign(endpoint_.protocol(), fd);
-  auto session = SessionHandler::Create(std::move(connected_socket), session_context_, *server_context_, service_name_);
+  auto session = SessionHandler::Create(std::move(socket), session_context_, *server_context_, service_name_);
   session->Start();
 
   DoAccept();
@@ -216,7 +215,7 @@ const auto &Server<TSession, TSessionContext>::Endpoint() const {
 
 template <typename TSession, typename TSessionContext>
 bool Server<TSession, TSessionContext>::IsRunning() const noexcept {
-  return context_thread_pool_.IsRunning() && listener_thread_.IsRunning();
+  return io_thread_pool_.IsRunning();
 }
 
 }  // namespace memgraph::communication::v2
