@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,7 +25,7 @@ struct PullPlanDump {
 
   /// Pull the dump results lazily
   /// @return true if all results were returned, false otherwise
-  bool Pull(AnyStream *stream, std::optional<int> n, const std::atomic_bool &yield_signal);
+  bool Pull(AnyStream *stream, std::optional<int> n);
 
  private:
   query::DbAccessor *dba_ = nullptr;
