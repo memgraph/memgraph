@@ -109,7 +109,8 @@ class Synchronized {
     std::shared_lock<TMutex> guard_;
   };
 
-  // This is a non-const version of ReadLockedPtr. Should be used only when the underlying object is thread-safe.
+  // This is a non-const version of ReadLockedPtr. It should be used only when modifying the object which is already
+  // thread-safe.
   class MutableSharedLockPtr {
    private:
     friend class Synchronized<T, TMutex>;
