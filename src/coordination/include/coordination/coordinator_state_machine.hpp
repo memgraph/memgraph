@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -52,7 +52,7 @@ void to_json(nlohmann::json &j, SnapshotCtx const &snapshot_ctx);
 
 class CoordinatorStateMachine : public state_machine {
  public:
-  CoordinatorStateMachine(LoggerWrapper logger, std::optional<LogStoreDurability> log_store_durability);
+  CoordinatorStateMachine(LoggerWrapper logger, std::optional<LogStoreDurability> const &log_store_durability);
   CoordinatorStateMachine(CoordinatorStateMachine const &) = delete;
   CoordinatorStateMachine &operator=(CoordinatorStateMachine const &) = delete;
   CoordinatorStateMachine(CoordinatorStateMachine &&) = delete;
