@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -602,9 +602,7 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
 
   for (bool transaction_complete = false; !transaction_complete; ++current_delta_idx) {
     const auto [delta_timestamp, delta] = ReadDelta(decoder, version);
-    if (delta_timestamp > max_delta_timestamp) {
-      max_delta_timestamp = delta_timestamp;
-    }
+    max_delta_timestamp = std::max(max_delta_timestamp, delta_timestamp);
 
     transaction_complete = IsWalDeltaDataTransactionEnd(delta, version);
 
