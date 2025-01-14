@@ -224,38 +224,41 @@ void InMemoryLabelPropertyCompositeIndex::Iterable::Iterator::AdvanceUntilValid(
       continue;
     }
 
-    // if (self_->lower_bound_[0]) {
     if (index_iterator_->value < self_->lower_bound_) {
       continue;
     }
 
-    bool passes = true;
-    for (uint64_t i = 0; i < self_->upper_bound_.size(); i++) {
-      if (!self_->lower_bounds_[i]->IsInclusive() && index_iterator_->value[i] == self_->lower_bound_[i]) {
-        passes = false;
-        break;
-      }
-    }
-    if (!passes) {
-      continue;
-    }
-    // }
-    // if (self_->upper_bound_[0]) {
-    if (self_->upper_bound_ < index_iterator_->value) {
+    if (index_iterator_->value > self_->upper_bound_) {
       index_iterator_ = self_->index_accessor_.end();
       break;
     }
-    passes = true;
-    for (uint64_t i = 0; i < self_->upper_bound_.size(); i++) {
-      if (!self_->upper_bounds_[i]->IsInclusive() && index_iterator_->value[i] == self_->upper_bound_[i]) {
-        index_iterator_ = self_->index_accessor_.end();
+
+    bool should_continue = false;
+    auto bound_size = self_->lower_bound_.size();
+
+    for (uint64_t i = 0; i < bound_size; i++) {
+      if (index_iterator_->value[i] < self_->lower_bound_[i]) {
+        should_continue = true;
+        continue;
+      }
+      if (index_iterator_->value[i] > self_->upper_bound_[i]) {
+        should_continue = true;
+        continue;
+      }
+
+      if (self_->lower_bounds_[i]->IsExclusive() && index_iterator_->value[i] == self_->lower_bound_[i]) {
+        should_continue = true;
+        break;
+      }
+      if (self_->upper_bounds_[i]->IsExclusive() && index_iterator_->value[i] == self_->upper_bound_[i]) {
+        should_continue = true;
         break;
       }
     }
-    if (!passes) {
-      break;
+
+    if (should_continue) {
+      continue;
     }
-    // }
 
     if (CurrentVersionHasLabelProperties(*index_iterator_->vertex, self_->label_, self_->properties_,
                                          index_iterator_->value, self_->transaction_, self_->view_)) {

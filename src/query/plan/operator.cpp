@@ -1026,8 +1026,8 @@ UniqueCursorPtr ScanAllByLabelPropertyCompositeValue::MakeCursor(utils::MemoryRe
       if (maybe_lower && maybe_lower->value().IsNull()) return std::nullopt;
       if (maybe_upper && maybe_upper->value().IsNull()) return std::nullopt;
 
-      lower_bounds.push_back(*maybe_lower);
-      upper_bounds.push_back(*maybe_upper);
+      lower_bounds.push_back(maybe_lower);
+      upper_bounds.push_back(maybe_upper);
     }
 
     return std::make_optional(db->Vertices(view_, label_, properties_, lower_bounds, upper_bounds));
