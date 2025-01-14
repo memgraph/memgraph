@@ -411,10 +411,7 @@ InMemoryLabelPropertyCompositeIndex::Iterable::Iterator InMemoryLabelPropertyCom
   // If the bounds are set and don't have comparable types we don't yield any
   // items from the index.
   if (!bounds_valid_) return {this, index_accessor_.end()};
-  // auto index_iterator = index_accessor_.begin();
-  // if (lower_bound_) {
   auto index_iterator = index_accessor_.find_equal_or_greater(lower_bound_);
-  // }
   return {this, index_iterator};
 }
 
@@ -516,8 +513,7 @@ InMemoryLabelPropertyCompositeIndex::Iterable InMemoryLabelPropertyCompositeInde
              "PropertyLabelComposite index trying to access InMemory vertices from OnDisk!");
   auto vertices_acc = static_cast<InMemoryStorage const *>(storage)->vertices_.access();
   auto it = index_.find({label, properties});
-  // MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(),
-  // property.AsUint());
+  MG_ASSERT(it != index_.end(), "Composite index for label {} does not exist!", label.AsUint());
 
   return {it->second.access(), std::move(vertices_acc), label, properties, lower_bound, upper_bound, view, storage,
           transaction};
@@ -530,8 +526,7 @@ InMemoryLabelPropertyCompositeIndex::Iterable InMemoryLabelPropertyCompositeInde
     const std::vector<std::optional<utils::Bound<PropertyValue>>> &upper_bound, View view, Storage *storage,
     Transaction *transaction) {
   auto it = index_.find({label, properties});
-  // MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(),
-  // property.AsUint());
+  MG_ASSERT(it != index_.end(), "Composite index for label {} does not exist!", label.AsUint());
 
   return {it->second.access(), std::move(vertices_acc), label, properties, lower_bound, upper_bound, view, storage,
           transaction};
