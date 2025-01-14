@@ -13,7 +13,11 @@ function operating_system() {
 }
 
 function check_operating_system() {
-    if [ "$(operating_system)" != "$1" ]; then
+    # NOTE: We are actually checking for prefix because:
+    #   * Rocky Linux on dnf update automatically updates minor version, at one
+    #   point during install/checking version could be 9.3, while later if
+    #   could be 9.5.
+    if [ "$(operating_system)" != "$1"* ]; then
         echo "Not the right operating system!"
         exit 1
     else
