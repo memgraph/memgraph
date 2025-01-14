@@ -70,7 +70,7 @@ class CoordinatorStateManager final : public state_mgr {
   std::shared_ptr<srv_config> my_srv_config_;
   std::shared_ptr<cluster_config> cluster_config_;
   std::shared_ptr<srv_state> saved_state_;
-  kvstore::KVStore durability_;
+  std::optional<kvstore::KVStore> durability_;
   std::optional<CoordinationClusterChangeObserver> observer_;
 };
 

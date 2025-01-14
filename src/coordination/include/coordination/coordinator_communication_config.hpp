@@ -83,7 +83,7 @@ struct CoordinatorStateManagerConfig {
   int bolt_port_{0};
   int management_port_{0};
   std::string coordinator_hostname;
-  std::filesystem::path state_manager_durability_dir_;
+  std::optional<std::filesystem::path> state_manager_durability_dir_;
   std::optional<LogStoreDurability> log_store_durability_;
 };
 

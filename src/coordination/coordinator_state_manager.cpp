@@ -57,8 +57,10 @@ void from_json(nlohmann::json const &json_cluster_config, std::shared_ptr<cluste
 
   auto const new_cluster_config = std::make_shared<cluster_config>(log_idx, prev_log_idx, async_replication);
   new_cluster_config->set_user_ctx(user_ctx);
+
+  constexpr bool learner{false};
   for (auto &[coord_id, endpoint, aux] : servers) {
-    auto one_server_config = std::make_shared<srv_config>(coord_id, 0, std::move(endpoint), std::move(aux), false);
+    auto one_server_config = std::make_shared<srv_config>(coord_id, 0, std::move(endpoint), std::move(aux), learner);
     new_cluster_config->get_servers().push_back(std::move(one_server_config));
   }
   config = new_cluster_config;
@@ -81,7 +83,12 @@ void to_json(nlohmann::json &j, cluster_config const &cluster_config) {
 }
 
 auto CoordinatorStateManager::HandleVersionMigration() -> void {
-  auto const version = GetOrSetDefaultVersion(durability_, kStateManagerDurabilityVersionKey,
+  if (!durability_) {
+    spdlog::trace("Cannot migrate versions on disk for state manager since it was started without durable storage.");
+    return;
+  }
+
+  auto const version = GetOrSetDefaultVersion(*durability_, kStateManagerDurabilityVersionKey,
                                               static_cast<int>(kActiveStateManagerDurabilityVersion), logger_);
 
   if constexpr (kActiveStateManagerDurabilityVersion == StateManagerDurabilityVersion::kV2) {
@@ -99,8 +106,11 @@ CoordinatorStateManager::CoordinatorStateManager(CoordinatorStateManagerConfig c
     : my_id_(config.coordinator_id_),
       cur_log_store_(std::make_shared<CoordinatorLogStore>(logger, config.log_store_durability_)),
       logger_(logger),
-      durability_(config.state_manager_durability_dir_),
       observer_(observer) {
+  if (config.state_manager_durability_dir_) {
+    durability_.emplace(*config.state_manager_durability_dir_);
+  }
+
   auto const coord_instance_aux = CoordinatorInstanceAux{
       .id = config.coordinator_id_,
       .coordinator_server = fmt::format("{}:{}", config.coordinator_hostname, config.coordinator_port_),
@@ -119,7 +129,12 @@ CoordinatorStateManager::CoordinatorStateManager(CoordinatorStateManagerConfig c
 }
 
 void CoordinatorStateManager::TryUpdateClusterConfigFromDisk() {
-  auto const maybe_cluster_config = durability_.Get(kClusterConfigKey);
+  if (!durability_) {
+    spdlog::trace("Cannot update cluster config from disk because state manager was started without durable storage.");
+    return;
+  }
+
+  auto const maybe_cluster_config = durability_->Get(kClusterConfigKey);
   if (!maybe_cluster_config.has_value()) {
     spdlog::trace("Didn't find anything stored on disk for cluster config.");
     return;
@@ -155,14 +170,17 @@ auto CoordinatorStateManager::save_config(cluster_config const &config) -> void 
   spdlog::trace("Got request to save config.");
   std::shared_ptr<buffer> const buf = config.serialize();
   cluster_config_ = cluster_config::deserialize(*buf);
-  nlohmann::json json;
-  to_json(json, config);
 
-  if (auto const ok = durability_.Put(kClusterConfigKey, json.dump()); !ok) {
-    throw StoreClusterConfigException("Failed to store cluster config in RocksDb");
+  if (durability_) {
+    nlohmann::json json;
+    to_json(json, config);
+
+    if (auto const ok = durability_->Put(kClusterConfigKey, json.dump()); !ok) {
+      throw StoreClusterConfigException("Failed to store cluster config in RocksDb");
+    }
+
+    spdlog::trace("Successfully saved cluster config to the durable storage.");
   }
-
-  spdlog::trace("Successfully saved cluster config to the durable storage.");
 
   NotifyObserver(GetCoordinatorInstancesAux());
   spdlog::trace("Successfully notified observer about changes in the cluster configuration.");
@@ -178,18 +196,25 @@ void CoordinatorStateManager::NotifyObserver(std::vector<CoordinatorInstanceAux>
 auto CoordinatorStateManager::save_state(srv_state const &state) -> void {
   spdlog::trace("Saving server state in coordinator state manager.");
 
-  nlohmann::json json;
-  to_json(json, state);
-  durability_.Put(kServerStateKey, json.dump());
-
   std::shared_ptr<buffer> const buf = state.serialize();
   saved_state_ = srv_state::deserialize(*buf);
+
+  if (durability_) {
+    nlohmann::json json;
+    to_json(json, state);
+    durability_->Put(kServerStateKey, json.dump());
+  }
 }
 
 auto CoordinatorStateManager::read_state() -> std::shared_ptr<srv_state> {
   spdlog::trace("Reading server state in coordinator state manager.");
+  if (!durability_) {
+    spdlog::trace(
+        "Cannot read server state from durable storage since state manager was started without durable storage.");
+    return saved_state_;
+  }
 
-  auto const maybe_server_state = durability_.Get(kServerStateKey);
+  auto const maybe_server_state = durability_->Get(kServerStateKey);
   if (!maybe_server_state.has_value()) {
     logger_.Log(nuraft_log_level::INFO, "Didn't find anything stored on disk for server state.");
     return saved_state_;

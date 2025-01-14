@@ -52,15 +52,11 @@ RaftState::RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb
       logger_(std::make_shared<Logger>(config.nuraft_log_file)),
       become_leader_cb_(std::move(become_leader_cb)),
       become_follower_cb_(std::move(become_follower_cb)) {
-  // We always try to reconnect to the cluster.
-  auto const state_manager_path = config.durability_dir / kStateMgrDurabilityPath;
-  utils::EnsureDirOrDie(state_manager_path);
   CoordinatorStateManagerConfig state_manager_config{.coordinator_id_ = config.coordinator_id,
                                                      .coordinator_port_ = config.coordinator_port,
                                                      .bolt_port_ = config.bolt_port,
                                                      .management_port_ = config.management_port,
-                                                     .coordinator_hostname = config.coordinator_hostname,
-                                                     .state_manager_durability_dir_ = state_manager_path};
+                                                     .coordinator_hostname = config.coordinator_hostname};
 
   std::optional<LogStoreDurability> log_store_durability;
 
@@ -76,6 +72,10 @@ RaftState::RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb
     log_store_durability.emplace(LogStoreDurability{.durability_store_ = std::move(durability_store),
                                                     .stored_log_store_version_ = stored_version});
     state_manager_config.log_store_durability_ = log_store_durability;
+
+    auto state_manager_path = config.durability_dir / kStateMgrDurabilityPath;
+    utils::EnsureDirOrDie(state_manager_path);
+    state_manager_config.state_manager_durability_dir_.emplace(std::move(state_manager_path));
   }
 
   state_machine_ = std::make_shared<CoordinatorStateMachine>(logger_wrapper, log_store_durability);
