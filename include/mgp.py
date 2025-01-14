@@ -142,6 +142,10 @@ class AuthorizationError(_mgp.AuthorizationError):
 
     pass
 
+def is_enterprise_valid():
+    """Checks if Memgraph has a valid enterprise license"""
+    return _mgp.Utils.is_enterprise_valid()
+
 
 class Label:
     """Label of a `Vertex`."""

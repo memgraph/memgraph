@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -23,6 +23,7 @@ extern "C" {
 #include <fmt/format.h>
 #include <unistd.h>
 
+#include "license/license.hpp"
 #include "py/py.hpp"
 #include "query/procedure/callable_alias_mapper.hpp"
 #include "query/procedure/mg_procedure_helpers.hpp"
@@ -1134,12 +1135,27 @@ const std::map<std::string, mgp_func, std::less<>> *PythonModule::Functions() co
 }
 namespace {
 
+#ifdef MG_ENTERPRISE
+constexpr std::array<const char *, 1> kEnterpriseModuleList = {
+    "enterprise_module_example",  // this will be replaced by actual module when one gets added, std::array
+                                  // requires at least one member
+};
+#endif
+
 std::unique_ptr<Module> LoadModuleFromFile(const std::filesystem::path &path) {
   const auto &ext = path.extension();
   if (ext != ".so" && ext != ".py") {
     spdlog::warn(utils::MessageWithLink("Unknown query module file {}.", path, "https://memgr.ph/modules"));
     return nullptr;
   }
+#ifdef MG_ENTERPRISE
+  const auto name = path.stem().string();
+  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast() &&
+      std::find(kEnterpriseModuleList.begin(), kEnterpriseModuleList.end(), name) != kEnterpriseModuleList.end()) {
+    spdlog::warn(fmt::format("Failed to load query module {} because it requires a valid enterprise license.", path));
+    return nullptr;
+  }
+#endif
   std::unique_ptr<Module> module;
   if (path.extension() == ".so") {
     auto lib_module = std::make_unique<SharedLibraryModule>();
