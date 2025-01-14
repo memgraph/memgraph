@@ -17,11 +17,11 @@ function check_operating_system() {
     #   * Rocky Linux on dnf update automatically updates minor version, at one
     #   point during install/checking version could be 9.3, while later if
     #   could be 9.5.
-    if [ "$(operating_system)" != "$1"* ]; then
+    if [[ "$(operating_system)" == "$1"* ]]; then
+        echo "The right operating system."
+    else
         echo "Not the right operating system!"
         exit 1
-    else
-        echo "The right operating system."
     fi
 }
 
