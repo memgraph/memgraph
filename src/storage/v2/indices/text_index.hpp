@@ -42,15 +42,15 @@ class TextIndex {
   template <typename T>
   nlohmann::json SerializeProperties(const std::map<PropertyId, PropertyValue> &properties, T *name_resolver);
 
-  std::string StringifyProperties(const std::map<PropertyId, PropertyValue> &properties);
+  static std::string StringifyProperties(const std::map<PropertyId, PropertyValue> &properties);
 
   std::vector<mgcxx::text_search::Context *> GetApplicableTextIndices(std::span<storage::LabelId const> labels);
 
-  void LoadNodeToTextIndices(std::int64_t gid, const nlohmann::json &properties,
-                             const std::string &property_values_as_str,
-                             const std::vector<mgcxx::text_search::Context *> &applicable_text_indices);
+  static void LoadNodeToTextIndices(std::int64_t gid, const nlohmann::json &properties,
+                                    const std::string &property_values_as_str,
+                                    const std::vector<mgcxx::text_search::Context *> &applicable_text_indices);
 
-  void CommitLoadedNodes(mgcxx::text_search::Context &index_context);
+  static void CommitLoadedNodes(mgcxx::text_search::Context &index_context);
 
   mgcxx::text_search::SearchOutput SearchGivenProperties(const std::string &index_name,
                                                          const std::string &search_query);

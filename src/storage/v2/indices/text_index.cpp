@@ -12,7 +12,6 @@
 #include "storage/v2/indices/text_index.hpp"
 
 #include "flags/experimental.hpp"
-#include "flags/run_time_configurable.hpp"
 #include "mgcxx_text_search.hpp"
 #include "query/exceptions.hpp"  // TODO: remove from storage
 #include "storage/v2/id_types.hpp"
