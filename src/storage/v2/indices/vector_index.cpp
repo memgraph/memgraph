@@ -162,10 +162,10 @@ void VectorIndex::UpdateVectorIndex(Vertex *vertex, const LabelPropKey &label_pr
     spdlog::warn("Vector index is full, resizing...");
 
     // we need unique lock when we are resizing the index
-    auto uniquely_locked_index = mg_index->Lock();
-    const auto new_size = spec.resize_coefficient * uniquely_locked_index->capacity();
+    auto exclusively_locked_index = mg_index->Lock();
+    const auto new_size = spec.resize_coefficient * exclusively_locked_index->capacity();
     const unum::usearch::index_limits_t new_limits(new_size, FLAGS_bolt_num_workers);
-    if (!uniquely_locked_index->try_reserve(new_limits)) {
+    if (!exclusively_locked_index->try_reserve(new_limits)) {
       throw std::runtime_error("Failed to resize vector index.");
     }
   }
@@ -220,7 +220,7 @@ std::vector<VectorIndexInfo> VectorIndex::ListVectorIndicesInfo() const {
   result.reserve(pimpl->index_.size());
   for (const auto &[_, index_item] : pimpl->index_) {
     const auto &[mg_index, spec] = index_item;
-    auto locked_index = mg_index->ReadLock();
+    auto locked_index = mg_index->MutableSharedLock();
     result.emplace_back(VectorIndexInfo{
         spec.index_name, spec.label, spec.property, kMetricToStringMap.at(spec.metric_kind).front(),
         static_cast<std::uint16_t>(locked_index->dimensions()), locked_index->capacity(), locked_index->size()});
@@ -242,7 +242,7 @@ std::optional<uint64_t> VectorIndex::ApproximateVectorCount(LabelId label, Prope
     return std::nullopt;
   }
   auto &[mg_index, _] = it->second;
-  auto locked_index = mg_index->ReadLock();
+  auto locked_index = mg_index->MutableSharedLock();
   return locked_index->size();
 }
 
@@ -259,7 +259,7 @@ std::vector<std::tuple<Vertex *, double, double>> VectorIndex::Search(std::strin
   std::vector<std::tuple<Vertex *, double, double>> result;
   result.reserve(result_set_size);
 
-  auto locked_index = mg_index->ReadLock();
+  auto locked_index = mg_index->MutableSharedLock();
   const auto result_keys =
       locked_index->filtered_search(query_vector.data(), result_set_size, [](const Vertex *vertex) {
         auto guard = std::shared_lock{vertex->lock};
