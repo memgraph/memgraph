@@ -86,7 +86,8 @@ class VertexCountCache {
   }
 
   int64_t VerticesCount(storage::LabelId label, const std::vector<storage::PropertyId> &properties,
-                        const std::vector<storage::PropertyValue> &values) {
+                        const std::vector<std::optional<utils::Bound<storage::PropertyValue>>> &lower,
+                        const std::vector<std::optional<utils::Bound<storage::PropertyValue>>> &upper) {
     // auto label_prop = std::make_pair(label, properties);
     // auto &value_composite_vertex_count = property_value_composite_vertex_count_[label_prop];
     // TODO: Why do we even need TypedValue in this whole file?
@@ -95,7 +96,7 @@ class VertexCountCache {
     // value_composite_vertex_count[tv_value] = db_->VerticesCount(label, properties, values);
     // return value_composite_vertex_count.at(tv_value);
 
-    return db_->VerticesCount(label, properties, values);
+    return db_->VerticesCount(label, properties, lower, upper);
   }
 
   int64_t VerticesCount(storage::LabelId label, storage::PropertyId property,

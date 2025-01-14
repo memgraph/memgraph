@@ -269,34 +269,17 @@ void InMemoryLabelPropertyCompositeIndex::Iterable::Iterator::AdvanceUntilValid(
   }
 }
 
-InMemoryLabelPropertyCompositeIndex::Iterable::Iterable(
-    utils::SkipList<Entry>::Accessor index_accessor, utils::SkipList<Vertex>::ConstAccessor vertices_accessor,
-    LabelId label, const std::vector<PropertyId> &properties,
+InMemoryLabelPropertyCompositeIndex::Iterable::Bounds InMemoryLabelPropertyCompositeIndex::Iterable::MakeBounds(
     const std::vector<std::optional<utils::Bound<PropertyValue>>> &lower_bounds,
-    const std::vector<std::optional<utils::Bound<PropertyValue>>> &upper_bounds, View view, Storage *storage,
-    Transaction *transaction)
-    : pin_accessor_(std::move(vertices_accessor)),
-      index_accessor_(std::move(index_accessor)),
-      label_(label),
-      properties_(properties),
-      lower_bounds_(lower_bounds),
-      upper_bounds_(upper_bounds),
-      view_(view),
-      storage_(storage),
-      transaction_(transaction) {
-  // We have to fix the bounds that the user provided to us. If the user
-  // provided only one bound we should make sure that only values of that type
-  // are returned by the iterator. We ensure this by supplying either an
-  // inclusive lower bound of the same type, or an exclusive upper bound of the
-  // following type. If neither bound is set we yield all items in the index.
+    const std::vector<std::optional<utils::Bound<PropertyValue>>> &upper_bounds) {
   std::vector<PropertyValue> lower_bound_values;
   std::vector<PropertyValue> upper_bound_values;
-  lower_bound_values.reserve(lower_bounds_.size());
-  upper_bound_values.reserve(upper_bounds_.size());
+  lower_bound_values.reserve(lower_bounds.size());
+  upper_bound_values.reserve(upper_bounds.size());
 
-  for (uint64_t i = 0; i < lower_bounds_.size(); i++) {
-    auto &lower_bound = lower_bounds_[i];
-    auto &upper_bound = upper_bounds_[i];
+  for (uint64_t i = 0; i < lower_bounds.size(); i++) {
+    auto lower_bound = lower_bounds[i];
+    auto upper_bound = upper_bounds[i];
     // Remove any bounds that are set to `Null` because that isn't a valid value.
     if (lower_bound && lower_bound->value().IsNull()) {
       lower_bound = std::nullopt;
@@ -308,7 +291,7 @@ InMemoryLabelPropertyCompositeIndex::Iterable::Iterable(
     // Check whether the bounds are of comparable types if both are supplied.
     if (lower_bound && upper_bound && !AreComparableTypes(lower_bound->value().type(), upper_bound->value().type())) {
       bounds_valid_ = false;
-      return;
+      return {};
     }
 
     // Set missing bounds.
@@ -403,8 +386,32 @@ InMemoryLabelPropertyCompositeIndex::Iterable::Iterable(
     upper_bound_values.push_back(upper_bound->value());
   }
 
-  lower_bound_ = std::move(lower_bound_values);
-  upper_bound_ = std::move(upper_bound_values);
+  return {.lower_bound = std::move(lower_bound_values), .upper_bound = std::move(upper_bound_values)};
+}
+
+InMemoryLabelPropertyCompositeIndex::Iterable::Iterable(
+    utils::SkipList<Entry>::Accessor index_accessor, utils::SkipList<Vertex>::ConstAccessor vertices_accessor,
+    LabelId label, const std::vector<PropertyId> &properties,
+    const std::vector<std::optional<utils::Bound<PropertyValue>>> &lower_bounds,
+    const std::vector<std::optional<utils::Bound<PropertyValue>>> &upper_bounds, View view, Storage *storage,
+    Transaction *transaction)
+    : pin_accessor_(std::move(vertices_accessor)),
+      index_accessor_(std::move(index_accessor)),
+      label_(label),
+      properties_(properties),
+      lower_bounds_(lower_bounds),
+      upper_bounds_(upper_bounds),
+      view_(view),
+      storage_(storage),
+      transaction_(transaction) {
+  // We have to fix the bounds that the user provided to us. If the user
+  // provided only one bound we should make sure that only values of that type
+  // are returned by the iterator. We ensure this by supplying either an
+  // inclusive lower bound of the same type, or an exclusive upper bound of the
+  // following type. If neither bound is set we yield all items in the index.
+  auto bounds = MakeBounds(lower_bounds, upper_bounds);
+  lower_bound_ = std::move(bounds.lower_bound);
+  upper_bound_ = std::move(bounds.upper_bound);
 }
 
 InMemoryLabelPropertyCompositeIndex::Iterable::Iterator InMemoryLabelPropertyCompositeIndex::Iterable::begin() {
@@ -422,38 +429,22 @@ InMemoryLabelPropertyCompositeIndex::Iterable::Iterator InMemoryLabelPropertyCom
 uint64_t InMemoryLabelPropertyCompositeIndex::ApproximateVertexCount(LabelId label,
                                                                      const std::vector<PropertyId> &properties) const {
   auto it = index_.find({label, properties});
-
-  std::vector<uint64_t> properties_uints;
-  properties_uints.reserve(properties.size());
-  for (const auto &prop : properties) {
-    properties_uints.emplace_back(prop.AsUint());
-  }
-
-  std::stringstream ss;
-  utils::PrintIterable(ss, properties_uints);
-
-  MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(), ss.str());
+  MG_ASSERT(it != index_.end(), "Composite index for label {} does not exist!", label.AsUint());
 
   return it->second.size();
 }
 
-uint64_t InMemoryLabelPropertyCompositeIndex::ApproximateVertexCount(LabelId label,
-                                                                     const std::vector<PropertyId> &properties,
-                                                                     const std::vector<PropertyValue> &values) const {
+uint64_t InMemoryLabelPropertyCompositeIndex::ApproximateVertexCount(
+    LabelId label, const std::vector<PropertyId> &properties,
+    const std::vector<std::optional<utils::Bound<PropertyValue>>> &lower,
+    const std::vector<std::optional<utils::Bound<PropertyValue>>> &upper) const {
   auto it = index_.find({label, properties});
-  // MG_ASSERT(it != index_.end(), "Index for label {} and property composite {} doesn't exist", label.AsUint(),
-  //           property.AsUint());
+  MG_ASSERT(it != index_.end(), "Composite index for label {} does not exist!", label.AsUint());
+
   auto acc = it->second.access();
+  return 0;
   // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
-  return acc.estimate_count(values, utils::SkipListLayerForCountEstimation(acc.size()));
-  // The value `Null` won't ever appear in the index because it indicates that
-  // the property shouldn't exist. Instead, this value is used as an indicator
-  // to estimate the average number of equal elements in the list (for any
-  // given value).
-  // return acc.estimate_average_number_of_equals(
-  //     [](const auto &first, const auto &second) { return first.value == second.value; },
-  //     // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
-  //     utils::SkipListLayerForAverageEqualsEstimation(acc.size()));
+  // return acc.estimate_range_count(lower, upper, utils::SkipListLayerForCountEstimation(acc.size()));
 }
 
 std::vector<LabelPropertyCompositeIndexKey> InMemoryLabelPropertyCompositeIndex::ClearIndexStats() {

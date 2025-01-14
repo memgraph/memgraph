@@ -185,28 +185,30 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     // This cardinality estimation depends on the property value (expression).
     // If it's a constant, we can evaluate cardinality exactly, otherwise
     // we estimate
-    // auto index_stats = db_accessor_->GetIndexStats(logical_op.label_, logical_op.property_);
+    // auto index_stats = db_accessor_->GetIndexStats(logical_op.label_, logical_op.properties_);
     // if (index_stats.has_value()) {
     //   SaveStatsFor(logical_op.output_symbol_, index_stats.value());
     // }
-    // std::vector<storage::PropertyValue> property_values;
-    // property_values.reserve(logical_op.expressions_.size());
-    // for (auto *expression : logical_op.expressions_) {
-    //   auto maybe_property_value = ConstPropertyValue(expression);
-    //   if (maybe_property_value.has_value()) {
-    //     property_values.emplace_back(maybe_property_value.value());
-    //   }
-    // }
 
-    // double factor = 1.0;
-    // if (property_values.size() == logical_op.expressions_.size())
-    //   // get the exact influence based on ScanAll(label, property, value)
-    //   factor = db_accessor_->VerticesCount(logical_op.label_, logical_op.properties_, property_values);
+    std::vector<std::optional<utils::Bound<storage::PropertyValue>>> lower_bounds;
+    std::vector<std::optional<utils::Bound<storage::PropertyValue>>> upper_bounds;
+    lower_bounds.reserve(logical_op.lower_bounds_.size());
+    upper_bounds.reserve(logical_op.upper_bounds_.size());
+    for (uint64_t i = 0; i < logical_op.lower_bounds_.size(); i++) {
+      auto lower = BoundToPropertyValue(logical_op.lower_bounds_[i]);
+      auto upper = BoundToPropertyValue(logical_op.upper_bounds_[i]);
+      lower_bounds.emplace_back(std::move(lower));
+      upper_bounds.emplace_back(std::move(upper));
+    }
+
+    double factor = 1.0;
+    // get the exact influence based on ScanAll(label, property, lower, upper)
+    factor = db_accessor_->VerticesCount(logical_op.label_, logical_op.properties_, lower_bounds, upper_bounds);
     // else
-    //   // estimate the influence as ScanAll(label, property) * filtering
-    //   factor = db_accessor_->VerticesCount(logical_op.label_, logical_op.properties_) * CardParam::kFilter;
+    // estimate the influence as ScanAll(label, property) * filtering
+    // factor = db_accessor_->VerticesCount(logical_op.label_, logical_op.properties_) * CardParam::kFilter;
 
-    // cardinality_ *= factor;
+    cardinality_ *= factor;
 
     // if (index_hints_.HasLabelPropertyIndex(db_accessor_, logical_op.label_, logical_op.property_)) {
     //   use_index_hints_ = true;

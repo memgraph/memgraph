@@ -86,6 +86,11 @@ class InMemoryLabelPropertyCompositeIndex : public storage::LabelPropertyComposi
              const std::vector<std::optional<utils::Bound<PropertyValue>>> &upper_bounds, View view, Storage *storage,
              Transaction *transaction);
 
+    struct Bounds {
+      std::vector<PropertyValue> lower_bound;
+      std::vector<PropertyValue> upper_bound;
+    };
+
     class Iterator {
      public:
       Iterator(Iterable *self, utils::SkipList<Entry>::Iterator index_iterator);
@@ -108,6 +113,8 @@ class InMemoryLabelPropertyCompositeIndex : public storage::LabelPropertyComposi
 
     Iterator begin();
     Iterator end();
+    Bounds MakeBounds(const std::vector<std::optional<utils::Bound<PropertyValue>>> &lower_bounds,
+                      const std::vector<std::optional<utils::Bound<PropertyValue>>> &upper_bounds);
 
    private:
     utils::SkipList<Vertex>::ConstAccessor pin_accessor_;
@@ -131,7 +138,8 @@ class InMemoryLabelPropertyCompositeIndex : public storage::LabelPropertyComposi
   /// `value`. If the `value` specified is `Null`, then an average number of
   /// equal elements is returned.
   uint64_t ApproximateVertexCount(LabelId label, const std::vector<PropertyId> &properties,
-                                  const std::vector<PropertyValue> &values) const override;
+                                  const std::vector<std::optional<utils::Bound<PropertyValue>>> &lower,
+                                  const std::vector<std::optional<utils::Bound<PropertyValue>>> &upper) const override;
 
   std::vector<LabelPropertyCompositeIndexKey> ClearIndexStats();
 

@@ -200,9 +200,10 @@ class InteractiveDbAccessor {
     return value_vertex_count.at(value);
   }
 
-  int64_t VerticesCount(memgraph::storage::LabelId label_id,
-                        const std::vector<memgraph::storage::PropertyId> &property_ids,
-                        const std::vector<memgraph::storage::PropertyValue> &values) {
+  int64_t VerticesCount(
+      memgraph::storage::LabelId label_id, const std::vector<memgraph::storage::PropertyId> &property_ids,
+      const std::vector<std::optional<memgraph::utils::Bound<memgraph::storage::PropertyValue>>> lower,
+      const std::vector<std::optional<memgraph::utils::Bound<memgraph::storage::PropertyValue>>> upper) {
     // auto label = dba_->LabelToName(label_id);
     // auto properties = dba_->PropertiesToNames(property_ids);
     // auto properties_name = memgraph::utils::Join(properties, ", ");
