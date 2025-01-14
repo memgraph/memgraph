@@ -305,7 +305,7 @@ auto RaftState::RemoveCoordinatorInstance(int32_t coordinator_id) const -> void 
   }
 }
 
-auto RaftState::AddCoordinatorInstance(CoordinatorInstanceConfig const &config) -> void {
+auto RaftState::AddCoordinatorInstance(CoordinatorInstanceConfig const &config) const -> void {
   spdlog::trace("Adding coordinator instance {} start in RaftState for coordinator_{}", config.coordinator_id,
                 coordinator_id_);
 
@@ -356,9 +356,9 @@ auto RaftState::GetLeaderCoordinatorData() const -> std::optional<LeaderCoordina
   auto const leader_id = raft_server_->get_leader();
 
   auto const coordinator_contexts = GetCoordinatorInstancesContext();
-  auto const leader_data =
-      std::find_if(coordinator_contexts.cbegin(), coordinator_contexts.cend(),
-                   [leader_id](CoordinatorInstanceContext const &coordinator) { return coordinator.id == leader_id; });
+  auto const leader_data = std::ranges::find_if(
+      coordinator_contexts,
+      [leader_id](CoordinatorInstanceContext const &coordinator) { return coordinator.id == leader_id; });
   if (leader_data == coordinator_contexts.end()) {
     spdlog::trace("Couldn't find data for the current leader.");
     return {};
