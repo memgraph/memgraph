@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -28,12 +28,11 @@ std::string GetPropertyName(PropertyId prop_id, NameIdMapper *name_id_mapper) {
   return name_id_mapper->IdToName(prop_id.AsUint());
 }
 
-inline std::string TextIndex::MakeIndexPath(const std::filesystem::path &storage_dir, const std::string &index_name) {
-  return (storage_dir / kTextIndicesDirectory / index_name).string();
+inline std::string TextIndex::MakeIndexPath(const std::string &index_name) {
+  return (text_index_storage_dir_ / index_name).string();
 }
 
-void TextIndex::CreateEmptyIndex(const std::filesystem::path &storage_dir, const std::string &index_name,
-                                 LabelId label) {
+void TextIndex::CreateEmptyIndex(const std::string &index_name, LabelId label) {
   if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     throw query::TextSearchDisabledException();
   }
@@ -50,7 +49,7 @@ void TextIndex::CreateEmptyIndex(const std::filesystem::path &storage_dir, const
     mappings["properties"]["all"] = {{"type", "text"}, {"fast", true}, {"stored", true}, {"text", true}};
 
     index_.emplace(index_name, TextIndexData{.context_ = mgcxx::text_search::create_index(
-                                                 MakeIndexPath(storage_dir, index_name),
+                                                 MakeIndexPath(index_name),
                                                  mgcxx::text_search::IndexConfig{.mappings = mappings.dump()}),
                                              .scope_ = label});
   } catch (const std::exception &e) {
@@ -133,7 +132,7 @@ std::vector<mgcxx::text_search::Context *> TextIndex::GetApplicableTextIndices(
   return applicable_text_indices;
 }
 
-void TextIndex::LoadNodeToTextIndices(const std::int64_t gid, const nlohmann::json &properties,
+void TextIndex::LoadNodeToTextIndices(std::int64_t gid, const nlohmann::json &properties,
                                       const std::string &property_values_as_str,
                                       const std::vector<mgcxx::text_search::Context *> &applicable_text_indices) {
   if (applicable_text_indices.empty()) {
@@ -229,13 +228,13 @@ void TextIndex::RemoveNode(
   }
 }
 
-void TextIndex::CreateIndex(std::filesystem::path const &storage_dir, std::string const &index_name, LabelId label,
-                            storage::VerticesIterable vertices, NameIdMapper *nameIdMapper) {
+void TextIndex::CreateIndex(std::string const &index_name, LabelId label, storage::VerticesIterable vertices,
+                            NameIdMapper *nameIdMapper) {
   if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     throw query::TextSearchDisabledException();
   }
 
-  CreateEmptyIndex(storage_dir, index_name, label);
+  CreateEmptyIndex(index_name, label);
 
   for (const auto &v : vertices) {
     if (!v.HasLabel(label, View::NEW).GetValue()) {
@@ -250,16 +249,16 @@ void TextIndex::CreateIndex(std::filesystem::path const &storage_dir, std::strin
   CommitLoadedNodes(index_.at(index_name).context_);
 }
 
-void TextIndex::RecoverIndex(const std::filesystem::path &storage_dir, const std::string &index_name, LabelId label,
+void TextIndex::RecoverIndex(const std::string &index_name, LabelId label,
                              memgraph::utils::SkipList<Vertex>::Accessor vertices, NameIdMapper *name_id_mapper) {
   if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     throw query::TextSearchDisabledException();
   }
 
   // Clear Tantivy-internal files if they exist from previous sessions
-  std::filesystem::remove_all(storage_dir / kTextIndicesDirectory / index_name);
+  std::filesystem::remove_all(text_index_storage_dir_ / index_name);
 
-  CreateEmptyIndex(storage_dir, index_name, label);
+  CreateEmptyIndex(index_name, label);
 
   for (const auto &v : vertices) {
     if (std::find(v.labels.begin(), v.labels.end(), label) == v.labels.end()) {
@@ -274,7 +273,7 @@ void TextIndex::RecoverIndex(const std::filesystem::path &storage_dir, const std
   CommitLoadedNodes(index_.at(index_name).context_);
 }
 
-LabelId TextIndex::DropIndex(const std::filesystem::path &storage_dir, const std::string &index_name) {
+LabelId TextIndex::DropIndex(const std::string &index_name) {
   if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     throw query::TextSearchDisabledException();
   }
@@ -284,7 +283,7 @@ LabelId TextIndex::DropIndex(const std::filesystem::path &storage_dir, const std
   }
 
   try {
-    mgcxx::text_search::drop_index(MakeIndexPath(storage_dir, index_name));
+    mgcxx::text_search::drop_index(MakeIndexPath(index_name));
   } catch (const std::exception &e) {
     throw query::TextSearchException("Tantivy error: {}", e.what());
   }
@@ -432,6 +431,14 @@ std::vector<std::pair<std::string, LabelId>> TextIndex::ListIndices() const {
     ret.emplace_back(index_name, index_data.scope_);
   }
   return ret;
+}
+
+void TextIndex::Clear() {
+  for (const auto &[index_name, _] : index_) {
+    mgcxx::text_search::drop_index(MakeIndexPath(index_name));
+  }
+  index_.clear();
+  label_to_index_.clear();
 }
 
 }  // namespace memgraph::storage

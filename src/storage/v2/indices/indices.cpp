@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -112,7 +112,7 @@ void Indices::UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, E
   edge_type_index_->UpdateOnEdgeCreation(from, to, edge_ref, edge_type, tx);
 }
 
-Indices::Indices(const Config &config, StorageMode storage_mode) {
+Indices::Indices(const Config &config, StorageMode storage_mode) : text_index_(config.durability.storage_directory) {
   std::invoke([this, config, storage_mode]() {
     if (storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL || storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
       label_index_ = std::make_unique<InMemoryLabelIndex>();
