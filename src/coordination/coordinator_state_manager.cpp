@@ -15,7 +15,6 @@
 #include "coordination/coordination_observer.hpp"
 #include "coordination/coordinator_exceptions.hpp"
 #include "coordination/utils.hpp"
-#include "utils/file.hpp"
 
 #include <spdlog/spdlog.h>
 

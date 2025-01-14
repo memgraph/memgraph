@@ -11,8 +11,6 @@
 
 #ifdef MG_ENTERPRISE
 
-#include <algorithm>
-
 #include "coordination/coordination_observer.hpp"
 #include "coordination/coordinator_instance.hpp"
 
