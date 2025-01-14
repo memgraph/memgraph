@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -34,9 +34,9 @@ using nuraft::raft_server;
  * If durability is set, logs are persisted to disk and loaded on startup.
  * On first startup, version is set to 1 and start index and last log entry index are stored to disk - which are 1 and 0
  * respectfully. If some log is missing, we assert failure. Logs are stored in a map with key being the index of the log
- * entry. In current version logs are also cached in memory fully. For durability we use RocksDB instance.
+ * entry. In current version logs are also cached in memory fully. For durability, we use RocksDB instance.
  */
-class CoordinatorLogStore : public log_store {
+class CoordinatorLogStore final : public log_store {
  public:
   CoordinatorLogStore(LoggerWrapper logger, std::optional<LogStoreDurability> log_store_durability);
   CoordinatorLogStore(CoordinatorLogStore const &) = delete;
@@ -71,11 +71,11 @@ class CoordinatorLogStore : public log_store {
 
   void DeleteLogs(uint64_t start, uint64_t end);
 
-  auto GetAllEntriesRange(uint64_t start, uint64_t end) -> std::vector<std::pair<int64_t, ptr<log_entry>>>;
+  auto GetAllEntriesRange(uint64_t start, uint64_t end) const -> std::vector<std::pair<int64_t, ptr<log_entry>>>;
 
   /*
    * Stores log entry to disk. We need to store our logs which in nuraft are encoded with log_val_type::app_log
-   * Otherwise we don't need to store them, as nuraft sends either configuration logs or custom logs
+   * Otherwise we don't need to store them, as nuraft sends either configuration logs or custom logs,
    * and we don't handle them in our commit policy.
    * Other logs are stored as empty strings, and state_machine DecodeLogs function doesn't apply any action
    * on empty logs

@@ -151,13 +151,13 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
   auto GetReplState() const -> const memgraph::replication::ReplicationState &;
   auto GetReplState() -> memgraph::replication::ReplicationState &;
 
-  auto GetReplicaUUID() -> std::optional<utils::UUID>;
-  auto GetMainUUID() -> utils::UUID;
+  auto GetReplicaUUID() const -> std::optional<utils::UUID>;
+  auto GetMainUUID() const -> utils::UUID;
 
-  auto GetDatabasesHistories() -> replication_coordination_glue::DatabaseHistories;
+  auto GetDatabasesHistories() const -> replication_coordination_glue::DatabaseHistories;
 
  private:
-  void ClientsShutdown() {
+  void ClientsShutdown() const {
     spdlog::trace("Shutting down instance level clients.");
 
     auto &repl_clients = std::get<RoleMainData>(repl_state_.ReplicationData()).registered_replicas_;

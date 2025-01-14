@@ -15,18 +15,13 @@
 #include <span>
 
 #include "io/network/endpoint.hpp"
-#include "kvstore/kvstore.hpp"
 #include "mg_procedure.h"
 #include "query/exceptions.hpp"
-#include "replication/config.hpp"
-#include "replication/replication_server.hpp"
-#include "storage/v2/all_vertices_iterable.hpp"
 #include "storage/v2/commit_log.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/database_access.hpp"
 #include "storage/v2/durability/paths.hpp"
-#include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/edges_iterable.hpp"
 #include "storage/v2/enum_store.hpp"

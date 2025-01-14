@@ -22,7 +22,6 @@
 #include <range/v3/view.hpp>
 
 namespace memgraph::coordination {
-
 using nuraft::cluster_config;
 using nuraft::cs_new;
 using nuraft::srv_config;
@@ -46,7 +45,6 @@ constexpr std::string_view kPrevLogIdx = "prev_log_idx";
 constexpr std::string_view kLogIdx = "log_idx";
 constexpr std::string_view kAsyncReplication = "async_replication";
 constexpr std::string_view kUserCtx = "user_ctx";
-
 }  // namespace
 
 // TODO: (andi) Wrong, don't deserialize into pointer
@@ -87,14 +85,16 @@ auto CoordinatorStateManager::HandleVersionMigration() -> void {
   auto const version = memgraph::coordination::GetOrSetDefaultVersion(
       durability_, kStateManagerDurabilityVersionKey, static_cast<int>(kActiveStateManagerDurabilityVersion), logger_);
 
-  // TODO update when changed
-  if (kActiveStateManagerDurabilityVersion == StateManagerDurabilityVersion::kV2 &&
-      version == static_cast<int>(StateManagerDurabilityVersion::kV1)) {
-    throw VersionMigrationException(
-        "Version migration for state manager from V1 to V2 is not supported. Cleanup all high availability directories "
-        "and run queries to add instances and coordinators to cluster.");
+  if constexpr (kActiveStateManagerDurabilityVersion == StateManagerDurabilityVersion::kV2) {
+    if (version == static_cast<int>(StateManagerDurabilityVersion::kV1)) {
+      throw VersionMigrationException(
+          "Version migration for state manager from V1 to V2 is not supported. Cleanup all high availability "
+          "directories "
+          "and run queries to add instances and coordinators to cluster.");
+    }
   }
 }
+
 CoordinatorStateManager::CoordinatorStateManager(CoordinatorStateManagerConfig const &config, LoggerWrapper logger,
                                                  std::optional<CoordinationClusterChangeObserver> observer)
     : my_id_(config.coordinator_id_),
@@ -169,7 +169,7 @@ auto CoordinatorStateManager::save_config(cluster_config const &config) -> void 
   spdlog::trace("Successfully notified observer about changes in the cluster configuration.");
 }
 
-void CoordinatorStateManager::NotifyObserver(std::vector<CoordinatorInstanceAux> const &coord_instances_aux) {
+void CoordinatorStateManager::NotifyObserver(std::vector<CoordinatorInstanceAux> const &coord_instances_aux) const {
   spdlog::trace("Notifying observer about cluster config change.");
   if (observer_) {
     observer_.value().Update(coord_instances_aux);
@@ -216,11 +216,11 @@ void to_json(nlohmann::json &j, srv_state const &state) {
                      {kVotedFor.data(), state.get_voted_for()},
                      {kElectionTimer.data(), state.is_election_timer_allowed()}};
 }
+
 void from_json(const nlohmann::json &j, srv_state &state) {
   state.set_term(j.at(kTerm.data()).get<ulong>());
   state.set_voted_for(j.at(kVotedFor.data()).get<int>());
   state.allow_election_timer(j.at(kElectionTimer.data()).get<bool>());
 }
-
 }  // namespace memgraph::coordination
 #endif
