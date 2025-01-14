@@ -110,11 +110,11 @@ class Synchronized {
   };
 
   // This is a non-const version of ReadLockedPtr. Should be used only when the underlying object is thread-safe.
-  class NonConstReadLockedPtr {
+  class MutableSharedLockPtr {
    private:
     friend class Synchronized<T, TMutex>;
 
-    NonConstReadLockedPtr(T *object_ptr, TMutex *mutex) : object_ptr_(object_ptr), guard_(*mutex) {}
+    MutableSharedLockPtr(T *object_ptr, TMutex *mutex) : object_ptr_(object_ptr), guard_(*mutex) {}
 
    public:
     T *operator->() { return object_ptr_; }
@@ -146,16 +146,16 @@ class Synchronized {
   requires SharedMutex<TMutex> ReadLockedPtr operator->() const { return ReadLockedPtr(&object_, &mutex_); }
 
   template <typename = void>
-  requires SharedMutex<TMutex> NonConstReadLockedPtr NonConstReadLock() {
-    return NonConstReadLockedPtr(&object_, &mutex_);
+  requires SharedMutex<TMutex> MutableSharedLockPtr MutableSharedLock() {
+    return MutableSharedLockPtr(&object_, &mutex_);
   }
 
   template <class TCallable>
   requires SharedMutex<TMutex>
-  decltype(auto) WithNonConstReadLock(TCallable &&callable) { return callable(*NonConstReadLock()); }
+  decltype(auto) WithMutableSharedLock(TCallable &&callable) { return callable(*MutableSharedLock()); }
 
   template <typename = void>
-  requires SharedMutex<TMutex> NonConstReadLockedPtr operator->() { return NonConstReadLockedPtr(&object_, &mutex_); }
+  requires SharedMutex<TMutex> MutableSharedLockPtr operator->() { return MutableSharedLockPtr(&object_, &mutex_); }
 
  private:
   T object_;

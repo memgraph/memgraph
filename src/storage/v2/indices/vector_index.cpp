@@ -38,6 +38,10 @@ using mg_vector_index_t = unum::usearch::index_dense_gt<Vertex *, unum::usearch:
 
 // NOLINTNEXTLINE(bugprone-exception-escape)
 struct IndexItem {
+  // unum::usearch::index_dense_gt is thread-safe and supports concurrent operations. However, we still need to use
+  // locking because resizing the index requires exclusive access. For all other operations, we can use shared lock even
+  // though we are modifying index. In the case of removing or adding elements to the index we will use
+  // MutableSharedLock to acquire an shared lock.
   std::shared_ptr<utils::Synchronized<mg_vector_index_t, std::shared_mutex>> mg_index;
   VectorIndexSpec spec;
 };
@@ -65,7 +69,7 @@ struct VectorIndex::Impl {
   /// with the pair of a IndexItem.
   std::map<LabelPropKey, IndexItem> index_;
 
-  /// The `index_name_to_label_prop_` is a hash map that maps an index name (as a string) to the corresponding
+  /// The `index_name_to_label_prop_` is a map that maps an index name (as a string) to the corresponding
   /// `LabelPropKey`. This allows the system to quickly resolve an index name to the spec
   /// associated with that index, enabling easy lookup and management of indexes by name.
   std::map<std::string, LabelPropKey, std::less<>> index_name_to_label_prop_;
@@ -136,7 +140,7 @@ void VectorIndex::UpdateVectorIndex(Vertex *vertex, const LabelPropKey &label_pr
   bool is_index_full = false;
   // try to remove entry (if it exists) and then add a new one + check if index is full
   {
-    auto locked_index = mg_index->NonConstReadLock();
+    auto locked_index = mg_index->MutableSharedLock();
     locked_index->remove(vertex);
     is_index_full = locked_index->size() == locked_index->capacity();
   }
@@ -178,7 +182,7 @@ void VectorIndex::UpdateVectorIndex(Vertex *vertex, const LabelPropKey &label_pr
     throw query::VectorSearchException("Vector index property must be a list of floats or integers.");
   });
   {
-    auto locked_index = mg_index->NonConstReadLock();
+    auto locked_index = mg_index->MutableSharedLock();
     locked_index->add(vertex, vector.data(), mg_vector_index_t::any_thread(), false);
   }
 }
@@ -195,7 +199,7 @@ void VectorIndex::UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_befo
   std::ranges::for_each(pimpl->index_ | std::views::keys, [&](const auto &label_prop) {
     if (label_prop.label() == removed_label) {
       auto &[mg_index, _] = pimpl->index_.at(label_prop);
-      auto locked_index = mg_index->NonConstReadLock();
+      auto locked_index = mg_index->MutableSharedLock();
       locked_index->remove(vertex_before_update);
     }
   });
@@ -272,7 +276,7 @@ std::vector<std::tuple<Vertex *, double, double>> VectorIndex::Search(std::strin
 
 void VectorIndex::AbortEntries(const LabelPropKey &label_prop, std::span<Vertex *const> vertices) {
   auto &[mg_index, spec] = pimpl->index_.at(label_prop);
-  auto locked_index = mg_index->NonConstReadLock();
+  auto locked_index = mg_index->MutableSharedLock();
   for (const auto &vertex : vertices) {
     locked_index->remove(vertex);
   }
@@ -292,7 +296,7 @@ void VectorIndex::RemoveObsoleteEntries(std::stop_token token) const {
       return;
     }
     auto &[mg_index, spec] = index_item;
-    auto locked_index = mg_index->NonConstReadLock();
+    auto locked_index = mg_index->MutableSharedLock();
     std::vector<Vertex *> vertices_to_remove(locked_index->size());
     locked_index->export_keys(vertices_to_remove.data(), 0, locked_index->size());
 
