@@ -82,23 +82,9 @@ struct CoordinatorStateManagerConfig {
   int coordinator_port_{0};
   int bolt_port_{0};
   int management_port_{0};
-  std::filesystem::path state_manager_durability_dir_;
   std::string coordinator_hostname;
+  std::filesystem::path state_manager_durability_dir_;
   std::optional<LogStoreDurability> log_store_durability_;
-
-  CoordinatorStateManagerConfig(int32_t coordinator_id, int coordinator_port, int bolt_port, int management_port,
-                                std::filesystem::path state_manager_durability_dir, std::string coordinator_hostname,
-                                std::optional<LogStoreDurability> log_store_durability = std::nullopt)
-      : coordinator_id_(coordinator_id),
-        coordinator_port_(coordinator_port),
-        bolt_port_(bolt_port),
-        management_port_(management_port),
-        state_manager_durability_dir_(std::move(state_manager_durability_dir)),
-        coordinator_hostname(std::move(coordinator_hostname)),
-        log_store_durability_(std::move(log_store_durability)) {
-    MG_ASSERT(!this->state_manager_durability_dir_.empty(), "State manager durability dir path is empty");
-    MG_ASSERT(!this->coordinator_hostname.empty(), "Hostname empty");
-  }
 };
 
 // NOTE: We need to be careful about durability versioning when changing the config which is persisted on disk.
