@@ -44,7 +44,7 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
   TestSession(TestSessionContext *data, TestInputStream *input_stream, TestOutputStream *output_stream)
       : Session<TestInputStream, TestOutputStream>(input_stream, output_stream) {}
   std::pair<std::vector<std::string>, std::optional<int>> Interpret(const std::string &query, const bolt_map_t &params,
-                                                                    const bolt_map_t &extra) override {
+                                                                    const bolt_map_t &extra) {
     if (extra.contains("tx_metadata")) {
       auto const &metadata = extra.at("tx_metadata").ValueMap();
       if (!metadata.empty()) md_ = metadata;
@@ -64,7 +64,7 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
     }
   }
 
-  bolt_map_t Pull(TEncoder *encoder, std::optional<int> n, std::optional<int> qid) override {
+  bolt_map_t Pull(TEncoder *encoder, std::optional<int> n, std::optional<int> qid) {
     if (should_abort_) {
       throw memgraph::query::HintedAbortError(memgraph::query::AbortReason::TERMINATED);
     }
@@ -97,36 +97,39 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
     }
   }
 
-  bolt_map_t Discard(std::optional<int> /*unused*/, std::optional<int> /*unused*/) override { return {}; }
+  bolt_map_t Discard(std::optional<int> /*unused*/, std::optional<int> /*unused*/) { return {}; }
 
-  void BeginTransaction(const bolt_map_t &extra) override {
+  void BeginTransaction(const bolt_map_t &extra) {
     if (extra.contains("tx_metadata")) {
       auto const &metadata = extra.at("tx_metadata").ValueMap();
       if (!metadata.empty()) md_ = metadata;
     }
   }
-  void CommitTransaction() override { md_.clear(); }
-  void RollbackTransaction() override { md_.clear(); }
+  void CommitTransaction() { md_.clear(); }
+  void RollbackTransaction() { md_.clear(); }
 
-  void Abort() override { md_.clear(); }
+  void Abort() { md_.clear(); }
 
-  bool Authenticate(const std::string & /*username*/, const std::string & /*password*/) override { return true; }
+  bool Authenticate(const std::string & /*username*/, const std::string & /*password*/) { return true; }
 
-  bool SSOAuthenticate(const std::string & /*username*/, const std::string & /*password*/) override { return true; }
+  bool SSOAuthenticate(const std::string & /*username*/, const std::string & /*password*/) { return true; }
 
 #ifdef MG_ENTERPRISE
   auto Route(bolt_map_t const & /*routing*/, std::vector<memgraph::communication::bolt::Value> const & /*bookmarks*/,
-             bolt_map_t const & /*extra*/) -> bolt_map_t override {
+             bolt_map_t const & /*extra*/) -> bolt_map_t {
     return {};
   }
 #endif
 
-  std::optional<std::string> GetServerNameForInit() override { return std::nullopt; }
+  std::optional<std::string> GetServerNameForInit() { return std::nullopt; }
 
-  void Configure(const bolt_map_t &) override {}
-  std::string GetCurrentDB() const override { return ""; }
+  void Configure(const bolt_map_t &) {}
+  std::string GetCurrentDB() const { return ""; }
 
   void TestHook_ShouldAbort() { should_abort_ = true; }
+
+  void Execute() { Execute_(*this); }
+  void Handshake() { Handshake_(*this); }
 
  private:
   std::string query_;

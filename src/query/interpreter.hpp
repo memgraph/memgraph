@@ -41,6 +41,7 @@
 #include "utils/event_trigger.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
+#include "utils/priority_thread_pool.hpp"
 #include "utils/skip_list.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
@@ -188,11 +189,10 @@ class AnalyzeGraphQueryHandler {
 struct PreparedQuery {
   std::vector<std::string> header;
   std::vector<AuthQuery::Privilege> privileges;
-  std::function<std::optional<QueryHandlerResult>(AnyStream *stream, std::optional<int> n,
-                                                  const std::atomic_bool &yield_signal)>
-      query_handler;
+  std::function<std::optional<QueryHandlerResult>(AnyStream *stream, std::optional<int> n)> query_handler;
   plan::ReadWriteTypeChecker::RWType rw_type;
   std::optional<std::string> db{};
+  utils::PriorityThreadPool::TaskPriority priority{utils::PriorityThreadPool::TaskPriority::HIGH};
 };
 
 /**
@@ -292,6 +292,14 @@ class Interpreter final {
   void SetCurrentDB();
 #endif
 
+  utils::PriorityThreadPool::TaskPriority GetQueryPriority(std::optional<int> qid) const {
+    const int qid_value = qid ? *qid : static_cast<int>(query_executions_.size() - 1);
+    if (qid_value < 0 || qid_value >= query_executions_.size()) {
+      throw InvalidArgumentsException("qid", "Query with specified ID does not exist!");
+    }
+    return query_executions_[qid_value]->prepared_query->priority;
+  }
+
   /**
    * Prepare a query for execution.
    *
@@ -346,8 +354,8 @@ class Interpreter final {
    * @throw query::QueryException
    */
   template <typename TStream>
-  std::map<std::string, TypedValue> Pull(TStream *result_stream, std::optional<int> n = {}, std::optional<int> qid = {},
-                                         const std::atomic_bool &yield_signal = {});
+  std::map<std::string, TypedValue> Pull(TStream *result_stream, std::optional<int> n = {},
+                                         std::optional<int> qid = {});
 
   void BeginTransaction(QueryExtras const &extras = {});
 
@@ -460,7 +468,7 @@ class Interpreter final {
 
 template <typename TStream>
 std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std::optional<int> n,
-                                                    std::optional<int> qid, const std::atomic_bool &yield_signal) {
+                                                    std::optional<int> qid) {
   MG_ASSERT(in_explicit_transaction_ || !qid, "qid can be only used in explicit transaction!");
 
   const int qid_value = qid ? *qid : static_cast<int>(query_executions_.size() - 1);
@@ -484,7 +492,7 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
     // Wrap the (statically polymorphic) stream type into a common type which
     // the handler knows.
     AnyStream stream{result_stream, query_execution->execution_memory.resource()};
-    const auto maybe_res = query_execution->prepared_query->query_handler(&stream, n, yield_signal);
+    const auto maybe_res = query_execution->prepared_query->query_handler(&stream, n);
     // Stream is using execution memory of the query_execution which
     // can be deleted after its execution so the stream should be cleared
     // first.

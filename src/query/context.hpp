@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -86,7 +86,6 @@ struct ExecutionContext {
   std::unique_ptr<FineGrainedAuthChecker> auth_checker{nullptr};
 #endif
   DatabaseAccessProtector db_acc;
-  std::atomic_bool *yield;
 };
 
 static_assert(std::is_move_assignable_v<ExecutionContext>, "ExecutionContext must be move assignable!");
