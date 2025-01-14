@@ -2629,7 +2629,7 @@ RecoveredSnapshot LoadSnapshotVersion20or21(const std::filesystem::path &path, u
   const auto info = ReadSnapshotInfo(path);
   spdlog::info("Recovering {} vertices and {} edges.", info.vertices_count, info.edges_count);
   // Check for edges.
-  bool snapshot_has_edges = info.offset_edges != 0;
+  const auto snapshot_has_edges = info.offset_edges != 0;
 
   // Recover mapper.
   std::unordered_map<uint64_t, uint64_t> snapshot_id_map;
@@ -3490,8 +3490,11 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
         if (!property) throw RecoveryFailure("Couldn't read vector index property!");
         auto metric = snapshot.ReadString();
         if (!metric) throw RecoveryFailure("Couldn't read vector index metric!");
+
+        // NOLINTNEXTLINE
         auto usearch_metric = unum::usearch::metric_from_name(metric->data(), metric->size());
         if (usearch_metric.error) throw RecoveryFailure("Invalid vector index metric recovered!");
+
         auto dimension = snapshot.ReadUint();
         if (!dimension) throw RecoveryFailure("Couldn't read vector index dimension!");
         auto resize_coefficient = snapshot.ReadUint();

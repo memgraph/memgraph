@@ -1052,6 +1052,8 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           auto labelId = storage->NameToLabel(data.label);
           auto propId = storage->NameToProperty(data.property);
+
+          // NOLINTNEXTLINE
           auto const unum_metric_kind =
               unum::usearch::metric_from_name(data.metric_kind.data(), data.metric_kind.size());
           if (unum_metric_kind.error) {

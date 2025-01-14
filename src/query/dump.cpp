@@ -320,7 +320,7 @@ void DumpVectorIndex(std::ostream *os, query::DbAccessor *dba, const storage::Ve
   *os << "CREATE VECTOR INDEX " << EscapeName(spec.index_name) << " ON :" << EscapeName(dba->LabelToName(spec.label))
       << "(" << EscapeName(dba->PropertyToName(spec.property)) << ") WITH CONFIG { "
       << "\"dimension\": " << spec.dimension << ", "
-      << "\"metric\": \"" << storage::kMetricToStringMap.at(spec.metric_kind).front() << "\", "
+      << R"("metric": ")" << storage::kMetricToStringMap.at(spec.metric_kind).front() << "\", "
       << "\"capacity\": " << spec.capacity << ", "
       << "\"resize_coefficient\": " << spec.resize_coefficient << " };";
 }
