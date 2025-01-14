@@ -1061,6 +1061,7 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
                 "Failed to create vector index on :{}({}), invalid metric kind: {}, supported metric kinds are: {}",
                 data.label, data.property, data.metric_kind, storage::SupportedMetricKindsToString());
           }
+
           auto res = transaction->CreateVectorIndex(storage::VectorIndexSpec{
               .index_name = data.index_name,
               .label = labelId,
