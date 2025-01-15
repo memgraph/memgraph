@@ -12,7 +12,6 @@
 #include "query/dump.hpp"
 
 #include <algorithm>
-#include <atomic>
 #include <iomanip>
 #include <limits>
 #include <map>

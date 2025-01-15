@@ -11,11 +11,7 @@
 
 #pragma once
 
-#include <concepts>
-#include <cstddef>
-#include <exception>
 #include <optional>
-#include <thread>
 
 #include "communication/bolt/v1/constants.hpp"
 #include "communication/bolt/v1/decoder/chunked_decoder_buffer.hpp"
@@ -27,13 +23,8 @@
 #include "communication/bolt/v1/states/executing.hpp"
 #include "communication/bolt/v1/states/handshake.hpp"
 #include "communication/bolt/v1/states/init.hpp"
-#include "communication/bolt/v1/value.hpp"
 #include "communication/metrics.hpp"
-#include "dbms/constants.hpp"
-#include "dbms/global.hpp"
 #include "utils/exceptions.hpp"
-#include "utils/logging.hpp"
-#include "utils/thread_pool.hpp"
 #include "utils/timestamp.hpp"
 #include "utils/uuid.hpp"
 
@@ -75,7 +66,6 @@ class Session {
         session_uuid_(utils::GenerateUUID()),
         login_timestamp_(utils::Timestamp::Now().ToString(kTimestampFormat)) {}
 
-  // virtual ~Session() = default;
   ~Session() = default;
 
   Session(const Session &) = delete;
@@ -83,55 +73,6 @@ class Session {
   Session(Session &&) noexcept = delete;
   Session &operator=(Session &&) noexcept = delete;
 
-  /**
-   * Process the given `query` with `params`.
-   * @return A pair which contains list of headers and qid which is set only
-   * if an explicit transaction was started.
-   */
-  // virtual std::pair<std::vector<std::string>, std::optional<int>> Interpret(const std::string &query,
-  //                                                                           const map_t &params,
-  //                                                                           const map_t &extra) = 0;
-
-  // virtual void Configure(const map_t &run_time_info) = 0;
-
-#ifdef MG_ENTERPRISE
-  // virtual auto Route(map_t const &routing, std::vector<Value> const &bookmarks, map_t const &extra) -> map_t = 0;
-#endif
-
-  /**
-   * Put results of the processed query in the `encoder`.
-   *
-   * @param n If set, defines amount of rows to be pulled from the result,
-   * otherwise all the rows are pulled.
-   * @param q If set, defines from which query to pull the results,
-   * otherwise the last query is used.
-   */
-  // virtual map_t Pull(std::optional<int> n, std::optional<int> qid) = 0;
-
-  /**
-   * Discard results of the processed query.
-   *
-   * @param n If set, defines amount of rows to be discarded from the result,
-   * otherwise all the rows are discarded.
-   * @param q If set, defines from which query to discard the results,
-   * otherwise the last query is used.
-   */
-  // virtual map_t Discard(std::optional<int> n, std::optional<int> qid) = 0;
-
-  // virtual void BeginTransaction(const map_t &params) = 0;
-  // virtual void CommitTransaction() = 0;
-  // virtual void RollbackTransaction() = 0;
-
-  /** Aborts currently running query. */
-  // virtual void Abort() = 0;
-
-  /** Return `true` if the user was successfully authenticated. */
-  // virtual bool Authenticate(const std::string &username, const std::string &password) = 0;
-  // virtual bool SSOAuthenticate(const std::string &scheme, const std::string &identity_provider_response) = 0;
-
-  /** Return the name of the server that should be used for the Bolt INIT
-   * message. */
-  // virtual std::optional<std::string> GetServerNameForInit() = 0;
   /**
    * Executes the session after data has been read into the buffer.
    * Goes through the bolt states in order to execute commands from the client.

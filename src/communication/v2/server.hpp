@@ -11,14 +11,8 @@
 
 #pragma once
 
-#include <algorithm>
-#include <cstdint>
-#include <iosfwd>
-#include <memory>
-#include <optional>
 #include <string>
 #include <thread>
-#include <vector>
 
 #include <fmt/format.h>
 #include <boost/asio/io_context.hpp>
@@ -26,14 +20,11 @@
 #include <boost/asio/ip/tcp.hpp>
 
 #include "communication/context.hpp"
-#include "communication/fmt.hpp"
-#include "communication/init.hpp"
 #include "communication/v2/pool.hpp"
 #include "communication/v2/session.hpp"
 #include "utils/logging.hpp"
 #include "utils/message.hpp"
 #include "utils/priority_thread_pool.hpp"
-#include "utils/thread.hpp"
 
 namespace memgraph::communication::v2 {
 

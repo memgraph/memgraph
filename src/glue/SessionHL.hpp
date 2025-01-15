@@ -10,19 +10,14 @@
 // licenses/APL.txt.
 #pragma once
 
-#include <atomic>
-#include <exception>
 #include "audit/log.hpp"
 #include "auth/auth.hpp"
 #include "communication/bolt/v1/session.hpp"
 #include "communication/v2/server.hpp"
 #include "communication/v2/session.hpp"
-#include "dbms/database.hpp"
 #include "glue/SessionContext.hpp"
-#include "glue/query_user.hpp"
 #include "query/interpreter.hpp"
 #include "utils/priority_thread_pool.hpp"
-#include "utils/thread_pool.hpp"
 
 namespace memgraph::glue {
 
@@ -82,9 +77,10 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
                                                                   : utils::PriorityThreadPool::TaskPriority::HIGH;
   }
 
-  void Handshake() { Handshake_(*this); }
-
   std::string GetCurrentDB() const;
+
+  inline bool Execute() { return Execute_(*this); }
+  void Handshake() { Handshake_(*this); }
 
  private:
   bolt_map_t DecodeSummary(const std::map<std::string, memgraph::query::TypedValue> &summary);

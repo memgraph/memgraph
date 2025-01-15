@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include <atomic>
 #include "dbms/database.hpp"
 #include "query/db_accessor.hpp"
 #include "query/stream.hpp"

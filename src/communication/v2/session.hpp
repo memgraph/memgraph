@@ -11,7 +11,7 @@
 
 #pragma once
 
-#include <concepts/concepts.hpp>
+#include <concepts>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -358,7 +358,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     worker_pool_->ScheduledAddTask(
         [shared_this = shared_from_this()]() {
           try {
-            if (shared_this->session_.Execute_(shared_this->session_)) {
+            if (shared_this->session_.Execute()) {
               // Schedule next work
               shared_this->DoWork();
             } else {
