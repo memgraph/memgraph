@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -164,4 +164,18 @@ storage::Result<EdgeVertexAccessorResult> SubgraphVertexAccessor::InEdges(storag
   return EdgeVertexAccessorResult{.edges = std::move(resulting_edges), .expanded_count = maybe_edges->expanded_count};
 }
 
+auto DbAccessor::PointVertices(storage::LabelId label, storage::PropertyId property,
+                               storage::CoordinateReferenceSystem crs, TypedValue const &point_value,
+                               TypedValue const &boundary_value, plan::PointDistanceCondition condition)
+    -> PointIterable {
+  return PointIterable(accessor_->PointVertices(label, property, crs, static_cast<storage::PropertyValue>(point_value),
+                                                static_cast<storage::PropertyValue>(boundary_value), condition));
+}
+
+auto DbAccessor::PointVertices(storage::LabelId label, storage::PropertyId property,
+                               storage::CoordinateReferenceSystem crs, TypedValue const &bottom_left,
+                               TypedValue const &top_right, plan::WithinBBoxCondition condition) -> PointIterable {
+  return PointIterable(accessor_->PointVertices(label, property, crs, static_cast<storage::PropertyValue>(bottom_left),
+                                                static_cast<storage::PropertyValue>(top_right), condition));
+}
 }  // namespace memgraph::query
