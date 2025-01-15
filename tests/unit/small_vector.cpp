@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -485,6 +485,33 @@ TYPED_TEST(SmallVectorCommon, GrowShrink) {
   }
   vec.pop_back();
   EXPECT_TRUE(vec.empty());
+
+  vec.shrink_to_fit();
+  EXPECT_EQ(vec.capacity(), small_vector<TypeParam>::kSmallCapacity);
+}
+
+TYPED_TEST(SmallVectorCommon, ShrinkToFit) {
+  auto vec = small_vector<TypeParam>{};
+  for (auto i : rv::iota(0, 30)) {
+    vec.push_back(this->make_value(i));
+  }
+  vec.erase(vec.begin() + 10, vec.end());
+  vec.shrink_to_fit();
+  EXPECT_EQ(vec.size(), 10);
+  EXPECT_EQ(vec.capacity(), 10);
+  EXPECT_FALSE(vec.usingSmallBuffer());
+  for (auto j : rv::iota(0, 10)) {
+    EXPECT_EQ(vec[j], j);
+  }
+
+  vec.erase(vec.begin() + small_vector<TypeParam>::kSmallCapacity, vec.end());
+  vec.shrink_to_fit();
+  EXPECT_EQ(vec.capacity(), small_vector<TypeParam>::kSmallCapacity);
+  if constexpr (std::same_as<TypeParam, LargeType>) {
+    EXPECT_FALSE(vec.usingSmallBuffer());
+  } else {
+    EXPECT_TRUE(vec.usingSmallBuffer());
+  }
 }
 
 template <typename It, typename ConstIt>

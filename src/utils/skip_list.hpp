@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -42,6 +42,8 @@
 
 namespace memgraph::utils {
 
+enum class GCPolicy : uint8_t { Random, DoNotRun };
+
 /// This is the maximum height of the list. This value shouldn't be changed from
 /// this value because it isn't practical to have skip lists that have larger
 /// heights than 32. The probability of heights larger than 32 gets extremely
@@ -72,6 +74,9 @@ constexpr uint64_t kSkipListGcBlockSize = 8189;
 constexpr uint64_t kSkipListGcStackSize = 8191;
 
 namespace detail {
+
+auto thread_local_mt19937() -> std::mt19937 &;
+
 struct SkipListNode_base {
   // This function generates a binomial distribution using the same technique
   // described here: http://ticki.github.io/blog/skip-lists-done-right/ under
@@ -80,11 +85,10 @@ struct SkipListNode_base {
   // returns 0 which is an invalid height. To make the distribution binomial
   // this value is then mapped to `kSkipListMaxSize`.
   static uint32_t gen_height() {
-    thread_local std::mt19937 gen{std::random_device{}()};
     static_assert(kSkipListMaxHeight <= 32,
                   "utils::SkipList::gen_height is implemented only for heights "
                   "up to 32!");
-    uint32_t value = gen();
+    uint32_t value = thread_local_mt19937()();
     if (value == 0) return kSkipListMaxHeight;
     // The value should have exactly `kSkipListMaxHeight` bits.
     value >>= (32 - kSkipListMaxHeight);
@@ -691,7 +695,13 @@ class SkipList final : detail::SkipListNode_base {
     using const_iterator = ConstIterator;
 
     ~Accessor() {
-      if (skiplist_ != nullptr) skiplist_->gc_.ReleaseId(id_);
+      if (skiplist_ != nullptr) {
+        skiplist_->gc_.ReleaseId(id_);
+        auto d = std::bernoulli_distribution(1.0 / 1024.0);
+        if (d(detail::thread_local_mt19937())) {
+          skiplist_->run_gc();
+        }
+      }
     }
 
     Accessor(const Accessor &) = delete;
@@ -996,7 +1006,7 @@ class SkipList final : detail::SkipListNode_base {
   void run_gc() { gc_.Run(); }
 
  private:
-  template <typename TKey>
+  template <GCPolicy policy = GCPolicy::Random, typename TKey>
   int find_node(const TKey &key, TNode *preds[], TNode *succs[]) const {
     int layer_found = -1;
     TNode *pred = head_;
@@ -1014,7 +1024,9 @@ class SkipList final : detail::SkipListNode_base {
       preds[layer] = pred;
       succs[layer] = curr;
     }
-    if (layer_found + 1 >= kSkipListGcHeightTrigger) gc_.Run();
+    if constexpr (policy == GCPolicy::Random) {
+      if (layer_found + 1 >= kSkipListGcHeightTrigger) gc_.Run();
+    }
     return layer_found;
   }
 
@@ -1327,7 +1339,7 @@ class SkipList final : detail::SkipListNode_base {
     TNode *preds[kSkipListMaxHeight], *succs[kSkipListMaxHeight];
     std::unique_lock<SpinLock> node_guard;
     while (true) {
-      int layer_found = find_node(key, preds, succs);
+      int layer_found = find_node<GCPolicy::DoNotRun>(key, preds, succs);
       if (is_marked || (layer_found != -1 && ok_to_delete(succs[layer_found], layer_found))) {
         if (!is_marked) {
           node_to_delete = succs[layer_found];

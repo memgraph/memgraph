@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -374,6 +374,56 @@ struct small_vector {
 
   [[nodiscard]] auto capacity() const -> uint32_t { return capacity_; }
 
+  void shrink_to_fit() {
+    if (usingSmallBuffer(capacity_)) return;
+
+    if (size_ == 0) {
+      // special case, reset to default small_vector
+      operator delete (buffer_, std::align_val_t{alignof(T)});
+      capacity_ = kSmallCapacity;
+      if constexpr (!usingSmallBuffer(kSmallCapacity)) {
+        buffer_ = nullptr;
+      }
+      return;
+    }
+
+    // policy check, is capacity in [size, size*2]
+    if (capacity_ <= size_ * 2) return;
+
+    // return to small buffer is possible
+    if constexpr (usingSmallBuffer(kSmallCapacity)) {
+      if (size_ <= kSmallCapacity) {
+        // get information about old buffer
+        auto buffer = buffer_;
+        auto src_b = begin();
+        auto src_e = end();
+        // make into small buffer
+        capacity_ = kSmallCapacity;
+        auto dst_b = begin();
+        auto dst_e = end();
+        // move, destroy, delete
+        std::uninitialized_move(src_b, src_e, dst_b);
+        std::destroy(src_b, src_e);
+        operator delete (buffer, std::align_val_t{alignof(T)});
+        return;
+      }
+    }
+
+    pointer new_data;
+    try {
+      new_data = reinterpret_cast<pointer>(operator new (size_ * sizeof(T), std::align_val_t{alignof(T)}));
+    } catch (...) {
+      // couldn't allocate smaller buffer... do nothing
+      return;
+    }
+
+    std::uninitialized_move(begin(), end(), new_data);
+    std::destroy(begin(), end());
+    operator delete (buffer_, std::align_val_t{alignof(T)});
+    buffer_ = new_data;
+    capacity_ = size_;
+  }
+
   void reserve(uint32_t new_capacity) {
     if (new_capacity <= capacity_) {
       return;
@@ -467,6 +517,8 @@ struct small_vector {
 
   // kSmallCapacity can be 0; in that case we disable the small buffer
   constexpr static std::uint32_t kSmallCapacity = sizeof(value_type *) / sizeof(value_type);
+
+  constexpr bool usingSmallBuffer() { return kSmallCapacity != 0 && capacity_ == kSmallCapacity; }
 
  private:
   constexpr static bool usingSmallBuffer(uint32_t capacity) {

@@ -25,6 +25,7 @@ target_sources(mg-utils
     logging.cpp
     string.cpp
     scheduler.cpp
+    skip_list.cpp
 
     PUBLIC
     FILE_SET HEADERS
