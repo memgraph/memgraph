@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -44,7 +44,7 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
   TestSession(TestSessionContext *data, TestInputStream *input_stream, TestOutputStream *output_stream)
       : Session<TestInputStream, TestOutputStream>(input_stream, output_stream) {}
   std::pair<std::vector<std::string>, std::optional<int>> Interpret(const std::string &query, const bolt_map_t &params,
-                                                                    const bolt_map_t &extra) override {
+                                                                    const bolt_map_t &extra) {
     if (extra.contains("tx_metadata")) {
       auto const &metadata = extra.at("tx_metadata").ValueMap();
       if (!metadata.empty()) md_ = metadata;
@@ -64,12 +64,12 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
     }
   }
 
-  bolt_map_t Pull(TEncoder *encoder, std::optional<int> n, std::optional<int> qid) override {
+  bolt_map_t Pull(std::optional<int> n, std::optional<int> qid) {
     if (should_abort_) {
       throw memgraph::query::HintedAbortError(memgraph::query::AbortReason::TERMINATED);
     }
     if (query_ == kQueryReturn42) {
-      encoder->MessageRecord(std::vector<Value>{Value(42)});
+      encoder_.MessageRecord(std::vector<Value>{Value(42)});
       return {};
     } else if (query_ == kQueryEmpty) {
       return {};
@@ -79,7 +79,7 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
 
       int local_counter = 0;
       for (; global_counter < elements.size() && (!n || local_counter < *n); ++global_counter) {
-        encoder->MessageRecord(std::vector<Value>{Value(elements[global_counter])});
+        encoder_.MessageRecord(std::vector<Value>{Value(elements[global_counter])});
         ++local_counter;
       }
 
@@ -90,43 +90,50 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
 
       return {std::pair("has_more", true)};
     } else if (query_ == kQueryShowTx) {
-      encoder->MessageRecord({"", 1234567890, query_, md_});
+      encoder_.MessageRecord({"", 1234567890, query_, md_});
       return {};
     } else {
       throw ClientError("client sent invalid query");
     }
   }
 
-  bolt_map_t Discard(std::optional<int> /*unused*/, std::optional<int> /*unused*/) override { return {}; }
+  bolt_map_t Discard(std::optional<int> /*unused*/, std::optional<int> /*unused*/) { return {}; }
 
-  void BeginTransaction(const bolt_map_t &extra) override {
+  void BeginTransaction(const bolt_map_t &extra) {
     if (extra.contains("tx_metadata")) {
       auto const &metadata = extra.at("tx_metadata").ValueMap();
       if (!metadata.empty()) md_ = metadata;
     }
   }
-  void CommitTransaction() override { md_.clear(); }
-  void RollbackTransaction() override { md_.clear(); }
+  void CommitTransaction() { md_.clear(); }
+  void RollbackTransaction() { md_.clear(); }
 
-  void Abort() override { md_.clear(); }
+  void Abort() { md_.clear(); }
 
-  bool Authenticate(const std::string & /*username*/, const std::string & /*password*/) override { return true; }
+  bool Authenticate(const std::string & /*username*/, const std::string & /*password*/) { return true; }
 
-  bool SSOAuthenticate(const std::string & /*username*/, const std::string & /*password*/) override { return true; }
+  bool SSOAuthenticate(const std::string & /*username*/, const std::string & /*password*/) { return true; }
 
 #ifdef MG_ENTERPRISE
   auto Route(bolt_map_t const & /*routing*/, std::vector<memgraph::communication::bolt::Value> const & /*bookmarks*/,
-             bolt_map_t const & /*extra*/) -> bolt_map_t override {
+             bolt_map_t const & /*extra*/) -> bolt_map_t {
     return {};
   }
 #endif
 
-  std::optional<std::string> GetServerNameForInit() override { return std::nullopt; }
+  std::optional<std::string> GetServerNameForInit() { return std::nullopt; }
 
-  void Configure(const bolt_map_t &) override {}
-  std::string GetCurrentDB() const override { return ""; }
+  void Configure(const bolt_map_t &) {}
+  std::string GetCurrentDB() const { return ""; }
 
   void TestHook_ShouldAbort() { should_abort_ = true; }
+
+  void Execute() {
+    while (Execute_(*this)) {
+      // Execute now exists on result, so it can be schduled again.
+      // No scheduler here, just loop until done
+    }
+  }
 
  private:
   std::string query_;

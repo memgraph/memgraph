@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <exception>
 #include <optional>
 #include <utility>
 #include "auth/auth.hpp"
@@ -27,12 +28,14 @@
 #include "query/interpreter_context.hpp"
 #include "query/query_user.hpp"
 #include "utils/event_map.hpp"
+#include "utils/priority_thread_pool.hpp"
 
 namespace memgraph::metrics {
 extern const Event ActiveBoltSessions;
 }  // namespace memgraph::metrics
 
 namespace {
+
 auto ToQueryExtras(const memgraph::glue::bolt_value_t &extra) -> memgraph::query::QueryExtras {
   auto const &as_map = extra.ValueMap();
 
@@ -227,11 +230,12 @@ bolt_map_t SessionHL::Discard(std::optional<int> n, std::optional<int> qid) {
     throw memgraph::communication::bolt::ClientError(e.what());
   }
 }
-bolt_map_t SessionHL::Pull(SessionHL::TEncoder *encoder, std::optional<int> n, std::optional<int> qid) {
+
+bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid) {
   try {
     auto &db = interpreter_.current_db_.db_acc_;
     auto *storage = db ? db->get()->storage() : nullptr;
-    TypedValueResultStream<TEncoder> stream(encoder, storage);
+    TypedValueResultStream<TEncoder> stream(&encoder_, storage);
     return DecodeSummary(interpreter_.Pull(&stream, n, qid));
   } catch (const memgraph::query::QueryException &e) {
     // Count the number of specific exceptions thrown
@@ -416,24 +420,17 @@ void SessionHL::Configure(const bolt_map_t &run_time_info) {
   }
 #endif
 }
-SessionHL::SessionHL(memgraph::query::InterpreterContext *interpreter_context,
-                     memgraph::communication::v2::ServerEndpoint endpoint,
-                     memgraph::communication::v2::InputStream *input_stream,
-                     memgraph::communication::v2::OutputStream *output_stream, memgraph::auth::SynchedAuth *auth
-#ifdef MG_ENTERPRISE
-                     ,
-                     memgraph::audit::Log *audit_log
-#endif
-                     )
+SessionHL::SessionHL(Context context, memgraph::communication::v2::InputStream *input_stream,
+                     memgraph::communication::v2::OutputStream *output_stream)
     : Session<memgraph::communication::v2::InputStream, memgraph::communication::v2::OutputStream>(input_stream,
                                                                                                    output_stream),
-      interpreter_context_(interpreter_context),
+      interpreter_context_(context.ic),
       interpreter_(interpreter_context_),
 #ifdef MG_ENTERPRISE
-      audit_log_(audit_log),
+      audit_log_(context.audit_log),
 #endif
-      auth_(auth),
-      endpoint_(std::move(endpoint)),
+      auth_(context.auth),
+      endpoint_(std::move(context.endpoint)),
       implicit_db_(std::nullopt) {
   // Metrics update
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveBoltSessions);
@@ -474,4 +471,5 @@ bolt_map_t SessionHL::DecodeSummary(const std::map<std::string, memgraph::query:
 
   return decoded_summary;
 }
+
 }  // namespace memgraph::glue

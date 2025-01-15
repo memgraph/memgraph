@@ -25,6 +25,7 @@ target_sources(mg-utils
     logging.cpp
     string.cpp
     scheduler.cpp
+    priority_thread_pool.cpp
 
     PUBLIC
     FILE_SET HEADERS
@@ -39,6 +40,7 @@ target_sources(mg-utils
     logging.hpp
     string.hpp
     scheduler.hpp
+    priority_thread_pool.hpp
 )
 
 find_package(Boost REQUIRED CONFIG)

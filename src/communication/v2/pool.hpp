@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,6 +20,7 @@
 #include <boost/asio/io_context.hpp>
 
 #include "utils/logging.hpp"
+#include "utils/thread.hpp"
 
 namespace memgraph::communication::v2 {
 
@@ -44,6 +45,7 @@ class IOContextThreadPool final {
     running_ = true;
     for (size_t i = 0; i < pool_size_; ++i) {
       background_threads_.emplace_back([this]() {
+        utils::ThreadSetName("io context");
         while (running_) {
           try {
             io_context_.run();

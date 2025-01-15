@@ -96,6 +96,7 @@
 #include "utils/memory.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/on_scope_exit.hpp"
+#include "utils/priority_thread_pool.hpp"
 #include "utils/readable_size.hpp"
 #include "utils/settings.hpp"
 #include "utils/stat.hpp"
@@ -2123,7 +2124,7 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
   ctx_.db_acc = std::move(db_acc);
 }
 
-std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *stream, std::optional<int> n,
+std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *stream, std::optional<int> nnnn,
                                                                 const std::vector<Symbol> &output_symbols,
                                                                 std::map<std::string, TypedValue> *summary) {
   std::optional<uint64_t> transaction_id = ctx_.db_accessor->GetTransactionId();
@@ -2165,7 +2166,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
     ++i;
   }
 
-  for (; !n || i < n; ++i) {
+  for (; !nnnn || i < nnnn; ++i) {
     if (!pull_result()) {
       break;
     }
@@ -2179,7 +2180,8 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
   // we try to pull the next result to see if there is more.
   // If there is additional result, we leave the pulled result in the frame
   // and set the flag to true.
-  has_unsent_results_ = i == n && pull_result();
+  // TODO Any way to avoid another pull???
+  has_unsent_results_ = i == nnnn && pull_result();
 
   execution_time_ += timer.Elapsed();
 
@@ -2441,7 +2443,8 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
       std::move(user_or_role), transaction_status, std::move(tx_timer), current_db.db_acc_, interpreter.query_logger_,
       trigger_context_collector, memory_limit,
       frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr, hops_limit);
-  return PreparedQuery{std::move(header), std::move(parsed_query.required_privileges),
+  return PreparedQuery{std::move(header),
+                       std::move(parsed_query.required_privileges),
                        [pull_plan = std::move(pull_plan), output_symbols = std::move(output_symbols), summary](
                            AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
                          if (pull_plan->Pull(stream, n, output_symbols, summary)) {
@@ -2449,7 +2452,9 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                          }
                          return std::nullopt;
                        },
-                       rw_type_checker.type};
+                       rw_type_checker.type,
+                       current_db.db_acc_->get()->name(),
+                       utils::PriorityThreadPool::Priority::LOW};
 }
 
 PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,

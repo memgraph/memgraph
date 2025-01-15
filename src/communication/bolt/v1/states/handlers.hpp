@@ -99,7 +99,7 @@ State HandlePullDiscard(TSession &session, std::optional<int> n, std::optional<i
     map_t summary;
     if constexpr (is_pull) {
       // Pull can throw.
-      summary = session.Pull(&session.encoder_, n, qid);
+      summary = session.Pull(n, qid);
     } else {
       summary = session.Discard(n, qid);
     }
