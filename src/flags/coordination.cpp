@@ -31,7 +31,5 @@ DEFINE_uint32(instance_health_check_frequency_sec, 1, "The time duration between
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(nuraft_log_file, "", "Path to the file where NuRaft logs are saved.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(ha_durability, true, "Whether to use durability for coordinator logs and snapshots.");
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(coordinator_hostname, "", "Instance's hostname. Used as output of SHOW INSTANCES query.");
 #endif

@@ -37,7 +37,7 @@ using nuraft::raft_server;
  */
 class CoordinatorLogStore final : public log_store {
  public:
-  CoordinatorLogStore(LoggerWrapper logger, std::optional<LogStoreDurability> log_store_durability);
+  CoordinatorLogStore(LoggerWrapper logger, LogStoreDurability log_store_durability);
   CoordinatorLogStore(CoordinatorLogStore const &) = delete;
   CoordinatorLogStore &operator=(CoordinatorLogStore const &) = delete;
   CoordinatorLogStore(CoordinatorLogStore &&) = delete;

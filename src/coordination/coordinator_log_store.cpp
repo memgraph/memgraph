@@ -14,7 +14,6 @@
 #include "coordination/coordinator_log_store.hpp"
 #include "coordination/constants_log_durability.hpp"
 #include "coordination/coordinator_communication_config.hpp"
-#include "coordination/coordinator_exceptions.hpp"
 #include "coordination/utils.hpp"
 #include "utils/logging.hpp"
 
@@ -33,22 +32,13 @@ std::shared_ptr<log_entry> MakeClone(const std::shared_ptr<log_entry> &entry) {
 }
 }  // namespace
 
-CoordinatorLogStore::CoordinatorLogStore(LoggerWrapper const logger,
-                                         std::optional<LogStoreDurability> log_store_durability)
-    : logger_(logger) {
-  if (log_store_durability.has_value()) {
-    logger_.Log(nuraft_log_level::INFO, "Restoring coordinator log store with durability.");
-    durability_ = std::move(log_store_durability->durability_store_);
-    MG_ASSERT(HandleVersionMigration(log_store_durability->stored_log_store_version_),
-              "Couldn't handle version migration in coordinator log store.");
-  } else {
-    spdlog::warn("No durability directory provided, logs will not be persisted to disk");
-    start_idx_ = 1;
-    return;
-  }
+CoordinatorLogStore::CoordinatorLogStore(LoggerWrapper const logger, LogStoreDurability log_store_durability)
+    : durability_(std::move(log_store_durability.durability_store_)), logger_(logger) {
+  logger_.Log(nuraft_log_level::INFO, "Restoring coordinator log store with durability.");
+  MG_ASSERT(HandleVersionMigration(log_store_durability.stored_log_store_version_),
+            "Couldn't handle version migration in coordinator log store.");
 }
 
-// Assumes durability exists
 bool CoordinatorLogStore::HandleVersionMigration(LogStoreVersion const stored_version) {
   if constexpr (kActiveVersion == LogStoreVersion::kV2) {
     if (stored_version == LogStoreVersion::kV1 || stored_version == LogStoreVersion::kV2) {
@@ -122,9 +112,7 @@ void CoordinatorLogStore::DeleteLogs(uint64_t start, uint64_t end) {
       continue;
     }
     logs_.erase(entry);
-    if (durability_) {
-      durability_->Delete(fmt::format("{}{}", kLogEntryPrefix, i));
-    }
+    durability_->Delete(fmt::format("{}{}", kLogEntryPrefix, i));
   }
 }
 
@@ -150,10 +138,8 @@ uint64_t CoordinatorLogStore::append(std::shared_ptr<log_entry> &entry) {
   auto lock = std::lock_guard{logs_lock_};
   uint64_t const next_slot = GetNextSlot();
 
-  if (durability_) {
-    bool constexpr is_entry_with_biggest_id{true};
-    StoreEntryToDisk(clone, next_slot, is_entry_with_biggest_id);
-  }
+  bool constexpr is_entry_with_biggest_id{true};
+  StoreEntryToDisk(clone, next_slot, is_entry_with_biggest_id);
 
   spdlog::trace("Appended log at index {} to the log storage.", next_slot);
   logs_[next_slot] = clone;
@@ -171,9 +157,7 @@ void CoordinatorLogStore::write_at(uint64_t index, std::shared_ptr<log_entry> &e
     itr = logs_.erase(itr);
   }
   bool const is_entry_with_biggest_id = index == GetNextSlot();
-  if (durability_) {
-    StoreEntryToDisk(clone, index, is_entry_with_biggest_id);
-  }
+  StoreEntryToDisk(clone, index, is_entry_with_biggest_id);
   if (index != 0) [[likely]] {
     logs_[index] = clone;
   }
@@ -285,18 +269,14 @@ void CoordinatorLogStore::apply_pack(uint64_t index, buffer &pack) {
         logs_[cur_idx] = le;
       }
 
-      if (durability_) {
-        StoreEntryToDisk(le, cur_idx, is_entry_with_biggest_id);
-      }
+      StoreEntryToDisk(le, cur_idx, is_entry_with_biggest_id);
     }
   }
   {
     auto lock = std::lock_guard{logs_lock_};
     if (auto const entry = logs_.upper_bound(0); entry != logs_.end()) {
       start_idx_ = entry->first;
-      if (durability_) {
-        durability_->Put(kStartIdx, std::to_string(start_idx_.load()));
-      }
+      durability_->Put(kStartIdx, std::to_string(start_idx_.load()));
     } else {
       start_idx_ = 1;
     }
@@ -313,28 +293,21 @@ bool CoordinatorLogStore::compact(uint64_t last_log_index) {
       continue;
     }
     logs_.erase(entry);
-    if (durability_) {
-      durability_->Delete(fmt::format("{}{}", kLogEntryPrefix, ii));
-    }
+    durability_->Delete(fmt::format("{}{}", kLogEntryPrefix, ii));
   }
 
   if (start_idx_ <= last_log_index) {
     start_idx_ = last_log_index + 1;
-    if (durability_) {
-      durability_->Put(kStartIdx, std::to_string(start_idx_.load()));
-    }
+    durability_->Put(kStartIdx, std::to_string(start_idx_.load()));
   }
   return true;
 }
 
-// Configuration logs are flushed immeditately. This is called from NuRaft.
+// Configuration logs are flushed immediately. This is called from NuRaft.
 // Otherwise, the possibility of split brain occurs inside Raft cluster.
 bool CoordinatorLogStore::flush() {
-  if (durability_) {
-    spdlog::trace("Synced WAL to make Raft logs durable.");
-    return durability_->SyncWal();
-  }
-  return true;
+  spdlog::trace("Synced WAL to make Raft logs durable.");
+  return durability_->SyncWal();
 }
 
 // Assumes durability exists
