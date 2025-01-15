@@ -27,6 +27,11 @@ using nuraft::snapshot;
 
 namespace {
 constexpr int MAX_SNAPSHOTS = 3;
+using namespace std::string_view_literals;
+constexpr auto kDataInstances =
+    "cluster_state"sv;  // called "cluster_state" because at the beginning data instances were considered cluster state
+constexpr auto kCoordInstances = "coordinator_instances"sv;
+constexpr auto kUuid = "uuid"sv;
 }  // namespace
 
 namespace memgraph::coordination {
@@ -154,8 +159,7 @@ auto CoordinatorStateMachine::CreateLog(nlohmann::json &&log) -> ptr<buffer> {
 auto CoordinatorStateMachine::SerializeUpdateClusterState(std::vector<DataInstanceContext> data_instances,
                                                           std::vector<CoordinatorInstanceContext> coordinator_instances,
                                                           utils::UUID uuid) -> ptr<buffer> {
-  return CreateLog(
-      {{"cluster_state", data_instances}, {"coordinator_instances", coordinator_instances}, {"uuid", uuid}});
+  return CreateLog({{kDataInstances, data_instances}, {kCoordInstances, coordinator_instances}, {kUuid, uuid}});
 }
 
 auto CoordinatorStateMachine::DecodeLog(buffer &data)
@@ -163,9 +167,9 @@ auto CoordinatorStateMachine::DecodeLog(buffer &data)
   buffer_serializer bs(data);
   auto const json = nlohmann::json::parse(bs.get_str());
 
-  auto const data_instances = json.at("cluster_state");
-  auto const uuid = json.at("uuid");
-  auto const coordinator_instances = json.at("coordinator_instances");
+  auto const data_instances = json.at(kDataInstances.data());
+  auto const uuid = json.at(kUuid.data());
+  auto const coordinator_instances = json.at(kCoordInstances.data());
   return std::make_tuple(data_instances.get<std::vector<DataInstanceContext>>(),
                          coordinator_instances.get<std::vector<CoordinatorInstanceContext>>(), uuid.get<utils::UUID>());
 }
@@ -275,7 +279,7 @@ auto CoordinatorStateMachine::free_user_snp_ctx(void *&user_snp_ctx) -> void {}
 auto CoordinatorStateMachine::last_snapshot() -> ptr<snapshot> {
   auto ll = std::lock_guard{snapshots_lock_};
   logger_.Log(nuraft_log_level::TRACE, "Getting last snapshot from state machine.");
-  auto entry = snapshots_.rbegin();
+  auto const entry = snapshots_.rbegin();
   if (entry == snapshots_.rend()) {
     logger_.Log(nuraft_log_level::TRACE, "There is no snapshot.");
     return nullptr;

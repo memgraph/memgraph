@@ -533,10 +533,15 @@ int main(int argc, char **argv) {
       auto const high_availability_data_dir = FLAGS_data_directory + "/high_availability/raft_data";
       memgraph::utils::EnsureDirOrDie(high_availability_data_dir);
       coordinator_state.emplace(CoordinatorInstanceInitConfig{
-          coordination_setup.coordinator_id, coordination_setup.coordinator_port, extracted_bolt_port,
-          coordination_setup.management_port, high_availability_data_dir, coordination_setup.coordinator_hostname,
-          coordination_setup.nuraft_log_file, std::chrono::seconds(FLAGS_instance_down_timeout_sec),
-          std::chrono::seconds(FLAGS_instance_health_check_frequency_sec)});
+          .coordinator_id = coordination_setup.coordinator_id,
+          .coordinator_port = coordination_setup.coordinator_port,
+          .bolt_port = extracted_bolt_port,
+          .management_port = coordination_setup.management_port,
+          .durability_dir = high_availability_data_dir,
+          .coordinator_hostname = coordination_setup.coordinator_hostname,
+          .nuraft_log_file = coordination_setup.nuraft_log_file,
+          .instance_down_timeout_sec = std::chrono::seconds(FLAGS_instance_down_timeout_sec),
+          .instance_health_check_frequency_sec = std::chrono::seconds(FLAGS_instance_health_check_frequency_sec)});
     } else {
       coordinator_state.emplace(ReplicationInstanceInitConfig{.management_port = coordination_setup.management_port});
     }
