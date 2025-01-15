@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -168,6 +168,20 @@ class InteractiveDbAccessor {
     return label_property_vertex_count_.at(key);
   }
 
+  int64_t VerticesCount(memgraph::storage::LabelId label_id,
+                        const std::vector<memgraph::storage::PropertyId> &property_ids) {
+    // auto label = dba_->LabelToName(label_id);
+    // auto properties = dba_->PropertiesToNames(property_ids);
+    // auto key = std::make_pair(label, properties);
+    // auto properties_name = memgraph::utils::Join(properties, ", ");
+    // if (label_property_composite_vertex_count_.find(key) == label_property_composite_vertex_count_.end()) {
+    //   label_property_composite_vertex_count_[key] =
+    //       ReadVertexCount("label '" + label + "' and properties '" + properties_name + "'");
+    // }
+    // return label_property_composite_vertex_count_.at(key);
+    return 10;
+  }
+
   int64_t VerticesCount(memgraph::storage::LabelId label_id, memgraph::storage::PropertyId property_id,
                         const memgraph::storage::PropertyValue &value) {
     auto label = dba_->LabelToName(label_id);
@@ -184,6 +198,29 @@ class InteractiveDbAccessor {
       value_vertex_count[value] = count;
     }
     return value_vertex_count.at(value);
+  }
+
+  int64_t VerticesCount(
+      memgraph::storage::LabelId label_id, const std::vector<memgraph::storage::PropertyId> &property_ids,
+      const std::vector<std::optional<memgraph::utils::Bound<memgraph::storage::PropertyValue>>> lower,
+      const std::vector<std::optional<memgraph::utils::Bound<memgraph::storage::PropertyValue>>> upper) {
+    // auto label = dba_->LabelToName(label_id);
+    // auto properties = dba_->PropertiesToNames(property_ids);
+    // auto properties_name = memgraph::utils::Join(properties, ", ");
+    // auto label_prop = std::make_pair(label, properties);
+    // if (label_property_composite_index_.find(label_prop) == label_property_composite_index_.end()) {
+    //   return 0;
+    // }
+    // auto &value_composite_vertex_count = property_value_composite_vertex_count_[label_prop];
+    // if (value_composite_vertex_count.find(values) == value_composite_vertex_count.end()) {
+    //   std::stringstream ss;
+    //   ss << values;
+    //   int64_t count =
+    //       ReadVertexCount("label '" + label + "' and properties '" + properties_name + "' value '" + ss.str() + "'");
+    //   value_composite_vertex_count[values] = count;
+    // }
+    // return value_composite_vertex_count.at(values);
+    return 10;
   }
 
   int64_t VerticesCount(memgraph::storage::LabelId label_id, memgraph::storage::PropertyId property_id,
@@ -304,6 +341,11 @@ class InteractiveDbAccessor {
   std::optional<memgraph::storage::LabelPropertyIndexStats> GetIndexStats(
       const memgraph::storage::LabelId label, const memgraph::storage::PropertyId property) const {
     return dba_->GetIndexStats(label, property);
+  }
+
+  std::vector<std::pair<memgraph::storage::LabelId, std::vector<memgraph::storage::PropertyId>>>
+  ListAllCompositeIndices() const {
+    return {};
   }
 
   // Save the cached vertex counts to a stream.
@@ -439,11 +481,15 @@ class InteractiveDbAccessor {
   std::map<std::string, int64_t> label_vertex_count_;
   std::map<std::string, int64_t> edge_type_edge_count_;
   std::map<std::pair<std::string, std::string>, int64_t> label_property_vertex_count_;
+  std::map<std::pair<std::string, std::vector<std::string>>, int64_t> label_property_composite_vertex_count_;
   std::map<std::pair<std::string, std::string>, int64_t> edge_type_property_edge_count_;
   std::map<std::pair<std::string, std::string>, bool> label_property_index_;
+  std::map<std::pair<std::string, std::vector<std::string>>, bool> label_property_composite_index_;
   std::map<std::pair<std::string, std::string>, bool> edge_type_property_index_;
   std::map<std::pair<std::string, std::string>, std::map<memgraph::storage::PropertyValue, int64_t>>
       property_value_vertex_count_;
+  std::map<std::pair<std::string, std::vector<std::string>>, std::map<memgraph::storage::PropertyValue, int64_t>>
+      property_value_composite_vertex_count_;
   std::map<std::pair<std::string, std::string>, std::map<memgraph::storage::PropertyValue, int64_t>>
       property_value_edge_count_;
   // TODO: Cache faked index counts by range.

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -310,6 +310,13 @@ class DbAccessor final {
     return VerticesIterable(accessor_->Vertices(label, property, lower, upper, view));
   }
 
+  VerticesIterable Vertices(storage::View view, storage::LabelId label,
+                            const std::vector<storage::PropertyId> &properties,
+                            const std::vector<std::optional<utils::Bound<storage::PropertyValue>>> &lower_bounds,
+                            const std::vector<std::optional<utils::Bound<storage::PropertyValue>>> &upper_bounds) {
+    return VerticesIterable(accessor_->Vertices(label, properties, lower_bounds, upper_bounds, view));
+  }
+
   auto PointVertices(storage::LabelId label, storage::PropertyId property, storage::CoordinateReferenceSystem crs,
                      TypedValue const &point_value, TypedValue const &boundary_value,
                      plan::PointDistanceCondition condition) -> PointIterable {
@@ -462,6 +469,10 @@ class DbAccessor final {
 
   const std::string &PropertyToName(storage::PropertyId prop) const { return accessor_->PropertyToName(prop); }
 
+  std::vector<std::string> PropertiesToNames(const std::vector<storage::PropertyId> &properties) const {
+    return accessor_->PropertiesToNames(properties);
+  };
+
   const std::string &LabelToName(storage::LabelId label) const { return accessor_->LabelToName(label); }
 
   const std::string &EdgeTypeToName(storage::EdgeTypeId type) const { return accessor_->EdgeTypeToName(type); }
@@ -568,6 +579,16 @@ class DbAccessor final {
     return accessor_->ApproximateVertexCount(label, property, value);
   }
 
+  int64_t VerticesCount(storage::LabelId label, const std::vector<storage::PropertyId> &properties) const {
+    return accessor_->ApproximateVertexCount(label, properties);
+  }
+
+  int64_t VerticesCount(storage::LabelId label, const std::vector<storage::PropertyId> &properties,
+                        const std::vector<std::optional<utils::Bound<storage::PropertyValue>>> &lower,
+                        const std::vector<std::optional<utils::Bound<storage::PropertyValue>>> &upper) const {
+    return accessor_->ApproximateVertexCount(label, properties, lower, upper);
+  }
+
   int64_t VerticesCount(storage::LabelId label, storage::PropertyId property,
                         const std::optional<utils::Bound<storage::PropertyValue>> &lower,
                         const std::optional<utils::Bound<storage::PropertyValue>> &upper) const {
@@ -600,6 +621,10 @@ class DbAccessor final {
 
   storage::IndicesInfo ListAllIndices() const { return accessor_->ListAllIndices(); }
 
+  std::vector<std::pair<storage::LabelId, std::vector<storage::PropertyId>>> ListAllCompositeIndices() const {
+    return accessor_->ListAllCompositeIndices();
+  }
+
   storage::ConstraintsInfo ListAllConstraints() const { return accessor_->ListAllConstraints(); }
 
   const std::string &id() const { return accessor_->id(); }
@@ -611,6 +636,11 @@ class DbAccessor final {
   utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateIndex(storage::LabelId label,
                                                                              storage::PropertyId property) {
     return accessor_->CreateIndex(label, property);
+  }
+
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateIndex(
+      storage::LabelId label, const std::vector<storage::PropertyId> &properties) {
+    return accessor_->CreateIndex(label, properties);
   }
 
   utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateIndex(storage::EdgeTypeId edge_type) {
@@ -629,6 +659,11 @@ class DbAccessor final {
   utils::BasicResult<storage::StorageIndexDefinitionError, void> DropIndex(storage::LabelId label,
                                                                            storage::PropertyId property) {
     return accessor_->DropIndex(label, property);
+  }
+
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> DropIndex(
+      storage::LabelId label, const std::vector<storage::PropertyId> &properties) {
+    return accessor_->DropIndex(label, properties);
   }
 
   utils::BasicResult<storage::StorageIndexDefinitionError, void> DropIndex(storage::EdgeTypeId edge_type) {
@@ -747,6 +782,10 @@ class SubgraphDbAccessor final {
   storage::EdgeTypeId NameToEdgeType(std::string_view name);
 
   const std::string &PropertyToName(storage::PropertyId prop) const;
+
+  const std::string &PropertiesToName(const std::vector<storage::PropertyId> &properties) const;
+
+  std::vector<std::string> PropertiesToNames(const std::vector<storage::PropertyId> &properties) const;
 
   const std::string &LabelToName(storage::LabelId label) const;
 

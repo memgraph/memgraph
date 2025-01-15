@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -67,6 +67,14 @@ class VertexCountCache {
     return it->second;
   }
 
+  int64_t VerticesCount(storage::LabelId label, const std::vector<storage::PropertyId> &properties) {
+    auto key = std::make_pair(label, properties);
+    // if (label_property_composite_vertex_count_.find(key) == label_property_composite_vertex_count_.end())
+    //   label_property_composite_vertex_count_[key] = db_->VerticesCount(label, properties);
+    // return label_property_composite_vertex_count_.at(key);
+    return db_->VerticesCount(label, properties);
+  }
+
   int64_t VerticesCount(storage::LabelId label, storage::PropertyId property, const storage::PropertyValue &value) {
     auto label_prop = std::make_pair(label, property);
     auto &value_vertex_count = property_value_vertex_count_[label_prop];
@@ -75,6 +83,20 @@ class VertexCountCache {
     if (value_vertex_count.find(tv_value) == value_vertex_count.end())
       value_vertex_count[tv_value] = db_->VerticesCount(label, property, value);
     return value_vertex_count.at(tv_value);
+  }
+
+  int64_t VerticesCount(storage::LabelId label, const std::vector<storage::PropertyId> &properties,
+                        const std::vector<std::optional<utils::Bound<storage::PropertyValue>>> &lower,
+                        const std::vector<std::optional<utils::Bound<storage::PropertyValue>>> &upper) {
+    // auto label_prop = std::make_pair(label, properties);
+    // auto &value_composite_vertex_count = property_value_composite_vertex_count_[label_prop];
+    // TODO: Why do we even need TypedValue in this whole file?
+    // TypedValue tv_value(values);
+    // if (value_composite_vertex_count.find(tv_value) == value_composite_vertex_count.end())
+    // value_composite_vertex_count[tv_value] = db_->VerticesCount(label, properties, values);
+    // return value_composite_vertex_count.at(tv_value);
+
+    return db_->VerticesCount(label, properties, lower, upper);
   }
 
   int64_t VerticesCount(storage::LabelId label, storage::PropertyId property,
@@ -147,8 +169,13 @@ class VertexCountCache {
     return db_->GetIndexStats(label, property);
   }
 
+  std::vector<std::pair<storage::LabelId, std::vector<storage::PropertyId>>> ListAllCompositeIndices() const {
+    return db_->ListAllCompositeIndices();
+  }
+
  private:
   using LabelPropertyKey = std::pair<storage::LabelId, storage::PropertyId>;
+  // using LabelPropertyCompositeKey = std::pair<storage::LabelId, std::vector<storage::PropertyId>>;
   using EdgeTypePropertyKey = std::pair<storage::EdgeTypeId, storage::PropertyId>;
 
   struct LabelPropertyHash {
@@ -156,6 +183,12 @@ class VertexCountCache {
       return utils::HashCombine<storage::LabelId, storage::PropertyId>{}(key.first, key.second);
     }
   };
+
+  // struct LabelPropertyCompositeHash {
+  //   size_t operator()(const LabelPropertyCompositeKey &key) const {
+  //     return utils::HashCombine<storage::LabelId, std::vector<storage::PropertyId>>{}(key.first, key.second);
+  //   }
+  // };
 
   struct EdgeTypePropertyHash {
     size_t operator()(const EdgeTypePropertyKey &key) const {
@@ -198,6 +231,8 @@ class VertexCountCache {
   std::unordered_map<storage::LabelId, int64_t> label_vertex_count_;
   std::unordered_map<storage::EdgeTypeId, int64_t> edge_type_edge_count_;
   std::unordered_map<LabelPropertyKey, int64_t, LabelPropertyHash> label_property_vertex_count_;
+  // std::unordered_map<LabelPropertyCompositeKey, int64_t, LabelPropertyCompositeHash>
+  //     label_property_composite_vertex_count_;
   std::unordered_map<LabelPropertyKey, std::optional<int64_t>, LabelPropertyHash> label_property_vertex_point_count_;
   std::unordered_map<EdgeTypePropertyKey, int64_t, EdgeTypePropertyHash> edge_type_property_edge_count_;
   std::unordered_map<
@@ -205,6 +240,11 @@ class VertexCountCache {
       std::unordered_map<query::TypedValue, int64_t, query::TypedValue::Hash, query::TypedValue::BoolEqual>,
       LabelPropertyHash>
       property_value_vertex_count_;
+  // std::unordered_map<
+  //     LabelPropertyCompositeKey,
+  //     std::unordered_map<query::TypedValue, int64_t, query::TypedValue::Hash, query::TypedValue::BoolEqual>,
+  //     LabelPropertyCompositeHash>
+  //     property_value_composite_vertex_count_;
   std::unordered_map<
       EdgeTypePropertyKey,
       std::unordered_map<query::TypedValue, int64_t, query::TypedValue::Hash, query::TypedValue::BoolEqual>,

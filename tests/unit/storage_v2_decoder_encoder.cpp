@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -436,6 +436,8 @@ TEST_F(DecoderEncoderTest, PropertyValueInvalidMarker) {
         case memgraph::storage::durability::Marker::DELTA_ENUM_CREATE:
         case memgraph::storage::durability::Marker::DELTA_ENUM_ALTER_ADD:
         case memgraph::storage::durability::Marker::DELTA_ENUM_ALTER_UPDATE:
+        case memgraph::storage::durability::Marker::DELTA_LABEL_PROPERTY_COMPOSITE_INDEX_CREATE:
+        case memgraph::storage::durability::Marker::DELTA_LABEL_PROPERTY_COMPOSITE_INDEX_DROP:
         case memgraph::storage::durability::Marker::VALUE_FALSE:
         case memgraph::storage::durability::Marker::VALUE_TRUE:
           valid_marker = false;

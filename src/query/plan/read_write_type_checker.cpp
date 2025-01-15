@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -35,6 +35,7 @@ PRE_VISIT(ScanAll, RWType::R, true)
 PRE_VISIT(ScanAllByLabel, RWType::R, true)
 PRE_VISIT(ScanAllByLabelProperty, RWType::R, true)
 PRE_VISIT(ScanAllByLabelPropertyValue, RWType::R, true)
+PRE_VISIT(ScanAllByLabelPropertyCompositeValue, RWType::R, true)
 PRE_VISIT(ScanAllByLabelPropertyRange, RWType::R, true)
 PRE_VISIT(ScanAllById, RWType::R, true)
 

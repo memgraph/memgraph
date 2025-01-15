@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -48,6 +48,8 @@ struct MetadataDelta {
     ENUM_ALTER_UPDATE,
     POINT_INDEX_CREATE,
     POINT_INDEX_DROP,
+    LABEL_PROPERTY_COMPOSITE_INDEX_CREATE,
+    LABEL_PROPERTY_COMPOSITE_INDEX_DROP,
   };
 
   static constexpr struct LabelIndexCreate {
@@ -60,12 +62,16 @@ struct MetadataDelta {
   } label_index_stats_clear;
   static constexpr struct LabelPropertyIndexCreate {
   } label_property_index_create;
+  static constexpr struct LabelPropertyCompositeIndexCreate {
+  } label_property_composite_index_create;
   static constexpr struct PointIndexCreate {
   } point_index_create;
   static constexpr struct PointIndexDrop {
   } point_index_drop;
   static constexpr struct LabelPropertyIndexDrop {
   } label_property_index_drop;
+  static constexpr struct LabelPropertyCompositeIndexDrop {
+  } label_property_composite_index_drop;
   static constexpr struct LabelPropertyIndexStatsSet {
   } label_property_index_stats_set;
   static constexpr struct LabelPropertyIndexStatsClear {
@@ -113,8 +119,14 @@ struct MetadataDelta {
   MetadataDelta(LabelPropertyIndexCreate /*tag*/, LabelId label, PropertyId property)
       : action(Action::LABEL_PROPERTY_INDEX_CREATE), label_property{label, property} {}
 
+  MetadataDelta(LabelPropertyCompositeIndexCreate /*tag*/, LabelId label, const std::vector<PropertyId> &properties)
+      : action(Action::LABEL_PROPERTY_COMPOSITE_INDEX_CREATE), label_property_composite{label, properties} {}
+
   MetadataDelta(LabelPropertyIndexDrop /*tag*/, LabelId label, PropertyId property)
       : action(Action::LABEL_PROPERTY_INDEX_DROP), label_property{label, property} {}
+
+  MetadataDelta(LabelPropertyCompositeIndexDrop /*tag*/, LabelId label, const std::vector<PropertyId> &properties)
+      : action(Action::LABEL_PROPERTY_COMPOSITE_INDEX_DROP), label_property_composite{label, properties} {}
 
   MetadataDelta(LabelPropertyIndexStatsSet /*tag*/, LabelId label, PropertyId property,
                 LabelPropertyIndexStats const &stats)
@@ -185,7 +197,9 @@ struct MetadataDelta {
       case LABEL_INDEX_STATS_SET:
       case LABEL_INDEX_STATS_CLEAR:
       case LABEL_PROPERTY_INDEX_CREATE:
+      case LABEL_PROPERTY_COMPOSITE_INDEX_CREATE:
       case LABEL_PROPERTY_INDEX_DROP:
+      case LABEL_PROPERTY_COMPOSITE_INDEX_DROP:
       case LABEL_PROPERTY_INDEX_STATS_SET:
       case LABEL_PROPERTY_INDEX_STATS_CLEAR:
       case Action::EDGE_INDEX_CREATE:
@@ -226,6 +240,11 @@ struct MetadataDelta {
       LabelId label;
       PropertyId property;
     } label_property;
+
+    struct {
+      LabelId label;
+      std::vector<PropertyId> properties;
+    } label_property_composite;
 
     struct {
       LabelId label;

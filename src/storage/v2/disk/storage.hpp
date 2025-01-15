@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -74,6 +74,11 @@ class DiskStorage final : public Storage {
                               const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                               const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) override;
 
+    VerticesIterable Vertices(LabelId label, const std::vector<PropertyId> &properties,
+                              const std::vector<std::optional<utils::Bound<PropertyValue>>> &lower_bound,
+                              const std::vector<std::optional<utils::Bound<PropertyValue>>> &upper_bound,
+                              View view) override;
+
     std::optional<EdgeAccessor> FindEdge(Gid gid, View view) override;
 
     EdgesIterable Edges(EdgeTypeId edge_type, View view) override;
@@ -92,8 +97,19 @@ class DiskStorage final : public Storage {
 
     uint64_t ApproximateVertexCount(LabelId /*label*/, PropertyId /*property*/) const override { return 10; }
 
+    uint64_t ApproximateVertexCount(LabelId /*label*/, const std::vector<PropertyId> & /*property*/) const override {
+      return 10;
+    }
+
     uint64_t ApproximateVertexCount(LabelId /*label*/, PropertyId /*property*/,
                                     const PropertyValue & /*value*/) const override {
+      return 10;
+    }
+
+    uint64_t ApproximateVertexCount(
+        LabelId /*label*/, const std::vector<PropertyId> & /*properties*/,
+        const std::vector<std::optional<utils::Bound<PropertyValue>>> & /*lower*/,
+        const std::vector<std::optional<utils::Bound<PropertyValue>>> & /*upper*/) const override {
       return 10;
     }
 
@@ -176,6 +192,8 @@ class DiskStorage final : public Storage {
 
     IndicesInfo ListAllIndices() const override;
 
+    std::vector<std::pair<LabelId, std::vector<PropertyId>>> ListAllCompositeIndices() const override;
+
     ConstraintsInfo ListAllConstraints() const override;
 
     // NOLINTNEXTLINE(google-default-arguments)
@@ -197,6 +215,9 @@ class DiskStorage final : public Storage {
 
     utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label, PropertyId property) override;
 
+    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
+        LabelId label, const std::vector<PropertyId> &properties) override;
+
     utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(EdgeTypeId edge_type,
                                                                       bool unique_access_needed = true) override;
 
@@ -206,6 +227,9 @@ class DiskStorage final : public Storage {
     utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label) override;
 
     utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label, PropertyId property) override;
+
+    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label,
+                                                                    const std::vector<PropertyId> &properties) override;
 
     utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type) override;
 

@@ -2933,10 +2933,6 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
     properties_string.push_back(prop.name);
   }
 
-  if (properties.size() > 1) {
-    throw utils::NotYetImplemented("index on multiple properties");
-  }
-
   auto properties_stringified = utils::Join(properties_string, ", ");
 
   Notification index_notification(SeverityLevel::INFO);
@@ -2950,8 +2946,9 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
       handler = [dba, label, properties_stringified = std::move(properties_stringified),
                  label_name = index_query->label_.name, properties = std::move(properties),
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
-        MG_ASSERT(properties.size() <= 1U);
-        auto maybe_index_error = properties.empty() ? dba->CreateIndex(label) : dba->CreateIndex(label, properties[0]);
+        auto maybe_index_error = properties.empty()       ? dba->CreateIndex(label)
+                                 : properties.size() == 1 ? dba->CreateIndex(label, properties[0])
+                                                          : dba->CreateIndex(label, properties);
         utils::OnScopeExit invalidator(invalidate_plan_cache);
 
         if (maybe_index_error.HasError()) {
@@ -2971,8 +2968,9 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
       handler = [dba, label, properties_stringified = std::move(properties_stringified),
                  label_name = index_query->label_.name, properties = std::move(properties),
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
-        MG_ASSERT(properties.size() <= 1U);
-        auto maybe_index_error = properties.empty() ? dba->DropIndex(label) : dba->DropIndex(label, properties[0]);
+        auto maybe_index_error = properties.empty()       ? dba->DropIndex(label)
+                                 : properties.size() == 1 ? dba->DropIndex(label, properties[0])
+                                                          : dba->DropIndex(label, properties);
         utils::OnScopeExit invalidator(invalidate_plan_cache);
 
         if (maybe_index_error.HasError()) {
@@ -4328,6 +4326,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         auto *storage = database->storage();
         const std::string_view label_index_mark{"label"};
         const std::string_view label_property_index_mark{"label+property"};
+        const std::string_view label_property_composite_index_mark{"label+property composite"};
         const std::string_view edge_type_index_mark{"edge-type"};
         const std::string_view edge_type_property_index_mark{"edge-type+property"};
         const std::string_view text_index_mark{"text"};
@@ -4344,6 +4343,18 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
           results.push_back(
               {TypedValue(label_property_index_mark), TypedValue(storage->LabelToName(item.first)),
                TypedValue(storage->PropertyToName(item.second)),
+               TypedValue(static_cast<int>(storage_acc->ApproximateVertexCount(item.first, item.second)))});
+        }
+        for (const auto &item : info.label_property_composite) {
+          std::vector<std::string> property_names;
+          for (const auto &property : item.second) {
+            property_names.push_back(storage->PropertyToName(property));
+          }
+          std::stringstream ss;
+          utils::PrintIterable(ss, property_names);
+          results.push_back(
+              {TypedValue(label_property_composite_index_mark), TypedValue(storage->LabelToName(item.first)),
+               TypedValue(ss.str()),
                TypedValue(static_cast<int>(storage_acc->ApproximateVertexCount(item.first, item.second)))});
         }
         for (const auto &item : info.edge_type) {

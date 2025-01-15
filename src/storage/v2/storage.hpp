@@ -52,6 +52,7 @@ extern const Event SnapshotCreationLatency_us;
 
 extern const Event ActiveLabelIndices;
 extern const Event ActiveLabelPropertyIndices;
+extern const Event ActiveLabelPropertyCompositeIndices;
 extern const Event ActivePointIndices;
 extern const Event ActiveTextIndices;
 }  // namespace memgraph::metrics
@@ -63,6 +64,7 @@ class EdgeAccessor;
 struct IndicesInfo {
   std::vector<LabelId> label;
   std::vector<std::pair<LabelId, PropertyId>> label_property;
+  std::vector<std::pair<LabelId, std::vector<PropertyId>>> label_property_composite;
   std::vector<EdgeTypeId> edge_type;
   std::vector<std::pair<EdgeTypeId, PropertyId>> edge_type_property;
   std::vector<std::pair<std::string, LabelId>> text_indices;
@@ -85,6 +87,7 @@ struct StorageInfo {
   uint64_t disk_usage;
   uint64_t label_indices;
   uint64_t label_property_indices;
+  uint64_t label_property_composite_indices;
   uint64_t text_indices;
   uint64_t existence_constraints;
   uint64_t unique_constraints;
@@ -114,6 +117,7 @@ static inline nlohmann::json ToJson(const StorageInfo &info) {
   res["disk"] = info.disk_usage;
   res["label_indices"] = info.label_indices;
   res["label_prop_indices"] = info.label_property_indices;
+  res["label_prop_composite_indices"] = info.label_property_composite_indices;
   res["text_indices"] = info.text_indices;
   res["existence_constraints"] = info.existence_constraints;
   res["unique_constraints"] = info.unique_constraints;
@@ -197,6 +201,11 @@ class Storage {
                                       const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                       const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) = 0;
 
+    virtual VerticesIterable Vertices(LabelId label, const std::vector<PropertyId> &properties,
+                                      const std::vector<std::optional<utils::Bound<PropertyValue>>> &lower_bound,
+                                      const std::vector<std::optional<utils::Bound<PropertyValue>>> &upper_bound,
+                                      View view) = 0;
+
     virtual std::optional<EdgeAccessor> FindEdge(Gid gid, View view) = 0;
 
     virtual EdgesIterable Edges(EdgeTypeId edge_type, View view) = 0;
@@ -223,7 +232,14 @@ class Storage {
 
     virtual uint64_t ApproximateVertexCount(LabelId label, PropertyId property) const = 0;
 
+    virtual uint64_t ApproximateVertexCount(LabelId label, const std::vector<PropertyId> &properties) const = 0;
+
     virtual uint64_t ApproximateVertexCount(LabelId label, PropertyId property, const PropertyValue &value) const = 0;
+
+    virtual uint64_t ApproximateVertexCount(
+        LabelId label, const std::vector<PropertyId> &properties,
+        const std::vector<std::optional<utils::Bound<PropertyValue>>> &lower,
+        const std::vector<std::optional<utils::Bound<PropertyValue>>> &upper) const = 0;
 
     virtual uint64_t ApproximateVertexCount(LabelId label, PropertyId property,
                                             const std::optional<utils::Bound<PropertyValue>> &lower,
@@ -298,6 +314,8 @@ class Storage {
 
     virtual IndicesInfo ListAllIndices() const = 0;
 
+    virtual std::vector<std::pair<LabelId, std::vector<PropertyId>>> ListAllCompositeIndices() const = 0;
+
     virtual ConstraintsInfo ListAllConstraints() const = 0;
 
     // NOLINTNEXTLINE(google-default-arguments)
@@ -319,6 +337,10 @@ class Storage {
     const std::string &LabelToName(LabelId label) const { return storage_->LabelToName(label); }
 
     const std::string &PropertyToName(PropertyId property) const { return storage_->PropertyToName(property); }
+
+    std::vector<std::string> PropertiesToNames(const std::vector<PropertyId> &properties) const {
+      return storage_->PropertiesToNames(properties);
+    }
 
     const std::string &EdgeTypeToName(EdgeTypeId edge_type) const { return storage_->EdgeTypeToName(edge_type); }
 
@@ -345,6 +367,9 @@ class Storage {
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label, PropertyId property) = 0;
 
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
+        LabelId label, const std::vector<PropertyId> &property) = 0;
+
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(EdgeTypeId edge_type,
                                                                               bool unique_access_needed = true) = 0;
 
@@ -354,6 +379,9 @@ class Storage {
     virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label, PropertyId property) = 0;
+
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
+        LabelId label, const std::vector<PropertyId> &property) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type) = 0;
 
@@ -483,6 +511,15 @@ class Storage {
   const std::string &LabelToName(LabelId label) const { return name_id_mapper_->IdToName(label.AsUint()); }
 
   const std::string &PropertyToName(PropertyId property) const { return name_id_mapper_->IdToName(property.AsUint()); }
+
+  std::vector<std::string> PropertiesToNames(const std::vector<PropertyId> &properties) const {
+    std::vector<std::string> names;
+    names.reserve(properties.size());
+    for (const auto &prop : properties) {
+      names.emplace_back(name_id_mapper_->IdToName(prop.AsUint()));
+    }
+    return names;
+  }
 
   const std::string &EdgeTypeToName(EdgeTypeId edge_type) const {
     return name_id_mapper_->IdToName(edge_type.AsUint());

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -87,6 +87,12 @@ struct LabelPropertiesOpInfo {
   using ctr_types = std::tuple<std::string, std::set<std::string, std::less<>>>;
   std::string label;
   std::set<std::string, std::less<>> properties;
+};
+struct LabelPropertyCompositeOpInfo {
+  friend bool operator==(const LabelPropertyCompositeOpInfo &, const LabelPropertyCompositeOpInfo &) = default;
+  using ctr_types = std::tuple<std::string, std::vector<std::string>>;
+  std::string label;
+  std::vector<std::string> properties;
 };
 struct EdgeTypeOpInfo {
   friend bool operator==(const EdgeTypeOpInfo &, const EdgeTypeOpInfo &) = default;
@@ -197,6 +203,9 @@ struct WalEnumAlterUpdate {
   std::string evalue_new;
 };
 
+struct WalLabelPropertyCompositeIndexCreate : LabelPropertyCompositeOpInfo {};
+struct WalLabelPropertyCompositeIndexDrop : LabelPropertyCompositeOpInfo {};
+
 /// Structure used to return loaded WAL delta data.
 struct WalDeltaData {
   friend bool operator==(const WalDeltaData &a, const WalDeltaData &b) {
@@ -215,7 +224,8 @@ struct WalDeltaData {
                WalPointIndexCreate, WalPointIndexDrop, WalExistenceConstraintCreate, WalExistenceConstraintDrop,
                WalLabelPropertyIndexStatsSet, WalEdgeTypePropertyIndexCreate, WalEdgeTypePropertyIndexDrop,
                WalUniqueConstraintCreate, WalUniqueConstraintDrop, WalTypeConstraintCreate, WalTypeConstraintDrop,
-               WalTextIndexCreate, WalTextIndexDrop, WalEnumCreate, WalEnumAlterAdd, WalEnumAlterUpdate>
+               WalTextIndexCreate, WalTextIndexDrop, WalEnumCreate, WalEnumAlterAdd, WalEnumAlterUpdate,
+               WalLabelPropertyCompositeIndexCreate, WalLabelPropertyCompositeIndexDrop>
       data_ = WalTransactionEnd{};
 };
 
@@ -263,6 +273,8 @@ constexpr bool IsWalDeltaDataImplicitTransactionEndVersion15(const WalDeltaData 
                         [](WalPointIndexDrop const &) { return true; },
                         [](WalTypeConstraintCreate const &) { return true; },
                         [](WalTypeConstraintDrop const &) { return true; },
+                        [](WalLabelPropertyCompositeIndexCreate const &) { return true; },
+                        [](WalLabelPropertyCompositeIndexDrop const &) { return true; },
                     },
                     delta.data_);
 }
@@ -317,8 +329,10 @@ void EncodeEnumAlterUpdate(BaseEncoder &encoder, EnumStore const &enum_store, En
                            std::string enum_value_old);
 void EncodeEnumCreate(BaseEncoder &encoder, EnumStore const &enum_store, EnumTypeId etype);
 void EncodeLabel(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label);
-void EncodeLabelProperties(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label,
-                           std::set<PropertyId> const &properties);
+void EncodeLabelPropertiesSet(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label,
+                              std::set<PropertyId> const &properties);
+void EncodeLabelPropertiesVector(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label,
+                                 std::vector<PropertyId> const &properties);
 void EncodeTypeConstraint(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label, PropertyId property,
                           TypeConstraintKind type);
 void EncodeLabelProperty(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label, PropertyId prop);
@@ -361,7 +375,8 @@ class WalFile {
   void AppendTransactionEnd(uint64_t timestamp);
 
   void AppendOperation(StorageMetadataOperation operation, const std::optional<std::string> text_index_name,
-                       LabelId label, const std::set<PropertyId> &properties, const LabelIndexStats &stats,
+                       LabelId label, const std::set<PropertyId> &properties_set,
+                       const std::vector<PropertyId> &properties_vector, const LabelIndexStats &stats,
                        const LabelPropertyIndexStats &property_stats, uint64_t timestamp);
 
   void AppendOperation(StorageMetadataOperation operation, EdgeTypeId edge_type, const std::set<PropertyId> &properties,

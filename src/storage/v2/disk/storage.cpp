@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -619,6 +619,13 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
       &transaction_, label, property, gids, lower_bound, upper_bound, index_deltas, indexed_vertices.get());
 
   return VerticesIterable(AllVerticesIterable(indexed_vertices->access(), storage_, &transaction_, view));
+}
+
+VerticesIterable DiskStorage::DiskAccessor::Vertices(
+    LabelId label, const std::vector<PropertyId> &properties,
+    const std::vector<std::optional<utils::Bound<PropertyValue>>> &lower_bound,
+    const std::vector<std::optional<utils::Bound<PropertyValue>>> &upper_bound, View view) {
+  throw utils::NotYetImplemented("Label-property composite indexing is not yet implemented on on-disk storage mode.");
 }
 
 /// TODO: (andi) This should probably go into some other class not the storage. All utils methods
@@ -1664,6 +1671,11 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
             return StorageManipulationError{PersistenceError{}};
           }
         } break;
+        case MetadataDelta::Action::LABEL_PROPERTY_COMPOSITE_INDEX_CREATE:
+        case MetadataDelta::Action::LABEL_PROPERTY_COMPOSITE_INDEX_DROP: {
+          throw utils::NotYetImplemented(
+              "Label-property composite indexing is not yet implemented on on-disk storage mode.");
+        }
         case MetadataDelta::Action::EDGE_INDEX_CREATE: {
           throw utils::NotYetImplemented("Edge-type indexing is not yet implemented on on-disk storage mode.");
         }
@@ -2014,6 +2026,11 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(
+    LabelId label, const std::vector<PropertyId> &properties) {
+  throw utils::NotYetImplemented("Composite Indices are not yet implemented for on-disk storage");
+}
+
+utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(
     EdgeTypeId /*edge_type*/, bool /*unique_access_needed*/) {
   throw utils::NotYetImplemented(
       "Edge-type index related operations are not yet supported using on-disk storage mode.");
@@ -2051,6 +2068,11 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
   return {};
+}
+
+utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropIndex(
+    LabelId label, const std::vector<PropertyId> &properties) {
+  throw utils::NotYetImplemented("Composite Indices are not yet implemented for on-disk storage");
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropIndex(EdgeTypeId /*edge_type*/) {
@@ -2239,14 +2261,23 @@ IndicesInfo DiskStorage::DiskAccessor::ListAllIndices() const {
   auto *disk_label_property_index =
       static_cast<DiskLabelPropertyIndex *>(on_disk->indices_.label_property_index_.get());
   auto &text_index = storage_->indices_.text_index_;
-  return {disk_label_index->ListIndices(), disk_label_property_index->ListIndices(),
-          {/* edge type indices */},       {/* edge_type_property */},
-          text_index.ListIndices(),        {/*  */}};
+  return {disk_label_index->ListIndices(),
+          disk_label_property_index->ListIndices(),
+          {/* label property composite */},
+          {/* edge type indices */},
+          {/* edge_type_property */},
+          text_index.ListIndices(),
+          {/*  */}};
 }
 ConstraintsInfo DiskStorage::DiskAccessor::ListAllConstraints() const {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   return {disk_storage->constraints_.existence_constraints_->ListConstraints(),
           disk_storage->constraints_.unique_constraints_->ListConstraints(),
           disk_storage->constraints_.type_constraints_->ListConstraints()};
+}
+
+std::vector<std::pair<LabelId, std::vector<PropertyId>>> DiskStorage::DiskAccessor::ListAllCompositeIndices() const {
+  spdlog::info("Label-property composite indexing is not yet implemented on on-disk storage mode.");
+  return {};
 }
 }  // namespace memgraph::storage

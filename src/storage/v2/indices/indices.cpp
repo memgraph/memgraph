@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,12 +14,14 @@
 #include "storage/v2/disk/edge_type_index.hpp"
 #include "storage/v2/disk/edge_type_property_index.hpp"
 #include "storage/v2/disk/label_index.hpp"
+#include "storage/v2/disk/label_property_composite_index.hpp"
 #include "storage/v2/disk/label_property_index.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
+#include "storage/v2/inmemory/label_property_composite_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/storage.hpp"
 
@@ -33,10 +35,14 @@ void Indices::AbortEntries(PropertyId property, std::span<std::pair<PropertyValu
                            uint64_t exact_start_timestamp) const {
   static_cast<InMemoryLabelPropertyIndex *>(label_property_index_.get())
       ->AbortEntries(property, vertices, exact_start_timestamp);
+  static_cast<InMemoryLabelPropertyCompositeIndex *>(label_property_composite_index_.get())
+      ->AbortEntries(property, vertices, exact_start_timestamp);
 }
 void Indices::AbortEntries(LabelId label, std::span<std::pair<PropertyValue, Vertex *> const> vertices,
                            uint64_t exact_start_timestamp) const {
   static_cast<InMemoryLabelPropertyIndex *>(label_property_index_.get())
+      ->AbortEntries(label, vertices, exact_start_timestamp);
+  static_cast<InMemoryLabelPropertyCompositeIndex *>(label_property_composite_index_.get())
       ->AbortEntries(label, vertices, exact_start_timestamp);
 }
 
@@ -57,6 +63,8 @@ void Indices::RemoveObsoleteVertexEntries(uint64_t oldest_active_start_timestamp
   static_cast<InMemoryLabelIndex *>(label_index_.get())->RemoveObsoleteEntries(oldest_active_start_timestamp, token);
   static_cast<InMemoryLabelPropertyIndex *>(label_property_index_.get())
       ->RemoveObsoleteEntries(oldest_active_start_timestamp, token);
+  static_cast<InMemoryLabelPropertyCompositeIndex *>(label_property_composite_index_.get())
+      ->RemoveObsoleteEntries(oldest_active_start_timestamp, token);
   if (flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
     vector_index_.RemoveObsoleteEntries(token);
   }
@@ -72,6 +80,7 @@ void Indices::RemoveObsoleteEdgeEntries(uint64_t oldest_active_start_timestamp, 
 void Indices::DropGraphClearIndices() {
   static_cast<InMemoryLabelIndex *>(label_index_.get())->DropGraphClearIndices();
   static_cast<InMemoryLabelPropertyIndex *>(label_property_index_.get())->DropGraphClearIndices();
+  static_cast<InMemoryLabelPropertyCompositeIndex *>(label_property_composite_index_.get())->DropGraphClearIndices();
   static_cast<InMemoryEdgeTypeIndex *>(edge_type_index_.get())->DropGraphClearIndices();
   static_cast<InMemoryEdgeTypePropertyIndex *>(edge_type_property_index_.get())->DropGraphClearIndices();
   point_index_.Clear();
@@ -80,6 +89,7 @@ void Indices::DropGraphClearIndices() {
 void Indices::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) const {
   label_index_->UpdateOnAddLabel(label, vertex, tx);
   label_property_index_->UpdateOnAddLabel(label, vertex, tx);
+  label_property_composite_index_->UpdateOnAddLabel(label, vertex, tx);
   if (flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
     vector_index_.UpdateOnAddLabel(label, vertex);
   }
@@ -88,6 +98,7 @@ void Indices::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction 
 void Indices::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, const Transaction &tx) const {
   label_index_->UpdateOnRemoveLabel(label, vertex, tx);
   label_property_index_->UpdateOnRemoveLabel(label, vertex, tx);
+  label_property_composite_index_->UpdateOnRemoveLabel(label, vertex, tx);
   if (flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
     vector_index_.UpdateOnRemoveLabel(label, vertex);
   }
@@ -96,6 +107,7 @@ void Indices::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, const Transacti
 void Indices::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
                                   const Transaction &tx) const {
   label_property_index_->UpdateOnSetProperty(property, value, vertex, tx);
+  label_property_composite_index_->UpdateOnSetProperty(property, value, vertex, tx);
   if (flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
     vector_index_.UpdateOnSetProperty(property, value, vertex);
   }
@@ -117,11 +129,13 @@ Indices::Indices(const Config &config, StorageMode storage_mode) {
     if (storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL || storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
       label_index_ = std::make_unique<InMemoryLabelIndex>();
       label_property_index_ = std::make_unique<InMemoryLabelPropertyIndex>();
+      label_property_composite_index_ = std::make_unique<InMemoryLabelPropertyCompositeIndex>();
       edge_type_index_ = std::make_unique<InMemoryEdgeTypeIndex>();
       edge_type_property_index_ = std::make_unique<InMemoryEdgeTypePropertyIndex>();
     } else {
       label_index_ = std::make_unique<DiskLabelIndex>(config);
       label_property_index_ = std::make_unique<DiskLabelPropertyIndex>(config);
+      label_property_composite_index_ = std::make_unique<DiskLabelPropertyCompositeIndex>(config);
       edge_type_index_ = std::make_unique<DiskEdgeTypeIndex>();
       edge_type_property_index_ = std::make_unique<DiskEdgeTypePropertyIndex>();
     }
@@ -131,6 +145,7 @@ Indices::Indices(const Config &config, StorageMode storage_mode) {
 Indices::IndexStats Indices::Analysis() const {
   return {static_cast<InMemoryLabelIndex *>(label_index_.get())->Analysis(),
           static_cast<InMemoryLabelPropertyIndex *>(label_property_index_.get())->Analysis(),
+          static_cast<InMemoryLabelPropertyCompositeIndex *>(label_property_composite_index_.get())->Analysis(),
           static_cast<InMemoryEdgeTypeIndex *>(edge_type_index_.get())->Analysis(),
           static_cast<InMemoryEdgeTypePropertyIndex *>(edge_type_property_index_.get())->Analysis(),
           vector_index_.Analysis()};

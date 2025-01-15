@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -107,6 +107,9 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(ScanAllByLabelPropertyValue & /*unused*/) override { return true; }
   bool PostVisit(ScanAllByLabelPropertyValue & /*unused*/) override { return true; }
+
+  bool PreVisit(ScanAllByLabelPropertyCompositeValue & /*unused*/) override { return true; }
+  bool PostVisit(ScanAllByLabelPropertyCompositeValue & /*unused*/) override { return true; }
 
   bool PreVisit(ScanAllByLabelProperty & /*unused*/) override { return true; }
   bool PostVisit(ScanAllByLabelProperty & /*unused*/) override { return true; }

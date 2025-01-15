@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,7 +15,6 @@
 #include <string_view>
 
 namespace memgraph::utils {
-
 inline uint64_t Fnv(const std::string_view s) {
   // fnv1a is recommended so use it as the default implementation.
   uint64_t hash = 14695981039346656037UL;

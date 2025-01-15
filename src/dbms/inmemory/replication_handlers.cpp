@@ -1044,6 +1044,33 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
             throw utils::BasicException("Failed to drop point index on :{}({})", data.label, data.property);
           }
         },
+        [&](WalLabelPropertyCompositeIndexCreate const &data) {
+          std::stringstream ss;
+          utils::PrintIterable(ss, data.properties);
+          spdlog::trace("       Create label+property composite index on :{} ({})", data.label, ss.str());
+          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          std::vector<PropertyId> properties;
+          for (const auto &prop : data.properties) {
+            properties.emplace_back(storage->NameToProperty(prop));
+          }
+          if (transaction->CreateIndex(storage->NameToLabel(data.label), properties).HasError())
+            throw utils::BasicException("Failed to create label+property composite index on :{} ({}).", data.label,
+                                        ss.str());
+        },
+        [&](WalLabelPropertyCompositeIndexDrop const &data) {
+          std::stringstream ss;
+          utils::PrintIterable(ss, data.properties);
+          spdlog::trace("       Drop label+property composite index on :{} ({})", data.label, ss.str());
+          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          std::vector<PropertyId> properties;
+          for (const auto &prop : data.properties) {
+            properties.emplace_back(storage->NameToProperty(prop));
+          }
+          if (transaction->DropIndex(storage->NameToLabel(data.label), properties).HasError()) {
+            throw utils::BasicException("Failed to drop label+property composite index on :{} ({}).", data.label,
+                                        ss.str());
+          }
+        },
     };
 
     spdlog::trace("  Delta {}", current_delta_idx);

@@ -16,6 +16,7 @@ target_sources(mg-storage-v2
         disk/edge_type_property_index.cpp
         disk/label_index.cpp
         disk/label_property_index.cpp
+        disk/label_property_composite_index.cpp
         disk/rocksdb_storage.cpp
         disk/storage.cpp
         disk/unique_constraints.cpp
@@ -34,6 +35,7 @@ target_sources(mg-storage-v2
         inmemory/edge_type_property_index.cpp
         inmemory/label_index.cpp
         inmemory/label_property_index.cpp
+        inmemory/label_property_composite_index.cpp
         inmemory/replication/recovery.cpp
         inmemory/storage.cpp
         inmemory/unique_constraints.cpp
