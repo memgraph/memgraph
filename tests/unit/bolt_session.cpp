@@ -64,12 +64,12 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
     }
   }
 
-  bolt_map_t Pull(TEncoder *encoder, std::optional<int> n, std::optional<int> qid) {
+  bolt_map_t Pull(std::optional<int> n, std::optional<int> qid) {
     if (should_abort_) {
       throw memgraph::query::HintedAbortError(memgraph::query::AbortReason::TERMINATED);
     }
     if (query_ == kQueryReturn42) {
-      encoder->MessageRecord(std::vector<Value>{Value(42)});
+      encoder_.MessageRecord(std::vector<Value>{Value(42)});
       return {};
     } else if (query_ == kQueryEmpty) {
       return {};
@@ -79,7 +79,7 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
 
       int local_counter = 0;
       for (; global_counter < elements.size() && (!n || local_counter < *n); ++global_counter) {
-        encoder->MessageRecord(std::vector<Value>{Value(elements[global_counter])});
+        encoder_.MessageRecord(std::vector<Value>{Value(elements[global_counter])});
         ++local_counter;
       }
 
@@ -90,7 +90,7 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
 
       return {std::pair("has_more", true)};
     } else if (query_ == kQueryShowTx) {
-      encoder->MessageRecord({"", 1234567890, query_, md_});
+      encoder_.MessageRecord({"", 1234567890, query_, md_});
       return {};
     } else {
       throw ClientError("client sent invalid query");

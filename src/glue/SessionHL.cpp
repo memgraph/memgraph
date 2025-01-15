@@ -484,23 +484,4 @@ bolt_map_t SessionHL::DecodeSummary(const std::map<std::string, memgraph::query:
   return decoded_summary;
 }
 
-void SessionHL::AsyncExecution(std::function<void(bool, std::exception_ptr)> &&cb,
-                               utils::PriorityThreadPool *worker_pool) noexcept {
-  DMG_ASSERT(postoned_work, "No postponed work to execute");
-  // TODO Actually make this
-  // Safe to pass in this, since the cb actually holds on to the sesssion. Make this make sense...
-  worker_pool->ScheduledAddTask(
-      [this, cb = std::move(cb)]() mutable {
-        std::exception_ptr eptr{};
-        try {
-          PostponedExecute_(*this);
-        } catch (const std::exception &) {
-          // Error occured while executing, stop and pass back the exception to the cb
-          eptr = std::current_exception();
-        }
-        cb(/* has more */ true, eptr);
-      },
-      interpreter_.GetQueryPriority(postponed_work->qid));
-}
-
 }  // namespace memgraph::glue
