@@ -30,7 +30,6 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/edge_type_property_index.hpp"
 #include "storage/v2/indices/point_index.hpp"
-#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
 #include "storage/v2/metadata_delta.hpp"
@@ -92,6 +91,8 @@ constexpr auto ActionToStorageOperation(MetadataDelta::Action action) -> durabil
     add_case(ENUM_ALTER_UPDATE);
     add_case(POINT_INDEX_CREATE);
     add_case(POINT_INDEX_DROP);
+    add_case(VECTOR_INDEX_CREATE);
+    add_case(VECTOR_INDEX_DROP);
   }
 #undef add_case
 }
@@ -174,17 +175,6 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
               "storage directory, please stop it first before starting this "
               "process!",
               config_.durability.storage_directory);
-  }
-
-  // This is temporary solution for vector index to accelerate the development
-  if (flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
-    const auto specs = flags::ParseExperimentalConfig(flags::Experiments::VECTOR_SEARCH);
-    const auto vector_index_specs = memgraph::storage::VectorIndex::ParseIndexSpec(specs, name_id_mapper_.get());
-    for (const auto &spec : vector_index_specs) {
-      spdlog::info("Having vector index named {} on :{}({})", spec.index_name,
-                   name_id_mapper_->IdToName(spec.label.AsUint()), name_id_mapper_->IdToName(spec.property.AsUint()));
-      indices_.vector_index_.CreateIndex(spec);
-    }
   }
 
   if (config_.durability.recover_on_startup) {
@@ -1112,46 +1102,38 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                   }
                 }
 
-                if (flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
-                  // we have to remove the vertex from the vector index if this label is indexed and vertex has
-                  // needed property
-                  const auto &properties = index_stats.vector.l2p.find(current->label.value);
-                  if (properties != index_stats.vector.l2p.end()) {
-                    // label is in the vector index
-                    for (const auto &property : properties->second) {
-                      if (vertex->properties.HasProperty(property)) {
-                        // it has to be removed from the index
-                        vector_label_property_cleanup[LabelPropKey{current->label.value, property}].emplace_back(
-                            vertex);
-                      }
+                // we have to remove the vertex from the vector index if this label is indexed and vertex has
+                // needed property
+                const auto &vector_properties = index_stats.vector.l2p.find(current->label.value);
+                if (vector_properties != index_stats.vector.l2p.end()) {
+                  // label is in the vector index
+                  for (const auto &property : vector_properties->second) {
+                    if (vertex->properties.HasProperty(property)) {
+                      // it has to be removed from the index
+                      vector_label_property_cleanup[LabelPropKey{current->label.value, property}].emplace_back(vertex);
                     }
                   }
                 }
-
                 break;
               }
               case Delta::Action::ADD_LABEL: {
                 auto it = std::find(vertex->labels.begin(), vertex->labels.end(), current->label.value);
                 MG_ASSERT(it == vertex->labels.end(), "Invalid database state!");
                 vertex->labels.push_back(current->label.value);
-
-                if (flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
-                  // we have to add the vertex to the vector index if this label is indexed and vertex has needed
-                  // property
-                  const auto &properties = index_stats.vector.l2p.find(current->label.value);
-                  if (properties != index_stats.vector.l2p.end()) {
-                    // label is in the vector index
-                    for (const auto &property : properties->second) {
-                      auto current_value = vertex->properties.GetProperty(property);
-                      if (!current_value.IsNull()) {
-                        // it has to be added to the index
-                        vector_label_property_restore[LabelPropKey{current->label.value, property}].emplace_back(
-                            std::move(current_value), vertex);
-                      }
+                // we have to add the vertex to the vector index if this label is indexed and vertex has needed
+                // property
+                const auto &vector_properties = index_stats.vector.l2p.find(current->label.value);
+                if (vector_properties != index_stats.vector.l2p.end()) {
+                  // label is in the vector index
+                  for (const auto &property : vector_properties->second) {
+                    auto current_value = vertex->properties.GetProperty(property);
+                    if (!current_value.IsNull()) {
+                      // it has to be added to the index
+                      vector_label_property_restore[LabelPropKey{current->label.value, property}].emplace_back(
+                          std::move(current_value), vertex);
                     }
                   }
                 }
-
                 break;
               }
               case Delta::Action::SET_PROPERTY: {
@@ -1160,9 +1142,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 //  check if we care about the property, this will return all the labels and then get current property
                 //  value
                 const auto &labels = index_stats.property_label.p2l.find(current->property.key);
-                const auto &vector_index_labels = !flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)
-                                                      ? index_stats.vector.p2l.end()
-                                                      : index_stats.vector.p2l.find(current->property.key);
+                const auto &vector_index_labels = index_stats.vector.p2l.find(current->property.key);
                 const auto has_property_index = labels != index_stats.property_label.p2l.end();
                 const auto has_vector_index = vector_index_labels != index_stats.vector.p2l.end();
                 if (has_property_index || has_vector_index) {
@@ -1327,13 +1307,11 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     for (auto const &[edge_type_property, edge] : edge_property_cleanup) {
       storage_->indices_.AbortEntries(edge_type_property, edge, transaction_.start_timestamp);
     }
-    if (flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
-      for (auto const &[label_prop, vertices] : vector_label_property_cleanup) {
-        storage_->indices_.vector_index_.AbortEntries(label_prop, vertices);
-      }
-      for (auto const &[label_prop, prop_vertices] : vector_label_property_restore) {
-        storage_->indices_.vector_index_.RestoreEntries(label_prop, prop_vertices);
-      }
+    for (auto const &[label_prop, vertices] : vector_label_property_cleanup) {
+      storage_->indices_.vector_index_.AbortEntries(label_prop, vertices);
+    }
+    for (auto const &[label_prop, prop_vertices] : vector_label_property_restore) {
+      storage_->indices_.vector_index_.RestoreEntries(label_prop, prop_vertices);
     }
 
     // VERTICES
@@ -1524,6 +1502,35 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   transaction_.md_deltas.emplace_back(MetadataDelta::point_index_drop, label, property);
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActivePointIndices);
+  return {};
+}
+
+utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateVectorIndex(
+    VectorIndexSpec spec) {
+  MG_ASSERT(unique_guard_.owns_lock(), "Creating vector index requires a unique access to the storage!");
+  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  auto &vector_index = in_memory->indices_.vector_index_;
+  auto vertices_acc = in_memory->vertices_.access();
+  if (!vector_index.CreateIndex(spec, vertices_acc)) {
+    return StorageIndexDefinitionError{IndexDefinitionError{}};
+  }
+  transaction_.md_deltas.emplace_back(MetadataDelta::vector_index_create, spec);
+  // We don't care if there is a replication error because on main node the change will go through
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveVectorIndices);
+  return {};
+}
+
+utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropVectorIndex(
+    std::string_view index_name) {
+  MG_ASSERT(unique_guard_.owns_lock(), "Dropping vector index requires a unique access to the storage!");
+  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  auto &vector_index = in_memory->indices_.vector_index_;
+  if (!vector_index.DropIndex(index_name)) {
+    return StorageIndexDefinitionError{IndexDefinitionError{}};
+  }
+  transaction_.md_deltas.emplace_back(MetadataDelta::vector_index_drop, index_name);
+  // We don't care if there is a replication error because on main node the change will go through
+  memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveVectorIndices);
   return {};
 }
 
@@ -2148,6 +2155,7 @@ StorageInfo InMemoryStorage::GetInfo() {
     info.label_indices = lbl.label.size();
     info.label_property_indices = lbl.label_property.size();
     info.text_indices = lbl.text_indices.size();
+    info.vector_indices = lbl.vector_indices_spec.size();
     const auto &con = access->ListAllConstraints();
     info.existence_constraints = con.existence.size();
     info.unique_constraints = con.unique.size();
@@ -2285,6 +2293,17 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
           EncodeTextIndex(encoder, *name_id_mapper_, md_delta.text_index.index_name, md_delta.text_index.label);
         });
+        break;
+      }
+      case MetadataDelta::Action::VECTOR_INDEX_CREATE: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeVectorIndexSpec(encoder, *name_id_mapper_, md_delta.vector_index_spec);
+        });
+        break;
+      }
+      case MetadataDelta::Action::VECTOR_INDEX_DROP: {
+        apply_encode(
+            op, [&](durability::BaseEncoder &encoder) { EncodeVectorIndexName(encoder, md_delta.vector_index_name); });
         break;
       }
       case MetadataDelta::Action::UNIQUE_CONSTRAINT_CREATE:
@@ -2864,10 +2883,12 @@ IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
       static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
   auto &text_index = storage_->indices_.text_index_;
   auto &point_index = storage_->indices_.point_index_;
+  auto &vector_index = storage_->indices_.vector_index_;
 
   return {mem_label_index->ListIndices(),     mem_label_property_index->ListIndices(),
           mem_edge_type_index->ListIndices(), mem_edge_type_property_index->ListIndices(),
-          text_index.ListIndices(),           point_index.ListIndices()};
+          text_index.ListIndices(),           point_index.ListIndices(),
+          vector_index.ListIndices()};
 }
 ConstraintsInfo InMemoryStorage::InMemoryAccessor::ListAllConstraints() const {
   const auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
@@ -2950,7 +2971,7 @@ std::vector<std::tuple<VertexAccessor, double, double>> InMemoryStorage::InMemor
 }
 
 std::vector<VectorIndexInfo> InMemoryStorage::InMemoryAccessor::ListAllVectorIndices() const {
-  return storage_->indices_.vector_index_.ListAllIndices();
+  return storage_->indices_.vector_index_.ListVectorIndicesInfo();
 };
 
 auto InMemoryStorage::InMemoryAccessor::PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,

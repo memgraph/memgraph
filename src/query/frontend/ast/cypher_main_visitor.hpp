@@ -174,6 +174,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitTextIndexQuery(MemgraphCypher::TextIndexQueryContext *ctx) override;
 
   /**
+   * @return VectorIndexQuery*
+   */
+  antlrcpp::Any visitVectorIndexQuery(MemgraphCypher::VectorIndexQueryContext *ctx) override;
+
+  /**
    * @return ExplainQuery*
    */
   antlrcpp::Any visitExplainQuery(MemgraphCypher::ExplainQueryContext *ctx) override;
@@ -594,6 +599,16 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return DropTextIndexQuery*
    */
   antlrcpp::Any visitDropTextIndex(MemgraphCypher::DropTextIndexContext *ctx) override;
+
+  /**
+   * @return CreateVectorIndexQuery*
+   */
+  antlrcpp::Any visitCreateVectorIndex(MemgraphCypher::CreateVectorIndexContext *ctx) override;
+
+  /**
+   * @return DropVectorIndexQuery*
+   */
+  antlrcpp::Any visitDropVectorIndex(MemgraphCypher::DropVectorIndexContext *ctx) override;
 
   /**
    * @return AuthQuery*

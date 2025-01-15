@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -98,7 +98,7 @@ struct Indices {
   std::unique_ptr<EdgeTypePropertyIndex> edge_type_property_index_;
   mutable TextIndex text_index_;
   PointIndexStorage point_index_;
-  VectorIndex vector_index_;
+  mutable VectorIndex vector_index_;
 };
 
 }  // namespace memgraph::storage
