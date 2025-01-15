@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -619,16 +619,14 @@ void Storage::Accessor::MarkEdgeAsDeleted(Edge *edge) {
 void Storage::Accessor::CreateTextIndex(const std::string &index_name, LabelId label) {
   MG_ASSERT(unique_guard_.owns_lock(), "Creating a text index requires unique access to storage!");
   auto *mapper = storage_->name_id_mapper_.get();
-  storage_->indices_.text_index_.CreateIndex(storage_->config_.durability.storage_directory, index_name, label,
-                                             Vertices(View::NEW), mapper);
+  storage_->indices_.text_index_.CreateIndex(index_name, label, Vertices(View::NEW), mapper);
   transaction_.md_deltas.emplace_back(MetadataDelta::text_index_create, index_name, label);
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTextIndices);
 }
 
 void Storage::Accessor::DropTextIndex(const std::string &index_name) {
   MG_ASSERT(unique_guard_.owns_lock(), "Dropping a text index requires unique access to storage!");
-  auto deleted_index_label =
-      storage_->indices_.text_index_.DropIndex(storage_->config_.durability.storage_directory, index_name);
+  auto deleted_index_label = storage_->indices_.text_index_.DropIndex(index_name);
   transaction_.md_deltas.emplace_back(MetadataDelta::text_index_drop, index_name, deleted_index_label);
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTextIndices);
 }

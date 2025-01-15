@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -257,7 +257,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
           throw RecoveryFailure("There must exist a storage directory in order to recover text indices!");
         }
 
-        mem_text_index.RecoverIndex(storage_dir.value(), index_name, label, vertices->access(), name_id_mapper);
+        mem_text_index.RecoverIndex(index_name, label, vertices->access(), name_id_mapper);
       } catch (...) {
         throw RecoveryFailure("The text index must be created here!");
       }
