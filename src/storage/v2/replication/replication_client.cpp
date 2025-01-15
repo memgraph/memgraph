@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,15 +22,34 @@
 #include "utils/variant_helpers.hpp"
 
 #include <spdlog/spdlog.h>
+
 #include <algorithm>
 
 namespace {
 template <typename>
 [[maybe_unused]] inline constexpr bool always_false_v = false;
+
+using memgraph::storage::replication::ReplicaState;
+using namespace std::string_view_literals;
+constexpr auto StateToString(ReplicaState const &replica_state) -> std::string_view {
+  switch (replica_state) {
+    case ReplicaState::MAYBE_BEHIND:
+      return "MAYBE_BEHIND"sv;
+    case ReplicaState::READY:
+      return "READY"sv;
+    case ReplicaState::REPLICATING:
+      return "REPLICATING"sv;
+    case ReplicaState::RECOVERY:
+      return "RECOVERY"sv;
+    case ReplicaState::DIVERGED_FROM_MAIN:
+      return "DIVERGED_FROM_MAIN"sv;
+    default:
+      return "Unknown ReplicaState"sv;
+  }
+}
 }  // namespace
 
 namespace memgraph::storage {
-
 ReplicationStorageClient::ReplicationStorageClient(::memgraph::replication::ReplicationClient &client,
                                                    utils::UUID main_uuid)
     : client_{client}, main_uuid_(main_uuid) {}
@@ -39,7 +58,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
   auto &replStorageState = storage->repl_storage_state_;
 
   // stream should be destroyed so that RPC lock is released before taking engine lock
-  replication::HeartbeatRes replica = std::invoke([&] {
+  replication::HeartbeatRes const replica = std::invoke([&] {
     // stream should be destroyed so that RPC lock is released
     // before taking engine lock
     auto hb_stream = client_.rpc_client_.Stream<replication::HeartbeatRpc>(main_uuid_, storage->uuid(),
@@ -48,8 +67,9 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
     return hb_stream.AwaitResponse();
   });
 
-#ifdef MG_ENTERPRISE       // Multi-tenancy is only supported in enterprise
-  if (!replica.success) {  // Replica is missing the current database
+#ifdef MG_ENTERPRISE  // Multi-tenancy is only supported in enterprise
+  if (!replica.success) {
+    // Replica is missing the current database
     client_.state_.WithLock([&](auto &state) {
       spdlog::debug("Replica '{}' can't respond or missing database '{}' - '{}'", client_.name_, storage->name(),
                     std::string{storage->uuid()});
@@ -147,7 +167,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
   });
 }
 
-TimestampInfo ReplicationStorageClient::GetTimestampInfo(Storage const *storage) {
+TimestampInfo ReplicationStorageClient::GetTimestampInfo(Storage const *storage) const {
   TimestampInfo info;
   info.current_timestamp_of_replica = 0;
   info.current_number_of_timestamp_behind_main = 0;
@@ -170,7 +190,7 @@ TimestampInfo ReplicationStorageClient::GetTimestampInfo(Storage const *storage)
   } catch (const rpc::RpcFailedException &) {
     replica_state_.WithLock([](auto &val) { val = replication::ReplicaState::MAYBE_BEHIND; });
     LogRpcFailure();  // mutex already unlocked, if the new enqueued task dispatches immediately it probably
-                      // won't block
+    // won't block
   }
 
   return info;
@@ -252,7 +272,7 @@ auto ReplicationStorageClient::StartTransactionReplication(const uint64_t curren
 }
 
 bool ReplicationStorageClient::FinalizeTransactionReplication(Storage *storage, DatabaseAccessProtector db_acc,
-                                                              std::optional<ReplicaStream> &&replica_stream) {
+                                                              std::optional<ReplicaStream> &&replica_stream) const {
   // We can only check the state because it guarantees to be only
   // valid during a single transaction replication (if the assumption
   // that this and other transaction replication functions can only be
@@ -323,7 +343,7 @@ void ReplicationStorageClient::Start(Storage *storage, DatabaseAccessProtector d
   TryCheckReplicaStateSync(storage, std::move(db_acc));
 }
 
-void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, memgraph::storage::Storage *storage) {
+void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, memgraph::storage::Storage *storage) const {
   if (storage->storage_mode_ != StorageMode::IN_MEMORY_TRANSACTIONAL) {
     throw utils::BasicException("Only InMemoryTransactional mode supports replication!");
   }
@@ -402,13 +422,13 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, memgraph:
   }
 }
 
-std::pair<bool, uint64_t> ReplicationStorageClient::ForceResetStorage(memgraph::storage::Storage *storage) {
+std::pair<bool, uint64_t> ReplicationStorageClient::ForceResetStorage(memgraph::storage::Storage *storage) const {
   utils::OnScopeExit set_to_maybe_behind{
       [this]() { replica_state_.WithLock([](auto &state) { state = replication::ReplicaState::MAYBE_BEHIND; }); }};
   try {
     auto stream{client_.rpc_client_.Stream<replication::ForceResetStorageRpc>(main_uuid_, storage->uuid())};
     const auto res = stream.AwaitResponse();
-    return std::pair{res.success, res.current_commit_timestamp};
+    return {res.success, res.current_commit_timestamp};
   } catch (const rpc::RpcFailedException &) {
     spdlog::error(
         utils::MessageWithLink("Couldn't ForceReset data to {}.", client_.name_, "https://memgr.ph/replication"));
@@ -446,5 +466,4 @@ void ReplicaStream::AppendTransactionEnd(uint64_t final_commit_timestamp) {
 }
 
 replication::AppendDeltasRes ReplicaStream::Finalize() { return stream_.AwaitResponse(); }
-
 }  // namespace memgraph::storage

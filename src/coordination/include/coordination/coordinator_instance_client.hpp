@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,16 +15,9 @@
 #ifdef MG_ENTERPRISE
 namespace memgraph::coordination {
 
-namespace {
-static auto CreateClientContext(ManagementServerConfig const &config) -> communication::ClientContext {
-  return (config.ssl) ? communication::ClientContext{config.ssl->key_file, config.ssl->cert_file}
-                      : communication::ClientContext{};
-}
-}  // namespace
 class CoordinatorInstanceClient {
  public:
-  explicit CoordinatorInstanceClient(ManagementServerConfig const &config)
-      : rpc_context_{CreateClientContext(config)}, rpc_client_{config.endpoint, &rpc_context_} {}
+  explicit CoordinatorInstanceClient(ManagementServerConfig const &config);
 
   auto RpcClient() -> rpc::Client &;
 

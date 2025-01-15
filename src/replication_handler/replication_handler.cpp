@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -302,7 +302,7 @@ auto ReplicationHandler::GetRole() const -> replication_coordination_glue::Repli
   return repl_state_.GetRole();
 }
 
-auto ReplicationHandler::GetDatabasesHistories() -> replication_coordination_glue::DatabaseHistories {
+auto ReplicationHandler::GetDatabasesHistories() const -> replication_coordination_glue::DatabaseHistories {
   replication_coordination_glue::DatabaseHistories results;
   dbms_handler_.ForEach([&results](memgraph::dbms::DatabaseAccess db_acc) {
     auto &repl_storage_state = db_acc->storage()->repl_storage_state_;
@@ -319,12 +319,12 @@ auto ReplicationHandler::GetDatabasesHistories() -> replication_coordination_glu
   return results;
 }
 
-auto ReplicationHandler::GetMainUUID() -> utils::UUID {
+auto ReplicationHandler::GetMainUUID() const -> utils::UUID {
   return std::get<RoleMainData>(repl_state_.ReplicationData()).uuid_;
 }
 
 // Caller's job to check whether we are main or replica.
-auto ReplicationHandler::GetReplicaUUID() -> std::optional<utils::UUID> {
+auto ReplicationHandler::GetReplicaUUID() const -> std::optional<utils::UUID> {
   return std::get<RoleReplicaData>(repl_state_.ReplicationData()).uuid_;
 }
 
@@ -351,8 +351,8 @@ auto ReplicationHandler::ShowReplicas() const -> utils::BasicResult<query::ShowR
         // ATM we only support IN_MEMORY_TRANSACTIONAL
         if (storage->storage_mode_ != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) return;
         if (!full_info && storage->name() != dbms::kDefaultDB) return;
-        [[maybe_unused]] auto ok =
-            storage->repl_storage_state_.WithClient(replica.name_, [&](storage::ReplicationStorageClient &client) {
+        [[maybe_unused]] auto ok = storage->repl_storage_state_.WithClient(
+            replica.name_, [&](const storage::ReplicationStorageClient &client) {
               auto ts_info = client.GetTimestampInfo(storage);
               auto state = client.State();
 

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,10 +17,7 @@
 #include <vector>
 
 #include <fmt/core.h>
-#include <gmock/gmock.h>
 #include <gtest/gtest.h>
-#include <spdlog/common.h>
-#include <spdlog/spdlog.h>
 
 #include "integrations/kafka/consumer.hpp"
 #include "integrations/kafka/exceptions.hpp"

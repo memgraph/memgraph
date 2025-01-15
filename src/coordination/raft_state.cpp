@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,19 +19,18 @@
 #include <thread>
 #include <vector>
 
+#include "coordination/constants_log_durability.hpp"
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_exceptions.hpp"
+#include "coordination/logger_wrapper.hpp"
 #include "coordination/raft_state.hpp"
-#include "nuraft/logger_wrapper.hpp"
+#include "coordination/utils.hpp"
 #include "utils/counter.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
 
 #include <spdlog/spdlog.h>
 #include "json/json.hpp"
-
-#include "nuraft/constants_log_durability.hpp"
-#include "utils.hpp"
 
 namespace memgraph::coordination {
 
@@ -52,7 +51,7 @@ RaftState::RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb
       become_leader_cb_(std::move(become_leader_cb)),
       become_follower_cb_(std::move(become_follower_cb)) {
   auto const coordinator_state_manager_durability_dir = config.durability_dir / "network";
-  memgraph::utils::EnsureDirOrDie(coordinator_state_manager_durability_dir);
+  utils::EnsureDirOrDie(coordinator_state_manager_durability_dir);
 
   CoordinatorStateManagerConfig state_manager_config{config.coordinator_id,
                                                      config.coordinator_port,
@@ -65,7 +64,7 @@ RaftState::RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb
 
   if (config.use_durability) {
     auto const log_store_path = config.durability_dir / "logs";
-    memgraph::utils::EnsureDirOrDie(log_store_path);
+    utils::EnsureDirOrDie(log_store_path);
     auto const durability_store = std::make_shared<kvstore::KVStore>(log_store_path);
 
     log_store_durability.durability_store_ = durability_store;
@@ -181,13 +180,13 @@ auto RaftState::InitRaftServer() -> void {
     throw RaftServerStartException("Failed to allocate coordinator server on port {}", coordinator_port_);
   }
 
-  auto const coord_endpoint = raft_server_->get_srv_config(static_cast<int>(coordinator_id_))->get_endpoint();
+  auto const coord_endpoint = raft_server_->get_srv_config(coordinator_id_)->get_endpoint();
 
   spdlog::trace("Raft server allocated on {}", coord_endpoint);
 
   // If set to true, server won't be created and exception will be thrown.
   // By setting it to false, all coordinators are started as leaders.
-  bool const skip_initial_election_timeout{false};
+  bool constexpr skip_initial_election_timeout{false};
   raft_server_->start_server(skip_initial_election_timeout);
   spdlog::trace("Raft server started on {}", coord_endpoint);
 
@@ -251,29 +250,39 @@ RaftState::~RaftState() {
   spdlog::trace("Asio service closed");
 }
 
+auto RaftState::GetCoordinatorEndpoint(int32_t coordinator_id) const -> std::string {
+  return raft_server_->get_srv_config(coordinator_id)->get_endpoint();
+}
+
+auto RaftState::GetMyCoordinatorEndpoint() const -> std::string { return GetCoordinatorEndpoint(coordinator_id_); }
+
 auto RaftState::InstanceName() const -> std::string { return fmt::format("coordinator_{}", coordinator_id_); }
 
-auto RaftState::GetCoordinatorId() const -> uint32_t { return coordinator_id_; }
+auto RaftState::GetMyCoordinatorId() const -> int32_t { return coordinator_id_; }
 
-auto RaftState::SelfCoordinatorConfig() const -> CoordinatorToCoordinatorConfig {
-  return state_manager_->SelfCoordinatorConfig();
+auto RaftState::GetMyBoltServer() const -> std::optional<std::string> { return GetBoltServer(coordinator_id_); }
+
+auto RaftState::GetBoltServer(int32_t coordinator_id) const -> std::optional<std::string> {
+  auto const coord_instances_context = GetCoordinatorInstancesContext();
+  auto const target_coordinator = std::ranges::find_if(
+      coord_instances_context, [coordinator_id](auto const &coordinator) { return coordinator.id == coordinator_id; });
+  if (target_coordinator == coord_instances_context.end()) {
+    return {};
+  }
+
+  return target_coordinator->bolt_server;
 }
 
-auto RaftState::GetCoordinatorToCoordinatorConfigs() const -> std::vector<CoordinatorToCoordinatorConfig> {
-  return state_manager_->GetCoordinatorToCoordinatorConfigs();
-}
-
-auto RaftState::RemoveCoordinatorInstance(int coordinator_id) -> void {
+auto RaftState::RemoveCoordinatorInstance(int32_t coordinator_id) const -> void {
   spdlog::trace("Removing coordinator instance {}.", coordinator_id);
 
-  auto cmd_result = raft_server_->remove_srv(coordinator_id);
-
-  if (cmd_result->get_result_code() == nuraft::cmd_result_code::OK) {
+  if (const auto cmd_result = raft_server_->remove_srv(coordinator_id);
+      cmd_result->get_result_code() == nuraft::cmd_result_code::OK) {
     spdlog::info("Request for removing coordinator {} from the cluster accepted", coordinator_id);
   } else {
     throw RaftRemoveServerException(
         "Failed to accept request for removing coordinator {} from the cluster with the error code {}", coordinator_id,
-        int(cmd_result->get_result_code()));
+        static_cast<int>(cmd_result->get_result_code()));
   }
 
   // Waiting for server to join
@@ -283,8 +292,7 @@ auto RaftState::RemoveCoordinatorInstance(int coordinator_id) -> void {
   bool removed{false};
   while (!maybe_stop()) {
     std::this_thread::sleep_for(waiting_period);
-    const auto server_config = raft_server_->get_srv_config(static_cast<nuraft::int32>(coordinator_id));
-    if (!server_config) {
+    if (const auto server_config = raft_server_->get_srv_config(coordinator_id); !server_config) {
       spdlog::trace("Coordinator with id {} removed from the cluster", coordinator_id);
       removed = true;
       break;
@@ -297,83 +305,74 @@ auto RaftState::RemoveCoordinatorInstance(int coordinator_id) -> void {
   }
 }
 
-auto RaftState::AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) -> void {
+auto RaftState::AddCoordinatorInstance(CoordinatorInstanceConfig const &config) const -> void {
   spdlog::trace("Adding coordinator instance {} start in RaftState for coordinator_{}", config.coordinator_id,
                 coordinator_id_);
-  auto const endpoint = config.coordinator_server.SocketAddress();  // non-resolved IP
-  auto const aux = nlohmann::json(config).dump();
-  srv_config const srv_config_to_add(static_cast<int>(config.coordinator_id), 0, endpoint, aux, false);
 
-  auto cmd_result = raft_server_->add_srv(srv_config_to_add);
+  // If I am not adding myself, I need to use add_srv and rely on NuRaft...
+  auto const coordinator_server = config.coordinator_server.SocketAddress();  // non-resolved IP
+  auto const coord_instance_aux = CoordinatorInstanceAux{.id = config.coordinator_id,
+                                                         .coordinator_server = coordinator_server,
+                                                         .management_server = config.management_server.SocketAddress()};
 
-  if (cmd_result->get_result_code() == nuraft::cmd_result_code::OK) {
-    spdlog::info("Request to add server {} to the cluster accepted", endpoint);
+  srv_config const srv_config_to_add(config.coordinator_id, 0, coordinator_server,
+                                     nlohmann::json(coord_instance_aux).dump(), false);
+
+  if (const auto cmd_result = raft_server_->add_srv(srv_config_to_add);
+      cmd_result->get_result_code() == nuraft::cmd_result_code::OK) {
+    spdlog::info("Request to add server {} to the cluster accepted", coordinator_server);
   } else {
     throw RaftAddServerException("Failed to accept request to add server {} to the cluster with error code {}",
-                                 endpoint, int(cmd_result->get_result_code()));
+                                 coordinator_server, static_cast<int>(cmd_result->get_result_code()));
   }
   // Waiting for server to join
   constexpr int max_tries{10};
   auto maybe_stop = utils::ResettableCounter<max_tries>();
   std::chrono::milliseconds const waiting_period{200};
-  bool added{false};
   while (!maybe_stop()) {
     std::this_thread::sleep_for(waiting_period);
-    const auto server_config = raft_server_->get_srv_config(static_cast<nuraft::int32>(config.coordinator_id));
-    if (server_config) {
+    if (const auto server_config = raft_server_->get_srv_config(config.coordinator_id)) {
       spdlog::trace("Server with id {} added to cluster", config.coordinator_id);
-      added = true;
-      break;
+      return;
     }
   }
-
-  if (!added) {
-    throw RaftAddServerException("Failed to add server {} to the cluster in {}ms", endpoint,
-                                 max_tries * waiting_period);
-  }
+  throw RaftAddServerException("Failed to add server {} to the cluster in {}ms", coordinator_server,
+                               max_tries * waiting_period);
 }
 
-auto RaftState::CoordLastSuccRespMs(uint32_t srv_id) -> std::chrono::milliseconds {
+auto RaftState::CoordLastSuccRespMs(int32_t srv_id) const -> std::chrono::milliseconds {
   using std::chrono::duration_cast;
   using std::chrono::microseconds;
   using std::chrono::milliseconds;
 
-  auto const peer_info = raft_server_->get_peer_info(static_cast<int>(srv_id));
+  auto const peer_info = raft_server_->get_peer_info(srv_id);
   auto const elapsed_time_ms = duration_cast<milliseconds>(microseconds(peer_info.last_succ_resp_us_));
-  spdlog::trace("Elapsed time in miliseconds since last successful response from coordinator_{}: {}",
-                static_cast<int>(srv_id), elapsed_time_ms.count());
+  spdlog::trace("Elapsed time in milliseconds since last successful response from coordinator_{}: {}", srv_id,
+                elapsed_time_ms.count());
   return elapsed_time_ms;
 }
 
-auto RaftState::GetCoordinatorInstances() const -> std::vector<CoordinatorToCoordinatorConfig> {
-  std::vector<ptr<srv_config>> srv_configs;
-  raft_server_->get_srv_config_all(srv_configs);
-
-  return ranges::views::transform(
-             srv_configs,
-             [](auto const &srv_config) {
-               return nlohmann::json::parse(srv_config->get_aux()).template get<CoordinatorToCoordinatorConfig>();
-             }) |
-         ranges::to<std::vector>();
-}
-
-auto RaftState::GetLeaderCoordinatorData() const -> std::optional<CoordinatorToCoordinatorConfig> {
-  std::vector<ptr<srv_config>> srv_configs;
-  raft_server_->get_srv_config_all(srv_configs);
+auto RaftState::GetLeaderCoordinatorData() const -> std::optional<LeaderCoordinatorData> {
   auto const leader_id = raft_server_->get_leader();
-  auto const transform_func = [](auto const &srv_config) -> CoordinatorToCoordinatorConfig {
-    return nlohmann::json::parse(srv_config->get_aux()).template get<CoordinatorToCoordinatorConfig>();
-  };
-  auto maybe_leader_srv_config =
-      std::ranges::find_if(srv_configs, [&](auto const &srv_config) { return leader_id == srv_config->get_id(); });
-  return maybe_leader_srv_config == srv_configs.end() ? std::nullopt
-                                                      : std::make_optional(transform_func(*maybe_leader_srv_config));
+
+  auto const coordinator_contexts = GetCoordinatorInstancesContext();
+  auto const leader_data = std::ranges::find_if(
+      coordinator_contexts,
+      [leader_id](CoordinatorInstanceContext const &coordinator) { return coordinator.id == leader_id; });
+  if (leader_data == coordinator_contexts.end()) {
+    spdlog::trace("Couldn't find data for the current leader.");
+    return {};
+  }
+  return LeaderCoordinatorData{.id = leader_id, .bolt_server = leader_data->bolt_server};
 }
 
 auto RaftState::IsLeader() const -> bool { return raft_server_->is_leader(); }
 
-auto RaftState::AppendClusterUpdate(std::vector<DataInstanceState> cluster_state, utils::UUID uuid) -> bool {
-  auto new_log = CoordinatorStateMachine::SerializeUpdateClusterState(std::move(cluster_state), uuid);
+auto RaftState::AppendClusterUpdate(std::vector<DataInstanceContext> data_instances,
+                                    std::vector<CoordinatorInstanceContext> coordinator_instances,
+                                    utils::UUID uuid) const -> bool {
+  auto new_log = CoordinatorStateMachine::SerializeUpdateClusterState(std::move(data_instances),
+                                                                      std::move(coordinator_instances), uuid);
   auto const res = raft_server_->append_entries({new_log});
   if (!res->get_accepted()) {
     spdlog::error("Failed to accept request for updating cluster state.");
@@ -382,7 +381,7 @@ auto RaftState::AppendClusterUpdate(std::vector<DataInstanceState> cluster_state
   spdlog::trace("Request for updating cluster state accepted.");
 
   if (res->get_result_code() != nuraft::cmd_result_code::OK) {
-    spdlog::error("Failed to update cluster state. Error code {}", int(res->get_result_code()));
+    spdlog::error("Failed to update cluster state. Error code {}", static_cast<int>(res->get_result_code()));
     return false;
   }
 
@@ -395,8 +394,26 @@ auto RaftState::HasMainState(std::string_view instance_name) const -> bool {
   return state_machine_->HasMainState(instance_name);
 }
 
-auto RaftState::GetDataInstances() const -> std::vector<DataInstanceState> {
-  return state_machine_->GetDataInstances();
+auto RaftState::GetDataInstancesContext() const -> std::vector<DataInstanceContext> {
+  return state_machine_->GetDataInstancesContext();
+}
+
+auto RaftState::GetCoordinatorInstancesContext() const -> std::vector<CoordinatorInstanceContext> {
+  return state_machine_->GetCoordinatorInstancesContext();
+}
+
+auto RaftState::GetCoordinatorInstancesAux() const -> std::vector<CoordinatorInstanceAux> {
+  return state_manager_->GetCoordinatorInstancesAux();
+}
+
+auto RaftState::GetMyCoordinatorInstanceAux() const -> CoordinatorInstanceAux {
+  auto const coord_instances_aux = GetCoordinatorInstancesAux();
+  auto const self_aux = std::ranges::find_if(
+      coord_instances_aux,
+      [coordinator_id = this->coordinator_id_](auto const &coordinator) { return coordinator_id == coordinator.id; });
+  MG_ASSERT(self_aux != coord_instances_aux.end(), "Cannot find raft_server::aux for coordinator with id {}.",
+            coordinator_id_);
+  return *self_aux;
 }
 
 auto RaftState::GetCurrentMainUUID() const -> utils::UUID { return state_machine_->GetCurrentMainUUID(); }
@@ -420,11 +437,17 @@ auto RaftState::GetRoutingTable() const -> RoutingTable {
 
   auto const is_instance_replica = [&](auto &&instance) { return !IsCurrentMain(instance.config.instance_name); };
 
-  auto const raft_log_data_instances = GetDataInstances();
+  // Fetch data instances from raft log
+  auto const raft_log_data_instances = GetDataInstancesContext();
 
   auto bolt_mains = raft_log_data_instances | ranges::views::filter(is_instance_main) |
                     ranges::views::transform(repl_instance_to_bolt) | ranges::to<std::vector>();
   MG_ASSERT(bolt_mains.size() <= 1, "There can be at most one main instance active!");
+
+  spdlog::trace("WRITERS");
+  for (auto const &writer : bolt_mains) {
+    spdlog::trace("  {}", writer);
+  }
 
   if (!std::ranges::empty(bolt_mains)) {
     res.emplace_back(std::move(bolt_mains), "WRITE");
@@ -432,24 +455,31 @@ auto RaftState::GetRoutingTable() const -> RoutingTable {
 
   auto bolt_replicas = raft_log_data_instances | ranges::views::filter(is_instance_replica) |
                        ranges::views::transform(repl_instance_to_bolt) | ranges::to<std::vector>();
+
+  spdlog::trace("READERS:");
+  for (auto const &reader : bolt_replicas) {
+    spdlog::trace("  {}", reader);
+  }
+
   if (!std::ranges::empty(bolt_replicas)) {
     res.emplace_back(std::move(bolt_replicas), "READ");
   }
 
-  auto const coord_instance_to_bolt = [](CoordinatorToCoordinatorConfig const &instance) {
-    return instance.bolt_server.SocketAddress();  // non-resolved IP
-  };
+  auto const get_bolt_server = [](CoordinatorInstanceContext const &context) { return context.bolt_server; };
 
-  auto const &raft_log_coord_instances = GetCoordinatorInstances();
-  auto bolt_coords =
-      raft_log_coord_instances | ranges::views::transform(coord_instance_to_bolt) | ranges::to<std::vector>();
+  auto const coord_servers = GetCoordinatorInstancesContext();
+  auto bolt_coords = coord_servers | ranges::views::transform(get_bolt_server) | ranges::to<std::vector>();
+  spdlog::trace("ROUTERS:");
+  for (auto const &server : bolt_coords) {
+    spdlog::trace("  {}", server);
+  }
 
   res.emplace_back(std::move(bolt_coords), "ROUTE");
 
   return res;
 }
 
-auto RaftState::GetLeaderId() const -> uint32_t { return raft_server_->get_leader(); }
+auto RaftState::GetLeaderId() const -> int32_t { return raft_server_->get_leader(); }
 
 }  // namespace memgraph::coordination
 #endif

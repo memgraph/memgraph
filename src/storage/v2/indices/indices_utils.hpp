@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -172,8 +172,9 @@ inline bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, Prop
       });
 }
 
-inline bool AnyVersionHasLabelProperty(const Edge &edge, PropertyId key, const PropertyValue &value,
-                                       uint64_t timestamp) {
+/// Helper function for edgetype-property index garbage collection. Returns true if
+/// there's a reachable version of the edge that has the given property value.
+inline bool AnyVersionHasProperty(const Edge &edge, PropertyId key, const PropertyValue &value, uint64_t timestamp) {
   Delta const *delta;
   bool deleted;
   bool current_value_equal_to_value;
@@ -182,7 +183,7 @@ inline bool AnyVersionHasLabelProperty(const Edge &edge, PropertyId key, const P
     delta = edge.delta;
     deleted = edge.deleted;
     // Avoid IsPropertyEqual if already not possible
-    if (delta == nullptr && (deleted)) return false;
+    if (delta == nullptr && deleted) return false;
     current_value_equal_to_value = edge.properties.IsPropertyEqual(key, value);
   }
 

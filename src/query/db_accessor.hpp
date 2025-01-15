@@ -22,7 +22,6 @@
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/point_index.hpp"
-#include "storage/v2/indices/point_iterator.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
@@ -313,19 +312,11 @@ class DbAccessor final {
 
   auto PointVertices(storage::LabelId label, storage::PropertyId property, storage::CoordinateReferenceSystem crs,
                      TypedValue const &point_value, TypedValue const &boundary_value,
-                     plan::PointDistanceCondition condition) -> PointIterable {
-    return PointIterable(accessor_->PointVertices(label, property, crs,
-                                                  static_cast<storage::PropertyValue>(point_value),
-                                                  static_cast<storage::PropertyValue>(boundary_value), condition));
-  }
+                     plan::PointDistanceCondition condition) -> PointIterable;
 
   auto PointVertices(storage::LabelId label, storage::PropertyId property, storage::CoordinateReferenceSystem crs,
                      TypedValue const &bottom_left, TypedValue const &top_right, plan::WithinBBoxCondition condition)
-      -> PointIterable {
-    return PointIterable(accessor_->PointVertices(label, property, crs,
-                                                  static_cast<storage::PropertyValue>(bottom_left),
-                                                  static_cast<storage::PropertyValue>(top_right), condition));
-  }
+      -> PointIterable;
 
   EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type) {
     return EdgesIterable(accessor_->Edges(edge_type, view));
@@ -353,24 +344,6 @@ class DbAccessor final {
     auto maybe_edge = accessor_->CreateEdge(&from->impl_, &to->impl_, edge_type);
     if (maybe_edge.HasError()) return storage::Result<EdgeAccessor>(maybe_edge.GetError());
     return EdgeAccessor(*maybe_edge);
-  }
-
-  storage::Result<EdgeAccessor> EdgeSetFrom(EdgeAccessor *edge, VertexAccessor *new_from) {
-    auto changed_edge = accessor_->EdgeSetFrom(&edge->impl_, &new_from->impl_);
-    if (changed_edge.HasError()) return storage::Result<EdgeAccessor>(changed_edge.GetError());
-    return EdgeAccessor(*changed_edge);
-  }
-
-  storage::Result<EdgeAccessor> EdgeSetTo(EdgeAccessor *edge, VertexAccessor *new_to) {
-    auto changed_edge = accessor_->EdgeSetTo(&edge->impl_, &new_to->impl_);
-    if (changed_edge.HasError()) return storage::Result<EdgeAccessor>(changed_edge.GetError());
-    return EdgeAccessor(*changed_edge);
-  }
-
-  storage::Result<EdgeAccessor> EdgeChangeType(EdgeAccessor *edge, storage::EdgeTypeId new_edge_type) {
-    auto changed_edge = accessor_->EdgeChangeType(&edge->impl_, new_edge_type);
-    if (changed_edge.HasError()) return storage::Result<EdgeAccessor>{changed_edge.GetError()};
-    return EdgeAccessor(*changed_edge);
   }
 
   storage::Result<std::optional<EdgeAccessor>> RemoveEdge(EdgeAccessor *edge) {
@@ -784,12 +757,6 @@ class SubgraphDbAccessor final {
 
   storage::Result<EdgeAccessor> InsertEdge(SubgraphVertexAccessor *from, SubgraphVertexAccessor *to,
                                            const storage::EdgeTypeId &edge_type);
-
-  storage::Result<EdgeAccessor> EdgeSetFrom(EdgeAccessor *edge, SubgraphVertexAccessor *new_from);
-
-  storage::Result<EdgeAccessor> EdgeSetTo(EdgeAccessor *edge, SubgraphVertexAccessor *new_to);
-
-  storage::Result<EdgeAccessor> EdgeChangeType(EdgeAccessor *edge, storage::EdgeTypeId new_edge_type);
 
   storage::Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachRemoveVertex(
       SubgraphVertexAccessor *vertex_accessor);

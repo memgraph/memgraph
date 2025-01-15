@@ -99,8 +99,8 @@
     leader-name))
 
 (defn choose-node-to-kill-on-coord
-  "Chooses between the current main and the current leader. If there are no clear MAIN and LEADER instance in the cluster, we choose random node. We always connect to
-  coordinator 'n4' (free choice). If n4 is down, we choose random instance to kill"
+  "Chooses between the current main and the current leader. If there are no clear MAIN and LEADER instance in the cluster, we choose random node.
+  We connect to a random coordinator. "
   [ns coord]
   (let [conn (utils/open-bolt coord)]
     (try
@@ -128,8 +128,9 @@
   [ns]
   (let [coordinators ["n4" "n5" "n6"]
         chooser (partial choose-node-to-kill-on-coord ns)]
-
-    (some chooser coordinators)))
+    (or
+     (some chooser coordinators)
+     (rand-nth ns)))) ; fallback to default node if all goes wrong
 
 (defn node-killer
   "Responds to :start by killing a random node."

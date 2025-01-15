@@ -17,7 +17,6 @@
 #include <functional>
 #include <mutex>
 #include <optional>
-#include <ranges>
 #include <system_error>
 
 #include "dbms/constants.hpp"
@@ -39,7 +38,6 @@
 
 /// REPLICATION ///
 #include "dbms/inmemory/replication_handlers.hpp"
-#include "storage/v2/inmemory/replication/recovery.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/schema_info.hpp"
@@ -641,366 +639,6 @@ void InMemoryStorage::UpdateEdgesMetadataOnModification(Edge *edge, Vertex *from
   edge_to_modify->from_vertex = from_vertex;
 }
 
-Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetFrom(EdgeAccessor *edge, VertexAccessor *new_from) {
-  MG_ASSERT(edge->transaction_ == new_from->transaction_,
-            "EdgeAccessor must be from the same transaction as the new from vertex "
-            "accessor when deleting an edge!");
-  MG_ASSERT(edge->transaction_ == &transaction_,
-            "EdgeAccessor must be from the same transaction as the storage "
-            "accessor when changing an edge!");
-
-  auto *old_from_vertex = edge->from_vertex_;
-  auto *new_from_vertex = new_from->vertex_;
-  auto *to_vertex = edge->to_vertex_;
-
-  if (old_from_vertex->gid == new_from_vertex->gid) return *edge;
-
-  auto edge_ref = edge->edge_;
-  auto edge_type = edge->edge_type_;
-
-  auto guard_old_from = std::unique_lock{old_from_vertex->lock, std::defer_lock};
-  auto guard_new_from = std::unique_lock{new_from_vertex->lock, std::defer_lock};
-  auto guard_to = std::unique_lock{to_vertex->lock, std::defer_lock};
-
-  // lock in increasing gid order, if two vertices have the same gid need to only lock once
-  std::vector<memgraph::storage::Vertex *> vertices{old_from_vertex, new_from_vertex, to_vertex};
-  std::sort(vertices.begin(), vertices.end(), [](auto x, auto y) { return x->gid < y->gid; });
-  vertices.erase(std::unique(vertices.begin(), vertices.end(), [](auto x, auto y) { return x->gid == y->gid; }),
-                 vertices.end());
-
-  // This has to be called before any object gets locked
-  auto schema_acc = SchemaInfoAccessor(storage_, &transaction_);
-
-  for (auto *vertex : vertices) {
-    if (vertex == old_from_vertex) {
-      guard_old_from.lock();
-    } else if (vertex == new_from_vertex) {
-      guard_new_from.lock();
-    } else if (vertex == to_vertex) {
-      guard_to.lock();
-    } else {
-      return Error::NONEXISTENT_OBJECT;
-    }
-  }
-
-  // Lock ordering has to be: 1. all vertices in order of Gid 2. an edge
-  std::unique_lock<utils::RWSpinLock> guard;
-  if (config_.properties_on_edges) {
-    auto *edge_ptr = edge_ref.ptr;
-    guard = std::unique_lock{edge_ptr->lock};
-
-    if (!PrepareForWrite(&transaction_, edge_ptr)) return Error::SERIALIZATION_ERROR;
-
-    if (edge_ptr->deleted) return Error::DELETED_OBJECT;
-  }
-
-  if (!PrepareForWrite(&transaction_, old_from_vertex)) return Error::SERIALIZATION_ERROR;
-  MG_ASSERT(!old_from_vertex->deleted, "Invalid database state!");
-
-  if (!PrepareForWrite(&transaction_, new_from_vertex)) return Error::SERIALIZATION_ERROR;
-  MG_ASSERT(!new_from_vertex->deleted, "Invalid database state!");
-
-  if (to_vertex != old_from_vertex && to_vertex != new_from_vertex) {
-    if (!PrepareForWrite(&transaction_, to_vertex)) return Error::SERIALIZATION_ERROR;
-    MG_ASSERT(!to_vertex->deleted, "Invalid database state!");
-  }
-
-  auto delete_edge_from_storage = [&edge_type, &edge_ref, this](auto *vertex, auto *edges) {
-    std::tuple<EdgeTypeId, Vertex *, EdgeRef> link(edge_type, vertex, edge_ref);
-    auto it = std::find(edges->begin(), edges->end(), link);
-    if (config_.properties_on_edges) {
-      MG_ASSERT(it != edges->end(), "Invalid database state!");
-    } else if (it == edges->end()) {
-      return false;
-    }
-    std::swap(*it, *edges->rbegin());
-    edges->pop_back();
-    return true;
-  };
-
-  auto op1 = delete_edge_from_storage(to_vertex, &old_from_vertex->out_edges);
-  auto op2 = delete_edge_from_storage(old_from_vertex, &to_vertex->in_edges);
-
-  if (config_.properties_on_edges) {
-    MG_ASSERT((op1 && op2), "Invalid database state!");
-  } else {
-    MG_ASSERT((op1 && op2) || (!op1 && !op2), "Invalid database state!");
-    if (!op1 && !op2) {
-      // The edge is already deleted.
-      return Error::DELETED_OBJECT;
-    }
-  }
-  utils::AtomicMemoryBlock([this, edge_ref, old_from_vertex, new_from_vertex, edge_type, to_vertex, &schema_acc]() {
-    CreateAndLinkDelta(&transaction_, old_from_vertex, Delta::AddOutEdgeTag(), edge_type, to_vertex, edge_ref);
-    CreateAndLinkDelta(&transaction_, to_vertex, Delta::AddInEdgeTag(), edge_type, old_from_vertex, edge_ref);
-    if (schema_acc) {
-      std::visit(utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) {
-                                     acc.DeleteEdge(old_from_vertex, to_vertex, edge_type, edge_ref);
-                                   },
-                                   [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
-                 *schema_acc);
-    }
-
-    CreateAndLinkDelta(&transaction_, new_from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge_ref);
-    new_from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge_ref);
-    CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, new_from_vertex, edge_ref);
-    to_vertex->in_edges.emplace_back(edge_type, new_from_vertex, edge_ref);
-    if (schema_acc) {
-      std::visit(utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) {
-                                     acc.CreateEdge(new_from_vertex, to_vertex, edge_type);
-                                   },
-                                   [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
-                 *schema_acc);
-    }
-
-    auto *in_memory = static_cast<InMemoryStorage *>(storage_);
-    auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
-    mem_edge_type_index->UpdateOnEdgeModification(old_from_vertex, to_vertex, new_from_vertex, to_vertex, edge_ref,
-                                                  edge_type, transaction_);
-
-    auto *mem_edge_type_property_index =
-        static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
-    for (const auto &[prop, value] : edge_ref.ptr->properties.Properties()) {
-      mem_edge_type_property_index->UpdateOnEdgeModification(old_from_vertex, to_vertex, new_from_vertex, to_vertex,
-                                                             edge_ref, edge_type, prop, value, transaction_);
-    }
-
-    if (config_.enable_edges_metadata) {
-      in_memory->UpdateEdgesMetadataOnModification(edge_ref.ptr, new_from_vertex);
-    }
-
-    transaction_.manyDeltasCache.Invalidate(new_from_vertex, edge_type, EdgeDirection::OUT);
-    transaction_.manyDeltasCache.Invalidate(old_from_vertex, edge_type, EdgeDirection::OUT);
-    transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
-  });
-
-  return EdgeAccessor(edge_ref, edge_type, new_from_vertex, to_vertex, storage_, &transaction_);
-}
-
-Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeSetTo(EdgeAccessor *edge, VertexAccessor *new_to) {
-  MG_ASSERT(edge->transaction_ == new_to->transaction_,
-            "EdgeAccessor must be from the same transaction as the new to vertex "
-            "accessor when deleting an edge!");
-  MG_ASSERT(edge->transaction_ == &transaction_,
-            "EdgeAccessor must be from the same transaction as the storage "
-            "accessor when deleting an edge!");
-
-  auto *from_vertex = edge->from_vertex_;
-  auto *old_to_vertex = edge->to_vertex_;
-  auto *new_to_vertex = new_to->vertex_;
-
-  if (old_to_vertex->gid == new_to_vertex->gid) return *edge;
-
-  auto &edge_ref = edge->edge_;
-  auto &edge_type = edge->edge_type_;
-
-  auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
-  auto guard_old_to = std::unique_lock{old_to_vertex->lock, std::defer_lock};
-  auto guard_new_to = std::unique_lock{new_to_vertex->lock, std::defer_lock};
-
-  // lock in increasing gid order, if two vertices have the same gid need to only lock once
-  std::vector<memgraph::storage::Vertex *> vertices{from_vertex, old_to_vertex, new_to_vertex};
-  std::sort(vertices.begin(), vertices.end(), [](auto x, auto y) { return x->gid < y->gid; });
-  vertices.erase(std::unique(vertices.begin(), vertices.end(), [](auto x, auto y) { return x->gid == y->gid; }),
-                 vertices.end());
-
-  // This has to be called before any object gets locked
-  auto schema_acc = SchemaInfoAccessor(storage_, &transaction_);
-
-  for (auto *vertex : vertices) {
-    if (vertex == from_vertex) {
-      guard_from.lock();
-    } else if (vertex == old_to_vertex) {
-      guard_old_to.lock();
-    } else if (vertex == new_to_vertex) {
-      guard_new_to.lock();
-    } else {
-      return Error::NONEXISTENT_OBJECT;
-    }
-  }
-
-  // Lock ordering has to be: 1. all vertices in order of Gid 2. an edge
-  std::unique_lock<utils::RWSpinLock> guard;
-  if (config_.properties_on_edges) {
-    auto *edge_ptr = edge_ref.ptr;
-    guard = std::unique_lock{edge_ptr->lock};
-
-    if (!PrepareForWrite(&transaction_, edge_ptr)) return Error::SERIALIZATION_ERROR;
-
-    if (edge_ptr->deleted) return Error::DELETED_OBJECT;
-  }
-
-  if (!PrepareForWrite(&transaction_, old_to_vertex)) return Error::SERIALIZATION_ERROR;
-  MG_ASSERT(!old_to_vertex->deleted, "Invalid database state!");
-
-  if (!PrepareForWrite(&transaction_, new_to_vertex)) return Error::SERIALIZATION_ERROR;
-  MG_ASSERT(!new_to_vertex->deleted, "Invalid database state!");
-
-  if (from_vertex != old_to_vertex && from_vertex != new_to_vertex) {
-    if (!PrepareForWrite(&transaction_, from_vertex)) return Error::SERIALIZATION_ERROR;
-    MG_ASSERT(!from_vertex->deleted, "Invalid database state!");
-  }
-
-  auto delete_edge_from_storage = [&edge_type, &edge_ref, this](auto *vertex, auto *edges) {
-    std::tuple<EdgeTypeId, Vertex *, EdgeRef> link(edge_type, vertex, edge_ref);
-    auto it = std::find(edges->begin(), edges->end(), link);
-    if (config_.properties_on_edges) {
-      MG_ASSERT(it != edges->end(), "Invalid database state!");
-    } else if (it == edges->end()) {
-      return false;
-    }
-    std::swap(*it, *edges->rbegin());
-    edges->pop_back();
-    return true;
-  };
-
-  auto op1 = delete_edge_from_storage(old_to_vertex, &from_vertex->out_edges);
-  auto op2 = delete_edge_from_storage(from_vertex, &old_to_vertex->in_edges);
-
-  if (config_.properties_on_edges) {
-    MG_ASSERT((op1 && op2), "Invalid database state!");
-  } else {
-    MG_ASSERT((op1 && op2) || (!op1 && !op2), "Invalid database state!");
-    if (!op1 && !op2) {
-      // The edge is already deleted.
-      return Error::DELETED_OBJECT;
-    }
-  }
-
-  utils::AtomicMemoryBlock([this, edge_ref, old_to_vertex, from_vertex, edge_type, new_to_vertex, &schema_acc]() {
-    CreateAndLinkDelta(&transaction_, from_vertex, Delta::AddOutEdgeTag(), edge_type, old_to_vertex, edge_ref);
-    CreateAndLinkDelta(&transaction_, old_to_vertex, Delta::AddInEdgeTag(), edge_type, from_vertex, edge_ref);
-    if (schema_acc) {
-      std::visit(utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) {
-                                     acc.DeleteEdge(from_vertex, old_to_vertex, edge_type, edge_ref);
-                                   },
-                                   [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
-                 *schema_acc);
-    }
-
-    CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, new_to_vertex, edge_ref);
-    from_vertex->out_edges.emplace_back(edge_type, new_to_vertex, edge_ref);
-    CreateAndLinkDelta(&transaction_, new_to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge_ref);
-    new_to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge_ref);
-    if (schema_acc) {
-      std::visit(utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) {
-                                     acc.CreateEdge(from_vertex, new_to_vertex, edge_type);
-                                   },
-                                   [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
-                 *schema_acc);
-    }
-
-    auto *in_memory = static_cast<InMemoryStorage *>(storage_);
-    auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
-    mem_edge_type_index->UpdateOnEdgeModification(from_vertex, old_to_vertex, from_vertex, new_to_vertex, edge_ref,
-                                                  edge_type, transaction_);
-    auto *mem_edge_type_property_index =
-        static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
-    for (const auto &[prop, value] : edge_ref.ptr->properties.Properties()) {
-      mem_edge_type_property_index->UpdateOnEdgeModification(from_vertex, old_to_vertex, from_vertex, new_to_vertex,
-                                                             edge_ref, edge_type, prop, value, transaction_);
-    }
-
-    transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
-    transaction_.manyDeltasCache.Invalidate(old_to_vertex, edge_type, EdgeDirection::IN);
-    transaction_.manyDeltasCache.Invalidate(new_to_vertex, edge_type, EdgeDirection::IN);
-  });
-
-  return EdgeAccessor(edge_ref, edge_type, from_vertex, new_to_vertex, storage_, &transaction_);
-}
-
-Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::EdgeChangeType(EdgeAccessor *edge, EdgeTypeId new_edge_type) {
-  OOMExceptionEnabler oom_exception;
-  MG_ASSERT(&transaction_ == edge->transaction_,
-            "EdgeAccessor must be from the same transaction as the storage "
-            "accessor when changing the edge type!");
-
-  auto &edge_ref = edge->edge_;
-  auto &edge_type = edge->edge_type_;
-
-  auto *from_vertex = edge->from_vertex_;
-  auto *to_vertex = edge->to_vertex_;
-
-  // This has to be called before any object gets locked
-  auto schema_acc = SchemaInfoAccessor(storage_, &transaction_);
-
-  // Obtain the locks by `gid` order to avoid lock cycles.
-  auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
-  auto guard_to = std::unique_lock{to_vertex->lock, std::defer_lock};
-  if (from_vertex->gid < to_vertex->gid) {
-    guard_from.lock();
-    guard_to.lock();
-  } else if (from_vertex->gid > to_vertex->gid) {
-    guard_to.lock();
-    guard_from.lock();
-  } else {
-    // The vertices are the same vertex, only lock one.
-    guard_from.lock();
-  }
-
-  // Lock ordering has to be: 1. all vertices in order of Gid 2. an edge
-  std::unique_lock<utils::RWSpinLock> guard;
-  if (config_.properties_on_edges) {
-    auto *edge_ptr = edge_ref.ptr;
-    guard = std::unique_lock{edge_ptr->lock};
-
-    if (!PrepareForWrite(&transaction_, edge_ptr)) return Error::SERIALIZATION_ERROR;
-    if (edge_ptr->deleted) return Error::DELETED_OBJECT;
-  }
-
-  if (!PrepareForWrite(&transaction_, from_vertex)) return Error::SERIALIZATION_ERROR;
-  MG_ASSERT(!from_vertex->deleted, "Invalid database state!");
-
-  if (!PrepareForWrite(&transaction_, to_vertex)) return Error::SERIALIZATION_ERROR;
-  MG_ASSERT(!to_vertex->deleted, "Invalid database state!");
-
-  auto change_edge_type_in_storage = [&edge_type, &edge_ref, &new_edge_type, this](auto *vertex, auto *edges) {
-    std::tuple<EdgeTypeId, Vertex *, EdgeRef> link(edge_type, vertex, edge_ref);
-    auto it = std::find(edges->begin(), edges->end(), link);
-    if (config_.properties_on_edges) {
-      MG_ASSERT(it != edges->end(), "Invalid database state!");
-    } else if (it == edges->end()) {
-      return false;
-    }
-    *it = std::tuple<EdgeTypeId, Vertex *, EdgeRef>{new_edge_type, vertex, edge_ref};
-    return true;
-  };
-
-  auto op1 = change_edge_type_in_storage(to_vertex, &from_vertex->out_edges);
-  auto op2 = change_edge_type_in_storage(from_vertex, &to_vertex->in_edges);
-
-  MG_ASSERT((op1 && op2), "Invalid database state!");
-
-  utils::AtomicMemoryBlock([this, to_vertex, new_edge_type, edge_ref, from_vertex, edge_type, &schema_acc]() {
-    // "deleting" old edge
-    CreateAndLinkDelta(&transaction_, from_vertex, Delta::AddOutEdgeTag(), edge_type, to_vertex, edge_ref);
-    CreateAndLinkDelta(&transaction_, to_vertex, Delta::AddInEdgeTag(), edge_type, from_vertex, edge_ref);
-    if (schema_acc) {
-      std::visit(utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) {
-                                     acc.DeleteEdge(from_vertex, to_vertex, edge_type, edge_ref);
-                                   },
-                                   [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
-                 *schema_acc);
-    }
-
-    // "adding" new edge
-    CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), new_edge_type, to_vertex, edge_ref);
-    CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), new_edge_type, from_vertex, edge_ref);
-    if (schema_acc) {
-      std::visit(utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) {
-                                     acc.CreateEdge(from_vertex, to_vertex, new_edge_type);
-                                   },
-                                   [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
-                 *schema_acc);
-    }
-    // edge type is not used while invalidating cache so we can only call it once
-    transaction_.manyDeltasCache.Invalidate(from_vertex, new_edge_type, EdgeDirection::OUT);
-    transaction_.manyDeltasCache.Invalidate(to_vertex, new_edge_type, EdgeDirection::IN);
-  });
-
-  return EdgeAccessor(edge_ref, new_edge_type, from_vertex, to_vertex, storage_, &transaction_);
-}
-
 // NOLINTNEXTLINE(google-default-arguments)
 utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAccessor::Commit(
     CommitReplArgs reparg, DatabaseAccessProtector db_acc) {
@@ -1347,14 +985,89 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     std::map<EdgeTypeId, std::vector<std::tuple<Vertex *const, Vertex *const, Edge *const>>> edge_type_cleanup;
     std::map<std::pair<EdgeTypeId, PropertyId>,
              std::vector<std::tuple<Vertex *const, Vertex *const, Edge *const, PropertyValue>>>
-        edge_type_property_cleanup;
-    std::map<std::pair<EdgeTypeId, PropertyId>,
-             std::vector<std::tuple<Vertex *const, Vertex *const, Edge *const, PropertyValue>>>
         edge_property_cleanup;
 
     std::map<LabelPropKey, std::vector<Vertex *>> vector_label_property_cleanup;
     std::map<LabelPropKey, std::vector<std::pair<PropertyValue, Vertex *>>> vector_label_property_restore;
 
+    // TWO passes needed here
+    // Abort will modify objects to restore state to how they were before this txn
+    // The passes will find the head delta for each object and process the whole object,
+    // To track which edge type indexes need cleaning up, we need the edge type which is held in vertices in/out edges
+    // Hence need to first once to modify edges, so it can read vectices information intact.
+
+    // Edges pass
+    for (const auto &delta : transaction_.deltas) {
+      auto prev = delta.prev.Get();
+      switch (prev.type) {
+        case PreviousPtr::Type::EDGE: {
+          auto *edge = prev.edge;
+          auto guard = std::lock_guard{edge->lock};
+          Delta *current = edge->delta;
+          while (current != nullptr &&
+                 current->timestamp->load(std::memory_order_acquire) == transaction_.transaction_id) {
+            switch (current->action) {
+              case Delta::Action::SET_PROPERTY: {
+                DMG_ASSERT(mem_storage->config_.salient.items.properties_on_edges, "Invalid database state!");
+
+                const auto &edge_types = index_stats.property_edge_type.p2et.find(current->property.key);
+                if (edge_types != index_stats.property_edge_type.p2et.end()) {
+                  auto old_value = edge->properties.GetProperty(current->property.key);
+                  if (!old_value.IsNull()) {
+                    for (const auto &edge_type : edge_types->second) {
+                      auto *from_vertex = current->property.out_vertex;
+                      for (const auto &[edge_type_out_edge, target_vertex, _] : from_vertex->out_edges) {
+                        if (edge_type_out_edge == edge_type) {
+                          edge_property_cleanup[{edge_type, current->property.key}].emplace_back(
+                              from_vertex, target_vertex, edge, old_value);
+                        }
+                      }
+                    }
+                  }
+                }
+
+                edge->properties.SetProperty(current->property.key, *current->property.value);
+
+                break;
+              }
+              case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+              case Delta::Action::DELETE_OBJECT: {
+                edge->deleted = true;
+                my_deleted_edges.push_back(edge->gid);
+                break;
+              }
+              case Delta::Action::RECREATE_OBJECT: {
+                edge->deleted = false;
+                break;
+              }
+              case Delta::Action::REMOVE_LABEL:
+              case Delta::Action::ADD_LABEL:
+              case Delta::Action::ADD_IN_EDGE:
+              case Delta::Action::ADD_OUT_EDGE:
+              case Delta::Action::REMOVE_IN_EDGE:
+              case Delta::Action::REMOVE_OUT_EDGE: {
+                LOG_FATAL("Invalid database state!");
+                break;
+              }
+            }
+            current = current->next.load(std::memory_order_acquire);
+          }
+          edge->delta = current;
+          if (current != nullptr) {
+            current->prev.Set(edge);
+          }
+
+          break;
+        }
+        case PreviousPtr::Type::VERTEX:
+        case PreviousPtr::Type::DELTA:
+        // pointer probably couldn't be set because allocation failed
+        case PreviousPtr::Type::NULLPTR:
+          break;
+      }
+    }
+
+    // Vertices pass
     for (const auto &delta : transaction_.deltas) {
       auto prev = delta.prev.Get();
       switch (prev.type) {
@@ -1498,22 +1211,15 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 // properties are disabled.
                 storage_->edge_count_.fetch_add(-1, std::memory_order_acq_rel);
 
-                if (!FLAGS_storage_properties_on_edges) break;
+                // TODO: Change edge type index to work with EdgeRef rather than Edge *
+                if (!mem_storage->config_.salient.items.properties_on_edges) break;
+
                 if (std::binary_search(index_stats.edge_type.begin(), index_stats.edge_type.end(),
                                        current->vertex_edge.edge_type)) {
                   edge_type_cleanup[current->vertex_edge.edge_type].emplace_back(vertex, current->vertex_edge.vertex,
                                                                                  current->vertex_edge.edge.ptr);
                 }
-                const auto &properties = index_stats.property_edge_type.et2p.find(current->vertex_edge.edge_type);
-                if (properties != index_stats.property_edge_type.et2p.end()) {
-                  for (const auto &property : properties->second) {
-                    auto current_value = current->vertex_edge.edge.ptr->properties.GetProperty(property);
-                    if (!current_value.IsNull()) {
-                      edge_type_property_cleanup[std::make_pair(current->vertex_edge.edge_type, property)].emplace_back(
-                          vertex, current->vertex_edge.vertex, current->vertex_edge.edge.ptr, std::move(current_value));
-                    }
-                  }
-                }
+
                 break;
               }
               case Delta::Action::DELETE_DESERIALIZED_OBJECT:
@@ -1536,64 +1242,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
 
           break;
         }
-        case PreviousPtr::Type::EDGE: {
-          auto *edge = prev.edge;
-          auto guard = std::lock_guard{edge->lock};
-          Delta *current = edge->delta;
-          while (current != nullptr &&
-                 current->timestamp->load(std::memory_order_acquire) == transaction_.transaction_id) {
-            switch (current->action) {
-              case Delta::Action::SET_PROPERTY: {
-                edge->properties.SetProperty(current->property.key, *current->property.value);
-                if (!FLAGS_storage_properties_on_edges) break;
-
-                const auto &edge_types = index_stats.property_edge_type.p2et.find(current->property.key);
-                if (edge_types != index_stats.property_edge_type.p2et.end()) {
-                  auto current_value = edge->properties.GetProperty(current->property.key);
-                  if (!current_value.IsNull()) {
-                    for (const auto &edge_type : edge_types->second) {
-                      auto *from_vertex = current->property.out_vertex;
-                      for (const auto &[edge_type_out_edge, target_vertex, _] : from_vertex->out_edges) {
-                        if (edge_type_out_edge == edge_type) {
-                          edge_property_cleanup[{edge_type, current->property.key}].emplace_back(
-                              from_vertex, target_vertex, edge, current_value);
-                        }
-                      }
-                    }
-                  }
-                }
-
-                break;
-              }
-              case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-              case Delta::Action::DELETE_OBJECT: {
-                edge->deleted = true;
-                my_deleted_edges.push_back(edge->gid);
-                break;
-              }
-              case Delta::Action::RECREATE_OBJECT: {
-                edge->deleted = false;
-                break;
-              }
-              case Delta::Action::REMOVE_LABEL:
-              case Delta::Action::ADD_LABEL:
-              case Delta::Action::ADD_IN_EDGE:
-              case Delta::Action::ADD_OUT_EDGE:
-              case Delta::Action::REMOVE_IN_EDGE:
-              case Delta::Action::REMOVE_OUT_EDGE: {
-                LOG_FATAL("Invalid database state!");
-                break;
-              }
-            }
-            current = current->next.load(std::memory_order_acquire);
-          }
-          edge->delta = current;
-          if (current != nullptr) {
-            current->prev.Set(edge);
-          }
-
-          break;
-        }
+        case PreviousPtr::Type::EDGE:
         case PreviousPtr::Type::DELTA:
         // pointer probably couldn't be set because allocation failed
         case PreviousPtr::Type::NULLPTR:
@@ -1654,9 +1303,6 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     }
     for (auto const &[edge_type, edge] : edge_type_cleanup) {
       storage_->indices_.AbortEntries(edge_type, edge, transaction_.start_timestamp);
-    }
-    for (auto const &[edge_type_property, edge] : edge_type_property_cleanup) {
-      storage_->indices_.AbortEntries(edge_type_property, edge, transaction_.start_timestamp);
     }
     for (auto const &[edge_type_property, edge] : edge_property_cleanup) {
       storage_->indices_.AbortEntries(edge_type_property, edge, transaction_.start_timestamp);
@@ -1765,6 +1411,12 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_edge_type_property_index =
       static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
+
+  if (!in_memory->config_.salient.items.properties_on_edges) {
+    // Not possible to create the index, no properties on edges
+    return StorageIndexDefinitionError{IndexDefinitionConfigError{}};
+  }
+
   if (!mem_edge_type_property_index->CreateIndex(edge_type, property, in_memory->vertices_.access())) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
@@ -2384,12 +2036,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     if (aggressive or mark_timestamp == oldest_active_start_timestamp) {
       guard.unlock();
       // if lucky, there are no active transactions, hence nothing looking at the deltas
-      // remove them now
-      auto const released_delta_count =
-          std::accumulate(unlinked_undo_buffers.cbegin(), unlinked_undo_buffers.cend(), uint64_t{0},
-                          [](uint64_t curr, GCDeltas const &gc_deltas) { return curr + gc_deltas.deltas_.size(); });
-
-      // Now total_deltas contains the sum of all deltas in the unlinked_undo_buffers list
+      // remove them all now
       unlinked_undo_buffers.clear();
     } else {
       // Take garbage_undo_buffers lock while holding the engine lock to make
@@ -2565,7 +2212,7 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
   // A single transaction will always be contained in a single WAL file.
   auto current_commit_timestamp = transaction.commit_timestamp->load(std::memory_order_acquire);
 
-  auto streams = repl_storage_state_.InitializeTransaction(wal_file_->SequenceNumber(), this, db_acc);
+  auto tx_replication = repl_storage_state_.InitializeTransaction(wal_file_->SequenceNumber(), this, db_acc);
 
   // IMPORTANT: In most transactions there can only be one, either data or metadata deltas.
   //            But since we introduced auto index creation, a data transaction can also introduce a metadata delta.
@@ -2581,7 +2228,7 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
     full_encode_operation(wal_file_->encoder());
     wal_file_->UpdateStats(durability_commit_timestamp);
     // replication
-    repl_storage_state_.EncodeToReplicas(streams, full_encode_operation);
+    tx_replication.EncodeToReplicas(full_encode_operation);
   };
 
   // Handle metadata deltas
@@ -2848,7 +2495,7 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
   if (!transaction.deltas.empty()) {
     append_deltas([&](const Delta &delta, const auto &parent, uint64_t durability_commit_timestamp) {
       wal_file_->AppendDelta(delta, parent, durability_commit_timestamp);
-      repl_storage_state_.AppendDelta(streams, delta, parent, durability_commit_timestamp);
+      tx_replication.AppendDelta(delta, parent, durability_commit_timestamp);
     });
   }
 
@@ -2858,8 +2505,7 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
   wal_file_->AppendTransactionEnd(durability_commit_timestamp);
   FinalizeWalFile();
 
-  return repl_storage_state_.FinalizeTransaction(durability_commit_timestamp, this, std::move(db_acc),
-                                                 std::move(streams));
+  return tx_replication.FinalizeTransaction(durability_commit_timestamp, this, std::move(db_acc));
 }
 
 utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(
