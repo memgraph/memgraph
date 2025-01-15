@@ -16,7 +16,6 @@
 #include "storage/v2/disk/label_index.hpp"
 #include "storage/v2/disk/label_property_index.hpp"
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
@@ -57,9 +56,7 @@ void Indices::RemoveObsoleteVertexEntries(uint64_t oldest_active_start_timestamp
   static_cast<InMemoryLabelIndex *>(label_index_.get())->RemoveObsoleteEntries(oldest_active_start_timestamp, token);
   static_cast<InMemoryLabelPropertyIndex *>(label_property_index_.get())
       ->RemoveObsoleteEntries(oldest_active_start_timestamp, token);
-  if (flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
-    vector_index_.RemoveObsoleteEntries(token);
-  }
+  vector_index_.RemoveObsoleteEntries(token);
 }
 
 void Indices::RemoveObsoleteEdgeEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) const {
@@ -75,30 +72,25 @@ void Indices::DropGraphClearIndices() {
   static_cast<InMemoryEdgeTypeIndex *>(edge_type_index_.get())->DropGraphClearIndices();
   static_cast<InMemoryEdgeTypePropertyIndex *>(edge_type_property_index_.get())->DropGraphClearIndices();
   point_index_.Clear();
+  vector_index_.Clear();
 }
 
 void Indices::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) const {
   label_index_->UpdateOnAddLabel(label, vertex, tx);
   label_property_index_->UpdateOnAddLabel(label, vertex, tx);
-  if (flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
-    vector_index_.UpdateOnAddLabel(label, vertex);
-  }
+  vector_index_.UpdateOnAddLabel(label, vertex);
 }
 
 void Indices::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, const Transaction &tx) const {
   label_index_->UpdateOnRemoveLabel(label, vertex, tx);
   label_property_index_->UpdateOnRemoveLabel(label, vertex, tx);
-  if (flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
-    vector_index_.UpdateOnRemoveLabel(label, vertex);
-  }
+  vector_index_.UpdateOnRemoveLabel(label, vertex);
 }
 
 void Indices::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
                                   const Transaction &tx) const {
   label_property_index_->UpdateOnSetProperty(property, value, vertex, tx);
-  if (flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
-    vector_index_.UpdateOnSetProperty(property, value, vertex);
-  }
+  vector_index_.UpdateOnSetProperty(property, value, vertex);
 }
 
 void Indices::UpdateOnSetProperty(EdgeTypeId edge_type, PropertyId property, const PropertyValue &value,
