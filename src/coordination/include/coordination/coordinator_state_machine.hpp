@@ -15,7 +15,6 @@
 
 #include <spdlog/spdlog.h>
 #include "coordination/constants_log_durability.hpp"
-#include "coordination/coordination_observer.hpp"
 #include "coordination/coordinator_cluster_state.hpp"
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_log_store.hpp"
@@ -23,7 +22,6 @@
 #include "kvstore/kvstore.hpp"
 
 #include <optional>
-#include <variant>
 
 namespace memgraph::coordination {
 
@@ -52,7 +50,7 @@ void to_json(nlohmann::json &j, SnapshotCtx const &snapshot_ctx);
 
 class CoordinatorStateMachine : public state_machine {
  public:
-  CoordinatorStateMachine(LoggerWrapper logger, std::optional<LogStoreDurability> const &log_store_durability);
+  CoordinatorStateMachine(LoggerWrapper logger, LogStoreDurability log_store_durability);
   CoordinatorStateMachine(CoordinatorStateMachine const &) = delete;
   CoordinatorStateMachine &operator=(CoordinatorStateMachine const &) = delete;
   CoordinatorStateMachine(CoordinatorStateMachine &&) = delete;

@@ -64,21 +64,13 @@ void to_json(nlohmann::json &j, SnapshotCtx const &snapshot_ctx) {
                      {kType.data(), static_cast<int>((snapshot_ctx.snapshot_->get_type()))}};
 }
 
-CoordinatorStateMachine::CoordinatorStateMachine(LoggerWrapper const logger,
-                                                 std::optional<LogStoreDurability> const &log_store_durability)
-    : logger_(logger) {
-  if (log_store_durability.has_value()) {
-    logger_.Log(nuraft_log_level::INFO, "Restoring coordinator state machine with durability.");
-    durability_ = log_store_durability->durability_store_;
-    MG_ASSERT(HandleMigration(log_store_durability->stored_log_store_version_),
-              "Couldn't handle migration of log store version.");
-  } else {
-    logger_.Log(nuraft_log_level::WARNING, "Coordinator state machine stores snapshots only in memory from now on.");
-    return;
-  }
+CoordinatorStateMachine::CoordinatorStateMachine(LoggerWrapper const logger, LogStoreDurability log_store_durability)
+    : logger_(logger), durability_(std::move(log_store_durability.durability_store_)) {
+  logger_.Log(nuraft_log_level::INFO, "Restoring coordinator state machine with durability.");
+  MG_ASSERT(HandleMigration(log_store_durability.stored_log_store_version_),
+            "Couldn't handle migration of log store version.");
 }
 
-// Assumes durability exists
 void CoordinatorStateMachine::UpdateStateMachineFromSnapshotDurability() {
   auto const end_iter = durability_->end(std::string{kSnapshotIdPrefix});
   for (auto kv_store_snapshot_it = durability_->begin(std::string{kSnapshotIdPrefix}); kv_store_snapshot_it != end_iter;
@@ -184,9 +176,7 @@ auto CoordinatorStateMachine::commit(ulong const log_idx, buffer &data) -> ptr<b
   logger_.Log(nuraft_log_level::TRACE, fmt::format("Commit: log_idx={}, data.size()={}", log_idx, data.size()));
   auto [data_instances, coordinator_instances, main_uuid] = DecodeLog(data);
   cluster_state_.DoAction(std::move(data_instances), std::move(coordinator_instances), main_uuid);
-  if (durability_) {
-    durability_->Put(kLastCommitedIdx, std::to_string(log_idx));
-  }
+  durability_->Put(kLastCommitedIdx, std::to_string(log_idx));
   last_committed_idx_ = log_idx;
   logger_.Log(nuraft_log_level::TRACE, fmt::format("Last commit index: {}", last_committed_idx_));
   ptr<buffer> ret = buffer::alloc(sizeof(log_idx));
@@ -197,9 +187,7 @@ auto CoordinatorStateMachine::commit(ulong const log_idx, buffer &data) -> ptr<b
 
 auto CoordinatorStateMachine::commit_config(ulong const log_idx, ptr<cluster_config> & /*new_conf*/) -> void {
   logger_.Log(nuraft_log_level::TRACE, fmt::format("Commit config: log_idx={}", log_idx));
-  if (durability_) {
-    durability_->Put(kLastCommitedIdx, std::to_string(log_idx));
-  }
+  durability_->Put(kLastCommitedIdx, std::to_string(log_idx));
   last_committed_idx_ = log_idx;
 }
 
@@ -256,14 +244,11 @@ auto CoordinatorStateMachine::save_logical_snp_obj(snapshot &snapshot, ulong &ob
     auto const entry = snapshots_.find(snapshot.get_last_log_idx());
     MG_ASSERT(entry != snapshots_.end());
     auto const snapshot_ptr = snapshot::deserialize(*snp_buf);
-    if (durability_) {
-      nlohmann::json json;
-      to_json(json, SnapshotCtx{snapshot_ptr, cluster_state});
-      auto const ok =
-          durability_->Put(fmt::format("{}{}", kSnapshotIdPrefix, snapshot.get_last_log_idx()), json.dump());
-      if (!ok) {
-        throw StoreSnapshotToDiskException("Failed to store snapshot to disk.");
-      }
+    nlohmann::json json;
+    to_json(json, SnapshotCtx{snapshot_ptr, cluster_state});
+    auto const ok = durability_->Put(fmt::format("{}{}", kSnapshotIdPrefix, snapshot.get_last_log_idx()), json.dump());
+    if (!ok) {
+      throw StoreSnapshotToDiskException("Failed to store snapshot to disk.");
     }
     entry->second->snapshot_ = snapshot_ptr;
     entry->second->cluster_state_ = cluster_state;
@@ -277,10 +262,8 @@ auto CoordinatorStateMachine::apply_snapshot(snapshot &s) -> bool {
 
   auto const entry = snapshots_.find(s.get_last_log_idx());
   if (entry == snapshots_.end()) return false;
-  if (durability_) {
-    if (!durability_->Get(fmt::format("{}{}", kSnapshotIdPrefix, s.get_last_log_idx())).has_value()) {
-      throw NoSnapshotOnDiskException("Failed to retrieve snapshot with id {} from disk.", s.get_last_log_idx());
-    }
+  if (!durability_->Get(fmt::format("{}{}", kSnapshotIdPrefix, s.get_last_log_idx())).has_value()) {
+    throw NoSnapshotOnDiskException("Failed to retrieve snapshot with id {} from disk.", s.get_last_log_idx());
   }
 
   cluster_state_ = entry->second->cluster_state_;
@@ -324,23 +307,19 @@ auto CoordinatorStateMachine::CreateSnapshotInternal(ptr<snapshot> const &snapsh
               fmt::format("Create snapshot internal, last_log_idx={}", snapshot->get_last_log_idx()));
 
   auto const ctx = cs_new<SnapshotCtx>(snapshot, cluster_state_);
-  if (durability_) {
-    nlohmann::json json;
-    to_json(json, *ctx);
-    if (auto const ok =
-            durability_->Put(fmt::format("{}{}", kSnapshotIdPrefix, snapshot->get_last_log_idx()), json.dump());
-        !ok) {
-      throw StoreSnapshotToDiskException("Failed to store snapshot to disk.");
-    }
+  nlohmann::json json;
+  to_json(json, *ctx);
+  if (auto const ok =
+          durability_->Put(fmt::format("{}{}", kSnapshotIdPrefix, snapshot->get_last_log_idx()), json.dump());
+      !ok) {
+    throw StoreSnapshotToDiskException("Failed to store snapshot to disk.");
   }
   snapshots_[snapshot->get_last_log_idx()] = ctx;
 
   while (snapshots_.size() > MAX_SNAPSHOTS) {
     auto snapshot_current = snapshots_.begin()->first;
-    if (durability_) {
-      if (auto const ok = durability_->Delete("snapshot_id_" + std::to_string(snapshot_current)); !ok) {
-        throw DeleteSnapshotFromDiskException("Failed to delete snapshot with id {} from disk.", snapshot_current);
-      }
+    if (auto const ok = durability_->Delete("snapshot_id_" + std::to_string(snapshot_current)); !ok) {
+      throw DeleteSnapshotFromDiskException("Failed to delete snapshot with id {} from disk.", snapshot_current);
     }
     snapshots_.erase(snapshots_.begin());
   }

@@ -46,7 +46,6 @@ struct CoordinatorInstanceInitConfig {
   std::filesystem::path durability_dir;
   std::string coordinator_hostname;
   std::string nuraft_log_file;
-  bool use_durability;
   std::chrono::seconds instance_down_timeout_sec;
   std::chrono::seconds instance_health_check_frequency_sec;
 
@@ -55,7 +54,7 @@ struct CoordinatorInstanceInitConfig {
   explicit CoordinatorInstanceInitConfig(
       int32_t coordinator_id, int coordinator_port, int bolt_port, int management_port,
       std::filesystem::path durability_dir, std::string coordinator_hostname, std::string nuraft_log_file = "",
-      bool use_durability = true, const std::chrono::seconds instance_down_timeout_sec = std::chrono::seconds{5},
+      const std::chrono::seconds instance_down_timeout_sec = std::chrono::seconds{5},
       const std::chrono::seconds instance_health_check_frequency_sec = std::chrono::seconds{1})
       : coordinator_id(coordinator_id),
         coordinator_port(coordinator_port),
@@ -64,7 +63,6 @@ struct CoordinatorInstanceInitConfig {
         durability_dir(std::move(durability_dir)),
         coordinator_hostname(std::move(coordinator_hostname)),
         nuraft_log_file(std::move(nuraft_log_file)),
-        use_durability(use_durability),
         instance_down_timeout_sec(instance_down_timeout_sec),
         instance_health_check_frequency_sec(instance_health_check_frequency_sec) {
     MG_ASSERT(!this->durability_dir.empty(), "Path empty");
@@ -84,7 +82,7 @@ struct CoordinatorStateManagerConfig {
   int management_port_{0};
   std::string coordinator_hostname;
   std::filesystem::path state_manager_durability_dir_;
-  std::optional<LogStoreDurability> log_store_durability_;
+  LogStoreDurability log_store_durability_;
 };
 
 // NOTE: We need to be careful about durability versioning when changing the config which is persisted on disk.

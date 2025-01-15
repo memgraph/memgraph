@@ -52,31 +52,26 @@ RaftState::RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb
       logger_(std::make_shared<Logger>(config.nuraft_log_file)),
       become_leader_cb_(std::move(become_leader_cb)),
       become_follower_cb_(std::move(become_follower_cb)) {
-  // We always try to reconnect to the cluster.
+  auto logger_wrapper = LoggerWrapper(static_cast<Logger *>(logger_.get()));
+  auto const log_store_path = config.durability_dir / kLogStoreDurabilityPath;
+  utils::EnsureDirOrDie(log_store_path);
+
+  auto durability_store = std::make_shared<kvstore::KVStore>(log_store_path);
+  auto const stored_version = static_cast<LogStoreVersion>(
+      GetOrSetDefaultVersion(*durability_store, kLogStoreVersion, static_cast<int>(kActiveVersion), logger_wrapper));
+
+  LogStoreDurability const log_store_durability{.durability_store_ = std::move(durability_store),
+                                                .stored_log_store_version_ = stored_version};
+
   auto const state_manager_path = config.durability_dir / kStateMgrDurabilityPath;
   utils::EnsureDirOrDie(state_manager_path);
-  CoordinatorStateManagerConfig state_manager_config{.coordinator_id_ = config.coordinator_id,
-                                                     .coordinator_port_ = config.coordinator_port,
-                                                     .bolt_port_ = config.bolt_port,
-                                                     .management_port_ = config.management_port,
-                                                     .coordinator_hostname = config.coordinator_hostname,
-                                                     .state_manager_durability_dir_ = state_manager_path};
-
-  std::optional<LogStoreDurability> log_store_durability;
-
-  auto logger_wrapper = LoggerWrapper(static_cast<Logger *>(logger_.get()));
-  if (config.use_durability) {
-    auto const log_store_path = config.durability_dir / kLogStoreDurabilityPath;
-    utils::EnsureDirOrDie(log_store_path);
-
-    auto durability_store = std::make_shared<kvstore::KVStore>(log_store_path);
-    auto const stored_version = static_cast<LogStoreVersion>(
-        GetOrSetDefaultVersion(*durability_store, kLogStoreVersion, static_cast<int>(kActiveVersion), logger_wrapper));
-
-    log_store_durability.emplace(LogStoreDurability{.durability_store_ = std::move(durability_store),
-                                                    .stored_log_store_version_ = stored_version});
-    state_manager_config.log_store_durability_ = log_store_durability;
-  }
+  CoordinatorStateManagerConfig const state_manager_config{.coordinator_id_ = config.coordinator_id,
+                                                           .coordinator_port_ = config.coordinator_port,
+                                                           .bolt_port_ = config.bolt_port,
+                                                           .management_port_ = config.management_port,
+                                                           .coordinator_hostname = config.coordinator_hostname,
+                                                           .state_manager_durability_dir_ = state_manager_path,
+                                                           .log_store_durability_ = log_store_durability};
 
   state_machine_ = std::make_shared<CoordinatorStateMachine>(logger_wrapper, log_store_durability);
   state_manager_ = std::make_shared<CoordinatorStateManager>(state_manager_config, logger_wrapper, observer);
@@ -114,8 +109,8 @@ RaftState::RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb
     }
   }
 
-  if (log_store_durability && log_store_durability->stored_log_store_version_ != kActiveVersion) {
-    log_store_durability->durability_store_->Put(kLogStoreVersion, std::to_string(static_cast<int>(kActiveVersion)));
+  if (log_store_durability.stored_log_store_version_ != kActiveVersion) {
+    log_store_durability.durability_store_->Put(kLogStoreVersion, std::to_string(static_cast<int>(kActiveVersion)));
   }
 }
 
