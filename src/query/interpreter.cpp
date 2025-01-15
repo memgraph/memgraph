@@ -4181,15 +4181,13 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
   std::vector<std::vector<TypedValue>> results;
   results.reserve(interpreters.size());
   for (Interpreter *interpreter : interpreters) {
-    TransactionStatus alive_status = TransactionStatus::ACTIVE;
-    // if it is just checking status, commit and abort should wait for the end of the check
-    // ignore interpreters that already started committing or rollback
-    if (!interpreter->transaction_status_.compare_exchange_strong(alive_status, TransactionStatus::VERIFYING)) {
-      continue;
-    }
-    utils::OnScopeExit clean_status([interpreter]() {
-      interpreter->transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
-    });
+    interpreter->is_verifying_.store(true);
+
+    utils::OnScopeExit clean_status(
+        [interpreter]() { interpreter->is_verifying_.store(false, std::memory_order_release); });
+
+    if (interpreter->transaction_status_.load() == TransactionStatus::IDLE) continue;
+
     std::optional<uint64_t> transaction_id = interpreter->GetTransactionId();
 
     auto get_interpreter_db_name = [&]() -> std::string const & {
@@ -5912,8 +5910,13 @@ void Interpreter::Abort() {
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
 
-  utils::OnScopeExit clean_status(
-      [this]() { transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release); });
+  utils::OnScopeExit clean_status([this]() {
+    while (is_verifying_.load()) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+
+    transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release);
+  });
 
   expect_rollback_ = false;
   in_explicit_transaction_ = false;
@@ -6094,8 +6097,13 @@ void Interpreter::Commit() {
   }
 
   // Clean transaction status if something went wrong
-  utils::OnScopeExit clean_status(
-      [this]() { transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release); });
+  utils::OnScopeExit clean_status([this]() {
+    while (is_verifying_.load()) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+
+    transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release);
+  });
 
   auto current_storage_mode = db->GetStorageMode();
   auto creation_mode = current_db_.db_transactional_accessor_->GetCreationStorageMode();
