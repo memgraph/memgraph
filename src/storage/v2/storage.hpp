@@ -15,7 +15,6 @@
 #include <optional>
 #include <span>
 
-#include "io/network/endpoint.hpp"
 #include "mg_procedure.h"
 #include "query/exceptions.hpp"
 #include "storage/v2/commit_log.hpp"
@@ -550,7 +549,6 @@ class Storage {
 
   virtual void PrepareForNewEpoch() = 0;
 
-  auto ReplicasInfo() const { return repl_storage_state_.ReplicasInfo(this); }
   auto GetReplicaState(std::string_view name) const -> std::optional<replication::ReplicaState> {
     return repl_storage_state_.GetReplicaState(name);
   }

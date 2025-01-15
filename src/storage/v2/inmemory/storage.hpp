@@ -22,7 +22,6 @@
 #include "storage/v2/inmemory/replication/recovery.hpp"
 #include "storage/v2/inmemory/snapshot_info.hpp"
 #include "storage/v2/replication/replication_client.hpp"
-#include "storage/v2/schema_info.hpp"
 #include "storage/v2/storage.hpp"
 
 /// REPLICATION ///
