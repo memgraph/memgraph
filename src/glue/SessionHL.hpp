@@ -21,6 +21,7 @@
 #include "glue/SessionContext.hpp"
 #include "glue/query_user.hpp"
 #include "query/interpreter.hpp"
+#include "utils/priority_thread_pool.hpp"
 #include "utils/thread_pool.hpp"
 
 namespace memgraph::glue {
@@ -76,22 +77,9 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 
   std::optional<std::string> GetServerNameForInit();
 
-  void AsyncExecution(std::function<void(bool, std::exception_ptr)> &&cb,
-                      utils::PriorityThreadPool *worker_pool) noexcept;
-
-  // TODO Better this, but I need to catch exceptions and pass them back
-  void Execute(auto &&async_cb, utils::PriorityThreadPool *worker_pool) {
-    std::exception_ptr eptr{};
-    try {
-      Execute_(*this);
-      if (state_ == memgraph::communication::bolt::State::Postponed) [[likely]] {
-        AsyncExecution(std::move(async_cb), worker_pool);
-        return;
-      }
-    } catch (const std::exception & /* unused */) {
-      eptr = std::current_exception();
-    }
-    async_cb(/* no more data */ false, eptr);
+  inline auto ApproximateQueryPriority() const {
+    return state_ == memgraph::communication::bolt::State::Result ? interpreter_.ApproximateNextQueryPriority()
+                                                                  : utils::PriorityThreadPool::TaskPriority::HIGH;
   }
 
   void Handshake() { Handshake_(*this); }

@@ -159,7 +159,7 @@ class Session {
   }
 
   template <typename TImpl>
-  void Execute_(TImpl &impl) {
+  bool Execute_(TImpl &impl) {
     ChunkState chunk_state;
     while ((chunk_state = decoder_buffer_.GetChunk()) != ChunkState::Partial) {
       if (chunk_state == ChunkState::Whole) {
@@ -180,55 +180,28 @@ class Session {
         case State::Error:
           state_ = StateErrorRun(impl, state_);
           break;
-        case State::Postponed:
-          DMG_ASSERT(false, "Trying to execute new commands while in postponed state.");
-          break;
         default:
           // State::Handshake is handled above
           // State::Close is handled below
           break;
       }
 
-      if (state_ == State::Postponed) [[likely]] {
-        // We can execute a single command at a time.
-        // It is possible to receive multiple commands in a single read
-        // return here with true (has_more)
-        // higher level needs to handle this and recall execute without reading from the socket
-        return;
-      } else if (state_ == State::Close) [[unlikely]] {
+      if (state_ == State::Result) {
+        // We need to schedule next work, since we are going to Pull or Discard the results.
+        // All other work has the highest priority
+        // State::Result means we did a Prepare or are in the middle of a Pull
+        // Last pull will set the state to State::Idle
+        return true;
+      }
+
+      if (state_ == State::Close) [[unlikely]] {
         // State::Close is handled here because we always want to check for
         // it after the above select. If any of the states above return a
         // State::Close then the connection should be terminated immediately.
         ClientFailureInvalidData();
       }
     }
-  }
-
-  template <typename TImpl>
-  void PostponedExecute_(TImpl &impl) {
-    DMG_ASSERT(postponed_work, "No postponed work to execute");
-    if (postponed_work->is_pull) {
-      state_ = details::HandlePullDiscard<true>(impl, postponed_work->n, postponed_work->qid);
-    } else {
-      state_ = details::HandlePullDiscard<false>(impl, postponed_work->n, postponed_work->qid);
-    }
-    postponed_work.reset();
-    if (state_ == State::Close) {
-      ClientFailureInvalidData();
-    }
-  }
-
-  struct PostponedWork {
-    std::optional<int> n;
-    std::optional<int> qid;
-    bool is_pull;
-  };
-
-  std::optional<PostponedWork> postponed_work;
-
-  void PostponeWork(bool is_pull, std::optional<int> n, std::optional<int> qid) {
-    DMG_ASSERT(!postponed_work, "Work already postponed");
-    postponed_work.emplace(n, qid, is_pull);
+    return false;  // no more data
   }
 
   void HandleError() {
