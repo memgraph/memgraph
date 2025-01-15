@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -27,9 +27,8 @@
 #include "query/procedure/mg_procedure_helpers.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "storage/v2/storage_mode.hpp"
-#include "utils/memory.hpp"
+#include "utils/concepts.hpp"
 #include "utils/on_scope_exit.hpp"
-#include "utils/pmr/vector.hpp"
 
 namespace memgraph::query::procedure {
 

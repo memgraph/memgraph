@@ -17,7 +17,6 @@
 #include <functional>
 #include <mutex>
 #include <optional>
-#include <ranges>
 #include <system_error>
 
 #include "dbms/constants.hpp"
@@ -40,7 +39,6 @@
 
 /// REPLICATION ///
 #include "dbms/inmemory/replication_handlers.hpp"
-#include "storage/v2/inmemory/replication/recovery.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/schema_info.hpp"

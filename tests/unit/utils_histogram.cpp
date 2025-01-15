@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,11 +9,9 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
 #include "utils/event_histogram.hpp"
-#include "utils/logging.hpp"
 
 TEST(Histogram, BasicFunctionality) {
   memgraph::metrics::Histogram histo{};

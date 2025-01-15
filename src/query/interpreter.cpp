@@ -24,7 +24,6 @@
 #include <limits>
 #include <memory>
 #include <optional>
-#include <stdexcept>
 #include <string_view>
 #include <thread>
 #include <tuple>
@@ -36,15 +35,10 @@
 #include "auth/auth.hpp"
 #include "coordination/coordinator_state.hpp"
 #include "coordination/register_main_replica_coordinator_status.hpp"
-#include "csv/parsing.hpp"
 #include "dbms/coordinator_handler.hpp"
-#include "dbms/database.hpp"
-#include "dbms/dbms_handler.hpp"
 #include "dbms/global.hpp"
-#include "dbms/inmemory/storage_helper.hpp"
 #include "flags/experimental.hpp"
 #include "flags/run_time_configurable.hpp"
-#include "glue/communication.hpp"
 #include "io/network/endpoint.hpp"
 #include "license/license.hpp"
 #include "memory/global_memory_control.hpp"
@@ -58,9 +52,7 @@
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
-#include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
-#include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/hops_limit.hpp"
 #include "query/interpret/eval.hpp"
 #include "query/interpret/frame.hpp"
@@ -77,7 +69,6 @@
 #include "query/stream.hpp"
 #include "query/stream/common.hpp"
 #include "query/stream/sources.hpp"
-#include "query/stream/streams.hpp"
 #include "query/time_to_live/time_to_live.hpp"
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"

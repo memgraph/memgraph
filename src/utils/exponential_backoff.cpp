@@ -11,7 +11,6 @@
 
 #include "exponential_backoff.hpp"
 
-#include <chrono>
 #include <thread>
 
 namespace memgraph::utils {
