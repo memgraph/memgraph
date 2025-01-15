@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include <atomic>
 #include "dbms/database.hpp"
 #include "query/stream.hpp"
 #include "storage/v2/storage.hpp"

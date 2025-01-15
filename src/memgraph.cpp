@@ -656,7 +656,7 @@ int main(int argc, char **argv) {
 #ifdef MG_ENTERPRISE
   memgraph::glue::Context session_context{server_endpoint, &interpreter_context_, auth_.get(), &audit_log};
 #else
-  Context session_context{server_endpoint, &interpreter_context_, auth_.get()};
+  memgraph::glue::Context session_context{server_endpoint, &interpreter_context_, auth_.get()};
 #endif
   memgraph::glue::ServerT server(server_endpoint, &session_context, &context, service_name, FLAGS_bolt_num_workers);
 

@@ -232,18 +232,6 @@ bolt_map_t SessionHL::Discard(std::optional<int> n, std::optional<int> qid) {
 }
 
 bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid) {
-  // We can access everything from here
-  // 3. we have the interpreter so we know the user, db, session uuid, etc
-  // 1. create a task
-  // 2. use dbms to enqueue it
-  // 4. how to return?
-  // 5. the only thing we need to do is to update the bolt session state
-  //  which is not us <- IT IS US
-  //  we can update the state, but post-pull there is some logic
-  //  move the pull/discard thing here?
-  //  > handler error might be dificult and bolt version specific
-  // 6. we need to also restart async read
-
   try {
     auto &db = interpreter_.current_db_.db_acc_;
     auto *storage = db ? db->get()->storage() : nullptr;
