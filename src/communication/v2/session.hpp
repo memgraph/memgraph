@@ -255,7 +255,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     if (!IsConnected()) {
       return;
     }
-    ExecuteForSocket([this](auto &&socket) {
+    ExecuteForSocket([this](auto &socket) {
       auto buffer = input_buffer_.write_end()->Allocate();
       socket.async_read_some(
           boost::asio::buffer(buffer.data, buffer.len),
@@ -267,7 +267,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     if (!IsConnected()) {
       return;
     }
-    ExecuteForSocket([this](auto &&socket) {
+    ExecuteForSocket([this](auto &socket) {
       auto buffer = input_buffer_.write_end()->Allocate();
       socket.async_read_some(
           boost::asio::buffer(buffer.data, buffer.len),
@@ -275,7 +275,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     });
   }
 
-  std::optional<boost::beast::http::request<boost::beast::http::string_body>> IsWebsocketUpgrade(void *data,
+  std::optional<boost::beast::http::request<boost::beast::http::string_body>> IsWebsocketUpgrade(uint8_t *data,
                                                                                                  size_t size) {
     boost::beast::http::request_parser<boost::beast::http::string_body> parser;
     boost::system::error_code error_code_parsing;
