@@ -1659,12 +1659,7 @@ auto ParseVectorIndexConfigMap(std::unordered_map<query::Expression *, query::Ex
   auto metric_str = transformed_map.contains(kMetric.data())
                         ? std::string(transformed_map.at(kMetric.data()).ValueString())
                         : std::string(kDefaultMetric);
-  auto metric_kind = unum::usearch::metric_from_name(metric_str.c_str(), metric_str.size());
-  if (metric_kind.error) {
-    throw std::invalid_argument(std::format("Invalid metric kind: {}, supported metric kinds are: {}", metric_str,
-                                            storage::SupportedMetricKindsToString()));
-  }
-
+  auto metric_kind = storage::VectorIndex::MetricFromName(metric_str);
   auto dimension = transformed_map.find(kDimension.data());
   if (dimension == transformed_map.end()) {
     throw std::invalid_argument("Vector index spec must have a 'dimension' field.");
@@ -1680,7 +1675,7 @@ auto ParseVectorIndexConfigMap(std::unordered_map<query::Expression *, query::Ex
   auto resize_coefficient = transformed_map.contains(kResizeCoefficient.data())
                                 ? static_cast<std::uint16_t>(transformed_map.at(kResizeCoefficient.data()).ValueInt())
                                 : kDefaultResizeCoefficient;
-  return storage::VectorIndexConfigMap{metric_kind.result, dimension_value, capacity_value, resize_coefficient};
+  return storage::VectorIndexConfigMap{metric_kind, dimension_value, capacity_value, resize_coefficient};
 }
 
 stream::CommonStreamInfo GetCommonStreamInfo(StreamQuery *stream_query, ExpressionVisitor<TypedValue> &evaluator) {

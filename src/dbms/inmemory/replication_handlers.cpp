@@ -1052,19 +1052,13 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           auto labelId = storage->NameToLabel(data.label);
           auto propId = storage->NameToProperty(data.property);
-          auto const unum_metric_kind =
-              unum::usearch::metric_from_name(data.metric_kind.data(), data.metric_kind.size());
-          if (unum_metric_kind.error) {
-            throw utils::BasicException(
-                "Failed to create vector index on :{}({}), invalid metric kind: {}, supported metric kinds are: {}",
-                data.label, data.property, data.metric_kind, storage::SupportedMetricKindsToString());
-          }
+          auto metric_kind = storage::VectorIndex::MetricFromName(data.metric_kind);
 
           auto res = transaction->CreateVectorIndex(storage::VectorIndexSpec{
               .index_name = data.index_name,
               .label = labelId,
               .property = propId,
-              .metric_kind = unum_metric_kind.result,
+              .metric_kind = metric_kind,
               .dimension = data.dimension,
               .resize_coefficient = data.resize_coefficient,
               .capacity = data.capacity,

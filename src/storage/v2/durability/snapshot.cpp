@@ -3490,8 +3490,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
         if (!property) throw RecoveryFailure("Couldn't read vector index property!");
         auto metric = snapshot.ReadString();
         if (!metric) throw RecoveryFailure("Couldn't read vector index metric!");
-        auto usearch_metric = unum::usearch::metric_from_name(metric->data(), metric->size());
-        if (usearch_metric.error) throw RecoveryFailure("Invalid vector index metric recovered!");
+        auto metric_kind = VectorIndex::MetricFromName(metric.value());
         auto dimension = snapshot.ReadUint();
         if (!dimension) throw RecoveryFailure("Couldn't read vector index dimension!");
         auto resize_coefficient = snapshot.ReadUint();
@@ -3503,7 +3502,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                      name_id_mapper->IdToName(snapshot_id_map.at(*property)));
 
         indices_constraints.indices.vector_indices.emplace_back(
-            std::move(index_name.value()), get_label_from_id(*label), get_property_from_id(*property), usearch_metric,
+            std::move(index_name.value()), get_label_from_id(*label), get_property_from_id(*property), metric_kind,
             static_cast<std::uint16_t>(*dimension), static_cast<std::uint16_t>(*resize_coefficient), *capacity);
       }
       spdlog::info("Metadata of vector indices are recovered.");
@@ -4088,7 +4087,7 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
         snapshot.WriteString(index_name);
         write_mapping(label);
         write_mapping(property);
-        snapshot.WriteString(kMetricToStringMap.at(metric).front());
+        snapshot.WriteString(VectorIndex::NameFromMetric(metric));
         snapshot.WriteUint(dimension);
         snapshot.WriteUint(resize_coefficient);
         snapshot.WriteUint(capacity);

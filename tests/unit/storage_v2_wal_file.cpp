@@ -219,8 +219,10 @@ class DeltaGenerator final {
     if (!vector_index_name.empty()) {
       auto first_property = *property_ids.begin();
       vector_index_spec = memgraph::storage::VectorIndexSpec{
-          vector_index_name, label_id,           first_property, unum::usearch::metric_from_name(kMetricKind).result,
-          vector_dimension,  kResizeCoefficient, vector_capacity};
+          vector_index_name, label_id,
+          first_property,    memgraph::storage::VectorIndex::MetricFromName(kMetricKind),
+          vector_dimension,  kResizeCoefficient,
+          vector_capacity};
     }
 
     auto const apply_encode = [&](memgraph::storage::durability::StorageMetadataOperation op, auto &&encode_operation) {

@@ -1080,12 +1080,9 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
 
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
         auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
-        const auto unum_metric_kind = unum::usearch::metric_from_name(data.metric_kind.data(), data.metric_kind.size());
-        if (unum_metric_kind.error) {
-          throw RecoveryFailure("Invalid metric kind for vector index!");
-        }
+        const auto unum_metric_kind = VectorIndex::MetricFromName(data.metric_kind);
         indices_constraints->indices.vector_indices.emplace_back(data.index_name, label_id, property_id,
-                                                                 unum_metric_kind.result, data.dimension,
+                                                                 unum_metric_kind, data.dimension,
                                                                  data.resize_coefficient, data.capacity);
       },
       [&](WalVectorIndexDrop const &data) {
@@ -1324,7 +1321,7 @@ void EncodeVectorIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper, c
   encoder.WriteString(index_spec.index_name);
   encoder.WriteString(name_id_mapper.IdToName(index_spec.label.AsUint()));
   encoder.WriteString(name_id_mapper.IdToName(index_spec.property.AsUint()));
-  encoder.WriteString(storage::kMetricToStringMap.at(index_spec.metric_kind).front());
+  encoder.WriteString(VectorIndex::NameFromMetric(index_spec.metric_kind));
   encoder.WriteUint(index_spec.dimension);
   encoder.WriteUint(index_spec.resize_coefficient);
   encoder.WriteUint(index_spec.capacity);

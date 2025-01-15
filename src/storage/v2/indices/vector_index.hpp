@@ -24,34 +24,6 @@
 
 namespace memgraph::storage {
 
-/// usearch does not provide a way to convert metric_kind_t to string, so we need to do it manually.
-inline const std::unordered_map<unum::usearch::metric_kind_t, std::vector<std::string>> kMetricToStringMap = {
-    {unum::usearch::metric_kind_t::l2sq_k, {"l2sq", "euclidean_sq"}},
-    {unum::usearch::metric_kind_t::ip_k, {"ip", "inner", "dot"}},
-    {unum::usearch::metric_kind_t::cos_k, {"cos", "angular"}},
-    {unum::usearch::metric_kind_t::haversine_k, {"haversine"}},
-    {unum::usearch::metric_kind_t::divergence_k, {"divergence"}},
-    {unum::usearch::metric_kind_t::pearson_k, {"pearson"}},
-    {unum::usearch::metric_kind_t::hamming_k, {"hamming"}},
-    {unum::usearch::metric_kind_t::tanimoto_k, {"tanimoto"}},
-    {unum::usearch::metric_kind_t::sorensen_k, {"sorensen"}}};
-
-inline std::string SupportedMetricKindsToString() {
-  std::string supported_metric_kinds;
-  for (const auto &[_, names] : kMetricToStringMap) {
-    for (const auto &name : names) {
-      supported_metric_kinds += name;
-      supported_metric_kinds += ", ";
-    }
-  }
-  if (!supported_metric_kinds.empty()) {
-    // Remove the last two characters (", ") from the string.
-    supported_metric_kinds.pop_back();
-    supported_metric_kinds.pop_back();
-  }
-  return supported_metric_kinds;
-}
-
 /// @struct VectorIndexConfigMap
 /// @brief Represents the configuration options for a vector index.
 ///
@@ -119,6 +91,18 @@ class VectorIndex {
   VectorIndex &operator=(const VectorIndex &) = delete;
   VectorIndex(VectorIndex &&) noexcept;
   VectorIndex &operator=(VectorIndex &&) noexcept;
+
+  /// @brief Converts a metric kind to a string.
+  /// @param metric The metric kind to be converted.
+  /// @return The string representation of the metric kind.
+  /// @throw query::VectorSearchException
+  static const char *NameFromMetric(unum::usearch::metric_kind_t metric);
+
+  /// @brief Converts a metric name to a metric kind.
+  /// @param name The name of the metric to be converted.
+  /// @return The metric kind corresponding to the name.
+  /// @throw query::VectorSearchException
+  static unum::usearch::metric_kind_t MetricFromName(std::string_view name);
 
   /// @brief Creates a new index based on the provided specification.
   /// @param spec The specification for the index to be created.

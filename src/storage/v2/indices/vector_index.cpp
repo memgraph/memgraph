@@ -11,7 +11,6 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <format>
 #include <ranges>
 #include <shared_mutex>
 #include <stdexcept>
@@ -77,6 +76,67 @@ struct VectorIndex::Impl {
 
 VectorIndex::VectorIndex() : pimpl(std::make_unique<Impl>()) {}
 VectorIndex::~VectorIndex() {}
+
+const char *VectorIndex::NameFromMetric(unum::usearch::metric_kind_t metric) {
+  switch (metric) {
+    case unum::usearch::metric_kind_t::l2sq_k:
+      return "l2sq";
+    case unum::usearch::metric_kind_t::ip_k:
+      return "ip";
+    case unum::usearch::metric_kind_t::cos_k:
+      return "cos";
+    case unum::usearch::metric_kind_t::haversine_k:
+      return "haversine";
+    case unum::usearch::metric_kind_t::divergence_k:
+      return "divergence";
+    case unum::usearch::metric_kind_t::pearson_k:
+      return "pearson";
+    case unum::usearch::metric_kind_t::hamming_k:
+      return "hamming";
+    case unum::usearch::metric_kind_t::tanimoto_k:
+      return "tanimoto";
+    case unum::usearch::metric_kind_t::sorensen_k:
+      return "sorensen";
+    default:
+      throw query::VectorSearchException(
+          "Unsupported metric kind. Supported metrics are l2sq, ip, cos, haversine, divergence, pearson, hamming, "
+          "tanimoto, and sorensen.");
+  }
+}
+
+unum::usearch::metric_kind_t VectorIndex::MetricFromName(std::string_view name) {
+  if (name == "l2sq" || name == "euclidean_sq") {
+    return unum::usearch::metric_kind_t::l2sq_k;
+  }
+  if (name == "ip" || name == "inner" || name == "dot") {
+    return unum::usearch::metric_kind_t::ip_k;
+  }
+  if (name == "cos" || name == "angular") {
+    return unum::usearch::metric_kind_t::cos_k;
+  }
+  if (name == "haversine") {
+    return unum::usearch::metric_kind_t::haversine_k;
+  }
+  if (name == "divergence") {
+    return unum::usearch::metric_kind_t::divergence_k;
+  }
+  if (name == "pearson") {
+    return unum::usearch::metric_kind_t::pearson_k;
+  }
+  if (name == "hamming") {
+    return unum::usearch::metric_kind_t::hamming_k;
+  }
+  if (name == "tanimoto") {
+    return unum::usearch::metric_kind_t::tanimoto_k;
+  }
+  if (name == "sorensen") {
+    return unum::usearch::metric_kind_t::sorensen_k;
+  }
+  throw query::VectorSearchException(
+      fmt::format("Unsupported metric name: {}. Supported metrics are l2sq, ip, cos, haversine, divergence, pearson, "
+                  "hamming, tanimoto, and sorensen.",
+                  name));
+}
 
 bool VectorIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices) {
   try {
@@ -222,7 +282,7 @@ std::vector<VectorIndexInfo> VectorIndex::ListVectorIndicesInfo() const {
     const auto &[mg_index, spec] = index_item;
     auto locked_index = mg_index->ReadLock();
     result.emplace_back(VectorIndexInfo{
-        spec.index_name, spec.label, spec.property, kMetricToStringMap.at(spec.metric_kind).front(),
+        spec.index_name, spec.label, spec.property, NameFromMetric(locked_index->metric().metric_kind()),
         static_cast<std::uint16_t>(locked_index->dimensions()), locked_index->capacity(), locked_index->size()});
   }
   return result;
