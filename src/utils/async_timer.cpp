@@ -20,7 +20,6 @@
 #include <limits>
 
 #include "utils/skip_list.hpp"
-#include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 
 namespace {

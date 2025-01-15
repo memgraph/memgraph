@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,7 +14,6 @@
 #include <algorithm>
 #include <charconv>
 #include <chrono>
-#include <cmath>
 #include <compare>
 #include <cstdint>
 #include <ctime>
@@ -29,9 +28,7 @@
 #include "utils/exceptions.hpp"
 #include "utils/fnv.hpp"
 
-#include <fmt/chrono.h>
 #include <fmt/core.h>
-#include <fmt/format.h>
 
 namespace memgraph::utils {
 namespace {
