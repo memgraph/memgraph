@@ -68,20 +68,20 @@ void PriorityThreadPool::ScheduledAddTask(TaskSignature new_task, TaskPriority p
     return;
   }
 
+  if (!mixed_threads_.empty()) {
+    auto *thread = mixed_threads_.top();
+    mixed_threads_.pop();
+    thread->push(std::move(new_task));
+    return;
+  }
+  // Prefer mixed work threads
   if (priority == TaskPriority::HIGH) {
-    // Prepher high priority threads
     if (!high_priority_threads_.empty()) {
       auto *thread = high_priority_threads_.top();
       high_priority_threads_.pop();
       thread->push(std::move(new_task));
       return;
     }
-  }
-  if (!mixed_threads_.empty()) {
-    auto *thread = mixed_threads_.top();
-    mixed_threads_.pop();
-    thread->push(std::move(new_task));
-    return;
   }
 
   // No threads available, enqueue the task
@@ -98,15 +98,15 @@ std::optional<PriorityThreadPool::TaskSignature> PriorityThreadPool::GetTask(Pri
 
   if (!task_queue_.empty()) {
     // Queue is ordered by priority
-    auto task = task_queue_.top();
-    if (thread->priority_ <= task.priority) {
+    if (thread->priority_ <= task_queue_.top().priority) {
+      auto task = std::move(task_queue_.top().task);
       task_queue_.pop();
-      return {std::move(task.task)};
+      return {std::move(task)};
     }
   }
 
   // No tasks in the queue, put the thread back in the pool
-  if (thread->priority_ == TaskPriority::HIGH) {
+  if (thread->priority_ == TaskPriority::HIGH) [[unlikely]] {
     high_priority_threads_.push(thread);
   } else {
     mixed_threads_.push(thread);

@@ -321,6 +321,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
         HandleException(std::current_exception());
         return;
       }
+      // Continue to normal operation
       OnRead({}, 0);
     } else {
       OnRead(ec, bytes_transferred);
@@ -350,31 +351,25 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     }
 
     input_buffer_.write_end()->Written(bytes_transferred);
+    DoWork();
+  }
 
+  void DoWork() {
     worker_pool_->ScheduledAddTask(
         [shared_this = shared_from_this()]() {
-          // TODO Colapse back here
-          shared_this->session_.Execute(
-              [shared_this](bool has_more, std::exception_ptr eptr) {
-                // Handle any generated errors (connection shutdown)
-                if (eptr) {
-                  shared_this->HandleException(eptr);
-                  return;
-                }
-                // More to read from the previous message
-                if (has_more) {
-                  // Async work has been done, move back to session's thread pool
-                  boost::asio::dispatch(shared_this->strand_, [shared_this] {
-                    shared_this->OnRead({/* no error */}, /* new bytes read = */ 0);
-                  });
-                } else {
-                  // Handled all data,  async wait for new incoming data
-                  shared_this->DoRead();
-                }
-              },
-              shared_this->worker_pool_);
+          try {
+            if (shared_this->session_.Execute_(shared_this->session_)) {
+              // Schedule next work
+              shared_this->DoWork();
+            } else {
+              // Handled all data,  async wait for new incoming data
+              shared_this->DoRead();
+            }
+          } catch (const std::exception & /* unused */) {
+            shared_this->HandleException(std::current_exception());
+          }
         },
-        utils::PriorityThreadPool::TaskPriority::HIGH);
+        session_.ApproximateQueryPriority());
   }
 
   void OnError(const boost::system::error_code &ec) {

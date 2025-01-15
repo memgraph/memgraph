@@ -18,6 +18,7 @@
 #include <queue>
 #include <stack>
 #include <thread>
+#include "utils/spin_lock.hpp"
 
 namespace memgraph::utils {
 
@@ -71,7 +72,7 @@ class PriorityThreadPool {
   };
 
  private:
-  mutable std::mutex pool_lock_;
+  mutable utils::SpinLock pool_lock_;
   std::stop_source pool_stop_source_;
 
   std::vector<std::jthread> pool_;
