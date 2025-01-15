@@ -19,7 +19,7 @@ class CoordinatorInstanceClient {
  public:
   explicit CoordinatorInstanceClient(ManagementServerConfig const &config);
 
-  auto RpcClient() -> rpc::Client &;
+  auto RpcClient() const -> rpc::Client &;
 
  private:
   communication::ClientContext rpc_context_;

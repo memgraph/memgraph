@@ -53,7 +53,12 @@ class CoordinatorStateManagerTest : public ::testing::Test {
 
 TEST_F(CoordinatorStateManagerTest, SingleCoord) {
   CoordinatorStateManagerConfig config{
-      1, 12345, 9090, 20456, test_folder_ / "high_availability" / "coordination", "localhost"};
+      .coordinator_id_ = 1,
+      .coordinator_port_ = 12345,
+      .bolt_port_ = 9090,
+      .management_port_ = 20456,
+      .coordinator_hostname = "localhost",
+      .state_manager_durability_dir_ = test_folder_ / "high_availability" / "coordination"};
   using memgraph::coordination::Logger;
   using memgraph::coordination::LoggerWrapper;
 
@@ -81,7 +86,12 @@ TEST_F(CoordinatorStateManagerTest, MultipleCoords) {
   // 1st coord stored here
   ptr<cluster_config> old_config;
   CoordinatorStateManagerConfig config{
-      0, 12345, 9090, 20345, test_folder_ / "high_availability" / "coordination", "localhost"};
+      .coordinator_id_ = 0,
+      .coordinator_port_ = 12345,
+      .bolt_port_ = 9090,
+      .management_port_ = 20345,
+      .coordinator_hostname = "localhost",
+      .state_manager_durability_dir_ = test_folder_ / "high_availability" / "coordination"};
   using memgraph::coordination::Logger;
   using memgraph::coordination::LoggerWrapper;
 

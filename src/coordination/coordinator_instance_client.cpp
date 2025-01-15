@@ -18,6 +18,6 @@ namespace memgraph::coordination {
 CoordinatorInstanceClient::CoordinatorInstanceClient(ManagementServerConfig const &config)
     : rpc_context_{communication::ClientContext{}}, rpc_client_{config.endpoint, &rpc_context_} {}
 
-auto CoordinatorInstanceClient::RpcClient() -> rpc::Client & { return rpc_client_; }
+auto CoordinatorInstanceClient::RpcClient() const -> rpc::Client & { return rpc_client_; }
 }  // namespace memgraph::coordination
 #endif

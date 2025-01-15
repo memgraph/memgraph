@@ -25,7 +25,6 @@
 #include "coordination/coordinator_communication_config.hpp"
 
 using memgraph::coordination::CoordinatorInstanceAux;
-using memgraph::coordination::CoordinatorInstanceConfig;
 using memgraph::coordination::CoordinatorStateManager;
 using memgraph::coordination::CoordinatorStateManagerConfig;
 
@@ -39,13 +38,11 @@ using memgraph::utils::UUID;
 using nuraft::buffer;
 using nuraft::buffer_serializer;
 using nuraft::cluster_config;
-using nuraft::cs_new;
-using nuraft::ptr;
 using nuraft::snapshot;
 using nuraft::srv_config;
 
 namespace {
-void CompareServers(ptr<srv_config> const &temp_server, ptr<srv_config> const &loaded_server) {
+void CompareServers(std::shared_ptr<srv_config> const &temp_server, std::shared_ptr<srv_config> const &loaded_server) {
   ASSERT_EQ(temp_server->get_id(), loaded_server->get_id());
   ASSERT_EQ(temp_server->get_endpoint(), loaded_server->get_endpoint());
   ASSERT_EQ(temp_server->get_aux(), loaded_server->get_aux());
@@ -101,7 +98,7 @@ class CoordinatorStateMachineTestParam : public ::testing::TestWithParam<memgrap
 };
 
 TEST_P(CoordinatorStateMachineTestParam, SerializeDeserializeSnapshot) {
-  ptr<cluster_config> old_config;
+  std::shared_ptr<cluster_config> old_config;
   using memgraph::coordination::Logger;
   using memgraph::coordination::LoggerWrapper;
 
@@ -115,27 +112,29 @@ TEST_P(CoordinatorStateMachineTestParam, SerializeDeserializeSnapshot) {
 
     memgraph::coordination::LogStoreDurability log_store_durability{kv_store_, version};
     CoordinatorStateMachine state_machine{my_logger, log_store_durability};
-    CoordinatorStateManagerConfig config{0,
-                                         12345,
-                                         9090,
-                                         20223,
-                                         test_folder_ / "high_availability" / "coordination" / "state_manager",
-                                         "localhost",
-                                         log_store_durability};
-    ptr<CoordinatorStateManager> state_manager_ = cs_new<CoordinatorStateManager>(config, my_logger);
+    CoordinatorStateManagerConfig config{
+        .coordinator_id_ = 0,
+        .coordinator_port_ = 12345,
+        .bolt_port_ = 9090,
+        .management_port_ = 20223,
+        .coordinator_hostname = "localhost",
+        .state_manager_durability_dir_ = test_folder_ / "high_availability" / "coordination" / "state_manager",
+        .log_store_durability_ = log_store_durability};
+    std::shared_ptr<CoordinatorStateManager> state_manager_ =
+        std::make_shared<CoordinatorStateManager>(config, my_logger);
     old_config = state_manager_->load_config();
 
     auto const coord_instance_aux = CoordinatorInstanceAux{
         .id = config.coordinator_id_, .coordinator_server = "0.0.0.0:12346", .management_server = "0.0.0.0:20223"};
 
-    auto temp_srv_config = cs_new<srv_config>(1, 0, coord_instance_aux.coordinator_server,
-                                              nlohmann::json(coord_instance_aux).dump(), false);
+    auto temp_srv_config = std::make_shared<srv_config>(1, 0, coord_instance_aux.coordinator_server,
+                                                        nlohmann::json(coord_instance_aux).dump(), false);
     // second coord stored here
     old_config->get_servers().push_back(temp_srv_config);
     state_manager_->save_config(*old_config);
     ASSERT_EQ(old_config->get_servers().size(), 2);
 
-    auto nuraft_snapshot = cs_new<snapshot>(1, 1, old_config, 1);
+    auto nuraft_snapshot = std::make_shared<snapshot>(1, 1, old_config, 1);
     nuraft::async_result<bool>::handler_type handler = [](auto &e, auto &t) {};
     state_machine.create_snapshot(*nuraft_snapshot, handler);
   }

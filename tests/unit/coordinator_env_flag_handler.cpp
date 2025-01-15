@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -30,7 +30,11 @@ class CoordinationSetupTest : public ::testing::Test {
 };
 
 TEST_F(CoordinationSetupTest, CoordinationSetupSimple) {
-  memgraph::flags::CoordinationSetup coord_setup(1, 2, 3, "nuraft_log_file", false, "localhost");
+  memgraph::flags::CoordinationSetup coord_setup{.management_port = 1,
+                                                 .coordinator_port = 2,
+                                                 .coordinator_id = 3,
+                                                 .nuraft_log_file = "nuraft_log_file",
+                                                 .coordinator_hostname = "localhost"};
   EXPECT_EQ(coord_setup.management_port, 1);
   EXPECT_EQ(coord_setup.coordinator_port, 2);
   EXPECT_EQ(coord_setup.coordinator_id, 3);
