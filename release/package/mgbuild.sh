@@ -6,9 +6,9 @@ PROJECT_ROOT="$SCRIPT_DIR/../.."
 MGBUILD_HOME_DIR="/home/mg"
 MGBUILD_ROOT_DIR="$MGBUILD_HOME_DIR/memgraph"
 
-DEFAULT_TOOLCHAIN="v5"
+DEFAULT_TOOLCHAIN="v6"
 SUPPORTED_TOOLCHAINS=(
-    v4 v5
+    v4 v5 v6
 )
 DEFAULT_OS="all"
 SUPPORTED_OS=(
@@ -32,6 +32,9 @@ SUPPORTED_OS_V5=(
     rocky-9.3
     ubuntu-20.04 ubuntu-22.04 ubuntu-22.04-arm ubuntu-24.04 ubuntu-24.04-arm
 )
+SUPPORTED_OS_V6=(
+    ubuntu-24.04
+)
 DEFAULT_BUILD_TYPE="Release"
 SUPPORTED_BUILD_TYPES=(
     Debug
@@ -49,7 +52,6 @@ SUPPORTED_TESTS=(
     integration leftover-CTest macro-benchmark
     mgbench stress-plain stress-ssl
     unit unit-coverage upload-to-bench-graph
-
 )
 DEFAULT_THREADS=0
 DEFAULT_ENTERPRISE_LICENSE=""
@@ -136,6 +138,9 @@ print_help () {
   echo -e "\nToolchain v5 supported OSs:"
   echo -e "  \"${SUPPORTED_OS_V5[*]}\""
 
+  echo -e "\nToolchain v6 supported OSs:"
+  echo -e "  \"${SUPPORTED_OS_V6[*]}\""
+
   echo -e "\nExample usage:"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd build --git-ref my-special-branch"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd run"
@@ -202,6 +207,8 @@ check_support() {
         local SUPPORTED_OS_TOOLCHAIN=("${SUPPORTED_OS_V4[@]}")
       elif [[ "$3" == "v5" ]]; then
         local SUPPORTED_OS_TOOLCHAIN=("${SUPPORTED_OS_V5[@]}")
+      elif [[ "$3" == "v6" ]]; then
+        local SUPPORTED_OS_TOOLCHAIN=("${SUPPORTED_OS_V6[@]}")
       else
         echo -e "Error: $3 isn't a supported toolchain_version!\nChoose from ${SUPPORTED_TOOLCHAINS[*]}"
         exit 1
@@ -378,11 +385,18 @@ build_memgraph () {
   # shellcheck disable=SC2016
   if [[ "$threads" == "$DEFAULT_THREADS" ]]; then
     docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& make -j$(nproc)'
-    docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& make -j$(nproc) -B mgconsole'
+    # NOTE: mgconsole comes with toolchain v6
+    # TODO(gitbuda): Make skipping mgconsole build more generic.
+    if [[ "$toolchain_version" == "v6" ]]; then
+      docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& make -j$(nproc) -B mgconsole'
+    fi
   else
     local EXPORT_THREADS="export THREADS=$threads"
     docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $EXPORT_THREADS && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& make -j$THREADS'
-    docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $EXPORT_THREADS && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& make -j$THREADS -B mgconsole'
+    # TODO(gitbuda): Make skipping mgconsole build more generic.
+    if [[ "$toolchain_version" == "v6" ]]; then
+      docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $EXPORT_THREADS && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& make -j$THREADS -B mgconsole'
+    fi
   fi
 }
 
@@ -410,14 +424,20 @@ package_memgraph() {
 }
 
 package_docker() {
+  # TODO(gitbuda): Write the below ifs in a better way (make it automatic with new toolchain versions).
   if [[ "$toolchain_version" == "v4" ]]; then
     if [[ "$os" != "debian-11" && "$os" != "debian-11-arm" ]]; then
       echo -e "Error: When passing '--toolchain v4' the 'docker' command accepts only '--os debian-11' and '--os debian-11-arm'"
       exit 1
     fi
-  else
+  elif [[ "$toolchain_version" == "v5" ]]; then
     if [[ "$os" != "debian-12" && "$os" != "debian-12-arm" ]]; then
       echo -e "Error: When passing '--toolchain v5' the 'docker' command accepts only '--os debian-12' and '--os debian-12-arm'"
+      exit 1
+    fi
+  else
+    if [[ "$os" != "ubuntu-24.04" && "$os" != "ubuntu-24.04-arm" ]]; then
+      echo -e "Error: When passing '--toolchain v6' the 'docker' command accepts only '--os ubuntu-24.04' and '--os ubuntu-24.04-arm'"
       exit 1
     fi
   fi
@@ -785,7 +805,8 @@ case $command in
     build)
       cd $SCRIPT_DIR
       # Default values for --git-ref, --rust-version and --node-version
-      git_ref_flag="--build-arg GIT_REF=master"
+      # TODO(gitbuda): Revert GIT_REF below to master
+      git_ref_flag="--build-arg GIT_REF=add-toolchain-v6"
       rust_version_flag="--build-arg RUST_VERSION=1.80"
       node_version_flag="--build-arg NODE_VERSION=20"
       while [[ "$#" -gt 0 ]]; do

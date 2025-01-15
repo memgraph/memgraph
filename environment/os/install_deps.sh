@@ -1,11 +1,12 @@
 #!/bin/bash
+SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
 SUPPORTED_OS=(
     all
     amzn-2
     centos-7 centos-9
     debian-10 debian-11 debian-11-arm debian-12 debian-12-arm
-    fedora-36 fedora-38 fedora-39
+    fedora-36 fedora-38 fedora-39 fedora-41
     rocky-9.3
     ubuntu-18.04 ubuntu-20.04 ubuntu-22.04 ubuntu-22.04-arm
 )
@@ -62,7 +63,7 @@ fi
 run_script() {
     local distro_script=$1
     echo "Running script for $@"
-    ./environment/os/"$@"
+    $SCRIPT_DIR/"$@"
 }
 
 # New function for 'prepare' command to download and extract the toolchain
