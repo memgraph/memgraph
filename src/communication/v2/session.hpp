@@ -52,16 +52,11 @@
 #include "utils/priority_thread_pool.hpp"
 #include "utils/variant_helpers.hpp"
 
-template <typename T>
-concept RequiresHandshake = requires(T t) {
-  {t.Handshake()};
-};
-
 namespace memgraph::metrics {
-  extern const Event ActiveSessions;
-  extern const Event ActiveTCPSessions;
-  extern const Event ActiveSSLSessions;
-  extern const Event ActiveWebSocketSessions;
+extern const Event ActiveSessions;
+extern const Event ActiveTCPSessions;
+extern const Event ActiveSSLSessions;
+extern const Event ActiveWebSocketSessions;
 }  // namespace memgraph::metrics
 
 namespace memgraph::communication::v2 {
@@ -134,7 +129,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     if (std::holds_alternative<SSLSocket>(socket_)) {
       utils::OnScopeExit increment_counter(
           [] { memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveSSLSessions); });
-      boost::asio::dispatch(strand_, [shared_this = shared_from_this()] { shared_this->DoHandshake(); });
+      boost::asio::dispatch(strand_, [shared_this = shared_from_this()] { shared_this->DoSSLHandshake(); });
     } else {
       utils::OnScopeExit increment_counter(
           [] { memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTCPSessions); });
@@ -246,7 +241,6 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
                       if (ec) {
                         return self->OnError(ec);
                       }
-                      // TODO Handshake here too
                       self->DoRead();
                     }));
   }
@@ -288,8 +282,6 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     return std::nullopt;
   }
 
-  // Connect -> Handshake -> Authenticate <-> Prepare <-> Execute
-
   void OnFirstRead(const boost::system::error_code &ec, const size_t bytes_transferred) {
     if (ec) {
       // TODO Check if client disconnected
@@ -312,20 +304,8 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       DoShutdown();
     }
 
-    if constexpr (RequiresHandshake<TSession>) {
-      input_buffer_.write_end()->Written(bytes_transferred);
-      try {
-        session_.Handshake();
-      } catch (const std::exception & /* */) {
-        // Handle any generated errors (connection shutdown)
-        HandleException(std::current_exception());
-        return;
-      }
-      // Continue to normal operation
-      OnRead({}, 0);
-    } else {
-      OnRead(ec, bytes_transferred);
-    }
+    // Continue with normal operation
+    OnRead(ec, bytes_transferred);
   }
 
   void HandleException(const std::exception_ptr eptr) {
@@ -431,18 +411,18 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveSessions);
   }
 
-  void DoHandshake() {
+  void DoSSLHandshake() {
     if (!IsConnected()) {
       return;
     }
     if (auto *socket = std::get_if<SSLSocket>(&socket_); socket) {
       socket->async_handshake(
           boost::asio::ssl::stream_base::server,
-          boost::asio::bind_executor(strand_, std::bind_front(&Session::OnHandshake, shared_from_this())));
+          boost::asio::bind_executor(strand_, std::bind_front(&Session::OnSSLHandshake, shared_from_this())));
     }
   }
 
-  void OnHandshake(const boost::system::error_code &ec) {
+  void OnSSLHandshake(const boost::system::error_code &ec) {
     if (ec) {
       return OnError(ec);
     }
