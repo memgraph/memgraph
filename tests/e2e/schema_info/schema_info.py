@@ -55,7 +55,7 @@ def test_spec(connect):
 
     # Check JSON
     nodes = schema_json["nodes"]
-    assert len(nodes) == 4  # Tested via unit tests
+    assert len(nodes) == 5  # Tested via unit tests
     edges = schema_json["edges"]
     assert len(edges) == 5  # Tested via unit tests
     node_constraints = schema_json["node_constraints"]

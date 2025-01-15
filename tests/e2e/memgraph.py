@@ -236,10 +236,8 @@ class MemgraphInstanceRunner:
                 break
             time.sleep(0.1)
 
-        assert self.is_running() is False, "Stopped instance still running."
-
-        if not keep_directories:
-            self.safe_delete_data_directory()
+        if self.is_running():
+            self.kill(keep_directories)
 
     def kill(self, keep_directories=False):
         """
