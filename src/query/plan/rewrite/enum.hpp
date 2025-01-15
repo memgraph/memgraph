@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -27,9 +27,9 @@ class ExpressionEnumAccessRewriter : public ExpressionVisitor<void> {
   void Visit(EnumValueAccess &enum_value_access) override {
     auto maybe_enum = dba_->GetEnumValue(enum_value_access.enum_name_, enum_value_access.enum_value_);
     if (maybe_enum.HasError()) [[unlikely]] {
-        throw QueryRuntimeException("Enum value '{}' in enum '{}' not found.", enum_value_access.enum_value_,
-                                    enum_value_access.enum_name_);
-      }
+      throw QueryRuntimeException("Enum value '{}' in enum '{}' not found.", enum_value_access.enum_value_,
+                                  enum_value_access.enum_name_);
+    }
     prev_expressions_.back() = storage_->Create<PrimitiveLiteral>(*maybe_enum);
   }
 
@@ -102,6 +102,11 @@ class ExpressionEnumAccessRewriter : public ExpressionVisitor<void> {
   }
 
   void Visit(ModOperator &op) override {
+    AcceptExpression(op.expression1_);
+    AcceptExpression(op.expression2_);
+  }
+
+  void Visit(ExponentiationOperator &op) override {
     AcceptExpression(op.expression1_);
     AcceptExpression(op.expression2_);
   }
