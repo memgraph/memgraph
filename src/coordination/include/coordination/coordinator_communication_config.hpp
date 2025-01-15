@@ -38,6 +38,8 @@ struct ReplicationInstanceInitConfig {
   int management_port{0};
 };
 
+// If nuraft_log_file isn't provided, spdlog::logger for NuRaft will still get created but without sinks effectively
+// then being a no-op logger.
 struct CoordinatorInstanceInitConfig {
   int32_t coordinator_id{0};
   int coordinator_port{0};
@@ -48,26 +50,6 @@ struct CoordinatorInstanceInitConfig {
   std::string nuraft_log_file;
   std::chrono::seconds instance_down_timeout_sec;
   std::chrono::seconds instance_health_check_frequency_sec;
-
-  // If nuraft_log_file isn't provided, spdlog::logger for NuRaft will still get created but without sinks effectively
-  // then being a no-op logger.
-  explicit CoordinatorInstanceInitConfig(
-      int32_t coordinator_id, int coordinator_port, int bolt_port, int management_port,
-      std::filesystem::path durability_dir, std::string coordinator_hostname, std::string nuraft_log_file = "",
-      const std::chrono::seconds instance_down_timeout_sec = std::chrono::seconds{5},
-      const std::chrono::seconds instance_health_check_frequency_sec = std::chrono::seconds{1})
-      : coordinator_id(coordinator_id),
-        coordinator_port(coordinator_port),
-        bolt_port(bolt_port),
-        management_port(management_port),
-        durability_dir(std::move(durability_dir)),
-        coordinator_hostname(std::move(coordinator_hostname)),
-        nuraft_log_file(std::move(nuraft_log_file)),
-        instance_down_timeout_sec(instance_down_timeout_sec),
-        instance_health_check_frequency_sec(instance_health_check_frequency_sec) {
-    MG_ASSERT(!this->durability_dir.empty(), "Path empty");
-    MG_ASSERT(!this->coordinator_hostname.empty(), "Hostname empty");
-  }
 };
 
 struct LogStoreDurability {

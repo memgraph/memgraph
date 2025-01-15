@@ -30,10 +30,6 @@ struct CoordinationSetup {
   std::string nuraft_log_file;
   std::string coordinator_hostname;
 
-  explicit CoordinationSetup(int management_port, int coordinator_port, int32_t coordinator_id,
-                             std::string nuraft_log_file, std::string coordinator_hostname);
-  CoordinationSetup() = default;
-
   std::string ToString();
 
   [[nodiscard]] auto IsDataInstanceManagedByCoordinator() const -> bool;

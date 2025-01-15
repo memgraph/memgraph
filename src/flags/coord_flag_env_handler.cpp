@@ -27,14 +27,6 @@
 
 namespace memgraph::flags {
 
-CoordinationSetup::CoordinationSetup(int management_port, int coordinator_port, int32_t coordinator_id,
-                                     std::string nuraft_log_file, std::string coordinator_hostname)
-    : management_port(management_port),  // data instance management port or coordinator instance management port
-      coordinator_port(coordinator_port),
-      coordinator_id(coordinator_id),
-      nuraft_log_file(std::move(nuraft_log_file)),
-      coordinator_hostname(std::move(coordinator_hostname)) {}
-
 std::string CoordinationSetup::ToString() {
   return fmt::format(
       "management port: {}, coordinator port: {}, coordinator id: {}, nuraft_log_file: {}, "
@@ -93,15 +85,20 @@ void SetFinalCoordinationSetup() {
 
     if (any_envs_set) {
       spdlog::trace("Coordinator will be initialized using environment variables.");
-      return CoordinationSetup(coord_envs[0] ? std::stoi(coord_envs[0].value()) : 0,
-                               coord_envs[1] ? std::stoi(coord_envs[1].value()) : 0,
-                               coord_envs[2] ? static_cast<int32_t>(std::stoul(coord_envs[2].value())) : 0,
-                               coord_envs[3] ? coord_envs[3].value() : "", coord_envs[5] ? coord_envs[5].value() : "");
+      return CoordinationSetup{
+          .management_port = coord_envs[0] ? std::stoi(coord_envs[0].value()) : 0,
+          .coordinator_port = coord_envs[1] ? std::stoi(coord_envs[1].value()) : 0,
+          .coordinator_id = coord_envs[2] ? static_cast<int32_t>(std::stoul(coord_envs[2].value())) : 0,
+          .nuraft_log_file = coord_envs[3] ? coord_envs[3].value() : "",
+          .coordinator_hostname = coord_envs[4] ? coord_envs[4].value() : ""};
     }
 
     spdlog::trace("Coordinator will be initialized using flags.");
-    return CoordinationSetup{FLAGS_management_port, FLAGS_coordinator_port, FLAGS_coordinator_id, FLAGS_nuraft_log_file,
-                             FLAGS_coordinator_hostname};
+    return CoordinationSetup{.management_port = FLAGS_management_port,
+                             .coordinator_port = FLAGS_coordinator_port,
+                             .coordinator_id = FLAGS_coordinator_id,
+                             .nuraft_log_file = FLAGS_nuraft_log_file,
+                             .coordinator_hostname = FLAGS_coordinator_hostname};
   }();  // iile
 #endif
 }

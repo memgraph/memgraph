@@ -65,12 +65,13 @@ auto HasBecomeEqual(std::function<int()> const &func, int expected_value) -> boo
 // Empty until you run 1st RegisterReplicationInstance or AddCoordinatorInstance
 TEST_F(CoordinatorInstanceTest, ShowInstancesEmptyTest) {
   GTEST_SKIP() << "skip flaky issue #https://github.com/memgraph/memgraph/issues/2212";
-  auto const init_config = CoordinatorInstanceInitConfig{coordinator_ids[0],
-                                                         coordinator_ports[0],
-                                                         bolt_ports[0],
-                                                         management_ports[0],
-                                                         main_data_directory / "high_availability" / "coordinator",
-                                                         "localhost"};
+  auto const init_config =
+      CoordinatorInstanceInitConfig{.coordinator_id = coordinator_ids[0],
+                                    .coordinator_port = coordinator_ports[0],
+                                    .bolt_port = bolt_ports[0],
+                                    .management_port = management_ports[0],
+                                    .durability_dir = main_data_directory / "high_availability" / "coordinator",
+                                    .coordinator_hostname = "localhost"};
 
   auto instance1 = CoordinatorInstance{init_config};
   auto const instances = instance1.ShowInstances();
@@ -80,30 +81,33 @@ TEST_F(CoordinatorInstanceTest, ShowInstancesEmptyTest) {
 TEST_F(CoordinatorInstanceTest, ConnectCoordinators) {
   GTEST_SKIP() << "skip flaky issue #https://github.com/memgraph/memgraph/issues/2212";
 
-  auto const init_config1 = CoordinatorInstanceInitConfig{coordinator_ids[0],
-                                                          coordinator_ports[0],
-                                                          bolt_ports[0],
-                                                          management_ports[0],
-                                                          main_data_directory / "high_availability1" / "coordinator",
-                                                          "localhost"};
+  auto const init_config1 =
+      CoordinatorInstanceInitConfig{.coordinator_id = coordinator_ids[0],
+                                    .coordinator_port = coordinator_ports[0],
+                                    .bolt_port = bolt_ports[0],
+                                    .management_port = management_ports[0],
+                                    .durability_dir = main_data_directory / "high_availability1" / "coordinator",
+                                    .coordinator_hostname = "localhost"};
 
   auto instance1 = CoordinatorInstance{init_config1};
 
-  auto const init_config2 = CoordinatorInstanceInitConfig{coordinator_ids[1],
-                                                          coordinator_ports[1],
-                                                          bolt_ports[1],
-                                                          management_ports[1],
-                                                          main_data_directory / "high_availability2" / "coordinator",
-                                                          "localhost"};
+  auto const init_config2 =
+      CoordinatorInstanceInitConfig{.coordinator_id = coordinator_ids[1],
+                                    .coordinator_port = coordinator_ports[1],
+                                    .bolt_port = bolt_ports[1],
+                                    .management_port = management_ports[1],
+                                    .durability_dir = main_data_directory / "high_availability2" / "coordinator",
+                                    .coordinator_hostname = "localhost"};
 
   auto instance2 = CoordinatorInstance{init_config2};
 
-  auto const init_config3 = CoordinatorInstanceInitConfig{coordinator_ids[2],
-                                                          coordinator_ports[2],
-                                                          bolt_ports[2],
-                                                          management_ports[2],
-                                                          main_data_directory / "high_availability3" / "coordinator",
-                                                          "localhost"};
+  auto const init_config3 =
+      CoordinatorInstanceInitConfig{.coordinator_id = coordinator_ids[2],
+                                    .coordinator_port = coordinator_ports[2],
+                                    .bolt_port = bolt_ports[2],
+                                    .management_port = management_ports[2],
+                                    .durability_dir = main_data_directory / "high_availability3" / "coordinator",
+                                    .coordinator_hostname = "localhost"};
 
   auto instance3 = CoordinatorInstance{init_config3};
 
@@ -146,30 +150,33 @@ TEST_F(CoordinatorInstanceTest, ConnectCoordinators) {
 TEST_F(CoordinatorInstanceTest, GetRoutingTable) {
   GTEST_SKIP() << "skip flaky issue #https://github.com/memgraph/memgraph/issues/2212";
 
-  auto const init_config1 = CoordinatorInstanceInitConfig{coordinator_ids[0],
-                                                          coordinator_ports[0],
-                                                          bolt_ports[0],
-                                                          management_ports[0],
-                                                          main_data_directory / "high_availability1" / "coordinator",
-                                                          "localhost"};
+  auto const init_config1 =
+      CoordinatorInstanceInitConfig{.coordinator_id = coordinator_ids[0],
+                                    .coordinator_port = coordinator_ports[0],
+                                    .bolt_port = bolt_ports[0],
+                                    .management_port = management_ports[0],
+                                    .durability_dir = main_data_directory / "high_availability1" / "coordinator",
+                                    .coordinator_hostname = "localhost"};
 
   auto instance1 = CoordinatorInstance{init_config1};
 
-  auto const init_config2 = CoordinatorInstanceInitConfig{coordinator_ids[1],
-                                                          coordinator_ports[1],
-                                                          bolt_ports[1],
-                                                          management_ports[1],
-                                                          main_data_directory / "high_availability2" / "coordinator",
-                                                          "localhost"};
+  auto const init_config2 =
+      CoordinatorInstanceInitConfig{.coordinator_id = coordinator_ids[1],
+                                    .coordinator_port = coordinator_ports[1],
+                                    .bolt_port = bolt_ports[1],
+                                    .management_port = management_ports[1],
+                                    .durability_dir = main_data_directory / "high_availability2" / "coordinator",
+                                    .coordinator_hostname = "localhost"};
 
   auto instance2 = CoordinatorInstance{init_config2};
 
-  auto const init_config3 = CoordinatorInstanceInitConfig{coordinator_ids[2],
-                                                          coordinator_ports[2],
-                                                          bolt_ports[2],
-                                                          management_ports[2],
-                                                          main_data_directory / "high_availability3" / "coordinator",
-                                                          "localhost"};
+  auto const init_config3 =
+      CoordinatorInstanceInitConfig{.coordinator_id = coordinator_ids[2],
+                                    .coordinator_port = coordinator_ports[2],
+                                    .bolt_port = bolt_ports[2],
+                                    .management_port = management_ports[2],
+                                    .durability_dir = main_data_directory / "high_availability3" / "coordinator",
+                                    .coordinator_hostname = "localhost"};
 
   auto instance3 = CoordinatorInstance{init_config3};
 
