@@ -3490,11 +3490,8 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
         if (!property) throw RecoveryFailure("Couldn't read vector index property!");
         auto metric = snapshot.ReadString();
         if (!metric) throw RecoveryFailure("Couldn't read vector index metric!");
-
-        // NOLINTNEXTLINE
         auto usearch_metric = unum::usearch::metric_from_name(metric->data(), metric->size());
         if (usearch_metric.error) throw RecoveryFailure("Invalid vector index metric recovered!");
-
         auto dimension = snapshot.ReadUint();
         if (!dimension) throw RecoveryFailure("Couldn't read vector index dimension!");
         auto resize_coefficient = snapshot.ReadUint();

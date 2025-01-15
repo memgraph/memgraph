@@ -1080,8 +1080,6 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
 
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
         auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
-
-        // NOLINTNEXTLINE
         const auto unum_metric_kind = unum::usearch::metric_from_name(data.metric_kind.data(), data.metric_kind.size());
         if (unum_metric_kind.error) {
           throw RecoveryFailure("Invalid metric kind for vector index!");

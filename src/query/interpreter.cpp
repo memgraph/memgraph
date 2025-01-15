@@ -1659,8 +1659,6 @@ auto ParseVectorIndexConfigMap(std::unordered_map<query::Expression *, query::Ex
   auto metric_str = transformed_map.contains(kMetric.data())
                         ? std::string(transformed_map.at(kMetric.data()).ValueString())
                         : std::string(kDefaultMetric);
-
-  // NOLINTNEXTLINE
   auto metric_kind = unum::usearch::metric_from_name(metric_str.c_str(), metric_str.size());
   if (metric_kind.error) {
     throw std::invalid_argument(std::format("Invalid metric kind: {}, supported metric kinds are: {}", metric_str,

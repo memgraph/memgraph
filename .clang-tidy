@@ -68,7 +68,7 @@ Checks: '*,
          -bugprone-easily-swappable-parameters,
          -bugprone-unchecked-optional-access'
 WarningsAsErrors: ''
-HeaderFilterRegex: 'src/.*'
+HeaderFilterRegex: '^(?!.*libs/).*(src/.*)'
 AnalyzeTemporaryDtors: false
 FormatStyle:     none
 CheckOptions:
