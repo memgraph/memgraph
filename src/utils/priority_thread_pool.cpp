@@ -10,9 +10,8 @@
 // licenses/APL.txt.
 
 #include "utils/priority_thread_pool.hpp"
-#include <queue>
+
 #include "utils/logging.hpp"
-#include "utils/thread.hpp"
 
 namespace memgraph::utils {
 
@@ -20,14 +19,14 @@ PriorityThreadPool::PriorityThreadPool(size_t mixed_work_threads_count, size_t h
   pool_.reserve(mixed_work_threads_count + high_priority_threads_count);
   for (size_t i = 0; i < mixed_work_threads_count; ++i) {
     pool_.emplace_back([this]() {
-      Worker worker(*this, TaskPriority::LOW);
-      worker();
+      Worker worker(*this);
+      worker.operator()<Priority::LOW>();
     });
   }
   for (size_t i = 0; i < high_priority_threads_count; ++i) {
     pool_.emplace_back([this]() {
-      Worker worker(*this, TaskPriority::HIGH);
-      worker();
+      Worker worker(*this);
+      worker.operator()<Priority::HIGH>();
     });
   }
 }
@@ -44,8 +43,8 @@ void PriorityThreadPool::ShutDown() {
     pool_stop_source_.request_stop();
 
     // Clear the task queue
-    auto empty_queue = std::priority_queue<Task>{};
-    task_queue_.swap(empty_queue);
+    high_priority_queue_ = {};
+    low_priority_queue_ = {};
 
     // Stop threads waiting for work
     while (!high_priority_threads_.empty()) {
@@ -61,21 +60,23 @@ void PriorityThreadPool::ShutDown() {
   pool_.clear();
 }
 
-void PriorityThreadPool::ScheduledAddTask(TaskSignature new_task, TaskPriority priority) {
+void PriorityThreadPool::ScheduledAddTask(TaskSignature new_task, const Priority priority) {
   auto l = std::unique_lock{pool_lock_};
 
   if (pool_stop_source_.stop_requested()) [[unlikely]] {
     return;
   }
 
+  // Mixed work threads can service both high and low priority tasks
   if (!mixed_threads_.empty()) {
     auto *thread = mixed_threads_.top();
     mixed_threads_.pop();
     thread->push(std::move(new_task));
     return;
   }
-  // Prefer mixed work threads
-  if (priority == TaskPriority::HIGH) {
+
+  // High priority threads can only service high priority tasks
+  if (priority == Priority::HIGH) {
     if (!high_priority_threads_.empty()) {
       auto *thread = high_priority_threads_.top();
       high_priority_threads_.pop();
@@ -85,34 +86,11 @@ void PriorityThreadPool::ScheduledAddTask(TaskSignature new_task, TaskPriority p
   }
 
   // No threads available, enqueue the task
-  task_queue_.emplace(std::move(new_task), priority);
-}
-
-std::optional<PriorityThreadPool::TaskSignature> PriorityThreadPool::GetTask(PriorityThreadPool::Worker *const thread) {
-  auto l = std::unique_lock{pool_lock_};
-
-  if (pool_stop_source_.stop_requested()) [[unlikely]] {
-    thread->stop();
-    return std::nullopt;
-  }
-
-  if (!task_queue_.empty()) {
-    // Queue is ordered by priority
-    if (thread->priority_ <= task_queue_.top().priority) {
-      auto task = std::move(task_queue_.top().task);
-      task_queue_.pop();
-      return {std::move(task)};
-    }
-  }
-
-  // No tasks in the queue, put the thread back in the pool
-  if (thread->priority_ == TaskPriority::HIGH) [[unlikely]] {
-    high_priority_threads_.push(thread);
+  if (priority == Priority::HIGH) {
+    high_priority_queue_.emplace(std::move(new_task));
   } else {
-    mixed_threads_.push(thread);
+    low_priority_queue_.emplace(std::move(new_task));
   }
-
-  return std::nullopt;
 }
 
 void PriorityThreadPool::Worker::push(TaskSignature new_task) {
@@ -126,29 +104,6 @@ void PriorityThreadPool::Worker::stop() {
   auto l = std::unique_lock{mtx_};
   run_ = false;
   cv_.notify_one();
-}
-
-void PriorityThreadPool::Worker::operator()() {
-  utils::ThreadSetName(priority_ == TaskPriority::HIGH ? "high prior." : "low prior.");
-  while (run_) {
-    // Check if there is a scheduled task
-    std::optional<TaskSignature> task = scheduler_.GetTask(this);
-    if (!task) {
-      // Wait for a new task
-      auto l = std::unique_lock{mtx_};
-      cv_.wait(l, [this] { return task_ || !run_; });
-
-      // Stop requested
-      if (!run_) [[unlikely]] {
-        return;
-      }
-
-      task = *std::move(task_);
-      task_.reset();
-    }
-    // Execute the task
-    task.value()();
-  }
 }
 
 }  // namespace memgraph::utils

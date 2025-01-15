@@ -19,18 +19,17 @@
 #include <stack>
 #include <thread>
 #include "utils/spin_lock.hpp"
+#include "utils/thread.hpp"
 
 namespace memgraph::utils {
 
 class PriorityThreadPool {
  public:
-  enum class TaskPriority : uint8_t { LOW, HIGH };
+  enum class Priority : uint8_t { LOW, HIGH };
   using TaskSignature = std::function<void()>;
 
   struct Task {
     mutable TaskSignature task;  // allows moves from priority_queue
-    TaskPriority priority;
-    bool operator<(const Task &other) const { return priority < other.priority; }
     void operator()() const { task(); }
   };
 
@@ -45,11 +44,43 @@ class PriorityThreadPool {
 
   void ShutDown();
 
-  void ScheduledAddTask(TaskSignature new_task, TaskPriority priority);
+  void ScheduledAddTask(TaskSignature new_task, Priority priority);
 
   class Worker;
 
-  std::optional<TaskSignature> GetTask(Worker *thread);
+  template <Priority ThreadPriority>
+  std::optional<TaskSignature> GetTask(Worker *const thread) {
+    auto l = std::unique_lock{pool_lock_};
+
+    if (pool_stop_source_.stop_requested()) [[unlikely]] {
+      thread->stop();
+      return std::nullopt;
+    }
+
+    // All threads can service high priority tasks
+    if (!high_priority_queue_.empty()) {
+      auto task = std::move(high_priority_queue_.front().task);
+      high_priority_queue_.pop();
+      return {std::move(task)};
+    }
+    // Only mixed work threads can service low priority tasks
+    if constexpr (ThreadPriority < Priority::HIGH) {
+      if (!low_priority_queue_.empty()) {
+        auto task = std::move(low_priority_queue_.front().task);
+        low_priority_queue_.pop();
+        return {std::move(task)};
+      }
+    }
+
+    // No tasks in the queue, put the thread back in the pool
+    if constexpr (ThreadPriority == Priority::HIGH) {
+      high_priority_threads_.push(thread);
+    } else {
+      mixed_threads_.push(thread);
+    }
+
+    return std::nullopt;
+  }
 
   class Worker {
    public:
@@ -57,11 +88,31 @@ class PriorityThreadPool {
 
     void stop();
 
-    void operator()();
+    template <Priority ThreadPriority>
+    void operator()() {
+      utils::ThreadSetName(ThreadPriority == Priority::HIGH ? "high prior." : "low prior.");
+      while (run_) {
+        // Check if there is a scheduled task
+        std::optional<TaskSignature> task = scheduler_.GetTask<ThreadPriority>(this);
+        if (!task) {
+          // Wait for a new task
+          auto l = std::unique_lock{mtx_};
+          cv_.wait(l, [this] { return task_ || !run_; });
 
-    Worker(PriorityThreadPool &scheduler, TaskPriority priority) : priority_{priority}, scheduler_{scheduler} {}
+          // Stop requested
+          if (!run_) [[unlikely]] {
+            return;
+          }
 
-    const TaskPriority priority_;
+          task = *std::move(task_);
+          task_.reset();
+        }
+        // Execute the task
+        task.value()();
+      }
+    }
+
+    explicit Worker(PriorityThreadPool &scheduler) : scheduler_{scheduler} {}
 
    private:
     mutable std::mutex mtx_;
@@ -77,7 +128,8 @@ class PriorityThreadPool {
 
   std::vector<std::jthread> pool_;
 
-  std::priority_queue<Task> task_queue_;
+  std::queue<Task> high_priority_queue_;
+  std::queue<Task> low_priority_queue_;
 
   std::stack<Worker *> mixed_threads_;
   std::stack<Worker *> high_priority_threads_;
