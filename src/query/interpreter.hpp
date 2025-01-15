@@ -192,7 +192,7 @@ struct PreparedQuery {
   std::function<std::optional<QueryHandlerResult>(AnyStream *stream, std::optional<int> n)> query_handler;
   plan::ReadWriteTypeChecker::RWType rw_type;
   std::optional<std::string> db{};
-  utils::PriorityThreadPool::TaskPriority priority{utils::PriorityThreadPool::TaskPriority::HIGH};
+  utils::PriorityThreadPool::Priority priority{utils::PriorityThreadPool::Priority::HIGH};
 };
 
 /**
@@ -292,7 +292,7 @@ class Interpreter final {
   void SetCurrentDB();
 #endif
 
-  utils::PriorityThreadPool::TaskPriority GetQueryPriority(std::optional<int> qid) const {
+  utils::PriorityThreadPool::Priority GetQueryPriority(std::optional<int> qid) const {
     const int qid_value = qid ? *qid : static_cast<int>(query_executions_.size() - 1);
     if (qid_value < 0 || qid_value >= query_executions_.size()) {
       throw InvalidArgumentsException("qid", "Query with specified ID does not exist!");
@@ -300,11 +300,11 @@ class Interpreter final {
     return query_executions_[qid_value]->prepared_query->priority;
   }
 
-  utils::PriorityThreadPool::TaskPriority ApproximateNextQueryPriority() const {
+  utils::PriorityThreadPool::Priority ApproximateNextQueryPriority() const {
     // If in transaction => low, we are deffinetelly in a cypher query situation
     // If not in transaction, we have to check the last query priority <- there can't be qid, so just check the last
-    return in_explicit_transaction_    ? utils::PriorityThreadPool::TaskPriority::LOW
-           : query_executions_.empty() ? utils::PriorityThreadPool::TaskPriority::HIGH
+    return in_explicit_transaction_    ? utils::PriorityThreadPool::Priority::LOW
+           : query_executions_.empty() ? utils::PriorityThreadPool::Priority::HIGH
                                        : query_executions_.back()->prepared_query->priority;
   }
 

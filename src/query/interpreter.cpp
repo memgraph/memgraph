@@ -2471,7 +2471,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
                        },
                        rw_type_checker.type,
                        current_db.db_acc_->get()->name(),
-                       utils::PriorityThreadPool::TaskPriority::LOW};
+                       utils::PriorityThreadPool::Priority::LOW};
 }
 
 PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,

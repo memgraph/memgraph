@@ -74,7 +74,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 
   inline auto ApproximateQueryPriority() const {
     return state_ == memgraph::communication::bolt::State::Result ? interpreter_.ApproximateNextQueryPriority()
-                                                                  : utils::PriorityThreadPool::TaskPriority::HIGH;
+                                                                  : utils::PriorityThreadPool::Priority::HIGH;
   }
 
   std::string GetCurrentDB() const;
