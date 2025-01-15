@@ -64,7 +64,7 @@ class CoordinatorStateManager : public state_mgr {
   [[nodiscard]] auto GetSrvConfig() const -> ptr<srv_config>;
 
  private:
-  void NotifyObserver(std::vector<CoordinatorInstanceAux> const &coord_instances_aux);
+  void NotifyObserver(std::vector<CoordinatorInstanceAux> const &coord_instances_aux) const;
   void HandleVersionMigration();
   void TryUpdateClusterConfigFromDisk();
 

@@ -31,16 +31,17 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
     Vertex *from_vertex;
     Vertex *to_vertex;
 
-    Edge *edge;
+    Edge *edge;  // TODO: Generalise to EdgeRef?
 
     uint64_t timestamp;
 
-    bool operator<(const Entry &rhs) const {
-      return std::tie(edge->gid, from_vertex->gid, to_vertex->gid, timestamp) <
-             std::tie(rhs.edge->gid, rhs.from_vertex->gid, rhs.to_vertex->gid, rhs.timestamp);
+    friend bool operator<(Entry const &lhs, Entry const &rhs) {
+      return std::tie(lhs.edge, lhs.from_vertex, lhs.to_vertex, lhs.timestamp) <
+             std::tie(rhs.edge, rhs.from_vertex, rhs.to_vertex, rhs.timestamp);
     }
-    bool operator==(const Entry &rhs) const {
-      return std::tie(edge, from_vertex, to_vertex, timestamp) ==
+
+    friend bool operator==(Entry const &lhs, Entry const &rhs) {
+      return std::tie(lhs.edge, lhs.from_vertex, lhs.to_vertex, lhs.timestamp) ==
              std::tie(rhs.edge, rhs.from_vertex, rhs.to_vertex, rhs.timestamp);
     }
   };

@@ -90,15 +90,15 @@ class CoordinatorInstance {
   auto ShowInstancesAsLeader() const -> std::optional<std::vector<InstanceStatus>>;
 
   // Finds most up-to-date instance that could become new main. Only alive instances are taken into account.
-  [[nodiscard]] auto TryFailover() -> FailoverStatus;
+  [[nodiscard]] auto TryFailover() const -> FailoverStatus;
 
-  auto AddCoordinatorInstance(CoordinatorInstanceConfig const &config) -> AddCoordinatorInstanceStatus;
+  auto AddCoordinatorInstance(CoordinatorInstanceConfig const &config) const -> AddCoordinatorInstanceStatus;
 
-  auto RemoveCoordinatorInstance(int coordinator_id) -> RemoveCoordinatorInstanceStatus;
+  auto RemoveCoordinatorInstance(int coordinator_id) const -> RemoveCoordinatorInstanceStatus;
 
   auto GetRoutingTable() const -> RoutingTable;
 
-  static auto GetMostUpToDateInstanceFromHistories(std::list<ReplicationInstanceConnector> &instances)
+  static auto GetMostUpToDateInstanceFromHistories(const std::list<ReplicationInstanceConnector> &instances)
       -> std::optional<std::string>;
 
   static auto ChooseMostUpToDateInstance(std::span<InstanceNameDbHistories> histories) -> std::optional<NewMainRes>;
@@ -109,13 +109,14 @@ class CoordinatorInstance {
 
   void ShuttingDown();
 
-  void InstanceSuccessCallback(std::string_view instance_name, std::optional<InstanceState> instance_state);
-  void InstanceFailCallback(std::string_view instance_name, std::optional<InstanceState> instance_state);
+  void InstanceSuccessCallback(std::string_view instance_name, const std::optional<InstanceState> &instance_state);
+  void InstanceFailCallback(std::string_view instance_name, const std::optional<InstanceState> &instance_state);
 
   void UpdateClientConnectors(std::vector<CoordinatorInstanceAux> const &coord_instances_aux) const;
 
  private:
-  auto FindReplicationInstance(std::string_view replication_instance_name) -> ReplicationInstanceConnector &;
+  auto FindReplicationInstance(std::string_view replication_instance_name)
+      -> std::optional<std::reference_wrapper<ReplicationInstanceConnector>>;
   auto ReconcileClusterState_() -> ReconcileClusterStateStatus;
   auto ShowInstancesStatusAsFollower() const -> std::vector<InstanceStatus>;
 
