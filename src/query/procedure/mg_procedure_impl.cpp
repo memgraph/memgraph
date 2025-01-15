@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -2996,7 +2996,6 @@ mgp_error mgp_list_all_unique_constraints(mgp_graph *graph, mgp_memory *memory, 
       if (const auto err_list = mgp_list_append_extend(*result, &value); err_list != mgp_error::MGP_ERROR_NO_ERROR) {
         throw std::logic_error("Listing all unique constraints failed due to failure of creating label+property value");
       }
-      mgp_value_destroy(&value);
     }
   });
 }
