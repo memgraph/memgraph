@@ -78,29 +78,27 @@ class Session {
    * Goes through the bolt states in order to execute commands from the client.
    */
   template <typename TImpl>
-  void Handshake_(TImpl &impl) {
-    // Resize the input buffer to ensure that a whole chunk can fit into it.
-    // This can be done only once because the buffer holds its size.
-    input_stream_.Resize(kChunkWholeSize);
-
-    // Receive the handshake.
-    if (input_stream_.size() < kHandshakeSize) [[unlikely]] {
-      spdlog::trace("Received partial handshake of size {}", input_stream_.size());
-      state_ = State::Close;
-    } else {
-      state_ = StateHandshakeRun(impl);
-    }
-    if (state_ == State::Close) [[unlikely]] {
-      ClientFailureInvalidData();
-      return;
-    }
-    // Update the decoder's Bolt version (v5 has changed the undelying structure)
-    decoder_.UpdateVersion(version_.major);
-    encoder_.UpdateVersion(version_.major);
-  }
-
-  template <typename TImpl>
   bool Execute_(TImpl &impl) {
+    if (state_ == State::Handshake) [[unlikely]] {
+      // Resize the input buffer to ensure that a whole chunk can fit into it.
+      // This can be done only once because the buffer holds its size.
+      input_stream_.Resize(kChunkWholeSize);
+
+      // Receive the handshake.
+      if (input_stream_.size() < kHandshakeSize) {
+        spdlog::trace("Received partial handshake of size {}", input_stream_.size());
+        return false;
+      }
+      state_ = StateHandshakeRun(impl);
+      if (state_ == State::Close) [[unlikely]] {
+        ClientFailureInvalidData();
+        return false;
+      }
+      // Update the decoder's Bolt version (v5 has changed the undelying structure)
+      decoder_.UpdateVersion(version_.major);
+      encoder_.UpdateVersion(version_.major);
+    }
+
     ChunkState chunk_state;
     while ((chunk_state = decoder_buffer_.GetChunk()) != ChunkState::Partial) {
       if (chunk_state == ChunkState::Whole) {
@@ -161,7 +159,6 @@ class Session {
   ChunkedDecoderBuffer<TInputStream> decoder_buffer_{input_stream_};
   Decoder<ChunkedDecoderBuffer<TInputStream>> decoder_{decoder_buffer_};
 
-  bool handshake_done_{false};
   State state_{State::Handshake};
   bool at_least_one_run_{false};
 

@@ -13,6 +13,7 @@
 #include "audit/log.hpp"
 #include "auth/auth.hpp"
 #include "communication/bolt/v1/session.hpp"
+#include "communication/bolt/v1/state.hpp"
 #include "communication/v2/server.hpp"
 #include "communication/v2/session.hpp"
 #include "glue/SessionContext.hpp"
@@ -80,7 +81,6 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   std::string GetCurrentDB() const;
 
   inline bool Execute() { return Execute_(*this); }
-  void Handshake() { Handshake_(*this); }
 
  private:
   bolt_map_t DecodeSummary(const std::map<std::string, memgraph::query::TypedValue> &summary);
