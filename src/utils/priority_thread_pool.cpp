@@ -136,7 +136,7 @@ void PriorityThreadPool::Worker::operator()() {
     if (!task) {
       // Wait for a new task
       auto l = std::unique_lock{mtx_};
-      cv_.wait(l, [&] { return task_ || !run_; });
+      cv_.wait(l, [this] { return task_ || !run_; });
 
       // Stop requested
       if (!run_) [[unlikely]] {
