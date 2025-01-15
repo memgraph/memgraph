@@ -128,8 +128,12 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
 
   void TestHook_ShouldAbort() { should_abort_ = true; }
 
-  void Execute() { Execute_(*this); }
-  void Handshake() { Handshake_(*this); }
+  void Execute() {
+    while (Execute_(*this)) {
+      // Execute now exists on result, so it can be schduled again.
+      // No scheduler here, just loop until done
+    }
+  }
 
  private:
   std::string query_;
