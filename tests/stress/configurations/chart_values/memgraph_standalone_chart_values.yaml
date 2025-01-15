@@ -1,0 +1,145 @@
+image:
+  # repository: memgraphaksclusterregistry.azurecr.io/memgraph-mage
+  repository: memgraph/memgraph
+  # Overrides the image tag whose default is v{{ .Chart.AppVersion }}
+  tag: "2.22.0"
+  pullPolicy: IfNotPresent
+
+## Override the default imagePullSecrets
+useImagePullSecrets: false
+imagePullSecrets:
+- name: regcred
+
+replicaCount: 1
+
+## Node Affinity Preferred
+# By setting theses parameters the PREFERRED deployment will be done first on the match LABELS with key and value then on other nodes.
+# nodeKey: "nodegroup" give the name of a key
+# Operator is In
+# nodeValue: "memgraph" give the value of the key
+affinity:
+  nodeKey:
+  nodeValue:
+
+nodeSelector: {}
+
+tolerations: []
+
+service:
+  ## ClusterIP, NodePort, LoadBalancer
+  # ClusterIP keep the service inside the cluster makes it secure
+  # NodePort would create a external port change port: between 30000-32767 accessible to all the nodes and Public IPs if not in a VPC
+  # LoadBalancer is compabile with Cloud Providers on port: 80 without SSL redirected to the 7687
+  type: NodePort
+  annotations: {}
+
+  # Bolt Port
+  enableBolt: true
+  boltPort: 7687
+  boltProtocol: TCP
+
+  # Websocket Monitoring
+  enableWebsocketMonitoring: false
+  websocketPortMonitoring: 7444
+  websocketPortMonitoringProtocol: TCP
+
+  # HTTP Monitoring
+  enableHttpMonitoring: false
+  httpPortMonitoring: 9091
+  httpPortMonitoringProtocol: http
+
+persistentVolumeClaim:
+  ## createStoragePVC `true` will create for each statefulset server a Persistant Volume Claim
+  ## `false` will let you choose an existing Persistant Volume Claim or will create one with an existing volume
+  createStorageClaim: true
+  ## Using a Storage Class Name with policy `retain` will keep the Persistant Volume Claim and the Volume
+  ## If you use a Storage Class Name with policy `delete` the Persistant Volume Claim and Volume will be deleted when the helm release is deleted
+  storageClassName: ""
+  ## Storage Size must me at minimum 4x the maximum size of your Dataset for Snapshots
+  ## See documentation for choosing the right size depending on the number of Snapshots you want to keep
+  ## Default is 3 snapshots and you need space to create a new one and WAL files
+  storageSize: 100Gi
+
+  ## if `createStoragePVC` is `false` you can choose to use an existing Persistant Volume Claim
+  ## Write the name and exising Persistant Volume Claim
+  existingClaim: "memgraph-db-lib-storage-memgraph-db-0"
+  ## If you want to create a Persistant Volume Claim for an existing Volume
+  storageVolumeName: ""
+
+  ## Create a Dynamic Persistant Volume Claim for Logs
+  # `false` will only write logs to stdout / stderr
+  createLogStorage: true
+  logStorageClassName: ""
+  logStorageSize: 1Gi
+
+  ## Create a Dynamic Persistant Volume Claim for Configs, Certificates (e.g. Bolt cert ) and rest of User related files
+  createUserClaim: true
+  userStorageClassName: ""
+  userStorageSize: 1Gi
+  userMountPath: "/var/lib/memgraph/user"
+
+memgraphConfig:
+- "--also-log-to-stderr=true"
+- "--log-level=TRACE"
+- "--data-recovery-on-startup=true"
+- "--storage-snapshot-interval-sec=3600"
+- "--storage-snapshot-on-exit=false"
+- "--storage-snapshot-retention-count=3"
+- "--storage-wal-enabled=true"
+- "--bolt-session-inactivity-timeout=1800"
+- "--query-execution-timeout-sec=1800"
+- "--storage-parallel-schema-recovery=true"
+- "--schema-info-enabled=true"
+
+secrets:
+  enabled: false
+  name: memgraph-secrets
+  userKey: USER
+  passwordKey: PASSWORD
+
+## Memgraph Enterprise Licence
+# memgraphEnterpriseLicense: "<your-license>"
+# memgraphOrganizationName: "<your-organization-name>"
+
+# Annotations to add to the statefulSet
+statefulSetAnnotations: {}
+# Annotations to add to the Pod
+podAnnotations: {}
+
+resources: {}
+# We usually recommend not to specify default resources and to leave this as a conscious
+# choice for the user. This also increases chances charts run on environments with little
+# resources, such as Minikube. If you do want to specify resources, uncomment the following
+# lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+# limits:
+#   cpu: 100m
+#   memory: 128Mi
+# requests:
+#   cpu: 100m
+#   memory: 128Mi
+
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+
+
+container:
+  terminationGracePeriodSeconds: 1800
+  probes:
+    liveliness:
+      initialDelaySeconds: 10
+      periodSeconds: 60
+      failureThreshold: 3
+    readiness:
+      initialDelaySeconds: 10
+      periodSeconds: 30
+      failureThreshold: 3
+    startup:
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      failureThreshold: 30
