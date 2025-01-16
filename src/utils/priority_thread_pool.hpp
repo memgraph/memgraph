@@ -13,6 +13,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <functional>
+#include <iostream>
 #include <mutex>
 #include <optional>
 #include <queue>
@@ -117,7 +118,7 @@ class PriorityThreadPool {
    private:
     mutable std::mutex mtx_;
     std::atomic_bool run_{true};
-    std::condition_variable_any cv_;
+    std::condition_variable cv_;
     std::optional<TaskSignature> task_{};
     PriorityThreadPool &scheduler_;
   };
