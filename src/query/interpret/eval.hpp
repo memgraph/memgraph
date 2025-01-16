@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -697,6 +697,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     bool has_null_elements = false;
     bool has_value = false;
     for (const auto &element : list) {
+      property_lookup_cache_.erase(symbol.position());
       frame_->at(symbol) = element;
       auto result = all.where_->expression_->Accept(*this);
       if (!result.IsNull() && result.type() != TypedValue::Type::Bool) {
@@ -734,6 +735,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     bool predicate_satisfied = false;
     bool has_null_elements = false;
     for (const auto &element : list) {
+      property_lookup_cache_.erase(symbol.position());
       frame_->at(symbol) = element;
       auto result = single.where_->expression_->Accept(*this);
       if (!result.IsNull() && result.type() != TypedValue::Type::Bool) {
@@ -778,6 +780,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     bool has_null_elements = false;
     bool has_value = false;
     for (const auto &element : list) {
+      property_lookup_cache_.erase(symbol.position());
       frame_->at(symbol) = element;
       auto result = any.where_->expression_->Accept(*this);
       if (!result.IsNull() && result.type() != TypedValue::Type::Bool) {
@@ -815,6 +818,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     bool has_null_elements = false;
     bool has_value = false;
     for (const auto &element : list) {
+      property_lookup_cache_.erase(symbol.position());
       frame_->at(symbol) = element;
       auto result = none.where_->expression_->Accept(*this);
       if (!result.IsNull() && result.type() != TypedValue::Type::Bool) {
