@@ -17,12 +17,11 @@
 #include "kvstore/kvstore.hpp"
 #include "utils/logging.hpp"
 
-namespace memgraph::coordination {
 #ifdef MG_ENTERPRISE
+namespace memgraph::coordination {
 auto GetOrSetDefaultVersion(kvstore::KVStore &durability, std::string_view key, int const default_value,
                             LoggerWrapper logger) -> int {
-  auto maybe_version = durability.Get(key);
-  if (maybe_version.has_value()) {
+  if (auto const maybe_version = durability.Get(key); maybe_version.has_value()) {
     return std::stoi(maybe_version.value());
   }
   logger.Log(
@@ -33,5 +32,5 @@ auto GetOrSetDefaultVersion(kvstore::KVStore &durability, std::string_view key, 
   return default_value;
 }
 
-#endif
 }  // namespace memgraph::coordination
+#endif
