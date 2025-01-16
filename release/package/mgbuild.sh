@@ -309,6 +309,8 @@ build_memgraph () {
       ;;
       --disable-jemalloc)
         disable_jemalloc_flag="-DENABLE_JEMALLOC=OFF"
+        shift 1
+      ;;
       *)
         echo "Error: Unknown flag '$1'"
         print_help
