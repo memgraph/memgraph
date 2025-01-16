@@ -11,6 +11,7 @@ SUPPORTED_TOOLCHAINS=(
     v4 v5 v6
 )
 DEFAULT_OS="all"
+
 SUPPORTED_OS=(
     all
     centos-9
@@ -32,8 +33,12 @@ SUPPORTED_OS_V5=(
     rocky-9.3
     ubuntu-20.04 ubuntu-22.04 ubuntu-22.04-arm ubuntu-24.04 ubuntu-24.04-arm
 )
+
 SUPPORTED_OS_V6=(
-    ubuntu-24.04
+    centos-9
+    debian-11 debian-11-arm debian-12 debian-12-arm
+    fedora-41
+    ubuntu-22.04 ubuntu-24.04 ubuntu-24.04-arm
 )
 DEFAULT_BUILD_TYPE="Release"
 SUPPORTED_BUILD_TYPES=(
