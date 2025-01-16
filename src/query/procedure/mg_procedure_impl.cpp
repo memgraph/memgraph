@@ -3521,7 +3521,6 @@ void WrapVectorIndexInfoResult(mgp_memory *memory, mgp_map **result,
     mgp_value_destroy(dimension_value);
     mgp_value_destroy(capacity_value);
     mgp_value_destroy(size_value);
-    mgp_list_destroy(index_info);
   }
 
   mgp_value *search_results_value = nullptr;
@@ -3537,7 +3536,6 @@ void WrapVectorIndexInfoResult(mgp_memory *memory, mgp_map **result,
 
   mgp_value_destroy(error_value);
   mgp_value_destroy(search_results_value);
-  mgp_list_destroy(search_results);
 }
 
 void WrapTextSearch(mgp_graph *graph, mgp_memory *memory, mgp_map **result,
