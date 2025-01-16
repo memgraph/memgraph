@@ -123,7 +123,7 @@ class PriorityThreadPool {
   };
 
  private:
-  mutable utils::SpinLock pool_lock_;
+  mutable std::mutex pool_lock_;
   std::stop_source pool_stop_source_;
 
   std::vector<std::jthread> pool_;
