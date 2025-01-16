@@ -18,9 +18,11 @@
 #include <range/v3/view.hpp>
 
 using memgraph::coordination::CoordinatorInstanceAux;
-using memgraph::coordination::CoordinatorInstanceConfig;
 using memgraph::coordination::CoordinatorStateManager;
 using memgraph::coordination::CoordinatorStateManagerConfig;
+using memgraph::coordination::LogStoreDurability;
+using memgraph::coordination::LogStoreVersion;
+using memgraph::kvstore::KVStore;
 using nuraft::cluster_config;
 using nuraft::cs_new;
 using nuraft::ptr;
@@ -58,7 +60,10 @@ TEST_F(CoordinatorStateManagerTest, SingleCoord) {
       .bolt_port_ = 9090,
       .management_port_ = 20456,
       .coordinator_hostname = "localhost",
-      .state_manager_durability_dir_ = test_folder_ / "high_availability" / "coordination"};
+      .state_manager_durability_dir_ = test_folder_ / "high_availability" / "coordination",
+      .log_store_durability_ = LogStoreDurability{
+          .durability_store_ = std::make_shared<KVStore>(test_folder_ / "high_availability" / "logs"),
+          .stored_log_store_version_ = LogStoreVersion::kV2}};
   using memgraph::coordination::Logger;
   using memgraph::coordination::LoggerWrapper;
 
@@ -91,7 +96,10 @@ TEST_F(CoordinatorStateManagerTest, MultipleCoords) {
       .bolt_port_ = 9090,
       .management_port_ = 20345,
       .coordinator_hostname = "localhost",
-      .state_manager_durability_dir_ = test_folder_ / "high_availability" / "coordination"};
+      .state_manager_durability_dir_ = test_folder_ / "high_availability" / "coordination",
+      .log_store_durability_ = LogStoreDurability{
+          .durability_store_ = std::make_shared<KVStore>(test_folder_ / "high_availability" / "logs"),
+          .stored_log_store_version_ = LogStoreVersion::kV2}};
   using memgraph::coordination::Logger;
   using memgraph::coordination::LoggerWrapper;
 
