@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -234,33 +234,81 @@ class PropertyLookupEvaluationModeVisitor : public ExpressionVisitor<void> {
     op.expression1_->Accept(*this);
     op.expression2_->Accept(*this);
   };
-  void Visit(AdditionOperator &op) override{};
-  void Visit(SubtractionOperator &op) override{};
-  void Visit(MultiplicationOperator &op) override{};
-  void Visit(DivisionOperator &op) override{};
-  void Visit(ModOperator &op) override{};
-  void Visit(LessOperator &op) override{};
-  void Visit(GreaterOperator &op) override{};
-  void Visit(LessEqualOperator &op) override{};
-  void Visit(GreaterEqualOperator &op) override{};
+  void Visit(AdditionOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  };
+  void Visit(SubtractionOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  };
+  void Visit(MultiplicationOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  };
+  void Visit(DivisionOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  };
+  void Visit(ModOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  };
+  void Visit(LessOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  };
+  void Visit(GreaterOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  };
+  void Visit(LessEqualOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  };
+  void Visit(GreaterEqualOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  };
   void Visit(RangeOperator &op) override{};
   void Visit(SubscriptOperator &op) override{};
   void Visit(ListSlicingOperator &op) override{};
-  void Visit(IfOperator &op) override{};
+  void Visit(IfOperator &op) override {
+    op.condition_->Accept(*this);
+    op.then_expression_->Accept(*this);
+    if (op.else_expression_) {
+      op.else_expression_->Accept(*this);
+    }
+  };
   void Visit(ListLiteral &op) override{};
   void Visit(MapLiteral &op) override{};
   void Visit(MapProjectionLiteral &op) override{};
   void Visit(LabelsTest &op) override{};
-  void Visit(Aggregation &op) override{};
-  void Visit(Function &op) override{};
+  void Visit(Aggregation &op) override {
+    if (op.expression1_) {
+      op.expression1_->Accept(*this);
+    }
+    if (op.expression2_) {
+      op.expression2_->Accept(*this);
+    }
+  };
+  void Visit(Function &op) override {
+    for (auto *argument : op.arguments_) {
+      argument->Accept(*this);
+    }
+  };
   void Visit(Reduce &op) override{};
-  void Visit(Coalesce &op) override{};
-  void Visit(Extract &op) override{};
+  void Visit(Coalesce &op) override {
+    for (auto *expression : op.expressions_) {
+      expression->Accept(*this);
+    }
+  };
+  void Visit(Extract &op) override { op.expression_->Accept(*this); };
   void Visit(Exists &op) override{};
-  void Visit(All &op) override{};
-  void Visit(Single &op) override{};
-  void Visit(Any &op) override{};
-  void Visit(None &op) override{};
+  void Visit(All &op) override { op.where_->expression_->Accept(*this); };
+  void Visit(Single &op) override { op.where_->expression_->Accept(*this); };
+  void Visit(Any &op) override { op.where_->expression_->Accept(*this); };
+  void Visit(None &op) override { op.where_->expression_->Accept(*this); };
   void Visit(Identifier &op) override{};
   void Visit(PrimitiveLiteral &op) override{};
   void Visit(AllPropertiesLookup &op) override{};
@@ -315,6 +363,18 @@ inline void SetEvaluationModeOnPropertyLookups(MapLiteral &map_literal) {
   for (auto &pair : map_literal.elements_) {
     pair.second->Accept(visitor);
   }
+  visitor.assign_property_lookup_evaluations = false;
+}
+
+inline void SetEvaluationModeOnPropertyLookups(Where &where) {
+  PropertyLookupEvaluationModeVisitor visitor;
+
+  visitor.gather_property_lookup_counts = true;
+  where.expression_->Accept(visitor);
+  visitor.gather_property_lookup_counts = false;
+
+  visitor.assign_property_lookup_evaluations = true;
+  where.expression_->Accept(visitor);
   visitor.assign_property_lookup_evaluations = false;
 }
 

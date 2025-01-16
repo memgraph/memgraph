@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -308,10 +308,12 @@ bool SymbolGenerator::PreVisit(With &with) {
   return false;  // We handled the traversal ourselves.
 }
 
-bool SymbolGenerator::PreVisit(Where &) {
+bool SymbolGenerator::PreVisit(Where &where) {
   scopes_.back().in_where = true;
+  SetEvaluationModeOnPropertyLookups(where);
   return true;
 }
+
 bool SymbolGenerator::PostVisit(Where &) {
   scopes_.back().in_where = false;
   return true;
