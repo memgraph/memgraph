@@ -3556,7 +3556,7 @@ inline std::string Duration::ToString() const { return std::to_string(Microsecon
 inline Value::Value(mgp_value *ptr) : ptr_(mgp::MemHandlerCallback(value_copy, ptr)) {}
 inline Value::Value(StealType /*steal*/, mgp_value *ptr) : ptr_{ptr} {}
 inline Value::Value(RefType /*ref*/, mgp_value *ptr)
-    : ptr_(reinterpret_cast<mgp_value *>(reinterpret_cast<uintptr_t>(ptr) | static_cast<std::uintptr_t>(1))) {}
+    : ptr_(reinterpret_cast<mgp_value *>(reinterpret_cast<uintptr_t>(ptr) | uintptr_t{1})) {}
 
 inline Value::Value() : ptr_(mgp::MemHandlerCallback(value_make_null)) {}
 
@@ -3661,12 +3661,14 @@ inline Value &Value::operator=(Value &&other) noexcept {
 }
 
 inline Value::~Value() {
-  if (ptr_ != nullptr && (reinterpret_cast<uintptr_t>(ptr_) & 1) == 0) {
+  if (ptr_ != nullptr && (reinterpret_cast<uintptr_t>(ptr_) & uintptr_t{1}) == 0) {
     mgp::value_destroy(ptr_);
   }
 }
 
-inline mgp_value *Value::ptr() const { return reinterpret_cast<mgp_value *>(reinterpret_cast<uintptr_t>(ptr_) & ~1); }
+inline mgp_value *Value::ptr() const {
+  return reinterpret_cast<mgp_value *>(reinterpret_cast<uintptr_t>(ptr_) & ~uintptr_t{1});
+}
 
 inline mgp::Type Value::Type() const { return util::ToAPIType(mgp::value_get_type(this->ptr())); }
 
