@@ -3375,7 +3375,6 @@ void WrapVectorSearchResults(
     mgp_value_destroy(vertex_value);
     mgp_value_destroy(distance_value);
     mgp_value_destroy(similarity_value);
-    mgp_list_destroy(vertex_distance_similarity);
   }
 
   mgp_value *search_results_value = nullptr;
@@ -3391,7 +3390,6 @@ void WrapVectorSearchResults(
 
   mgp_value_destroy(error_value);
   mgp_value_destroy(search_results_value);
-  mgp_list_destroy(search_results);
 }
 
 void WrapVectorIndexInfoResult(mgp_memory *memory, mgp_map **result,
