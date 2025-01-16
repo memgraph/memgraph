@@ -71,6 +71,7 @@ void PriorityThreadPool::ScheduledAddTask(TaskSignature new_task, const Priority
   if (!mixed_threads_.empty()) {
     auto *thread = mixed_threads_.top();
     mixed_threads_.pop();
+    l.unlock();
     thread->push(std::move(new_task));
     return;
   }
@@ -80,6 +81,7 @@ void PriorityThreadPool::ScheduledAddTask(TaskSignature new_task, const Priority
     if (!high_priority_threads_.empty()) {
       auto *thread = high_priority_threads_.top();
       high_priority_threads_.pop();
+      l.unlock();
       thread->push(std::move(new_task));
       return;
     }
@@ -94,15 +96,19 @@ void PriorityThreadPool::ScheduledAddTask(TaskSignature new_task, const Priority
 }
 
 void PriorityThreadPool::Worker::push(TaskSignature new_task) {
-  auto l = std::unique_lock{mtx_};
-  DMG_ASSERT(!task_, "Thread already has a task");
-  task_.emplace(std::move(new_task));
+  {
+    auto l = std::unique_lock{mtx_};
+    DMG_ASSERT(!task_, "Thread already has a task");
+    task_.emplace(std::move(new_task));
+  }
   cv_.notify_one();
 }
 
 void PriorityThreadPool::Worker::stop() {
-  auto l = std::unique_lock{mtx_};
-  run_ = false;
+  {
+    auto l = std::unique_lock{mtx_};
+    run_ = false;
+  }
   cv_.notify_one();
 }
 
