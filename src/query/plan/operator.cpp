@@ -3014,12 +3014,18 @@ bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
   // nodes and edges.
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                 storage::View::OLD, context.frame_change_collector);
+
+  utils::OnScopeExit([&evaluator] { evaluator.ResetPropertyLookupCache(); });
+
   while (input_cursor_->Pull(frame, context)) {
     for (const auto &pattern_filter_cursor : pattern_filter_cursors_) {
       pattern_filter_cursor->Pull(frame, context);
     }
+
+    evaluator.ResetPropertyLookupCache();
     if (EvaluateFilter(evaluator, self_.expression_)) return true;
   }
+
   return false;
 }
 
