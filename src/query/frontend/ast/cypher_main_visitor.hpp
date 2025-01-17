@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -172,6 +172,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return TextIndexQuery*
    */
   antlrcpp::Any visitTextIndexQuery(MemgraphCypher::TextIndexQueryContext *ctx) override;
+
+  /**
+   * @return VectorIndexQuery*
+   */
+  antlrcpp::Any visitVectorIndexQuery(MemgraphCypher::VectorIndexQueryContext *ctx) override;
 
   /**
    * @return ExplainQuery*
@@ -594,6 +599,16 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return DropTextIndexQuery*
    */
   antlrcpp::Any visitDropTextIndex(MemgraphCypher::DropTextIndexContext *ctx) override;
+
+  /**
+   * @return CreateVectorIndexQuery*
+   */
+  antlrcpp::Any visitCreateVectorIndex(MemgraphCypher::CreateVectorIndexContext *ctx) override;
+
+  /**
+   * @return DropVectorIndexQuery*
+   */
+  antlrcpp::Any visitDropVectorIndex(MemgraphCypher::DropVectorIndexContext *ctx) override;
 
   /**
    * @return AuthQuery*

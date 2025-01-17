@@ -95,7 +95,7 @@ auto ReplicationInstanceClient::SendDemoteToReplicaRpc() const -> bool {
       spdlog::error("Failed to receive successful RPC response for setting instance {} to replica!", instance_name);
       return false;
     }
-    spdlog::info("Sent request RPC from coordinator to instance to set it as replica!");
+    spdlog::trace("Received successful response to DemoteMainToReplicaRpc!");
     return true;
   } catch (rpc::RpcFailedException const &) {
     spdlog::error("Failed to receive RPC response when demoting instance {} to replica!", instance_name);
@@ -113,7 +113,7 @@ auto ReplicationInstanceClient::SendRegisterReplicaRpc(utils::UUID const &uuid,
                     instance_name);
       return false;
     }
-    spdlog::trace("Sent request RPC from coordinator to register replica instance on main.");
+    spdlog::trace("Received successful response to RegisterReplicaOnMainRpc!");
     return true;
   } catch (rpc::RpcFailedException const &) {
     spdlog::error("Failed to receive RPC response when registering instance {} to replica!", instance_name);

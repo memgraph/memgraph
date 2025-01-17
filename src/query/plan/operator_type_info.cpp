@@ -9,8 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <cstdint>
-
 #include "query/plan/operator.hpp"
 
 namespace memgraph {

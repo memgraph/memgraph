@@ -9,8 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "query/frontend/ast/cypher_main_visitor.hpp"
-
 #include <algorithm>
 #include <any>
 #include <cstring>
@@ -27,6 +25,7 @@
 
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
+#include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/parsing.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/procedure/callable_alias_mapper.hpp"
@@ -353,6 +352,13 @@ antlrcpp::Any CypherMainVisitor::visitTextIndexQuery(MemgraphCypher::TextIndexQu
   return text_index_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitVectorIndexQuery(MemgraphCypher::VectorIndexQueryContext *ctx) {
+  MG_ASSERT(ctx->children.size() == 1, "VectorIndexQuery should have exactly one child!");
+  auto *vector_index_query = std::any_cast<VectorIndexQuery *>(ctx->children[0]->accept(this));
+  query_ = vector_index_query;
+  return vector_index_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitCreateIndex(MemgraphCypher::CreateIndexContext *ctx) {
   auto *index_query = storage_->Create<IndexQuery>();
   index_query->action_ = IndexQuery::Action::CREATE;
@@ -439,6 +445,23 @@ antlrcpp::Any CypherMainVisitor::visitDropTextIndex(MemgraphCypher::DropTextInde
   auto *index_query = storage_->Create<TextIndexQuery>();
   index_query->index_name_ = std::any_cast<std::string>(ctx->indexName()->accept(this));
   index_query->action_ = TextIndexQuery::Action::DROP;
+  return index_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitCreateVectorIndex(MemgraphCypher::CreateVectorIndexContext *ctx) {
+  auto *index_query = storage_->Create<VectorIndexQuery>();
+  index_query->action_ = VectorIndexQuery::Action::CREATE;
+  index_query->index_name_ = std::any_cast<std::string>(ctx->indexName()->accept(this));
+  index_query->label_ = AddLabel(std::any_cast<std::string>(ctx->labelName()->accept(this)));
+  index_query->property_ = std::any_cast<PropertyIx>(ctx->propertyKeyName()->accept(this));
+  index_query->configs_ = std::any_cast<std::unordered_map<Expression *, Expression *>>(ctx->configsMap->accept(this));
+  return index_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitDropVectorIndex(MemgraphCypher::DropVectorIndexContext *ctx) {
+  auto *index_query = storage_->Create<VectorIndexQuery>();
+  index_query->action_ = VectorIndexQuery::Action::DROP;
+  index_query->index_name_ = std::any_cast<std::string>(ctx->indexName()->accept(this));
   return index_query;
 }
 

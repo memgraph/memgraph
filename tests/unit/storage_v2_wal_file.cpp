@@ -9,26 +9,28 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <gtest/gtest.h>
-
 #include <fmt/format.h>
-
+#include <gtest/gtest.h>
 #include <algorithm>
 #include <filesystem>
-#include <string_view>
 
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/durability/exceptions.hpp"
 #include "storage/v2/durability/serialization.hpp"
+#include "storage/v2/durability/storage_global_operation.hpp"
 #include "storage/v2/durability/version.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
+#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage_test_utils.hpp"
 #include "utils/file.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/uuid.hpp"
+
+static constexpr auto kMetricKind = "l2sq";
+static constexpr auto kResizeCoefficient = 2;
 
 // This class mimics the internals of the storage to generate the deltas.
 class DeltaGenerator final {
@@ -176,7 +178,9 @@ class DeltaGenerator final {
                        const std::set<std::string, std::less<>> properties_set = {},
                        const std::vector<std::string> properties_vector = {}, const std::string &stats = {},
                        const std::string &edge_type = {}, const std::string &name = {},
-                       std::string const &enum_val = {}, std::string const &enum_type = {}) {
+                       std::string const &enum_val = {}, const std::string &enum_type = {},
+                       const std::string &vector_index_name = {}, std::uint16_t vector_dimension = 2,
+                       std::size_t vector_capacity = 100) {
     auto label_id = memgraph::storage::LabelId::FromUint(mapper_.NameToId(label));
     std::set<memgraph::storage::PropertyId> property_ids_set;
     for (const auto &property : properties_set) {
@@ -214,6 +218,16 @@ class DeltaGenerator final {
       auto result = enum_store_.ToEnum(enum_val);
       ASSERT_TRUE(result.HasValue());
       enum_id = *result;
+    }
+
+    std::optional<memgraph::storage::VectorIndexSpec> vector_index_spec;
+    if (!vector_index_name.empty()) {
+      auto first_property = *property_ids_set.begin();
+      vector_index_spec = memgraph::storage::VectorIndexSpec{
+          vector_index_name, label_id,
+          first_property,    memgraph::storage::VectorIndex::MetricFromName(kMetricKind),
+          vector_dimension,  kResizeCoefficient,
+          vector_capacity};
     }
 
     auto const apply_encode = [&](memgraph::storage::durability::StorageMetadataOperation op, auto &&encode_operation) {
@@ -285,6 +299,16 @@ class DeltaGenerator final {
         });
         break;
       }
+      case memgraph::storage::durability::StorageMetadataOperation::VECTOR_INDEX_CREATE:
+        apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
+          EncodeVectorIndexSpec(encoder, mapper_, *vector_index_spec);
+        });
+        break;
+      case memgraph::storage::durability::StorageMetadataOperation::VECTOR_INDEX_DROP:
+        apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
+          EncodeVectorIndexName(encoder, vector_index_name);
+        });
+        break;
       case memgraph::storage::durability::StorageMetadataOperation::UNIQUE_CONSTRAINT_CREATE:
       case memgraph::storage::durability::StorageMetadataOperation::UNIQUE_CONSTRAINT_DROP: {
         apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
@@ -388,6 +412,11 @@ class DeltaGenerator final {
             return {WalPointIndexCreate{label, *properties_set.begin()}};
           case POINT_INDEX_DROP:
             return {WalPointIndexDrop{label, *properties_set.begin()}};
+          case VECTOR_INDEX_CREATE:
+            return {WalVectorIndexCreate{vector_index_name, label, *properties_set.begin(), kMetricKind,
+                                         vector_dimension, kResizeCoefficient, vector_capacity}};
+          case VECTOR_INDEX_DROP:
+            return {WalVectorIndexDrop{vector_index_name}};
           case LABEL_PROPERTY_COMPOSITE_INDEX_CREATE:
             return {WalLabelPropertyCompositeIndexCreate{label, properties_vector}};
           case LABEL_PROPERTY_COMPOSITE_INDEX_DROP:
@@ -722,6 +751,8 @@ GENERATE_SIMPLE_TEST(AllGlobalOperations, {
   OPERATION_TX(UNIQUE_CONSTRAINT_DROP, "hello", {"world", "and", "universe"});
   OPERATION_TX(TYPE_CONSTRAINT_CREATE, "hello", {"world"})
   OPERATION_TX(TYPE_CONSTRAINT_DROP, "hello", {"world"});
+  OPERATION_TX(VECTOR_INDEX_CREATE, "hello", {"world"}, {}, {}, {}, {}, {}, {}, "vector_index", 2, 100);
+  OPERATION_TX(VECTOR_INDEX_DROP, {}, {}, {}, {}, {}, {}, {}, {}, "vector_index");
 });
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)

@@ -12,10 +12,6 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/data_instance_management_server.hpp"
-#include "coordination/coordinator_rpc.hpp"
-#include "replication_coordination_glue/handler.hpp"
-
-#include <spdlog/spdlog.h>
 
 namespace memgraph::coordination {
 

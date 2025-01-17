@@ -78,6 +78,7 @@
   M(ActiveLabelPropertyCompositeIndices, Index, "Number of active label property composite indices in the system.")    \
   M(ActivePointIndices, Index, "Number of active point indices in the system.")                                        \
   M(ActiveTextIndices, Index, "Number of active text indices in the system.")                                          \
+  M(ActiveVectorIndices, Index, "Number of active vector indices in the system.")                                      \
                                                                                                                        \
   M(StreamsCreated, Stream, "Number of Streams created.")                                                              \
   M(MessagesConsumed, Stream, "Number of consumed streamed messages.")                                                 \

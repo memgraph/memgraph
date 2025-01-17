@@ -101,7 +101,7 @@ struct Indices {
   std::unique_ptr<EdgeTypePropertyIndex> edge_type_property_index_;
   mutable TextIndex text_index_;
   PointIndexStorage point_index_;
-  VectorIndex vector_index_;
+  mutable VectorIndex vector_index_;
 };
 
 }  // namespace memgraph::storage

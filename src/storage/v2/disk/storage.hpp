@@ -23,10 +23,12 @@
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
+#include "utils/result.hpp"
 #include "utils/rw_lock.hpp"
 
 #include <rocksdb/db.h>
 #include <rocksdb/slice.h>
+#include <cstdint>
 #include <unordered_set>
 #include "utils/small_vector.hpp"
 
@@ -139,6 +141,11 @@ class DiskStorage final : public Storage {
       return std::nullopt;
     }
 
+    std::optional<uint64_t> ApproximateVerticesVectorCount(LabelId /*label*/, PropertyId /*property*/) const override {
+      // Vector index does not exist for on disk
+      return std::nullopt;
+    }
+
     std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId & /*label*/) const override {
       return {};
     }
@@ -240,6 +247,11 @@ class DiskStorage final : public Storage {
 
     utils::BasicResult<storage::StorageIndexDefinitionError, void> DropPointIndex(
         storage::LabelId label, storage::PropertyId property) override;
+
+    utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateVectorIndex(VectorIndexSpec spec) override;
+
+    utils::BasicResult<storage::StorageIndexDefinitionError, void> DropVectorIndex(
+        std::string_view index_name) override;
 
     utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
         LabelId label, PropertyId property) override;
