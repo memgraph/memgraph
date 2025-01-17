@@ -2998,7 +2998,6 @@ mgp_error mgp_list_all_unique_constraints(mgp_graph *graph, mgp_memory *memory, 
       if (const auto err_list = mgp_list_append_extend(*result, &value); err_list != mgp_error::MGP_ERROR_NO_ERROR) {
         throw std::logic_error("Listing all unique constraints failed due to failure of creating label+property value");
       }
-      mgp_value_destroy(&value);
     }
   });
 }
@@ -3376,7 +3375,6 @@ void WrapVectorSearchResults(
     mgp_value_destroy(vertex_value);
     mgp_value_destroy(distance_value);
     mgp_value_destroy(similarity_value);
-    mgp_list_destroy(vertex_distance_similarity);
   }
 
   mgp_value *search_results_value = nullptr;
@@ -3392,7 +3390,6 @@ void WrapVectorSearchResults(
 
   mgp_value_destroy(error_value);
   mgp_value_destroy(search_results_value);
-  mgp_list_destroy(search_results);
 }
 
 void WrapVectorIndexInfoResult(mgp_memory *memory, mgp_map **result,
@@ -3522,7 +3519,6 @@ void WrapVectorIndexInfoResult(mgp_memory *memory, mgp_map **result,
     mgp_value_destroy(dimension_value);
     mgp_value_destroy(capacity_value);
     mgp_value_destroy(size_value);
-    mgp_list_destroy(index_info);
   }
 
   mgp_value *search_results_value = nullptr;
@@ -3538,7 +3534,6 @@ void WrapVectorIndexInfoResult(mgp_memory *memory, mgp_map **result,
 
   mgp_value_destroy(error_value);
   mgp_value_destroy(search_results_value);
-  mgp_list_destroy(search_results);
 }
 
 void WrapTextSearch(mgp_graph *graph, mgp_memory *memory, mgp_map **result,
