@@ -76,16 +76,6 @@ ReturnType VertexDeletedConnectedEdges(Vertex *vertex, Edge *edge, const Transac
 
 namespace memgraph::storage {
 
-bool InMemoryEdgeTypePropertyIndex::Entry::operator<(const Entry &rhs) const {
-  return std::tie(value, edge->gid, from_vertex->gid, to_vertex->gid, timestamp) <
-         std::tie(rhs.value, rhs.edge->gid, rhs.from_vertex->gid, rhs.to_vertex->gid, rhs.timestamp);
-}
-
-bool InMemoryEdgeTypePropertyIndex::Entry::operator==(const Entry &rhs) const {
-  return std::tie(value, edge, from_vertex, to_vertex, timestamp) ==
-         std::tie(rhs.value, rhs.edge, rhs.from_vertex, rhs.to_vertex, rhs.timestamp);
-}
-
 bool InMemoryEdgeTypePropertyIndex::Entry::operator<(const PropertyValue &rhs) const { return value < rhs; }
 
 bool InMemoryEdgeTypePropertyIndex::Entry::operator==(const PropertyValue &rhs) const { return value == rhs; }

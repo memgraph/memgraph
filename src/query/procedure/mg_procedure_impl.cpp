@@ -3421,10 +3421,11 @@ void WrapVectorIndexInfoResult(mgp_memory *memory, mgp_map **result,
     throw std::logic_error("Retrieving vector search results failed during creation of a mgp_list");
   }
 
-  for (const auto &[index_name, label, property, dimension, capacity, size] : info) {
+  for (const auto &[index_name, label, property, metric, dimension, capacity, size] : info) {
     mgp_value *index_name_value = nullptr;
     mgp_value *label_value = nullptr;
     mgp_value *property_value = nullptr;
+    mgp_value *metric_value = nullptr;
     mgp_value *dimension_value = nullptr;
     mgp_value *capacity_value = nullptr;
     mgp_value *size_value = nullptr;
@@ -3439,6 +3440,11 @@ void WrapVectorIndexInfoResult(mgp_memory *memory, mgp_map **result,
     }
 
     if (const auto err = mgp_value_make_string(impl->PropertyToName(property).c_str(), memory, &property_value);
+        err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::logic_error("Retrieving vector search results failed during creation of a string mgp_value");
+    }
+
+    if (const auto err = mgp_value_make_string(metric.c_str(), memory, &metric_value);
         err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error("Retrieving vector search results failed during creation of a string mgp_value");
     }
@@ -3478,6 +3484,11 @@ void WrapVectorIndexInfoResult(mgp_memory *memory, mgp_map **result,
           "Retrieving vector search results failed during insertion of the mgp_value into the result list");
     }
 
+    if (const auto err = mgp_list_append_extend(index_info, metric_value); err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::logic_error(
+          "Retrieving vector search results failed during insertion of the mgp_value into the result list");
+    }
+
     if (const auto err = mgp_list_append_extend(index_info, dimension_value); err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error(
           "Retrieving vector search results failed during insertion of the mgp_value into the result list");
@@ -3507,6 +3518,7 @@ void WrapVectorIndexInfoResult(mgp_memory *memory, mgp_map **result,
     mgp_value_destroy(index_name_value);
     mgp_value_destroy(label_value);
     mgp_value_destroy(property_value);
+    mgp_value_destroy(metric_value);
     mgp_value_destroy(dimension_value);
     mgp_value_destroy(capacity_value);
     mgp_value_destroy(size_value);

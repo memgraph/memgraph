@@ -50,7 +50,6 @@ struct ReplicationStorageState {
 
   // Getters
   auto GetReplicaState(std::string_view name) const -> std::optional<replication::ReplicaState>;
-  auto ReplicasInfo(const Storage *storage) const -> std::vector<ReplicaInfo>;
 
   // History
   void TrackLatestHistory();

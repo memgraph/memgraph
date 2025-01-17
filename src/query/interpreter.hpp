@@ -22,6 +22,7 @@
 #include "query/auth_checker.hpp"
 #include "query/auth_query_handler.hpp"
 #include "query/context.hpp"
+#include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"

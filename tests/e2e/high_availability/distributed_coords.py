@@ -54,7 +54,7 @@ def test_name(request):
     return request.node.name
 
 
-def get_instances_description_no_setup(test_name: str, use_durability: bool = True):
+def get_instances_description_no_setup(test_name: str):
     return {
         "instance_1": {
             "args": [
@@ -103,7 +103,6 @@ def get_instances_description_no_setup(test_name: str, use_durability: bool = Tr
                 "--coordinator-id=1",
                 "--coordinator-port=10111",
                 "--management-port=10121",
-                f"--ha_durability={use_durability}",
                 "--coordinator-hostname",
                 "localhost",
             ],
@@ -119,7 +118,6 @@ def get_instances_description_no_setup(test_name: str, use_durability: bool = Tr
                 "--coordinator-id=2",
                 "--coordinator-port=10112",
                 "--management-port=10122",
-                f"--ha_durability={use_durability}",
                 "--coordinator-hostname",
                 "localhost",
             ],
@@ -135,7 +133,6 @@ def get_instances_description_no_setup(test_name: str, use_durability: bool = Tr
                 "--coordinator-id=3",
                 "--coordinator-port=10113",
                 "--management-port=10123",
-                f"--ha_durability={use_durability}",
                 "--coordinator-hostname",
                 "localhost",
             ],
@@ -158,8 +155,7 @@ def get_default_setup_queries():
     ]
 
 
-def get_instances_description_no_setup_4_coords(test_name: str, use_durability: bool = True):
-    use_durability_str = "true" if use_durability else "false"
+def get_instances_description_no_setup_4_coords(test_name: str):
     return {
         "instance_1": {
             "args": [
@@ -207,7 +203,6 @@ def get_instances_description_no_setup_4_coords(test_name: str, use_durability: 
                 "--log-level=TRACE",
                 "--coordinator-id=1",
                 "--coordinator-port=10111",
-                f"--ha_durability={use_durability_str}",
                 "--coordinator-hostname",
                 "localhost",
                 "--management-port=10121",
@@ -223,7 +218,6 @@ def get_instances_description_no_setup_4_coords(test_name: str, use_durability: 
                 "--log-level=TRACE",
                 "--coordinator-id=2",
                 "--coordinator-port=10112",
-                f"--ha_durability={use_durability_str}",
                 "--coordinator-hostname",
                 "localhost",
                 "--management-port=10122",
@@ -239,7 +233,6 @@ def get_instances_description_no_setup_4_coords(test_name: str, use_durability: 
                 "--log-level=TRACE",
                 "--coordinator-id=3",
                 "--coordinator-port=10113",
-                f"--ha_durability={use_durability_str}",
                 "--coordinator-hostname",
                 "localhost",
                 "--management-port=10123",
@@ -255,7 +248,6 @@ def get_instances_description_no_setup_4_coords(test_name: str, use_durability: 
                 "--log-level=TRACE",
                 "--coordinator-id=4",
                 "--coordinator-port=10114",
-                f"--ha_durability={use_durability_str}",
                 "--coordinator-hostname",
                 "localhost",
                 "--management-port=10124",
@@ -310,8 +302,7 @@ def test_leadership_change(test_name):
     interactive_mg_runner.start(inner_instances_description, "coordinator_3")
 
 
-@pytest.mark.parametrize("use_durability", [True, False])
-def test_even_number_coords(use_durability, test_name):
+def test_even_number_coords(test_name):
     # Goal is to check that nothing gets broken on even number of coords when 2 coords are down
     # 1. Start all instances.
     # 2. Check that all instances are up and that one of the instances is a main.
@@ -323,9 +314,7 @@ def test_even_number_coords(use_durability, test_name):
     # 8.
 
     # 1
-    inner_instances_description = get_instances_description_no_setup_4_coords(
-        test_name=test_name, use_durability=use_durability
-    )
+    inner_instances_description = get_instances_description_no_setup_4_coords(test_name=test_name)
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
@@ -2330,7 +2319,7 @@ def test_coordinator_user_action_demote_instance_to_replica(test_name):
     # 4. Check we have correct state
 
     # 1
-    inner_instances_description = get_instances_description_no_setup(test_name=test_name, use_durability=True)
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
 
     FAILOVER_PERIOD = 2
     inner_instances_description["instance_1"]["args"].append(f"--instance-down-timeout-sec={FAILOVER_PERIOD}")
@@ -2436,7 +2425,7 @@ def test_coordinator_user_action_force_reset_works(test_name):
     # 4. Check we have correct state
 
     # 1
-    inner_instances_description = get_instances_description_no_setup(test_name=test_name, use_durability=True)
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
@@ -2522,7 +2511,7 @@ def test_all_coords_down_resume(test_name):
     # 5. Check everything works correctly
 
     # 1
-    inner_instances_description = get_instances_description_no_setup(test_name=test_name, use_durability=True)
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
@@ -2630,7 +2619,7 @@ def test_one_coord_down_with_durability_resume(test_name):
     # 5. Check everything works correctly
 
     # 1
-    inner_instances_description = get_instances_description_no_setup(test_name=test_name, use_durability=True)
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
@@ -2713,7 +2702,7 @@ def test_registration_does_not_deadlock_when_instance_is_down(test_name):
     # Goal of this test is to assert that system doesn't deadlock in case of failure on registration
 
     # 1
-    inner_instances_description = get_instances_description_no_setup(test_name=test_name, use_durability=True)
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
 
     interactive_mg_runner.start(inner_instances_description, "coordinator_1")
     interactive_mg_runner.start(inner_instances_description, "coordinator_2")
@@ -2779,7 +2768,7 @@ def test_follower_have_correct_health(test_name):
     # 5. Check everything works correctly
 
     # 1
-    inner_instances_description = get_instances_description_no_setup(test_name=test_name, use_durability=True)
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 

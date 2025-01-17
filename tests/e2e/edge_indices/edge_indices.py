@@ -42,12 +42,12 @@ def test_scan_all_by_edge_type_index_plan(memgraph):
         " * ScanAllByEdgeType (n)-[r:TYPE]->(m)",
         " * Once",
     ]
-    expected_results = [1, 2, 3, 4, 5, 6, 7]
+    expected_results = {1, 2, 3, 4, 5, 6, 7}
     actual_explain = get_explain(memgraph, query)
 
     assert expected_explain == actual_explain
 
-    actual_results = [x["prop"] for x in memgraph.execute_and_fetch(query)]
+    actual_results = {x["prop"] for x in memgraph.execute_and_fetch(query)}
     assert expected_results == actual_results
 
 
@@ -61,12 +61,12 @@ def test_scan_all_by_edge_type_property_index_plan(memgraph):
         " * ScanAllByEdgeTypeProperty (n)-[r:TYPE {prop}]->(m)",
         " * Once",
     ]
-    expected_results = [1, 2, 3, 4, 5, 6, 7]
+    expected_results = {1, 2, 3, 4, 5, 6, 7}
     actual_explain = get_explain(memgraph, query)
 
     assert expected_explain == actual_explain
 
-    actual_results = [x["prop"] for x in memgraph.execute_and_fetch(query)]
+    actual_results = {x["prop"] for x in memgraph.execute_and_fetch(query)}
     assert expected_results == actual_results
 
 
@@ -80,12 +80,12 @@ def test_scan_all_by_edge_type_property_value_index_plan(memgraph):
         " * ScanAllByEdgeTypePropertyValue (n)-[r:TYPE {prop}]->(m)",
         " * Once",
     ]
-    expected_results = [2]
+    expected_results = {2}
     actual_explain = get_explain(memgraph, query)
 
     assert expected_explain == actual_explain
 
-    actual_results = [x["prop"] for x in memgraph.execute_and_fetch(query)]
+    actual_results = {x["prop"] for x in memgraph.execute_and_fetch(query)}
     assert expected_results == actual_results
 
 
@@ -99,12 +99,12 @@ def test_scan_all_by_edge_type_property_range_index_plan(memgraph):
         " * ScanAllByEdgeTypePropertyRange (n)-[r:TYPE {prop}]->(m)",
         " * Once",
     ]
-    expected_results = [2]
+    expected_results = {2}
     actual_explain = get_explain(memgraph, query)
 
     assert expected_explain == actual_explain
 
-    actual_results = [x["prop"] for x in memgraph.execute_and_fetch(query)]
+    actual_results = {x["prop"] for x in memgraph.execute_and_fetch(query)}
     assert expected_results == actual_results
 
 
@@ -123,12 +123,12 @@ def test_scan_all_by_edge_type_property_range_cartesian_index_plan(memgraph):
         " * ScanAllByEdgeTypePropertyValue (n)-[r:TYPE {prop}]->(m)",
         " * Once",
     ]
-    expected_results = [(1, 2)]
+    expected_results = {(1, 2)}
     actual_explain = get_explain(memgraph, query)
 
     assert expected_explain == actual_explain
 
-    actual_results = [(x["prop1"], x["prop2"]) for x in memgraph.execute_and_fetch(query)]
+    actual_results = {(x["prop1"], x["prop2"]) for x in memgraph.execute_and_fetch(query)}
     assert expected_results == actual_results
 
 

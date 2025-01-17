@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -854,20 +854,20 @@ TEST_F(ReplicationTest, ReplicationInformation) {
   ASSERT_TRUE(replica1.repl_state.IsReplica());
   ASSERT_TRUE(replica2.repl_state.IsReplica());
 
-  const auto replicas_info = main.db.storage()->ReplicasInfo();
-  ASSERT_EQ(replicas_info.size(), 2);
+  auto const maybe_replicas_info = main.repl_handler.ShowReplicas();
+  ASSERT_TRUE(maybe_replicas_info.HasValue());
+  auto const &replicas_info = maybe_replicas_info.GetValue();
+  ASSERT_EQ(replicas_info.entries_.size(), 2);
 
-  const auto &first_info = replicas_info[0];
-  ASSERT_EQ(first_info.name, replicas[0]);
-  ASSERT_EQ(first_info.mode, ReplicationMode::SYNC);
-  ASSERT_EQ(first_info.endpoint, (memgraph::io::network::Endpoint{local_host, replica1_port}));
-  ASSERT_EQ(first_info.state, ReplicaState::READY);
+  auto const &first_info = replicas_info.entries_[0];
+  ASSERT_EQ(first_info.name_, replicas[0]);
+  ASSERT_EQ(first_info.sync_mode_, ReplicationMode::SYNC);
+  ASSERT_EQ(first_info.socket_address_, fmt::format("{}:{}", local_host, replica1_port));
 
-  const auto &second_info = replicas_info[1];
-  ASSERT_EQ(second_info.name, replicas[1]);
-  ASSERT_EQ(second_info.mode, ReplicationMode::ASYNC);
-  ASSERT_EQ(second_info.endpoint, (memgraph::io::network::Endpoint{local_host, replica2_port}));
-  ASSERT_EQ(second_info.state, ReplicaState::READY);
+  auto const &second_info = replicas_info.entries_[1];
+  ASSERT_EQ(second_info.name_, replicas[1]);
+  ASSERT_EQ(second_info.sync_mode_, ReplicationMode::ASYNC);
+  ASSERT_EQ(second_info.socket_address_, fmt::format("{}:{}", local_host, replica2_port));
 }
 
 TEST_F(ReplicationTest, ReplicationReplicaWithExistingName) {
@@ -985,28 +985,32 @@ TEST_F(ReplicationTest, RestoringReplicationAtStartupAfterDroppingReplica) {
   });
   ASSERT_FALSE(res.HasError()) << (int)res.GetError();
 
-  auto replica_infos = main->db.storage()->ReplicasInfo();
+  {
+    auto const maybe_replicas_info = main->repl_handler.ShowReplicas();
+    ASSERT_TRUE(maybe_replicas_info.HasValue());
+    auto const &replicas_info = maybe_replicas_info.GetValue();
+    ASSERT_EQ(replicas_info.entries_.size(), 2);
 
-  ASSERT_EQ(replica_infos.size(), 2);
-  ASSERT_EQ(replica_infos[0].name, replicas[0]);
-  ASSERT_EQ(replica_infos[0].endpoint.GetResolvedIPAddress(), local_host);
-  ASSERT_EQ(replica_infos[0].endpoint.GetPort(), ports[0]);
-  ASSERT_EQ(replica_infos[1].name, replicas[1]);
-  ASSERT_EQ(replica_infos[1].endpoint.GetResolvedIPAddress(), local_host);
-  ASSERT_EQ(replica_infos[1].endpoint.GetPort(), ports[1]);
+    ASSERT_EQ(replicas_info.entries_[0].name_, replicas[0]);
+    ASSERT_EQ(replicas_info.entries_[0].socket_address_, fmt::format("{}:{}", local_host, ports[0]));
+    ASSERT_EQ(replicas_info.entries_[1].name_, replicas[1]);
+    ASSERT_EQ(replicas_info.entries_[1].socket_address_, fmt::format("{}:{}", local_host, ports[1]));
+  }
 
   main.reset();
 
-  MinMemgraph other_main(main_config);
+  {
+    MinMemgraph other_main(main_config);
+    auto const maybe_replicas_info = other_main.repl_handler.ShowReplicas();
+    ASSERT_TRUE(maybe_replicas_info.HasValue());
+    auto const &replicas_info = maybe_replicas_info.GetValue();
 
-  replica_infos = other_main.db.storage()->ReplicasInfo();
-  ASSERT_EQ(replica_infos.size(), 2);
-  ASSERT_EQ(replica_infos[0].name, replicas[0]);
-  ASSERT_EQ(replica_infos[0].endpoint.GetResolvedIPAddress(), local_host);
-  ASSERT_EQ(replica_infos[0].endpoint.GetPort(), ports[0]);
-  ASSERT_EQ(replica_infos[1].name, replicas[1]);
-  ASSERT_EQ(replica_infos[1].endpoint.GetResolvedIPAddress(), local_host);
-  ASSERT_EQ(replica_infos[1].endpoint.GetPort(), ports[1]);
+    ASSERT_EQ(replicas_info.entries_.size(), 2);
+    ASSERT_EQ(replicas_info.entries_[0].name_, replicas[0]);
+    ASSERT_EQ(replicas_info.entries_[0].socket_address_, fmt::format("{}:{}", local_host, ports[0]));
+    ASSERT_EQ(replicas_info.entries_[1].name_, replicas[1]);
+    ASSERT_EQ(replicas_info.entries_[1].socket_address_, fmt::format("{}:{}", local_host, ports[1]));
+  }
 }
 
 TEST_F(ReplicationTest, RestoringReplicationAtStartup) {
@@ -1042,35 +1046,44 @@ TEST_F(ReplicationTest, RestoringReplicationAtStartup) {
   });
   ASSERT_FALSE(res.HasError());
 
-  auto replica_infos = main->db.storage()->ReplicasInfo();
+  {
+    auto const maybe_replicas_info = main->repl_handler.ShowReplicas();
+    ASSERT_TRUE(maybe_replicas_info.HasValue());
+    auto const &replicas_info = maybe_replicas_info.GetValue();
 
-  ASSERT_EQ(replica_infos.size(), 2);
-  ASSERT_EQ(replica_infos[0].name, replicas[0]);
-  ASSERT_EQ(replica_infos[0].endpoint.GetResolvedIPAddress(), local_host);
-  ASSERT_EQ(replica_infos[0].endpoint.GetPort(), ports[0]);
-  ASSERT_EQ(replica_infos[1].name, replicas[1]);
-  ASSERT_EQ(replica_infos[1].endpoint.GetResolvedIPAddress(), local_host);
-  ASSERT_EQ(replica_infos[1].endpoint.GetPort(), ports[1]);
+    ASSERT_EQ(replicas_info.entries_.size(), 2);
+    ASSERT_EQ(replicas_info.entries_[0].name_, replicas[0]);
+    ASSERT_EQ(replicas_info.entries_[0].socket_address_, fmt::format("{}:{}", local_host, ports[0]));
+    ASSERT_EQ(replicas_info.entries_[1].name_, replicas[1]);
+    ASSERT_EQ(replicas_info.entries_[1].socket_address_, fmt::format("{}:{}", local_host, ports[1]));
+  }
 
   auto handler = main->repl_handler;
   const auto unregister_res = handler.UnregisterReplica(replicas[0]);
   ASSERT_EQ(unregister_res, UnregisterReplicaResult::SUCCESS);
 
-  replica_infos = main->db.storage()->ReplicasInfo();
-  ASSERT_EQ(replica_infos.size(), 1);
-  ASSERT_EQ(replica_infos[0].name, replicas[1]);
-  ASSERT_EQ(replica_infos[0].endpoint.GetResolvedIPAddress(), local_host);
-  ASSERT_EQ(replica_infos[0].endpoint.GetPort(), ports[1]);
+  {
+    auto const maybe_replicas_info = main->repl_handler.ShowReplicas();
+    ASSERT_TRUE(maybe_replicas_info.HasValue());
+    auto const &replicas_info = maybe_replicas_info.GetValue();
+
+    ASSERT_EQ(replicas_info.entries_.size(), 1);
+    ASSERT_EQ(replicas_info.entries_[0].name_, replicas[1]);
+    ASSERT_EQ(replicas_info.entries_[0].socket_address_, fmt::format("{}:{}", local_host, ports[1]));
+  }
 
   main.reset();
 
-  MinMemgraph other_main(main_config);
+  {
+    MinMemgraph other_main(main_config);
+    auto const maybe_replicas_info = other_main.repl_handler.ShowReplicas();
+    ASSERT_TRUE(maybe_replicas_info.HasValue());
+    auto const &replicas_info = maybe_replicas_info.GetValue();
 
-  replica_infos = other_main.db.storage()->ReplicasInfo();
-  ASSERT_EQ(replica_infos.size(), 1);
-  ASSERT_EQ(replica_infos[0].name, replicas[1]);
-  ASSERT_EQ(replica_infos[0].endpoint.GetResolvedIPAddress(), local_host);
-  ASSERT_EQ(replica_infos[0].endpoint.GetPort(), ports[1]);
+    ASSERT_EQ(replicas_info.entries_.size(), 1);
+    ASSERT_EQ(replicas_info.entries_[0].name_, replicas[1]);
+    ASSERT_EQ(replicas_info.entries_[0].socket_address_, fmt::format("{}:{}", local_host, ports[1]));
+  }
 }
 
 TEST_F(ReplicationTest, AddingInvalidReplica) {

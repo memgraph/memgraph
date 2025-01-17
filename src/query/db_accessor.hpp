@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,7 +22,7 @@
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/point_index.hpp"
-#include "storage/v2/indices/point_iterator.hpp"
+#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
 #include "storage/v2/storage.hpp"
@@ -312,19 +312,11 @@ class DbAccessor final {
 
   auto PointVertices(storage::LabelId label, storage::PropertyId property, storage::CoordinateReferenceSystem crs,
                      TypedValue const &point_value, TypedValue const &boundary_value,
-                     plan::PointDistanceCondition condition) -> PointIterable {
-    return PointIterable(accessor_->PointVertices(label, property, crs,
-                                                  static_cast<storage::PropertyValue>(point_value),
-                                                  static_cast<storage::PropertyValue>(boundary_value), condition));
-  }
+                     plan::PointDistanceCondition condition) -> PointIterable;
 
   auto PointVertices(storage::LabelId label, storage::PropertyId property, storage::CoordinateReferenceSystem crs,
                      TypedValue const &bottom_left, TypedValue const &top_right, plan::WithinBBoxCondition condition)
-      -> PointIterable {
-    return PointIterable(accessor_->PointVertices(label, property, crs,
-                                                  static_cast<storage::PropertyValue>(bottom_left),
-                                                  static_cast<storage::PropertyValue>(top_right), condition));
-  }
+      -> PointIterable;
 
   EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type) {
     return EdgesIterable(accessor_->Edges(edge_type, view));
@@ -563,6 +555,10 @@ class DbAccessor final {
     return accessor_->ApproximateVerticesPointCount(label, property);
   }
 
+  std::optional<uint64_t> VerticesVectorCount(storage::LabelId label, storage::PropertyId property) const {
+    return accessor_->ApproximateVerticesVectorCount(label, property);
+  }
+
   int64_t VerticesCount(storage::LabelId label, storage::PropertyId property,
                         const storage::PropertyValue &value) const {
     return accessor_->ApproximateVertexCount(label, property, value);
@@ -656,8 +652,13 @@ class DbAccessor final {
 
   void DropTextIndex(const std::string &index_name) { accessor_->DropTextIndex(index_name); }
 
-  // not used at the moment since we are creating vector index directly via storage accessor
-  void CreateVectorIndex(const storage::VectorIndexSpec &spec) { accessor_->CreateVectorIndex(spec); }
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateVectorIndex(storage::VectorIndexSpec spec) {
+    return accessor_->CreateVectorIndex(std::move(spec));
+  }
+
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> DropVectorIndex(std::string_view index_name) {
+    return accessor_->DropVectorIndex(index_name);
+  }
 
   utils::BasicResult<storage::StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
       storage::LabelId label, storage::PropertyId property) {

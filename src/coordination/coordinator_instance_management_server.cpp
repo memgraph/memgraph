@@ -10,9 +10,7 @@
 // licenses/APL.txt.
 
 #include "coordination/coordinator_instance_management_server.hpp"
-#include "replication_coordination_glue/handler.hpp"
 
-#include <spdlog/spdlog.h>
 #ifdef MG_ENTERPRISE
 namespace memgraph::coordination {
 

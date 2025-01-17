@@ -27,8 +27,8 @@
 #include "query/procedure/mg_procedure_helpers.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "storage/v2/storage_mode.hpp"
+#include "utils/concepts.hpp"
 #include "utils/on_scope_exit.hpp"
-#include "utils/pmr/vector.hpp"
 
 namespace memgraph::query::procedure {
 

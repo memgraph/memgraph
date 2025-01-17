@@ -107,11 +107,10 @@ void SystemRestore(replication::ReplicationClient &client, system::System &syste
 #endif
 
 /// A handler type that keep in sync current ReplicationState and the MAIN/REPLICA-ness of Storage
-struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
+struct ReplicationHandler : public query::ReplicationQueryHandler {
 #ifdef MG_ENTERPRISE
-  explicit ReplicationHandler(memgraph::replication::ReplicationState &repl_state,
-                              memgraph::dbms::DbmsHandler &dbms_handler, memgraph::system::System &system,
-                              memgraph::auth::SynchedAuth &auth);
+  explicit ReplicationHandler(ReplicationState &repl_state, memgraph::dbms::DbmsHandler &dbms_handler,
+                              memgraph::system::System &system, memgraph::auth::SynchedAuth &auth);
 #else
   explicit ReplicationHandler(memgraph::replication::ReplicationState &repl_state,
                               memgraph::dbms::DbmsHandler &dbms_handler);
@@ -145,19 +144,18 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
   bool IsMain() const override;
   bool IsReplica() const override;
 
-  auto ShowReplicas() const
-      -> utils::BasicResult<memgraph::query::ShowReplicaError, memgraph::query::ReplicasInfos> override;
+  auto ShowReplicas() const -> utils::BasicResult<query::ShowReplicaError, query::ReplicasInfos> override;
 
   auto GetReplState() const -> const memgraph::replication::ReplicationState &;
   auto GetReplState() -> memgraph::replication::ReplicationState &;
 
-  auto GetReplicaUUID() -> std::optional<utils::UUID>;
-  auto GetMainUUID() -> utils::UUID;
+  auto GetReplicaUUID() const -> std::optional<utils::UUID>;
+  auto GetMainUUID() const -> utils::UUID;
 
-  auto GetDatabasesHistories() -> replication_coordination_glue::DatabaseHistories;
+  auto GetDatabasesHistories() const -> replication_coordination_glue::DatabaseHistories;
 
  private:
-  void ClientsShutdown() {
+  void ClientsShutdown() const {
     spdlog::trace("Shutting down instance level clients.");
 
     auto &repl_clients = std::get<RoleMainData>(repl_state_.ReplicationData()).registered_replicas_;

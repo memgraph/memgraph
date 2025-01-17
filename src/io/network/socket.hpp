@@ -145,12 +145,16 @@ class Socket {
    * @param have_more set to true if you plan to send more data to allow the
    * kernel to buffer the data instead of immediately sending it out
    *
+   * @param timeout_ms Timeout in miliseconds for writing operation
+   *
    * @return write success status:
    *             true if write succeeded
    *             false if write failed
    */
-  bool Write(const uint8_t *data, size_t len, bool have_more = false) const;
-  bool Write(std::string_view s, bool have_more = false) const;
+
+  bool Write(const uint8_t *data, size_t len, bool have_more = false,
+             std::optional<int> timeout_ms = std::nullopt) const;
+  bool Write(std::string_view s, bool have_more = false, std::optional<int> timeout_ms = std::nullopt) const;
 
   /**
    * Read data from the socket.
@@ -178,11 +182,13 @@ class Socket {
    * be read from the socket) and returns `false` if the wait failed (the socket
    * was closed or something else bad happened).
    *
+   * @param timeout_ms Timeout in miliseconds.
+   *
    * @return wait success status:
    *             true if the wait succeeded
    *             false if the wait failed
    */
-  bool WaitForReadyRead() const;
+  bool WaitForReadyRead(std::optional<int> timeout_ms = std::nullopt) const;
 
   /**
    * Wait until the socket becomes ready for a `Write` operation.
@@ -195,11 +201,13 @@ class Socket {
    * to) and returns `false` if the wait failed (the socket was closed or
    * something else bad happened).
    *
+   * @param timeout_ms Timeout in miliseconds. Max time allowed for waiting before socket becomes writeable.
+   *
    * @return wait success status:
    *             true if the wait succeeded
    *             false if the wait failed
    */
-  bool WaitForReadyWrite() const;
+  bool WaitForReadyWrite(std::optional<int> timeout_ms = std::nullopt) const;
 
  private:
   Socket(int fd, Endpoint endpoint) : socket_(fd), endpoint_(std::move(endpoint)) {}
