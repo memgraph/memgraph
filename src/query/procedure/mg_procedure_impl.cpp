@@ -234,6 +234,8 @@ bool MgpVertexIsMutable(const mgp_vertex &vertex) { return MgpGraphIsMutable(*ve
 bool MgpEdgeIsMutable(const mgp_edge &edge) { return MgpVertexIsMutable(edge.from); }
 }  // namespace
 
+int mgp_is_enterprise_valid() { return memgraph::license::global_license_checker.IsEnterpriseValidFast(); }
+
 mgp_error mgp_alloc(mgp_memory *memory, size_t size_in_bytes, void **result) {
   return mgp_aligned_alloc(memory, size_in_bytes, alignof(std::max_align_t), result);
 }
