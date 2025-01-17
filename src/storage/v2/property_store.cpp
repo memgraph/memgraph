@@ -1908,6 +1908,51 @@ PropertyValue PropertyStore::GetProperty(PropertyId property) const {
   return WithReader(get_property);
 }
 
+std::optional<std::vector<PropertyValue>> PropertyStore::GetProperties(const std::set<PropertyId> &properties) const {
+  auto get_properties = [&](Reader &reader) -> std::optional<std::vector<PropertyValue>> {
+    std::set<uint64_t> property_ids;
+    std::transform(properties.begin(), properties.end(), std::inserter(property_ids, property_ids.end()),
+                   [](const PropertyId &id) { return id.AsUint(); });
+    uint64_t maximum_property_id = property_ids.empty() ? 0 : *property_ids.rbegin();
+
+    std::vector<PropertyValue> values;
+    values.reserve(properties.size());
+
+    while (true) {
+      PropertyValue value;
+      auto metadata = reader.ReadMetadata();
+      if (!metadata || metadata->type == Type::EMPTY) {
+        return std::nullopt;
+      }
+
+      auto property_id = reader.ReadUint(metadata->id_size);
+      if (!property_id) {
+        return std::nullopt;
+      }
+
+      // found property
+      if (property_ids.find(*property_id) != property_ids.end()) {
+        if (!DecodePropertyValue(&reader, metadata->type, metadata->payload_size, value)) {
+          return std::nullopt;
+        }
+
+        values.emplace_back(std::move(value));
+        if (values.size() == properties.size()) {
+          return values;
+        }
+      }
+
+      // Don't load the value if this isn't the expected property.
+      if (!SkipPropertyValue(&reader, metadata->type, metadata->payload_size)) {
+        return std::nullopt;
+      }
+      if (*property_id > maximum_property_id) return std::nullopt;
+    }
+    return values;
+  };
+  return WithReader(get_properties);
+}
+
 ExtendedPropertyType PropertyStore::GetExtendedPropertyType(PropertyId property) const {
   auto get_property_type = [&](Reader &reader) -> ExtendedPropertyType {
     ExtendedPropertyType type{};
@@ -1947,20 +1992,6 @@ bool PropertyStore::HasAllPropertyValues(const std::vector<PropertyValue> &prope
       property_values.begin(), property_values.end(), [&all_property_values](const PropertyValue &value) {
         return std::find(all_property_values.begin(), all_property_values.end(), value) != all_property_values.end();
       });
-}
-
-std::optional<std::vector<PropertyValue>> PropertyStore::ExtractPropertyValues(
-    const std::set<PropertyId> &properties) const {
-  std::vector<PropertyValue> value_array;
-  value_array.reserve(properties.size());
-  for (const auto &prop : properties) {
-    auto value = GetProperty(prop);
-    if (value.IsNull()) {
-      return std::nullopt;
-    }
-    value_array.emplace_back(std::move(value));
-  }
-  return value_array;
 }
 
 bool PropertyStore::IsPropertyEqual(PropertyId property, const PropertyValue &value) const {

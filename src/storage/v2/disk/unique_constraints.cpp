@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -105,7 +105,7 @@ std::optional<ConstraintViolation> DiskUniqueConstraints::Validate(
 std::optional<ConstraintViolation> DiskUniqueConstraints::TestIfVertexSatisifiesUniqueConstraint(
     const Vertex &vertex, std::vector<std::vector<PropertyValue>> &unique_storage, const LabelId &constraint_label,
     const std::set<PropertyId> &constraint_properties) const {
-  auto property_values = vertex.properties.ExtractPropertyValues(constraint_properties);
+  auto property_values = vertex.properties.GetProperties(constraint_properties);
 
   /// TODO: better naming. Is vertex unique
   if (property_values.has_value() &&
@@ -138,7 +138,7 @@ bool DiskUniqueConstraints::VertexIsUnique(const std::vector<PropertyValue> &pro
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     if (IsDifferentVertexWithSameConstraintLabel(it->key().ToString(), gid, constraint_label)) {
       if (utils::DeserializePropertiesFromUniqueConstraintStorage(it->value().ToString())
-              .ExtractPropertyValues(constraint_properties) == property_values) {
+              .GetProperties(constraint_properties) == property_values) {
         return false;
       }
     }

@@ -104,7 +104,7 @@ void InMemoryLabelPropertyCompositeIndex::UpdateOnAddLabel(LabelId added_label, 
     }
 
     auto props_values =
-        vertex_after_update->properties.ExtractPropertyValues({label_props.second.begin(), label_props.second.end()});
+        vertex_after_update->properties.GetProperties({label_props.second.begin(), label_props.second.end()});
     if (!props_values) {
       return;
     }
@@ -126,7 +126,7 @@ void InMemoryLabelPropertyCompositeIndex::UpdateOnSetProperty(PropertyId propert
 
   for (const auto &[key, storage] : it->second) {
     if (!utils::Contains(vertex->labels, key.first)) continue;
-    auto props_values = vertex->properties.ExtractPropertyValues({key.second.begin(), key.second.end()});
+    auto props_values = vertex->properties.GetProperties({key.second.begin(), key.second.end()});
     if (!props_values) {
       return;
     }

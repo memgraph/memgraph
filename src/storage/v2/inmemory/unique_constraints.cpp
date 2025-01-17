@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -270,7 +270,7 @@ void InMemoryUniqueConstraints::UpdateBeforeCommit(const Vertex *vertex, const T
     }
 
     for (auto &[props, storage] : constraint->second) {
-      auto values = vertex->properties.ExtractPropertyValues(props);
+      auto values = vertex->properties.GetProperties(props);
 
       if (!values) {
         continue;
@@ -335,7 +335,7 @@ std::optional<ConstraintViolation> InMemoryUniqueConstraints::DoValidate(
   if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
     return std::nullopt;
   }
-  auto values = vertex.properties.ExtractPropertyValues(properties);
+  auto values = vertex.properties.GetProperties(properties);
   if (!values) {
     return std::nullopt;
   }
@@ -360,7 +360,7 @@ void InMemoryUniqueConstraints::AbortEntries(std::span<Vertex const *const> vert
       }
 
       for (auto &[props, storage] : constraint->second) {
-        auto values = vertex->properties.ExtractPropertyValues(props);
+        auto values = vertex->properties.GetProperties(props);
 
         if (!values) {
           continue;
@@ -452,7 +452,7 @@ std::optional<ConstraintViolation> InMemoryUniqueConstraints::Validate(const Ver
     }
 
     for (const auto &[properties, storage] : constraint->second) {
-      auto value_array = vertex.properties.ExtractPropertyValues(properties);
+      auto value_array = vertex.properties.GetProperties(properties);
 
       if (!value_array) {
         continue;
