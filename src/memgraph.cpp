@@ -83,6 +83,7 @@ constexpr const char *kMgPassfile = "MEMGRAPH_PASSFILE";
 constexpr const char *kMgExperimentalEnabled = "MEMGRAPH_EXPERIMENTAL_ENABLED";
 constexpr const char *kMgBoltPort = "MEMGRAPH_BOLT_PORT";
 constexpr const char *kMgHaClusterInitQueries = "MEMGRAPH_HA_CLUSTER_INIT_QUERIES";
+constexpr const char *kRaftDataDir = "/high_availability/raft_data";
 
 constexpr uint64_t kMgVmMaxMapCount = 262144;
 
@@ -530,7 +531,7 @@ int main(int argc, char **argv) {
     }
 
     if (is_valid_coordinator_instance) {
-      auto const high_availability_data_dir = FLAGS_data_directory + "/high_availability/raft_data";
+      auto const high_availability_data_dir = FLAGS_data_directory + kRaftDataDir;
       memgraph::utils::EnsureDirOrDie(high_availability_data_dir);
       coordinator_state.emplace(CoordinatorInstanceInitConfig{
           .coordinator_id = coordination_setup.coordinator_id,

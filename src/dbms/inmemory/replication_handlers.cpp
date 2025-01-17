@@ -75,7 +75,7 @@ std::optional<DatabaseAccess> GetDatabaseAccessor(dbms::DbmsHandler *dbms_handle
       return std::nullopt;
     }
     return std::optional{std::move(acc)};
-  } catch (const dbms::UnknownDatabaseException &e) {
+  } catch (const dbms::UnknownDatabaseException &) {
     spdlog::warn("No database with UUID \"{}\" on replica!", std::string{uuid});
     return std::nullopt;
   }
@@ -166,7 +166,7 @@ void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handl
   // TODO: this handler is agnostic of InMemory, move to be reused by on-disk
   if (!db_acc.has_value()) {
     spdlog::warn("No database accessor");
-    storage::replication::HeartbeatRes res{false, 0, ""};
+    storage::replication::HeartbeatRes const res{false, 0, ""};
     slk::Save(res, res_builder);
     return;
   }
@@ -263,70 +263,78 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
   slk::Load(&req, req_reader);
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
   if (!db_acc) {
-    const storage::replication::SnapshotRes res{false, 0};
+    spdlog::error("Couldn't get database accessor in snapshot handler for request uuid {}", req.uuid);
+    const storage::replication::SnapshotRes res{{}};
     slk::Save(res, res_builder);
     return;
   }
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::SnapshotReq::kType.name);
-    const storage::replication::SnapshotRes res{false, 0};
+    const storage::replication::SnapshotRes res{{}};
     slk::Save(res, res_builder);
     return;
   }
 
-  storage::replication::Decoder decoder(req_reader);
-
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
   utils::EnsureDirOrDie(storage->recovery_.snapshot_directory_);
 
+  storage::replication::Decoder decoder(req_reader);
   const auto maybe_snapshot_path = decoder.ReadFile(storage->recovery_.snapshot_directory_);
-  MG_ASSERT(maybe_snapshot_path, "Failed to load snapshot!");
+  if (!maybe_snapshot_path.has_value()) {
+    spdlog::error("Failed to load snapshot from {}", storage->recovery_.snapshot_directory_);
+    const storage::replication::SnapshotRes res{{}};
+    slk::Save(res, res_builder);
+    return;
+  }
   spdlog::info("Received snapshot saved to {}", *maybe_snapshot_path);
 
-  auto storage_guard = std::unique_lock{storage->main_lock_};
-  spdlog::trace("Clearing database since recovering from snapshot.");
+  {
+    auto storage_guard = std::lock_guard{storage->main_lock_};
+    spdlog::trace("Clearing database before recovering from snapshot.");
 
-  // Clear the database
-  storage->Clear();
+    // Clear the database
+    storage->Clear();
 
-  try {
-    spdlog::debug("Loading snapshot");
-    auto recovered_snapshot = storage::durability::LoadSnapshot(
-        *maybe_snapshot_path, &storage->vertices_, &storage->edges_, &storage->edges_metadata_,
-        &storage->repl_storage_state_.history, storage->name_id_mapper_.get(), &storage->edge_count_, storage->config_,
-        &storage->enum_store_,
-        storage->config_.salient.items.enable_schema_info ? &storage->schema_info_.Get() : nullptr);
-    spdlog::debug("Snapshot loaded successfully");
-    // If this step is present it should always be the first step of
-    // the recovery so we use the UUID we read from snapshot
-    storage->uuid().set(recovered_snapshot.snapshot_info.uuid);
-    storage->repl_storage_state_.epoch_.SetEpoch(std::move(recovered_snapshot.snapshot_info.epoch_id));
-    const auto &recovery_info = recovered_snapshot.recovery_info;
-    storage->vertex_id_ = recovery_info.next_vertex_id;
-    storage->edge_id_ = recovery_info.next_edge_id;
-    storage->timestamp_ = std::max(storage->timestamp_, recovery_info.next_timestamp);
-    storage->repl_storage_state_.last_durable_timestamp_ = recovery_info.next_timestamp - 1;
+    try {
+      spdlog::debug("Loading snapshot");
+      auto [snapshot_info, recovery_info, indices_constraints] = storage::durability::LoadSnapshot(
+          *maybe_snapshot_path, &storage->vertices_, &storage->edges_, &storage->edges_metadata_,
+          &storage->repl_storage_state_.history, storage->name_id_mapper_.get(), &storage->edge_count_,
+          storage->config_, &storage->enum_store_,
+          storage->config_.salient.items.enable_schema_info ? &storage->schema_info_.Get() : nullptr);
+      // If this step is present it should always be the first step of
+      // the recovery so we use the UUID we read from snapshot
+      storage->uuid().set(snapshot_info.uuid);
+      storage->repl_storage_state_.epoch_.SetEpoch(std::move(snapshot_info.epoch_id));
+      storage->vertex_id_ = recovery_info.next_vertex_id;
+      storage->edge_id_ = recovery_info.next_edge_id;
+      storage->timestamp_ = std::max(storage->timestamp_, recovery_info.next_timestamp);
+      storage->repl_storage_state_.last_durable_timestamp_ = recovery_info.next_timestamp - 1;
 
-    spdlog::trace("Recovering indices and constraints from snapshot.");
-    memgraph::storage::durability::RecoverIndicesAndStats(
-        recovered_snapshot.indices_constraints.indices, &storage->indices_, &storage->vertices_,
-        storage->name_id_mapper_.get(), storage->config_.salient.items.properties_on_edges);
-    memgraph::storage::durability::RecoverConstraints(recovered_snapshot.indices_constraints.constraints,
-                                                      &storage->constraints_, &storage->vertices_,
-                                                      storage->name_id_mapper_.get());
-  } catch (const storage::durability::RecoveryFailure &e) {
-    LOG_FATAL("Couldn't load the snapshot because of: {}", e.what());
+      spdlog::trace("Recovering indices and constraints from snapshot.");
+      RecoverIndicesAndStats(indices_constraints.indices, &storage->indices_, &storage->vertices_,
+                             storage->name_id_mapper_.get(), storage->config_.salient.items.properties_on_edges);
+      RecoverConstraints(indices_constraints.constraints, &storage->constraints_, &storage->vertices_,
+                         storage->name_id_mapper_.get());
+    } catch (const storage::durability::RecoveryFailure &e) {
+      spdlog::error("Couldn't load the snapshot from {} because of: {}. Storage will be cleared.", *maybe_snapshot_path,
+                    e.what());
+      storage->Clear();
+      const storage::replication::SnapshotRes res{{}};
+      Save(res, res_builder);
+      return;
+    }
   }
-  storage_guard.unlock();
+  spdlog::debug("Snapshot from {} loaded successfully.", *maybe_snapshot_path);
 
-  const storage::replication::SnapshotRes res{true, storage->repl_storage_state_.last_durable_timestamp_.load()};
+  const storage::replication::SnapshotRes res{storage->repl_storage_state_.last_durable_timestamp_.load()};
   slk::Save(res, res_builder);
 
   spdlog::trace("Deleting old snapshot files due to snapshot recovery.");
 
   auto uuid_str = std::string{storage->uuid()};
   // Delete other durability files
-  auto snapshot_files = storage::durability::GetSnapshotFiles(storage->recovery_.snapshot_directory_, uuid_str);
+  auto const snapshot_files = storage::durability::GetSnapshotFiles(storage->recovery_.snapshot_directory_, uuid_str);
   for (const auto &[path, uuid, _] : snapshot_files) {
     if (path != *maybe_snapshot_path) {
       spdlog::trace("Deleting snapshot file {}", path);
@@ -335,8 +343,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
   }
 
   spdlog::trace("Deleting old WAL files due to snapshot recovery.");
-  auto wal_files = storage::durability::GetWalFiles(storage->recovery_.wal_directory_, uuid_str);
-  if (wal_files) {
+  if (auto wal_files = storage::durability::GetWalFiles(storage->recovery_.wal_directory_, uuid_str)) {
     for (const auto &wal_file : *wal_files) {
       spdlog::trace("Deleting WAL file {}", wal_file.path);
       storage->file_retainer_.DeleteFile(wal_file.path);
@@ -365,8 +372,6 @@ void InMemoryReplicationHandlers::ForceResetStorageHandler(dbms::DbmsHandler *db
     return;
   }
 
-  storage::replication::Decoder decoder(req_reader);
-
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
 
   auto storage_guard = std::unique_lock{storage->main_lock_};
@@ -389,8 +394,7 @@ void InMemoryReplicationHandlers::ForceResetStorageHandler(dbms::DbmsHandler *db
   }
 
   spdlog::trace("Deleting old WAL files.");
-  auto wal_files = storage::durability::GetWalFiles(storage->recovery_.wal_directory_, uuid_str);
-  if (wal_files) {
+  if (auto wal_files = storage::durability::GetWalFiles(storage->recovery_.wal_directory_, uuid_str)) {
     for (const auto &wal_file : *wal_files) {
       spdlog::trace("Deleting WAL file {}", wal_file.path);
       storage->file_retainer_.DeleteFile(wal_file.path);
@@ -407,13 +411,13 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
   slk::Load(&req, req_reader);
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
   if (!db_acc) {
-    const storage::replication::WalFilesRes res{false, 0};
+    const storage::replication::WalFilesRes res{{}};
     slk::Save(res, res_builder);
     return;
   }
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::WalFilesReq::kType.name);
-    const storage::replication::WalFilesRes res{false, 0};
+    const storage::replication::WalFilesRes res{{}};
     slk::Save(res, res_builder);
     return;
   }
@@ -426,18 +430,23 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
   utils::EnsureDirOrDie(storage->recovery_.wal_directory_);
 
+  bool all_wal_files_loaded{true};
   for (auto i = 0; i < wal_file_number; ++i) {
     if (!LoadWal(storage, &decoder)) {
-      const storage::replication::WalFilesRes res{false, storage->repl_storage_state_.last_durable_timestamp_.load()};
-      slk::Save(res, res_builder);
-      spdlog::debug("Replication recovery from WAL files didn't end successfully, returning response...");
-      return;
+      all_wal_files_loaded = false;
+      break;
     }
   }
 
-  const storage::replication::WalFilesRes res{true, storage->repl_storage_state_.last_durable_timestamp_.load()};
+  // Even if not all WAL files are loaded we still want to be able to save partial result
+  if (!all_wal_files_loaded) {
+    spdlog::debug("Replication recovery from WAL files partially succeeded.");
+  } else {
+    spdlog::debug("Replication recovery from WAL files completely succeeded.");
+  }
+
+  const storage::replication::WalFilesRes res{storage->repl_storage_state_.last_durable_timestamp_.load()};
   slk::Save(res, res_builder);
-  spdlog::debug("Replication recovery from WAL files ended successfully, replica is now up to date!");
 }
 
 void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_handler,
@@ -447,14 +456,14 @@ void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_hand
   slk::Load(&req, req_reader);
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
   if (!db_acc) {
-    const storage::replication::CurrentWalRes res{0};
+    const storage::replication::CurrentWalRes res{{}};
     slk::Save(res, res_builder);
     return;
   }
 
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::CurrentWalReq::kType.name);
-    const storage::replication::CurrentWalRes res{0};
+    const storage::replication::CurrentWalRes res{{}};
     slk::Save(res, res_builder);
     return;
   }
@@ -465,7 +474,7 @@ void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_hand
   utils::EnsureDirOrDie(storage->recovery_.wal_directory_);
 
   // Even if loading wal file failed, we return last_durable_timestamp which is used on MAIN's side to figure out
-  // whether the replication ended successfully or not.
+  // on the main side the current replica commit.
   if (!LoadWal(storage, &decoder)) {
     spdlog::debug(
         "Replication recovery from current WAL didn't end successfully. Non-fatal error, main should try to recover "
@@ -499,8 +508,7 @@ bool InMemoryReplicationHandlers::LoadWal(storage::InMemoryStorage *storage, sto
       return true;
     }
 
-    auto &replica_epoch = storage->repl_storage_state_.epoch_;
-    if (wal_info.epoch_id != replica_epoch.id()) {
+    if (auto &replica_epoch = storage->repl_storage_state_.epoch_; wal_info.epoch_id != replica_epoch.id()) {
       // questionable behaviour, we trust that any change in epoch implies change in who is MAIN
       // when we use high availability, this assumption need to be checked.
       spdlog::trace("Set epoch id to {} while loading wal file {}.", wal_info.epoch_id, *maybe_wal_path);
@@ -577,9 +585,10 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
   constexpr bool kSharedAccess = false;
 
   std::optional<std::pair<uint64_t, storage::InMemoryStorage::ReplicationAccessor>> commit_timestamp_and_accessor;
-  auto const get_replication_accessor =
-      [storage, &commit_timestamp_and_accessor](
-          uint64_t commit_timestamp, bool unique = kSharedAccess) -> storage::InMemoryStorage::ReplicationAccessor * {
+  auto const get_replication_accessor = [storage, &commit_timestamp_and_accessor](
+                                            uint64_t commit_timestamp,
+                                            bool const unique =
+                                                kSharedAccess) -> storage::InMemoryStorage::ReplicationAccessor * {
     if (!commit_timestamp_and_accessor) {
       std::unique_ptr<storage::Storage::Accessor> acc = nullptr;
       if (unique) {
@@ -587,7 +596,7 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
       } else {
         acc = storage->Access();
       }
-      auto inmem_acc = std::unique_ptr<storage::InMemoryStorage::InMemoryAccessor>(
+      auto const inmem_acc = std::unique_ptr<storage::InMemoryStorage::InMemoryAccessor>(
           static_cast<storage::InMemoryStorage::InMemoryAccessor *>(acc.release()));
       commit_timestamp_and_accessor.emplace(commit_timestamp, std::move(*inmem_acc));
     } else if (commit_timestamp_and_accessor->first != commit_timestamp) {
@@ -924,9 +933,12 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
                                         data.property);
           }
         },
-        [&](WalTextIndexCreate const
-                &) { /* NOTE: Text search doesn’t have replication in scope yet (Phases 1 and 2)*/ },
-        [&](WalTextIndexDrop const &) { /* NOTE: Text search doesn’t have replication in scope yet (Phases 1 and 2)*/ },
+        [&](WalTextIndexCreate const &) {
+          /* NOTE: Text search doesn’t have replication in scope yet (Phases 1 and 2)*/
+        },
+        [&](WalTextIndexDrop const &) {
+          /* NOTE: Text search doesn’t have replication in scope yet (Phases 1 and 2)*/
+        },
         [&](WalExistenceConstraintCreate const &data) {
           spdlog::trace("       Create existence constraint on :{} ({})", data.label, data.property);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);

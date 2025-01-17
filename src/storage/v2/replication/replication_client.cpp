@@ -31,6 +31,7 @@ template <typename>
 
 using memgraph::storage::replication::ReplicaState;
 using namespace std::string_view_literals;
+
 constexpr auto StateToString(ReplicaState const &replica_state) -> std::string_view {
   switch (replica_state) {
     case ReplicaState::MAYBE_BEHIND:
@@ -131,8 +132,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
       return;
     }
     client_.thread_pool_.AddTask([storage, gk = std::move(db_acc), this] {
-      const auto [success, timestamp] = this->ForceResetStorage(storage);
-      if (success) {
+      if (const auto [success, timestamp] = this->ForceResetStorage(storage); success) {
         spdlog::info("Successfully reset storage of REPLICA {} to timestamp {}.", client_.name_, timestamp);
         return;
       }
@@ -156,10 +156,10 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
     // ldt can be larger on replica due to snapshots
     if (replica.current_commit_timestamp >= replStorageState.last_durable_timestamp_.load(std::memory_order_acquire)) {
       spdlog::debug("Replica '{}' up to date.", client_.name_);
-      state = replication::ReplicaState::READY;
+      state = ReplicaState::READY;
     } else {
       spdlog::debug("Replica '{}' is behind.", client_.name_);
-      state = replication::ReplicaState::RECOVERY;
+      state = ReplicaState::RECOVERY;
       client_.thread_pool_.AddTask([storage, current_commit_timestamp = replica.current_commit_timestamp,
                                     gk = std::move(db_acc),
                                     this] { this->RecoverReplica(current_commit_timestamp, storage); });
@@ -223,10 +223,11 @@ auto ReplicationStorageClient::StartTransactionReplication(const uint64_t curren
                 StateToString(*locked_state));
   switch (*locked_state) {
     using enum replication::ReplicaState;
-    case RECOVERY:
+    case RECOVERY: {
       spdlog::debug("Replica {} is behind MAIN instance", client_.name_);
       return std::nullopt;
-    case REPLICATING:
+    }
+    case REPLICATING: {
       spdlog::debug("Replica {} missed a transaction", client_.name_);
       // We missed a transaction because we're still replicating
       // the previous transaction so we need to go to RECOVERY
@@ -240,15 +241,18 @@ auto ReplicationStorageClient::StartTransactionReplication(const uint64_t curren
       // missed.
       *locked_state = RECOVERY;
       return std::nullopt;
-    case MAYBE_BEHIND:
+    }
+    case MAYBE_BEHIND: {
       spdlog::error(
           utils::MessageWithLink("Couldn't replicate data to {}.", client_.name_, "https://memgr.ph/replication"));
       TryCheckReplicaStateAsync(storage, std::move(db_acc));
       return std::nullopt;
-    case DIVERGED_FROM_MAIN:
+    }
+    case DIVERGED_FROM_MAIN: {
       spdlog::error(utils::MessageWithLink("Couldn't replicate data to {} since replica has diverged from main.",
                                            client_.name_, "https://memgr.ph/replication"));
       return std::nullopt;
+    }
     case READY: {
       auto replica_stream = std::optional<ReplicaStream>{};
       try {
@@ -260,6 +264,8 @@ auto ReplicationStorageClient::StartTransactionReplication(const uint64_t curren
       }
       return replica_stream;
     }
+    default:
+      MG_ASSERT(false, "Unknown replica state when starting transaction replication.");
   }
 }
 
@@ -297,20 +303,20 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(Storage *storage, 
             // When async replica executes this part of the code, the state could've changes since the check
             // at the beginning of the function happened.
             if (!response.success || state == replication::ReplicaState::RECOVERY) {
-              state = replication::ReplicaState::RECOVERY;
+              state = ReplicaState::RECOVERY;
               // NOLINTNEXTLINE
               client_.thread_pool_.AddTask([storage, response, db_acc = std::move(db_acc), this] {
                 this->RecoverReplica(response.current_commit_timestamp, storage);
               });
               return false;
             }
-            state = replication::ReplicaState::READY;
+            state = ReplicaState::READY;
             return true;
           });
     } catch (const rpc::RpcFailedException &) {
       replica_state_.WithLock([&replica_stream_obj](auto &state) {
         replica_stream_obj.reset();
-        state = replication::ReplicaState::MAYBE_BEHIND;
+        state = ReplicaState::MAYBE_BEHIND;
       });
       LogRpcFailure();
       return false;
@@ -335,37 +341,71 @@ void ReplicationStorageClient::Start(Storage *storage, DatabaseAccessProtector d
   TryCheckReplicaStateSync(storage, std::move(db_acc));
 }
 
-void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, memgraph::storage::Storage *storage) const {
+void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, Storage *storage) const {
   if (storage->storage_mode_ != StorageMode::IN_MEMORY_TRANSACTIONAL) {
     throw utils::BasicException("Only InMemoryTransactional mode supports replication!");
   }
   spdlog::debug("Starting replica {} recovery ", client_.name_);
   auto *mem_storage = static_cast<InMemoryStorage *>(storage);
 
+  // TODO: (andi) Don't like this while loop because it is blocking the queue
+  rpc::Client &rpcClient = client_.rpc_client_;
+  bool recovery_failed{false};
   while (true) {
+    if (recovery_failed) {
+      return;
+    }
     auto file_locker = mem_storage->file_retainer_.AddLocker();
 
     const auto steps = GetRecoverySteps(replica_commit, &file_locker, mem_storage);
-    int i = 0;
-    for (const RecoveryStep &recovery_step : steps) {
-      spdlog::trace("Recovering in step: {}", i++);
+    for (auto const &[step_index, recovery_step] : ranges::views::enumerate(steps)) {
+      // If recovery failed, set the state to MAYBE_BEHIND because replica for sure didn't recovery completely
+      if (recovery_failed) {
+        spdlog::debug("One of recovery steps failed, setting replica state to MAYBE_BEHIND");
+        replica_state_.WithLock([](auto &val) { val = ReplicaState::MAYBE_BEHIND; });
+        return;
+      }
       try {
-        rpc::Client &rpcClient = client_.rpc_client_;
+        spdlog::trace("Recovering in step: {}", step_index);
         std::visit(
             utils::Overloaded{
-                [this, &replica_commit, mem_storage, &rpcClient,
+                [this, &replica_commit, mem_storage, &rpcClient, &recovery_failed,
                  main_uuid = main_uuid_](RecoverySnapshot const &snapshot) {
                   spdlog::debug("Sending the latest snapshot file: {} to {}", snapshot, client_.name_);
-                  auto response = TransferSnapshot(main_uuid, mem_storage->uuid(), rpcClient, snapshot);
-                  replica_commit = response.current_commit_timestamp;
+                  if (auto const response = TransferSnapshot(main_uuid, mem_storage->uuid(), rpcClient, snapshot);
+                      response.current_commit_timestamp) {
+                    replica_commit = *response.current_commit_timestamp;
+                    spdlog::debug(
+                        "Successful reply to the snapshot file {} received from {}. Current replica commit is {}",
+                        snapshot, client_.name_, replica_commit);
+                  } else {
+                    spdlog::debug(
+                        "Unsuccessful reply to the snapshot file {} received from {}. Current replica commit is {}",
+                        snapshot, client_.name_, replica_commit);
+                    recovery_failed = true;
+                  }
                 },
-                [this, &replica_commit, mem_storage, &rpcClient, main_uuid = main_uuid_](RecoveryWals const &wals) {
+                [this, &replica_commit, mem_storage, &rpcClient, &recovery_failed,
+                 main_uuid = main_uuid_](RecoveryWals const &wals) {
                   spdlog::debug("Sending the latest wal files to {}", client_.name_);
-                  auto response = TransferWalFiles(main_uuid, mem_storage->uuid(), rpcClient, wals);
-                  replica_commit = response.current_commit_timestamp;
-                  spdlog::debug("Wal files successfully transferred to {}.", client_.name_);
+
+                  if (wals.empty()) {
+                    spdlog::trace("Wal files list is empty, nothing to send");
+                    return;
+                  }
+                  spdlog::debug("Sending WAL files to {}.", client_.name_);
+                  if (auto const response = TransferWalFiles(main_uuid, mem_storage->uuid(), rpcClient, wals);
+                      response.current_commit_timestamp) {
+                    replica_commit = *response.current_commit_timestamp;
+                    spdlog::debug("Successful reply to WAL files received from {}. Current replica commit is {}",
+                                  client_.name_, replica_commit);
+                  } else {
+                    spdlog::debug("Unsuccessful reply to WAL files received from {}. Current replica commit is {}",
+                                  client_.name_, replica_commit);
+                    recovery_failed = true;
+                  }
                 },
-                [this, &replica_commit, mem_storage, &rpcClient,
+                [this, &replica_commit, mem_storage, &rpcClient, &recovery_failed,
                  main_uuid = main_uuid_](RecoveryCurrentWal const &current_wal) {
                   std::unique_lock transaction_guard(mem_storage->engine_lock_);
                   if (mem_storage->wal_file_ &&
@@ -374,15 +414,23 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, memgraph:
                     mem_storage->wal_file_->DisableFlushing();
                     transaction_guard.unlock();
                     spdlog::debug("Sending current wal file to {}", client_.name_);
-                    replica_commit = ReplicateCurrentWal(main_uuid, mem_storage, rpcClient, *mem_storage->wal_file_);
-                    spdlog::debug("Replica commit after replicating current wal: {}", replica_commit);
+                    if (auto const response =
+                            ReplicateCurrentWal(main_uuid, mem_storage, rpcClient, *mem_storage->wal_file_);
+                        response.current_commit_timestamp) {
+                      replica_commit = *response.current_commit_timestamp;
+                      spdlog::debug(
+                          "Successful reply to the current WAL received from {}. Current replica commit is {}",
+                          client_.name_, replica_commit);
+                    } else {
+                      spdlog::debug("Unsuccessful reply to WAL files received from {}. Current replica commit is {}",
+                                    client_.name_, replica_commit);
+                      recovery_failed = true;
+                    }
                   } else {
                     spdlog::debug("Cannot recover using current wal file {}", client_.name_);
                   }
                 },
-                [](auto const &in) {
-                  static_assert(always_false_v<decltype(in)>, "Missing type from variant visitor");
-                },
+                []<typename T>(T const &) { static_assert(always_false_v<T>, "Missing type from variant visitor"); },
             },
             recovery_step);
       } catch (const rpc::RpcFailedException &) {
@@ -407,7 +455,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, memgraph:
     if (last_durable_timestamp <= replica_commit) {
       replica_state_.WithLock([name = client_.name_](auto &val) {
         spdlog::info("Replica {} set to ready.", name);
-        val = replication::ReplicaState::READY;
+        val = ReplicaState::READY;
       });
       return;
     }
