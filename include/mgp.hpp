@@ -199,6 +199,7 @@ enum class AbortReason : uint8_t {
 };
 
 /// @brief Wrapper class for @ref mgp_graph.
+/// This is a Facade over the C API to provide a C++ interface
 class Graph {
  private:
   friend class Node;
@@ -258,6 +259,7 @@ class Graph {
 };
 
 /// @brief View of graph nodes; wrapper class for @ref mgp_vertices_iterator.
+/// This is a Facade over the C API to provide a C++ interface
 class Nodes {
  public:
   explicit Nodes(mgp_vertices_iterator *nodes_iterator);
@@ -274,7 +276,7 @@ class Nodes {
 
     explicit Iterator(mgp_vertices_iterator *nodes_iterator);
 
-    Iterator(const Iterator &other) noexcept;
+    Iterator(const Iterator &other);
     Iterator &operator=(const Iterator &other) = delete;
 
     ~Iterator();
@@ -306,6 +308,7 @@ class Nodes {
 /// @brief View of graph relationships.
 // NB: Necessary because of the MGP API not having a method that returns a mgp_edges_iterator over all graph
 // relationships.
+/// This is a Facade over the C API to provide a C++ interface
 class GraphRelationships {
  public:
   explicit GraphRelationships(mgp_graph *graph);
@@ -322,7 +325,7 @@ class GraphRelationships {
 
     explicit Iterator(mgp_vertices_iterator *nodes_iterator);
 
-    Iterator(const Iterator &other) noexcept;
+    Iterator(const Iterator &other);
     Iterator &operator=(const Iterator &other) = delete;
 
     ~Iterator();
@@ -352,6 +355,7 @@ class GraphRelationships {
 };
 
 /// @brief Wrapper class for @ref mgp_edges_iterator.
+/// This is a Facade over the C API to provide a C++ interface
 class Relationships {
  public:
   explicit Relationships(mgp_edges_iterator *relationships_iterator);
@@ -368,7 +372,7 @@ class Relationships {
 
     explicit Iterator(mgp_edges_iterator *relationships_iterator);
 
-    Iterator(const Iterator &other) noexcept;
+    Iterator(const Iterator &other);
     Iterator &operator=(const Iterator &other) = delete;
 
     ~Iterator();
@@ -401,10 +405,10 @@ class Labels {
  public:
   explicit Labels(mgp_vertex *node_ptr);
 
-  Labels(const Labels &other) noexcept;
+  Labels(const Labels &other);
   Labels(Labels &&other) noexcept;
 
-  Labels &operator=(const Labels &other) noexcept;
+  Labels &operator=(const Labels &other);
   Labels &operator=(Labels &&other) noexcept;
 
   ~Labels();
@@ -485,10 +489,10 @@ class List {
   /// @brief Creates a List from the given initializer_list.
   explicit List(std::initializer_list<Value> list);
 
-  List(const List &other) noexcept;
+  List(const List &other);
   List(List &&other) noexcept;
 
-  List &operator=(const List &other) noexcept;
+  List &operator=(const List &other);
   List &operator=(List &&other) noexcept;
 
   ~List();
@@ -502,6 +506,8 @@ class List {
   bool Empty() const;
 
   /// @brief Returns the value at the given `index`.
+  // TODO: this is returning a reference wrapper to the value inside
+  //       the list, problem is that we loose const correctness
   Value operator[](size_t index) const;
 
   ///@brief Same as above, but non const value
@@ -541,17 +547,9 @@ class List {
 
   /// @brief Appends the given `value` to the list. The `value` is copied.
   void Append(const Value &value);
-  /// @brief Appends the given `value` to the list.
-  /// @note Takes the ownership of `value` by moving it. The behavior of accessing `value` after performing this
-  /// operation is undefined.
-  void Append(Value &&value);
 
   /// @brief Extends the list and appends the given `value` to it. The `value` is copied.
   void AppendExtend(const Value &value);
-  /// @brief Extends the list and appends the given `value` to it.
-  /// @note Takes the ownership of `value` by moving it. The behavior of accessing `value` after performing this
-  /// operation is undefined.
-  void AppendExtend(Value &&value);
 
   // Value Pop();  // not implemented (requires mgp_list_pop in the MGP API):
 
@@ -598,10 +596,10 @@ class Map {
   /// @brief Creates a Map from the given initializer_list (map items correspond to initializer list pairs).
   Map(std::initializer_list<std::pair<std::string_view, Value>> items);
 
-  Map(const Map &other) noexcept;
+  Map(const Map &other);
   Map(Map &&other) noexcept;
 
-  Map &operator=(const Map &other) noexcept;
+  Map &operator=(const Map &other);
   Map &operator=(Map &&other) noexcept;
 
   ~Map();
@@ -616,7 +614,12 @@ class Map {
   bool Empty() const;
 
   /// @brief Returns the value at the given `key`.
+  // TODO: this is returning a reference wrapper to the value inside
+  //       the map, problem is that we loose const correctness
   Value operator[](std::string_view key) const;
+
+  /// @brief Returns the value at the given `key`.
+  Value operator[](std::string_view key);
 
   /// @brief Returns the value at the given `key`.
   Value At(std::string_view key) const;
@@ -636,7 +639,7 @@ class Map {
 
     explicit Iterator(mgp_map_items_iterator *map_items_iterator);
 
-    Iterator(const Iterator &other) noexcept;
+    Iterator(const Iterator &other);
     Iterator &operator=(const Iterator &other) = delete;
 
     ~Iterator();
@@ -662,20 +665,9 @@ class Map {
   /// @brief Inserts the given `key`-`value` pair into the map. The `value` is copied.
   void Insert(std::string_view key, const Value &value);
 
-  /// @brief Inserts the given `key`-`value` pair into the map.
-  /// @note Takes the ownership of `value` by moving it. The behavior of accessing `value` after performing this
-  /// operation is undefined.
-  void Insert(std::string_view key, Value &&value);
-
   /// @brief Updates the `key`-`value` pair in the map. If the key doesn't exist, the value gets inserted. The `value`
   /// is copied.
   void Update(std::string_view key, const Value &value);
-
-  /// @brief Updates the `key`-`value` pair in the map. If the key doesn't exist, the value gets inserted. The `value`
-  /// is copied.
-  /// @note Takes the ownership of `value` by moving it. The behavior of accessing `value` after performing this
-  /// operation is undefined.
-  void Update(std::string_view key, Value &&value);
 
   /// @brief Erases the element associated with the key from the map, if it doesn't exist does nothing.
   void Erase(std::string_view key);
@@ -713,10 +705,10 @@ class Node {
   /// @brief Creates a Node from the copy of the given @ref mgp_vertex.
   explicit Node(const mgp_vertex *const_ptr);
 
-  Node(const Node &other) noexcept;
+  Node(const Node &other);
   Node(Node &&other) noexcept;
 
-  Node &operator=(const Node &other) noexcept;
+  Node &operator=(const Node &other);
   Node &operator=(Node &&other) noexcept;
 
   ~Node();
@@ -797,10 +789,10 @@ class Relationship {
   /// @brief Creates a Relationship from the copy of the given @ref mgp_edge.
   explicit Relationship(const mgp_edge *const_ptr);
 
-  Relationship(const Relationship &other) noexcept;
+  Relationship(const Relationship &other);
   Relationship(Relationship &&other) noexcept;
 
-  Relationship &operator=(const Relationship &other) noexcept;
+  Relationship &operator=(const Relationship &other);
   Relationship &operator=(Relationship &&other) noexcept;
 
   ~Relationship();
@@ -865,10 +857,10 @@ class Path {
   /// @brief Creates a Path starting with the given `start_node`.
   explicit Path(const Node &start_node);
 
-  Path(const Path &other) noexcept;
+  Path(const Path &other);
   Path(Path &&other) noexcept;
 
-  Path &operator=(const Path &other) noexcept;
+  Path &operator=(const Path &other);
   Path &operator=(Path &&other) noexcept;
 
   ~Path();
@@ -929,10 +921,10 @@ class Date {
   /// @brief Creates a Date object with the given `year`, `month`, and `day` properties.
   Date(int year, int month, int day);
 
-  Date(const Date &other) noexcept;
+  Date(const Date &other);
   Date(Date &&other) noexcept;
 
-  Date &operator=(const Date &other) noexcept;
+  Date &operator=(const Date &other);
   Date &operator=(Date &&other) noexcept;
 
   ~Date();
@@ -987,10 +979,10 @@ class LocalTime {
   /// properties.
   LocalTime(int hour, int minute, int second, int millisecond, int microsecond);
 
-  LocalTime(const LocalTime &other) noexcept;
+  LocalTime(const LocalTime &other);
   LocalTime(LocalTime &&other) noexcept;
 
-  LocalTime &operator=(const LocalTime &other) noexcept;
+  LocalTime &operator=(const LocalTime &other);
   LocalTime &operator=(LocalTime &&other) noexcept;
 
   ~LocalTime();
@@ -1049,10 +1041,10 @@ class LocalDateTime {
   /// `millisecond`, and `microsecond` properties.
   LocalDateTime(int year, int month, int day, int hour, int minute, int second, int millisecond, int microsecond);
 
-  LocalDateTime(const LocalDateTime &other) noexcept;
+  LocalDateTime(const LocalDateTime &other);
   LocalDateTime(LocalDateTime &&other) noexcept;
 
-  LocalDateTime &operator=(const LocalDateTime &other) noexcept;
+  LocalDateTime &operator=(const LocalDateTime &other);
   LocalDateTime &operator=(LocalDateTime &&other) noexcept;
 
   ~LocalDateTime();
@@ -1123,10 +1115,10 @@ class Duration {
   /// `microsecond` properties.
   Duration(double day, double hour, double minute, double second, double millisecond, double microsecond);
 
-  Duration(const Duration &other) noexcept;
+  Duration(const Duration &other);
   Duration(Duration &&other) noexcept;
 
-  Duration &operator=(const Duration &other) noexcept;
+  Duration &operator=(const Duration &other);
   Duration &operator=(Duration &&other) noexcept;
 
   ~Duration();
@@ -1258,11 +1250,13 @@ class Value {
   /// @note The behavior of accessing `duration` after performing this operation is undefined.
   explicit Value(Duration &&duration);
 
-  Value(const Value &other) noexcept;
+  Value(const Value &other);
   Value(Value &&other) noexcept;
 
-  Value &operator=(const Value &other) noexcept;
+  Value &operator=(const Value &other);
   Value &operator=(Value &&other) noexcept;
+
+  bool IsRef() const;
 
   ~Value();
 
@@ -1435,6 +1429,7 @@ class RecordFactory {
 };
 
 /// @brief Function result class
+/// This is a Facade over the C API to provide a C++ interface
 class Result {
  public:
   explicit Result(mgp_func_result *result);
@@ -1453,8 +1448,12 @@ class Result {
   inline void SetValue(const char *value);
   /// @brief Sets a @ref List value to be returned.
   inline void SetValue(const List &list);
+  /// @brief Sets a @ref List value to be returned.
+  inline void SetValue(List &&list);
   /// @brief Sets a @ref Map value to be returned.
   inline void SetValue(const Map &map);
+  /// @brief Sets a @ref Map value to be returned.
+  inline void SetValue(Map &&map);
   /// @brief Sets a @ref Node value to be returned.
   inline void SetValue(const Node &node);
   /// @brief Sets a @ref Relationship value to be returned.
@@ -2135,7 +2134,7 @@ inline Nodes::Iterator::Iterator(mgp_vertices_iterator *nodes_iterator) : nodes_
   }
 }
 
-inline Nodes::Iterator::Iterator(const Iterator &other) noexcept : Iterator(other.nodes_iterator_) {}
+inline Nodes::Iterator::Iterator(const Iterator &other) : Iterator(other.nodes_iterator_) {}
 
 inline Nodes::Iterator::~Iterator() {
   if (nodes_iterator_ != nullptr) {
@@ -2226,7 +2225,7 @@ inline GraphRelationships::Iterator::Iterator(mgp_vertices_iterator *nodes_itera
   }
 }
 
-inline GraphRelationships::Iterator::Iterator(const Iterator &other) noexcept : Iterator(other.nodes_iterator_) {}
+inline GraphRelationships::Iterator::Iterator(const Iterator &other) : Iterator(other.nodes_iterator_) {}
 
 inline GraphRelationships::Iterator::~Iterator() {
   if (nodes_iterator_ != nullptr) {
@@ -2337,7 +2336,7 @@ inline Relationships::Iterator::Iterator(mgp_edges_iterator *relationships_itera
   }
 }
 
-inline Relationships::Iterator::Iterator(const Iterator &other) noexcept : Iterator(other.relationships_iterator_) {}
+inline Relationships::Iterator::Iterator(const Iterator &other) : Iterator(other.relationships_iterator_) {}
 
 inline Relationships::Iterator::~Iterator() {
   if (relationships_iterator_ != nullptr) {
@@ -2400,11 +2399,11 @@ inline Relationships::Iterator Relationships::cend() const { return Iterator(nul
 
 inline Labels::Labels(mgp_vertex *node_ptr) : node_ptr_(mgp::MemHandlerCallback(vertex_copy, node_ptr)) {}
 
-inline Labels::Labels(const Labels &other) noexcept : Labels(other.node_ptr_) {}
+inline Labels::Labels(const Labels &other) : Labels(other.node_ptr_) {}
 
 inline Labels::Labels(Labels &&other) noexcept : node_ptr_(other.node_ptr_) { other.node_ptr_ = nullptr; }
 
-inline Labels &Labels::operator=(const Labels &other) noexcept {
+inline Labels &Labels::operator=(const Labels &other) {
   if (this != &other) {
     mgp::vertex_destroy(node_ptr_);
 
@@ -2492,11 +2491,11 @@ inline List::List(const std::initializer_list<Value> values)
   }
 }
 
-inline List::List(const List &other) noexcept : List(other.ptr_) {}
+inline List::List(const List &other) : List(other.ptr_) {}
 
 inline List::List(List &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; }
 
-inline List &List::operator=(const List &other) noexcept {
+inline List &List::operator=(const List &other) {
   if (this != &other) {
     mgp::list_destroy(ptr_);
 
@@ -2554,16 +2553,9 @@ inline List::Iterator List::cbegin() const { return Iterator(this, 0); }
 
 inline List::Iterator List::cend() const { return Iterator(this, Size()); }
 
-inline void List::Append(const Value &value) { mgp::list_append(ptr_, value.ptr_); }
+inline void List::Append(const Value &value) { mgp::list_append(ptr_, value.ptr()); }
 
-inline void List::Append(Value &&value) {
-  mgp::list_append(ptr_, value.ptr_);
-  value.ptr_ = nullptr;
-}
-
-inline void List::AppendExtend(const Value &value) { mgp::list_append_extend(ptr_, value.ptr_); }
-
-inline void List::AppendExtend(Value &&value) { mgp::list_append_extend(ptr_, value.ptr_); }
+inline void List::AppendExtend(const Value &value) { mgp::list_append_extend(ptr_, value.ptr()); }
 
 inline bool List::operator==(const List &other) const { return util::ListsEqual(ptr_, other.ptr_); }
 
@@ -2622,11 +2614,11 @@ inline Map::Map(const std::initializer_list<std::pair<std::string_view, Value>> 
   }
 }
 
-inline Map::Map(const Map &other) noexcept : Map(other.ptr_) {}
+inline Map::Map(const Map &other) : Map(other.ptr_) {}
 
 inline Map::Map(Map &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; }
 
-inline Map &Map::operator=(const Map &other) noexcept {
+inline Map &Map::operator=(const Map &other) {
   if (this != &other) {
     mgp::map_destroy(ptr_);
 
@@ -2659,6 +2651,8 @@ inline bool Map::Empty() const { return Size() == 0; }
 
 inline Value Map::operator[](std::string_view key) const { return Value(ref_type, mgp::map_at(ptr_, key.data())); }
 
+inline Value Map::operator[](std::string_view key) { return Value(ref_type, mgp::map_at(ptr_, key.data())); }
+
 inline Value Map::At(std::string_view key) const {
   auto *ptr = mgp::map_at(ptr_, key.data());
   if (ptr) {
@@ -2677,7 +2671,7 @@ inline Map::Iterator::Iterator(mgp_map_items_iterator *map_items_iterator) : map
   }
 }
 
-inline Map::Iterator::Iterator(const Iterator &other) noexcept : Iterator(other.map_items_iterator_) {}
+inline Map::Iterator::Iterator(const Iterator &other) : Iterator(other.map_items_iterator_) {}
 
 inline Map::Iterator::~Iterator() {
   if (map_items_iterator_ != nullptr) {
@@ -2737,21 +2731,9 @@ inline Map::Iterator Map::cbegin() const { return Iterator(mgp::MemHandlerCallba
 
 inline Map::Iterator Map::cend() const { return Iterator(nullptr); }
 
-inline void Map::Insert(std::string_view key, const Value &value) { mgp::map_insert(ptr_, key.data(), value.ptr_); }
+inline void Map::Insert(std::string_view key, const Value &value) { mgp::map_insert(ptr_, key.data(), value.ptr()); }
 
-inline void Map::Insert(std::string_view key, Value &&value) {
-  mgp::map_insert(ptr_, key.data(), value.ptr_);
-  value.~Value();
-  value.ptr_ = nullptr;
-}
-
-inline void Map::Update(std::string_view key, const Value &value) { mgp::map_update(ptr_, key.data(), value.ptr_); }
-
-inline void Map::Update(std::string_view key, Value &&value) {
-  mgp::map_update(ptr_, key.data(), value.ptr_);
-  value.~Value();
-  value.ptr_ = nullptr;
-}
+inline void Map::Update(std::string_view key, const Value &value) { mgp::map_update(ptr_, key.data(), value.ptr()); }
 
 inline void Map::Erase(std::string_view key) { mgp::map_erase(ptr_, key.data()); }
 
@@ -2788,11 +2770,11 @@ inline Node::Node(mgp_vertex *ptr) : ptr_(MemHandlerCallback(vertex_copy, ptr)) 
 inline Node::Node(const mgp_vertex *const_ptr)
     : ptr_(mgp::MemHandlerCallback(vertex_copy, const_cast<mgp_vertex *>(const_ptr))) {}
 
-inline Node::Node(const Node &other) noexcept : Node(other.ptr_) {}
+inline Node::Node(const Node &other) : Node(other.ptr_) {}
 
 inline Node::Node(Node &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; }
 
-inline Node &Node::operator=(const Node &other) noexcept {
+inline Node &Node::operator=(const Node &other) {
   if (this != &other) {
     mgp::vertex_destroy(ptr_);
 
@@ -2941,11 +2923,11 @@ inline Relationship::Relationship(mgp_edge *ptr) : ptr_(mgp::MemHandlerCallback(
 inline Relationship::Relationship(const mgp_edge *const_ptr)
     : ptr_(mgp::MemHandlerCallback(edge_copy, const_cast<mgp_edge *>(const_ptr))) {}
 
-inline Relationship::Relationship(const Relationship &other) noexcept : Relationship(other.ptr_) {}
+inline Relationship::Relationship(const Relationship &other) : Relationship(other.ptr_) {}
 
 inline Relationship::Relationship(Relationship &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; }
 
-inline Relationship &Relationship::operator=(const Relationship &other) noexcept {
+inline Relationship &Relationship::operator=(const Relationship &other) {
   if (this != &other) {
     mgp::edge_destroy(ptr_);
 
@@ -3048,11 +3030,11 @@ inline Path::Path(const mgp_path *const_ptr)
 
 inline Path::Path(const Node &start_node) : ptr_(mgp::MemHandlerCallback(path_make_with_start, start_node.ptr_)) {}
 
-inline Path::Path(const Path &other) noexcept : Path(other.ptr_) {}
+inline Path::Path(const Path &other) : Path(other.ptr_) {}
 
 inline Path::Path(Path &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; }
 
-inline Path &Path::operator=(const Path &other) noexcept {
+inline Path &Path::operator=(const Path &other) {
   if (this != &other) {
     mgp::path_destroy(ptr_);
 
@@ -3149,11 +3131,11 @@ inline Date::Date(int year, int month, int day) {
   ptr_ = mgp::MemHandlerCallback(date_from_parameters, &params);
 }
 
-inline Date::Date(const Date &other) noexcept : Date(other.ptr_) {}
+inline Date::Date(const Date &other) : Date(other.ptr_) {}
 
 inline Date::Date(Date &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; }
 
-inline Date &Date::operator=(const Date &other) noexcept {
+inline Date &Date::operator=(const Date &other) {
   if (this != &other) {
     mgp::date_destroy(ptr_);
 
@@ -3248,11 +3230,11 @@ inline LocalTime::LocalTime(int hour, int minute, int second, int millisecond, i
   ptr_ = mgp::MemHandlerCallback(local_time_from_parameters, &params);
 }
 
-inline LocalTime::LocalTime(const LocalTime &other) noexcept : LocalTime(other.ptr_) {}
+inline LocalTime::LocalTime(const LocalTime &other) : LocalTime(other.ptr_) {}
 
 inline LocalTime::LocalTime(LocalTime &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; };
 
-inline LocalTime &LocalTime::operator=(const LocalTime &other) noexcept {
+inline LocalTime &LocalTime::operator=(const LocalTime &other) {
   if (this != &other) {
     mgp::local_time_destroy(ptr_);
 
@@ -3359,11 +3341,11 @@ inline LocalDateTime::LocalDateTime(int year, int month, int day, int hour, int 
   ptr_ = mgp::MemHandlerCallback(local_date_time_from_parameters, &params);
 }
 
-inline LocalDateTime::LocalDateTime(const LocalDateTime &other) noexcept : LocalDateTime(other.ptr_) {}
+inline LocalDateTime::LocalDateTime(const LocalDateTime &other) : LocalDateTime(other.ptr_) {}
 
 inline LocalDateTime::LocalDateTime(LocalDateTime &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; };
 
-inline LocalDateTime &LocalDateTime::operator=(const LocalDateTime &other) noexcept {
+inline LocalDateTime &LocalDateTime::operator=(const LocalDateTime &other) {
   if (this != &other) {
     mgp::local_date_time_destroy(ptr_);
 
@@ -3480,11 +3462,11 @@ inline Duration::Duration(double day, double hour, double minute, double second,
   ptr_ = mgp::MemHandlerCallback(duration_from_parameters, &params);
 }
 
-inline Duration::Duration(const Duration &other) noexcept : Duration(other.ptr_) {}
+inline Duration::Duration(const Duration &other) : Duration(other.ptr_) {}
 
 inline Duration::Duration(Duration &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; };
 
-inline Duration &Duration::operator=(const Duration &other) noexcept {
+inline Duration &Duration::operator=(const Duration &other) {
   if (this != &other) {
     mgp::duration_destroy(ptr_);
 
@@ -3637,22 +3619,26 @@ inline Value::Value(Duration &&duration) {
   duration.ptr_ = nullptr;
 }
 
-inline Value::Value(const Value &other) noexcept : Value(other.ptr_) {}
+inline Value::Value(const Value &other) : Value(other.ptr()) {}
 
 inline Value::Value(Value &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; }
 
-inline Value &Value::operator=(const Value &other) noexcept {
+inline Value &Value::operator=(const Value &other) {
   if (this != &other) {
-    mgp::value_destroy(ptr_);
+    if (!IsRef()) {
+      mgp::value_destroy(ptr_);
+    }
 
-    ptr_ = mgp::MemHandlerCallback(value_copy, other.ptr_);
+    ptr_ = mgp::MemHandlerCallback(value_copy, other.ptr());
   }
   return *this;
 }
 
 inline Value &Value::operator=(Value &&other) noexcept {
   if (this != &other) {
-    mgp::value_destroy(ptr_);
+    if (!IsRef()) {
+      mgp::value_destroy(ptr_);
+    }
 
     ptr_ = other.ptr_;
     other.ptr_ = nullptr;
@@ -3661,10 +3647,12 @@ inline Value &Value::operator=(Value &&other) noexcept {
 }
 
 inline Value::~Value() {
-  if (ptr_ != nullptr && (reinterpret_cast<uintptr_t>(ptr_) & uintptr_t{1}) == 0) {
+  if (ptr_ != nullptr && !IsRef()) {
     mgp::value_destroy(ptr_);
   }
 }
+
+inline bool Value::IsRef() const { return reinterpret_cast<uintptr_t>(ptr_) & uintptr_t{1}; }
 
 inline mgp_value *Value::ptr() const {
   return reinterpret_cast<mgp_value *>(reinterpret_cast<uintptr_t>(ptr_) & ~uintptr_t{1});
@@ -4242,10 +4230,22 @@ inline void Result::SetValue(const List &list) {
   mgp::value_destroy(mgp_val);
 }
 
+inline void Result::SetValue(List &&list) {
+  auto *mgp_val = mgp::value_make_list(list.ptr_);
+  mgp::MemHandlerCallback(func_result_set_value, result_, mgp_val);
+  list.ptr_ = nullptr;
+}
+
 inline void Result::SetValue(const Map &map) {
   auto *mgp_val = mgp::value_make_map(mgp::MemHandlerCallback(map_copy, map.ptr_));
   { mgp::MemHandlerCallback(func_result_set_value, result_, mgp_val); }
   mgp::value_destroy(mgp_val);
+}
+
+inline void Result::SetValue(Map &&map) {
+  auto *mgp_val = mgp::value_make_map(map.ptr_);
+  mgp::MemHandlerCallback(func_result_set_value, result_, mgp_val);
+  map.ptr_ = nullptr;
 }
 
 inline void Result::SetValue(const Node &node) {
