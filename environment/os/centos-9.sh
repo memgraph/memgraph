@@ -181,13 +181,13 @@ install() {
         fi
         if [ "$pkg" == sbcl ]; then
             if ! dnf list installed cl-asdf >/dev/null 2>/dev/null; then
-                dnf install -y 	https://pkgs.dyn.su/el8/base/x86_64/cl-asdf-20101028-18.el8.noarch.rpm
+                dnf install -y http://www.nosuchhost.net/~cheese/fedora/packages/epel-9/x86_64/cl-asdf-20101028-27.el9.noarch.rpm
             fi
             if ! dnf list installed common-lisp-controller >/dev/null 2>/dev/null; then
-                dnf install -y https://pkgs.dyn.su/el8/base/x86_64/common-lisp-controller-7.4-20.el8.noarch.rpm
+                dnf install -y http://www.nosuchhost.net/~cheese/fedora/packages/epel-9/x86_64/common-lisp-controller-7.4-29.el9.noarch.rpm
             fi
             if ! dnf list installed sbcl >/dev/null 2>/dev/null; then
-                dnf install -y https://pkgs.dyn.su/el8/base/x86_64/sbcl-2.0.1-4.el8.x86_64.rpm
+                dnf install -y http://www.nosuchhost.net/~cheese/fedora/packages/epel-9/x86_64/sbcl-2.3.11-3.el9~bootstrap.x86_64.rpm
             fi
             continue
         fi
