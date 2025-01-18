@@ -13,6 +13,17 @@ services:
       - "bench-graph-api:10.42.16.10"
     container_name: "mgbuild_v6_centos-9"
 
+  mgbuild_v6_centos-10:
+    image: "memgraph/mgbuild:v6_centos-10"
+    build:
+      context: centos-10
+      args:
+        TOOLCHAIN_VERSION: "v6"
+    extra_hosts:
+      - "mgdeps-cache:10.42.16.10"
+      - "bench-graph-api:10.42.16.10"
+    container_name: "mgbuild_v6_centos-10"
+
   mgbuild_v6_debian-11:
     image: "memgraph/mgbuild:v6_debian-11"
     build:
