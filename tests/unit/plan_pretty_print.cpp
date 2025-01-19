@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -186,6 +186,101 @@ TYPED_TEST(PrintToJsonTest, ScanAllByLabelPropertyValue) {
           "output_symbol" : "node",
           "input" : { "name" : "Once" }
         })sep");
+}
+
+TYPED_TEST(PrintToJsonTest, ScanAllByLabelPropertyCompositeValue) {
+  {
+    std::shared_ptr<LogicalOperator> last_op;
+    last_op = std::make_shared<ScanAllByLabelPropertyCompositeValue>(
+        nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"),
+        std::vector<memgraph::storage::PropertyId>{this->dba.NameToProperty("prop1"),
+                                                   this->dba.NameToProperty("prop2")},
+        std::vector<std::optional<memgraph::utils::Bound<Expression *>>>{
+            memgraph::utils::MakeBoundInclusive<Expression *>(LITERAL(1)),
+            memgraph::utils::MakeBoundInclusive<Expression *>(LITERAL(1))},
+        std::vector<std::optional<memgraph::utils::Bound<Expression *>>>{
+            memgraph::utils::MakeBoundExclusive<Expression *>(LITERAL(20)),
+            memgraph::utils::MakeBoundExclusive<Expression *>(LITERAL(20))});
+
+    this->Check(last_op.get(), R"(
+        {
+          "name" : "ScanAllByLabelPropertyCompositeValue",
+          "label" : "Label",
+          "properties" : ["prop1", "prop2"],
+          "lower_bounds" : [{
+            "value" : "1",
+            "type" : "inclusive"
+          }, {
+            "value" : "1",
+            "type" : "inclusive"
+          }],
+          "upper_bounds" : [{
+            "value" : "20",
+            "type" : "exclusive"
+          }, {
+            "value" : "20",
+            "type" : "exclusive"
+          }],
+          "output_symbol" : "node",
+          "input" : { "name" : "Once" }
+        })");
+  }
+  {
+    std::shared_ptr<LogicalOperator> last_op;
+    last_op = std::make_shared<ScanAllByLabelPropertyCompositeValue>(
+        nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"),
+        std::vector<memgraph::storage::PropertyId>{this->dba.NameToProperty("prop1"),
+                                                   this->dba.NameToProperty("prop2")},
+        std::vector<std::optional<memgraph::utils::Bound<Expression *>>>{std::nullopt, std::nullopt},
+        std::vector<std::optional<memgraph::utils::Bound<Expression *>>>{
+            memgraph::utils::MakeBoundExclusive<Expression *>(LITERAL(20)),
+            memgraph::utils::MakeBoundExclusive<Expression *>(LITERAL(20))});
+
+    this->Check(last_op.get(), R"(
+        {
+          "name" : "ScanAllByLabelPropertyCompositeValue",
+          "label" : "Label",
+          "properties" : ["prop1", "prop2"],
+          "lower_bounds" : [null, null],
+          "upper_bounds" : [{
+            "value" : "20",
+            "type" : "exclusive"
+          }, {
+            "value" : "20",
+            "type" : "exclusive"
+          }],
+          "output_symbol" : "node",
+          "input" : { "name" : "Once" }
+        })");
+  }
+  {
+    std::shared_ptr<LogicalOperator> last_op;
+    last_op = std::make_shared<ScanAllByLabelPropertyCompositeValue>(
+        nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"),
+        std::vector<memgraph::storage::PropertyId>{this->dba.NameToProperty("prop1"),
+                                                   this->dba.NameToProperty("prop2")},
+        std::vector<std::optional<memgraph::utils::Bound<Expression *>>>{
+            memgraph::utils::MakeBoundInclusive<Expression *>(LITERAL(1)),
+            memgraph::utils::MakeBoundInclusive<Expression *>(LITERAL(1))},
+        std::vector<std::optional<memgraph::utils::Bound<Expression *>>>{std::nullopt, std::nullopt});
+
+    this->Check(last_op.get(), R"(
+        {
+          "name" : "ScanAllByLabelPropertyCompositeValue",
+          "label" : "Label",
+          "properties" : ["prop1", "prop2"],
+          "lower_bounds" : [{
+            "value" : "1",
+            "type" : "inclusive"
+          }, {
+            "value" : "1",
+            "type" : "inclusive"
+          }],
+          "upper_bounds" : [null, null],
+          "output_symbol" : "node",
+          "input" : { "name" : "Once" }
+        })");
+  }
 }
 
 TYPED_TEST(PrintToJsonTest, CreateNode) {
