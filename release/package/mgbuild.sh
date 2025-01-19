@@ -245,6 +245,17 @@ check_support() {
   esac
 }
 
+# Returns 0 (true) if $1 <= $2
+version_lte() {
+  # sort -V sorts them in ascending order, so the first in the sorted list is the smaller.
+  # If $1 equals the first in the list, $1 <= $2
+  [ "$1" = "$(echo -e "$1\n$2" | sort -V | head -n1)" ]
+}
+# Returns 0 (true) if $1 < $2
+version_lt() {
+  [ "$1" = "$2" ] && return 1
+  version_lte "$1" "$2"
+}
 
 ##################################################
 ######## BUILD, COPY AND PACKAGE MEMGRAPH ########
@@ -391,15 +402,13 @@ build_memgraph () {
   if [[ "$threads" == "$DEFAULT_THREADS" ]]; then
     docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& make -j$(nproc)'
     # NOTE: mgconsole comes with toolchain v6
-    # TODO(gitbuda): Make skipping mgconsole build more generic.
-    if [[ "$toolchain_version" == "v6" ]]; then
+    if version_lt "$toolchain_version" "v6"; then
       docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& make -j$(nproc) -B mgconsole'
     fi
   else
     local EXPORT_THREADS="export THREADS=$threads"
     docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $EXPORT_THREADS && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& make -j$THREADS'
-    # TODO(gitbuda): Make skipping mgconsole build more generic.
-    if [[ "$toolchain_version" == "v6" ]]; then
+    if version_lt "$toolchain_version" "v6"; then
       docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $EXPORT_THREADS && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& make -j$THREADS -B mgconsole'
     fi
   fi
