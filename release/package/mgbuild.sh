@@ -822,8 +822,7 @@ case $command in
     build)
       cd $SCRIPT_DIR
       # Default values for --git-ref, --rust-version and --node-version
-      # TODO(gitbuda): Revert GIT_REF below to master
-      git_ref_flag="--build-arg GIT_REF=add-toolchain-v6"
+      git_ref_flag="--build-arg GIT_REF=master"
       rust_version_flag="--build-arg RUST_VERSION=1.80"
       node_version_flag="--build-arg NODE_VERSION=20"
       while [[ "$#" -gt 0 ]]; do
