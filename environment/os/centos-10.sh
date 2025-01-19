@@ -18,11 +18,7 @@ TOOLCHAIN_BUILD_DEPS=(
     readline-devel # for cmake and llvm
     libffi-devel libxml2-devel # for llvm
     libedit-devel pcre2-devel automake bison # for swig
-    file
-    openssl-devel
-    gmp-devel
-    gperf
-    diffutils
+    file gmp-devel gperf diffutils
     libipt libipt-devel # intel
     patch
     custom-rust # for mgcxx

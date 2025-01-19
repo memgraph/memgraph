@@ -1314,12 +1314,18 @@ if [ ! -f $PREFIX/lib/libpulsarwithdeps.a ]; then
 fi
 
 KAFKA_TAG="v2.6.1"
+# NOTE: The lib doesn't compile because of SSL, in the future try to use the
+# same version on all operating systems this was an exception to rollout
+# toolchain-v6 on time.
+if [ "$DISTRO" == "centos-10" ]; then
+    KAFKA_TAG="v2.8.0"
+fi
 log_tool_name "kafka $KAFKA_TAG"
 if [ ! -f $PREFIX/lib/librdkafka++.a ]; then
     if [ -d kafka ]; then
         rm -rf kafka
     fi
-    git clone https://github.com/edenhill/librdkafka.git kafka
+    git clone https://github.com/confluentinc/librdkafka.git kafka
     pushd kafka
     git checkout $KAFKA_TAG
     cmake -B build $COMMON_CMAKE_FLAGS \
