@@ -14,7 +14,7 @@ DEFAULT_OS="all"
 
 SUPPORTED_OS=(
     all
-    centos-9
+    centos-9 centos-10
     debian-10 debian-11 debian-11-arm debian-12 debian-12-arm
     fedora-36 fedora-38 fedora-39 fedora-41
     rocky-9.3
@@ -35,7 +35,7 @@ SUPPORTED_OS_V5=(
 )
 
 SUPPORTED_OS_V6=(
-    centos-9
+    centos-9 centos-10
     debian-11 debian-11-arm debian-12 debian-12-arm
     fedora-41
     ubuntu-22.04 ubuntu-24.04 ubuntu-24.04-arm

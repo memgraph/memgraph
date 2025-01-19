@@ -1,6 +1,7 @@
 version: "3"
-
 services:
+  # NOTE: build > context > args are injected via mgbuild.sh script.
+
   mgbuild_v6_debian-11-arm:
     image: "memgraph/mgbuild:v6_debian-11-arm"
     build:
