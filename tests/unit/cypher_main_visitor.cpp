@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -1824,9 +1824,24 @@ TEST_P(CypherMainVisitorTest, DropIndexWithoutProperties) {
   EXPECT_THROW(ast_generator.ParseQuery("dRoP InDeX oN :mirko()"), SyntaxException);
 }
 
+TEST_P(CypherMainVisitorTest, CreateIndexWithMultipleProperties) {
+  auto &ast_generator = *GetParam();
+  auto *index_query = dynamic_cast<IndexQuery *>(ast_generator.ParseQuery("Create InDeX oN :mirko(slavko, pero)"));
+  ASSERT_TRUE(index_query);
+  EXPECT_EQ(index_query->action_, IndexQuery::Action::CREATE);
+  EXPECT_EQ(index_query->label_, ast_generator.Label("mirko"));
+  std::vector<PropertyIx> expected_properties{ast_generator.Prop("slavko"), ast_generator.Prop("pero")};
+  EXPECT_EQ(index_query->properties_, expected_properties);
+}
+
 TEST_P(CypherMainVisitorTest, DropIndexWithMultipleProperties) {
   auto &ast_generator = *GetParam();
-  EXPECT_THROW(ast_generator.ParseQuery("dRoP InDeX oN :mirko(slavko, pero)"), SyntaxException);
+  auto *index_query = dynamic_cast<IndexQuery *>(ast_generator.ParseQuery("dRoP InDeX oN :mirko(slavko, pero)"));
+  ASSERT_TRUE(index_query);
+  EXPECT_EQ(index_query->action_, IndexQuery::Action::DROP);
+  EXPECT_EQ(index_query->label_, ast_generator.Label("mirko"));
+  std::vector<PropertyIx> expected_properties{ast_generator.Prop("slavko"), ast_generator.Prop("pero")};
+  EXPECT_EQ(index_query->properties_, expected_properties);
 }
 
 TEST_P(CypherMainVisitorTest, ReturnAll) {
