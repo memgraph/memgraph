@@ -70,11 +70,13 @@ class InMemoryLabelPropertyCompositeIndex : public storage::LabelPropertyComposi
 
   IndexStats Analysis() const {
     IndexStats res{};
-    // for (const auto &[lp, _] : index_) {
-    //   const auto &[label, property] = lp;
-    //   res.l2p[label].emplace_back(property);
-    //   res.p2l[property].emplace_back(label);
-    // }
+    for (const auto &[label_properties, _] : index_) {
+      const auto &[label, properties] = label_properties;
+      for (const auto &property : properties) {
+        res.l2p[label].insert(property);
+        res.p2l[property].insert(label);
+      }
+    }
     return res;
   }
 

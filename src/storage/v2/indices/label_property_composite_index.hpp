@@ -21,8 +21,8 @@ namespace memgraph::storage {
 class LabelPropertyCompositeIndex {
  public:
   struct IndexStats {
-    std::map<LabelId, std::vector<PropertyId>> l2p;
-    std::map<PropertyId, std::vector<LabelId>> p2l;
+    std::map<LabelId, std::set<PropertyId>> l2p;
+    std::map<PropertyId, std::set<LabelId>> p2l;
   };
 
   LabelPropertyCompositeIndex() = default;

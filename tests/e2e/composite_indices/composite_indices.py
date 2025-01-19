@@ -141,7 +141,7 @@ def test_index_info_with_2_transactions(memgraph):
         execute_and_fetch_all(cursor2, "MATCH (n) SET n.prop1 = 4")
 
     index_count = list(memgraph.execute_and_fetch("SHOW INDEX INFO;"))[0]["count"]
-    assert index_count == 7
+    assert index_count == 2
 
     connection1.commit()
 

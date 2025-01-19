@@ -1100,7 +1100,13 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                   label_cleanup[current->label.value].emplace_back(vertex);
                 }
                 const auto &properties = index_stats.property_label.l2p.find(current->label.value);
-                if (properties != index_stats.property_label.l2p.end()) {
+                const bool has_property_index = properties != index_stats.property_label.l2p.end();
+
+                const auto &composite_properties = index_stats.property_label_composite.l2p.find(current->label.value);
+                const bool has_property_composite_index =
+                    composite_properties != index_stats.property_label_composite.l2p.end();
+
+                if (has_property_index || has_property_composite_index) {
                   for (const auto &property : properties->second) {
                     auto current_value = vertex->properties.GetProperty(property);
                     if (!current_value.IsNull()) {
@@ -1149,12 +1155,19 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 //  check if we care about the property, this will return all the labels and then get current property
                 //  value
                 const auto &labels = index_stats.property_label.p2l.find(current->property.key);
+                const bool has_property_index = labels != index_stats.property_label.p2l.end();
+
                 const auto &vector_index_labels = index_stats.vector.p2l.find(current->property.key);
-                const auto has_property_index = labels != index_stats.property_label.p2l.end();
-                const auto has_vector_index = vector_index_labels != index_stats.vector.p2l.end();
-                if (has_property_index || has_vector_index) {
+                const bool has_vector_index = vector_index_labels != index_stats.vector.p2l.end();
+
+                const auto &composite_index_labels =
+                    index_stats.property_label_composite.p2l.find(current->property.key);
+                const bool has_property_composite_index =
+                    composite_index_labels != index_stats.property_label_composite.p2l.end();
+
+                if (has_property_index || has_vector_index || has_property_composite_index) {
                   auto current_value = vertex->properties.GetProperty(current->property.key);
-                  if (has_property_index && !current_value.IsNull()) {
+                  if ((has_property_index || has_property_composite_index) && !current_value.IsNull()) {
                     property_cleanup[current->property.key].emplace_back(std::move(current_value), vertex);
                   }
                   if (has_vector_index) {
