@@ -68,8 +68,8 @@ jobs:
     uses: ./.github/workflows/diff_community.yaml
     with:
       arch: 'amd'
-      os: 'debian-11'
-      toolchain: 'v5'
+      os: 'ubuntu-24.04'
+      toolchain: 'v6'
       run_core: ${{ needs.DiffSetup.outputs.run_community_core }}
     secrets: inherit
 
@@ -78,8 +78,8 @@ jobs:
     uses: ./.github/workflows/diff_coverage.yaml
     with:
       arch: 'amd'
-      os: 'debian-11'
-      toolchain: 'v5'
+      os: 'ubuntu-24.04'
+      toolchain: 'v6'
       run_core: ${{ needs.DiffSetup.outputs.run_coverage_core }}
       run_clang_tidy: ${{ needs.DiffSetup.outputs.run_coverage_core }}
     secrets: inherit
@@ -89,8 +89,8 @@ jobs:
     uses: ./.github/workflows/diff_debug.yaml
     with:
       arch: 'amd'
-      os: 'debian-11'
-      toolchain: 'v5'
+      os: 'ubuntu-24.04'
+      toolchain: 'v6'
       run_core: ${{ needs.DiffSetup.outputs.run_debug_core }}
       run_integration: ${{ needs.DiffSetup.outputs.run_debug_integration }}
     secrets: inherit
@@ -107,8 +107,8 @@ jobs:
     uses: ./.github/workflows/diff_release.yaml
     with:
       arch: 'amd'
-      os: 'debian-11'
-      toolchain: 'v5'
+      os: 'ubuntu-24.04'
+      toolchain: 'v6'
       run_core: ${{ needs.DiffSetup.outputs.run_release_core }}
       run_benchmark: ${{ needs.DiffSetup.outputs.run_release_benchmark }}
       run_e2e: ${{ needs.DiffSetup.outputs.run_release_e2e }}
