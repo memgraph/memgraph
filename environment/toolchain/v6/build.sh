@@ -1369,6 +1369,7 @@ if [ ! -f $PREFIX/lib/libbenchmark.a ]; then
     pushd gbenchmark
     git checkout $GBENCH_TAG
     cmake -B build $COMMON_CMAKE_FLAGS \
+      -DCMAKE_INSTALL_LIBDIR=lib \
       -DBENCHMARK_ENABLE_TESTING=OFF
     cmake --build build -j$CPUS --target install
     popd
