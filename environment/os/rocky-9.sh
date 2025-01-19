@@ -4,7 +4,7 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 source "$DIR/../util.sh"
 
 # TODO(gitbuda): Rocky gets automatically updates -> figure out how to handle it.
-check_operating_system "rocky-9.3"
+check_operating_system "rocky-9"
 check_architecture "x86_64"
 
 TOOLCHAIN_BUILD_DEPS=(
@@ -26,6 +26,10 @@ TOOLCHAIN_BUILD_DEPS=(
     diffutils
     libipt libipt-devel # intel
     patch
+    custom-rust # for mgcxx
+    libtool # for protobuf
+    openssl-devel pkgconf-pkg-config # for pulsar
+    cyrus-sasl-devel # for librdkafka
 )
 
 TOOLCHAIN_RUN_DEPS=(
@@ -63,6 +67,7 @@ MEMGRAPH_BUILD_DEPS=(
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
     cyrus-sasl-devel
+    ninja-build
 )
 
 MEMGRAPH_TEST_DEPS="${MEMGRAPH_BUILD_DEPS[*]}"
@@ -84,13 +89,19 @@ check() {
     for pkg in $1; do
         if [ "$pkg" == custom-maven3.9.3 ]; then
             if [ ! -f "/opt/apache-maven-3.9.3/bin/mvn" ]; then
-              missing="$pkg $missing"
+                missing="$pkg $missing"
             fi
             continue
         fi
         if [ "$pkg" == custom-golang1.18.9 ]; then
             if [ ! -f "/opt/go1.18.9/go/bin/go" ]; then
-              missing="$pkg $missing"
+                missing="$pkg $missing"
+            fi
+            continue
+        fi
+        if [ "$pkg" == custom-rust ]; then
+            if [ ! -x "$HOME/.cargo/bin/rustup" ]; then
+                missing="$pkg $missing"
             fi
             continue
         fi
@@ -136,6 +147,14 @@ install() {
         fi
         if [ "$pkg" == custom-golang1.18.9 ]; then
             install_custom_golang "1.18.9"
+            continue
+        fi
+        if [ "$pkg" == custom-rust ]; then
+            install_rust "1.80"
+            continue
+        fi
+        if [ "$pkg" == custom-node ]; then
+            install_node "20"
             continue
         fi
         if [ "$pkg" == perl-Unicode-EastAsianWidth ]; then
