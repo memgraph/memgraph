@@ -3,24 +3,23 @@ set -Eeuo pipefail
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 source "$DIR/../util.sh"
 
-# IMPORTANT: Deprecated since memgraph v3.0.0.
-
-check_operating_system "fedora-38"
+check_operating_system "fedora-41"
 check_architecture "x86_64"
 
 TOOLCHAIN_BUILD_DEPS=(
     coreutils-common gcc gcc-c++ make # generic build tools
-    wget # used for archive download
+    wget2-wget # used for archive download
     gnupg2 # used for archive signature verification
     tar gzip bzip2 xz unzip # used for archive unpacking
-    zlib-devel # zlib library used for all builds
+    # NOTE: https://discussion.fedoraproject.org/t/f40-change-proposal-transitioning-to-zlib-ng-as-a-compatible-replacement-for-zlib-system-wide/95807
+    zlib-ng-compat-devel # zlib library used for all builds
     expat-devel xz-devel python3-devel texinfo libbabeltrace-devel # for gdb
     curl libcurl-devel # for cmake
     readline-devel # for cmake and llvm
     libffi-devel libxml2-devel # for llvm
     libedit-devel pcre-devel pcre2-devel automake bison # for swig
     file
-    openssl-devel
+    openssl openssl-devel openssl-devel-engine # for pulsar
     gmp-devel
     gperf
     diffutils
@@ -28,12 +27,16 @@ TOOLCHAIN_BUILD_DEPS=(
     patch
     perl # for openssl
     git
+    custom-rust # for mgcxx
+    libtool # for protobuf
+    pkgconf-pkg-config # for pulsar
+    cyrus-sasl-devel # for librdkafka
 )
 
 TOOLCHAIN_RUN_DEPS=(
     make # generic build tools
     tar gzip bzip2 xz # used for archive unpacking
-    zlib # zlib library used for all builds
+    zlib-ng-compat # zlib library used for all builds
     expat xz-libs python3 # for gdb
     readline # for cmake and llvm
     libffi libxml2 # for llvm
@@ -43,7 +46,7 @@ TOOLCHAIN_RUN_DEPS=(
 MEMGRAPH_BUILD_DEPS=(
     git # source code control
     make pkgconf-pkg-config # build system
-    wget # for downloading libs
+    wget2-wget # for downloading libs
     libuuid-devel java-11-openjdk # required by antlr
     readline-devel # for memgraph console
     python3-devel # for query modules
@@ -58,6 +61,7 @@ MEMGRAPH_BUILD_DEPS=(
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
     cyrus-sasl-devel
+    ninja-build
 )
 
 MEMGRAPH_TEST_DEPS="${MEMGRAPH_BUILD_DEPS[*]}"
@@ -67,7 +71,7 @@ MEMGRAPH_RUN_DEPS=(
 )
 
 NEW_DEPS=(
-    wget curl tar gzip
+    wget2-wget curl tar gzip
 )
 
 list() {
@@ -83,6 +87,12 @@ check() {
     fi
     local missing=""
     for pkg in $1; do
+        if [ "$pkg" == custom-rust ]; then
+            if [ ! -x "$HOME/.cargo/bin/rustup" ]; then
+                missing="$pkg $missing"
+            fi
+            continue
+        fi
         if ! dnf list installed "$pkg" >/dev/null 2>/dev/null; then
             missing="$pkg $missing"
         fi
@@ -112,6 +122,14 @@ install() {
     fi
     dnf update -y
     for pkg in $1; do
+        if [ "$pkg" == custom-rust ]; then
+            install_rust "1.80"
+            continue
+        fi
+        if [ "$pkg" == custom-node ]; then
+            install_node "20"
+            continue
+        fi
         dnf install -y "$pkg"
     done
 }

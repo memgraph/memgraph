@@ -6,16 +6,17 @@ PROJECT_ROOT="$SCRIPT_DIR/../.."
 MGBUILD_HOME_DIR="/home/mg"
 MGBUILD_ROOT_DIR="$MGBUILD_HOME_DIR/memgraph"
 
-DEFAULT_TOOLCHAIN="v5"
+DEFAULT_TOOLCHAIN="v6"
 SUPPORTED_TOOLCHAINS=(
-    v4 v5
+    v4 v5 v6
 )
 DEFAULT_OS="all"
+
 SUPPORTED_OS=(
     all
-    centos-9
+    centos-9 centos-10
     debian-10 debian-11 debian-11-arm debian-12 debian-12-arm
-    fedora-36 fedora-38 fedora-39
+    fedora-36 fedora-38 fedora-39 fedora-41
     rocky-9.3
     ubuntu-18.04 ubuntu-20.04 ubuntu-22.04 ubuntu-22.04-arm ubuntu-24.04 ubuntu-24.04-arm
 )
@@ -31,6 +32,13 @@ SUPPORTED_OS_V5=(
     fedora-38 fedora-39
     rocky-9.3
     ubuntu-20.04 ubuntu-22.04 ubuntu-22.04-arm ubuntu-24.04 ubuntu-24.04-arm
+)
+
+SUPPORTED_OS_V6=(
+    centos-9 centos-10
+    debian-11 debian-11-arm debian-12 debian-12-arm
+    fedora-41
+    ubuntu-22.04 ubuntu-24.04 ubuntu-24.04-arm
 )
 DEFAULT_BUILD_TYPE="Release"
 SUPPORTED_BUILD_TYPES=(
@@ -49,7 +57,6 @@ SUPPORTED_TESTS=(
     integration leftover-CTest macro-benchmark
     mgbench stress-plain stress-ssl
     unit unit-coverage upload-to-bench-graph
-
 )
 DEFAULT_THREADS=0
 DEFAULT_ENTERPRISE_LICENSE=""
@@ -136,6 +143,9 @@ print_help () {
   echo -e "\nToolchain v5 supported OSs:"
   echo -e "  \"${SUPPORTED_OS_V5[*]}\""
 
+  echo -e "\nToolchain v6 supported OSs:"
+  echo -e "  \"${SUPPORTED_OS_V6[*]}\""
+
   echo -e "\nExample usage:"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd build --git-ref my-special-branch"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd run"
@@ -202,6 +212,8 @@ check_support() {
         local SUPPORTED_OS_TOOLCHAIN=("${SUPPORTED_OS_V4[@]}")
       elif [[ "$3" == "v5" ]]; then
         local SUPPORTED_OS_TOOLCHAIN=("${SUPPORTED_OS_V5[@]}")
+      elif [[ "$3" == "v6" ]]; then
+        local SUPPORTED_OS_TOOLCHAIN=("${SUPPORTED_OS_V6[@]}")
       else
         echo -e "Error: $3 isn't a supported toolchain_version!\nChoose from ${SUPPORTED_TOOLCHAINS[*]}"
         exit 1
@@ -233,6 +245,17 @@ check_support() {
   esac
 }
 
+# Returns 0 (true) if $1 <= $2
+version_lte() {
+  # sort -V sorts them in ascending order, so the first in the sorted list is the smaller.
+  # If $1 equals the first in the list, $1 <= $2
+  [ "$1" = "$(echo -e "$1\n$2" | sort -V | head -n1)" ]
+}
+# Returns 0 (true) if $1 < $2
+version_lt() {
+  [ "$1" = "$2" ] && return 1
+  version_lte "$1" "$2"
+}
 
 ##################################################
 ######## BUILD, COPY AND PACKAGE MEMGRAPH ########
@@ -378,11 +401,16 @@ build_memgraph () {
   # shellcheck disable=SC2016
   if [[ "$threads" == "$DEFAULT_THREADS" ]]; then
     docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& make -j$(nproc)'
-    docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& make -j$(nproc) -B mgconsole'
+    # NOTE: mgconsole comes with toolchain v6
+    if version_lt "$toolchain_version" "v6"; then
+      docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& make -j$(nproc) -B mgconsole'
+    fi
   else
     local EXPORT_THREADS="export THREADS=$threads"
     docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $EXPORT_THREADS && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& make -j$THREADS'
-    docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $EXPORT_THREADS && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& make -j$THREADS -B mgconsole'
+    if version_lt "$toolchain_version" "v6"; then
+      docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $EXPORT_THREADS && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& make -j$THREADS -B mgconsole'
+    fi
   fi
 }
 
@@ -410,14 +438,20 @@ package_memgraph() {
 }
 
 package_docker() {
+  # TODO(gitbuda): Write the below ifs in a better way (make it automatic with new toolchain versions).
   if [[ "$toolchain_version" == "v4" ]]; then
     if [[ "$os" != "debian-11" && "$os" != "debian-11-arm" ]]; then
       echo -e "Error: When passing '--toolchain v4' the 'docker' command accepts only '--os debian-11' and '--os debian-11-arm'"
       exit 1
     fi
-  else
+  elif [[ "$toolchain_version" == "v5" ]]; then
     if [[ "$os" != "debian-12" && "$os" != "debian-12-arm" ]]; then
       echo -e "Error: When passing '--toolchain v5' the 'docker' command accepts only '--os debian-12' and '--os debian-12-arm'"
+      exit 1
+    fi
+  else
+    if [[ "$os" != "ubuntu-24.04" && "$os" != "ubuntu-24.04-arm" ]]; then
+      echo -e "Error: When passing '--toolchain v6' the 'docker' command accepts only '--os ubuntu-24.04' and '--os ubuntu-24.04-arm'"
       exit 1
     fi
   fi

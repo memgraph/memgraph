@@ -3,7 +3,7 @@ set -Eeuo pipefail
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 source "$DIR/../util.sh"
 
-check_operating_system "centos-9"
+check_operating_system "centos-10"
 check_architecture "x86_64"
 
 TOOLCHAIN_BUILD_DEPS=(
@@ -13,16 +13,12 @@ TOOLCHAIN_BUILD_DEPS=(
     libcurl-devel # cmake build requires it
     gnupg2 # used for archive signature verification
     tar gzip bzip2 xz unzip # used for archive unpacking
-    zlib-devel # zlib library used for all builds
+    zlib-ng-compat-devel # zlib library used for all builds
     expat-devel xz-devel python3-devel texinfo libbabeltrace-devel # for gdb
     readline-devel # for cmake and llvm
     libffi-devel libxml2-devel # for llvm
-    libedit-devel pcre-devel pcre2-devel automake bison # for swig
-    file
-    openssl-devel
-    gmp-devel
-    gperf
-    diffutils
+    libedit-devel pcre2-devel automake bison # for swig
+    file gmp-devel gperf diffutils
     libipt libipt-devel # intel
     patch
     custom-rust # for mgcxx
@@ -34,7 +30,7 @@ TOOLCHAIN_BUILD_DEPS=(
 TOOLCHAIN_RUN_DEPS=(
     make # generic build tools
     tar gzip bzip2 xz # used for archive unpacking
-    zlib # zlib library used for all builds
+    zlib-ng-compat # zlib library used for all builds
     expat xz-libs python3 # for gdb
     readline # for cmake and llvm
     libffi libxml2 # for llvm
@@ -46,7 +42,7 @@ MEMGRAPH_BUILD_DEPS=(
     git # source code control
     make cmake pkgconf-pkg-config # build system
     wget # for downloading libs
-    libuuid-devel java-11-openjdk # required by antlr
+    libuuid-devel java-11-openjdk-headless java-11-openjdk java-11-openjdk-devel # required by antlr
     readline-devel # for memgraph console
     python3-devel # for query modules
     openssl-devel
@@ -61,7 +57,7 @@ MEMGRAPH_BUILD_DEPS=(
     rpm-build rpmlint # for RPM package building
     doxygen graphviz # source documentation generators
     which nodejs golang custom-golang1.18.9 # for driver tests
-    zip unzip java-11-openjdk-devel java-17-openjdk java-17-openjdk-devel custom-maven3.9.3 # for driver tests
+    zip unzip java-17-openjdk-headless java-17-openjdk java-17-openjdk-devel custom-maven3.9.3 # for driver tests
     sbcl # for custom Lisp C++ preprocessing
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
@@ -140,6 +136,7 @@ install() {
     # because libipt-devel is not available on CentOS 9 Stream
     dnf update -y --nobest
     dnf install -y wget git python3 python3-pip
+    # CRB repo is required for, e.g. texinfo, ninja-build
     dnf config-manager --set-enabled crb
 
     for pkg in $1; do
@@ -159,25 +156,26 @@ install() {
             install_node "20"
             continue
         fi
+
         # Since there is no support for libipt-devel for CentOS 9 we install
         # Fedoras version of same libs, they are the same version but released
         # for different OS
         # TODO Update when libipt-devel releases for CentOS 9
         if [ "$pkg" == libipt ]; then
             if ! dnf list installed libipt >/dev/null 2>/dev/null; then
-                dnf install -y http://repo.okay.com.mx/centos/8/x86_64/release/libipt-1.6.1-8.el8.x86_64.rpm
+                dnf install -y https://dl.fedoraproject.org/pub/fedora/linux/releases/41/Everything/x86_64/os/Packages/l/libipt-2.1.1-2.fc41.x86_64.rpm
             fi
             continue
         fi
         if [ "$pkg" == libipt-devel ]; then
             if ! dnf list installed libipt-devel >/dev/null 2>/dev/null; then
-                dnf install -y http://repo.okay.com.mx/centos/8/x86_64/release/libipt-devel-1.6.1-8.el8.x86_64.rpm
+                dnf install -y https://dl.fedoraproject.org/pub/fedora/linux/releases/41/Everything/x86_64/os/Packages/l/libipt-devel-2.1.1-2.fc41.x86_64.rpm
             fi
             continue
         fi
         if [ "$pkg" == libbabeltrace-devel ]; then
             if ! dnf list installed libbabeltrace-devel >/dev/null 2>/dev/null; then
-                dnf install -y http://mirror.stream.centos.org/9-stream/CRB/x86_64/os/Packages/libbabeltrace-devel-1.5.8-10.el9.x86_64.rpm
+                dnf install -y https://mirror.stream.centos.org/10-stream/CRB/x86_64/os/Packages/libbabeltrace-devel-1.5.11-9.el10.x86_64.rpm
             fi
             continue
         fi
@@ -193,6 +191,7 @@ install() {
             fi
             continue
         fi
+
         if [ "$pkg" == PyYAML ]; then
             if [ -z ${SUDO_USER+x} ]; then # Running as root (e.g. Docker).
                 pip3 install --user PyYAML
@@ -211,7 +210,52 @@ install() {
             fi
             continue
         fi
-        yum install -y "$pkg"
+
+        if [ "$pkg" == rpmlint ]; then
+            if ! dnf list installed rpmlint >/dev/null 2>/dev/null; then
+                dnf install -y https://mirror.stream.centos.org/9-stream/AppStream/x86_64/os/Packages/rpmlint-1.11-17.el9.noarch.rpm
+            fi
+            continue
+        fi
+
+        if [ "$pkg" == java-11-openjdk-headless ]; then
+            if ! dnf list installed java-11-openjdk-headless >/dev/null 2>/dev/null; then
+                dnf install -y https://mirror.stream.centos.org/9-stream/AppStream/x86_64/os/Packages/java-11-openjdk-headless-11.0.20.1.1-2.el9.x86_64.rpm
+            fi
+            continue
+        fi
+        if [ "$pkg" == java-11-openjdk ]; then
+            if ! dnf list installed java-11-openjdk >/dev/null 2>/dev/null; then
+                dnf install -y https://mirror.stream.centos.org/9-stream/AppStream/x86_64/os/Packages/java-11-openjdk-11.0.20.1.1-2.el9.x86_64.rpm
+            fi
+            continue
+        fi
+        if [ "$pkg" == java-11-openjdk-devel ]; then
+            if ! dnf list installed java-11-openjdk-devel >/dev/null 2>/dev/null; then
+                dnf install -y https://mirror.stream.centos.org/9-stream/AppStream/x86_64/os/Packages/java-11-openjdk-devel-11.0.20.1.1-2.el9.x86_64.rpm
+            fi
+            continue
+        fi
+        if [ "$pkg" == java-17-openjdk-headless ]; then
+            if ! dnf list installed java-17-openjdk-headless >/dev/null 2>/dev/null; then
+                dnf install -y https://mirror.stream.centos.org/9-stream/AppStream/x86_64/os/Packages/java-17-openjdk-headless-17.0.13.0.11-4.el9.x86_64.rpm
+            fi
+            continue
+        fi
+        if [ "$pkg" == java-17-openjdk ]; then
+            if ! dnf list installed java-17-openjdk >/dev/null 2>/dev/null; then
+                dnf install -y https://mirror.stream.centos.org/9-stream/AppStream/x86_64/os/Packages/java-17-openjdk-17.0.13.0.11-4.el9.x86_64.rpm
+            fi
+            continue
+        fi
+        if [ "$pkg" == java-17-openjdk-devel ]; then
+            if ! dnf list installed java-17-openjdk-devel >/dev/null 2>/dev/null; then
+                dnf install -y https://mirror.stream.centos.org/9-stream/AppStream/x86_64/os/Packages/java-17-openjdk-devel-17.0.13.0.11-4.el9.x86_64.rpm
+            fi
+            continue
+        fi
+
+        dnf install -y "$pkg"
     done
 }
 
