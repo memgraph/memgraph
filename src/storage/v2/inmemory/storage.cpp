@@ -3012,6 +3012,16 @@ void InMemoryStorage::InMemoryAccessor::SetIndexStats(const storage::LabelId &la
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_stats_set, label, property, stats);
 }
 
+void InMemoryStorage::InMemoryAccessor::SetIndexStats(const storage::LabelId &label,
+                                                      const std::vector<storage::PropertyId> &properties,
+                                                      const LabelPropertyCompositeIndexStats &stats) {
+  SetIndexStatsForIndex(
+      static_cast<InMemoryLabelPropertyCompositeIndex *>(storage_->indices_.label_property_composite_index_.get()),
+      std::make_pair(label, properties), stats);
+  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_composite_index_stats_set, label, properties,
+                                      stats);
+}
+
 bool InMemoryStorage::InMemoryAccessor::DeleteLabelIndexStats(const storage::LabelId &label) {
   const auto res =
       DeleteIndexStatsForIndex<bool>(static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get()), label);
@@ -3024,6 +3034,15 @@ std::vector<std::pair<LabelId, PropertyId>> InMemoryStorage::InMemoryAccessor::D
   const auto &res = DeleteIndexStatsForIndex<std::vector<std::pair<LabelId, PropertyId>>>(
       static_cast<InMemoryLabelPropertyIndex *>(storage_->indices_.label_property_index_.get()), label);
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_stats_clear, label);
+  return res;
+}
+
+std::vector<std::pair<LabelId, std::vector<PropertyId>>>
+InMemoryStorage::InMemoryAccessor::DeleteLabelPropertyCompositeIndexStats(const storage::LabelId &label) {
+  const auto &res = DeleteIndexStatsForIndex<std::vector<std::pair<LabelId, std::vector<PropertyId>>>>(
+      static_cast<InMemoryLabelPropertyCompositeIndex *>(storage_->indices_.label_property_composite_index_.get()),
+      label);
+  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_composite_index_stats_clear, label);
   return res;
 }
 

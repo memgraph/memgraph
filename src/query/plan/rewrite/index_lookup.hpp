@@ -106,9 +106,40 @@ struct IndexHints {
     return false;
   }
 
+  template <class TDbAccessor>
+  bool HasLabelPropertyCompositeIndex(TDbAccessor *db, storage::LabelId label,
+                                      std::vector<storage::PropertyId> &properties) const {
+    for (const auto &[index_type, label_hint, properties_hint] : label_property_composite_index_hints_) {
+      auto label_id = db->NameToLabel(label_hint.name);
+
+      if (label_id != label) {
+        continue;
+      }
+
+      std::set<storage::PropertyId> properties_copy;
+      for (const auto &property_id : properties) {
+        properties_copy.insert(property_id);
+      }
+      std::set<storage::PropertyId> hint_properties_copy;
+      for (const auto &property_ix : properties_hint) {
+        hint_properties_copy.insert(db->NameToProperty(property_ix.name));
+      }
+
+      std::set<int> intersection;
+      std::set_intersection(properties_copy.begin(), properties_copy.end(), hint_properties_copy.begin(),
+                            hint_properties_copy.end(), std::inserter(intersection, intersection.begin()));
+
+      if (intersection.size() == hint_properties_copy.size()) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   std::vector<IndexHint> label_index_hints_{};
   std::vector<IndexHint> label_property_index_hints_{};
   std::vector<IndexHint> point_index_hints_{};  // TODO: check this is used somewhere
+  std::vector<IndexHint> label_property_composite_index_hints_{};
 };
 
 namespace impl {

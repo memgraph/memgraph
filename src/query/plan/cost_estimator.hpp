@@ -185,10 +185,10 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     // This cardinality estimation depends on the property value (expression).
     // If it's a constant, we can evaluate cardinality exactly, otherwise
     // we estimate
-    // auto index_stats = db_accessor_->GetIndexStats(logical_op.label_, logical_op.properties_);
-    // if (index_stats.has_value()) {
-    //   SaveStatsFor(logical_op.output_symbol_, index_stats.value());
-    // }
+    auto index_stats = db_accessor_->GetIndexStats(logical_op.label_, logical_op.properties_);
+    if (index_stats.has_value()) {
+      SaveStatsFor(logical_op.output_symbol_, index_stats.value());
+    }
 
     std::vector<std::optional<utils::Bound<storage::PropertyValue>>> lower_bounds;
     std::vector<std::optional<utils::Bound<storage::PropertyValue>>> upper_bounds;
@@ -210,9 +210,9 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 
     cardinality_ *= factor;
 
-    // if (index_hints_.HasLabelPropertyIndex(db_accessor_, logical_op.label_, logical_op.property_)) {
-    //   use_index_hints_ = true;
-    // }
+    if (index_hints_.HasLabelPropertyCompositeIndex(db_accessor_, logical_op.label_, logical_op.properties_)) {
+      use_index_hints_ = true;
+    }
 
     // ScanAll performs some work for every element that is produced
     IncrementCost(CostParam::MakeScanAllByLabelPropertyCompositeValue);

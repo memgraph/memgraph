@@ -279,6 +279,13 @@ class InMemoryStorage final : public Storage {
           std::make_pair(label, property));
     }
 
+    std::optional<storage::LabelPropertyCompositeIndexStats> GetIndexStats(
+        const storage::LabelId &label, const std::vector<storage::PropertyId> &properties) const override {
+      return GetIndexStatsForIndex<storage::LabelPropertyCompositeIndexStats>(
+          static_cast<InMemoryLabelPropertyCompositeIndex *>(storage_->indices_.label_property_composite_index_.get()),
+          std::make_pair(label, properties));
+    }
+
     template <typename TIndex, typename TIndexKey, typename TIndexStats>
     void SetIndexStatsForIndex(TIndex *index, TIndexKey &&key, TIndexStats &stats) const {
       index->SetIndexStats(key, stats);
@@ -289,14 +296,20 @@ class InMemoryStorage final : public Storage {
     void SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property,
                        const LabelPropertyIndexStats &stats) override;
 
+    void SetIndexStats(const storage::LabelId &label, const std::vector<storage::PropertyId> &properties,
+                       const LabelPropertyCompositeIndexStats &stats) override;
+
     template <typename TResult, typename TIndex>
     TResult DeleteIndexStatsForIndex(TIndex *index, const storage::LabelId &label) {
       return index->DeleteIndexStats(label);
     }
 
+    bool DeleteLabelIndexStats(const storage::LabelId &label) override;
+
     std::vector<std::pair<LabelId, PropertyId>> DeleteLabelPropertyIndexStats(const storage::LabelId &label) override;
 
-    bool DeleteLabelIndexStats(const storage::LabelId &label) override;
+    std::vector<std::pair<LabelId, std::vector<PropertyId>>> DeleteLabelPropertyCompositeIndexStats(
+        const storage::LabelId &label) override;
 
     Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>> DetachDelete(
         std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges, bool detach) override;

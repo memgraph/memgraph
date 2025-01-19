@@ -269,15 +269,24 @@ class Storage {
     virtual std::optional<storage::LabelPropertyIndexStats> GetIndexStats(
         const storage::LabelId &label, const storage::PropertyId &property) const = 0;
 
+    virtual std::optional<storage::LabelPropertyIndexStats> GetIndexStats(
+        const storage::LabelId &label, const std::vector<storage::PropertyId> &properties) const = 0;
+
     virtual void SetIndexStats(const storage::LabelId &label, const LabelIndexStats &stats) = 0;
 
     virtual void SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property,
                                const LabelPropertyIndexStats &stats) = 0;
 
+    virtual void SetIndexStats(const storage::LabelId &label, const std::vector<storage::PropertyId> &properties,
+                               const LabelPropertyCompositeIndexStats &stats) = 0;
+
+    virtual bool DeleteLabelIndexStats(const storage::LabelId &label) = 0;
+
     virtual std::vector<std::pair<LabelId, PropertyId>> DeleteLabelPropertyIndexStats(
         const storage::LabelId &label) = 0;
 
-    virtual bool DeleteLabelIndexStats(const storage::LabelId &label) = 0;
+    virtual std::vector<std::pair<LabelId, std::vector<PropertyId>>> DeleteLabelPropertyCompositeIndexStats(
+        const storage::LabelId &label) = 0;
 
     virtual Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type) = 0;
 

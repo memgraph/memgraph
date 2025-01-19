@@ -538,12 +538,22 @@ class DbAccessor final {
     return accessor_->GetIndexStats(label, property);
   }
 
+  std::optional<storage::LabelPropertyIndexStats> GetIndexStats(
+      const storage::LabelId &label, const std::vector<storage::PropertyId> &properties) const {
+    return accessor_->GetIndexStats(label, properties);
+  }
+
+  bool DeleteLabelIndexStats(const storage::LabelId &label) { return accessor_->DeleteLabelIndexStats(label); }
+
   std::vector<std::pair<storage::LabelId, storage::PropertyId>> DeleteLabelPropertyIndexStats(
       const storage::LabelId &label) {
     return accessor_->DeleteLabelPropertyIndexStats(label);
   }
 
-  bool DeleteLabelIndexStats(const storage::LabelId &label) { return accessor_->DeleteLabelIndexStats(label); }
+  std::vector<std::pair<storage::LabelId, std::vector<storage::PropertyId>>> DeleteLabelPropertyCompositeIndexStats(
+      const storage::LabelId &label) {
+    return accessor_->DeleteLabelPropertyCompositeIndexStats(label);
+  }
 
   void SetIndexStats(const storage::LabelId &label, const storage::LabelIndexStats &stats) {
     accessor_->SetIndexStats(label, stats);
@@ -552,6 +562,11 @@ class DbAccessor final {
   void SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property,
                      const storage::LabelPropertyIndexStats &stats) {
     accessor_->SetIndexStats(label, property, stats);
+  }
+
+  void SetIndexStats(const storage::LabelId &label, const std::vector<storage::PropertyId> &properties,
+                     const storage::LabelPropertyCompositeIndexStats &stats) {
+    accessor_->SetIndexStats(label, properties, stats);
   }
 
   int64_t VerticesCount() const { return accessor_->ApproximateVertexCount(); }
