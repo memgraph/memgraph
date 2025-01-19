@@ -516,7 +516,7 @@ bool PlanToJsonVisitor::PreVisit(ScanAllByLabelPropertyValue &op) {
   self["name"] = "ScanAllByLabelPropertyValue";
   self["label"] = ToJson(op.label_, *dba_);
   self["property"] = ToJson(op.property_, *dba_);
-  self["lower_bounds"] = ToJson(op.expression_, *dba_);
+  self["expression"] = ToJson(op.expression_, *dba_);
   self["output_symbol"] = ToJson(op.output_symbol_);
 
   op.input_->Accept(*this);
