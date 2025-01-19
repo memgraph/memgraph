@@ -111,7 +111,7 @@ check() {
 
 install() {
     cd "$DIR"
-    apt update
+    apt update -y
     # If GitHub Actions runner is installed, append LANG to the environment.
     # Python related tests doesn't work the LANG export.
     if [ -d "/home/gh/actions-runner" ]; then
@@ -134,8 +134,8 @@ install() {
             if ! dpkg -s "$pkg" 2>/dev/null >/dev/null; then
                 wget -nv https://packages.microsoft.com/config/debian/12/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
                 dpkg -i packages-microsoft-prod.deb
-                apt-get update
-                apt-get install -y apt-transport-https dotnet-sdk-8.0
+                apt update -y
+                apt install -y apt-transport-https dotnet-sdk-8.0
             fi
             continue
         fi
