@@ -523,42 +523,66 @@ InMemoryLabelPropertyCompositeIndex::Iterable InMemoryLabelPropertyCompositeInde
           transaction};
 }
 
-void InMemoryLabelPropertyCompositeIndex::AbortEntries(PropertyId /*property*/,
+void InMemoryLabelPropertyCompositeIndex::AbortEntries(PropertyId property,
                                                        std::span<std::pair<PropertyValue, Vertex *> const> /*vertices*/,
-                                                       uint64_t /*exact_start_timestamp*/) {
-  // TODO: Figure out
-  // auto const it = indices_by_property_.find(property);
-  // if (it == indices_by_property_.end()) return;
+                                                       uint64_t exact_start_timestamp) {
+  // TODO: This is unoptimized and performs a linear scan over the composite index
+  auto const it = indices_by_property_.find(property);
+  if (it == indices_by_property_.end()) return;
 
-  // auto &indices = it->second;
-  // for (const auto &[_, index] : indices) {
-  //   auto index_acc = index->access();
-  //   for (auto const &[value, vertex] : vertices) {
-  //     index_acc.remove(Entry{value, vertex, exact_start_timestamp});
-  //   }
-  // }
-  throw utils::NotYetImplemented(
-      "Label-property composite index related operations are not yet supported using in-memory storage mode.");
+  auto &indices = it->second;
+  for (const auto &[_, index] : indices) {
+    auto index_acc = index->access();
+    auto it = index_acc.begin();
+    auto end_it = index_acc.end();
+
+    if (it == end_it) continue;
+
+    while (true) {
+      auto next_it = it;
+      ++next_it;
+      const bool has_next = next_it != end_it;
+
+      if (it->timestamp == exact_start_timestamp) {
+        index_acc.remove(*it);
+      }
+
+      if (!has_next) break;
+
+      it = next_it;
+    }
+  }
 }
 
-void InMemoryLabelPropertyCompositeIndex::AbortEntries(LabelId /*label*/,
+void InMemoryLabelPropertyCompositeIndex::AbortEntries(LabelId label,
                                                        std::span<std::pair<PropertyValue, Vertex *> const> /*vertices*/,
-                                                       uint64_t /*exact_start_timestamp*/) {
-  // TODO: Figure out
-  // for (auto &[label_prop, storage] : index_) {
-  //   if (label_prop.first != label) {
-  //     continue;
-  //   }
+                                                       uint64_t exact_start_timestamp) {
+  // TODO: This is unoptimized and performs a linear scan over the composite index
+  for (auto &[label_prop, storage] : index_) {
+    if (label_prop.first != label) {
+      continue;
+    }
 
-  //   auto index_acc = storage.access();
-  //   for (const auto &[property, vertex] : vertices) {
-  //     if (!property.IsNull()) {
-  //       index_acc.remove(Entry{property, vertex, exact_start_timestamp});
-  //     }
-  //   }
-  // }
-  throw utils::NotYetImplemented(
-      "Label-property composite index related operations are not yet supported using in-memory storage mode.");
+    auto index_acc = storage.access();
+    auto it = index_acc.begin();
+    auto end_it = index_acc.end();
+
+    if (it == end_it) continue;
+
+    while (true) {
+      auto next_it = it;
+      ++next_it;
+      const bool has_next = next_it != end_it;
+
+      if (it->timestamp == exact_start_timestamp) {
+        index_acc.remove(*it);
+      }
+
+      if (!has_next) break;
+
+      it = next_it;
+    }
+  }
 }
 
 void InMemoryLabelPropertyCompositeIndex::DropGraphClearIndices() {
