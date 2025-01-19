@@ -17,6 +17,7 @@ OPERATING_SYSTEMS=(
   # "mgrun debian-11 debian:11"
   # "mgrun fedora-36 fedora:36"
   # "mgrun fedora-39 fedora:39"
+  # "mgrun fedora-41 fedora:41"
   # "mgrun ubuntu-18.04 ubuntu:18.04"
   # "mgrun ubuntu-20.04 ubuntu:20.04"
   # "mgrun ubuntu-22.04 ubuntu:22.04"
