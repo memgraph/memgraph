@@ -63,10 +63,10 @@ class InMemoryLabelPropertyCompositeIndex : public storage::LabelPropertyComposi
 
   void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token);
 
-  void AbortEntries(PropertyId property, std::span<std::pair<PropertyValue, Vertex *> const> vertices,
-                    uint64_t exact_start_timestamp);
-  void AbortEntries(LabelId label, std::span<std::pair<PropertyValue, Vertex *> const> vertices,
-                    uint64_t exact_start_timestamp);
+  static void AbortEntries(PropertyId property, std::span<std::pair<PropertyValue, Vertex *> const> vertices,
+                           uint64_t exact_start_timestamp);
+  static void AbortEntries(LabelId label, std::span<std::pair<PropertyValue, Vertex *> const> vertices,
+                           uint64_t exact_start_timestamp);
 
   IndexStats Analysis() const {
     IndexStats res{};

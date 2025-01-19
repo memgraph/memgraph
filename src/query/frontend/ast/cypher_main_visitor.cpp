@@ -364,7 +364,7 @@ antlrcpp::Any CypherMainVisitor::visitCreateIndex(MemgraphCypher::CreateIndexCon
   index_query->action_ = IndexQuery::Action::CREATE;
   index_query->label_ = AddLabel(std::any_cast<std::string>(ctx->labelName()->accept(this)));
   index_query->properties_.reserve(ctx->propertyKeyName().size());
-  for (const auto property_key_name : ctx->propertyKeyName()) {
+  for (auto *property_key_name : ctx->propertyKeyName()) {
     if (property_key_name) {
       auto name = std::any_cast<PropertyIx>(property_key_name->accept(this));
       index_query->properties_.push_back(name);
@@ -379,7 +379,7 @@ antlrcpp::Any CypherMainVisitor::visitDropIndex(MemgraphCypher::DropIndexContext
   index_query->action_ = IndexQuery::Action::DROP;
   index_query->label_ = AddLabel(std::any_cast<std::string>(ctx->labelName()->accept(this)));
   index_query->properties_.reserve(ctx->propertyKeyName().size());
-  for (const auto property_key_name : ctx->propertyKeyName()) {
+  for (auto *property_key_name : ctx->propertyKeyName()) {
     if (property_key_name) {
       auto name = std::any_cast<PropertyIx>(property_key_name->accept(this));
       index_query->properties_.push_back(name);

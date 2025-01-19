@@ -21,8 +21,8 @@ class DiskLabelPropertyCompositeIndex : public storage::LabelPropertyCompositeIn
  public:
   explicit DiskLabelPropertyCompositeIndex(const Config &config);
 
-  bool CreateIndex(LabelId label, const std::vector<PropertyId> &properties,
-                   const std::vector<std::pair<std::string, std::string>> &vertices);
+  static bool CreateIndex(LabelId label, const std::vector<PropertyId> &properties,
+                          const std::vector<std::pair<std::string, std::string>> &vertices);
 
   void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) override;
 

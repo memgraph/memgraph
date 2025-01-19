@@ -1098,6 +1098,7 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
       [&](WalLabelPropertyCompositeIndexCreate const &data) {
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
         std::vector<PropertyId> property_ids;
+        property_ids.reserve(data.properties.size());
         for (const auto &prop : data.properties) {
           property_ids.emplace_back(PropertyId::FromUint(name_id_mapper->NameToId(prop)));
         }
@@ -1107,6 +1108,7 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
       [&](WalLabelPropertyCompositeIndexDrop const &data) {
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
         std::vector<PropertyId> property_ids;
+        property_ids.reserve(data.properties.size());
         for (const auto &prop : data.properties) {
           property_ids.emplace_back(PropertyId::FromUint(name_id_mapper->NameToId(prop)));
         }

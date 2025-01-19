@@ -1079,6 +1079,7 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
           spdlog::trace("       Create label+property composite index on :{} ({})", data.label, ss.str());
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           std::vector<PropertyId> properties;
+          properties.reserve(data.properties.size());
           for (const auto &prop : data.properties) {
             properties.emplace_back(storage->NameToProperty(prop));
           }
@@ -1092,6 +1093,7 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
           spdlog::trace("       Drop label+property composite index on :{} ({})", data.label, ss.str());
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           std::vector<PropertyId> properties;
+          properties.reserve(data.properties.size());
           for (const auto &prop : data.properties) {
             properties.emplace_back(storage->NameToProperty(prop));
           }

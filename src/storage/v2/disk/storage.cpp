@@ -614,9 +614,9 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(
-    LabelId label, const std::vector<PropertyId> &properties,
-    const std::vector<std::optional<utils::Bound<PropertyValue>>> &lower_bound,
-    const std::vector<std::optional<utils::Bound<PropertyValue>>> &upper_bound, View view) {
+    LabelId /*label*/, const std::vector<PropertyId> & /*properties*/,
+    const std::vector<std::optional<utils::Bound<PropertyValue>>> & /*lower_bound*/,
+    const std::vector<std::optional<utils::Bound<PropertyValue>>> & /*upper_bound*/, View /*view*/) {
   throw utils::NotYetImplemented("Label-property composite indexing is not yet implemented on on-disk storage mode.");
 }
 
@@ -2026,7 +2026,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(
-    LabelId label, const std::vector<PropertyId> &properties) {
+    LabelId /*label*/, const std::vector<PropertyId> & /*properties*/) {
   throw utils::NotYetImplemented("Composite Indices are not yet implemented for on-disk storage");
 }
 
@@ -2071,7 +2071,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropIndex(
-    LabelId label, const std::vector<PropertyId> &properties) {
+    LabelId /*label*/, const std::vector<PropertyId> & /*properties*/) {
   throw utils::NotYetImplemented("Composite Indices are not yet implemented for on-disk storage");
 }
 

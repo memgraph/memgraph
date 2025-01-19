@@ -184,9 +184,9 @@ void InMemoryLabelPropertyCompositeIndex::RemoveObsoleteEntries(uint64_t oldest_
       auto next_it = it;
       ++next_it;
 
-      bool has_next = next_it != end_it;
+      const bool has_next = next_it != end_it;
       if (it->timestamp < oldest_active_start_timestamp) {
-        bool redundant_duplicate = has_next && it->vertex == next_it->vertex && it->value == next_it->value;
+        const bool redundant_duplicate = has_next && it->vertex == next_it->vertex && it->value == next_it->value;
         if (redundant_duplicate ||
             !AnyVersionHasLabelProperties(*it->vertex, label_id, prop_ids, it->value, oldest_active_start_timestamp)) {
           index_acc.remove(*it);
@@ -436,8 +436,8 @@ uint64_t InMemoryLabelPropertyCompositeIndex::ApproximateVertexCount(LabelId lab
 
 uint64_t InMemoryLabelPropertyCompositeIndex::ApproximateVertexCount(
     LabelId label, const std::vector<PropertyId> &properties,
-    const std::vector<std::optional<utils::Bound<PropertyValue>>> &lower,
-    const std::vector<std::optional<utils::Bound<PropertyValue>>> &upper) const {
+    const std::vector<std::optional<utils::Bound<PropertyValue>>> & /*lower*/,
+    const std::vector<std::optional<utils::Bound<PropertyValue>>> & /*upper*/) const {
   auto it = index_.find({label, properties});
   MG_ASSERT(it != index_.end(), "Composite index for label {} does not exist!", label.AsUint());
 
@@ -523,9 +523,9 @@ InMemoryLabelPropertyCompositeIndex::Iterable InMemoryLabelPropertyCompositeInde
           transaction};
 }
 
-void InMemoryLabelPropertyCompositeIndex::AbortEntries(PropertyId property,
-                                                       std::span<std::pair<PropertyValue, Vertex *> const> vertices,
-                                                       uint64_t exact_start_timestamp) {
+void InMemoryLabelPropertyCompositeIndex::AbortEntries(PropertyId /*property*/,
+                                                       std::span<std::pair<PropertyValue, Vertex *> const> /*vertices*/,
+                                                       uint64_t /*exact_start_timestamp*/) {
   // TODO: Figure out
   // auto const it = indices_by_property_.find(property);
   // if (it == indices_by_property_.end()) return;
@@ -541,9 +541,9 @@ void InMemoryLabelPropertyCompositeIndex::AbortEntries(PropertyId property,
       "Label-property composite index related operations are not yet supported using in-memory storage mode.");
 }
 
-void InMemoryLabelPropertyCompositeIndex::AbortEntries(LabelId label,
-                                                       std::span<std::pair<PropertyValue, Vertex *> const> vertices,
-                                                       uint64_t exact_start_timestamp) {
+void InMemoryLabelPropertyCompositeIndex::AbortEntries(LabelId /*label*/,
+                                                       std::span<std::pair<PropertyValue, Vertex *> const> /*vertices*/,
+                                                       uint64_t /*exact_start_timestamp*/) {
   // TODO: Figure out
   // for (auto &[label_prop, storage] : index_) {
   //   if (label_prop.first != label) {

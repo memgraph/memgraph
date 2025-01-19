@@ -18,32 +18,34 @@
 
 namespace memgraph::storage {
 
-DiskLabelPropertyCompositeIndex::DiskLabelPropertyCompositeIndex(const Config &config) {
+DiskLabelPropertyCompositeIndex::DiskLabelPropertyCompositeIndex(const Config & /*config*/) {
   spdlog::warn("Label property composite index related operations are not yet supported using on-disk storage mode.");
 }
 
-bool DiskLabelPropertyCompositeIndex::CreateIndex(LabelId label, const std::vector<PropertyId> &properties,
-                                                  const std::vector<std::pair<std::string, std::string>> &vertices) {
-  spdlog::warn("Label property composite index related operations are not yet supported using on-disk storage mode.");
-  return true;
-}
-
-void DiskLabelPropertyCompositeIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update,
-                                                       const Transaction &tx) {
-  spdlog::warn("Label property composite index related operations are not yet supported using on-disk storage mode.");
-}
-
-void DiskLabelPropertyCompositeIndex::UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update,
-                                                          const Transaction &tx) {
-  spdlog::warn("Label property composite index related operations are not yet supported using on-disk storage mode.");
-}
-
-bool DiskLabelPropertyCompositeIndex::DropIndex(LabelId label, const std::vector<PropertyId> &properties) {
+bool DiskLabelPropertyCompositeIndex::CreateIndex(
+    LabelId /*label*/, const std::vector<PropertyId> & /*properties*/,
+    const std::vector<std::pair<std::string, std::string>> & /*vertices*/) {
   spdlog::warn("Label property composite index related operations are not yet supported using on-disk storage mode.");
   return true;
 }
 
-bool DiskLabelPropertyCompositeIndex::IndexExists(LabelId label, const std::vector<PropertyId> &properties) const {
+void DiskLabelPropertyCompositeIndex::UpdateOnAddLabel(LabelId /*added_label*/, Vertex * /*vertex_after_update*/,
+                                                       const Transaction & /*tx*/) {
+  spdlog::warn("Label property composite index related operations are not yet supported using on-disk storage mode.");
+}
+
+void DiskLabelPropertyCompositeIndex::UpdateOnRemoveLabel(LabelId /*removed_label*/, Vertex * /*vertex_after_update*/,
+                                                          const Transaction & /*tx*/) {
+  spdlog::warn("Label property composite index related operations are not yet supported using on-disk storage mode.");
+}
+
+bool DiskLabelPropertyCompositeIndex::DropIndex(LabelId /*label*/, const std::vector<PropertyId> & /*properties*/) {
+  spdlog::warn("Label property composite index related operations are not yet supported using on-disk storage mode.");
+  return true;
+}
+
+bool DiskLabelPropertyCompositeIndex::IndexExists(LabelId /*label*/,
+                                                  const std::vector<PropertyId> & /*properties*/) const {
   spdlog::warn("Label property composite index related operations are not yet supported using on-disk storage mode.");
   return true;
 }

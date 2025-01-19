@@ -992,9 +992,9 @@ ScanAllByLabelPropertyCompositeValue::ScanAllByLabelPropertyCompositeValue(
     std::vector<std::optional<Bound>> upper_bounds, storage::View view)
     : ScanAll(input, output_symbol, view),
       label_(label),
-      properties_(properties),
-      lower_bounds_(lower_bounds),
-      upper_bounds_(upper_bounds) {}
+      properties_(std::move(properties)),
+      lower_bounds_(std::move(lower_bounds)),
+      upper_bounds_(std::move(upper_bounds)) {}
 
 ACCEPT_WITH_INPUT(ScanAllByLabelPropertyCompositeValue)
 
@@ -1014,8 +1014,8 @@ UniqueCursorPtr ScanAllByLabelPropertyCompositeValue::MakeCursor(utils::MemoryRe
     upper_bounds.reserve(upper_bounds_.size());
 
     for (uint64_t i = 0; i < lower_bounds_.size(); i++) {
-      std::optional<Bound> lower_bound = lower_bounds_[i];
-      std::optional<Bound> upper_bound = upper_bounds_[i];
+      const std::optional<Bound> lower_bound = lower_bounds_[i];
+      const std::optional<Bound> upper_bound = upper_bounds_[i];
 
       auto maybe_lower = TryConvertToBound(lower_bound, evaluator);
       auto maybe_upper = TryConvertToBound(upper_bound, evaluator);

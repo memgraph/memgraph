@@ -34,6 +34,7 @@ void Indices::AbortEntries(PropertyId property, std::span<std::pair<PropertyValu
                            uint64_t exact_start_timestamp) const {
   static_cast<InMemoryLabelPropertyIndex *>(label_property_index_.get())
       ->AbortEntries(property, vertices, exact_start_timestamp);
+  // NOLINTNEXTLINE(readability-static-accessed-through-instance)
   static_cast<InMemoryLabelPropertyCompositeIndex *>(label_property_composite_index_.get())
       ->AbortEntries(property, vertices, exact_start_timestamp);
 }
@@ -41,6 +42,7 @@ void Indices::AbortEntries(LabelId label, std::span<std::pair<PropertyValue, Ver
                            uint64_t exact_start_timestamp) const {
   static_cast<InMemoryLabelPropertyIndex *>(label_property_index_.get())
       ->AbortEntries(label, vertices, exact_start_timestamp);
+  // NOLINTNEXTLINE(readability-static-accessed-through-instance)
   static_cast<InMemoryLabelPropertyCompositeIndex *>(label_property_composite_index_.get())
       ->AbortEntries(label, vertices, exact_start_timestamp);
 }

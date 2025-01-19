@@ -1913,7 +1913,7 @@ std::optional<std::vector<PropertyValue>> PropertyStore::GetProperties(const std
     std::set<uint64_t> property_ids;
     std::transform(properties.begin(), properties.end(), std::inserter(property_ids, property_ids.end()),
                    [](const PropertyId &id) { return id.AsUint(); });
-    uint64_t maximum_property_id = property_ids.empty() ? 0 : *property_ids.rbegin();
+    const uint64_t maximum_property_id = property_ids.empty() ? 0 : *property_ids.rbegin();
 
     std::vector<PropertyValue> values;
     values.reserve(properties.size());

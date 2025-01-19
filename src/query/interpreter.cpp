@@ -4467,6 +4467,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         }
         for (const auto &item : info.label_property_composite) {
           std::vector<std::string> property_names;
+          property_names.reserve(item.second.size());
           for (const auto &property : item.second) {
             property_names.push_back(storage->PropertyToName(property));
           }

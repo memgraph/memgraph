@@ -146,8 +146,8 @@ VerticesIterable::Iterator::Iterator(InMemoryLabelPropertyIndex::Iterable::Itera
 
 VerticesIterable::Iterator::Iterator(InMemoryLabelPropertyCompositeIndex::Iterable::Iterator it)
     : type_(Type::BY_LABEL_PROPERTY_COMPOSITE_IN_MEMORY) {
-  // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
   new (&in_memory_by_label_property_composite_it_)
+      // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
       InMemoryLabelPropertyCompositeIndex::Iterable::Iterator(std::move(it));
 }
 
@@ -209,10 +209,9 @@ VerticesIterable::Iterator::Iterator(VerticesIterable::Iterator &&other) noexcep
           InMemoryLabelPropertyIndex::Iterable::Iterator(std::move(other.in_memory_by_label_property_it_));
       break;
     case Type::BY_LABEL_PROPERTY_COMPOSITE_IN_MEMORY:
-      new (&in_memory_by_label_property_composite_it_)
+      new (&in_memory_by_label_property_composite_it_) InMemoryLabelPropertyCompositeIndex::Iterable::Iterator(
           // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
-          InMemoryLabelPropertyCompositeIndex::Iterable::Iterator(
-              std::move(other.in_memory_by_label_property_composite_it_));
+          std::move(other.in_memory_by_label_property_composite_it_));
       break;
   }
 }
@@ -235,10 +234,9 @@ VerticesIterable::Iterator &VerticesIterable::Iterator::operator=(VerticesIterab
           InMemoryLabelPropertyIndex::Iterable::Iterator(std::move(other.in_memory_by_label_property_it_));
       break;
     case Type::BY_LABEL_PROPERTY_COMPOSITE_IN_MEMORY:
-      new (&in_memory_by_label_property_it_)
+      new (&in_memory_by_label_property_it_) InMemoryLabelPropertyCompositeIndex::Iterable::Iterator(
           // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
-          InMemoryLabelPropertyCompositeIndex::Iterable::Iterator(
-              std::move(other.in_memory_by_label_property_composite_it_));
+          std::move(other.in_memory_by_label_property_composite_it_));
       break;
   }
   return *this;
