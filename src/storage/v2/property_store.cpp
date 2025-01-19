@@ -1940,6 +1940,8 @@ std::optional<std::vector<PropertyValue>> PropertyStore::GetProperties(const std
         if (values.size() == properties.size()) {
           return values;
         }
+
+        continue;
       }
 
       // Don't load the value if this isn't the expected property.
