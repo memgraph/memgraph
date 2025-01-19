@@ -1,0 +1,14 @@
+composite_indices_cluster: &composite_indices_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      log_file: "composite_indices.log"
+      setup_queries: []
+      validation_queries: []
+
+
+workloads:
+  - name: "Composite indices"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["composite_indices/composite_indices.py"]
+    <<: *composite_indices_cluster

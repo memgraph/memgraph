@@ -971,7 +971,25 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       return CandidateCompositeIndices{.candidate_indices_ = candidate_indices};
     }
 
-    for (const auto &comp_index : all_composite_indices) {
+    std::vector<storage::PropertyId> property_filter_ids;
+    std::vector<PropertyIx> property_filter_ixs;
+    std::vector<FilterInfo> property_filter_infos;
+    for (const auto &filter : property_filters) {
+      if (filter.property_filter->is_symbol_in_value_ || !are_bound(filter.used_symbols)) {
+        // Skip filter expressions which use the symbol whose property we are
+        // looking up or aren't bound. We cannot scan by such expressions. For
+        // example, in `n.a = 2 + n.b` both sides of `=` refer to `n`, so we
+        // cannot scan `n` by property index.
+        continue;
+      }
+
+      property_filter_ids.push_back(GetProperty(filter.property_filter->property_));
+      property_filter_ixs.push_back(filter.property_filter->property_);
+      property_filter_infos.push_back(filter);
+    }
+    std::sort(property_filter_ids.begin(), property_filter_ids.end());
+
+    for (auto &comp_index : all_composite_indices) {
       std::optional<LabelIx> maybe_label{std::nullopt};
       for (const auto &label : labels) {
         if (comp_index.first == GetLabel(label)) {
@@ -983,38 +1001,27 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         continue;
       }
 
-      std::vector<FilterInfo> properties_of_composite_index;
-      std::vector<PropertyIx> properties;
-      bool outer_found = true;
-      for (const auto &prop : comp_index.second) {
-        bool found = false;
-        for (const auto &filter : property_filters) {
-          if (filter.property_filter->is_symbol_in_value_ || !are_bound(filter.used_symbols)) {
-            // Skip filter expressions which use the symbol whose property we are
-            // looking up or aren't bound. We cannot scan by such expressions. For
-            // example, in `n.a = 2 + n.b` both sides of `=` refer to `n`, so we
-            // cannot scan `n` by property index.
-            continue;
-          }
+      std::sort(comp_index.second.begin(), comp_index.second.end());
 
-          if (prop == GetProperty(filter.property_filter->property_)) {
-            properties_of_composite_index.push_back(filter);
-            properties.push_back(filter.property_filter->property_);
-            found = true;
-            break;
+      std::set<storage::PropertyId> intersection;
+      std::set_intersection(property_filter_ids.begin(), property_filter_ids.end(), comp_index.second.begin(),
+                            comp_index.second.end(), std::inserter(intersection, intersection.begin()));
+
+      if (intersection.size() == comp_index.second.size()) {
+        // We have found the index
+        std::vector<PropertyIx> property_filter_ixs_for_index;
+        std::vector<FilterInfo> property_filter_infos_for_index;
+        for (uint64_t i = 0; i < property_filter_ids.size(); i++) {
+          if (intersection.contains(property_filter_ids[i])) {
+            property_filter_ixs_for_index.push_back(property_filter_ixs[i]);
+            property_filter_infos_for_index.push_back(property_filter_infos[i]);
           }
         }
 
-        if (!found) {
-          outer_found = false;
-          break;
-        }
-      }
-      if (outer_found) {
         candidate_indices.emplace_back(IndexHint{.index_type_ = IndexHint::IndexType::LABEL_PROPERTY_COMPOSITE,
                                                  .label_ = maybe_label.value(),
-                                                 .properties_ = properties},
-                                       properties_of_composite_index);
+                                                 .properties_ = property_filter_ixs_for_index},
+                                       property_filter_infos_for_index);
       }
     }
 

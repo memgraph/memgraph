@@ -98,6 +98,7 @@ add_subdirectory(system_replication)
 add_subdirectory(durability)
 add_subdirectory(show_license_info)
 add_subdirectory(enterprise_query_modules)
+add_subdirectory(composite_indices)
 
 copy_e2e_python_files(pytest_runner pytest_runner.sh "")
 copy_e2e_python_files(x x.sh "")
