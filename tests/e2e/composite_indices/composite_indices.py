@@ -151,5 +151,55 @@ def test_index_info_with_2_transactions(memgraph):
     assert index_count == 1
 
 
+def test_isolation_one_transaction_cant_see_other_with_property_composite_index(memgraph):
+    memgraph.execute("CREATE INDEX ON :Node(prop1, prop2);")
+    memgraph.execute("CREATE (n:Node {prop1: 1, prop2: 2})")
+    memgraph.execute("FREE MEMORY;")
+
+    connection1 = connect()
+    cursor1 = connection1.cursor()
+    execute_and_fetch_all(cursor1, "MATCH (n) SET n.prop1 = 3")
+
+    results = list(memgraph.execute_and_fetch("MATCH (n) RETURN n.prop1 AS prop1, n.prop2 AS prop2;"))
+
+    assert len(results) == 1
+
+    properties = results[0]
+    prop1, prop2 = properties["prop1"], properties["prop2"]
+
+    assert prop1 == 1
+    assert prop2 == 2
+
+    execute_and_fetch_all(cursor1, "CREATE (n:Node) SET n.prop1 = 4, n.prop2 = 5")
+
+    results = list(memgraph.execute_and_fetch("MATCH (n) RETURN n.prop1 AS prop1, n.prop2 AS prop2;"))
+
+    assert len(results) == 1
+
+    properties = results[0]
+    prop1, prop2 = properties["prop1"], properties["prop2"]
+
+    assert prop1 == 1
+    assert prop2 == 2
+
+    connection1.commit()
+
+    results = list(memgraph.execute_and_fetch("MATCH (n) RETURN n.prop1 AS prop1, n.prop2 AS prop2;"))
+
+    assert len(results) == 2
+
+    properties = results[0]
+    prop1, prop2 = properties["prop1"], properties["prop2"]
+
+    assert prop1 == 3
+    assert prop2 == 2
+
+    properties = results[1]
+    prop1, prop2 = properties["prop1"], properties["prop2"]
+
+    assert prop1 == 4
+    assert prop2 == 5
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
