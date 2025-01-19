@@ -11,9 +11,9 @@
 
 import sys
 
+import mgclient
 import pytest
-from common import memgraph
-from gqlalchemy import GQLAlchemyError
+from common import connect, execute_and_fetch_all, memgraph
 
 QUERY_PLAN = "QUERY PLAN"
 
@@ -33,7 +33,122 @@ def test_basic_composite_label_property_index(memgraph):
     )
     actual_explain = [x[QUERY_PLAN] for x in actual_explain]
 
+    actual_explain = list(
+        memgraph.execute_and_fetch("EXPLAIN MATCH (n:Node) WHERE n.prop1 < 1 AND n.prop2 = 2 RETURN n")
+    )
+    actual_explain = [x[QUERY_PLAN] for x in actual_explain]
+
     assert expected_explain == actual_explain
+
+    actual_explain = list(
+        memgraph.execute_and_fetch("EXPLAIN MATCH (n:Node) WHERE n.prop1 > 1 AND n.prop2 = 2 RETURN n")
+    )
+    actual_explain = [x[QUERY_PLAN] for x in actual_explain]
+
+    assert expected_explain == actual_explain
+
+    actual_explain = list(
+        memgraph.execute_and_fetch("EXPLAIN MATCH (n:Node) WHERE n.prop1 <= 1 AND n.prop2 = 2 RETURN n")
+    )
+    actual_explain = [x[QUERY_PLAN] for x in actual_explain]
+
+    assert expected_explain == actual_explain
+
+    actual_explain = list(
+        memgraph.execute_and_fetch("EXPLAIN MATCH (n:Node) WHERE n.prop1 >= 1 AND n.prop2 = 2 RETURN n")
+    )
+    actual_explain = [x[QUERY_PLAN] for x in actual_explain]
+
+    assert expected_explain == actual_explain
+
+    actual_explain = list(
+        memgraph.execute_and_fetch("EXPLAIN MATCH (n:Node) WHERE n.prop1 < 1 AND n.prop2 < 2 RETURN n")
+    )
+    actual_explain = [x[QUERY_PLAN] for x in actual_explain]
+
+    assert expected_explain == actual_explain
+
+    actual_explain = list(
+        memgraph.execute_and_fetch("EXPLAIN MATCH (n:Node) WHERE n.prop1 < 1 AND n.prop2 > 2 RETURN n")
+    )
+    actual_explain = [x[QUERY_PLAN] for x in actual_explain]
+
+    assert expected_explain == actual_explain
+
+    actual_explain = list(
+        memgraph.execute_and_fetch("EXPLAIN MATCH (n:Node) WHERE n.prop1 is not null AND n.prop2 is not null RETURN n")
+    )
+    actual_explain = [x[QUERY_PLAN] for x in actual_explain]
+
+    assert expected_explain == actual_explain
+
+    actual_explain = list(
+        memgraph.execute_and_fetch("EXPLAIN MATCH (n:Node) WHERE n.prop1 is not null AND n.prop2 = 2 RETURN n")
+    )
+    actual_explain = [x[QUERY_PLAN] for x in actual_explain]
+
+    assert expected_explain == actual_explain
+
+    actual_explain = list(
+        memgraph.execute_and_fetch("EXPLAIN MATCH (n:Node) WHERE n.prop1 is not null AND n.prop2 < 2 RETURN n")
+    )
+    actual_explain = [x[QUERY_PLAN] for x in actual_explain]
+
+    assert expected_explain == actual_explain
+
+    actual_explain = list(
+        memgraph.execute_and_fetch("EXPLAIN MATCH (n:Node) WHERE n.prop1 is not null AND n.prop2 > 2 RETURN n")
+    )
+    actual_explain = [x[QUERY_PLAN] for x in actual_explain]
+
+    assert expected_explain == actual_explain
+
+
+def test_free_memory_composite_indices(memgraph):
+    memgraph.execute("CREATE INDEX ON :Node(prop1, prop2);")
+    memgraph.execute("CREATE (n:Node {prop1: 1, prop2: 2})")
+
+    index_count = list(memgraph.execute_and_fetch("SHOW INDEX INFO;"))[0]["count"]
+
+    assert index_count == 1
+
+    memgraph.execute("MATCH (n) SET n.prop1 = 3;")
+    memgraph.execute("FREE MEMORY;")
+
+    index_count = list(memgraph.execute_and_fetch("SHOW INDEX INFO;"))[0]["count"]
+    assert index_count == 1
+
+
+def test_index_info_with_2_transactions(memgraph):
+    memgraph.execute("CREATE INDEX ON :Node(prop1, prop2);")
+    memgraph.execute("CREATE (n:Node {prop1: 1, prop2: 2})")
+    memgraph.execute("FREE MEMORY;")
+
+    connection1 = connect()
+    connection2 = connect()
+    cursor1 = connection1.cursor()
+    cursor2 = connection2.cursor()
+    execute_and_fetch_all(cursor1, "MATCH (n) SET n.prop1 = 3")
+
+    index_count = list(memgraph.execute_and_fetch("SHOW INDEX INFO;"))[0]["count"]
+    assert index_count == 2
+
+    execute_and_fetch_all(cursor2, "UNWIND range(1, 5) AS x CREATE (:Node {prop1: x, prop2: x})")
+    index_count = list(memgraph.execute_and_fetch("SHOW INDEX INFO;"))[0]["count"]
+    assert index_count == 7
+
+    with pytest.raises(mgclient.DatabaseError):
+        execute_and_fetch_all(cursor2, "MATCH (n) SET n.prop1 = 4")
+
+    index_count = list(memgraph.execute_and_fetch("SHOW INDEX INFO;"))[0]["count"]
+    assert index_count == 7
+
+    connection1.commit()
+
+    memgraph.execute("FREE MEMORY")
+
+    index_count = list(memgraph.execute_and_fetch("SHOW INDEX INFO;"))[0]["count"]
+    assert index_count == 1
 
 
 if __name__ == "__main__":
