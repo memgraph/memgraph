@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,7 +20,6 @@
 #include <limits>
 
 #include "utils/skip_list.hpp"
-#include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 
 namespace {
@@ -52,10 +51,9 @@ uint64_t AddFlag(std::weak_ptr<std::atomic<bool>> flag) {
   return id;
 }
 
-void EraseFlag(uint64_t flag_id) {
-  expiration_flags.access().remove(flag_id);
-  expiration_flags.run_gc();
-}
+void EraseFlag(uint64_t flag_id) { expiration_flags.access().remove(flag_id); }
+
+void ExpirationFlagsGC() { expiration_flags.run_gc(); }
 
 std::weak_ptr<std::atomic<bool>> GetFlag(uint64_t flag_id) {
   const auto flag_accessor = expiration_flags.access();
@@ -191,10 +189,12 @@ bool AsyncTimer::IsExpired() const noexcept {
 void AsyncTimer::ReleaseResources() {
   if (expiration_flag_ != nullptr) {
     timer_delete(timer_id_);
-    EraseFlag(flag_id_);
+    EraseFlag(flag_id_);  // not deleted, still held in skip_list gc
     flag_id_ = kInvalidFlagId;
     expiration_flag_.reset();
   }
 }
+
+void AsyncTimer::GCRun() { ExpirationFlagsGC(); }
 
 }  // namespace memgraph::utils

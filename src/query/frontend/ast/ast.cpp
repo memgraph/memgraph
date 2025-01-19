@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,7 +10,6 @@
 // licenses/APL.txt.
 
 #include "query/frontend/ast/ast.hpp"
-#include "query/frontend/ast/ast_visitor.hpp"
 #include "utils/typeinfo.hpp"
 
 namespace memgraph {
@@ -202,6 +201,9 @@ constexpr utils::TypeInfo query::PointIndexQuery::kType{utils::TypeId::AST_POINT
 
 constexpr utils::TypeInfo query::TextIndexQuery::kType{utils::TypeId::AST_TEXT_INDEX_QUERY, "TextIndexQuery",
                                                        &query::Query::kType};
+
+constexpr utils::TypeInfo query::VectorIndexQuery::kType{utils::TypeId::AST_VECTOR_INDEX_QUERY, "VectorIndexQuery",
+                                                         &query::Query::kType};
 
 constexpr utils::TypeInfo query::Create::kType{utils::TypeId::AST_CREATE, "Create", &query::Clause::kType};
 

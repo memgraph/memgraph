@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,10 +16,9 @@
 
 #include <flags/replication.hpp>
 #include "coordination/coordinator_communication_config.hpp"
+#include "coordination/coordinator_state_machine.hpp"
+#include "coordination/coordinator_state_manager.hpp"
 #include "coordination_observer.hpp"
-#include "io/network/endpoint.hpp"
-#include "nuraft/coordinator_state_machine.hpp"
-#include "nuraft/coordinator_state_manager.hpp"
 
 #include <libnuraft/logger.hxx>
 #include <libnuraft/nuraft.hxx>
@@ -27,7 +26,7 @@
 namespace memgraph::coordination {
 
 class CoordinatorInstance;
-struct CoordinatorToReplicaConfig;
+struct DataInstanceConfig;
 
 using BecomeLeaderCb = std::function<void()>;
 using BecomeFollowerCb = std::function<void()>;
@@ -51,7 +50,7 @@ using raft_result = nuraft::cmd_result<ptr<buffer>>;
 class RaftState {
  public:
   auto InitRaftServer() -> void;
-  explicit RaftState(CoordinatorInstanceInitConfig const &instance_config, BecomeLeaderCb become_leader_cb,
+  explicit RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb become_leader_cb,
                      BecomeFollowerCb become_follower_cb,
                      std::optional<CoordinationClusterChangeObserver> observer = std::nullopt);
   RaftState() = delete;
@@ -61,18 +60,26 @@ class RaftState {
   RaftState &operator=(RaftState &&other) noexcept = default;
   ~RaftState();
 
+  auto GetCoordinatorEndpoint(int32_t coordinator_id) const -> std::string;
+  auto GetMyCoordinatorEndpoint() const -> std::string;
+  auto GetMyCoordinatorId() const -> int32_t;
   auto InstanceName() const -> std::string;
 
-  auto AddCoordinatorInstance(CoordinatorToCoordinatorConfig const &config) -> void;
-  auto RemoveCoordinatorInstance(int coordinator_id) -> void;
-  auto GetCoordinatorInstances() const -> std::vector<CoordinatorToCoordinatorConfig>;
+  // Only called when adding new coordinator instance, not itself.
+  auto AddCoordinatorInstance(CoordinatorInstanceConfig const &config) const -> void;
+  auto RemoveCoordinatorInstance(int32_t coordinator_id) const -> void;
 
   auto IsLeader() const -> bool;
-  auto GetCoordinatorId() const -> uint32_t;
+  auto GetLeaderId() const -> int32_t;
 
-  auto AppendClusterUpdate(std::vector<DataInstanceState> cluster_state, utils::UUID uuid) -> bool;
+  auto AppendClusterUpdate(std::vector<DataInstanceContext> data_instances,
+                           std::vector<CoordinatorInstanceContext> coordinator_instances, utils::UUID uuid) const
+      -> bool;
 
-  auto GetDataInstances() const -> std::vector<DataInstanceState>;
+  auto GetDataInstancesContext() const -> std::vector<DataInstanceContext>;
+  auto GetCoordinatorInstancesContext() const -> std::vector<CoordinatorInstanceContext>;
+  auto GetCoordinatorInstancesAux() const -> std::vector<CoordinatorInstanceAux>;
+  auto GetMyCoordinatorInstanceAux() const -> CoordinatorInstanceAux;
 
   // TODO: (andi) Ideally we delete this and rely just on one thing.
   auto MainExists() const -> bool;
@@ -81,22 +88,18 @@ class RaftState {
   auto TryGetCurrentMainName() const -> std::optional<std::string>;
   auto GetCurrentMainUUID() const -> utils::UUID;
 
-  auto GetLeaderCoordinatorData() const -> std::optional<CoordinatorToCoordinatorConfig>;
-
+  auto GetLeaderCoordinatorData() const -> std::optional<LeaderCoordinatorData>;
   auto GetRoutingTable() const -> RoutingTable;
 
   // Returns elapsed time in ms since last successful response from the coordinator with id srv_id
-  auto CoordLastSuccRespMs(uint32_t srv_id) -> std::chrono::milliseconds;
-
-  auto GetLeaderId() const -> uint32_t;
-
-  auto SelfCoordinatorConfig() const -> CoordinatorToCoordinatorConfig;
-
-  auto GetCoordinatorToCoordinatorConfigs() const -> std::vector<CoordinatorToCoordinatorConfig>;
+  auto CoordLastSuccRespMs(int32_t srv_id) const -> std::chrono::milliseconds;
+  // Return empty optional in the case when user didn't add coordinator on which setup of the cluster has been done
+  auto GetBoltServer(int32_t coordinator_id) const -> std::optional<std::string>;
+  auto GetMyBoltServer() const -> std::optional<std::string>;
 
  private:
-  int coordinator_port_;
-  uint32_t coordinator_id_;
+  uint16_t coordinator_port_;
+  int32_t coordinator_id_;
 
   ptr<logger> logger_;
   ptr<raft_server> raft_server_;

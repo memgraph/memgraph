@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -107,11 +107,10 @@ void SystemRestore(replication::ReplicationClient &client, system::System &syste
 #endif
 
 /// A handler type that keep in sync current ReplicationState and the MAIN/REPLICA-ness of Storage
-struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
+struct ReplicationHandler : public query::ReplicationQueryHandler {
 #ifdef MG_ENTERPRISE
-  explicit ReplicationHandler(memgraph::replication::ReplicationState &repl_state,
-                              memgraph::dbms::DbmsHandler &dbms_handler, memgraph::system::System &system,
-                              memgraph::auth::SynchedAuth &auth);
+  explicit ReplicationHandler(ReplicationState &repl_state, memgraph::dbms::DbmsHandler &dbms_handler,
+                              memgraph::system::System &system, memgraph::auth::SynchedAuth &auth);
 #else
   explicit ReplicationHandler(memgraph::replication::ReplicationState &repl_state,
                               memgraph::dbms::DbmsHandler &dbms_handler);
@@ -145,19 +144,18 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
   bool IsMain() const override;
   bool IsReplica() const override;
 
-  auto ShowReplicas() const
-      -> utils::BasicResult<memgraph::query::ShowReplicaError, memgraph::query::ReplicasInfos> override;
+  auto ShowReplicas() const -> utils::BasicResult<query::ShowReplicaError, query::ReplicasInfos> override;
 
   auto GetReplState() const -> const memgraph::replication::ReplicationState &;
   auto GetReplState() -> memgraph::replication::ReplicationState &;
 
-  auto GetReplicaUUID() -> std::optional<utils::UUID>;
-  auto GetMainUUID() -> utils::UUID;
+  auto GetReplicaUUID() const -> std::optional<utils::UUID>;
+  auto GetMainUUID() const -> utils::UUID;
 
-  auto GetDatabasesHistories() -> replication_coordination_glue::DatabaseHistories;
+  auto GetDatabasesHistories() const -> replication_coordination_glue::DatabaseHistories;
 
  private:
-  void ClientsShutdown() {
+  void ClientsShutdown() const {
     spdlog::trace("Shutting down instance level clients.");
 
     auto &repl_clients = std::get<RoleMainData>(repl_state_.ReplicationData()).registered_replicas_;
@@ -233,12 +231,12 @@ struct ReplicationHandler : public memgraph::query::ReplicationQueryHandler {
       // TODO: ATM only IN_MEMORY_TRANSACTIONAL, fix other modes
       if (storage->storage_mode_ != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) return;
 
+      auto client = std::make_unique<storage::ReplicationStorageClient>(*instance_client_ptr, main_uuid);
+      client->Start(storage, db_acc);
+
       all_clients_good &= storage->repl_storage_state_.replication_clients_.WithLock(
           [is_data_instance_managed_by_coord = flags::CoordinationSetupInstance().IsDataInstanceManagedByCoordinator(),
-           storage, &instance_client_ptr, db_acc = std::move(db_acc),
-           main_uuid](auto &storage_clients) mutable {  // NOLINT
-            auto client = std::make_unique<storage::ReplicationStorageClient>(*instance_client_ptr, main_uuid);
-            client->Start(storage, std::move(db_acc));
+           client = std::move(client)](auto &storage_clients) mutable {  // NOLINT
             bool const success = std::invoke([&is_data_instance_managed_by_coord, state = client->State()]() {
               // We force sync replicas in other situation
               if (state == storage::replication::ReplicaState::DIVERGED_FROM_MAIN) {

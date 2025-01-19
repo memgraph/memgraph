@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include <concepts>
 #include <mutex>
 #include <shared_mutex>
 #include <utility>
@@ -110,6 +109,23 @@ class Synchronized {
     std::shared_lock<TMutex> guard_;
   };
 
+  // This is a non-const version of ReadLockedPtr. It should be used only when modifying the object which is already
+  // thread-safe.
+  class MutableSharedLockPtr {
+   private:
+    friend class Synchronized<T, TMutex>;
+
+    MutableSharedLockPtr(T *object_ptr, TMutex *mutex) : object_ptr_(object_ptr), guard_(*mutex) {}
+
+   public:
+    T *operator->() { return object_ptr_; }
+    T &operator*() { return *object_ptr_; }
+
+   private:
+    T *object_ptr_;
+    std::shared_lock<TMutex> guard_;
+  };
+
   LockedPtr Lock() { return LockedPtr(&object_, &mutex_); }
 
   template <class TCallable>
@@ -124,11 +140,23 @@ class Synchronized {
   const { return ReadLockedPtr(&object_, &mutex_); }
 
   template <class TCallable>
-  requires SharedMutex<TMutex>
+  requires SharedMutex<TMutex> && requires(TCallable &&c, const T &v) { c(v); }
   decltype(auto) WithReadLock(TCallable &&callable) const { return callable(*ReadLock()); }
 
   template <typename = void>
   requires SharedMutex<TMutex> ReadLockedPtr operator->() const { return ReadLockedPtr(&object_, &mutex_); }
+
+  template <typename = void>
+  requires SharedMutex<TMutex> MutableSharedLockPtr MutableSharedLock() {
+    return MutableSharedLockPtr(&object_, &mutex_);
+  }
+
+  template <class TCallable>
+  requires SharedMutex<TMutex>
+  decltype(auto) WithMutableSharedLock(TCallable &&callable) { return callable(*MutableSharedLock()); }
+
+  template <typename = void>
+  requires SharedMutex<TMutex> MutableSharedLockPtr operator->() { return MutableSharedLockPtr(&object_, &mutex_); }
 
  private:
   T object_;

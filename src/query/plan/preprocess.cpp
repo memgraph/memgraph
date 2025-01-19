@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -910,6 +910,12 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(SymbolTable &symbol_table, 
   auto *query_part = &query_parts.back();
   for (auto &clause : single_query->clauses_) {
     if (auto *match = utils::Downcast<Match>(clause)) {
+      if (!query_part->remaining_clauses.empty()) {
+        // New match started
+        // This query part is done, continue with a new one.
+        query_parts.emplace_back(SingleQueryPart{});
+        query_part = &query_parts.back();
+      }
       if (match->optional_) {
         query_part->optional_matching.emplace_back(Matching{});
         AddMatching(*match, symbol_table, storage, query_part->optional_matching.back());

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,6 +17,7 @@
 #include "dbms/constants.hpp"
 #include "dbms/global.hpp"
 #include "flags/experimental.hpp"
+#include "query/db_accessor.hpp"
 #include "spdlog/spdlog.h"
 #include "system/include/system/system.hpp"
 #include "utils/exceptions.hpp"
@@ -61,27 +62,18 @@ void RestoreReplication(replication::RoleMainData &mainData, DatabaseAccess db_a
   // client
   for (auto &instance_client : mainData.registered_replicas_) {
     spdlog::info("Replica {} restoration started for {}.", instance_client.name_, db_acc->name());
-    const auto &ret = db_acc->storage()->repl_storage_state_.replication_clients_.WithLock(
-        [&, db_acc](auto &storage_clients) mutable -> utils::BasicResult<query::RegisterReplicaError> {
-          auto client = std::make_unique<storage::ReplicationStorageClient>(instance_client, mainData.uuid_);
-          auto *storage = db_acc->storage();
-          client->Start(storage, std::move(db_acc));
-          // After start the storage <-> replica state should be READY or RECOVERING (if correctly started)
-          // MAYBE_BEHIND isn't a statement of the current state, this is the default value
-          // Failed to start due to branching of MAIN and REPLICA
-          if (client->State() == storage::replication::ReplicaState::MAYBE_BEHIND) {
-            spdlog::warn("Connection failed when registering replica {}. Replica will still be registered.",
-                         instance_client.name_);
-          }
-          storage_clients.push_back(std::move(client));
-          return {};
-        });
-
-    if (ret.HasError()) {
-      MG_ASSERT(query::RegisterReplicaError::CONNECTION_FAILED != ret.GetError());
-      LOG_FATAL("Failure when restoring replica {}: {}.", instance_client.name_,
-                RegisterReplicaErrorToString(ret.GetError()));
+    auto client = std::make_unique<storage::ReplicationStorageClient>(instance_client, mainData.uuid_);
+    auto *storage = db_acc->storage();
+    client->Start(storage, db_acc);
+    // After start the storage <-> replica state should be READY or RECOVERING (if correctly started)
+    // MAYBE_BEHIND isn't a statement of the current state, this is the default value
+    // Failed to start due to branching of MAIN and REPLICA
+    if (client->State() == storage::replication::ReplicaState::MAYBE_BEHIND) {
+      spdlog::warn("Connection failed when registering replica {}. Replica will still be registered.",
+                   instance_client.name_);
     }
+    db_acc->storage()->repl_storage_state_.replication_clients_.WithLock(
+        [client = std::move(client)](auto &storage_clients) mutable { storage_clients.push_back(std::move(client)); });
     spdlog::info("Replica {} restored for {}.", instance_client.name_, db_acc->name());
   }
   spdlog::info("Replication role restored to MAIN.");
@@ -441,6 +433,25 @@ void DbmsHandler::RecoverStorageReplication(DatabaseAccess db_acc, replication::
     memgraph::dbms::RestoreReplication(role_main_data, db_acc);
   } else if (!role_main_data.registered_replicas_.empty()) {
     spdlog::warn("Multi-tenant replication is currently not supported!");
+  }
+}
+
+void DbmsHandler::RestoreTriggers(query::InterpreterContext *ic) {
+#ifdef MG_ENTERPRISE
+  auto wr = std::lock_guard{lock_};
+  for (auto &[_, db_gk] : db_handler_) {
+#else
+  {
+    auto &db_gk = db_gatekeeper_;
+#endif
+    auto db_acc_opt = db_gk.access();
+    if (db_acc_opt) {
+      auto &db_acc = *db_acc_opt;
+      spdlog::debug("Restoring trigger for database \"{}\"", db_acc->name());
+      auto storage_accessor = db_acc->Access();
+      auto dba = memgraph::query::DbAccessor{storage_accessor.get()};
+      db_acc->trigger_store()->RestoreTriggers(&ic->ast_cache, &dba, ic->config.query, ic->auth_checker);
+    }
   }
 }
 }  // namespace memgraph::dbms

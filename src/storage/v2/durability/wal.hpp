@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,6 +13,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <set>
 #include <string>
 
@@ -196,6 +197,23 @@ struct WalEnumAlterUpdate {
   std::string evalue_old;
   std::string evalue_new;
 };
+struct WalVectorIndexCreate {
+  friend bool operator==(const WalVectorIndexCreate &, const WalVectorIndexCreate &) = default;
+  using ctr_types =
+      std::tuple<std::string, std::string, std::string, std::string, std::uint16_t, std::uint16_t, std::size_t>;
+  std::string index_name;
+  std::string label;
+  std::string property;
+  std::string metric_kind;
+  std::uint16_t dimension;
+  std::uint16_t resize_coefficient;
+  std::size_t capacity;
+};
+struct WalVectorIndexDrop {
+  friend bool operator==(const WalVectorIndexDrop &, const WalVectorIndexDrop &) = default;
+  using ctr_types = std::tuple<std::string>;
+  std::string index_name;
+};
 
 /// Structure used to return loaded WAL delta data.
 struct WalDeltaData {
@@ -215,7 +233,8 @@ struct WalDeltaData {
                WalPointIndexCreate, WalPointIndexDrop, WalExistenceConstraintCreate, WalExistenceConstraintDrop,
                WalLabelPropertyIndexStatsSet, WalEdgeTypePropertyIndexCreate, WalEdgeTypePropertyIndexDrop,
                WalUniqueConstraintCreate, WalUniqueConstraintDrop, WalTypeConstraintCreate, WalTypeConstraintDrop,
-               WalTextIndexCreate, WalTextIndexDrop, WalEnumCreate, WalEnumAlterAdd, WalEnumAlterUpdate>
+               WalTextIndexCreate, WalTextIndexDrop, WalEnumCreate, WalEnumAlterAdd, WalEnumAlterUpdate,
+               WalVectorIndexCreate, WalVectorIndexDrop>
       data_ = WalTransactionEnd{};
 };
 
@@ -263,6 +282,8 @@ constexpr bool IsWalDeltaDataImplicitTransactionEndVersion15(const WalDeltaData 
                         [](WalPointIndexDrop const &) { return true; },
                         [](WalTypeConstraintCreate const &) { return true; },
                         [](WalTypeConstraintDrop const &) { return true; },
+                        [](WalVectorIndexCreate const &) { return true; },
+                        [](WalVectorIndexDrop const &) { return true; },
                     },
                     delta.data_);
 }
@@ -327,6 +348,8 @@ void EncodeLabelPropertyStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper
 void EncodeLabelStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label, LabelIndexStats stats);
 void EncodeTextIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, std::string_view text_index_name,
                      LabelId label);
+void EncodeVectorIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper, const VectorIndexSpec &spec);
+void EncodeVectorIndexName(BaseEncoder &encoder, std::string_view index_name);
 
 void EncodeOperationPreamble(BaseEncoder &encoder, StorageMetadataOperation Op, uint64_t timestamp);
 

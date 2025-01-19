@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,7 +12,6 @@
 #pragma once
 
 #include "replication/config.hpp"
-#include "replication/epoch.hpp"
 #include "replication/replication_client.hpp"
 #include "replication_coordination_glue/messages.hpp"
 #include "rpc/client.hpp"
@@ -25,19 +24,13 @@
 #include "storage/v2/replication/global.hpp"
 #include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/replication/serialization.hpp"
-#include "utils/file_locker.hpp"
-#include "utils/scheduler.hpp"
 #include "utils/synchronized.hpp"
-#include "utils/thread_pool.hpp"
 #include "utils/uuid.hpp"
 
-#include <atomic>
 #include <concepts>
-#include <functional>
 #include <optional>
 #include <set>
 #include <string>
-#include <variant>
 
 namespace memgraph::storage {
 
@@ -119,23 +112,7 @@ class ReplicationStorageClient {
 
   auto State() const -> replication::ReplicaState { return replica_state_.WithLock(std::identity()); }
 
-  auto StateToString(replication::ReplicaState &replica_state) const -> std::string {
-    switch (replica_state) {
-      case replication::ReplicaState::MAYBE_BEHIND:
-        return "MAYBE_BEHIND";
-      case replication::ReplicaState::READY:
-        return "READY";
-      case replication::ReplicaState::REPLICATING:
-        return "REPLICATING";
-      case replication::ReplicaState::RECOVERY:
-        return "RECOVERY";
-      case replication::ReplicaState::DIVERGED_FROM_MAIN:
-        return "DIVERGED_FROM_MAIN";
-      default:
-        return "Unknown ReplicaState";
-    }
-  }
-  auto GetTimestampInfo(Storage const *storage) -> TimestampInfo;
+  auto GetTimestampInfo(Storage const *storage) const -> TimestampInfo;
 
   /**
    * @brief Check the replica state
@@ -198,7 +175,7 @@ class ReplicationStorageClient {
    * @return false
    */
   [[nodiscard]] bool FinalizeTransactionReplication(Storage *storage, DatabaseAccessProtector db_acc,
-                                                    std::optional<ReplicaStream> &&replica_stream);
+                                                    std::optional<ReplicaStream> &&replica_stream) const;
 
   /**
    * @brief Asynchronously try to check the replica state and start a recovery thread if necessary
@@ -208,8 +185,6 @@ class ReplicationStorageClient {
    */
   void TryCheckReplicaStateAsync(Storage *storage, DatabaseAccessProtector db_acc);  // TODO Move back to private
 
-  auto &Client() { return client_; }
-
  private:
   /**
    * @brief Get necessary recovery steps and execute them.
@@ -217,7 +192,7 @@ class ReplicationStorageClient {
    * @param replica_commit the commit up to which we should recover to
    * @param gk gatekeeper access that protects the database; std::any to have separation between dbms and storage
    */
-  void RecoverReplica(uint64_t replica_commit, memgraph::storage::Storage *storage);
+  void RecoverReplica(uint64_t replica_commit, memgraph::storage::Storage *storage) const;
 
   /**
    * @brief Check replica state
@@ -232,7 +207,7 @@ class ReplicationStorageClient {
    *
    * @param storage pointer to the storage associated with the client
    */
-  std::pair<bool, uint64_t> ForceResetStorage(Storage *storage);
+  std::pair<bool, uint64_t> ForceResetStorage(Storage *storage) const;
 
   void LogRpcFailure() const;
 

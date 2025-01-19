@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,10 +18,11 @@
 
 #include "libnuraft/nuraft.hxx"
 
+using memgraph::coordination::CoordinatorInstanceContext;
 using memgraph::coordination::CoordinatorInstanceInitConfig;
 using memgraph::coordination::CoordinatorStateManagerConfig;
-using memgraph::coordination::CoordinatorToReplicaConfig;
-using memgraph::coordination::DataInstanceState;
+using memgraph::coordination::DataInstanceConfig;
+using memgraph::coordination::DataInstanceContext;
 using memgraph::coordination::RaftState;
 using memgraph::coordination::ReplicationClientInfo;
 using memgraph::io::network::Endpoint;
@@ -45,7 +46,7 @@ class RaftStateTest : public ::testing::Test {
 
   std::filesystem::path test_folder_{std::filesystem::temp_directory_path() / "MG_tests_unit_raft_state"};
 
-  uint32_t const coordinator_id = 21;
+  int32_t const coordinator_id = 21;
   uint16_t const bolt_port = 6687;
   uint16_t const coordinator_port = 40112;
   uint16_t const management_port = 21345;
@@ -56,15 +57,13 @@ TEST_F(RaftStateTest, RaftStateEmptyMetadata) {
   auto become_leader_cb = []() {};
   auto become_follower_cb = []() {};
 
-  auto const instance_config =
-      CoordinatorInstanceInitConfig{coordinator_id,
-                                    coordinator_port,
-                                    bolt_port,
-                                    management_port,
-                                    test_folder_ / "high_availability" / "coordinator" / "state_manager",
-                                    "localhost",
-                                    "",
-                                    false};
+  auto const instance_config = CoordinatorInstanceInitConfig{
+      .coordinator_id = coordinator_id,
+      .coordinator_port = coordinator_port,
+      .bolt_port = bolt_port,
+      .management_port = management_port,
+      .durability_dir = test_folder_ / "high_availability" / "coordinator" / "state_manager",
+      .coordinator_hostname = "localhost"};
 
   auto raft_state =
       std::make_unique<RaftState>(instance_config, std::move(become_leader_cb), std::move(become_follower_cb));
@@ -72,9 +71,9 @@ TEST_F(RaftStateTest, RaftStateEmptyMetadata) {
 
   ASSERT_EQ(raft_state->InstanceName(), fmt::format("coordinator_{}", coordinator_id));
   ASSERT_TRUE(raft_state->IsLeader());
-  ASSERT_TRUE(raft_state->GetDataInstances().empty());
+  ASSERT_TRUE(raft_state->GetDataInstancesContext().empty());
 
-  auto const coords = raft_state->GetCoordinatorInstances();
+  auto const coords = raft_state->GetCoordinatorInstancesContext();
   ASSERT_EQ(coords.size(), 1);
 }
 
@@ -83,14 +82,13 @@ TEST_F(RaftStateTest, GetSingleRouterRoutingTable) {
   auto become_leader_cb = []() {};
   auto become_follower_cb = []() {};
 
-  auto const config = CoordinatorInstanceInitConfig{coordinator_id,
-                                                    coordinator_port,
-                                                    bolt_port,
-                                                    management_port,
-                                                    test_folder_ / "high_availability" / "coordinator",
-                                                    "localhost",
-                                                    "",
-                                                    false};
+  auto const config =
+      CoordinatorInstanceInitConfig{.coordinator_id = coordinator_id,
+                                    .coordinator_port = coordinator_port,
+                                    .bolt_port = bolt_port,
+                                    .management_port = management_port,
+                                    .durability_dir = test_folder_ / "high_availability" / "coordinator",
+                                    .coordinator_hostname = "localhost"};
 
   auto raft_state = std::make_unique<RaftState>(config, std::move(become_leader_cb), std::move(become_follower_cb));
   raft_state->InitRaftServer();
@@ -108,25 +106,24 @@ TEST_F(RaftStateTest, GetMixedRoutingTable) {
   GTEST_SKIP() << "skip flaky issue #https://github.com/memgraph/memgraph/issues/2212";
   auto become_leader_cb = []() {};
   auto become_follower_cb = []() {};
-  auto const init_config = CoordinatorInstanceInitConfig{coordinator_id,
-                                                         coordinator_port,
-                                                         bolt_port,
-                                                         management_port,
-                                                         test_folder_ / "high_availability" / "coordinator",
-                                                         "localhost",
-                                                         "",
-                                                         false};
+  auto const init_config =
+      CoordinatorInstanceInitConfig{.coordinator_id = coordinator_id,
+                                    .coordinator_port = coordinator_port,
+                                    .bolt_port = bolt_port,
+                                    .management_port = management_port,
+                                    .durability_dir = test_folder_ / "high_availability" / "coordinator",
+                                    .coordinator_hostname = "localhost"};
 
   auto raft_state_leader =
       std::make_unique<RaftState>(init_config, std::move(become_leader_cb), std::move(become_follower_cb));
 
   raft_state_leader->InitRaftServer();
 
-  std::vector<DataInstanceState> cluster_state{};
+  std::vector<DataInstanceContext> data_instances{};
   auto const curr_uuid = UUID{};
 
-  cluster_state.emplace_back(
-      CoordinatorToReplicaConfig{
+  data_instances.emplace_back(
+      DataInstanceConfig{
           .instance_name = "instance1",
           .mgt_server = Endpoint{"0.0.0.0", 10011},
           .bolt_server = Endpoint{"0.0.0.0", 7687},
@@ -135,8 +132,8 @@ TEST_F(RaftStateTest, GetMixedRoutingTable) {
                                                            .replication_server = Endpoint{"0.0.0.0", 10001}}},
       ReplicationRole::MAIN, curr_uuid);
 
-  cluster_state.emplace_back(
-      CoordinatorToReplicaConfig{
+  data_instances.emplace_back(
+      DataInstanceConfig{
           .instance_name = "instance2",
           .mgt_server = Endpoint{"0.0.0.0", 10012},
           .bolt_server = Endpoint{"0.0.0.0", 7688},
@@ -145,8 +142,8 @@ TEST_F(RaftStateTest, GetMixedRoutingTable) {
                                                            .replication_server = Endpoint{"0.0.0.0", 10002}}},
       ReplicationRole::REPLICA, curr_uuid);
 
-  cluster_state.emplace_back(
-      CoordinatorToReplicaConfig{
+  data_instances.emplace_back(
+      DataInstanceConfig{
           .instance_name = "instance3",
           .mgt_server = Endpoint{"0.0.0.0", 10013},
           .bolt_server = Endpoint{"0.0.0.0", 7689},
@@ -156,7 +153,9 @@ TEST_F(RaftStateTest, GetMixedRoutingTable) {
 
       ReplicationRole::REPLICA, curr_uuid);
 
-  raft_state_leader->AppendClusterUpdate(cluster_state, curr_uuid);
+  auto coord_instances = std::vector<CoordinatorInstanceContext>{};
+
+  raft_state_leader->AppendClusterUpdate(data_instances, coord_instances, curr_uuid);
 
   auto const routing_table = raft_state_leader->GetRoutingTable();
 

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -207,6 +207,7 @@ enum class TypeId : uint64_t {
   AST_EDGE_INDEX_QUERY,
   AST_POINT_INDEX_QUERY,
   AST_TEXT_INDEX_QUERY,
+  AST_VECTOR_INDEX_QUERY,
   AST_CREATE,
   AST_CALL_PROCEDURE,
   AST_MATCH,

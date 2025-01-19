@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,22 +11,17 @@
 
 #pragma once
 
+#include <cstdint>
 #include <optional>
 #include <span>
 
-#include "io/network/endpoint.hpp"
-#include "kvstore/kvstore.hpp"
 #include "mg_procedure.h"
 #include "query/exceptions.hpp"
-#include "replication/config.hpp"
-#include "replication/replication_server.hpp"
-#include "storage/v2/all_vertices_iterable.hpp"
 #include "storage/v2/commit_log.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/database_access.hpp"
 #include "storage/v2/durability/paths.hpp"
-#include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/edges_iterable.hpp"
 #include "storage/v2/enum_store.hpp"
@@ -36,8 +31,8 @@
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/replication/enums.hpp"
-#include "storage/v2/replication/replication_client.hpp"
 #include "storage/v2/replication/replication_storage_state.hpp"
+#include "storage/v2/replication/replication_transaction.hpp"
 #include "storage/v2/schema_info.hpp"
 #include "storage/v2/storage_error.hpp"
 #include "storage/v2/storage_mode.hpp"
@@ -59,6 +54,7 @@ extern const Event ActiveLabelIndices;
 extern const Event ActiveLabelPropertyIndices;
 extern const Event ActivePointIndices;
 extern const Event ActiveTextIndices;
+extern const Event ActiveVectorIndices;
 }  // namespace memgraph::metrics
 
 namespace memgraph::storage {
@@ -72,6 +68,7 @@ struct IndicesInfo {
   std::vector<std::pair<EdgeTypeId, PropertyId>> edge_type_property;
   std::vector<std::pair<std::string, LabelId>> text_indices;
   std::vector<std::pair<LabelId, PropertyId>> point_label_property;
+  std::vector<VectorIndexSpec> vector_indices_spec;
 };
 
 struct ConstraintsInfo {
@@ -91,6 +88,7 @@ struct StorageInfo {
   uint64_t label_indices;
   uint64_t label_property_indices;
   uint64_t text_indices;
+  uint64_t vector_indices;
   uint64_t existence_constraints;
   uint64_t unique_constraints;
   StorageMode storage_mode;
@@ -120,6 +118,7 @@ static inline nlohmann::json ToJson(const StorageInfo &info) {
   res["label_indices"] = info.label_indices;
   res["label_prop_indices"] = info.label_property_indices;
   res["text_indices"] = info.text_indices;
+  res["vector_indices"] = info.vector_indices;
   res["existence_constraints"] = info.existence_constraints;
   res["unique_constraints"] = info.unique_constraints;
   res["storage_mode"] = storage::StorageModeToString(info.storage_mode);
@@ -247,6 +246,8 @@ class Storage {
 
     virtual std::optional<uint64_t> ApproximateVerticesPointCount(LabelId label, PropertyId property) const = 0;
 
+    virtual std::optional<uint64_t> ApproximateVerticesVectorCount(LabelId label, PropertyId property) const = 0;
+
     virtual std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const = 0;
 
     virtual std::optional<storage::LabelPropertyIndexStats> GetIndexStats(
@@ -266,12 +267,6 @@ class Storage {
 
     virtual std::optional<EdgeAccessor> FindEdge(Gid gid, View view, EdgeTypeId edge_type, VertexAccessor *from_vertex,
                                                  VertexAccessor *to_vertex) = 0;
-
-    virtual Result<EdgeAccessor> EdgeSetFrom(EdgeAccessor *edge, VertexAccessor *new_from) = 0;
-
-    virtual Result<EdgeAccessor> EdgeSetTo(EdgeAccessor *edge, VertexAccessor *new_to) = 0;
-
-    virtual Result<EdgeAccessor> EdgeChangeType(EdgeAccessor *edge, EdgeTypeId new_edge_type) = 0;
 
     virtual Result<std::optional<EdgeAccessor>> DeleteEdge(EdgeAccessor *edge);
 
@@ -381,7 +376,10 @@ class Storage {
 
     void DropTextIndex(const std::string &index_name);
 
-    void CreateVectorIndex(const VectorIndexSpec &spec);
+    virtual utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateVectorIndex(VectorIndexSpec spec) = 0;
+
+    virtual utils::BasicResult<storage::StorageIndexDefinitionError, void> DropVectorIndex(
+        std::string_view index_name) = 0;
 
     void TryInsertVertexIntoVectorIndex(const VertexAccessor &vertex);
 
@@ -551,7 +549,6 @@ class Storage {
 
   virtual void PrepareForNewEpoch() = 0;
 
-  auto ReplicasInfo() const { return repl_storage_state_.ReplicasInfo(this); }
   auto GetReplicaState(std::string_view name) const -> std::optional<replication::ReplicaState> {
     return repl_storage_state_.GetReplicaState(name);
   }

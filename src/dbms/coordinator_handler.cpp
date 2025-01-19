@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -23,7 +23,7 @@ namespace memgraph::dbms {
 CoordinatorHandler::CoordinatorHandler(coordination::CoordinatorState &coordinator_state)
     : coordinator_state_(coordinator_state) {}
 
-auto CoordinatorHandler::RegisterReplicationInstance(coordination::CoordinatorToReplicaConfig const &config)
+auto CoordinatorHandler::RegisterReplicationInstance(coordination::DataInstanceConfig const &config)
     -> coordination::RegisterInstanceCoordinatorStatus {
   return coordinator_state_.RegisterReplicationInstance(config);
 }
@@ -57,18 +57,17 @@ auto CoordinatorHandler::ShowInstances() const -> std::vector<coordination::Inst
   return coordinator_state_.ShowInstances();
 }
 
-auto CoordinatorHandler::AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config)
+auto CoordinatorHandler::AddCoordinatorInstance(coordination::CoordinatorInstanceConfig const &config)
     -> coordination::AddCoordinatorInstanceStatus {
   return coordinator_state_.AddCoordinatorInstance(config);
 }
 
-auto CoordinatorHandler::RemoveCoordinatorInstance(int coordinator_id)
+auto CoordinatorHandler::RemoveCoordinatorInstance(int32_t coordinator_id)
     -> coordination::RemoveCoordinatorInstanceStatus {
   return coordinator_state_.RemoveCoordinatorInstance(coordinator_id);
 }
 
-auto CoordinatorHandler::GetLeaderCoordinatorData() const
-    -> std::optional<coordination::CoordinatorToCoordinatorConfig> {
+auto CoordinatorHandler::GetLeaderCoordinatorData() const -> std::optional<coordination::LeaderCoordinatorData> {
   return coordinator_state_.GetLeaderCoordinatorData();
 }
 
