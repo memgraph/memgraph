@@ -43,25 +43,35 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
 
   TestSession(TestSessionContext *data, TestInputStream *input_stream, TestOutputStream *output_stream)
       : Session<TestInputStream, TestOutputStream>(input_stream, output_stream) {}
-  std::pair<std::vector<std::string>, std::optional<int>> Interpret(const std::string &query, const bolt_map_t &params,
-                                                                    const bolt_map_t &extra) {
+
+  void InterpretParse(const std::string &query, bolt_map_t params, const bolt_map_t &extra) {
     if (extra.contains("tx_metadata")) {
       auto const &metadata = extra.at("tx_metadata").ValueMap();
       if (!metadata.empty()) md_ = metadata;
     }
     if (query == kQueryReturn42 || query == kQueryEmpty || query == kQueryReturnMultiple) {
       query_ = query;
-      return {{"result_name"}, {}};
-    } else if (query == kQueryShowTx) {
+      return;
+    }
+    if (query == kQueryShowTx) {
       if (md_.at("str").ValueString() != "aha" || md_.at("num").ValueInt() != 123) {
         throw ClientError("Wrong metadata!");
       }
       query_ = query;
-      return {{"username", "transaction_id", "query", "metadata"}, {}};
-    } else {
-      query_ = "";
-      throw ClientError("client sent invalid query");
+      return;
     }
+    query_ = "";
+    throw ClientError("client sent invalid query");
+  }
+
+  std::pair<std::vector<std::string>, std::optional<int>> InterpretPrepare() {
+    if (query_ == kQueryReturn42 || query_ == kQueryEmpty || query_ == kQueryReturnMultiple) {
+      return {{"result_name"}, {}};
+    }
+    if (query_ == kQueryShowTx) {
+      return {{"username", "transaction_id", "query", "metadata"}, {}};
+    }
+    throw ClientError("client sent invalid query");
   }
 
   bolt_map_t Pull(std::optional<int> n, std::optional<int> qid) {
