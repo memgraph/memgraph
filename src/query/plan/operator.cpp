@@ -47,6 +47,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/point_iterator.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/storage_error.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/event_counter.hpp"
@@ -151,6 +152,31 @@ namespace memgraph::query::plan {
 using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
 namespace {
+template <typename>
+constexpr auto kAlwaysFalse = false;
+
+void HandlePeriodicCommitError(const storage::StorageManipulationError &error) {
+  std::visit(
+      []<typename T>(const T & /* unused */) {
+        using ErrorType = std::remove_cvref_t<T>;
+        if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
+          spdlog::warn(
+              "PeriodicCommit warning: At least one SYNC replica has not confirmed the "
+              "commit.");
+        } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
+          throw QueryException(
+              "PeriodicCommit failed: Unable to commit due to constraint "
+              "violation.");
+        } else if constexpr (std::is_same_v<ErrorType, storage::SerializationError>) {
+          throw QueryException("PeriodicCommit failed: Unable to commit due to serialization error.");
+        } else if constexpr (std::is_same_v<ErrorType, storage::PersistenceError>) {
+          throw QueryException("PeriodicCommit failed: Unable to commit due to persistance error.");
+        } else {
+          static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
+        }
+      },
+      error);
+}
 
 // Custom equality function for a vector of typed values.
 // Used in unordered_maps in Aggregate and Distinct operators.
@@ -3393,15 +3419,13 @@ SetProperties::SetPropertiesCursor::SetPropertiesCursor(const SetProperties &sel
 namespace {
 
 template <typename T>
-concept AccessorWithProperties =
-    requires(T value, storage::PropertyId property_id, storage::PropertyValue property_value,
-             std::map<storage::PropertyId, storage::PropertyValue> properties) {
-      {
-        value.ClearProperties()
-      } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
-      { value.SetProperty(property_id, property_value) };
-      { value.UpdateProperties(properties) };
-    };
+concept AccessorWithProperties = requires(T value, storage::PropertyId property_id,
+                                          storage::PropertyValue property_value,
+                                          std::map<storage::PropertyId, storage::PropertyValue> properties) {
+  { value.ClearProperties() } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
+  {value.SetProperty(property_id, property_value)};
+  {value.UpdateProperties(properties)};
+};
 
 /// Helper function that sets the given values on either a Vertex or an Edge.
 ///
@@ -4613,8 +4637,9 @@ class OrderByCursor : public Cursor {
       // sorting with range zip
       // we compare on just the projection of the 1st range (order_by)
       // this will also permute the 2nd range (output)
-      ranges::sort(ranges::views::zip(order_by, output), self_.compare_.lex_cmp(),
-                   [](auto const &value) -> auto const & { return std::get<0>(value); });
+      ranges::sort(
+          ranges::views::zip(order_by, output), self_.compare_.lex_cmp(),
+          [](auto const &value) -> auto const & { return std::get<0>(value); });
 
       // no longer need the order_by terms
       order_by.clear();
@@ -6272,13 +6297,18 @@ class PeriodicCommitCursor : public Cursor {
     bool const pull_value = input_cursor_->Pull(frame, context);
 
     pulled_++;
+    utils::BasicResult<storage::StorageManipulationError, void> commit_result;
     if (pulled_ >= commit_frequency_) {
       // do periodic commit since we pulled that many times
-      [[maybe_unused]] auto commit_result = context.db_accessor->PeriodicCommit({}, context.db_acc);
+      commit_result = context.db_accessor->PeriodicCommit({}, context.db_acc);
       pulled_ = 0;
     } else if (!pull_value && pulled_ > 0) {
       // do periodic commit for the rest of pulled items
-      [[maybe_unused]] auto commit_result = context.db_accessor->PeriodicCommit({}, context.db_acc);
+      commit_result = context.db_accessor->PeriodicCommit({}, context.db_acc);
+    }
+
+    if (commit_result.HasError()) {
+      HandlePeriodicCommitError(commit_result.GetError());
     }
 
     return pull_value;
@@ -6361,7 +6391,10 @@ class PeriodicSubqueryCursor : public Cursor {
         } else {
           if (pulled_ > 0) {
             // do periodic commit for the rest of pulled items
-            [[maybe_unused]] auto commit_result = context.db_accessor->PeriodicCommit({}, context.db_acc);
+            const auto commit_result = context.db_accessor->PeriodicCommit({}, context.db_acc);
+            if (commit_result.HasError()) {
+              HandlePeriodicCommitError(commit_result.GetError());
+            }
           }
           return false;
         }
@@ -6375,7 +6408,10 @@ class PeriodicSubqueryCursor : public Cursor {
 
       if (pulled_ >= commit_frequency_) {
         // do periodic commit since we pulled that many times
-        [[maybe_unused]] auto commit_result = context.db_accessor->PeriodicCommit({}, context.db_acc);
+        const auto commit_result = context.db_accessor->PeriodicCommit({}, context.db_acc);
+        if (commit_result.HasError()) {
+          HandlePeriodicCommitError(commit_result.GetError());
+        }
         pulled_ = 0;
       }
 
