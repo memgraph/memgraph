@@ -149,6 +149,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
                               const auto sent = socket.send(boost::asio::buffer(data, len),
                                                             MSG_NOSIGNAL | (have_more ? MSG_MORE : 0U), ec);
                               if (ec) {
+                                spdlog::trace("Failed to write to TCP socket: {}", ec.message());
                                 shared_this->OnError(ec);
                                 return false;
                               }
@@ -162,6 +163,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
                             while (len > 0) {
                               const auto sent = socket.write_some(boost::asio::buffer(data, len), ec);
                               if (ec) {
+                                spdlog::trace("Failed to write to SSL socket: {}", ec.message());
                                 shared_this->OnError(ec);
                                 return false;
                               }
@@ -174,6 +176,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
                             boost::system::error_code ec;
                             ws.write(boost::asio::buffer(data, len), ec);
                             if (ec) {
+                              spdlog::trace("Failed to write to Web socket: {}", ec.message());
                               shared_this->OnError(ec);
                               return false;
                             }
@@ -325,7 +328,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
 
   void OnRead(const boost::system::error_code &ec, const size_t bytes_transferred) {
     if (ec) {
-      // TODO Check if client disconnected
+      spdlog::trace("OnRead error: {}", ec.message());
       session_.HandleError();
       return OnError(ec);
     }
@@ -338,15 +341,24 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     worker_pool_->ScheduledAddTask(
         [shared_this = shared_from_this()]() {
           try {
-            if (shared_this->session_.Execute()) {
-              // Schedule next work
-              shared_this->DoWork();
-            } else {
-              // Handled all data,  async wait for new incoming data
-              shared_this->DoRead();
+            while (true) {
+              if (shared_this->session_.Execute()) {
+                // Schedule next work
+                // We can just steal this if the task and thread proproty match (loop through)
+                if (utils::PriorityThreadPool::Worker::priority > shared_this->session_.ApproximateQueryPriority()) {
+                  // TODO Think if it is better to use post or schedule it ourselves
+                  boost::asio::post(shared_this->strand_, [shared_this]() { shared_this->DoWork(); });
+                  return;
+                }
+              } else {
+                // Handled all data,  async wait for new incoming data
+                shared_this->DoRead();
+                return;
+              }
             }
           } catch (const std::exception & /* unused */) {
-            shared_this->HandleException(std::current_exception());
+            boost::asio::post(shared_this->strand_,
+                              [shared_this, eptr = std::current_exception()]() { shared_this->HandleException(eptr); });
           }
         },
         session_.ApproximateQueryPriority());

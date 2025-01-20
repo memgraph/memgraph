@@ -85,6 +85,7 @@ class PriorityThreadPool {
 
   class Worker {
    public:
+    thread_local static Priority priority;
     void push(TaskSignature new_task);
 
     void stop();
@@ -92,6 +93,7 @@ class PriorityThreadPool {
     template <Priority ThreadPriority>
     void operator()() {
       utils::ThreadSetName(ThreadPriority == Priority::HIGH ? "high prior." : "low prior.");
+      priority = ThreadPriority;  // Update the visible thread's priority
       while (run_) {
         // Check if there is a scheduled task
         std::optional<TaskSignature> task = scheduler_.GetTask<ThreadPriority>(this);

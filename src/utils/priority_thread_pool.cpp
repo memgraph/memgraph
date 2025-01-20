@@ -95,6 +95,8 @@ void PriorityThreadPool::ScheduledAddTask(TaskSignature new_task, const Priority
   }
 }
 
+thread_local PriorityThreadPool::Priority PriorityThreadPool::Worker::priority = Priority::HIGH;
+
 void PriorityThreadPool::Worker::push(TaskSignature new_task) {
   {
     auto l = std::unique_lock{mtx_};

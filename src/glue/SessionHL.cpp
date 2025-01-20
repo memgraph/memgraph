@@ -12,12 +12,14 @@
 #include <exception>
 #include <optional>
 #include <utility>
+#include <variant>
 #include "auth/auth.hpp"
 #include "auth/exceptions.hpp"
 
 #include "audit/log.hpp"
 #include "dbms/constants.hpp"
 #include "flags/run_time_configurable.hpp"
+#include "frontend/ast/ast.hpp"
 #include "glue/SessionHL.hpp"
 #include "glue/auth_checker.hpp"
 #include "glue/communication.hpp"
@@ -29,6 +31,8 @@
 #include "query/query_user.hpp"
 #include "utils/event_map.hpp"
 #include "utils/priority_thread_pool.hpp"
+#include "utils/typeinfo.hpp"
+#include "utils/variant_helpers.hpp"
 
 namespace memgraph::metrics {
 extern const Event ActiveBoltSessions;
@@ -251,10 +255,9 @@ bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid) {
   }
 }
 
-std::pair<std::vector<std::string>, std::optional<int>> SessionHL::Interpret(const std::string &query,
-                                                                             const bolt_map_t &params,
-                                                                             const bolt_map_t &extra) {
-  auto get_params_pv = [params](storage::Storage const *storage) -> memgraph::storage::PropertyValue::map_t {
+void SessionHL::InterpretParse(const std::string &query, bolt_map_t params, const bolt_map_t &extra) {
+  auto get_params_pv =
+      [params = std::move(params)](storage::Storage const *storage) -> memgraph::storage::PropertyValue::map_t {
     auto params_pv = memgraph::storage::PropertyValue::map_t{};
     params_pv.reserve(params.size());
     for (const auto &[key, bolt_param] : params) {
@@ -272,7 +275,30 @@ std::pair<std::vector<std::string>, std::optional<int>> SessionHL::Interpret(con
   }
 #endif
   try {
-    auto result = interpreter_.Prepare(query, get_params_pv, ToQueryExtras(extra));
+    auto query_extras = ToQueryExtras(extra);
+    auto parsed_query = interpreter_.Parse(query, get_params_pv, query_extras);
+    parsed_res_.emplace(std::move(parsed_query), std::move(get_params_pv), std::move(query_extras));
+  } catch (const memgraph::query::QueryException &e) {
+    // Count the number of specific exceptions thrown
+    metrics::IncrementCounter(GetExceptionName(e));
+    // Wrap QueryException into ClientError, because we want to allow the
+    // client to fix their query.
+    throw memgraph::communication::bolt::ClientError(e.what());
+  } catch (const memgraph::query::ReplicationException &e) {
+    // Count the number of specific exceptions thrown
+    metrics::IncrementCounter(GetExceptionName(e));
+    throw memgraph::communication::bolt::ClientError(e.what());
+  }
+}
+
+std::pair<std::vector<std::string>, std::optional<int>> SessionHL::InterpretPrepare() {
+  // TODO Dont assert
+  MG_ASSERT(parsed_res_, "Trying to prepare a query that was not parsed.");
+
+  try {
+    auto parsed_res = *std::move(parsed_res_);
+    parsed_res_.reset();
+    auto result = interpreter_.Prepare(std::move(parsed_res.parsed_query), parsed_res.get_params_pv, parsed_res.extra);
     const std::string db_name = result.db ? *result.db : "";
     if (user_or_role_ && !user_or_role_->IsAuthorized(result.privileges, db_name, &query::session_long_policy)) {
       interpreter_.Abort();

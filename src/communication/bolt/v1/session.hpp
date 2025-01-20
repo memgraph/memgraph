@@ -21,6 +21,7 @@
 #include "communication/bolt/v1/state.hpp"
 #include "communication/bolt/v1/states/error.hpp"
 #include "communication/bolt/v1/states/executing.hpp"
+#include "communication/bolt/v1/states/handlers.hpp"
 #include "communication/bolt/v1/states/handshake.hpp"
 #include "communication/bolt/v1/states/init.hpp"
 #include "communication/metrics.hpp"
@@ -99,6 +100,17 @@ class Session {
       encoder_.UpdateVersion(version_.major);
     }
 
+    // Had to split Prepare in two
+    // Phase 1: parse and deduce priority
+    // Phase 2: acutally prepare interpreter for the query
+    if (state_ == State::Parsed) {
+      state_ = HandlePrepare(impl);
+      if (state_ == State::Close) [[unlikely]] {
+        ClientFailureInvalidData();
+      }
+      // We are here, so the query will have the correct priority; just fall down to execute any other requests
+    }
+
     ChunkState chunk_state;
     while ((chunk_state = decoder_buffer_.GetChunk()) != ChunkState::Partial) {
       if (chunk_state == ChunkState::Whole) {
@@ -125,12 +137,16 @@ class Session {
           break;
       }
 
+      if (state_ == State::Parsed) {
+        return true;
+      }
+
       if (state_ == State::Result) {
         // We need to schedule next work, since we are going to Pull or Discard the results.
         // All other work has the highest priority
         // State::Result means we did a Prepare or are in the middle of a Pull
         // Last pull will set the state to State::Idle
-        return true;
+        return decoder_buffer_.NextChunkState() != ChunkState::Partial;  // Not partial means there is more to read
       }
 
       if (state_ == State::Close) [[unlikely]] {

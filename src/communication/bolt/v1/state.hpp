@@ -37,6 +37,11 @@ enum class State : uint8_t {
   Idle,
 
   /**
+   *
+   */
+  Parsed,
+
+  /**
    * This state holds results of RUN command and waits for either PULL_ALL or
    * DISCARD_ALL command.
    */

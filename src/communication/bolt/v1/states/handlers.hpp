@@ -296,7 +296,18 @@ State HandleRunV4(TSession &session, const State state, const Marker marker) {
 
   try {
     // Interpret can throw.
-    const auto [header, qid] = session.Interpret(query.ValueString(), params.ValueMap(), extra.ValueMap());
+    session.InterpretParse(query.ValueString(), params.ValueMap(), extra.ValueMap());
+    return State::Parsed;
+  } catch (const std::exception &e) {
+    return HandleFailure(session, e);
+  }
+}
+
+template <typename TSession>
+State HandlePrepare(TSession &session) {
+  try {
+    // Interpret can throw.
+    const auto [header, qid] = session.InterpretPrepare();
     // Convert std::string to Value
     std::vector<Value> vec;
     map_t data;
@@ -382,6 +393,7 @@ State HandleReset(TSession &session, const Marker marker) {
       spdlog::trace("Couldn't send success message!");
       return State::Close;
     }
+    spdlog::trace("Session reset!");
     return State::Idle;
   } catch (const std::exception &e) {
     return HandleFailure(session, e);

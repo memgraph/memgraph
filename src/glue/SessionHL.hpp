@@ -50,7 +50,14 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   void RollbackTransaction();
 
   std::pair<std::vector<std::string>, std::optional<int>> Interpret(const std::string &query, const bolt_map_t &params,
-                                                                    const bolt_map_t &extra);
+                                                                    const bolt_map_t &extra) {
+    InterpretParse(query, params, extra);
+    return InterpretPrepare();
+  }
+
+  void InterpretParse(const std::string &query, bolt_map_t params, const bolt_map_t &extra);
+
+  std::pair<std::vector<std::string>, std::optional<int>> InterpretPrepare();
 
 #ifdef MG_ENTERPRISE
   auto Route(bolt_map_t const &routing, std::vector<bolt_value_t> const &bookmarks, bolt_map_t const &extra)
@@ -74,6 +81,27 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   std::optional<std::string> GetServerNameForInit();
 
   inline auto ApproximateQueryPriority() const {
+    // Query has been parsed and a proprity can be determined
+    if (parsed_res_ && state_ == memgraph::communication::bolt::State::Parsed) {
+      return std::visit(utils::Overloaded{
+                            [](const query::Interpreter::TransactionQuery &) {
+                              // BEGIN; COMMIT; ROLLBACK
+                              return utils::PriorityThreadPool::Priority::LOW;
+                            },
+                            [](const query::Interpreter::ParseInfo &parse_info) {
+                              // Many variants of queries
+                              // Cypher -> low
+                              // all others -> high
+                              return utils::Downcast<query::CypherQuery>(parse_info.parsed_query.query)
+                                         ? utils::PriorityThreadPool::Priority::LOW
+                                         : utils::PriorityThreadPool::Priority::HIGH;
+                            },
+                            [](const auto &) { MG_ASSERT(false, "Unexpected ParseRes variant!"); },
+                        },
+                        parsed_res_->parsed_query);
+    }
+
+    // Result means query has been prepared and we are pulling
     return state_ == memgraph::communication::bolt::State::Result ? interpreter_.ApproximateNextQueryPriority()
                                                                   : utils::PriorityThreadPool::Priority::HIGH;
   }
@@ -102,6 +130,12 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   memgraph::auth::SynchedAuth *auth_;
   memgraph::communication::v2::ServerEndpoint endpoint_;
   std::optional<std::string> implicit_db_;
+  struct ParseRes {
+    query::Interpreter::ParseRes parsed_query;
+    query::UserParameters_fn get_params_pv;
+    query::QueryExtras extra;
+  };
+  std::optional<ParseRes> parsed_res_;
 };
 
 }  // namespace memgraph::glue
