@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -1298,6 +1298,13 @@ TypedValue operator%(const TypedValue &a, const TypedValue &b) {
     if (b.ValueInt() == 0LL) throw TypedValueException("Mod with zero");
     return TypedValue(a.ValueInt() % b.ValueInt(), a.GetMemoryResource());
   }
+}
+
+TypedValue pow(const TypedValue &a, const TypedValue &b) {
+  if (a.IsNull() || b.IsNull()) return TypedValue(a.GetMemoryResource());
+  EnsureArithmeticallyOk(a, b, false, "^");
+
+  return TypedValue(std::pow(ToDouble(a), ToDouble(b)), a.GetMemoryResource());
 }
 
 inline void EnsureLogicallyOk(const TypedValue &a, const TypedValue &b, const std::string &op_name) {

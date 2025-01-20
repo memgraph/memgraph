@@ -58,6 +58,8 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
         return storage_->Create<DivisionOperator>(e1, e2);
       case MemgraphCypher::PERCENT:
         return storage_->Create<ModOperator>(e1, e2);
+      case MemgraphCypher::CARET:
+        return storage_->Create<ExponentiationOperator>(e1, e2);
       case MemgraphCypher::EQ:
         return storage_->Create<EqualOperator>(e1, e2);
       case MemgraphCypher::NEQ1:
@@ -940,7 +942,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitExpression6(MemgraphCypher::Expression6Context *ctx) override;
 
   /**
-   * Power.
+   * Exponentiation.
    *
    * @return Expression*
    */
