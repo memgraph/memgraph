@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,7 +21,7 @@ mgp::Value ParseJsonToMgpMap(const nlohmann::json &json_obj, mgp_memory *memory)
 
   for (auto &[key, value] : json_obj.items()) {
     auto sub_value = ParseJsonToMgpValue(value, memory).value();
-    map.Insert(key, std::move(sub_value));
+    map.Insert(key, sub_value);
   }
 
   return mgp::Value(std::move(map));
@@ -31,7 +31,7 @@ mgp::Value ParseJsonToMgpList(const nlohmann::json &json_array, mgp_memory *memo
   auto list = mgp::List();
   for (const auto &element : json_array) {
     auto value = ParseJsonToMgpValue(element, memory).value();
-    list.AppendExtend(std::move(value));
+    list.AppendExtend(value);
   }
 
   return mgp::Value(std::move(list));
@@ -62,7 +62,7 @@ void str2object(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp
     mgp::MemoryDispatcherGuard guard(memory);
 
     // Retrieve the string argument
-    const auto string_arg = mgp::Value(mgp::list_at(args, 0));
+    const auto string_arg = mgp::Value(mgp::ref_type, mgp::list_at(args, 0));
     const auto json_object = nlohmann::json::parse(string_arg.ValueString());
     std::optional<mgp::Value> maybe_result = ParseJsonToMgpValue(json_object, memory);
 
@@ -77,7 +77,7 @@ void str2object(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp
 
     auto func_result = mgp::Result(res);
 
-    auto result = *maybe_result;
+    auto const &result = *maybe_result;
     if (result.IsMap()) {
       func_result.SetValue(result.ValueMap());
     } else if (result.IsList()) {

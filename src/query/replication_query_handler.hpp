@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -75,7 +75,7 @@ struct ReplicasInfo {
 
   std::string name_;
   std::string socket_address_;
-  memgraph::replication_coordination_glue::ReplicationMode sync_mode_;
+  replication_coordination_glue::ReplicationMode sync_mode_;
   ReplicaSystemInfoState system_info_;
   std::map<std::string, ReplicaInfoState> data_info_;
 };

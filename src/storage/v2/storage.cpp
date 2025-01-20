@@ -25,7 +25,6 @@
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage/v2/view.hpp"
-#include "utils/algorithm.hpp"
 #include "utils/atomic_memory_block.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/event_gauge.hpp"
@@ -629,10 +628,6 @@ void Storage::Accessor::DropTextIndex(const std::string &index_name) {
   auto deleted_index_label = storage_->indices_.text_index_.DropIndex(index_name);
   transaction_.md_deltas.emplace_back(MetadataDelta::text_index_drop, index_name, deleted_index_label);
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTextIndices);
-}
-
-void Storage::Accessor::CreateVectorIndex(const VectorIndexSpec &spec) {
-  storage_->indices_.vector_index_.CreateIndex(spec);
 }
 
 void Storage::Accessor::TryInsertVertexIntoVectorIndex(const VertexAccessor &vertex) {

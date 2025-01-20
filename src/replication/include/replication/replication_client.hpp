@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,12 +16,10 @@
 #include "rpc/client.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/scheduler.hpp"
-#include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 #include "utils/thread_pool.hpp"
 
 #include <concepts>
-#include <string_view>
 
 namespace memgraph::replication {
 

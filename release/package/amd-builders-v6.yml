@@ -1,0 +1,80 @@
+version: "3"
+services:
+  # NOTE: build > context > args are injected via mgbuild.sh script.
+
+  mgbuild_v6_centos-9:
+    image: "memgraph/mgbuild:v6_centos-9"
+    build:
+      context: centos-9
+      args:
+        TOOLCHAIN_VERSION: "v6"
+    extra_hosts:
+      - "mgdeps-cache:10.42.16.10"
+      - "bench-graph-api:10.42.16.10"
+    container_name: "mgbuild_v6_centos-9"
+
+  mgbuild_v6_centos-10:
+    image: "memgraph/mgbuild:v6_centos-10"
+    build:
+      context: centos-10
+      args:
+        TOOLCHAIN_VERSION: "v6"
+    extra_hosts:
+      - "mgdeps-cache:10.42.16.10"
+      - "bench-graph-api:10.42.16.10"
+    container_name: "mgbuild_v6_centos-10"
+
+  mgbuild_v6_debian-11:
+    image: "memgraph/mgbuild:v6_debian-11"
+    build:
+      context: debian-11
+      args:
+        TOOLCHAIN_VERSION: "v6"
+    extra_hosts:
+      - "mgdeps-cache:10.42.16.10"
+      - "bench-graph-api:10.42.16.10"
+    container_name: "mgbuild_v6_debian-11"
+
+  mgbuild_v6_debian-12:
+    image: "memgraph/mgbuild:v6_debian-12"
+    build:
+      context: debian-12
+      args:
+        TOOLCHAIN_VERSION: "v6"
+    extra_hosts:
+      - "mgdeps-cache:10.42.16.10"
+      - "bench-graph-api:10.42.16.10"
+    container_name: "mgbuild_v6_debian-12"
+
+  mgbuild_v6_fedora-41:
+    image: "memgraph/mgbuild:v6_fedora-41"
+    build:
+      context: fedora-41
+      args:
+        TOOLCHAIN_VERSION: "v6"
+    extra_hosts:
+      - "mgdeps-cache:10.42.16.10"
+      - "bench-graph-api:10.42.16.10"
+    container_name: "mgbuild_v6_fedora-41"
+
+  mgbuild_v6_ubuntu-22.04:
+    image: "memgraph/mgbuild:v6_ubuntu-22.04"
+    build:
+      context: ubuntu-22.04
+      args:
+        TOOLCHAIN_VERSION: "v6"
+    extra_hosts:
+      - "mgdeps-cache:10.42.16.10"
+      - "bench-graph-api:10.42.16.10"
+    container_name: "mgbuild_v6_ubuntu-22.04"
+
+  mgbuild_v6_ubuntu-24.04:
+    image: "memgraph/mgbuild:v6_ubuntu-24.04"
+    build:
+      context: ubuntu-24.04
+      args:
+        TOOLCHAIN_VERSION: "v6"
+    extra_hosts:
+      - "mgdeps-cache:10.42.16.10"
+      - "bench-graph-api:10.42.16.10"
+    container_name: "mgbuild_v6_ubuntu-24.04"
