@@ -308,6 +308,20 @@ class Interpreter final {
                                        : query_executions_.back()->prepared_query->priority;
   }
 
+  struct ParseInfo {
+    ParsedQuery parsed_query;
+    double parsing_time;
+    bool is_schema_assert_query;
+  };
+
+  enum class TransactionQuery : uint8_t { BEGIN, COMMIT, ROLLBACK };
+
+  using ParseRes = std::variant<ParseInfo, TransactionQuery>;
+
+  Interpreter::ParseRes Parse(const std::string &query, UserParameters_fn params_getter, QueryExtras const &extras);
+
+  Interpreter::PrepareResult Prepare(ParseRes parse_res, UserParameters_fn params_getter, QueryExtras const &extras);
+
   /**
    * Prepare a query for execution.
    *
@@ -317,7 +331,9 @@ class Interpreter final {
    * @throw query::QueryException
    */
   Interpreter::PrepareResult Prepare(const std::string &query, UserParameters_fn params_getter,
-                                     QueryExtras const &extras);
+                                     QueryExtras const &extras) {
+    return Prepare(Parse(query, params_getter, extras), params_getter, extras);
+  }
 
 #ifdef MG_ENTERPRISE
   auto Route(std::map<std::string, std::string> const &routing) -> RouteResult;
@@ -458,7 +474,7 @@ class Interpreter final {
   std::optional<storage::IsolationLevel> interpreter_isolation_level;
   std::optional<storage::IsolationLevel> next_transaction_isolation_level;
 
-  PreparedQuery PrepareTransactionQuery(std::string_view query_upper, QueryExtras const &extras = {});
+  PreparedQuery PrepareTransactionQuery(Interpreter::TransactionQuery tx_query_enum, QueryExtras const &extras = {});
   void Commit();
   void AdvanceCommand();
   void AbortCommand(std::unique_ptr<QueryExecution> *query_execution);
