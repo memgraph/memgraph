@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -344,9 +344,9 @@ void SessionHL::RollbackTransaction() {
   }
 }
 
-void SessionHL::CommitTransaction() {
+bolt_map_t SessionHL::CommitTransaction() {
   try {
-    interpreter_.CommitTransaction();
+    return DecodeSummary(interpreter_.CommitTransaction());
   } catch (const memgraph::query::QueryException &e) {
     // Count the number of specific exceptions thrown
     metrics::IncrementCounter(GetExceptionName(e));

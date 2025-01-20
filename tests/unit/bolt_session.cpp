@@ -105,7 +105,10 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
       if (!metadata.empty()) md_ = metadata;
     }
   }
-  void CommitTransaction() override { md_.clear(); }
+  bolt_map_t CommitTransaction() override {
+    md_.clear();
+    return {};
+  }
   void RollbackTransaction() override { md_.clear(); }
 
   void Abort() override { md_.clear(); }

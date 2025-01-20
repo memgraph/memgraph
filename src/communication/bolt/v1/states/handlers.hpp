@@ -438,8 +438,8 @@ State HandleCommit(TSession &session, const State state, const Marker marker) {
   DMG_ASSERT(!session.encoder_buffer_.HasData(), "There should be no data to write in this state");
 
   try {
-    session.CommitTransaction();
-    if (!session.encoder_.MessageSuccess({})) {
+    auto summary = session.CommitTransaction();
+    if (!session.encoder_.MessageSuccess(summary)) {
       spdlog::trace("Couldn't send success message!");
       return State::Close;
     }
