@@ -249,15 +249,11 @@ cd json
 file_get_try_double "${primary_urls[nlohmann]}" "${secondary_urls[nlohmann]}"
 cd ..
 
-if [ -z "${MG_TOOLCHAIN_VERSION}" ]; then
-  rocksdb_tag="v8.1.1" # (2023-04-21)
-  repo_clone_try_double "${primary_urls[rocksdb]}" "${secondary_urls[rocksdb]}" "rocksdb" "$rocksdb_tag" true
-  pushd rocksdb
-  git apply ../rocksdb8.1.1.patch
-  popd
-else
-  echo "Skipping rocksdb download because it's already under the toolchain v$MG_TOOLCHAIN_VERSION"
-fi
+rocksdb_tag="v8.1.1" # (2023-04-21)
+repo_clone_try_double "${primary_urls[rocksdb]}" "${secondary_urls[rocksdb]}" "rocksdb" "$rocksdb_tag" true
+pushd rocksdb
+git apply ../rocksdb8.1.1.patch
+popd
 
 if [ -z "${MG_TOOLCHAIN_VERSION}" ]; then
   mgclient_tag="v1.4.0" # (2022-06-14)
