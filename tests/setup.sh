@@ -17,8 +17,9 @@ PIP_DEPS=(
    "pyyaml==6.0.1"
    "six==1.15.0"
    "networkx==2.4"
-   "gqlalchemy==1.3.3"
+   "gqlalchemy==1.6.0"
    "python3-saml==1.16.0"
+   "setuptools==75.8.0"
 )
 
 # Remove old and create a new virtualenv.
@@ -34,27 +35,29 @@ set -u
 PYTHON_MINOR=$(python3 -c 'import sys; print(sys.version_info[:][1])')
 
 # install pulsar-client
-pip --timeout 1000 install "pulsar-client==3.1.0"
+pip --timeout 1000 install "pulsar-client==3.5.0"
 for pkg in "${PIP_DEPS[@]}"; do
     pip --timeout 1000 install "$pkg"
 done
 # https://github.com/SAML-Toolkits/python3-saml?tab=readme-ov-file#note
 pip --timeout 1000 install --upgrade lxml==5.2.1
-pip --timeout 1000 install "networkx==2.4"
+pip --timeout 1000 install "networkx==2.5.1"
 
 # Install mgclient from source becasue of full flexibility.
+# TODO(gitbuda): Completly refactor this script because it's too complex.
+#   Below exports are not viable, the problem is that this script is not sourcing toolchain...
+export MGCLIENT_INCLUDE_DIR="/opt/toolchain-v6/include"
+export MGCLIENT_LIB_DIR="/opt/toolchain-v6/lib"
 pushd "$DIR/../libs/pymgclient" > /dev/null
-export MGCLIENT_INCLUDE_DIR="$DIR/../libs/mgclient/include"
-export MGCLIENT_LIB_DIR="$DIR/../libs/mgclient/lib"
 CFLAGS="-std=c99" python3 setup.py build
 CFLAGS="-std=c99" python3 setup.py install
 popd > /dev/null
-
 
 deactivate
 
 "$DIR"/e2e/graphql/setup.sh
 
+# TODO(gitbuda): I think none of the below setup is required anymore because mgclient is under toolchain.
 # Check if setup needs to setup additional variables
 if [ $# == 1 ]; then
     toolchain=$1
