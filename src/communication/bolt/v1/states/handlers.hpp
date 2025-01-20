@@ -197,6 +197,34 @@ inline State HandleFailure(TSession &session, const std::exception &e) {
 }
 
 template <typename TSession>
+State HandlePrepare(TSession &session) {
+  try {
+    // Interpret can throw.
+    const auto [header, qid] = session.InterpretPrepare();
+    // Convert std::string to Value
+    std::vector<Value> vec;
+    map_t data;
+    vec.reserve(header.size());
+    for (auto &i : header) vec.emplace_back(std::move(i));
+    data.emplace("fields", std::move(vec));
+    if (session.version_.major > 1) {
+      if (qid.has_value()) {
+        data.emplace("qid", Value{*qid});
+      }
+    }
+
+    // Send the header.
+    if (!session.encoder_.MessageSuccess(data)) {
+      spdlog::trace("Couldn't send query header!");
+      return State::Close;
+    }
+    return State::Result;
+  } catch (const std::exception &e) {
+    return HandleFailure(session, e);
+  }
+}
+
+template <typename TSession>
 State HandleRunV1(TSession &session, const State state, const Marker marker) {
   const auto expected_marker = Marker::TinyStruct2;
   if (marker != expected_marker) {
@@ -231,19 +259,8 @@ State HandleRunV1(TSession &session, const State state, const Marker marker) {
 
   try {
     // Interpret can throw.
-    const auto [header, qid] = session.Interpret(query.ValueString(), params.ValueMap(), {});
-    // Convert std::string to Value
-    std::vector<Value> vec;
-    map_t data;
-    vec.reserve(header.size());
-    for (auto &i : header) vec.emplace_back(std::move(i));
-    data.emplace("fields", std::move(vec));
-    // Send the header.
-    if (!session.encoder_.MessageSuccess(data)) {
-      spdlog::trace("Couldn't send query header!");
-      return State::Close;
-    }
-    return State::Result;
+    session.InterpretParse(query.ValueString(), params.ValueMap(), {});
+    return State::Parsed;
   } catch (const std::exception &e) {
     return HandleFailure(session, e);
   }
@@ -298,32 +315,6 @@ State HandleRunV4(TSession &session, const State state, const Marker marker) {
     // Interpret can throw.
     session.InterpretParse(query.ValueString(), params.ValueMap(), extra.ValueMap());
     return State::Parsed;
-  } catch (const std::exception &e) {
-    return HandleFailure(session, e);
-  }
-}
-
-template <typename TSession>
-State HandlePrepare(TSession &session) {
-  try {
-    // Interpret can throw.
-    const auto [header, qid] = session.InterpretPrepare();
-    // Convert std::string to Value
-    std::vector<Value> vec;
-    map_t data;
-    vec.reserve(header.size());
-    for (auto &i : header) vec.emplace_back(std::move(i));
-    data.emplace("fields", std::move(vec));
-    if (qid.has_value()) {
-      data.emplace("qid", Value{*qid});
-    }
-
-    // Send the header.
-    if (!session.encoder_.MessageSuccess(data)) {
-      spdlog::trace("Couldn't send query header!");
-      return State::Close;
-    }
-    return State::Result;
   } catch (const std::exception &e) {
     return HandleFailure(session, e);
   }
