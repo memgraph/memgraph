@@ -134,7 +134,6 @@ struct WalFilesReq {
   uint64_t file_number;
 };
 
-// Continue recovery cannot be true without current_commit_timestamp having value
 struct WalFilesRes {
   static const utils::TypeInfo kType;
   static const utils::TypeInfo &GetTypeInfo() { return kType; }
@@ -142,12 +141,9 @@ struct WalFilesRes {
   static void Load(WalFilesRes *self, memgraph::slk::Reader *reader);
   static void Save(const WalFilesRes &self, memgraph::slk::Builder *builder);
   WalFilesRes() = default;
-  explicit WalFilesRes(bool continue_recovery, std::optional<uint64_t> current_commit_timestamp)
-      : continue_recovery(continue_recovery), current_commit_timestamp(current_commit_timestamp) {
-    MG_ASSERT(!(continue_recovery && !current_commit_timestamp), "Invalid combination for WalFilesRes received.");
-  }
+  explicit WalFilesRes(std::optional<uint64_t> current_commit_timestamp)
+      : current_commit_timestamp(current_commit_timestamp) {}
 
-  bool continue_recovery;
   std::optional<uint64_t> current_commit_timestamp;
 };
 

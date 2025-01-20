@@ -348,124 +348,118 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, Storage *
   spdlog::debug("Starting replica {} recovery ", client_.name_);
   auto *mem_storage = static_cast<InMemoryStorage *>(storage);
 
-  // TODO: (andi) Don't like this while loop because it is blocking the queue
   rpc::Client &rpcClient = client_.rpc_client_;
   bool recovery_failed{false};
-  while (true) {
-    if (recovery_failed) {
-      return;
-    }
-    auto file_locker = mem_storage->file_retainer_.AddLocker();
+  auto file_locker = mem_storage->file_retainer_.AddLocker();
+  const auto steps = GetRecoverySteps(replica_commit, &file_locker, mem_storage);
+  for (auto const &[step_index, recovery_step] : ranges::views::enumerate(steps)) {
+    try {
+      spdlog::trace("Recovering in step: {}. Current local replica commit: {}.", step_index, replica_commit);
+      std::visit(
+          utils::Overloaded{
+              [this, &replica_commit, mem_storage, &rpcClient, &recovery_failed,
+               main_uuid = main_uuid_](RecoverySnapshot const &snapshot) {
+                spdlog::debug("Sending the latest snapshot file: {} to {}", snapshot, client_.name_);
+                // Loading snapshot on the replica side either passes cleanly or it doesn't pass at all. If it doesn't
+                // pass, we won't update commit timestamp. Heartbeat should trigger recovering replica again.
+                if (auto const response = TransferSnapshot(main_uuid, mem_storage->uuid(), rpcClient, snapshot);
+                    response.current_commit_timestamp) {
+                  replica_commit = *response.current_commit_timestamp;
+                  spdlog::debug(
+                      "Successful reply to the snapshot file {} received from {}. Current replica commit is {}",
+                      snapshot, client_.name_, replica_commit);
+                } else {
+                  spdlog::debug(
+                      "Unsuccessful reply to the snapshot file {} received from {}. Current replica commit is {}",
+                      snapshot, client_.name_, replica_commit);
+                  recovery_failed = true;
+                }
+              },
+              [this, &replica_commit, mem_storage, &rpcClient, &recovery_failed,
+               main_uuid = main_uuid_](RecoveryWals const &wals) {
+                spdlog::debug("Sending the latest wal files to {}", client_.name_);
 
-    const auto steps = GetRecoverySteps(replica_commit, &file_locker, mem_storage);
-    for (auto const &[step_index, recovery_step] : ranges::views::enumerate(steps)) {
-      // If recovery failed, set the state to MAYBE_BEHIND because replica for sure didn't recovery completely
-      if (recovery_failed) {
-        spdlog::debug("One of recovery steps failed, setting replica state to MAYBE_BEHIND");
-        replica_state_.WithLock([](auto &val) { val = ReplicaState::MAYBE_BEHIND; });
-        return;
-      }
-      try {
-        spdlog::trace("Recovering in step: {}", step_index);
-        std::visit(
-            utils::Overloaded{
-                [this, &replica_commit, mem_storage, &rpcClient, &recovery_failed,
-                 main_uuid = main_uuid_](RecoverySnapshot const &snapshot) {
-                  spdlog::debug("Sending the latest snapshot file: {} to {}", snapshot, client_.name_);
-                  // Loading snapshot on the replica side either passes cleanly or it doesn't pass at all. If it doesn't
-                  // pass, we won't update commit timestamp
-                  if (auto const response = TransferSnapshot(main_uuid, mem_storage->uuid(), rpcClient, snapshot);
+                if (wals.empty()) {
+                  spdlog::trace("Wal files list is empty, nothing to send");
+                  return;
+                }
+                spdlog::debug("Sending WAL files to {}.", client_.name_);
+                // We don't care about partial progress when loading WAL files. We are only interested if everything
+                // passed so that possibly next step of recovering current wal can be executed
+                auto const wal_files_res = TransferWalFiles(main_uuid, mem_storage->uuid(), rpcClient, wals);
+                if (wal_files_res.current_commit_timestamp) {
+                  replica_commit = *wal_files_res.current_commit_timestamp;
+                  spdlog::debug("Successful reply to WAL files received from {}. Updating replica commit to {}",
+                                client_.name_, replica_commit);
+                } else {
+                  spdlog::debug("Unsuccessful reply to WAL files received from {}. Current replica commit is {}.",
+                                client_.name_, replica_commit);
+                  recovery_failed = true;
+                }
+              },
+              [this, &replica_commit, mem_storage, &rpcClient, &recovery_failed,
+               main_uuid = main_uuid_](RecoveryCurrentWal const &current_wal) {
+                std::unique_lock transaction_guard(mem_storage->engine_lock_);
+                if (mem_storage->wal_file_ &&
+                    mem_storage->wal_file_->SequenceNumber() == current_wal.current_wal_seq_num) {
+                  utils::OnScopeExit on_exit([mem_storage]() { mem_storage->wal_file_->EnableFlushing(); });
+                  mem_storage->wal_file_->DisableFlushing();
+                  transaction_guard.unlock();
+                  spdlog::debug("Sending current wal file to {}", client_.name_);
+                  if (auto const response =
+                          ReplicateCurrentWal(main_uuid, mem_storage, rpcClient, *mem_storage->wal_file_);
                       response.current_commit_timestamp) {
                     replica_commit = *response.current_commit_timestamp;
-                    spdlog::debug(
-                        "Successful reply to the snapshot file {} received from {}. Current replica commit is {}",
-                        snapshot, client_.name_, replica_commit);
+                    spdlog::debug("Successful reply to the current WAL received from {}. Current replica commit is {}",
+                                  client_.name_, replica_commit);
                   } else {
-                    spdlog::debug(
-                        "Unsuccessful reply to the snapshot file {} received from {}. Current replica commit is {}",
-                        snapshot, client_.name_, replica_commit);
+                    spdlog::debug("Unsuccessful reply to WAL files received from {}. Current replica commit is {}",
+                                  client_.name_, replica_commit);
                     recovery_failed = true;
                   }
-                },
-                [this, &replica_commit, mem_storage, &rpcClient, &recovery_failed,
-                 main_uuid = main_uuid_](RecoveryWals const &wals) {
-                  spdlog::debug("Sending the latest wal files to {}", client_.name_);
-
-                  if (wals.empty()) {
-                    spdlog::trace("Wal files list is empty, nothing to send");
-                    return;
-                  }
-                  spdlog::debug("Sending WAL files to {}.", client_.name_);
-                  // It's possible that one of WAL files wasn't successfully loaded but others were. In that case,
-                  // timestamp needs to be updated but recovery cannot continue.
-                  auto const [continue_recovery, maybe_commit_timestamp] =
-                      TransferWalFiles(main_uuid, mem_storage->uuid(), rpcClient, wals);
-                  if (maybe_commit_timestamp) {
-                    replica_commit = *maybe_commit_timestamp;
-                    spdlog::debug("Received reply to WAL files from {}. Updating replica commit to {}", client_.name_,
-                                  replica_commit);
-                  } else {
-                    spdlog::debug("Received reply to WAL files from {} but replica commit won't be updated.",
-                                  client_.name_);
-                  }
-                  if (!continue_recovery) {
-                    recovery_failed = true;
-                  }
-                },
-                [this, &replica_commit, mem_storage, &rpcClient, &recovery_failed,
-                 main_uuid = main_uuid_](RecoveryCurrentWal const &current_wal) {
-                  std::unique_lock transaction_guard(mem_storage->engine_lock_);
-                  if (mem_storage->wal_file_ &&
-                      mem_storage->wal_file_->SequenceNumber() == current_wal.current_wal_seq_num) {
-                    utils::OnScopeExit on_exit([mem_storage]() { mem_storage->wal_file_->EnableFlushing(); });
-                    mem_storage->wal_file_->DisableFlushing();
-                    transaction_guard.unlock();
-                    spdlog::debug("Sending current wal file to {}", client_.name_);
-                    if (auto const response =
-                            ReplicateCurrentWal(main_uuid, mem_storage, rpcClient, *mem_storage->wal_file_);
-                        response.current_commit_timestamp) {
-                      replica_commit = *response.current_commit_timestamp;
-                      spdlog::debug(
-                          "Successful reply to the current WAL received from {}. Current replica commit is {}",
-                          client_.name_, replica_commit);
-                    } else {
-                      spdlog::debug("Unsuccessful reply to WAL files received from {}. Current replica commit is {}",
-                                    client_.name_, replica_commit);
-                      recovery_failed = true;
-                    }
-                  } else {
-                    spdlog::debug("Cannot recover using current wal file {}", client_.name_);
-                  }
-                },
-                []<typename T>(T const &) { static_assert(always_false_v<T>, "Missing type from variant visitor"); },
-            },
-            recovery_step);
-      } catch (const rpc::RpcFailedException &) {
-        replica_state_.WithLock([](auto &val) { val = replication::ReplicaState::MAYBE_BEHIND; });
-        LogRpcFailure();
-        return;
-      }
-    }
-
-    // To avoid the situation where we read a correct commit timestamp in
-    // one thread, and after that another thread commits a different a
-    // transaction and THEN we set the state to READY in the first thread,
-    // we set this lock before checking the timestamp.
-    // We will detect that the state is invalid during the next commit,
-    // because replication::AppendDeltasRpc sends the last durable timestamp which
-    // replica checks if it's the same last durable timestamp it received
-    // and we will go to recovery.
-    // By adding this lock, we can avoid that, and go to RECOVERY immediately.
-    const auto last_durable_timestamp = storage->repl_storage_state_.last_durable_timestamp_.load();
-    spdlog::info("Replica {} timestamp: {}, Last commit: {}", client_.name_, replica_commit, last_durable_timestamp);
-    // ldt can be larger on replica due to a snapshot
-    if (last_durable_timestamp <= replica_commit) {
-      replica_state_.WithLock([name = client_.name_](auto &val) {
-        spdlog::info("Replica {} set to ready.", name);
-        val = ReplicaState::READY;
-      });
+                } else {
+                  spdlog::debug("Cannot recover using current wal file {}", client_.name_);
+                }
+              },
+              []<typename T>(T const &) { static_assert(always_false_v<T>, "Missing type from variant visitor"); },
+          },
+          recovery_step);
+    } catch (const rpc::RpcFailedException &) {
+      replica_state_.WithLock([](auto &val) { val = replication::ReplicaState::MAYBE_BEHIND; });
+      LogRpcFailure();
       return;
     }
+    // If recovery failed, set the state to MAYBE_BEHIND because replica for sure didn't recover completely
+    if (recovery_failed) {
+      spdlog::debug("One of recovery steps failed, setting replica state to MAYBE_BEHIND");
+      replica_state_.WithLock([](auto &val) { val = ReplicaState::MAYBE_BEHIND; });
+      return;
+    }
+  }
+
+  // To avoid the situation where we read a correct commit timestamp in
+  // one thread, and after that another thread commits a different a
+  // transaction and THEN we set the state to READY in the first thread,
+  // we set this lock before checking the timestamp.
+  // We will detect that the state is invalid during the next commit,
+  // because replication::AppendDeltasRpc sends the last durable timestamp which
+  // replica checks if it's the same last durable timestamp it received,
+  // and we will go to recovery.
+  // By adding this lock, we can avoid that, and go to RECOVERY immediately.
+  const auto last_durable_timestamp = storage->repl_storage_state_.last_durable_timestamp_.load();
+  spdlog::info("Replica {} timestamp: {}, Last commit: {}", client_.name_, replica_commit, last_durable_timestamp);
+  // ldt can be larger on replica due to a snapshot
+  if (last_durable_timestamp <= replica_commit) {
+    replica_state_.WithLock([name = client_.name_](auto &val) {
+      val = ReplicaState::READY;
+      spdlog::info("Replica {} set to ready.", name);
+    });
+  } else {
+    // Someone could've committed in the meantime, hence we set the state to MAYBE_BEHIND
+    replica_state_.WithLock([name = client_.name_](auto &val) {
+      val = ReplicaState::MAYBE_BEHIND;
+      spdlog::info("Replica {} set to MAYBE_BEHIND.", name);
+    });
   }
 }
 

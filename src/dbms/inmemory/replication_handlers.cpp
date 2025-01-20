@@ -424,13 +424,13 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
   if (!db_acc) {
     spdlog::error("Couldn't get database accessor in wal files handler for request uuid {}", std::string{req.uuid});
-    const storage::replication::WalFilesRes res{false, {}};
+    const storage::replication::WalFilesRes res{{}};
     slk::Save(res, res_builder);
     return;
   }
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::WalFilesReq::kType.name);
-    const storage::replication::WalFilesRes res{false, {}};
+    const storage::replication::WalFilesRes res{{}};
     slk::Save(res, res_builder);
     return;
   }
@@ -444,16 +444,16 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
 
   for (auto i = 0; i < wal_file_number; ++i) {
     if (!LoadWal(storage, &decoder)) {
-      spdlog::debug("Replication recovery from WAL files partially succeeded.");
-      const storage::replication::WalFilesRes res{
-          false, storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire)};
+      spdlog::debug("Replication recovery from WAL files failed while loading one of WAL files.");
+      const storage::replication::WalFilesRes res{{}};
       slk::Save(res, res_builder);
       return;
     }
   }
 
+  spdlog::debug("Replication recovery from WAL files succeeded");
   const storage::replication::WalFilesRes res{
-      true, storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire)};
+      storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire)};
   slk::Save(res, res_builder);
 }
 
