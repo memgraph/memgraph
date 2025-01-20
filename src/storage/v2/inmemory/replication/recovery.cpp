@@ -231,7 +231,7 @@ std::vector<RecoveryStep> GetRecoverySteps(uint64_t replica_commit, utils::FileR
       for (; first_useful_wal < wal_files->size(); ++first_useful_wal) {
         auto &wal = wal_files.value()[first_useful_wal];
         const auto lock_success = locker_acc.AddPath(wal.path);
-        MG_ASSERT(!lock_success.HasError(), "Tried to lock a nonexistant WAL path.");
+        MG_ASSERT(!lock_success.HasError(), "Tried to lock a nonexistent WAL path.");
         rw.emplace_back(std::move(wal.path));
       }
       recovery_steps.emplace_back(std::in_place_type_t<RecoveryWals>{}, std::move(rw));

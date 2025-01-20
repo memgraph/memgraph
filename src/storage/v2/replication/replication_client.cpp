@@ -372,6 +372,8 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, Storage *
                 [this, &replica_commit, mem_storage, &rpcClient, &recovery_failed,
                  main_uuid = main_uuid_](RecoverySnapshot const &snapshot) {
                   spdlog::debug("Sending the latest snapshot file: {} to {}", snapshot, client_.name_);
+                  // Loading snapshot on the replica side either passes cleanly or it doesn't pass at all. If it doesn't
+                  // pass, we won't update commit timestamp
                   if (auto const response = TransferSnapshot(main_uuid, mem_storage->uuid(), rpcClient, snapshot);
                       response.current_commit_timestamp) {
                     replica_commit = *response.current_commit_timestamp;
@@ -394,14 +396,19 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, Storage *
                     return;
                   }
                   spdlog::debug("Sending WAL files to {}.", client_.name_);
-                  if (auto const response = TransferWalFiles(main_uuid, mem_storage->uuid(), rpcClient, wals);
-                      response.current_commit_timestamp) {
-                    replica_commit = *response.current_commit_timestamp;
-                    spdlog::debug("Successful reply to WAL files received from {}. Current replica commit is {}",
-                                  client_.name_, replica_commit);
+                  // It's possible that one of WAL files wasn't successfully loaded but others were. In that case,
+                  // timestamp needs to be updated but recovery cannot continue.
+                  auto const [continue_recovery, maybe_commit_timestamp] =
+                      TransferWalFiles(main_uuid, mem_storage->uuid(), rpcClient, wals);
+                  if (maybe_commit_timestamp) {
+                    replica_commit = *maybe_commit_timestamp;
+                    spdlog::debug("Received reply to WAL files from {}. Updating replica commit to {}", client_.name_,
+                                  replica_commit);
                   } else {
-                    spdlog::debug("Unsuccessful reply to WAL files received from {}. Current replica commit is {}",
-                                  client_.name_, replica_commit);
+                    spdlog::debug("Received reply to WAL files from {} but replica commit won't be updated.",
+                                  client_.name_);
+                  }
+                  if (!continue_recovery) {
                     recovery_failed = true;
                   }
                 },

@@ -69,7 +69,7 @@ std::optional<DatabaseAccess> GetDatabaseAccessor(dbms::DbmsHandler *dbms_handle
       return std::nullopt;
     }
 #endif
-    auto *inmem_storage = dynamic_cast<storage::InMemoryStorage *>(acc.get()->storage());
+    auto const *inmem_storage = static_cast<storage::InMemoryStorage *>(acc.get()->storage());
     if (!inmem_storage || inmem_storage->storage_mode_ != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) {
       spdlog::error("Database is not IN_MEMORY_TRANSACTIONAL.");
       return std::nullopt;
@@ -221,7 +221,7 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
     }
   }
 
-  // last_durable_timestamp could be set by snashot; so we cannot guarantee exactly what's the previous timestamp
+  // last_durable_timestamp could be set by snapshot; so we cannot guarantee exactly what's the previous timestamp
   if (req.previous_commit_timestamp > repl_storage_state.last_durable_timestamp_.load()) {
     // Empty the stream
     bool transaction_complete = false;
@@ -256,6 +256,9 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
   spdlog::debug("Replication recovery from append deltas finished, replica is now up to date!");
 }
 
+// The semantic of snapshot handler is the following: Either handling snapshot request passes or it doesn't. If it
+// passes we return the current commit timestamp of the replica. If it doesn't pass, we return optional which will
+// signal to the caller that it shouldn't update the commit timestamp value.
 void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handler,
                                                   const std::optional<utils::UUID> &current_main_uuid,
                                                   slk::Reader *req_reader, slk::Builder *res_builder) {
@@ -263,7 +266,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
   slk::Load(&req, req_reader);
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
   if (!db_acc) {
-    spdlog::error("Couldn't get database accessor in snapshot handler for request uuid {}", req.uuid);
+    spdlog::error("Couldn't get database accessor in snapshot handler for request uuid {}", std::string{req.uuid});
     const storage::replication::SnapshotRes res{{}};
     slk::Save(res, res_builder);
     return;
@@ -361,6 +364,8 @@ void InMemoryReplicationHandlers::ForceResetStorageHandler(dbms::DbmsHandler *db
   slk::Load(&req, req_reader);
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.db_uuid);
   if (!db_acc) {
+    spdlog::error("Couldn't get database accessor in force reset storage handler for request uuid {}",
+                  std::string{req.db_uuid});
     const storage::replication::ForceResetStorageRes res{false, 0};
     slk::Save(res, res_builder);
     return;
@@ -404,6 +409,13 @@ void InMemoryReplicationHandlers::ForceResetStorageHandler(dbms::DbmsHandler *db
   }
 }
 
+// Commit timestamp on main's side shouldn't be updated if:
+// 1.) the database accessor couldn't be obtained
+// 2.) UUID sent with the request is not the current MAIN's UUID which replica is listening to
+// send after that CurrentWalHandler
+// If loading all WAL files succeeded then main can continue recovery if it should send more recovery steps.
+// If loading one of WAL files partially succeeded, then recovery cannot be continue but commit timestamp can be
+// obtained.
 void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handler,
                                                   const std::optional<utils::UUID> &current_main_uuid,
                                                   slk::Reader *req_reader, slk::Builder *res_builder) {
@@ -411,44 +423,45 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
   slk::Load(&req, req_reader);
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
   if (!db_acc) {
-    const storage::replication::WalFilesRes res{{}};
+    spdlog::error("Couldn't get database accessor in wal files handler for request uuid {}", std::string{req.uuid});
+    const storage::replication::WalFilesRes res{false, {}};
     slk::Save(res, res_builder);
     return;
   }
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::WalFilesReq::kType.name);
-    const storage::replication::WalFilesRes res{{}};
+    const storage::replication::WalFilesRes res{false, {}};
     slk::Save(res, res_builder);
     return;
   }
 
-  const auto wal_file_number = req.file_number;
-  spdlog::debug("Received {} WAL files.", wal_file_number);
-
-  storage::replication::Decoder decoder(req_reader);
-
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
   utils::EnsureDirOrDie(storage->recovery_.wal_directory_);
 
-  bool all_wal_files_loaded{true};
+  const auto wal_file_number = req.file_number;
+  spdlog::debug("Received {} WAL files.", wal_file_number);
+  storage::replication::Decoder decoder(req_reader);
+
   for (auto i = 0; i < wal_file_number; ++i) {
     if (!LoadWal(storage, &decoder)) {
-      all_wal_files_loaded = false;
-      break;
+      spdlog::debug("Replication recovery from WAL files partially succeeded.");
+      const storage::replication::WalFilesRes res{
+          false, storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire)};
+      slk::Save(res, res_builder);
+      return;
     }
   }
 
-  // Even if not all WAL files are loaded we still want to be able to save partial result
-  if (!all_wal_files_loaded) {
-    spdlog::debug("Replication recovery from WAL files partially succeeded.");
-  } else {
-    spdlog::debug("Replication recovery from WAL files completely succeeded.");
-  }
-
-  const storage::replication::WalFilesRes res{storage->repl_storage_state_.last_durable_timestamp_.load()};
+  const storage::replication::WalFilesRes res{
+      true, storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire)};
   slk::Save(res, res_builder);
 }
 
+// Commit timestamp on MAIN's side shouldn't be updated if:
+// 1.) the database accessor couldn't be obtained
+// 2.) UUID sent with the request is not the current MAIN's UUID which replica is listening to
+// If loading WAL file partially succeeded then we shouldn't continue recovery but commit timestamp can be updated on
+// main
 void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_handler,
                                                     const std::optional<utils::UUID> &current_main_uuid,
                                                     slk::Reader *req_reader, slk::Builder *res_builder) {
@@ -456,6 +469,7 @@ void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_hand
   slk::Load(&req, req_reader);
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
   if (!db_acc) {
+    spdlog::error("Couldn't get database accessor in current wal handler for request uuid {}", std::string{req.uuid});
     const storage::replication::CurrentWalRes res{{}};
     slk::Save(res, res_builder);
     return;
@@ -468,31 +482,39 @@ void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_hand
     return;
   }
 
-  storage::replication::Decoder decoder(req_reader);
-
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
   utils::EnsureDirOrDie(storage->recovery_.wal_directory_);
 
-  // Even if loading wal file failed, we return last_durable_timestamp which is used on MAIN's side to figure out
-  // on the main side the current replica commit.
+  storage::replication::Decoder decoder(req_reader);
+
+  // Even if loading wal file failed, we return last_durable_timestamp to the main because it is not a fatal error
   if (!LoadWal(storage, &decoder)) {
-    spdlog::debug(
-        "Replication recovery from current WAL didn't end successfully. Non-fatal error, main should try to recover "
-        "the replica.");
+    spdlog::debug("Replication recovery from current WAL didn't end successfully but the error is non-fatal error.");
   } else {
-    spdlog::debug("Replication recovery from current WAL ended successfully, replica is now up to date!");
+    spdlog::debug("Replication recovery from current WAL ended successfully!");
   }
 
-  const storage::replication::CurrentWalRes res{storage->repl_storage_state_.last_durable_timestamp_.load()};
+  const storage::replication::CurrentWalRes res{
+      storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire)};
   slk::Save(res, res_builder);
 }
 
+// The method will return false and hence signal the failure of completely loading the WAL file if:
+// 1.) It cannot open WAL file for reading from temporary WAL directory
+// 2.) If WAL magic and/or version wasn't loaded successfully
+// 3.) If WAL version is invalid
+// 4.) If reading WAL info fails
+// 5.) If applying some of the deltas failed
+// If WAL file doesn't contain any new changes, we ignore it and consider WAL file as successfully applied.
 bool InMemoryReplicationHandlers::LoadWal(storage::InMemoryStorage *storage, storage::replication::Decoder *decoder) {
   const auto temp_wal_directory =
       std::filesystem::temp_directory_path() / "memgraph" / storage::durability::kWalDirectory;
   utils::EnsureDir(temp_wal_directory);
   auto maybe_wal_path = decoder->ReadFile(temp_wal_directory);
-  MG_ASSERT(maybe_wal_path, "Failed to load WAL!");
+  if (!maybe_wal_path) {
+    spdlog::error("Failed to load WAL file from {}!", temp_wal_directory);
+    return false;
+  }
   spdlog::trace("Received WAL saved to {}", *maybe_wal_path);
   try {
     auto wal_info = storage::durability::ReadWalInfo(*maybe_wal_path);
@@ -507,10 +529,8 @@ bool InMemoryReplicationHandlers::LoadWal(storage::InMemoryStorage *storage, sto
       spdlog::trace("WAL file won't be applied since all changes already exist.");
       return true;
     }
-
+    // We trust only WAL files which contain changes we are interested in (newer changes)
     if (auto &replica_epoch = storage->repl_storage_state_.epoch_; wal_info.epoch_id != replica_epoch.id()) {
-      // questionable behaviour, we trust that any change in epoch implies change in who is MAIN
-      // when we use high availability, this assumption need to be checked.
       spdlog::trace("Set epoch id to {} while loading wal file {}.", wal_info.epoch_id, *maybe_wal_path);
       auto prev_epoch = replica_epoch.SetEpoch(wal_info.epoch_id);
       storage->repl_storage_state_.AddEpochToHistoryForce(prev_epoch);
@@ -529,9 +549,14 @@ bool InMemoryReplicationHandlers::LoadWal(storage::InMemoryStorage *storage, sto
     storage::durability::Decoder wal;
     const auto version = wal.Initialize(*maybe_wal_path, storage::durability::kWalMagic);
     spdlog::debug("WAL file {} loaded successfully", *maybe_wal_path);
-    if (!version) throw storage::durability::RecoveryFailure("Couldn't read WAL magic and/or version!");
-    if (!storage::durability::IsVersionSupported(*version))
-      throw storage::durability::RecoveryFailure("Invalid WAL version!");
+    if (!version) {
+      spdlog::error("Couldn't read WAL magic and/or version!");
+      return false;
+    }
+    if (!storage::durability::IsVersionSupported(*version)) {
+      spdlog::error("Invalid WAL version!");
+      return false;
+    }
     wal.SetPosition(wal_info.offset_deltas);
 
     for (size_t i = 0; i < wal_info.num_deltas;) {
