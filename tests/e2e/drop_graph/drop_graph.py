@@ -21,6 +21,7 @@ def test_create_everything_then_drop_graph(memgraph):
     memgraph.execute("CREATE INDEX ON :Node")
     memgraph.execute("CREATE INDEX ON :Node(id)")
     memgraph.execute("CREATE EDGE INDEX ON :EdgeType")
+    memgraph.execute("CREATE TEXT INDEX complianceDocuments ON :Report;")
     memgraph.execute("CREATE CONSTRAINT ON (n:Node) ASSERT n.id IS UNIQUE;")
     memgraph.execute("CREATE CONSTRAINT ON (n:Node) ASSERT EXISTS (n.id);")
     memgraph.execute("CREATE CONSTRAINT ON (n:Node) ASSERT n.id IS TYPED INTEGER;")
@@ -29,7 +30,7 @@ def test_create_everything_then_drop_graph(memgraph):
 
     assert get_results_length(memgraph, "MATCH (n) RETURN n") == 2
     assert get_results_length(memgraph, "MATCH (n)-[r]->(m) RETURN r") == 1
-    assert get_results_length(memgraph, "SHOW INDEX INFO") == 3
+    assert get_results_length(memgraph, "SHOW INDEX INFO") == 4
     assert get_results_length(memgraph, "SHOW CONSTRAINT INFO") == 3
     assert get_results_length(memgraph, "SHOW TRIGGERS") == 2
 
