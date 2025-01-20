@@ -341,6 +341,7 @@ void ReplicationStorageClient::Start(Storage *storage, DatabaseAccessProtector d
   TryCheckReplicaStateSync(storage, std::move(db_acc));
 }
 
+// The function is finished by setting replica to READY state or by setting it to MAYBE_BEHIND state
 void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, Storage *storage) const {
   if (storage->storage_mode_ != StorageMode::IN_MEMORY_TRANSACTIONAL) {
     throw utils::BasicException("Only InMemoryTransactional mode supports replication!");
@@ -386,8 +387,8 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, Storage *
                 spdlog::debug("Sending WAL files to {}.", client_.name_);
                 // We don't care about partial progress when loading WAL files. We are only interested if everything
                 // passed so that possibly next step of recovering current wal can be executed
-                auto const wal_files_res = TransferWalFiles(main_uuid, mem_storage->uuid(), rpcClient, wals);
-                if (wal_files_res.current_commit_timestamp) {
+                if (auto const wal_files_res = TransferWalFiles(main_uuid, mem_storage->uuid(), rpcClient, wals);
+                    wal_files_res.current_commit_timestamp) {
                   replica_commit = *wal_files_res.current_commit_timestamp;
                   spdlog::debug("Successful reply to WAL files received from {}. Updating replica commit to {}",
                                 client_.name_, replica_commit);
@@ -402,7 +403,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, Storage *
                 std::unique_lock transaction_guard(mem_storage->engine_lock_);
                 if (mem_storage->wal_file_ &&
                     mem_storage->wal_file_->SequenceNumber() == current_wal.current_wal_seq_num) {
-                  utils::OnScopeExit on_exit([mem_storage]() { mem_storage->wal_file_->EnableFlushing(); });
+                  utils::OnScopeExit const on_exit([mem_storage]() { mem_storage->wal_file_->EnableFlushing(); });
                   mem_storage->wal_file_->DisableFlushing();
                   transaction_guard.unlock();
                   spdlog::debug("Sending current wal file to {}", client_.name_);
@@ -437,15 +438,6 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, Storage *
     }
   }
 
-  // To avoid the situation where we read a correct commit timestamp in
-  // one thread, and after that another thread commits a different a
-  // transaction and THEN we set the state to READY in the first thread,
-  // we set this lock before checking the timestamp.
-  // We will detect that the state is invalid during the next commit,
-  // because replication::AppendDeltasRpc sends the last durable timestamp which
-  // replica checks if it's the same last durable timestamp it received,
-  // and we will go to recovery.
-  // By adding this lock, we can avoid that, and go to RECOVERY immediately.
   const auto last_durable_timestamp = storage->repl_storage_state_.last_durable_timestamp_.load();
   spdlog::info("Replica {} timestamp: {}, Last commit: {}", client_.name_, replica_commit, last_durable_timestamp);
   // ldt can be larger on replica due to a snapshot
