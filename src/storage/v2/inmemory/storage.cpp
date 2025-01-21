@@ -841,7 +841,15 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
     CommitReplArgs reparg, DatabaseAccessProtector db_acc) {
   auto result = Commit(reparg, db_acc);
 
-  if (result.HasError()) {
+  const auto fatal_error =
+      result.HasError() && std::visit(
+                               [](const auto &e) {
+                                 // All errors are handled at a higher level.
+                                 // Replication errros are not fatal and should procede with finialize transaction
+                                 return !std::is_same_v<std::remove_cvref_t<decltype(e)>, storage::ReplicationError>;
+                               },
+                               result.GetError());
+  if (fatal_error) {
     return result;
   }
 
