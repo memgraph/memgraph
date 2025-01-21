@@ -1,8 +1,8 @@
 #!/bin/bash
-
 pushd () { command pushd "$@" > /dev/null; }
 popd () { command popd "$@" > /dev/null; }
-
+# https://stackoverflow.com/questions/59119904/process-terminated-couldnt-find-a-valid-icu-package-installed-on-the-system-in
+export DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1
 declare -a pids=()
 
 function cleanup() {
