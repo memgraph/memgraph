@@ -12,16 +12,24 @@ find_package(fmt REQUIRED)
 set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME "query_modules")
 string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
 
+function(add_post_build_strip_in_release target build_type_var)
+  string(TOLOWER "${${build_type_var}}" lower_build_type)
+
+  if (lower_build_type STREQUAL "release")
+    add_custom_command(
+      TARGET ${target} POST_BUILD
+      COMMAND ${CMAKE_STRIP} -s $<TARGET_FILE:${target}>
+      COMMENT "Stripping symbols and sections from the ${target} module"
+    )
+  endif()
+endfunction()
+
 add_library(example_c SHARED example.c)
 target_include_directories(example_c PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_compile_options(example_c PRIVATE -Wall)
 target_link_libraries(example_c PRIVATE -static-libgcc -static-libstdc++)
-# Strip C example in release build.
-if (lower_build_type STREQUAL "release")
-  add_custom_command(TARGET example_c POST_BUILD
-                     COMMAND strip -s $<TARGET_FILE:example_c>
-                     COMMENT "Stripping symbols and sections from the C example module")
-endif()
+
+add_post_build_strip_in_release(example_c CMAKE_BUILD_TYPE)
 set_target_properties(example_c PROPERTIES
     PREFIX ""
     OUTPUT_NAME "example_c"
@@ -33,12 +41,8 @@ add_library(example_cpp SHARED example.cpp)
 target_include_directories(example_cpp PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_compile_options(example_cpp PRIVATE -Wall)
 target_link_libraries(example_cpp PRIVATE -static-libgcc -static-libstdc++)
-# Strip C++ example in release build.
-if (lower_build_type STREQUAL "release")
-  add_custom_command(TARGET example_cpp POST_BUILD
-                     COMMAND strip -s $<TARGET_FILE:example_cpp>
-                     COMMENT "Stripping symbols and sections from the C++ example module")
-endif()
+add_post_build_strip_in_release(example_cpp CMAKE_BUILD_TYPE)
+
 set_target_properties(example_cpp PROPERTIES
     PREFIX ""
     OUTPUT_NAME "example_cpp"
@@ -50,12 +54,7 @@ add_library(schema SHARED schema.cpp)
 target_include_directories(schema PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_compile_options(schema PRIVATE -Wall)
 target_link_libraries(schema PRIVATE -static-libgcc -static-libstdc++)
-# Strip C++ example in release build.
-if (lower_build_type STREQUAL "release")
-  add_custom_command(TARGET schema POST_BUILD
-                     COMMAND strip -s $<TARGET_FILE:schema>
-                     COMMENT "Stripping symbols and sections from the C++ schema module")
-endif()
+add_post_build_strip_in_release(schema CMAKE_BUILD_TYPE)
 set_target_properties(schema PROPERTIES
     PREFIX ""
     OUTPUT_NAME "schema"
@@ -67,16 +66,7 @@ add_library(text_search SHARED text_search_module.cpp)
 target_include_directories(text_search PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_compile_options(text_search PRIVATE -Wall)
 target_link_libraries(text_search PRIVATE -static-libgcc -static-libstdc++ fmt::fmt)
-# Strip C++ example in release build.
-if (lower_build_type STREQUAL "release")
-  add_custom_command(TARGET text_search POST_BUILD
-                     COMMAND strip -s $<TARGET_FILE:text_search>
-                     COMMENT "Stripping symbols and sections from the C++ text_search module")
-endif()
-set_target_properties(text_search PROPERTIES
-    PREFIX ""
-    OUTPUT_NAME "text_search"
-)
+add_post_build_strip_in_release(text_search CMAKE_BUILD_TYPE)
 # Also install the source of the example, so user can read it.
 install(FILES text_search_module.cpp DESTINATION lib/memgraph/query_modules/src)
 
@@ -84,12 +74,7 @@ add_library(vector_search SHARED vector_search_module.cpp)
 target_include_directories(vector_search PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_compile_options(vector_search PRIVATE -Wall)
 target_link_libraries(vector_search PRIVATE -static-libgcc -static-libstdc++ fmt::fmt)
-# Strip C++ example in release build.
-if (lower_build_type STREQUAL "release")
-  add_custom_command(TARGET vector_search POST_BUILD
-                     COMMAND strip -s $<TARGET_FILE:vector_search>
-                     COMMENT "Stripping symbols and sections from the C++ vector_search module")
-endif()
+add_post_build_strip_in_release(vector_search CMAKE_BUILD_TYPE)
 set_target_properties(vector_search PROPERTIES
     PREFIX ""
     OUTPUT_NAME "vector_search"
@@ -102,17 +87,45 @@ target_include_directories(convert PRIVATE ${CMAKE_SOURCE_DIR}/include ${CMAKE_S
 target_compile_options(convert PRIVATE -Wall)
 target_link_libraries(convert PRIVATE -static-libgcc -static-libstdc++ fmt::fmt json)
 
-# Strip the module in release build
-if (lower_build_type STREQUAL "release")
-  add_custom_command(TARGET convert POST_BUILD
-                     COMMAND strip -s $<TARGET_FILE:convert>
-                     COMMENT "Stripping symbols and sections from the C++ convert module")
-endif()
+add_post_build_strip_in_release(convert CMAKE_BUILD_TYPE)
 
 set_target_properties(convert PROPERTIES
     PREFIX ""
     OUTPUT_NAME "convert"
 )
+
+# mg utilities used in dynamic algos
+# TODO: this is currently copied from MAGE, need to somehow
+# include it in both repos without copying
+add_subdirectory(mg_utility)
+
+set(ADD_QUERY_MODULE_BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}" CACHE INTERNAL "Build directory for QMs in folders")
+
+function(add_query_module target_name version src)
+  add_library(${target_name} SHARED ${src})
+  target_include_directories(${target_name} PRIVATE
+      ${CMAKE_SOURCE_DIR}/include
+      ${CMAKE_SOURCE_DIR}/libs
+  )
+
+  target_compile_options(${target_name} PRIVATE -Wall)
+  target_link_libraries(${target_name} PRIVATE
+      -static-libgcc
+      -static-libstdc++
+      mg_utility # TODO: maybe move it somewhere else
+  )
+
+  add_post_build_strip_in_release(${target_name} CMAKE_BUILD_TYPE)
+
+  set_target_properties(${target_name} PROPERTIES
+      PREFIX "" # remove "lib" prefix
+      OUTPUT_NAME "${target_name}"
+      LIBRARY_OUTPUT_DIRECTORY "${ADD_QUERY_MODULE_BUILD_DIR}" # needed because we want all .so in /build/query_modules
+  )
+endfunction()
+
+add_subdirectory(pagerank_module)
+
 
 # Copy python query modules into build/query_modules
 # This is to avoid doing make install during CI
@@ -136,7 +149,8 @@ add_custom_target(copy_python_query_modules ALL
 install(FILES convert.cpp DESTINATION lib/memgraph/query_modules/src)
 
 # Install C++ query modules
-install(TARGETS convert example_c example_cpp schema text_search vector_search
+# TODO: DYNAMIC
+install(TARGETS convert example_c example_cpp schema text_search vector_search pagerank_online
     DESTINATION lib/memgraph/query_modules
 )
 

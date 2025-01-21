@@ -50,7 +50,7 @@ class TestConstants:
     ONLINE_TEST_E2E_SETUP = "setup"
     ONLINE_TEST_E2E_CLEANUP = "cleanup"
     ONLINE_TEST_E2E_INPUT_QUERIES = "queries"
-    ONLINE_TEST_SUBDIR_SUFFIX = "online"
+    ONLINE_TEST_SUBDIR_SUFFIX = "test_online"
 
     EXPORT_TEST_E2E_NODES = "nodes"
     EXPORT_TEST_E2E_RELATIONSHIPS = "relationships"
@@ -59,7 +59,7 @@ class TestConstants:
     EXPORT_TEST_E2E_IMPORT_QUERY = "import"
     EXPORT_TEST_E2E_PLACEHOLDER_FILENAME = "_exportfile"
     EXPORT_TEST_E2E_OUTPUT_FILE = "/".join([os.getcwd(), "_exported_data"])
-    EXPORT_TEST_SUBDIR_SUFFIX = "export"
+    EXPORT_TEST_SUBDIR_SUFFIX = "test_export"
 
 
 def _node_to_dict(data):
@@ -308,9 +308,9 @@ tests = prepare_tests()
 def test_end2end(test_dir: Path, db: Memgraph):
     db.drop_database()
 
-    if test_dir.name.endswith(TestConstants.EXPORT_TEST_SUBDIR_SUFFIX):
+    if test_dir.name.startswith(TestConstants.EXPORT_TEST_SUBDIR_SUFFIX):
         _test_export(test_dir, db)
-    elif test_dir.name.endswith(TestConstants.ONLINE_TEST_SUBDIR_SUFFIX):
+    elif test_dir.name.startswith(TestConstants.ONLINE_TEST_SUBDIR_SUFFIX):
         _test_online(test_dir, db)
     else:
         _test_static(test_dir, db)
