@@ -270,16 +270,16 @@ void InMemoryLabelPropertyCompositeIndex::Iterable::Iterator::AdvanceUntilValid(
 }
 
 InMemoryLabelPropertyCompositeIndex::Iterable::Bounds InMemoryLabelPropertyCompositeIndex::Iterable::MakeBounds(
-    const std::vector<std::optional<utils::Bound<PropertyValue>>> &lower_bounds,
-    const std::vector<std::optional<utils::Bound<PropertyValue>>> &upper_bounds) {
+    std::vector<std::optional<utils::Bound<PropertyValue>>> &lower_bounds,
+    std::vector<std::optional<utils::Bound<PropertyValue>>> &upper_bounds) {
   std::vector<PropertyValue> lower_bound_values;
   std::vector<PropertyValue> upper_bound_values;
   lower_bound_values.reserve(lower_bounds.size());
   upper_bound_values.reserve(upper_bounds.size());
 
   for (uint64_t i = 0; i < lower_bounds.size(); i++) {
-    auto lower_bound = lower_bounds[i];
-    auto upper_bound = upper_bounds[i];
+    auto &lower_bound = lower_bounds[i];
+    auto &upper_bound = upper_bounds[i];
     // Remove any bounds that are set to `Null` because that isn't a valid value.
     if (lower_bound && lower_bound->value().IsNull()) {
       lower_bound = std::nullopt;
@@ -409,7 +409,7 @@ InMemoryLabelPropertyCompositeIndex::Iterable::Iterable(
   // are returned by the iterator. We ensure this by supplying either an
   // inclusive lower bound of the same type, or an exclusive upper bound of the
   // following type. If neither bound is set we yield all items in the index.
-  auto bounds = MakeBounds(lower_bounds, upper_bounds);
+  auto bounds = MakeBounds(lower_bounds_, upper_bounds_);
   lower_bound_ = std::move(bounds.lower_bound);
   upper_bound_ = std::move(bounds.upper_bound);
 }

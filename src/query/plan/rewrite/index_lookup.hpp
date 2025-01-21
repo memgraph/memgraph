@@ -1018,7 +1018,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       property_filter_ixs.push_back(filter.property_filter->property_);
       property_filter_infos.push_back(filter);
     }
-    std::sort(property_filter_ids.begin(), property_filter_ids.end());
 
     for (auto &comp_index : all_composite_indices) {
       std::optional<LabelIx> maybe_label{std::nullopt};
@@ -1032,20 +1031,30 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         continue;
       }
 
-      std::sort(comp_index.second.begin(), comp_index.second.end());
+      std::vector<storage::PropertyId> property_filter_ids_copy(property_filter_ids.begin(), property_filter_ids.end());
+      std::vector<storage::PropertyId> comp_index_copy(comp_index.second.begin(), comp_index.second.end());
+
+      std::sort(property_filter_ids_copy.begin(), property_filter_ids_copy.end());
+      std::sort(comp_index_copy.begin(), comp_index_copy.end());
 
       std::set<storage::PropertyId> intersection;
-      std::set_intersection(property_filter_ids.begin(), property_filter_ids.end(), comp_index.second.begin(),
-                            comp_index.second.end(), std::inserter(intersection, intersection.begin()));
+      std::set_intersection(property_filter_ids_copy.begin(), property_filter_ids_copy.end(), comp_index_copy.begin(),
+                            comp_index_copy.end(), std::inserter(intersection, intersection.begin()));
 
       if (intersection.size() == comp_index.second.size()) {
         // We have found the index
         std::vector<PropertyIx> property_filter_ixs_for_index;
         std::vector<FilterInfo> property_filter_infos_for_index;
-        for (uint64_t i = 0; i < property_filter_ids.size(); i++) {
-          if (intersection.contains(property_filter_ids[i])) {
-            property_filter_ixs_for_index.push_back(property_filter_ixs[i]);
-            property_filter_infos_for_index.push_back(property_filter_infos[i]);
+
+        // Now we need to order the property filters correctly because composite index cares about ordering
+        // After this double for loop is done, they should be arranged properly
+        for (const auto &comp_index_prop : comp_index.second) {
+          for (uint64_t i = 0; i < property_filter_ids.size(); i++) {
+            if (comp_index_prop == property_filter_ids[i]) {
+              property_filter_ixs_for_index.push_back(property_filter_ixs[i]);
+              property_filter_infos_for_index.push_back(property_filter_infos[i]);
+              break;
+            }
           }
         }
 

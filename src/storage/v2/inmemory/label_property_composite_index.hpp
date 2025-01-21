@@ -115,8 +115,8 @@ class InMemoryLabelPropertyCompositeIndex : public storage::LabelPropertyComposi
 
     Iterator begin();
     Iterator end();
-    Bounds MakeBounds(const std::vector<std::optional<utils::Bound<PropertyValue>>> &lower_bounds,
-                      const std::vector<std::optional<utils::Bound<PropertyValue>>> &upper_bounds);
+    Bounds MakeBounds(std::vector<std::optional<utils::Bound<PropertyValue>>> &lower_bounds,
+                      std::vector<std::optional<utils::Bound<PropertyValue>>> &upper_bounds);
 
    private:
     utils::SkipList<Vertex>::ConstAccessor pin_accessor_;
