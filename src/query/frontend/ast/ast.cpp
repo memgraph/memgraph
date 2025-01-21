@@ -56,6 +56,9 @@ constexpr utils::TypeInfo query::DivisionOperator::kType{utils::TypeId::AST_DIVI
 constexpr utils::TypeInfo query::ModOperator::kType{utils::TypeId::AST_MOD_OPERATOR, "ModOperator",
                                                     &query::BinaryOperator::kType};
 
+constexpr utils::TypeInfo query::ExponentiationOperator::kType{utils::TypeId::AST_EXPONENTIATION_OPERATOR,
+                                                               "ExponentiationOperator", &query::BinaryOperator::kType};
+
 constexpr utils::TypeInfo query::NotEqualOperator::kType{utils::TypeId::AST_NOT_EQUAL_OPERATOR, "NotEqualOperator",
                                                          &query::BinaryOperator::kType};
 
@@ -201,6 +204,9 @@ constexpr utils::TypeInfo query::PointIndexQuery::kType{utils::TypeId::AST_POINT
 
 constexpr utils::TypeInfo query::TextIndexQuery::kType{utils::TypeId::AST_TEXT_INDEX_QUERY, "TextIndexQuery",
                                                        &query::Query::kType};
+
+constexpr utils::TypeInfo query::VectorIndexQuery::kType{utils::TypeId::AST_VECTOR_INDEX_QUERY, "VectorIndexQuery",
+                                                         &query::Query::kType};
 
 constexpr utils::TypeInfo query::Create::kType{utils::TypeId::AST_CREATE, "Create", &query::Clause::kType};
 

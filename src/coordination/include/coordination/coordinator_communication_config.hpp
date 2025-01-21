@@ -38,6 +38,8 @@ struct ReplicationInstanceInitConfig {
   int management_port{0};
 };
 
+// If nuraft_log_file isn't provided, spdlog::logger for NuRaft will still get created but without sinks effectively
+// then being a no-op logger.
 struct CoordinatorInstanceInitConfig {
   int32_t coordinator_id{0};
   int coordinator_port{0};
@@ -46,30 +48,8 @@ struct CoordinatorInstanceInitConfig {
   std::filesystem::path durability_dir;
   std::string coordinator_hostname;
   std::string nuraft_log_file;
-  bool use_durability;
   std::chrono::seconds instance_down_timeout_sec;
   std::chrono::seconds instance_health_check_frequency_sec;
-
-  // If nuraft_log_file isn't provided, spdlog::logger for NuRaft will still get created but without sinks effectively
-  // then being a no-op logger.
-  explicit CoordinatorInstanceInitConfig(
-      int32_t coordinator_id, int coordinator_port, int bolt_port, int management_port,
-      std::filesystem::path durability_dir, std::string coordinator_hostname, std::string nuraft_log_file = "",
-      bool use_durability = true, const std::chrono::seconds instance_down_timeout_sec = std::chrono::seconds{5},
-      const std::chrono::seconds instance_health_check_frequency_sec = std::chrono::seconds{1})
-      : coordinator_id(coordinator_id),
-        coordinator_port(coordinator_port),
-        bolt_port(bolt_port),
-        management_port(management_port),
-        durability_dir(std::move(durability_dir)),
-        coordinator_hostname(std::move(coordinator_hostname)),
-        nuraft_log_file(std::move(nuraft_log_file)),
-        use_durability(use_durability),
-        instance_down_timeout_sec(instance_down_timeout_sec),
-        instance_health_check_frequency_sec(instance_health_check_frequency_sec) {
-    MG_ASSERT(!this->durability_dir.empty(), "Path empty");
-    MG_ASSERT(!this->coordinator_hostname.empty(), "Hostname empty");
-  }
 };
 
 struct LogStoreDurability {
@@ -82,23 +62,9 @@ struct CoordinatorStateManagerConfig {
   int coordinator_port_{0};
   int bolt_port_{0};
   int management_port_{0};
-  std::filesystem::path state_manager_durability_dir_;
   std::string coordinator_hostname;
-  std::optional<LogStoreDurability> log_store_durability_;
-
-  CoordinatorStateManagerConfig(int32_t coordinator_id, int coordinator_port, int bolt_port, int management_port,
-                                std::filesystem::path state_manager_durability_dir, std::string coordinator_hostname,
-                                std::optional<LogStoreDurability> log_store_durability = std::nullopt)
-      : coordinator_id_(coordinator_id),
-        coordinator_port_(coordinator_port),
-        bolt_port_(bolt_port),
-        management_port_(management_port),
-        state_manager_durability_dir_(std::move(state_manager_durability_dir)),
-        coordinator_hostname(std::move(coordinator_hostname)),
-        log_store_durability_(std::move(log_store_durability)) {
-    MG_ASSERT(!this->state_manager_durability_dir_.empty(), "State manager durability dir path is empty");
-    MG_ASSERT(!this->coordinator_hostname.empty(), "Hostname empty");
-  }
+  std::filesystem::path state_manager_durability_dir_;
+  LogStoreDurability log_store_durability_;
 };
 
 // NOTE: We need to be careful about durability versioning when changing the config which is persisted on disk.

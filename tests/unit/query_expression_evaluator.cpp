@@ -247,6 +247,19 @@ TYPED_TEST(ExpressionEvaluatorTest, ModOperator) {
   ASSERT_EQ(value.ValueInt(), 5);
 }
 
+TYPED_TEST(ExpressionEvaluatorTest, ExponentiationOperator) {
+  auto *op = this->storage.template Create<ExponentiationOperator>(
+      this->storage.template Create<PrimitiveLiteral>(2.0), this->storage.template Create<PrimitiveLiteral>(3.0));
+  auto val1 = this->Eval(op);
+  ASSERT_EQ(val1.ValueDouble(), 8.0);
+
+  // `a ^ b` always yields a double, even if both `a` and `b` are integers.
+  op = this->storage.template Create<ExponentiationOperator>(this->storage.template Create<PrimitiveLiteral>(3),
+                                                             this->storage.template Create<PrimitiveLiteral>(4));
+  auto val2 = this->Eval(op);
+  ASSERT_EQ(val2.ValueDouble(), 81.0);
+}
+
 TYPED_TEST(ExpressionEvaluatorTest, EqualOperator) {
   auto *op = this->storage.template Create<EqualOperator>(this->storage.template Create<PrimitiveLiteral>(10),
                                                           this->storage.template Create<PrimitiveLiteral>(15));

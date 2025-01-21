@@ -254,7 +254,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
           throw RecoveryFailure("There must exist a storage directory in order to recover text indices!");
         }
 
-        mem_text_index.RecoverIndex(storage_dir.value(), index_name, label, vertices->access(), name_id_mapper);
+        mem_text_index.RecoverIndex(index_name, label, vertices->access(), name_id_mapper);
       } catch (...) {
         throw RecoveryFailure("The text index must be created here!");
       }
@@ -274,14 +274,16 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
   }
   spdlog::info("Point indices are recreated.");
 
-  // Recover vector index
-  if (flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
-    auto acc = vertices->access();
-    for (auto &vertex : acc) {
-      indices->vector_index_.TryInsertVertex(&vertex);
+  spdlog::info("Recreating {} vector indices from metadata.", indices_metadata.vector_indices.size());
+  auto vertices_acc = vertices->access();
+  for (const auto &spec : indices_metadata.vector_indices) {
+    if (!indices->vector_index_.CreateIndex(spec, vertices_acc)) {
+      throw RecoveryFailure("The vector index must be created here!");
     }
-    spdlog::info("Vector indices are recreated.");
+    spdlog::info("Vector index on :{}({}) is recreated from metadata", name_id_mapper->IdToName(spec.label.AsUint()),
+                 name_id_mapper->IdToName(spec.property.AsUint()));
   }
+  spdlog::info("Vector indices are recreated.");
 
   spdlog::info("Indices are recreated.");
 }

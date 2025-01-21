@@ -58,6 +58,7 @@ struct PullPlanDump {
   PullChunk CreateLabelPropertyIndicesPullChunk();
   PullChunk CreateTextIndicesPullChunk();
   PullChunk CreatePointIndicesPullChunk();
+  PullChunk CreateVectorIndicesPullChunk();
   PullChunk CreateExistenceConstraintsPullChunk();
   PullChunk CreateUniqueConstraintsPullChunk();
   PullChunk CreateTypeConstraintsPullChunk();

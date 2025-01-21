@@ -46,11 +46,11 @@ fi
 mkdir -p $tmpdir
 
 # find memgraph binaries.
-binary_dir="$DIR/../../build"
+mg_binary_dir="$DIR/../../build"
 
 # Start instance_1
 check_ports_unused 7687 10011
-$binary_dir/memgraph \
+$mg_binary_dir/memgraph \
     --bolt-port=7687 \
     --data-directory=$tmpdir/instance_1/ \
     --bolt-server-name-for-init="Neo4j/1.1" \
@@ -66,7 +66,7 @@ pids+=($pid_instance_1)
 
 # Start instance_2
 check_ports_unused 7688 10012
-$binary_dir/memgraph \
+$mg_binary_dir/memgraph \
     --bolt-port=7688 \
     --data-directory=$tmpdir/instance_2 \
     --bolt-server-name-for-init="Neo4j/1.1" \
@@ -82,7 +82,7 @@ pids+=($pid_instance_2)
 
 # Start instance_3
 check_ports_unused 7689 10013
-$binary_dir/memgraph \
+$mg_binary_dir/memgraph \
     --bolt-port=7689 \
     --data-directory=$tmpdir/instance_3 \
     --bolt-server-name-for-init="Neo4j/1.1" \
@@ -99,7 +99,7 @@ pids+=($pid_instance_3)
 
 # Start coordinator_1
 check_ports_unused 7690 10121 10111
-$binary_dir/memgraph \
+$mg_binary_dir/memgraph \
     --bolt-port=7690 \
     --data-directory=$tmpdir/coordinator_1 \
     --bolt-server-name-for-init="Neo4j/1.1" \
@@ -118,7 +118,7 @@ pids+=($pid_coordinator_1)
 
 # Start coordinator_2
 check_ports_unused 7691 10122 10112
-$binary_dir/memgraph \
+$mg_binary_dir/memgraph \
     --bolt-port=7691 \
     --data-directory=$tmpdir/coordinator_2 \
     --bolt-server-name-for-init="Neo4j/1.1" \
@@ -137,7 +137,7 @@ pids+=($pid_coordinator_2)
 
 # Start coordinator_3
 check_ports_unused 7692 10123 10113
-$binary_dir/memgraph \
+$mg_binary_dir/memgraph \
     --bolt-port=7692 \
     --data-directory=$tmpdir/coordinator_3 \
     --bolt-server-name-for-init="Neo4j/1.1" \
@@ -178,13 +178,13 @@ run_command() {
 }
 
 commands=(
-    "echo 'ADD COORDINATOR 1 WITH CONFIG {\"bolt_server\": \"localhost:7690\", \"coordinator_server\":  \"localhost:10111\", \"management_server\": \"localhost:10121\"};' | $binary_dir/bin/mgconsole --port 7690"
-    "echo 'ADD COORDINATOR 2 WITH CONFIG {\"bolt_server\": \"localhost:7691\", \"coordinator_server\":  \"localhost:10112\", \"management_server\": \"localhost:10122\"};' | $binary_dir/bin/mgconsole --port 7690"
-    "echo 'ADD COORDINATOR 3 WITH CONFIG {\"bolt_server\": \"localhost:7692\", \"coordinator_server\":  \"localhost:10113\", \"management_server\": \"localhost:10123\"};' | $binary_dir/bin/mgconsole --port 7690"
-    "echo 'REGISTER INSTANCE instance_1 WITH CONFIG {\"bolt_server\": \"localhost:7687\", \"management_server\": \"localhost:10011\", \"replication_server\": \"localhost:10001\"};' | $binary_dir/bin/mgconsole --port 7690"
-    "echo 'REGISTER INSTANCE instance_2 WITH CONFIG {\"bolt_server\": \"localhost:7688\", \"management_server\": \"localhost:10012\", \"replication_server\": \"localhost:10002\"};' | $binary_dir/bin/mgconsole --port 7690"
-    "echo 'REGISTER INSTANCE instance_3 WITH CONFIG {\"bolt_server\": \"localhost:7689\", \"management_server\": \"localhost:10013\", \"replication_server\": \"localhost:10003\"};' | $binary_dir/bin/mgconsole --port 7690"
-    "echo 'SET INSTANCE instance_1 TO MAIN;' | $binary_dir/bin/mgconsole --port 7690"
+    "echo 'ADD COORDINATOR 1 WITH CONFIG {\"bolt_server\": \"localhost:7690\", \"coordinator_server\":  \"localhost:10111\", \"management_server\": \"localhost:10121\"};' | $mg_binary_dir/bin/mgconsole --port 7690"
+    "echo 'ADD COORDINATOR 2 WITH CONFIG {\"bolt_server\": \"localhost:7691\", \"coordinator_server\":  \"localhost:10112\", \"management_server\": \"localhost:10122\"};' | $mg_binary_dir/bin/mgconsole --port 7690"
+    "echo 'ADD COORDINATOR 3 WITH CONFIG {\"bolt_server\": \"localhost:7692\", \"coordinator_server\":  \"localhost:10113\", \"management_server\": \"localhost:10123\"};' | $mg_binary_dir/bin/mgconsole --port 7690"
+    "echo 'REGISTER INSTANCE instance_1 WITH CONFIG {\"bolt_server\": \"localhost:7687\", \"management_server\": \"localhost:10011\", \"replication_server\": \"localhost:10001\"};' | $mg_binary_dir/bin/mgconsole --port 7690"
+    "echo 'REGISTER INSTANCE instance_2 WITH CONFIG {\"bolt_server\": \"localhost:7688\", \"management_server\": \"localhost:10012\", \"replication_server\": \"localhost:10002\"};' | $mg_binary_dir/bin/mgconsole --port 7690"
+    "echo 'REGISTER INSTANCE instance_3 WITH CONFIG {\"bolt_server\": \"localhost:7689\", \"management_server\": \"localhost:10013\", \"replication_server\": \"localhost:10003\"};' | $mg_binary_dir/bin/mgconsole --port 7690"
+    "echo 'SET INSTANCE instance_1 TO MAIN;' | $mg_binary_dir/bin/mgconsole --port 7690"
 )
 
 for cmd in "${commands[@]}"; do
@@ -197,7 +197,7 @@ done
 
 sleep 1
 
-local instances=$(echo "SHOW INSTANCES;" | $binary_dir/bin/mgconsole --port 7690)
+local instances=$(echo "SHOW INSTANCES;" | $mg_binary_dir/bin/mgconsole --port 7690)
 
 local num_leaders=$(echo "$instances" | grep -c "leader")
 if [ $num_leaders -ne 1 ]; then
