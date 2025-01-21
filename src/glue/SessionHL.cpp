@@ -256,6 +256,15 @@ bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid) {
 }
 
 void SessionHL::InterpretParse(const std::string &query, bolt_map_t params, const bolt_map_t &extra) {
+#ifdef MG_ENTERPRISE
+  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    auto &db = interpreter_.current_db_.db_acc_;
+    const auto username = user_or_role_ ? (user_or_role_->username() ? *user_or_role_->username() : "") : "";
+    audit_log_->Record(fmt::format("{}:{}", endpoint_.address().to_string(), std::to_string(endpoint_.port())),
+                       username, query, params, db ? db->get()->name() : "");
+  }
+#endif
+
   auto get_params_pv =
       [params = std::move(params)](storage::Storage const *storage) -> memgraph::storage::PropertyValue::map_t {
     auto params_pv = memgraph::storage::PropertyValue::map_t{};
@@ -266,14 +275,6 @@ void SessionHL::InterpretParse(const std::string &query, bolt_map_t params, cons
     return params_pv;
   };
 
-#ifdef MG_ENTERPRISE
-  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    auto &db = interpreter_.current_db_.db_acc_;
-    const auto username = user_or_role_ ? (user_or_role_->username() ? *user_or_role_->username() : "") : "";
-    audit_log_->Record(fmt::format("{}:{}", endpoint_.address().to_string(), std::to_string(endpoint_.port())),
-                       username, query, params, db ? db->get()->name() : "");
-  }
-#endif
   try {
     auto query_extras = ToQueryExtras(extra);
     auto parsed_query = interpreter_.Parse(query, get_params_pv, query_extras);
