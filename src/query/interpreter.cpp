@@ -5888,7 +5888,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     }
 #endif
 
-    utils::Timer planning_timer;  // TODO: Think about moving it to Parse()
+    const utils::Timer planning_timer;  // TODO: Think about moving it to Parse()
     LogQueryMessage("Query planning started!");
     PreparedQuery prepared_query;
     utils::MemoryResource *memory_resource = query_execution->execution_memory.resource();
