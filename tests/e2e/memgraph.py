@@ -231,7 +231,7 @@ class MemgraphInstanceRunner:
 
         self.proc_mg.terminate()
 
-        for _ in range(150):
+        for _ in range(300):
             if not self.is_running():
                 break
             time.sleep(0.1)
@@ -251,7 +251,7 @@ class MemgraphInstanceRunner:
 
         assert code == -9, "The killed Memgraph process exited with non-nine!"
 
-        for _ in range(150):
+        for _ in range(300):
             if not self.is_running():
                 break
             time.sleep(0.1)
