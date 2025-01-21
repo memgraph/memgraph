@@ -30,6 +30,7 @@ def test_spec(connect):
                         (c:Person {name:'Helen', age:29, occupation:'student'}),
                         (d:Person :Student {name:'Bob', interests: ['programming', 'math']}),
                         (e:School {title: 'School 1', status: Status::Good, location: point({x:1, y:2, z:3, crs:'wgs-84-3d'})}),
+                        (f:Node {embedding: [1.0, 2.0]}),
                         (a)-[:IS_FAMILY {since:2015}]->(b),
                         (a)-[:IS_FAMILY {since: 2010}]->(c),
                         (b)-[:IS_FAMILY {since:2015}]->(c),
@@ -42,6 +43,9 @@ def test_spec(connect):
     memgraph.execute("CREATE INDEX ON :Person(name);")
     memgraph.execute("CREATE POINT INDEX ON :School(location);")
     memgraph.execute("CREATE TEXT INDEX personTextIndex ON :Person;")
+    memgraph.execute(
+        "CREATE VECTOR INDEX test_index ON :Node(embedding) WITH CONFIG {'dimension': 2, 'capacity': 100};"
+    )
     memgraph.execute("CREATE EDGE INDEX ON :IS_STUDENT;")
     memgraph.execute("CREATE EDGE INDEX ON :IS_FAMILY(since);")
     memgraph.execute("CREATE CONSTRAINT ON (n:Person) ASSERT EXISTS (n.name);")
@@ -73,7 +77,7 @@ def test_spec(connect):
             assert constraint["properties"] == ["age"]
             assert constraint["data_type"] == "INTEGER"
     node_indexes = schema_json["node_indexes"]
-    assert len(node_indexes) == 4
+    assert len(node_indexes) == 5
     for index in node_indexes:
         if index["labels"] == ["Student"]:
             assert index["properties"] == []
@@ -81,6 +85,10 @@ def test_spec(connect):
         elif index["labels"] == ["School"]:
             assert index["type"] == "label+property_point"
             assert index["properties"] == ["location"]
+            assert index["count"] == 1
+        elif index["labels"] == ["Node"]:
+            assert index["type"] == "label+property_vector"
+            assert index["properties"] == ["embedding"]
             assert index["count"] == 1
         else:
             assert index["labels"] == ["Person"]
