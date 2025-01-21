@@ -105,14 +105,14 @@ function(add_query_module target_name version src)
   add_library(${target_name} SHARED ${src})
   target_include_directories(${target_name} PRIVATE
       ${CMAKE_SOURCE_DIR}/include
-      ${CMAKE_SOURCE_DIR}/libs
+      ${CMAKE_CURRENT_SOURCE_DIR}
   )
 
   target_compile_options(${target_name} PRIVATE -Wall)
   target_link_libraries(${target_name} PRIVATE
       -static-libgcc
       -static-libstdc++
-      mg_utility # TODO: maybe move it somewhere else
+      mg_utility # TODO: maybe move it somewhere else also maybe rename 
   )
 
   add_post_build_strip_in_release(${target_name} CMAKE_BUILD_TYPE)
@@ -125,7 +125,8 @@ function(add_query_module target_name version src)
 endfunction()
 
 add_subdirectory(pagerank_module)
-
+#add_subdirectory(katz_centrality_module)
+add_subdirectory(community_detection_module)
 
 # Copy python query modules into build/query_modules
 # This is to avoid doing make install during CI

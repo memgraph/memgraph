@@ -14,13 +14,15 @@ from mgclient import Relationship as relationship_mgclient
 log = logging.getLogger("memgraph.tests.query_modules")
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(asctime)s %(name)s] %(message)s")
 
-@pytest.fixture
+# create one memgraph instance that gets used on all tests
+# since its a lot faster than creating new one for each test
+@pytest.fixture(scope="session")
 def db():
     SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
     PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", ".."))
     BUILD_PATH = os.path.join(PROJECT_DIR, "build", "memgraph")
     QM_PATH = os.path.join(PROJECT_DIR, "build", "query_modules")
-    BUILD_ARGS = ["--telemetry-enabled=false", f"--query-modules-directory={QM_PATH}"]
+    BUILD_ARGS = ["--telemetry-enabled=false", "--storage-properties-on-edges=true", f"--query-modules-directory={QM_PATH}"]
 
     process = subprocess.Popen([BUILD_PATH] + BUILD_ARGS, stderr=subprocess.STDOUT)
     pid = process.pid
