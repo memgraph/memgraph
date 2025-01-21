@@ -95,6 +95,7 @@ void PriorityThreadPool::ScheduledAddTask(TaskSignature new_task, const Priority
   }
 }
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 thread_local PriorityThreadPool::Priority PriorityThreadPool::Worker::priority = Priority::HIGH;
 
 void PriorityThreadPool::Worker::push(TaskSignature new_task) {
