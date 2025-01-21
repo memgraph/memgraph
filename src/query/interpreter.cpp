@@ -5729,16 +5729,18 @@ Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserPa
 
   if (is_begin) {
     return TransactionQuery::BEGIN;
-  } else if (trimmed_query == "COMMIT") {
+  }
+  if (trimmed_query == "COMMIT") {
     return TransactionQuery::COMMIT;
-  } else if (trimmed_query == "ROLLBACK") {
+  }
+  if (trimmed_query == "ROLLBACK") {
     return TransactionQuery::ROLLBACK;
   }
 
   try {
     // NOTE: query_string is not BEGIN, COMMIT or ROLLBACK
     bool const is_schema_assert_query{upper_case_query.find(kSchemaAssert) != std::string::npos};
-    utils::Timer parsing_timer;
+    const utils::Timer parsing_timer;
     LogQueryMessage("Query parsing started.");
     ParsedQuery parsed_query = ParseQuery(query_string, params_getter(nullptr), &interpreter_context_->ast_cache,
                                           interpreter_context_->config.query);
@@ -5767,9 +5769,9 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     query_execution->prepared_query = PrepareTransactionQuery(tx_query_enum, extras);
     auto qid = in_explicit_transaction_ ? static_cast<int>(query_executions_.size() - 1) : std::optional<int>{};
     return {query_execution->prepared_query->header, query_execution->prepared_query->privileges, qid, {}};
-  } else if (!std::holds_alternative<ParseInfo>(parse_res)) {
-    MG_ASSERT(false, "Unkown ParseRes type");
   }
+
+  MG_ASSERT(std::holds_alternative<ParseInfo>(parse_res), "Unkown ParseRes type");
 
   auto &parse_info = std::get<ParseInfo>(parse_res);
   auto &parsed_query = parse_info.parsed_query;
@@ -5886,7 +5888,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     }
 #endif
 
-    utils::Timer planning_timer;
+    utils::Timer planning_timer;  // TODO: Think about moving it to Parse()
     LogQueryMessage("Query planning started!");
     PreparedQuery prepared_query;
     utils::MemoryResource *memory_resource = query_execution->execution_memory.resource();
