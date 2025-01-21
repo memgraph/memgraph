@@ -300,7 +300,7 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(Storage *storage, 
       return replica_state_.WithLock(
           [storage, response, db_acc = std::move(db_acc), this, &replica_stream_obj](auto &state) mutable {
             replica_stream_obj.reset();
-            // When async replica executes this part of the code, the state could've changes since the check
+            // When async replica executes this part of the code, the state could've changed since the check
             // at the beginning of the function happened.
             if (!response.success || state == replication::ReplicaState::RECOVERY) {
               state = ReplicaState::RECOVERY;
@@ -444,13 +444,13 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, Storage *
   if (last_durable_timestamp <= replica_commit) {
     replica_state_.WithLock([name = client_.name_](auto &val) {
       val = ReplicaState::READY;
-      spdlog::info("Replica {} set to ready.", name);
+      spdlog::info("Replica {} set to READY after recovery.", name);
     });
   } else {
     // Someone could've committed in the meantime, hence we set the state to MAYBE_BEHIND
     replica_state_.WithLock([name = client_.name_](auto &val) {
       val = ReplicaState::MAYBE_BEHIND;
-      spdlog::info("Replica {} set to MAYBE_BEHIND.", name);
+      spdlog::info("Replica {} set to MAYBE_BEHIND after recovery.", name);
     });
   }
 }

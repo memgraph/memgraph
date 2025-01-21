@@ -236,7 +236,7 @@ class MemgraphInstanceRunner:
                 break
             time.sleep(0.1)
 
-        assert self.is_running() is False, "Stopped instance still running."
+        assert self.is_running() is False, f"Stopped instance at {self.host}:{self.bolt_port} still running."
 
         if not keep_directories:
             self.safe_delete_data_directory()
