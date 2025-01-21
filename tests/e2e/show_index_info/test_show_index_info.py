@@ -26,7 +26,7 @@ def test_show_index_info(cursor):
         ("label+property", "Compound", "inchikey", 0),
         ("label+property", "Compound", "mgid", 0),
         ("label+property", "Gene", "i5", 0),
-        ("label+property", "Gene", "id", 1),
+        ("label+property", "Gene", "id", 0),
     }
     assert set(index_info) == expected_index_info
 
