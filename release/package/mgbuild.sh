@@ -595,8 +595,20 @@ test_memgraph() {
   local EXPORT_LICENSE="export MEMGRAPH_ENTERPRISE_LICENSE=$enterprise_license"
   local EXPORT_ORG_NAME="export MEMGRAPH_ORGANIZATION_NAME=$organization_name"
   local BUILD_DIR="$MGBUILD_ROOT_DIR/build"
-  echo "Running $1 test on $build_container..."
 
+  # # TODO(gitbuda): Duplicated from above to be able to faster iterate locally -> move to a function or something similar. Not required most of the time.
+  # echo "Copying project files..."
+  # project_files=$(ls -A1 "$PROJECT_ROOT")
+  # while IFS= read -r f; do
+  #   # Skip build directory when copying project files
+  #   if [[ "$f" != "build" ]]; then
+  #     # TODO(gitbuda): play with this because -a is weird option here
+  #     docker cp -a "$PROJECT_ROOT/$f" "$build_container:$MGBUILD_ROOT_DIR/"
+  #   fi
+  # done <<< "$project_files"
+  # # doesn't work because of permissions
+
+  echo "Running $1 test on $build_container..."
   case "$1" in
     unit)
       if [[ "$threads" == "$DEFAULT_THREADS" ]]; then
