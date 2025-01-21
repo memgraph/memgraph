@@ -21,6 +21,7 @@
 #include "storage/v2/durability/exceptions.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
+#include "storage/v2/indices/label_property_composite_index_stats.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 
@@ -47,6 +48,8 @@ struct RecoveredIndicesAndConstraints {
     std::vector<std::pair<LabelId, PropertyId>> point_label_property;
     std::vector<std::pair<LabelId, LabelIndexStats>> label_stats;
     std::vector<std::pair<LabelId, std::pair<PropertyId, LabelPropertyIndexStats>>> label_property_stats;
+    std::vector<std::pair<LabelId, std::pair<std::vector<PropertyId>, LabelPropertyCompositeIndexStats>>>
+        label_property_composite_stats;
     std::vector<EdgeTypeId> edge;
     std::vector<std::pair<EdgeTypeId, PropertyId>> edge_property;
     std::vector<std::pair<std::string, LabelId>> text_indices;

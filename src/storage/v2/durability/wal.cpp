@@ -25,6 +25,7 @@
 #include "storage/v2/durability/version.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
+#include "storage/v2/indices/label_property_composite_index_stats.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/schema_info.hpp"
@@ -126,6 +127,8 @@ constexpr Marker OperationToMarker(StorageMetadataOperation operation) {
     add_case(VECTOR_INDEX_DROP);
     add_case(LABEL_PROPERTY_COMPOSITE_INDEX_CREATE);
     add_case(LABEL_PROPERTY_COMPOSITE_INDEX_DROP);
+    add_case(LABEL_PROPERTY_COMPOSITE_INDEX_STATS_CLEAR);
+    add_case(LABEL_PROPERTY_COMPOSITE_INDEX_STATS_SET);
   }
 #undef add_case
 }
@@ -208,6 +211,8 @@ constexpr bool IsMarkerImplicitTransactionEndVersion15(Marker marker) {
     case DELTA_VECTOR_INDEX_DROP:
     case DELTA_LABEL_PROPERTY_COMPOSITE_INDEX_CREATE:
     case DELTA_LABEL_PROPERTY_COMPOSITE_INDEX_DROP:
+    case DELTA_LABEL_PROPERTY_COMPOSITE_INDEX_STATS_SET:
+    case DELTA_LABEL_PROPERTY_COMPOSITE_INDEX_STATS_CLEAR:
       return true;
 
     // Not deltas
@@ -456,6 +461,8 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
     read_skip(VECTOR_INDEX_DROP, WalVectorIndexDrop);
     read_skip(LABEL_PROPERTY_COMPOSITE_INDEX_CREATE, WalLabelPropertyCompositeIndexCreate);
     read_skip(LABEL_PROPERTY_COMPOSITE_INDEX_DROP, WalLabelPropertyCompositeIndexDrop);
+    read_skip(LABEL_PROPERTY_COMPOSITE_INDEX_STATS_SET, WalLabelPropertyCompositeIndexStatsSet);
+    read_skip(LABEL_PROPERTY_COMPOSITE_INDEX_STATS_CLEAR, WalLabelPropertyCompositeIndexStatsClear);
 
     // Other markers are not actions
     case Marker::TYPE_NULL:
@@ -1115,6 +1122,24 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
         RemoveRecoveredIndexConstraint(&indices_constraints->indices.label_property_composite, {label_id, property_ids},
                                        "The label property composite index doesn't exist!");
       },
+      [&](WalLabelPropertyCompositeIndexStatsSet const &data) {
+        auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
+        std::vector<PropertyId> properties;
+        for (const auto &prop : data.properties) {
+          properties.emplace_back(PropertyId::FromUint(name_id_mapper->NameToId(prop)));
+        }
+        LabelPropertyCompositeIndexStats stats{};
+        if (!FromJson(data.json_stats, stats)) {
+          throw RecoveryFailure("Failed to read statistics!");
+        }
+        indices_constraints->indices.label_property_composite_stats.emplace_back(label_id,
+                                                                                 std::make_pair(properties, stats));
+      },
+      [&](WalLabelPropertyCompositeIndexStatsClear const &data) {
+        auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
+        RemoveRecoveredIndexStats(&indices_constraints->indices.label_property_composite_stats, label_id,
+                                  "The label-property composite stats doesn't exist!");
+      },
   };
 
   for (uint64_t i = 0; i < info.num_deltas; ++i) {
@@ -1303,6 +1328,17 @@ void EncodeLabelPropertyStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper
                               LabelPropertyIndexStats const &stats) {
   encoder.WriteString(name_id_mapper.IdToName(label.AsUint()));
   encoder.WriteString(name_id_mapper.IdToName(prop.AsUint()));
+  encoder.WriteString(ToJson(stats));
+}
+
+void EncodeLabelPropertyCompositeStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label,
+                                       std::vector<PropertyId> const &properties,
+                                       LabelPropertyCompositeIndexStats const &stats) {
+  encoder.WriteString(name_id_mapper.IdToName(label.AsUint()));
+  encoder.WriteUint(properties.size());
+  for (const auto &property : properties) {
+    encoder.WriteString(name_id_mapper.IdToName(property.AsUint()));
+  }
   encoder.WriteString(ToJson(stats));
 }
 

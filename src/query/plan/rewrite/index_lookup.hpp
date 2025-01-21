@@ -125,7 +125,7 @@ struct IndexHints {
         hint_properties_copy.insert(db->NameToProperty(property_ix.name));
       }
 
-      std::set<int> intersection;
+      std::set<storage::PropertyId> intersection;
       std::set_intersection(properties_copy.begin(), properties_copy.end(), hint_properties_copy.begin(),
                             hint_properties_copy.end(), std::inserter(intersection, intersection.begin()));
 

@@ -343,6 +343,11 @@ class InteractiveDbAccessor {
     return dba_->GetIndexStats(label, property);
   }
 
+  std::optional<memgraph::storage::LabelPropertyCompositeIndexStats> GetIndexStats(
+      const memgraph::storage::LabelId label, const std::vector<memgraph::storage::PropertyId> &properties) const {
+    return dba_->GetIndexStats(label, properties);
+  }
+
   std::vector<std::pair<memgraph::storage::LabelId, std::vector<memgraph::storage::PropertyId>>>
   ListAllCompositeIndices() const {
     return {};

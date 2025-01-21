@@ -1711,6 +1711,13 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
           throw utils::NotYetImplemented("ClearIndexStats(stats) is not implemented for DiskStorage. {}",
                                          kErrorMessage);
         } break;
+        case MetadataDelta::Action::LABEL_PROPERTY_COMPOSITE_INDEX_STATS_SET: {
+          throw utils::NotYetImplemented("SetIndexStats(stats) is not implemented for DiskStorage. {}", kErrorMessage);
+        } break;
+        case MetadataDelta::Action::LABEL_PROPERTY_COMPOSITE_INDEX_STATS_CLEAR: {
+          throw utils::NotYetImplemented("ClearIndexStats(stats) is not implemented for DiskStorage. {}",
+                                         kErrorMessage);
+        } break;
         case MetadataDelta::Action::TEXT_INDEX_CREATE: {
           const auto &info = md_delta.text_index;
           if (!disk_storage->durable_metadata_.PersistTextIndexCreation(info.index_name, info.label)) {

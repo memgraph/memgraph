@@ -192,11 +192,15 @@ class DeltaGenerator final {
     }
     memgraph::storage::LabelIndexStats l_stats{};
     memgraph::storage::LabelPropertyIndexStats lp_stats{};
+    memgraph::storage::LabelPropertyCompositeIndexStats lpc_stats{};
     if (!stats.empty()) {
       if (operation == memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_STATS_SET) {
         ASSERT_TRUE(FromJson(stats, l_stats));
       } else if (operation == memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_SET) {
         ASSERT_TRUE(FromJson(stats, lp_stats));
+      } else if (operation ==
+                 memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_COMPOSITE_INDEX_STATS_SET) {
+        ASSERT_TRUE(FromJson(stats, lpc_stats));
       } else {
         ASSERT_TRUE(false) << "Unexpected statistics operation!";
       }
@@ -247,7 +251,8 @@ class DeltaGenerator final {
         break;
       }
       case memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_STATS_CLEAR:
-      case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_CLEAR: {
+      case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_CLEAR:
+      case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_COMPOSITE_INDEX_STATS_CLEAR: {
         apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
           EncodeLabel(encoder, mapper_, label_id);
         });
@@ -256,6 +261,12 @@ class DeltaGenerator final {
       case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_INDEX_STATS_SET: {
         apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
           EncodeLabelPropertyStats(encoder, mapper_, label_id, *property_ids_set.begin(), lp_stats);
+        });
+        break;
+      }
+      case memgraph::storage::durability::StorageMetadataOperation::LABEL_PROPERTY_COMPOSITE_INDEX_STATS_SET: {
+        apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
+          EncodeLabelPropertyCompositeStats(encoder, mapper_, label_id, property_ids_vector, lpc_stats);
         });
         break;
       }
@@ -376,6 +387,10 @@ class DeltaGenerator final {
             return {WalLabelPropertyIndexStatsSet{label, *properties_set.begin(), stats}};
           case LABEL_PROPERTY_INDEX_STATS_CLEAR:
             return {WalLabelPropertyIndexStatsClear{label}};
+          case LABEL_PROPERTY_COMPOSITE_INDEX_STATS_SET:
+            return {WalLabelPropertyCompositeIndexStatsSet{label, properties_vector, stats}};
+          case LABEL_PROPERTY_COMPOSITE_INDEX_STATS_CLEAR:
+            return {WalLabelPropertyCompositeIndexStatsClear{label}};
           case EDGE_INDEX_CREATE:
             return {WalEdgeTypeIndexCreate{edge_type}};
           case EDGE_INDEX_DROP:

@@ -95,6 +95,8 @@ constexpr auto ActionToStorageOperation(MetadataDelta::Action action) -> durabil
     add_case(VECTOR_INDEX_DROP);
     add_case(LABEL_PROPERTY_COMPOSITE_INDEX_CREATE);
     add_case(LABEL_PROPERTY_COMPOSITE_INDEX_DROP);
+    add_case(LABEL_PROPERTY_COMPOSITE_INDEX_STATS_SET);
+    add_case(LABEL_PROPERTY_COMPOSITE_INDEX_STATS_CLEAR);
   }
 #undef add_case
 }
@@ -2319,10 +2321,21 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
                      [&](durability::BaseEncoder &encoder) { EncodeLabel(encoder, *name_id_mapper_, md_delta.label); });
         break;
       }
-      case MetadataDelta::Action::LABEL_INDEX_STATS_CLEAR:
-      case MetadataDelta::Action::LABEL_PROPERTY_INDEX_STATS_CLEAR: {
+      case MetadataDelta::Action::LABEL_INDEX_STATS_CLEAR: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
           EncodeLabel(encoder, *name_id_mapper_, md_delta.label_stats.label);
+        });
+        break;
+      }
+      case MetadataDelta::Action::LABEL_PROPERTY_INDEX_STATS_CLEAR: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeLabel(encoder, *name_id_mapper_, md_delta.label_property_stats.label);
+        });
+        break;
+      }
+      case MetadataDelta::Action::LABEL_PROPERTY_COMPOSITE_INDEX_STATS_CLEAR: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeLabel(encoder, *name_id_mapper_, md_delta.label_property_composite_stats.label);
         });
         break;
       }
@@ -2330,6 +2343,14 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
           EncodeLabelPropertyStats(encoder, *name_id_mapper_, md_delta.label_property_stats.label,
                                    md_delta.label_property_stats.property, md_delta.label_property_stats.stats);
+        });
+        break;
+      }
+      case MetadataDelta::Action::LABEL_PROPERTY_COMPOSITE_INDEX_STATS_SET: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeLabelPropertyCompositeStats(encoder, *name_id_mapper_, md_delta.label_property_composite_stats.label,
+                                            md_delta.label_property_composite_stats.properties,
+                                            md_delta.label_property_composite_stats.stats);
         });
         break;
       }

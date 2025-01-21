@@ -223,6 +223,16 @@ struct WalVectorIndexDrop {
 
 struct WalLabelPropertyCompositeIndexCreate : LabelPropertyCompositeOpInfo {};
 struct WalLabelPropertyCompositeIndexDrop : LabelPropertyCompositeOpInfo {};
+struct WalLabelPropertyCompositeIndexStatsSet {
+  friend bool operator==(const WalLabelPropertyCompositeIndexStatsSet &,
+                         const WalLabelPropertyCompositeIndexStatsSet &) = default;
+  using ctr_types = std::tuple<std::string, std::vector<std::string>, std::string>;
+  std::string label;
+  std::vector<std::string> properties;
+  std::string json_stats;
+};
+struct WalLabelPropertyCompositeIndexStatsClear : LabelOpInfo {
+};  // Special case, this clear is done on all label/properties pairs that contain the defined label
 
 /// Structure used to return loaded WAL delta data.
 struct WalDeltaData {
@@ -244,7 +254,8 @@ struct WalDeltaData {
                WalUniqueConstraintCreate, WalUniqueConstraintDrop, WalTypeConstraintCreate, WalTypeConstraintDrop,
                WalTextIndexCreate, WalTextIndexDrop, WalEnumCreate, WalEnumAlterAdd, WalEnumAlterUpdate,
                WalVectorIndexCreate, WalVectorIndexDrop, WalLabelPropertyCompositeIndexCreate,
-               WalLabelPropertyCompositeIndexDrop>
+               WalLabelPropertyCompositeIndexDrop, WalLabelPropertyCompositeIndexStatsSet,
+               WalLabelPropertyCompositeIndexStatsClear>
       data_ = WalTransactionEnd{};
 };
 
@@ -296,6 +307,8 @@ constexpr bool IsWalDeltaDataImplicitTransactionEndVersion15(const WalDeltaData 
                         [](WalVectorIndexDrop const &) { return true; },
                         [](WalLabelPropertyCompositeIndexCreate const &) { return true; },
                         [](WalLabelPropertyCompositeIndexDrop const &) { return true; },
+                        [](WalLabelPropertyCompositeIndexStatsSet const &) { return true; },
+                        [](WalLabelPropertyCompositeIndexStatsClear const &) { return true; },
                     },
                     delta.data_);
 }
@@ -359,6 +372,9 @@ void EncodeTypeConstraint(BaseEncoder &encoder, NameIdMapper &name_id_mapper, La
 void EncodeLabelProperty(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label, PropertyId prop);
 void EncodeLabelPropertyStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label, PropertyId prop,
                               LabelPropertyIndexStats const &stats);
+void EncodeLabelPropertyCompositeStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label,
+                                       std::vector<PropertyId> const &properties,
+                                       LabelPropertyCompositeIndexStats const &stats);
 void EncodeLabelStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label, LabelIndexStats stats);
 void EncodeTextIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, std::string_view text_index_name,
                      LabelId label);
