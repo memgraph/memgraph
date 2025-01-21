@@ -108,10 +108,11 @@ def run(args):
             log.info("%s PASSED.", workload_name)
 
         except Exception as e:
-            log.error("%s FAILED.", workload_name)
-
-        finally:
             cleanup(workload, keep_directories=args.save_data_dir)
+            log.error("%s FAILED. %s", workload_name, e)
+            raise e
+
+        cleanup(workload, keep_directories=args.save_data_dir)
 
 
 if __name__ == "__main__":
