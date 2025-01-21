@@ -20,6 +20,7 @@ if [ ! -d "ve3" ]; then
     cd neo4j-driver
     python3 setup.py install || exit 1
     cd ..
+    python3 -m pip install setuptools==75.8.0 || exit 1
     deactivate
     rm -rf neo4j-driver neo4j-driver-4.1.1.tar.gz || exit 1
 fi

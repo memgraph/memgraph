@@ -1,11 +1,10 @@
 #!/bin/bash
-
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$DIR"
-
-# New tests
 pushd () { command pushd "$@" > /dev/null; }
 popd () { command popd "$@" > /dev/null; }
+# https://stackoverflow.com/questions/59119904/process-terminated-couldnt-find-a-valid-icu-package-installed-on-the-system-in
+export DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1
 
 function wait_for_server {
     port=$1
