@@ -65,53 +65,47 @@ def run(args):
             continue
         log.info("%s STARTED.", workload_name)
 
-        try:
-            if "pre_set_workload" in workload:
-                binary = os.path.join(BUILD_DIR, workload["pre_set_workload"])
-                subprocess.run([binary], check=True, stderr=subprocess.STDOUT)
+        if "pre_set_workload" in workload:
+            binary = os.path.join(BUILD_DIR, workload["pre_set_workload"])
+            subprocess.run([binary], check=True, stderr=subprocess.STDOUT)
 
-            if "cluster" in workload:
-                procdir = ""
-                if "proc" in workload:
-                    procdir = os.path.join(BUILD_DIR, workload["proc"])
-                interactive_mg_runner.start_all(workload["cluster"], procdir, keep_directories=False)
+        if "cluster" in workload:
+            procdir = ""
+            if "proc" in workload:
+                procdir = os.path.join(BUILD_DIR, workload["proc"])
+            interactive_mg_runner.start_all(workload["cluster"], procdir, keep_directories=False)
 
-            if args.debug:
-                hosts = subprocess.check_output("pgrep memgraph", shell=True)
-                print(f"PID: {hosts}")
-                time.sleep(10)
+        if args.debug:
+            hosts = subprocess.check_output("pgrep memgraph", shell=True)
+            print(f"PID: {hosts}")
+            time.sleep(10)
 
-            # Test.
-            mg_test_binary = os.path.join(BUILD_DIR, workload["binary"])
-            subprocess.run([mg_test_binary] + workload["args"], check=True, stderr=subprocess.STDOUT)
+        # Test.
+        mg_test_binary = os.path.join(BUILD_DIR, workload["binary"])
+        subprocess.run([mg_test_binary] + workload["args"], check=True, stderr=subprocess.STDOUT)
 
-            # Validation.
-            if "cluster" in workload:
-                for name, config in workload["cluster"].items():
-                    mg_instance = interactive_mg_runner.MEMGRAPH_INSTANCES[name]
-                    # Explicitely check if there are validation queries and skip if
-                    # nothing is to validate. If setup queries are dealing with
-                    # users, any new connection requires auth details.
-                    validation_queries = config.get("validation_queries", [])
-                    if not validation_queries:
-                        continue
+        # Validation.
+        if "cluster" in workload:
+            for name, config in workload["cluster"].items():
+                mg_instance = interactive_mg_runner.MEMGRAPH_INSTANCES[name]
+                # Explicitely check if there are validation queries and skip if
+                # nothing is to validate. If setup queries are dealing with
+                # users, any new connection requires auth details.
+                validation_queries = config.get("validation_queries", [])
+                if not validation_queries:
+                    continue
 
-                    # NOTE: If the setup quries create users AND there are some
-                    # validation queries, the connection here has to get the right
-                    # username/password.
-                    conn = mg_instance.get_connection()
-                    for validation in validation_queries:
-                        data = mg_instance.query(validation["query"], conn)[0][0]
-                        assert data == validation["expected"]
-                    conn.close()
+                # NOTE: If the setup quries create users AND there are some
+                # validation queries, the connection here has to get the right
+                # username/password.
+                conn = mg_instance.get_connection()
+                for validation in validation_queries:
+                    data = mg_instance.query(validation["query"], conn)[0][0]
+                    assert data == validation["expected"]
+                conn.close()
 
-            log.info("%s PASSED.", workload_name)
-
-        except Exception as e:
-            log.error("%s FAILED.", workload_name)
-
-        finally:
-            cleanup(workload, keep_directories=args.save_data_dir)
+        cleanup(workload, keep_directories=args.save_data_dir)
+        log.info("%s PASSED.", workload_name)
 
 
 if __name__ == "__main__":
