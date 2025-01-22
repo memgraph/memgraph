@@ -270,6 +270,7 @@ import_header_library(cppitertools ${CMAKE_CURRENT_SOURCE_DIR})
 # Setup json
 import_header_library(json ${CMAKE_CURRENT_SOURCE_DIR})
 
+# Setup RocksDB
 macro(build_rocksdb)
   import_external_library(rocksdb STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/rocksdb/lib/librocksdb.a
@@ -279,6 +280,7 @@ macro(build_rocksdb)
       -DGFLAGS_NOTHREADS=OFF
       -DCMAKE_INSTALL_LIBDIR=lib
       -DCMAKE_SKIP_INSTALL_ALL_DEPENDENCY=true
+      -DPORTABLE=ON
     BUILD_COMMAND $(MAKE) rocksdb)
 endmacro()
 mg_build_if_needed(build_rocksdb "rocksdb")
