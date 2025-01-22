@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -37,7 +37,8 @@ class EventMap {
 
   nlohmann::json ToJson() {
     auto res = nlohmann::json::array();
-    for (size_t i = 0; i < kMaxCounters - num_free_counters_; ++i) {
+    auto const num_counters = kMaxCounters - num_free_counters_;
+    for (size_t i = 0; i < num_counters; ++i) {
       const auto &event_name = name_to_id_[i];
       res.push_back({{"name", event_name}, {"count", counters_[i].load()}});
     }

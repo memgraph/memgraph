@@ -14,7 +14,6 @@
 #include "coordination/coordinator_communication_config.hpp"
 #include "utils/uuid.hpp"
 
-#include <chrono>
 #include <json/json.hpp>
 #include <string>
 

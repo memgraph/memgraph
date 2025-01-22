@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -41,6 +41,7 @@
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
+#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
 #include "storage/v2/storage_mode.hpp"
@@ -112,6 +113,17 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     auto et1 = store->NameToEdgeType("base_et1");
     auto et2 = store->NameToEdgeType("base_et2");
 
+    const auto property_vector = store->NameToProperty("vector");
+    const auto vector_index_name = "vector_index"s;
+    const auto vector_index_metric = unum::usearch::metric_kind_t::l2sq_k;
+    const auto vector_index_dim = 2;
+    const auto vector_index_capacity = 100;
+    const auto vector_index_resize_coefficient = 2;
+    const auto vector_index_spec =
+        memgraph::storage::VectorIndexSpec{vector_index_name,    label_indexed,    property_vector,
+                                           vector_index_metric,  vector_index_dim, vector_index_resize_coefficient,
+                                           vector_index_capacity};
+
     {
       // Create enum.
       auto unique_acc = store->UniqueAccess();
@@ -154,6 +166,13 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       // Create point index.
       auto unique_acc = store->UniqueAccess();
       ASSERT_FALSE(unique_acc->CreatePointIndex(label_indexed, property_point).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
+
+    {
+      // Create vector index.
+      auto unique_acc = store->UniqueAccess();
+      ASSERT_FALSE(unique_acc->CreateVectorIndex(vector_index_spec).HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
 
@@ -215,6 +234,13 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
             break;
           }
         }
+      }
+
+      // first 5 have vector values
+      if (i < 5) {
+        memgraph::storage::PropertyValue property_value(std::vector<memgraph::storage::PropertyValue>{
+            memgraph::storage::PropertyValue(1.0), memgraph::storage::PropertyValue(1.0)});
+        ASSERT_TRUE(vertex.SetProperty(property_vector, property_value).HasValue());
       }
 
       // lower 1/3 and top 1/2 have ids
@@ -387,6 +413,17 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     auto et3 = store->NameToEdgeType("extended_et3");
     auto et4 = store->NameToEdgeType("extended_et4");
 
+    const auto property_vector = store->NameToProperty("vector");
+    const auto vector_index_name = "vector_index"s;
+    const auto vector_index_metric = unum::usearch::metric_kind_t::l2sq_k;
+    const auto vector_index_dim = 2;
+    const auto vector_index_capacity = 100;
+    const auto vector_index_resize_coefficient = 2;
+    const auto vector_index_spec =
+        memgraph::storage::VectorIndexSpec{vector_index_name,    base_label_indexed, property_vector,
+                                           vector_index_metric,  vector_index_dim,   vector_index_resize_coefficient,
+                                           vector_index_capacity};
+
     ASSERT_TRUE(store->enum_store_.ToEnum("enum1", "v1").HasValue());
     ASSERT_TRUE(store->enum_store_.ToEnum("enum1", "v2").HasValue());
     ASSERT_TRUE(store->enum_store_.ToEnum("enum1", "v3").HasValue());
@@ -405,6 +442,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_THAT(info.label_property, UnorderedElementsAre(std::make_pair(base_label_indexed, property_id)));
           ASSERT_THAT(info.point_label_property,
                       UnorderedElementsAre(std::make_pair(base_label_indexed, property_point)));
+          ASSERT_TRUE(std::ranges::all_of(info.vector_indices_spec, [&vector_index_spec](const auto &index) {
+            return index == vector_index_spec;
+          }));
           break;
         case DatasetType::ONLY_EXTENDED:
           ASSERT_THAT(info.label, UnorderedElementsAre(extended_label_unused));
@@ -421,6 +461,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
                                            std::make_pair(extended_label_indexed, property_count)));
           ASSERT_THAT(info.point_label_property,
                       UnorderedElementsAre(std::make_pair(base_label_indexed, property_point)));
+          ASSERT_TRUE(std::ranges::all_of(info.vector_indices_spec, [&vector_index_spec](const auto &index) {
+            return index == vector_index_spec;
+          }));
           break;
         case DatasetType::BASE_WITH_EDGE_TYPE_INDEXED:
           ASSERT_THAT(info.label, UnorderedElementsAre(base_label_unindexed));
@@ -428,6 +471,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_THAT(info.edge_type, UnorderedElementsAre(et1));
           ASSERT_THAT(info.point_label_property,
                       UnorderedElementsAre(std::make_pair(base_label_indexed, property_point)));
+          ASSERT_TRUE(std::ranges::all_of(info.vector_indices_spec, [&vector_index_spec](const auto &index) {
+            return index == vector_index_spec;
+          }));
           break;
         case DatasetType::BASE_WITH_EDGE_TYPE_PROPERTY_INDEXED:
           ASSERT_THAT(info.label, UnorderedElementsAre(base_label_unindexed));
@@ -435,6 +481,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_THAT(info.edge_type_property, UnorderedElementsAre(std::make_pair(et1, property_id)));
           ASSERT_THAT(info.point_label_property,
                       UnorderedElementsAre(std::make_pair(base_label_indexed, property_point)));
+          ASSERT_TRUE(std::ranges::all_of(info.vector_indices_spec, [&vector_index_spec](const auto &index) {
+            return index == vector_index_spec;
+          }));
           break;
       }
     }
@@ -456,6 +505,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_EQ(lp_stats->avg_group_size, 5.6);
           ASSERT_EQ(lp_stats->avg_degree, 0.0);
           ASSERT_EQ(acc->ApproximateVerticesPointCount(base_label_indexed, property_point), 12);
+          ASSERT_EQ(acc->ApproximateVerticesVectorCount(base_label_indexed, property_vector), 5);
           break;
         }
         case DatasetType::BASE_WITH_EDGE_TYPE_PROPERTY_INDEXED: {
@@ -471,6 +521,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_EQ(lp_stats->avg_group_size, 5.6);
           ASSERT_EQ(lp_stats->avg_degree, 0.0);
           ASSERT_EQ(acc->ApproximateVerticesPointCount(base_label_indexed, property_point), 12);
+          ASSERT_EQ(acc->ApproximateVerticesVectorCount(base_label_indexed, property_vector), 5);
           break;
         }
         case DatasetType::ONLY_EXTENDED: {
@@ -490,6 +541,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         case DatasetType::ONLY_BASE_WITH_EXTENDED_INDICES_AND_CONSTRAINTS:
         case DatasetType::BASE_WITH_EXTENDED: {
           ASSERT_EQ(acc->ApproximateVerticesPointCount(base_label_indexed, property_point), 12);
+          ASSERT_EQ(acc->ApproximateVerticesVectorCount(base_label_indexed, property_vector), 5);
           [[fallthrough]];
         }
         case DatasetType::ONLY_EXTENDED_WITH_BASE_INDICES_AND_CONSTRAINTS: {
@@ -624,8 +676,23 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           }
         }
 
+        const auto has_property_vector = i < 5;
+        if (has_property_vector) {
+          memgraph::storage::PropertyValue property_value(std::vector<memgraph::storage::PropertyValue>{
+              memgraph::storage::PropertyValue(1.0), memgraph::storage::PropertyValue(1.0)});
+          ASSERT_EQ((*properties)[property_vector], property_value);
+        }
+
+        std::size_t expected_size = 0;
+        if (has_property_point) {
+          expected_size++;
+        }
+        if (has_property_vector) {
+          expected_size++;
+        }
         if (i < kNumBaseVertices / 3 || i >= kNumBaseVertices / 2) {
-          ASSERT_EQ(properties->size(), (has_property_point) ? 2 : 1);
+          expected_size++;
+          ASSERT_EQ(properties->size(), expected_size);
           if (i % 5 == 0) {
             ASSERT_EQ((*properties)[property_id], memgraph::storage::PropertyValue(enum_val));
           } else {
@@ -633,7 +700,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           }
 
         } else {
-          ASSERT_EQ(properties->size(), (has_property_point) ? 1 : 0);
+          ASSERT_EQ(properties->size(), expected_size);
         }
       }
 
@@ -926,22 +993,22 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         case ONLY_BASE: {
           if (properties_on_edges) {
             static const auto expected_schema = nlohmann::json::parse(
-                R"({"edges":[{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1000,"end_node_labels":["base_unindexed"],"properties":[{"count":1000,"filling_factor":100.0,"key":"id","types":[{"count":1000,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1000,"end_node_labels":["base_indexed"],"properties":[{"count":1000,"filling_factor":100.0,"key":"id","types":[{"count":1000,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et1"},{"count":500,"end_node_labels":["base_unindexed"],"properties":[{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et1"}],"nodes":[{"count":500,"labels":["base_unindexed"],"properties":[{"count":11,"filling_factor":2.2,"key":"point","types":[{"count":11,"type":"Point2D"}]},{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":400,"type":"Integer"},{"count":100,"type":"Enum::enum1"}]}]},{"count":500,"labels":["base_indexed"],"properties":[{"count":333,"filling_factor":66.6,"key":"id","types":[{"count":266,"type":"Integer"},{"count":67,"type":"Enum::enum1"}]},{"count":12,"filling_factor":2.4,"key":"point","types":[{"count":12,"type":"Point2D"}]}]}]})");
+                R"({ "edges": [ { "count": 1000, "end_node_labels": [ "base_unindexed" ], "properties": [ { "count": 1000, "filling_factor": 100.0, "key": "id", "types": [ { "count": 1000, "type": "Integer" } ] } ], "start_node_labels": [ "base_indexed" ], "type": "base_et2" }, { "count": 1500, "end_node_labels": [ "base_indexed" ], "properties": [ { "count": 1500, "filling_factor": 100.0, "key": "id", "types": [ { "count": 1500, "type": "Integer" } ] } ], "start_node_labels": [ "base_unindexed" ], "type": "base_et2" }, { "count": 1500, "end_node_labels": [ "base_unindexed" ], "properties": [ { "count": 1500, "filling_factor": 100.0, "key": "id", "types": [ { "count": 1500, "type": "Integer" } ] } ], "start_node_labels": [ "base_unindexed" ], "type": "base_et2" }, { "count": 1500, "end_node_labels": [ "base_unindexed" ], "properties": [ { "count": 1500, "filling_factor": 100.0, "key": "id", "types": [ { "count": 1500, "type": "Integer" } ] } ], "start_node_labels": [ "base_indexed" ], "type": "base_et1" }, { "count": 500, "end_node_labels": [ "base_unindexed" ], "properties": [ { "count": 500, "filling_factor": 100.0, "key": "id", "types": [ { "count": 500, "type": "Integer" } ] } ], "start_node_labels": [ "base_unindexed" ], "type": "base_et1" }, { "count": 1000, "end_node_labels": [ "base_indexed" ], "properties": [ { "count": 1000, "filling_factor": 100.0, "key": "id", "types": [ { "count": 1000, "type": "Integer" } ] } ], "start_node_labels": [ "base_indexed" ], "type": "base_et2" }, { "count": 1500, "end_node_labels": [ "base_indexed" ], "properties": [ { "count": 1500, "filling_factor": 100.0, "key": "id", "types": [ { "count": 1500, "type": "Integer" } ] } ], "start_node_labels": [ "base_unindexed" ], "type": "base_et1" }, { "count": 1500, "end_node_labels": [ "base_indexed" ], "properties": [ { "count": 1500, "filling_factor": 100.0, "key": "id", "types": [ { "count": 1500, "type": "Integer" } ] } ], "start_node_labels": [ "base_indexed" ], "type": "base_et1" } ], "nodes": [ { "count": 500, "labels": [ "base_unindexed" ], "properties": [ { "count": 11, "filling_factor": 2.2, "key": "point", "types": [ { "count": 11, "type": "Point2D" } ] }, { "count": 500, "filling_factor": 100.0, "key": "id", "types": [ { "count": 400, "type": "Integer" }, { "count": 100, "type": "Enum::enum1" } ] } ] }, { "count": 500, "labels": [ "base_indexed" ], "properties": [ { "count": 12, "filling_factor": 2.4, "key": "point", "types": [ { "count": 12, "type": "Point2D" } ] }, { "count": 5, "filling_factor": 1.0, "key": "vector", "types": [ { "count": 5, "type": "List" } ] }, { "count": 333, "filling_factor": 66.6, "key": "id", "types": [ { "count": 266, "type": "Integer" }, { "count": 67, "type": "Enum::enum1" } ] } ] } ]})");
             ASSERT_TRUE(ConfrontJSON(schema_json, expected_schema));
           } else {
             static const auto expected_schema = nlohmann::json::parse(
-                R"({"edges":[{"count":1000,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et1"},{"count":500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1000,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et1"}],"nodes":[{"count":500,"labels":["base_unindexed"],"properties":[{"count":11,"filling_factor":2.2,"key":"point","types":[{"count":11,"type":"Point2D"}]},{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":400,"type":"Integer"},{"count":100,"type":"Enum::enum1"}]}]},{"count":500,"labels":["base_indexed"],"properties":[{"count":12,"filling_factor":2.4,"key":"point","types":[{"count":12,"type":"Point2D"}]},{"count":333,"filling_factor":66.6,"key":"id","types":[{"count":266,"type":"Integer"},{"count":67,"type":"Enum::enum1"}]}]}]})");
+                R"({ "edges": [ { "count": 1000, "end_node_labels": [ "base_unindexed" ], "properties": [], "start_node_labels": [ "base_indexed" ], "type": "base_et2" }, { "count": 1500, "end_node_labels": [ "base_indexed" ], "properties": [], "start_node_labels": [ "base_unindexed" ], "type": "base_et2" }, { "count": 1500, "end_node_labels": [ "base_unindexed" ], "properties": [], "start_node_labels": [ "base_unindexed" ], "type": "base_et2" }, { "count": 1500, "end_node_labels": [ "base_unindexed" ], "properties": [], "start_node_labels": [ "base_indexed" ], "type": "base_et1" }, { "count": 500, "end_node_labels": [ "base_unindexed" ], "properties": [], "start_node_labels": [ "base_unindexed" ], "type": "base_et1" }, { "count": 1000, "end_node_labels": [ "base_indexed" ], "properties": [], "start_node_labels": [ "base_indexed" ], "type": "base_et2" }, { "count": 1500, "end_node_labels": [ "base_indexed" ], "properties": [], "start_node_labels": [ "base_unindexed" ], "type": "base_et1" }, { "count": 1500, "end_node_labels": [ "base_indexed" ], "properties": [], "start_node_labels": [ "base_indexed" ], "type": "base_et1" } ], "nodes": [ { "count": 500, "labels": [ "base_unindexed" ], "properties": [ { "count": 11, "filling_factor": 2.2, "key": "point", "types": [ { "count": 11, "type": "Point2D" } ] }, { "count": 500, "filling_factor": 100.0, "key": "id", "types": [ { "count": 400, "type": "Integer" }, { "count": 100, "type": "Enum::enum1" } ] } ] }, { "count": 500, "labels": [ "base_indexed" ], "properties": [ { "count": 12, "filling_factor": 2.4, "key": "point", "types": [ { "count": 12, "type": "Point2D" } ] }, { "count": 5, "filling_factor": 1.0, "key": "vector", "types": [ { "count": 5, "type": "List" } ] }, { "count": 333, "filling_factor": 66.6, "key": "id", "types": [ { "count": 266, "type": "Integer" }, { "count": 67, "type": "Enum::enum1" } ] } ] } ]})");
             ASSERT_TRUE(ConfrontJSON(schema_json, expected_schema));
           }
         } break;
         case ONLY_BASE_WITH_EXTENDED_INDICES_AND_CONSTRAINTS: {
           if (properties_on_edges) {
             static const auto expected_schema = nlohmann::json::parse(
-                R"({"edges":[{"count":1000,"end_node_labels":["base_unindexed"],"properties":[{"count":1000,"filling_factor":100.0,"key":"id","types":[{"count":1000,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1000,"end_node_labels":["base_indexed"],"properties":[{"count":1000,"filling_factor":100.0,"key":"id","types":[{"count":1000,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et1"},{"count":500,"end_node_labels":["base_unindexed"],"properties":[{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et1"}],"nodes":[{"count":500,"labels":["base_indexed"],"properties":[{"count":333,"filling_factor":66.6,"key":"id","types":[{"count":266,"type":"Integer"},{"count":67,"type":"Enum::enum1"}]},{"count":12,"filling_factor":2.4,"key":"point","types":[{"count":12,"type":"Point2D"}]}]},{"count":500,"labels":["base_unindexed"],"properties":[{"count":11,"filling_factor":2.2,"key":"point","types":[{"count":11,"type":"Point2D"}]},{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":400,"type":"Integer"},{"count":100,"type":"Enum::enum1"}]}]}]})");
+                R"({ "edges": [ { "count": 1500, "end_node_labels": [ "base_indexed" ], "properties": [ { "count": 1500, "filling_factor": 100.0, "key": "id", "types": [ { "count": 1500, "type": "Integer" } ] } ], "start_node_labels": [ "base_unindexed" ], "type": "base_et2" }, { "count": 1000, "end_node_labels": [ "base_unindexed" ], "properties": [ { "count": 1000, "filling_factor": 100.0, "key": "id", "types": [ { "count": 1000, "type": "Integer" } ] } ], "start_node_labels": [ "base_indexed" ], "type": "base_et2" }, { "count": 1000, "end_node_labels": [ "base_indexed" ], "properties": [ { "count": 1000, "filling_factor": 100.0, "key": "id", "types": [ { "count": 1000, "type": "Integer" } ] } ], "start_node_labels": [ "base_indexed" ], "type": "base_et2" }, { "count": 1500, "end_node_labels": [ "base_unindexed" ], "properties": [ { "count": 1500, "filling_factor": 100.0, "key": "id", "types": [ { "count": 1500, "type": "Integer" } ] } ], "start_node_labels": [ "base_indexed" ], "type": "base_et1" }, { "count": 500, "end_node_labels": [ "base_unindexed" ], "properties": [ { "count": 500, "filling_factor": 100.0, "key": "id", "types": [ { "count": 500, "type": "Integer" } ] } ], "start_node_labels": [ "base_unindexed" ], "type": "base_et1" }, { "count": 1500, "end_node_labels": [ "base_indexed" ], "properties": [ { "count": 1500, "filling_factor": 100.0, "key": "id", "types": [ { "count": 1500, "type": "Integer" } ] } ], "start_node_labels": [ "base_unindexed" ], "type": "base_et1" }, { "count": 1500, "end_node_labels": [ "base_unindexed" ], "properties": [ { "count": 1500, "filling_factor": 100.0, "key": "id", "types": [ { "count": 1500, "type": "Integer" } ] } ], "start_node_labels": [ "base_unindexed" ], "type": "base_et2" }, { "count": 1500, "end_node_labels": [ "base_indexed" ], "properties": [ { "count": 1500, "filling_factor": 100.0, "key": "id", "types": [ { "count": 1500, "type": "Integer" } ] } ], "start_node_labels": [ "base_indexed" ], "type": "base_et1" } ], "nodes": [ { "count": 500, "labels": [ "base_indexed" ], "properties": [ { "count": 333, "filling_factor": 66.6, "key": "id", "types": [ { "count": 266, "type": "Integer" }, { "count": 67, "type": "Enum::enum1" } ] }, { "count": 5, "filling_factor": 1.0, "key": "vector", "types": [ { "count": 5, "type": "List" } ] }, { "count": 12, "filling_factor": 2.4, "key": "point", "types": [ { "count": 12, "type": "Point2D" } ] } ] }, { "count": 500, "labels": [ "base_unindexed" ], "properties": [ { "count": 11, "filling_factor": 2.2, "key": "point", "types": [ { "count": 11, "type": "Point2D" } ] }, { "count": 500, "filling_factor": 100.0, "key": "id", "types": [ { "count": 400, "type": "Integer" }, { "count": 100, "type": "Enum::enum1" } ] } ] } ]})");
             ASSERT_TRUE(ConfrontJSON(schema_json, expected_schema));
           } else {
             static const auto expected_schema = nlohmann::json::parse(
-                R"({"edges":[{"count":1000,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1000,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et1"},{"count":500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et1"}],"nodes":[{"count":500,"labels":["base_indexed"],"properties":[{"count":333,"filling_factor":66.6,"key":"id","types":[{"count":266,"type":"Integer"},{"count":67,"type":"Enum::enum1"}]},{"count":12,"filling_factor":2.4,"key":"point","types":[{"count":12,"type":"Point2D"}]}]},{"count":500,"labels":["base_unindexed"],"properties":[{"count":11,"filling_factor":2.2,"key":"point","types":[{"count":11,"type":"Point2D"}]},{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":400,"type":"Integer"},{"count":100,"type":"Enum::enum1"}]}]}]})");
+                R"({ "edges": [ { "count": 1500, "end_node_labels": [ "base_indexed" ], "properties": [], "start_node_labels": [ "base_unindexed" ], "type": "base_et2" }, { "count": 1000, "end_node_labels": [ "base_unindexed" ], "properties": [], "start_node_labels": [ "base_indexed" ], "type": "base_et2" }, { "count": 1000, "end_node_labels": [ "base_indexed" ], "properties": [], "start_node_labels": [ "base_indexed" ], "type": "base_et2" }, { "count": 1500, "end_node_labels": [ "base_unindexed" ], "properties": [], "start_node_labels": [ "base_indexed" ], "type": "base_et1" }, { "count": 500, "end_node_labels": [ "base_unindexed" ], "properties": [], "start_node_labels": [ "base_unindexed" ], "type": "base_et1" }, { "count": 1500, "end_node_labels": [ "base_indexed" ], "properties": [], "start_node_labels": [ "base_unindexed" ], "type": "base_et1" }, { "count": 1500, "end_node_labels": [ "base_unindexed" ], "properties": [], "start_node_labels": [ "base_unindexed" ], "type": "base_et2" }, { "count": 1500, "end_node_labels": [ "base_indexed" ], "properties": [], "start_node_labels": [ "base_indexed" ], "type": "base_et1" } ], "nodes": [ { "count": 500, "labels": [ "base_indexed" ], "properties": [ { "count": 333, "filling_factor": 66.6, "key": "id", "types": [ { "count": 266, "type": "Integer" }, { "count": 67, "type": "Enum::enum1" } ] }, { "count": 5, "filling_factor": 1.0, "key": "vector", "types": [ { "count": 5, "type": "List" } ] }, { "count": 12, "filling_factor": 2.4, "key": "point", "types": [ { "count": 12, "type": "Point2D" } ] } ] }, { "count": 500, "labels": [ "base_unindexed" ], "properties": [ { "count": 11, "filling_factor": 2.2, "key": "point", "types": [ { "count": 11, "type": "Point2D" } ] }, { "count": 500, "filling_factor": 100.0, "key": "id", "types": [ { "count": 400, "type": "Integer" }, { "count": 100, "type": "Enum::enum1" } ] } ] } ]})");
             ASSERT_TRUE(ConfrontJSON(schema_json, expected_schema));
           }
         } break;
@@ -962,11 +1029,11 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         case BASE_WITH_EXTENDED: {
           if (properties_on_edges) {
             static const auto expected_schema = nlohmann::json::parse(
-                R"({"edges":[{"count":200,"end_node_labels":["extended_indexed"],"properties":[],"start_node_labels":[],"type":"extended_et4"},{"count":250,"end_node_labels":["extended_indexed"],"properties":[],"start_node_labels":["extended_indexed"],"type":"extended_et3"},{"count":1000,"end_node_labels":["base_unindexed"],"properties":[{"count":1000,"filling_factor":100.0,"key":"id","types":[{"count":1000,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":300,"end_node_labels":[],"properties":[],"start_node_labels":[],"type":"extended_et4"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":100,"end_node_labels":[],"properties":[],"start_node_labels":["extended_indexed"],"type":"extended_et4"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et1"},{"count":150,"end_node_labels":["extended_indexed"],"properties":[],"start_node_labels":["extended_indexed"],"type":"extended_et4"},{"count":500,"end_node_labels":["base_unindexed"],"properties":[{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1000,"end_node_labels":["base_indexed"],"properties":[{"count":1000,"filling_factor":100.0,"key":"id","types":[{"count":1000,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et1"}],"nodes":[{"count":50,"labels":["extended_indexed"],"properties":[{"count":33,"filling_factor":66.0,"key":"count","types":[{"count":33,"type":"String"}]}]},{"count":500,"labels":["base_unindexed"],"properties":[{"count":11,"filling_factor":2.2,"key":"point","types":[{"count":11,"type":"Point2D"}]},{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":400,"type":"Integer"},{"count":100,"type":"Enum::enum1"}]}]},{"count":50,"labels":[],"properties":[{"count":50,"filling_factor":100.0,"key":"count","types":[{"count":50,"type":"String"}]}]},{"count":500,"labels":["base_indexed"],"properties":[{"count":12,"filling_factor":2.4,"key":"point","types":[{"count":12,"type":"Point2D"}]},{"count":333,"filling_factor":66.6,"key":"id","types":[{"count":266,"type":"Integer"},{"count":67,"type":"Enum::enum1"}]}]}]})");
+                R"({ "edges": [ { "count": 150, "end_node_labels": [ "extended_indexed" ], "properties": [], "start_node_labels": [ "extended_indexed" ], "type": "extended_et4" }, { "count": 300, "end_node_labels": [], "properties": [], "start_node_labels": [], "type": "extended_et4" }, { "count": 250, "end_node_labels": [ "extended_indexed" ], "properties": [], "start_node_labels": [ "extended_indexed" ], "type": "extended_et3" }, { "count": 1000, "end_node_labels": [ "base_unindexed" ], "properties": [ { "count": 1000, "filling_factor": 100.0, "key": "id", "types": [ { "count": 1000, "type": "Integer" } ] } ], "start_node_labels": [ "base_indexed" ], "type": "base_et2" }, { "count": 1500, "end_node_labels": [ "base_indexed" ], "properties": [ { "count": 1500, "filling_factor": 100.0, "key": "id", "types": [ { "count": 1500, "type": "Integer" } ] } ], "start_node_labels": [ "base_unindexed" ], "type": "base_et2" }, { "count": 1500, "end_node_labels": [ "base_unindexed" ], "properties": [ { "count": 1500, "filling_factor": 100.0, "key": "id", "types": [ { "count": 1500, "type": "Integer" } ] } ], "start_node_labels": [ "base_unindexed" ], "type": "base_et2" }, { "count": 100, "end_node_labels": [], "properties": [], "start_node_labels": [ "extended_indexed" ], "type": "extended_et4" }, { "count": 1500, "end_node_labels": [ "base_unindexed" ], "properties": [ { "count": 1500, "filling_factor": 100.0, "key": "id", "types": [ { "count": 1500, "type": "Integer" } ] } ], "start_node_labels": [ "base_indexed" ], "type": "base_et1" }, { "count": 500, "end_node_labels": [ "base_unindexed" ], "properties": [ { "count": 500, "filling_factor": 100.0, "key": "id", "types": [ { "count": 500, "type": "Integer" } ] } ], "start_node_labels": [ "base_unindexed" ], "type": "base_et1" }, { "count": 200, "end_node_labels": [ "extended_indexed" ], "properties": [], "start_node_labels": [], "type": "extended_et4" }, { "count": 1000, "end_node_labels": [ "base_indexed" ], "properties": [ { "count": 1000, "filling_factor": 100.0, "key": "id", "types": [ { "count": 1000, "type": "Integer" } ] } ], "start_node_labels": [ "base_indexed" ], "type": "base_et2" }, { "count": 1500, "end_node_labels": [ "base_indexed" ], "properties": [ { "count": 1500, "filling_factor": 100.0, "key": "id", "types": [ { "count": 1500, "type": "Integer" } ] } ], "start_node_labels": [ "base_unindexed" ], "type": "base_et1" }, { "count": 1500, "end_node_labels": [ "base_indexed" ], "properties": [ { "count": 1500, "filling_factor": 100.0, "key": "id", "types": [ { "count": 1500, "type": "Integer" } ] } ], "start_node_labels": [ "base_indexed" ], "type": "base_et1" } ], "nodes": [ { "count": 50, "labels": [ "extended_indexed" ], "properties": [ { "count": 33, "filling_factor": 66.0, "key": "count", "types": [ { "count": 33, "type": "String" } ] } ] }, { "count": 500, "labels": [ "base_unindexed" ], "properties": [ { "count": 11, "filling_factor": 2.2, "key": "point", "types": [ { "count": 11, "type": "Point2D" } ] }, { "count": 500, "filling_factor": 100.0, "key": "id", "types": [ { "count": 400, "type": "Integer" }, { "count": 100, "type": "Enum::enum1" } ] } ] }, { "count": 50, "labels": [], "properties": [ { "count": 50, "filling_factor": 100.0, "key": "count", "types": [ { "count": 50, "type": "String" } ] } ] }, { "count": 500, "labels": [ "base_indexed" ], "properties": [ { "count": 12, "filling_factor": 2.4, "key": "point", "types": [ { "count": 12, "type": "Point2D" } ] }, { "count": 5, "filling_factor": 1.0, "key": "vector", "types": [ { "count": 5, "type": "List" } ] }, { "count": 333, "filling_factor": 66.6, "key": "id", "types": [ { "count": 266, "type": "Integer" }, { "count": 67, "type": "Enum::enum1" } ] } ] } ]})");
             ASSERT_TRUE(ConfrontJSON(schema_json, expected_schema));
           } else {
             static const auto expected_schema = nlohmann::json::parse(
-                R"({"edges":[{"count":200,"end_node_labels":["extended_indexed"],"properties":[],"start_node_labels":[],"type":"extended_et4"},{"count":250,"end_node_labels":["extended_indexed"],"properties":[],"start_node_labels":["extended_indexed"],"type":"extended_et3"},{"count":1000,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":300,"end_node_labels":[],"properties":[],"start_node_labels":[],"type":"extended_et4"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":100,"end_node_labels":[],"properties":[],"start_node_labels":["extended_indexed"],"type":"extended_et4"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et1"},{"count":150,"end_node_labels":["extended_indexed"],"properties":[],"start_node_labels":["extended_indexed"],"type":"extended_et4"},{"count":500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1000,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et1"}],"nodes":[{"count":50,"labels":["extended_indexed"],"properties":[{"count":33,"filling_factor":66.0,"key":"count","types":[{"count":33,"type":"String"}]}]},{"count":500,"labels":["base_unindexed"],"properties":[{"count":11,"filling_factor":2.2,"key":"point","types":[{"count":11,"type":"Point2D"}]},{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":400,"type":"Integer"},{"count":100,"type":"Enum::enum1"}]}]},{"count":50,"labels":[],"properties":[{"count":50,"filling_factor":100.0,"key":"count","types":[{"count":50,"type":"String"}]}]},{"count":500,"labels":["base_indexed"],"properties":[{"count":12,"filling_factor":2.4,"key":"point","types":[{"count":12,"type":"Point2D"}]},{"count":333,"filling_factor":66.6,"key":"id","types":[{"count":266,"type":"Integer"},{"count":67,"type":"Enum::enum1"}]}]}]})");
+                R"({ "edges": [ { "count": 150, "end_node_labels": [ "extended_indexed" ], "properties": [], "start_node_labels": [ "extended_indexed" ], "type": "extended_et4" }, { "count": 300, "end_node_labels": [], "properties": [], "start_node_labels": [], "type": "extended_et4" }, { "count": 250, "end_node_labels": [ "extended_indexed" ], "properties": [], "start_node_labels": [ "extended_indexed" ], "type": "extended_et3" }, { "count": 1000, "end_node_labels": [ "base_unindexed" ], "properties": [], "start_node_labels": [ "base_indexed" ], "type": "base_et2" }, { "count": 1500, "end_node_labels": [ "base_indexed" ], "properties": [], "start_node_labels": [ "base_unindexed" ], "type": "base_et2" }, { "count": 1500, "end_node_labels": [ "base_unindexed" ], "properties": [], "start_node_labels": [ "base_unindexed" ], "type": "base_et2" }, { "count": 100, "end_node_labels": [], "properties": [], "start_node_labels": [ "extended_indexed" ], "type": "extended_et4" }, { "count": 1500, "end_node_labels": [ "base_unindexed" ], "properties": [], "start_node_labels": [ "base_indexed" ], "type": "base_et1" }, { "count": 500, "end_node_labels": [ "base_unindexed" ], "properties": [], "start_node_labels": [ "base_unindexed" ], "type": "base_et1" }, { "count": 200, "end_node_labels": [ "extended_indexed" ], "properties": [], "start_node_labels": [], "type": "extended_et4" }, { "count": 1000, "end_node_labels": [ "base_indexed" ], "properties": [], "start_node_labels": [ "base_indexed" ], "type": "base_et2" }, { "count": 1500, "end_node_labels": [ "base_indexed" ], "properties": [], "start_node_labels": [ "base_unindexed" ], "type": "base_et1" }, { "count": 1500, "end_node_labels": [ "base_indexed" ], "properties": [], "start_node_labels": [ "base_indexed" ], "type": "base_et1" } ], "nodes": [ { "count": 50, "labels": [ "extended_indexed" ], "properties": [ { "count": 33, "filling_factor": 66.0, "key": "count", "types": [ { "count": 33, "type": "String" } ] } ] }, { "count": 500, "labels": [ "base_unindexed" ], "properties": [ { "count": 11, "filling_factor": 2.2, "key": "point", "types": [ { "count": 11, "type": "Point2D" } ] }, { "count": 500, "filling_factor": 100.0, "key": "id", "types": [ { "count": 400, "type": "Integer" }, { "count": 100, "type": "Enum::enum1" } ] } ] }, { "count": 50, "labels": [], "properties": [ { "count": 50, "filling_factor": 100.0, "key": "count", "types": [ { "count": 50, "type": "String" } ] } ] }, { "count": 500, "labels": [ "base_indexed" ], "properties": [ { "count": 12, "filling_factor": 2.4, "key": "point", "types": [ { "count": 12, "type": "Point2D" } ] }, { "count": 5, "filling_factor": 1.0, "key": "vector", "types": [ { "count": 5, "type": "List" } ] }, { "count": 333, "filling_factor": 66.6, "key": "id", "types": [ { "count": 266, "type": "Integer" }, { "count": 67, "type": "Enum::enum1" } ] } ] } ]})");
             ASSERT_TRUE(ConfrontJSON(schema_json, expected_schema));
           }
         } break;

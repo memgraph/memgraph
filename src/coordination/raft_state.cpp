@@ -32,13 +32,15 @@
 #include <spdlog/spdlog.h>
 #include "json/json.hpp"
 
-namespace memgraph::coordination {
+namespace {
+constexpr std::string_view kStateMgrDurabilityPath = "network";
+constexpr std::string_view kLogStoreDurabilityPath = "logs";
+}  // namespace
 
+namespace memgraph::coordination {
 using nuraft::asio_service;
 using nuraft::cb_func;
 using nuraft::CbReturnCode;
-using nuraft::cs_new;
-using nuraft::ptr;
 using nuraft::raft_params;
 using nuraft::raft_server;
 using nuraft::srv_config;
@@ -47,34 +49,32 @@ RaftState::RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb
                      BecomeFollowerCb become_follower_cb, std::optional<CoordinationClusterChangeObserver> observer)
     : coordinator_port_(config.coordinator_port),
       coordinator_id_(config.coordinator_id),
-      logger_(cs_new<Logger>(config.nuraft_log_file)),
+      logger_(std::make_shared<Logger>(config.nuraft_log_file)),
       become_leader_cb_(std::move(become_leader_cb)),
       become_follower_cb_(std::move(become_follower_cb)) {
-  auto const coordinator_state_manager_durability_dir = config.durability_dir / "network";
-  utils::EnsureDirOrDie(coordinator_state_manager_durability_dir);
-
-  CoordinatorStateManagerConfig state_manager_config{config.coordinator_id,
-                                                     config.coordinator_port,
-                                                     config.bolt_port,
-                                                     config.management_port,
-                                                     coordinator_state_manager_durability_dir,
-                                                     config.coordinator_hostname};
   auto logger_wrapper = LoggerWrapper(static_cast<Logger *>(logger_.get()));
-  LogStoreDurability log_store_durability;
+  auto const log_store_path = config.durability_dir / kLogStoreDurabilityPath;
+  utils::EnsureDirOrDie(log_store_path);
 
-  if (config.use_durability) {
-    auto const log_store_path = config.durability_dir / "logs";
-    utils::EnsureDirOrDie(log_store_path);
-    auto const durability_store = std::make_shared<kvstore::KVStore>(log_store_path);
+  auto durability_store = std::make_shared<kvstore::KVStore>(log_store_path);
+  auto const stored_version = static_cast<LogStoreVersion>(
+      GetOrSetDefaultVersion(*durability_store, kLogStoreVersion, static_cast<int>(kActiveVersion), logger_wrapper));
 
-    log_store_durability.durability_store_ = durability_store;
-    log_store_durability.stored_log_store_version_ = static_cast<LogStoreVersion>(
-        GetOrSetDefaultVersion(*durability_store, kLogStoreVersion, static_cast<int>(kActiveVersion), logger_wrapper));
-    state_manager_config.log_store_durability_ = log_store_durability;
-  }
+  LogStoreDurability const log_store_durability{.durability_store_ = std::move(durability_store),
+                                                .stored_log_store_version_ = stored_version};
 
-  state_machine_ = cs_new<CoordinatorStateMachine>(logger_wrapper, log_store_durability);
-  state_manager_ = cs_new<CoordinatorStateManager>(state_manager_config, logger_wrapper, observer);
+  auto const state_manager_path = config.durability_dir / kStateMgrDurabilityPath;
+  utils::EnsureDirOrDie(state_manager_path);
+  CoordinatorStateManagerConfig const state_manager_config{.coordinator_id_ = config.coordinator_id,
+                                                           .coordinator_port_ = config.coordinator_port,
+                                                           .bolt_port_ = config.bolt_port,
+                                                           .management_port_ = config.management_port,
+                                                           .coordinator_hostname = config.coordinator_hostname,
+                                                           .state_manager_durability_dir_ = state_manager_path,
+                                                           .log_store_durability_ = log_store_durability};
+
+  state_machine_ = std::make_shared<CoordinatorStateMachine>(logger_wrapper, log_store_durability);
+  state_manager_ = std::make_shared<CoordinatorStateManager>(state_manager_config, logger_wrapper, observer);
 
   auto const last_commit_index_snapshot = [this]() -> uint64_t {
     if (auto const last_snapshot = state_machine_->last_snapshot(); last_snapshot != nullptr) {
@@ -83,30 +83,29 @@ RaftState::RaftState(CoordinatorInstanceInitConfig const &config, BecomeLeaderCb
     return 0;
   }();  // iile
 
-  auto log_store = state_manager_->load_log_store();
-
-  if (!log_store) {
-    return;
-  }
-
   auto const last_committed_index_state_machine_{state_machine_->last_commit_index()};
   spdlog::trace("Last commited index from snapshot: {}, last commited index in state machine: {}",
                 last_commit_index_snapshot, last_committed_index_state_machine_);
+
+  auto log_store = state_manager_->load_log_store();
+  if (!log_store) {
+    return;
+  }
   auto *coordinator_log_store = static_cast<CoordinatorLogStore *>(log_store.get());
   auto log_entries =
       coordinator_log_store->GetAllEntriesRange(last_commit_index_snapshot, last_committed_index_state_machine_ + 1);
 
-  for (auto const &entry : log_entries) {
-    if (entry.second == nullptr) {
-      spdlog::error("Log entry for id {} is nullptr", entry.first);
+  for (auto const &[log_id, log] : log_entries) {
+    if (log == nullptr) {
+      spdlog::error("Log entry for id {} is nullptr", log_id);
       continue;
     }
-    spdlog::trace("Applying log entry from log store with index {}", entry.first);
-    if (entry.second->get_val_type() == nuraft::log_val_type::conf) {
+    spdlog::trace("Applying log entry from log store with index {}", log_id);
+    if (log->get_val_type() == nuraft::log_val_type::conf) {
       auto cluster_config = state_manager_->load_config();
-      state_machine_->commit_config(entry.first, cluster_config);
+      state_machine_->commit_config(log_id, cluster_config);
     } else {
-      state_machine_->commit(entry.first, entry.second->get_buf());
+      state_machine_->commit(log_id, log->get_buf());
     }
   }
 
@@ -158,23 +157,23 @@ auto RaftState::InitRaftServer() -> void {
     return CbReturnCode::Ok;
   };
 
-  asio_service_ = nuraft::cs_new<asio_service>(asio_opts, logger_);
+  asio_service_ = std::make_shared<asio_service>(asio_opts, logger_);
 
-  ptr<delayed_task_scheduler> scheduler = asio_service_;
-  ptr<rpc_client_factory> rpc_cli_factory = asio_service_;
+  std::shared_ptr<delayed_task_scheduler> scheduler = asio_service_;
+  std::shared_ptr<rpc_client_factory> rpc_cli_factory = asio_service_;
 
-  nuraft::ptr<nuraft::state_mgr> casted_state_manager = state_manager_;
-  nuraft::ptr<nuraft::state_machine> casted_state_machine = state_machine_;
+  std::shared_ptr<state_mgr> casted_state_manager = state_manager_;
+  std::shared_ptr<state_machine> casted_state_machine = state_machine_;
 
   asio_listener_ = asio_service_->create_rpc_listener(coordinator_port_, logger_);
   if (!asio_listener_) {
     throw RaftServerStartException("Failed to create rpc listener on port {}", coordinator_port_);
   }
 
-  auto *ctx = new nuraft::context(casted_state_manager, casted_state_machine, asio_listener_, logger_, rpc_cli_factory,
-                                  scheduler, params);
+  auto *ctx = new context(casted_state_manager, casted_state_machine, asio_listener_, logger_, rpc_cli_factory,
+                          scheduler, params);
 
-  raft_server_ = nuraft::cs_new<raft_server>(ctx, init_opts);
+  raft_server_ = std::make_shared<raft_server>(ctx, init_opts);
 
   if (!raft_server_) {
     throw RaftServerStartException("Failed to allocate coordinator server on port {}", coordinator_port_);
@@ -305,7 +304,7 @@ auto RaftState::RemoveCoordinatorInstance(int32_t coordinator_id) const -> void 
   }
 }
 
-auto RaftState::AddCoordinatorInstance(CoordinatorInstanceConfig const &config) -> void {
+auto RaftState::AddCoordinatorInstance(CoordinatorInstanceConfig const &config) const -> void {
   spdlog::trace("Adding coordinator instance {} start in RaftState for coordinator_{}", config.coordinator_id,
                 coordinator_id_);
 
@@ -356,9 +355,9 @@ auto RaftState::GetLeaderCoordinatorData() const -> std::optional<LeaderCoordina
   auto const leader_id = raft_server_->get_leader();
 
   auto const coordinator_contexts = GetCoordinatorInstancesContext();
-  auto const leader_data =
-      std::find_if(coordinator_contexts.cbegin(), coordinator_contexts.cend(),
-                   [leader_id](CoordinatorInstanceContext const &coordinator) { return coordinator.id == leader_id; });
+  auto const leader_data = std::ranges::find_if(
+      coordinator_contexts,
+      [leader_id](CoordinatorInstanceContext const &coordinator) { return coordinator.id == leader_id; });
   if (leader_data == coordinator_contexts.end()) {
     spdlog::trace("Couldn't find data for the current leader.");
     return {};
@@ -480,6 +479,5 @@ auto RaftState::GetRoutingTable() const -> RoutingTable {
 }
 
 auto RaftState::GetLeaderId() const -> int32_t { return raft_server_->get_leader(); }
-
 }  // namespace memgraph::coordination
 #endif

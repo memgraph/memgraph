@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,10 +12,12 @@
 #include <gtest/gtest-typed-test.h>
 #include <gtest/gtest.h>
 
+#include <cstdint>
 #include <filesystem>
 #include <map>
 #include <optional>
 #include <set>
+#include <usearch/index_plugins.hpp>
 #include <vector>
 
 #include "communication/result_stream_faker.hpp"
@@ -33,6 +35,7 @@
 #include "query/typed_value.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
+#include "storage/v2/delta.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -791,6 +794,69 @@ TYPED_TEST(DumpTest, PointIndices) {
                   "CREATE POINT INDEX ON :`Label 2`(`prop ```);", kCreateInternalIndex,
                   "CREATE (:__mg_vertex__:`Label1`:`Label 2` {__mg_id__: 0, `p`: POINT({ x:1, y:1, srid: 7203 })});",
                   kDropInternalIndex, kRemoveInternalLabelProperty);
+  }
+}
+
+TYPED_TEST(DumpTest, VectorIndices) {
+  static constexpr std::string_view test_index1 = "test_index1";
+  static constexpr std::string_view test_index2 = "test_index2";
+  static constexpr unum::usearch::metric_kind_t metric = unum::usearch::metric_kind_t::l2sq_k;
+  static constexpr uint16_t dimension = 2;
+  static constexpr std::size_t capacity = 10;
+  static constexpr uint16_t resize_coefficient = 2;
+
+  if (this->config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL) {
+    GTEST_SKIP() << "Vector index not implemented for ondisk";
+  }
+
+  {
+    auto dba = this->db->Access();
+    memgraph::storage::PropertyValue property_value(std::vector<memgraph::storage::PropertyValue>{
+        memgraph::storage::PropertyValue(1.0), memgraph::storage::PropertyValue(1.0)});
+    CreateVertex(dba.get(), {"Label1", "Label 2"}, {{"vector_property", property_value}}, false);
+    ASSERT_FALSE(dba->Commit().HasError());
+  }
+
+  {
+    const auto spec = memgraph::storage::VectorIndexSpec{test_index1.data(),
+                                                         this->db->storage()->NameToLabel("Label1"),
+                                                         this->db->storage()->NameToProperty("vector_property"),
+                                                         metric,
+                                                         dimension,
+                                                         resize_coefficient,
+                                                         capacity};
+    auto unique_acc = this->db->UniqueAccess();
+    ASSERT_FALSE(unique_acc->CreateVectorIndex(spec).HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
+
+  {
+    const auto spec = memgraph::storage::VectorIndexSpec{test_index2.data(),
+                                                         this->db->storage()->NameToLabel("Label 2"),
+                                                         this->db->storage()->NameToProperty("prop `"),
+                                                         metric,
+                                                         dimension,
+                                                         resize_coefficient,
+                                                         capacity};
+    auto unique_acc = this->db->UniqueAccess();
+    ASSERT_FALSE(unique_acc->CreateVectorIndex(spec).HasError());
+    ASSERT_FALSE(unique_acc->Commit().HasError());
+  }
+
+  {
+    ResultStreamFaker stream(this->db->storage());
+    memgraph::query::AnyStream query_stream(&stream, memgraph::utils::NewDeleteResource());
+    {
+      auto acc = this->db->Access();
+      memgraph::query::DbAccessor dba(acc.get());
+      memgraph::query::DumpDatabaseToCypherQueries(&dba, &query_stream, this->db);
+    }
+    VerifyQueries(
+        stream.GetResults(),
+        R"(CREATE VECTOR INDEX `test_index1` ON :`Label1`(`vector_property`) WITH CONFIG { "dimension": 2, "metric": "l2sq", "capacity": 10, "resize_coefficient": 2 };)",
+        R"(CREATE VECTOR INDEX `test_index2` ON :`Label 2`(`prop ```) WITH CONFIG { "dimension": 2, "metric": "l2sq", "capacity": 10, "resize_coefficient": 2 };)",
+        kCreateInternalIndex, "CREATE (:__mg_vertex__:`Label1`:`Label 2` {__mg_id__: 0, `vector_property`: [1, 1]});",
+        kDropInternalIndex, kRemoveInternalLabelProperty);
   }
 }
 

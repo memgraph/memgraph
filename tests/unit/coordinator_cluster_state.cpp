@@ -12,12 +12,10 @@
 #include "coordination/coordinator_cluster_state.hpp"
 #include "io/network/endpoint.hpp"
 #include "replication_coordination_glue/role.hpp"
-#include "utils/file.hpp"
 #include "utils/uuid.hpp"
 
 #include <gflags/gflags.h>
 #include <gtest/gtest.h>
-#include "json/json.hpp"
 #include "libnuraft/nuraft.hxx"
 
 #include <vector>

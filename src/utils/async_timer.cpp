@@ -20,7 +20,6 @@
 #include <limits>
 
 #include "utils/skip_list.hpp"
-#include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 
 namespace {
@@ -47,7 +46,7 @@ bool operator<(const ExpirationFlagInfo &flag_info, const uint64_t id) { return 
 memgraph::utils::SkipList<ExpirationFlagInfo> expiration_flags{};
 
 uint64_t AddFlag(std::weak_ptr<std::atomic<bool>> flag) {
-  const auto id = expiration_flag_counter.fetch_add(1, std::memory_order_relaxed);
+  const auto id = expiration_flag_counter.fetch_add(1, std::memory_order_acq_rel);
   expiration_flags.access().insert({id, std::move(flag)});
   return id;
 }
@@ -72,7 +71,7 @@ void MarkDone(const uint64_t flag_id) {
   }
   auto flag = weak_flag.lock();
   if (flag != nullptr) {
-    flag->store(true, std::memory_order_relaxed);
+    flag->store(true, std::memory_order_release);
   }
 }
 }  // namespace
@@ -181,10 +180,7 @@ AsyncTimer &AsyncTimer::operator=(AsyncTimer &&other) {
 };
 
 bool AsyncTimer::IsExpired() const noexcept {
-  if (expiration_flag_ != nullptr) {
-    return expiration_flag_->load(std::memory_order_relaxed);
-  }
-  return false;
+  return expiration_flag_ && expiration_flag_->load(std::memory_order_acquire);
 }
 
 void AsyncTimer::ReleaseResources() {

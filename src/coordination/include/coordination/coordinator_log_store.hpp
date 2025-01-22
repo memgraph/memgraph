@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,7 +26,6 @@ using nuraft::int32;
 using nuraft::int64;
 using nuraft::log_entry;
 using nuraft::log_store;
-using nuraft::ptr;
 using nuraft::raft_server;
 
 /**
@@ -36,9 +35,9 @@ using nuraft::raft_server;
  * respectfully. If some log is missing, we assert failure. Logs are stored in a map with key being the index of the log
  * entry. In current version logs are also cached in memory fully. For durability we use RocksDB instance.
  */
-class CoordinatorLogStore : public log_store {
+class CoordinatorLogStore final : public log_store {
  public:
-  CoordinatorLogStore(LoggerWrapper logger, std::optional<LogStoreDurability> log_store_durability);
+  CoordinatorLogStore(LoggerWrapper logger, LogStoreDurability log_store_durability);
   CoordinatorLogStore(CoordinatorLogStore const &) = delete;
   CoordinatorLogStore &operator=(CoordinatorLogStore const &) = delete;
   CoordinatorLogStore(CoordinatorLogStore &&) = delete;
@@ -49,19 +48,19 @@ class CoordinatorLogStore : public log_store {
 
   ulong start_index() const override;
 
-  ptr<log_entry> last_entry() const override;
+  std::shared_ptr<log_entry> last_entry() const override;
 
-  ulong append(ptr<log_entry> &entry) override;
+  ulong append(std::shared_ptr<log_entry> &entry) override;
 
-  void write_at(ulong index, ptr<log_entry> &entry) override;
+  void write_at(ulong index, std::shared_ptr<log_entry> &entry) override;
 
-  ptr<std::vector<ptr<log_entry>>> log_entries(ulong start, ulong end) override;
+  std::shared_ptr<std::vector<std::shared_ptr<log_entry>>> log_entries(ulong start, ulong end) override;
 
-  ptr<log_entry> entry_at(ulong index) override;
+  std::shared_ptr<log_entry> entry_at(ulong index) override;
 
   ulong term_at(ulong index) override;
 
-  ptr<buffer> pack(ulong index, int32 cnt) override;
+  std::shared_ptr<buffer> pack(ulong index, int32 cnt) override;
 
   void apply_pack(ulong index, buffer &pack) override;
 
@@ -71,7 +70,8 @@ class CoordinatorLogStore : public log_store {
 
   void DeleteLogs(uint64_t start, uint64_t end);
 
-  auto GetAllEntriesRange(uint64_t start, uint64_t end) -> std::vector<std::pair<int64_t, ptr<log_entry>>>;
+  auto GetAllEntriesRange(uint64_t start, uint64_t end) const
+      -> std::vector<std::pair<int64_t, std::shared_ptr<log_entry>>>;
 
   /*
    * Stores log entry to disk. We need to store our logs which in nuraft are encoded with log_val_type::app_log
@@ -84,7 +84,7 @@ class CoordinatorLogStore : public log_store {
    * @param is_newest_entry - if this is the newest entry
    * @return true if storing was successful, false otherwise
    */
-  bool StoreEntryToDisk(const ptr<log_entry> &clone, uint64_t key_id, bool is_newest_entry);
+  bool StoreEntryToDisk(const std::shared_ptr<log_entry> &clone, uint64_t key_id, bool is_newest_entry);
 
  private:
   /*
@@ -92,11 +92,11 @@ class CoordinatorLogStore : public log_store {
    */
   auto GetNextSlot() const -> ulong;
 
-  auto FindOrDefault_(ulong index) const -> ptr<log_entry>;
+  auto FindOrDefault_(ulong index) const -> std::shared_ptr<log_entry>;
 
   bool HandleVersionMigration(LogStoreVersion stored_version);
 
-  std::map<ulong, ptr<log_entry>> logs_;
+  std::map<ulong, std::shared_ptr<log_entry>> logs_;
   mutable std::mutex logs_lock_;
   std::atomic<ulong> start_idx_{0};
   std::atomic<ulong> next_idx_{0};

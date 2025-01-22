@@ -36,19 +36,6 @@ std::optional<replication::ReplicaState> ReplicationStorageState::GetReplicaStat
   });
 }
 
-std::vector<ReplicaInfo> ReplicationStorageState::ReplicasInfo(const Storage *storage) const {
-  return replication_clients_.WithReadLock([storage](auto const &clients) {
-    std::vector<ReplicaInfo> replica_infos;
-    replica_infos.reserve(clients.size());
-    auto const asReplicaInfo = [storage](ReplicationClientPtr const &client) -> ReplicaInfo {
-      const auto ts = client->GetTimestampInfo(storage);
-      return {client->Name(), client->Mode(), client->Endpoint(), client->State(), ts};
-    };
-    std::transform(clients.begin(), clients.end(), std::back_inserter(replica_infos), asReplicaInfo);
-    return replica_infos;
-  });
-}
-
 void ReplicationStorageState::Reset() {
   replication_clients_.WithLock([](auto &clients) { clients.clear(); });
 }

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -233,6 +233,8 @@ bool MgpVertexIsMutable(const mgp_vertex &vertex) { return MgpGraphIsMutable(*ve
 
 bool MgpEdgeIsMutable(const mgp_edge &edge) { return MgpVertexIsMutable(edge.from); }
 }  // namespace
+
+int mgp_is_enterprise_valid() { return memgraph::license::global_license_checker.IsEnterpriseValidFast(); }
 
 mgp_error mgp_alloc(mgp_memory *memory, size_t size_in_bytes, void **result) {
   return mgp_aligned_alloc(memory, size_in_bytes, alignof(std::max_align_t), result);
@@ -2996,7 +2998,6 @@ mgp_error mgp_list_all_unique_constraints(mgp_graph *graph, mgp_memory *memory, 
       if (const auto err_list = mgp_list_append_extend(*result, &value); err_list != mgp_error::MGP_ERROR_NO_ERROR) {
         throw std::logic_error("Listing all unique constraints failed due to failure of creating label+property value");
       }
-      mgp_value_destroy(&value);
     }
   });
 }
@@ -3374,7 +3375,6 @@ void WrapVectorSearchResults(
     mgp_value_destroy(vertex_value);
     mgp_value_destroy(distance_value);
     mgp_value_destroy(similarity_value);
-    mgp_list_destroy(vertex_distance_similarity);
   }
 
   mgp_value *search_results_value = nullptr;
@@ -3390,7 +3390,6 @@ void WrapVectorSearchResults(
 
   mgp_value_destroy(error_value);
   mgp_value_destroy(search_results_value);
-  mgp_list_destroy(search_results);
 }
 
 void WrapVectorIndexInfoResult(mgp_memory *memory, mgp_map **result,
@@ -3419,10 +3418,11 @@ void WrapVectorIndexInfoResult(mgp_memory *memory, mgp_map **result,
     throw std::logic_error("Retrieving vector search results failed during creation of a mgp_list");
   }
 
-  for (const auto &[index_name, label, property, dimension, capacity, size] : info) {
+  for (const auto &[index_name, label, property, metric, dimension, capacity, size] : info) {
     mgp_value *index_name_value = nullptr;
     mgp_value *label_value = nullptr;
     mgp_value *property_value = nullptr;
+    mgp_value *metric_value = nullptr;
     mgp_value *dimension_value = nullptr;
     mgp_value *capacity_value = nullptr;
     mgp_value *size_value = nullptr;
@@ -3437,6 +3437,11 @@ void WrapVectorIndexInfoResult(mgp_memory *memory, mgp_map **result,
     }
 
     if (const auto err = mgp_value_make_string(impl->PropertyToName(property).c_str(), memory, &property_value);
+        err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::logic_error("Retrieving vector search results failed during creation of a string mgp_value");
+    }
+
+    if (const auto err = mgp_value_make_string(metric.c_str(), memory, &metric_value);
         err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error("Retrieving vector search results failed during creation of a string mgp_value");
     }
@@ -3476,6 +3481,11 @@ void WrapVectorIndexInfoResult(mgp_memory *memory, mgp_map **result,
           "Retrieving vector search results failed during insertion of the mgp_value into the result list");
     }
 
+    if (const auto err = mgp_list_append_extend(index_info, metric_value); err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::logic_error(
+          "Retrieving vector search results failed during insertion of the mgp_value into the result list");
+    }
+
     if (const auto err = mgp_list_append_extend(index_info, dimension_value); err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error(
           "Retrieving vector search results failed during insertion of the mgp_value into the result list");
@@ -3505,10 +3515,10 @@ void WrapVectorIndexInfoResult(mgp_memory *memory, mgp_map **result,
     mgp_value_destroy(index_name_value);
     mgp_value_destroy(label_value);
     mgp_value_destroy(property_value);
+    mgp_value_destroy(metric_value);
     mgp_value_destroy(dimension_value);
     mgp_value_destroy(capacity_value);
     mgp_value_destroy(size_value);
-    mgp_list_destroy(index_info);
   }
 
   mgp_value *search_results_value = nullptr;
@@ -3524,7 +3534,6 @@ void WrapVectorIndexInfoResult(mgp_memory *memory, mgp_map **result,
 
   mgp_value_destroy(error_value);
   mgp_value_destroy(search_results_value);
-  mgp_list_destroy(search_results);
 }
 
 void WrapTextSearch(mgp_graph *graph, mgp_memory *memory, mgp_map **result,

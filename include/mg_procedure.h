@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -52,6 +52,18 @@ MGP_ENUM_CLASS MGP_NODISCARD mgp_error{
     MGP_ERROR_AUTHORIZATION_ERROR,
     MGP_ERROR_NOT_YET_IMPLEMENTED,
 };
+///@}
+
+/// @name License check
+///
+///@{
+
+/// Functions used for checking validity of the enterprise license
+
+/// Doesn't allocate anything and can't fail therefore doesn't use
+/// enum mgp_error
+int mgp_is_enterprise_valid();
+
 ///@}
 
 /// @name Memory Allocation

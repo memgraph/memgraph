@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -319,7 +319,8 @@ class DbmsHandler {
         stats.triggers += info.triggers;
         stats.streams += info.streams;
         ++stats.num_databases;
-        stats.indices += storage_info.label_indices + storage_info.label_property_indices + storage_info.text_indices;
+        stats.indices += storage_info.label_indices + storage_info.label_property_indices + storage_info.text_indices +
+                         storage_info.vector_indices;
         stats.constraints += storage_info.existence_constraints + storage_info.unique_constraints;
         ++stats.storage_modes[(int)storage_info.storage_mode];
         ++stats.isolation_levels[(int)storage_info.isolation_level];
@@ -365,24 +366,7 @@ class DbmsHandler {
    *
    * @param ic global InterpreterContext
    */
-  void RestoreTriggers(query::InterpreterContext *ic) {
-#ifdef MG_ENTERPRISE
-    auto wr = std::lock_guard{lock_};
-    for (auto &[_, db_gk] : db_handler_) {
-#else
-    {
-      auto &db_gk = db_gatekeeper_;
-#endif
-      auto db_acc_opt = db_gk.access();
-      if (db_acc_opt) {
-        auto &db_acc = *db_acc_opt;
-        spdlog::debug("Restoring trigger for database \"{}\"", db_acc->name());
-        auto storage_accessor = db_acc->Access();
-        auto dba = memgraph::query::DbAccessor{storage_accessor.get()};
-        db_acc->trigger_store()->RestoreTriggers(&ic->ast_cache, &dba, ic->config.query, ic->auth_checker);
-      }
-    }
-  }
+  void RestoreTriggers(query::InterpreterContext *ic);
 
   /**
    * @brief Restore streams of all currently defined databases.

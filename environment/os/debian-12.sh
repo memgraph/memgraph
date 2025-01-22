@@ -23,6 +23,10 @@ TOOLCHAIN_BUILD_DEPS=(
     libgmp-dev
     gperf # for proxygen
     git # for fbthrift
+    custom-rust
+    libtool # for protobuf
+    libssl-dev pkg-config # for pulsar
+    libsasl2-dev # for librdkafka
 )
 
 TOOLCHAIN_RUN_DEPS=(
@@ -57,6 +61,7 @@ MEMGRAPH_BUILD_DEPS=(
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
     libsasl2-dev
+    ninja-build
 )
 
 MEMGRAPH_TEST_DEPS="${MEMGRAPH_BUILD_DEPS[*]}"
@@ -78,16 +83,22 @@ check() {
     for pkg in $1; do
         if [ "$pkg" == custom-maven3.9.3 ]; then
             if [ ! -f "/opt/apache-maven-3.9.3/bin/mvn" ]; then
-              missing="$pkg $missing"
+                missing="$pkg $missing"
             fi
             continue
         fi
         if [ "$pkg" == custom-golang1.18.9 ]; then
             if [ ! -f "/opt/go1.18.9/go/bin/go" ]; then
-              missing="$pkg $missing"
+                missing="$pkg $missing"
             fi
             continue
         fi
+        if [ "$pkg" == custom-rust ]; then
+            if [ ! -x "$HOME/.cargo/bin/rustup" ]; then
+                missing="$pkg $missing"
+            fi
+	    continue
+	fi
         if ! dpkg -s "$pkg" >/dev/null 2>/dev/null; then
             missing="$pkg $missing"
         fi
@@ -100,7 +111,7 @@ check() {
 
 install() {
     cd "$DIR"
-    apt update
+    apt update -y
     # If GitHub Actions runner is installed, append LANG to the environment.
     # Python related tests doesn't work the LANG export.
     if [ -d "/home/gh/actions-runner" ]; then
@@ -123,9 +134,17 @@ install() {
             if ! dpkg -s "$pkg" 2>/dev/null >/dev/null; then
                 wget -nv https://packages.microsoft.com/config/debian/12/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
                 dpkg -i packages-microsoft-prod.deb
-                apt-get update
-                apt-get install -y apt-transport-https dotnet-sdk-8.0
+                apt update -y
+                apt install -y apt-transport-https dotnet-sdk-8.0
             fi
+            continue
+        fi
+        if [ "$pkg" == custom-rust ]; then
+            install_rust "1.80"
+            continue
+        fi
+        if [ "$pkg" == custom-node ]; then
+            install_node "20"
             continue
         fi
         apt install -y "$pkg"

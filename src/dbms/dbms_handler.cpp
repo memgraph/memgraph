@@ -17,6 +17,7 @@
 #include "dbms/constants.hpp"
 #include "dbms/global.hpp"
 #include "flags/experimental.hpp"
+#include "query/db_accessor.hpp"
 #include "spdlog/spdlog.h"
 #include "system/include/system/system.hpp"
 #include "utils/exceptions.hpp"
@@ -432,6 +433,25 @@ void DbmsHandler::RecoverStorageReplication(DatabaseAccess db_acc, replication::
     memgraph::dbms::RestoreReplication(role_main_data, db_acc);
   } else if (!role_main_data.registered_replicas_.empty()) {
     spdlog::warn("Multi-tenant replication is currently not supported!");
+  }
+}
+
+void DbmsHandler::RestoreTriggers(query::InterpreterContext *ic) {
+#ifdef MG_ENTERPRISE
+  auto wr = std::lock_guard{lock_};
+  for (auto &[_, db_gk] : db_handler_) {
+#else
+  {
+    auto &db_gk = db_gatekeeper_;
+#endif
+    auto db_acc_opt = db_gk.access();
+    if (db_acc_opt) {
+      auto &db_acc = *db_acc_opt;
+      spdlog::debug("Restoring trigger for database \"{}\"", db_acc->name());
+      auto storage_accessor = db_acc->Access();
+      auto dba = memgraph::query::DbAccessor{storage_accessor.get()};
+      db_acc->trigger_store()->RestoreTriggers(&ic->ast_cache, &dba, ic->config.query, ic->auth_checker);
+    }
   }
 }
 }  // namespace memgraph::dbms

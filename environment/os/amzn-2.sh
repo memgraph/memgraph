@@ -3,6 +3,8 @@ set -Eeuo pipefail
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 source "$DIR/../util.sh"
 
+# IMPORTANT: Deprecated since memgraph v3.0.0.
+
 check_operating_system "amzn-2"
 check_architecture "x86_64"
 

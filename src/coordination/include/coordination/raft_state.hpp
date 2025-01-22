@@ -66,7 +66,7 @@ class RaftState {
   auto InstanceName() const -> std::string;
 
   // Only called when adding new coordinator instance, not itself.
-  auto AddCoordinatorInstance(CoordinatorInstanceConfig const &config) -> void;
+  auto AddCoordinatorInstance(CoordinatorInstanceConfig const &config) const -> void;
   auto RemoveCoordinatorInstance(int32_t coordinator_id) const -> void;
 
   auto IsLeader() const -> bool;
