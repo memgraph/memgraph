@@ -58,11 +58,15 @@ Storage::Accessor::Accessor(SharedAccess /* tag */, Storage *storage, IsolationL
       // The lock must be acquired before creating the transaction object to
       // prevent freshly created transactions from dangling in an active state
       // during exclusive operations.
-      storage_guard_(storage_->main_lock_),
+      storage_guard_(storage_->main_lock_, std::defer_lock),
       unique_guard_(storage_->main_lock_, std::defer_lock),
       transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
       is_transaction_active_(true),
-      creation_storage_mode_(storage_mode) {}
+      creation_storage_mode_(storage_mode) {
+  if (!storage_guard_.try_lock_for(kAccessTimeout)) {
+    throw SharedAccessTimeout();
+  }
+}
 
 Storage::Accessor::Accessor(UniqueAccess /* tag */, Storage *storage, IsolationLevel isolation_level,
                             StorageMode storage_mode)
@@ -71,10 +75,14 @@ Storage::Accessor::Accessor(UniqueAccess /* tag */, Storage *storage, IsolationL
       // prevent freshly created transactions from dangling in an active state
       // during exclusive operations.
       storage_guard_(storage_->main_lock_, std::defer_lock),
-      unique_guard_(storage_->main_lock_),
+      unique_guard_(storage_->main_lock_, std::defer_lock),
       transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
       is_transaction_active_(true),
-      creation_storage_mode_(storage_mode) {}
+      creation_storage_mode_(storage_mode) {
+  if (!unique_guard_.try_lock_for(kAccessTimeout)) {
+    throw UniqueAccessTimeout();
+  }
+}
 
 Storage::Accessor::Accessor(Accessor &&other) noexcept
     : storage_(other.storage_),
