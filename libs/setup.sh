@@ -255,13 +255,9 @@ pushd rocksdb
 git apply ../rocksdb8.1.1.patch
 popd
 
-if [ -z "${MG_TOOLCHAIN_VERSION}" ]; then
-  mgclient_tag="v1.4.0" # (2022-06-14)
-  repo_clone_try_double "${primary_urls[mgclient]}" "${secondary_urls[mgclient]}" "mgclient" "$mgclient_tag"
-  sed -i 's/\${CMAKE_INSTALL_LIBDIR}/lib/' mgclient/src/CMakeLists.txt
-else
-  echo "Skipping mgclient download because it's already under the toolchain v$MG_TOOLCHAIN_VERSION"
-fi
+mgclient_tag="v1.4.0" # (2022-06-14)
+repo_clone_try_double "${primary_urls[mgclient]}" "${secondary_urls[mgclient]}" "mgclient" "$mgclient_tag"
+sed -i 's/\${CMAKE_INSTALL_LIBDIR}/lib/' mgclient/src/CMakeLists.txt
 
 # pymgclient
 pymgclient_tag="4f85c179e56302d46a1e3e2cf43509db65f062b3" # (2021-01-15)
