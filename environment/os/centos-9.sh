@@ -66,7 +66,6 @@ MEMGRAPH_BUILD_DEPS=(
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
     cyrus-sasl-devel
-    ninja-build
 )
 
 MEMGRAPH_TEST_DEPS="${MEMGRAPH_BUILD_DEPS[*]}"
@@ -140,7 +139,6 @@ install() {
     # because libipt-devel is not available on CentOS 9 Stream
     dnf update -y --nobest
     dnf install -y wget git python3 python3-pip
-    dnf config-manager --set-enabled crb
 
     for pkg in $1; do
         if [ "$pkg" == custom-maven3.9.3 ]; then
