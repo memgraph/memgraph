@@ -222,7 +222,7 @@ auto ReplicationStorageClient::StartTransactionReplication(const uint64_t curren
   spdlog::trace("Starting transaction replication for replica {} in state {}", client_.name_,
                 StateToString(*locked_state));
   switch (*locked_state) {
-    using enum replication::ReplicaState;
+    using enum ReplicaState;
     case RECOVERY: {
       spdlog::debug("Replica {} is behind MAIN instance", client_.name_);
       return std::nullopt;
@@ -230,16 +230,9 @@ auto ReplicationStorageClient::StartTransactionReplication(const uint64_t curren
     case REPLICATING: {
       spdlog::debug("Replica {} missed a transaction", client_.name_);
       // We missed a transaction because we're still replicating
-      // the previous transaction so we need to go to RECOVERY
-      // state to catch up with the missing transaction
-      // We cannot queue the recovery process here because
-      // an error can happen while we're replicating the previous
-      // transaction after which the client should go to
-      // INVALID state before starting the recovery process
-      //
-      // This is a signal to any async streams that are still finalizing to start recovery, since this commit will be
-      // missed.
-      *locked_state = RECOVERY;
+      // the previous transaction. We will go to MAYBE_BEHIND state so that frequent heartbeat enqueues the recovery
+      // task to the queue.
+      *locked_state = MAYBE_BEHIND;
       return std::nullopt;
     }
     case MAYBE_BEHIND: {
@@ -285,7 +278,7 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(Storage *storage, 
   if (!replica_stream || replica_stream->IsDefunct()) {
     replica_state_.WithLock([&replica_stream](auto &state) {
       replica_stream.reset();
-      state = replication::ReplicaState::MAYBE_BEHIND;
+      state = ReplicaState::MAYBE_BEHIND;
     });
     LogRpcFailure();
     return false;
@@ -302,7 +295,7 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(Storage *storage, 
             replica_stream_obj.reset();
             // When async replica executes this part of the code, the state could've changed since the check
             // at the beginning of the function happened.
-            if (!response.success || state == replication::ReplicaState::RECOVERY) {
+            if (!response.success || state == ReplicaState::RECOVERY) {
               state = ReplicaState::RECOVERY;
               // NOLINTNEXTLINE
               client_.thread_pool_.AddTask([storage, response, db_acc = std::move(db_acc), this] {
@@ -346,7 +339,14 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, Storage *
   if (storage->storage_mode_ != StorageMode::IN_MEMORY_TRANSACTIONAL) {
     throw utils::BasicException("Only InMemoryTransactional mode supports replication!");
   }
+
+  if (*replica_state_.Lock() != ReplicaState::RECOVERY) {
+    spdlog::info("Replica {} is not in RECOVERY state anymore, ending the recovery task.", client_.name_);
+    return;
+  }
+
   spdlog::debug("Starting replica {} recovery ", client_.name_);
+
   auto *mem_storage = static_cast<InMemoryStorage *>(storage);
 
   rpc::Client &rpcClient = client_.rpc_client_;
