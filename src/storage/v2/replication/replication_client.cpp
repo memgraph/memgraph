@@ -284,26 +284,28 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(Storage *storage, 
     return false;
   }
 
-  auto task = [storage, db_acc = std::move(db_acc), this,
-               replica_stream_obj = std::move(replica_stream)]() mutable -> bool {
+  auto task = [db_acc = std::move(db_acc), this, replica_stream_obj = std::move(replica_stream)]() mutable -> bool {
     MG_ASSERT(replica_stream_obj, "Missing stream for transaction deltas for replica {}", client_.name_);
     try {
       auto response = replica_stream_obj->Finalize();
       // NOLINTNEXTLINE
-      return replica_state_.WithLock(
-          [storage, response, db_acc = std::move(db_acc), this, &replica_stream_obj](auto &state) mutable {
-            replica_stream_obj.reset();
-            if (!response.success) {
-              state = ReplicaState::RECOVERY;
-              // NOLINTNEXTLINE
-              client_.thread_pool_.AddTask([storage, response, db_acc = std::move(db_acc), this] {
-                this->RecoverReplica(response.current_commit_timestamp, storage);
-              });
-              return false;
-            }
-            state = ReplicaState::READY;
-            return true;
-          });
+      return replica_state_.WithLock([response, db_acc = std::move(db_acc), &replica_stream_obj](auto &state) mutable {
+        replica_stream_obj.reset();
+        // If we didn't receive successful response to AppendDeltas or we got into MAYBE_BEHIND state since the
+        // moment we started committing as ASYNC replica, we cannot set the ready state. We could got into
+        // MAYBE_BEHIND state if we missed next txn.
+        if (state != ReplicaState::REPLICATING) {
+          return false;
+        }
+
+        if (!response.success) {
+          state = ReplicaState::MAYBE_BEHIND;
+          return false;
+        }
+
+        state = ReplicaState::READY;
+        return true;
+      });
     } catch (const rpc::RpcFailedException &) {
       replica_state_.WithLock([&replica_stream_obj](auto &state) {
         replica_stream_obj.reset();
