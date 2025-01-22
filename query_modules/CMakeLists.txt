@@ -67,6 +67,10 @@ target_include_directories(text_search PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_compile_options(text_search PRIVATE -Wall)
 target_link_libraries(text_search PRIVATE -static-libgcc -static-libstdc++ fmt::fmt)
 add_post_build_strip_in_release(text_search CMAKE_BUILD_TYPE)
+set_target_properties(text_search PROPERTIES
+    PREFIX ""
+    OUTPUT_NAME "text_search"
+)
 # Also install the source of the example, so user can read it.
 install(FILES text_search_module.cpp DESTINATION lib/memgraph/query_modules/src)
 
@@ -99,7 +103,8 @@ set_target_properties(convert PROPERTIES
 # include it in both repos without copying
 add_subdirectory(mg_utility)
 
-set(ADD_QUERY_MODULE_BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}" CACHE INTERNAL "Build directory for QMs in folders")
+set(QUERY_MODULES_BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}" CACHE INTERNAL "Build directory for QMs in folders")
+set(QUERY_MODULES_DIR lib/memgraph/query_modules)
 
 function(add_query_module target_name version src)
   add_library(${target_name} SHARED ${src})
@@ -113,7 +118,7 @@ function(add_query_module target_name version src)
   target_link_libraries(${target_name} PRIVATE
       -static-libgcc
       -static-libstdc++
-      mg_utility # TODO: maybe move it somewhere else also maybe rename 
+      mg_utility # TODO: maybe move it somewhere else also maybe rename
   )
 
   add_post_build_strip_in_release(${target_name} CMAKE_BUILD_TYPE)
@@ -121,7 +126,7 @@ function(add_query_module target_name version src)
   set_target_properties(${target_name} PROPERTIES
       PREFIX "" # remove "lib" prefix
       OUTPUT_NAME "${target_name}"
-      LIBRARY_OUTPUT_DIRECTORY "${ADD_QUERY_MODULE_BUILD_DIR}" # needed because we want all .so in /build/query_modules
+      LIBRARY_OUTPUT_DIRECTORY "${QUERY_MODULES_BUILD_DIR}" # needed because we want all .so in /build/query_modules
   )
 endfunction()
 
@@ -132,8 +137,11 @@ add_subdirectory(community_detection_module)
 # Copy python query modules into build/query_modules
 # This is to avoid doing make install during CI
 # C and C++ modules .so files will already be there
-set(BUILD_QUERY_MODULES_DIR ${CMAKE_BINARY_DIR}/query_modules)
-file(MAKE_DIRECTORY ${BUILD_QUERY_MODULES_DIR})
+file(MAKE_DIRECTORY ${QUERY_MODULES_BUILD_DIR})
+
+# node2vec gets copied inside subdirectory
+# TODO: make this consistent
+add_subdirectory(node2vec_online_module)
 
 set(PYTHON_QUERY_MODULES_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/graph_analyzer.py
@@ -143,10 +151,9 @@ set(PYTHON_QUERY_MODULES_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/mgps.py
 )
 add_custom_target(copy_python_query_modules ALL
-    COMMAND ${CMAKE_COMMAND} -E copy ${PYTHON_QUERY_MODULES_FILES} ${BUILD_QUERY_MODULES_DIR}
+    COMMAND ${CMAKE_COMMAND} -E copy ${PYTHON_QUERY_MODULES_FILES} ${QUERY_MODULES_BUILD_DIR}
     COMMENT "Copying Python query modules to build/query_modules"
 )
-
 
 install(FILES convert.cpp DESTINATION lib/memgraph/query_modules/src)
 
