@@ -684,7 +684,7 @@ TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
     if (i == 0) {
       ASSERT_EQ(main.db.storage()->GetReplicaState("REPLICA_ASYNC"), ReplicaState::REPLICATING);
     } else {
-      ASSERT_EQ(main.db.storage()->GetReplicaState("REPLICA_ASYNC"), ReplicaState::MAYBE_BEHIND);
+      ASSERT_EQ(main.db.storage()->GetReplicaState("REPLICA_ASYNC"), ReplicaState::RECOVERY);
     }
   }
 
