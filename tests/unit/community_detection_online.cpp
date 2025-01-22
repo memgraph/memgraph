@@ -239,8 +239,3 @@ TEST(LabelRankT, DirectedWeightedGraph) {
 
   ASSERT_TRUE(labels == correct_labels);
 }
-
-int main(int argc, char **argv) {
-  testing::InitGoogleTest(&argc, argv);
-  return RUN_ALL_TESTS();
-}

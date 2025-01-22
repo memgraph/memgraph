@@ -103,6 +103,7 @@ set(ADD_QUERY_MODULE_BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}" CACHE INTERNAL "Bui
 
 function(add_query_module target_name version src)
   add_library(${target_name} SHARED ${src})
+  set_property(TARGET ${target_name} PROPERTY POSITION_INDEPENDENT_CODE TRUE)
   target_include_directories(${target_name} PRIVATE
       ${CMAKE_SOURCE_DIR}/include
       ${CMAKE_CURRENT_SOURCE_DIR}
@@ -150,8 +151,8 @@ add_custom_target(copy_python_query_modules ALL
 install(FILES convert.cpp DESTINATION lib/memgraph/query_modules/src)
 
 # Install C++ query modules
-# TODO: DYNAMIC
 install(TARGETS convert example_c example_cpp schema text_search vector_search pagerank_online
+    community_detection_online
     DESTINATION lib/memgraph/query_modules
 )
 

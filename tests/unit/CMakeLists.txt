@@ -573,3 +573,13 @@ add_unit_test(ttl.cpp)
 target_link_libraries(${test_prefix}ttl mg-query)
 target_include_directories(${test_prefix}ttl PRIVATE ${CMAKE_SOURCE_DIR}/include)
 endif()
+
+# Test community detection online
+# avoid linking with shared library due to missing symbols
+if(MG_ENTERPRISE)
+  add_unit_test(community_detection_online.cpp ${CMAKE_SOURCE_DIR}/query_modules/community_detection_module/algorithm_online/community_detection.cpp)
+  target_include_directories(${test_prefix}community_detection_online PRIVATE
+  ${CMAKE_SOURCE_DIR}/query_modules/community_detection_module
+  ${CMAKE_SOURCE_DIR}/include
+  ${CMAKE_SOURCE_DIR}/query_modules/mg_utility)
+endif()
