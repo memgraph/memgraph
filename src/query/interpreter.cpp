@@ -5728,6 +5728,7 @@ Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserPa
                             current_db_.name()});
 
   if (is_begin) {
+    current_timeout_timer_ = CreateTimeoutTimer(extras, interpreter_context_->config);
     return TransactionQuery::BEGIN;
   }
   if (trimmed_query == "COMMIT") {
@@ -5738,6 +5739,9 @@ Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserPa
   }
 
   try {
+    if (!in_explicit_transaction_) {
+      current_timeout_timer_ = CreateTimeoutTimer(extras, interpreter_context_->config);
+    }
     // NOTE: query_string is not BEGIN, COMMIT or ROLLBACK
     bool const is_schema_assert_query{upper_case_query.find(kSchemaAssert) != std::string::npos};
     const utils::Timer parsing_timer;
@@ -6138,7 +6142,6 @@ void Interpreter::SetupInterpreterTransaction(const QueryExtras &extras) {
     query_logger_->SetTransactionId(std::to_string(*current_transaction_));
   }
   metadata_ = GenOptional(extras.metadata_pv);
-  current_timeout_timer_ = CreateTimeoutTimer(extras, interpreter_context_->config);
 }
 
 std::vector<TypedValue> Interpreter::GetQueries() {

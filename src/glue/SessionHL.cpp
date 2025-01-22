@@ -299,7 +299,8 @@ std::pair<std::vector<std::string>, std::optional<int>> SessionHL::InterpretPrep
   try {
     auto parsed_res = *std::move(parsed_res_);
     parsed_res_.reset();
-    auto result = interpreter_.Prepare(std::move(parsed_res.parsed_query), parsed_res.get_params_pv, parsed_res.extra);
+    auto result =
+        interpreter_.Prepare(std::move(parsed_res.parsed_query), std::move(parsed_res.get_params_pv), parsed_res.extra);
     const std::string db_name = result.db ? *result.db : "";
     if (user_or_role_ && !user_or_role_->IsAuthorized(result.privileges, db_name, &query::session_long_policy)) {
       interpreter_.Abort();

@@ -543,12 +543,21 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
           case QueryHandlerResult::ABORT:
             Abort();
             break;
-          case QueryHandlerResult::NOTHING:
+          case QueryHandlerResult::NOTHING: {
+            auto expected = TransactionStatus::ACTIVE;
+            while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::IDLE)) {
+              if (expected == TransactionStatus::TERMINATED || expected == TransactionStatus::IDLE) {
+                continue;
+              }
+              expected = TransactionStatus::ACTIVE;
+              std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
             // The only cases in which we have nothing to do are those where
             // we're either in an explicit transaction or the query is such that
             // a transaction wasn't started on a call to `Prepare()`.
             MG_ASSERT(in_explicit_transaction_ || !current_db_.db_transactional_accessor_);
             break;
+          }
         }
         // As the transaction is done we can clear all the executions
         // NOTE: we cannot clear query_execution inside the Abort and Commit
