@@ -126,7 +126,7 @@ function(add_query_module target_name version src)
 endfunction()
 
 add_subdirectory(pagerank_module)
-#add_subdirectory(katz_centrality_module)
+add_subdirectory(katz_centrality_module)
 add_subdirectory(community_detection_module)
 
 # Copy python query modules into build/query_modules
@@ -152,7 +152,7 @@ install(FILES convert.cpp DESTINATION lib/memgraph/query_modules/src)
 
 # Install C++ query modules
 install(TARGETS convert example_c example_cpp schema text_search vector_search pagerank_online
-    community_detection_online
+    community_detection_online katz_centrality_online
     DESTINATION lib/memgraph/query_modules
 )
 

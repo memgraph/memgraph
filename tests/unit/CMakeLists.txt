@@ -583,3 +583,13 @@ if(MG_ENTERPRISE)
   ${CMAKE_SOURCE_DIR}/include
   ${CMAKE_SOURCE_DIR}/query_modules/mg_utility)
 endif()
+
+# Test katz centrality online
+# avoid linking with shared library due to missing symbols
+if(MG_ENTERPRISE)
+  add_unit_test(katz_centrality_online.cpp ${CMAKE_SOURCE_DIR}/query_modules/katz_centrality_module/algorithm/katz.cpp)
+  target_include_directories(${test_prefix}katz_centrality_online PRIVATE
+  ${CMAKE_SOURCE_DIR}/query_modules/katz_centrality_module
+  ${CMAKE_SOURCE_DIR}/include
+  ${CMAKE_SOURCE_DIR}/query_modules/mg_utility)
+endif()
