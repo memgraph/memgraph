@@ -290,8 +290,7 @@ InMemoryLabelPropertyCompositeIndex::Iterable::Bounds InMemoryLabelPropertyCompo
 
     // Check whether the bounds are of comparable types if both are supplied.
     if (lower_bound && upper_bound && !AreComparableTypes(lower_bound->value().type(), upper_bound->value().type())) {
-      bounds_valid_ = false;
-      return {};
+      return {.bounds_valid = false};
     }
 
     // Set missing bounds.
@@ -386,7 +385,8 @@ InMemoryLabelPropertyCompositeIndex::Iterable::Bounds InMemoryLabelPropertyCompo
     upper_bound_values.push_back(upper_bound->value());
   }
 
-  return {.lower_bound = std::move(lower_bound_values), .upper_bound = std::move(upper_bound_values)};
+  return {
+      .lower_bound = std::move(lower_bound_values), .upper_bound = std::move(upper_bound_values), .bounds_valid = true};
 }
 
 InMemoryLabelPropertyCompositeIndex::Iterable::Iterable(
@@ -410,6 +410,7 @@ InMemoryLabelPropertyCompositeIndex::Iterable::Iterable(
   // inclusive lower bound of the same type, or an exclusive upper bound of the
   // following type. If neither bound is set we yield all items in the index.
   auto bounds = MakeBounds(lower_bounds_, upper_bounds_);
+  bounds_valid_ = bounds.bounds_valid;
   lower_bound_ = std::move(bounds.lower_bound);
   upper_bound_ = std::move(bounds.upper_bound);
 }
@@ -436,15 +437,32 @@ uint64_t InMemoryLabelPropertyCompositeIndex::ApproximateVertexCount(LabelId lab
 
 uint64_t InMemoryLabelPropertyCompositeIndex::ApproximateVertexCount(
     LabelId label, const std::vector<PropertyId> &properties,
-    const std::vector<std::optional<utils::Bound<PropertyValue>>> & /*lower*/,
-    const std::vector<std::optional<utils::Bound<PropertyValue>>> & /*upper*/) const {
+    const std::vector<std::optional<utils::Bound<PropertyValue>>> &lower,
+    const std::vector<std::optional<utils::Bound<PropertyValue>>> &upper) const {
   auto it = index_.find({label, properties});
   MG_ASSERT(it != index_.end(), "Composite index for label {} does not exist!", label.AsUint());
 
   auto acc = it->second.access();
-  return 0;
+
+  // Generate bounds using the new helper method
+  auto [lower_bound, upper_bound] = GenerateBounds(lower, upper);
+
   // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
-  // return acc.estimate_range_count(lower, upper, utils::SkipListLayerForCountEstimation(acc.size()));
+  return acc.estimate_range_count(std::optional{utils::MakeBoundInclusive(lower_bound)},
+                                  std::optional{utils::MakeBoundInclusive(upper_bound)},
+                                  utils::SkipListLayerForCountEstimation(acc.size()));
+}
+
+std::pair<std::vector<PropertyValue>, std::vector<PropertyValue>> InMemoryLabelPropertyCompositeIndex::GenerateBounds(
+    const std::vector<std::optional<utils::Bound<PropertyValue>>> &lower_bounds,
+    const std::vector<std::optional<utils::Bound<PropertyValue>>> &upper_bounds) const {
+  std::vector<std::optional<utils::Bound<PropertyValue>>> mutable_lower_bounds = lower_bounds;
+  std::vector<std::optional<utils::Bound<PropertyValue>>> mutable_upper_bounds = upper_bounds;
+
+  // Use MakeBounds logic to generate lower and upper bounds
+  auto bounds = Iterable::MakeBounds(mutable_lower_bounds, mutable_upper_bounds);
+
+  return {std::move(bounds.lower_bound), std::move(bounds.upper_bound)};
 }
 
 std::vector<LabelPropertyCompositeIndexKey> InMemoryLabelPropertyCompositeIndex::ClearIndexStats() {
