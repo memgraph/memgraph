@@ -293,9 +293,7 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(Storage *storage, 
       return replica_state_.WithLock(
           [storage, response, db_acc = std::move(db_acc), this, &replica_stream_obj](auto &state) mutable {
             replica_stream_obj.reset();
-            // When async replica executes this part of the code, the state could've changed since the check
-            // at the beginning of the function happened.
-            if (!response.success || state == ReplicaState::RECOVERY) {
+            if (!response.success) {
               state = ReplicaState::RECOVERY;
               // NOLINTNEXTLINE
               client_.thread_pool_.AddTask([storage, response, db_acc = std::move(db_acc), this] {
