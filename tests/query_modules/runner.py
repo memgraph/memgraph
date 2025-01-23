@@ -25,13 +25,16 @@ def db():
     PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", ".."))
     BUILD_PATH = os.path.join(PROJECT_DIR, "build", "memgraph")
     QM_PATH = os.path.join(PROJECT_DIR, "build", "query_modules")
+    LOGS_PATH = os.path.join(PROJECT_DIR, "build", "logs")
+    os.makedirs(os.path.join(LOGS_PATH), exist_ok=True)
+
     BUILD_ARGS = [
         "--telemetry-enabled=false",
         "--storage-properties-on-edges=true",
         f"--query-modules-directory={QM_PATH}",
         "--log-level=TRACE",
         "--also-log-to-stderr",
-        "--log-file={}".format(os.path.join(BUILD_PATH, "logs", "memgraph.log")),
+        "--log-file={}".format(os.path.join(LOGS_PATH, "memgraph.log")),
     ]
 
     process = subprocess.Popen([BUILD_PATH] + BUILD_ARGS, stderr=subprocess.STDOUT)
