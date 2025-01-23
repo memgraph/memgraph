@@ -7,6 +7,7 @@
 #include <mg_utils.hpp>
 
 #include "algorithm/katz.hpp"
+#include "mgp.hpp"
 
 namespace {
 
@@ -30,8 +31,9 @@ void InsertKatzRecord(mgp_graph *graph, mgp_result *result, mgp_memory *memory, 
                       const int node_id) {
   auto *record = mgp::result_new_record(result);
 
-  mg_utility::InsertNodeValueResult(graph, record, kFieldNode, node_id, memory);
-  mg_utility::InsertDoubleValueResult(record, kFieldRank, katz_centrality, memory);
+  if (mg_utility::InsertNodeValueResult(graph, record, kFieldNode, node_id, memory)) {
+    mg_utility::InsertDoubleValueResult(record, kFieldRank, katz_centrality, memory);
+  }
 }
 
 void InsertMessageRecord(mgp_result *result, mgp_memory *memory, const char *message) {
@@ -42,6 +44,7 @@ void InsertMessageRecord(mgp_result *result, mgp_memory *memory, const char *mes
 
 void GetKatzCentrality(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   try {
+    mgp::MemoryDispatcherGuard guard{memory};
     if (!mgp_is_enterprise_valid()) {
       mgp::result_set_error_msg(result, "To use katz centrality online module you need a valid enterprise license.");
       return;
@@ -63,6 +66,7 @@ void GetKatzCentrality(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *re
 
 void SetKatzCentrality(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   try {
+    mgp::MemoryDispatcherGuard guard{memory};
     if (!mgp_is_enterprise_valid()) {
       mgp::result_set_error_msg(result, "To use katz centrality online module you need a valid enterprise license.");
       return;
@@ -87,6 +91,7 @@ void SetKatzCentrality(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *re
 
 void UpdateKatzCentrality(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   try {
+    mgp::MemoryDispatcherGuard guard{memory};
     if (!mgp_is_enterprise_valid()) {
       mgp::result_set_error_msg(result, "To use katz centrality online module you need a valid enterprise license.");
       return;
@@ -120,6 +125,7 @@ void UpdateKatzCentrality(mgp_list *args, mgp_graph *memgraph_graph, mgp_result 
 }
 void KatzCentralityReset(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   try {
+    mgp::MemoryDispatcherGuard guard{memory};
     if (!mgp_is_enterprise_valid()) {
       mgp::result_set_error_msg(result, "To use katz centrality online module you need a valid enterprise license.");
       return;
@@ -140,7 +146,7 @@ void KatzCentralityReset(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *
 // Here you can register multiple procedures your module supports.
 extern "C" int mgp_init_module(mgp_module *module, mgp_memory *memory) {
   try {
-    // Dynamic Katz centrality
+    mgp::MemoryDispatcherGuard guard{memory};
     {
       auto default_alpha = mgp::value_make_double(0.2, memory);
       auto default_epsilon = mgp::value_make_double(1e-2, memory);

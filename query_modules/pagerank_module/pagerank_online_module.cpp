@@ -12,6 +12,7 @@
 #include <mg_utils.hpp>
 
 #include "algorithm_online/pagerank.hpp"
+#include "mgp.hpp"
 
 constexpr char const *kProcedureSet = "set";
 constexpr char const *kProcedureGet = "get";
@@ -34,8 +35,9 @@ void InsertPagerankRecord(mgp_graph *graph, mgp_result *result, mgp_memory *memo
                           const double rank) {
   auto *record = mgp::result_new_record(result);
 
-  mg_utility::InsertNodeValueResult(graph, record, kFieldNode, node_id, memory);
-  mg_utility::InsertDoubleValueResult(record, kFieldRank, rank, memory);
+  if (mg_utility::InsertNodeValueResult(graph, record, kFieldNode, node_id, memory)) {
+    mg_utility::InsertDoubleValueResult(record, kFieldRank, rank, memory);
+  }
 }
 
 void InsertMessageRecord(mgp_result *result, mgp_memory *memory, const char *message) {
@@ -46,6 +48,7 @@ void InsertMessageRecord(mgp_result *result, mgp_memory *memory, const char *mes
 
 void OnlinePagerankGet(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   try {
+    mgp::MemoryDispatcherGuard guard{memory};
     if (!mgp_is_enterprise_valid()) {
       mgp::result_set_error_msg(result, "To use pagerank online module you need a valid enterprise license.");
       return;
@@ -67,6 +70,7 @@ void OnlinePagerankGet(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *re
 
 void OnlinePagerankSet(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   try {
+    mgp::MemoryDispatcherGuard guard{memory};
     if (!mgp_is_enterprise_valid()) {
       mgp::result_set_error_msg(result, "To use pagerank online module you need a valid enterprise license.");
       return;
@@ -91,6 +95,7 @@ void OnlinePagerankSet(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *re
 
 void OnlinePagerankUpdate(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   try {
+    mgp::MemoryDispatcherGuard guard{memory};
     if (!mgp_is_enterprise_valid()) {
       mgp::result_set_error_msg(result, "To use pagerank online module you need a valid enterprise license.");
       return;
@@ -149,6 +154,7 @@ void OnlinePagerankUpdate(mgp_list *args, mgp_graph *memgraph_graph, mgp_result 
 
 void OnlinePagerankReset(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   try {
+    mgp::MemoryDispatcherGuard guard{memory};
     if (!mgp_is_enterprise_valid()) {
       mgp::result_set_error_msg(result, "To use pagerank online module you need a valid enterprise license.");
       return;
@@ -163,6 +169,7 @@ void OnlinePagerankReset(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *
 }
 
 extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
+  mgp::MemoryDispatcherGuard guard{memory};
   // Online approximative PageRank solution
   {
     try {

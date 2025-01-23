@@ -9,6 +9,7 @@
 
 #include "algorithm_online/community_detection.hpp"
 #include "mg_procedure.h"
+#include "mgp.hpp"
 
 namespace {
 constexpr std::string_view kFieldNode{"node"};
@@ -47,8 +48,9 @@ void InsertCommunityDetectionRecord(mgp_graph *graph, mgp_result *result, mgp_me
                                     std::uint64_t community_id) {
   auto *record = mgp::result_new_record(result);
 
-  mg_utility::InsertNodeValueResult(graph, record, kFieldNode.data(), node_id, memory);
-  mg_utility::InsertIntValueResult(record, kFieldCommunityId.data(), community_id, memory);
+  if (mg_utility::InsertNodeValueResult(graph, record, kFieldNode.data(), node_id, memory)) {
+    mg_utility::InsertIntValueResult(record, kFieldCommunityId.data(), community_id, memory);
+  }
 }
 
 void InsertMessageRecord(mgp_result *result, mgp_memory *memory, const char *message) {
@@ -59,6 +61,7 @@ void InsertMessageRecord(mgp_result *result, mgp_memory *memory, const char *mes
 
 void Set(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   try {
+    mgp::MemoryDispatcherGuard guard{memory};
     if (!mgp_is_enterprise_valid()) {
       mgp::result_set_error_msg(result,
                                 "To use community detection online module you need a valid enterprise license.");
@@ -100,6 +103,7 @@ void Set(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memo
 
 void Get(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   try {
+    mgp::MemoryDispatcherGuard guard{memory};
     if (!mgp_is_enterprise_valid()) {
       mgp::result_set_error_msg(result,
                                 "To use community detection online module you need a valid enterprise license.");
@@ -134,6 +138,7 @@ void Get(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memo
 
 void Update(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   try {
+    mgp::MemoryDispatcherGuard guard{memory};
     if (!mgp_is_enterprise_valid()) {
       mgp::result_set_error_msg(result,
                                 "To use community detection online module you need a valid enterprise license.");
@@ -187,6 +192,7 @@ void Update(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_m
 
 void Reset(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   try {
+    mgp::MemoryDispatcherGuard guard{memory};
     if (!mgp_is_enterprise_valid()) {
       mgp::result_set_error_msg(result,
                                 "To use community detection online module you need a valid enterprise license.");
@@ -207,6 +213,7 @@ void Reset(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_me
 }
 
 extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
+  mgp::MemoryDispatcherGuard guard{memory};
   {
     try {
       auto *set_proc = mgp::module_add_read_procedure(module, "set", Set);
