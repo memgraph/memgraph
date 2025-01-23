@@ -544,14 +544,15 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
             Abort();
             break;
           case QueryHandlerResult::NOTHING: {
-            auto expected = TransactionStatus::ACTIVE;
-            while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::IDLE)) {
-              if (expected == TransactionStatus::TERMINATED || expected == TransactionStatus::IDLE) {
-                continue;
-              }
-              expected = TransactionStatus::ACTIVE;
-              std::this_thread::sleep_for(std::chrono::milliseconds(1));
-            }
+            // TODO Fix in another commit
+            // auto expected = TransactionStatus::ACTIVE;
+            // while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::IDLE)) {
+            //   if (expected == TransactionStatus::TERMINATED || expected == TransactionStatus::IDLE) {
+            //     continue;
+            //   }
+            //   expected = TransactionStatus::ACTIVE;
+            //   std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            // }
             // The only cases in which we have nothing to do are those where
             // we're either in an explicit transaction or the query is such that
             // a transaction wasn't started on a call to `Prepare()`.
