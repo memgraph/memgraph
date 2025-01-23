@@ -54,7 +54,7 @@ def test_name(request):
     return request.node.name
 
 
-def get_instances_description_no_setup(test_name: str, use_durability: bool = True):
+def get_instances_description_no_setup(test_name: str):
     return {
         "instance_1": {
             "args": [
@@ -103,7 +103,6 @@ def get_instances_description_no_setup(test_name: str, use_durability: bool = Tr
                 "--coordinator-id=1",
                 "--coordinator-port=10111",
                 "--management-port=10121",
-                f"--ha_durability={use_durability}",
                 "--coordinator-hostname",
                 "localhost",
             ],
@@ -119,7 +118,6 @@ def get_instances_description_no_setup(test_name: str, use_durability: bool = Tr
                 "--coordinator-id=2",
                 "--coordinator-port=10112",
                 "--management-port=10122",
-                f"--ha_durability={use_durability}",
                 "--coordinator-hostname",
                 "localhost",
             ],
@@ -135,7 +133,6 @@ def get_instances_description_no_setup(test_name: str, use_durability: bool = Tr
                 "--coordinator-id=3",
                 "--coordinator-port=10113",
                 "--management-port=10123",
-                f"--ha_durability={use_durability}",
                 "--coordinator-hostname",
                 "localhost",
             ],
@@ -150,6 +147,7 @@ def get_default_setup_queries():
     return [
         "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111', 'management_server': 'localhost:10121'}",
         "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112', 'management_server': 'localhost:10122'}",
+        "ADD COORDINATOR 3 WITH CONFIG {'bolt_server': 'localhost:7692', 'coordinator_server': 'localhost:10113', 'management_server': 'localhost:10123'}",
         "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
         "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",
         "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10003'};",
@@ -157,8 +155,7 @@ def get_default_setup_queries():
     ]
 
 
-def get_instances_description_no_setup_4_coords(test_name: str, use_durability: bool = True):
-    use_durability_str = "true" if use_durability else "false"
+def get_instances_description_no_setup_4_coords(test_name: str):
     return {
         "instance_1": {
             "args": [
@@ -206,7 +203,6 @@ def get_instances_description_no_setup_4_coords(test_name: str, use_durability: 
                 "--log-level=TRACE",
                 "--coordinator-id=1",
                 "--coordinator-port=10111",
-                f"--ha_durability={use_durability_str}",
                 "--coordinator-hostname",
                 "localhost",
                 "--management-port=10121",
@@ -222,7 +218,6 @@ def get_instances_description_no_setup_4_coords(test_name: str, use_durability: 
                 "--log-level=TRACE",
                 "--coordinator-id=2",
                 "--coordinator-port=10112",
-                f"--ha_durability={use_durability_str}",
                 "--coordinator-hostname",
                 "localhost",
                 "--management-port=10122",
@@ -238,7 +233,6 @@ def get_instances_description_no_setup_4_coords(test_name: str, use_durability: 
                 "--log-level=TRACE",
                 "--coordinator-id=3",
                 "--coordinator-port=10113",
-                f"--ha_durability={use_durability_str}",
                 "--coordinator-hostname",
                 "localhost",
                 "--management-port=10123",
@@ -254,7 +248,6 @@ def get_instances_description_no_setup_4_coords(test_name: str, use_durability: 
                 "--log-level=TRACE",
                 "--coordinator-id=4",
                 "--coordinator-port=10114",
-                f"--ha_durability={use_durability_str}",
                 "--coordinator-hostname",
                 "localhost",
                 "--management-port=10124",
@@ -309,8 +302,7 @@ def test_leadership_change(test_name):
     interactive_mg_runner.start(inner_instances_description, "coordinator_3")
 
 
-@pytest.mark.parametrize("use_durability", [True, False])
-def test_even_number_coords(use_durability, test_name):
+def test_even_number_coords(test_name):
     # Goal is to check that nothing gets broken on even number of coords when 2 coords are down
     # 1. Start all instances.
     # 2. Check that all instances are up and that one of the instances is a main.
@@ -322,15 +314,14 @@ def test_even_number_coords(use_durability, test_name):
     # 8.
 
     # 1
-    inner_instances_description = get_instances_description_no_setup_4_coords(
-        test_name=test_name, use_durability=use_durability
-    )
+    inner_instances_description = get_instances_description_no_setup_4_coords(test_name=test_name)
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
     setup_queries = [
         "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111', 'management_server': 'localhost:10121'}",
         "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112', 'management_server': 'localhost:10122'}",
+        "ADD COORDINATOR 3 WITH CONFIG {'bolt_server': 'localhost:7692', 'coordinator_server': 'localhost:10113', 'management_server': 'localhost:10123'}",
         "ADD COORDINATOR 4 WITH CONFIG {'bolt_server': 'localhost:7693', 'coordinator_server': 'localhost:10114', 'management_server': 'localhost:10124'}",
         "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
         "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",
@@ -1037,6 +1028,7 @@ def test_registering_4_coords(test_name):
                 "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111', 'management_server': 'localhost:10121'}",
                 "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112', 'management_server': 'localhost:10122'}",
                 "ADD COORDINATOR 3 WITH CONFIG {'bolt_server': 'localhost:7692', 'coordinator_server': 'localhost:10113', 'management_server': 'localhost:10123'}",
+                "ADD COORDINATOR 4 WITH CONFIG {'bolt_server': 'localhost:7693', 'coordinator_server': 'localhost:10114', 'management_server': 'localhost:10124'}",
                 "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
                 "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",
                 "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10003'};",
@@ -1177,6 +1169,7 @@ def test_registering_coord_log_store(test_name):
                 "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111', 'management_server': 'localhost:10121'}",
                 "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112', 'management_server': 'localhost:10122'}",
                 "ADD COORDINATOR 3 WITH CONFIG {'bolt_server': 'localhost:7692', 'coordinator_server': 'localhost:10113',  'management_server': 'localhost:10123'}",
+                "ADD COORDINATOR 4 WITH CONFIG {'bolt_server': 'localhost:7693', 'coordinator_server': 'localhost:10114', 'management_server': 'localhost:10124'}",
                 "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
                 "REGISTER INSTANCE instance_2 WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",
                 "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10003'};",
@@ -2326,7 +2319,7 @@ def test_coordinator_user_action_demote_instance_to_replica(test_name):
     # 4. Check we have correct state
 
     # 1
-    inner_instances_description = get_instances_description_no_setup(test_name=test_name, use_durability=True)
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
 
     FAILOVER_PERIOD = 2
     inner_instances_description["instance_1"]["args"].append(f"--instance-down-timeout-sec={FAILOVER_PERIOD}")
@@ -2432,7 +2425,7 @@ def test_coordinator_user_action_force_reset_works(test_name):
     # 4. Check we have correct state
 
     # 1
-    inner_instances_description = get_instances_description_no_setup(test_name=test_name, use_durability=True)
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
@@ -2518,7 +2511,7 @@ def test_all_coords_down_resume(test_name):
     # 5. Check everything works correctly
 
     # 1
-    inner_instances_description = get_instances_description_no_setup(test_name=test_name, use_durability=True)
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
@@ -2626,7 +2619,7 @@ def test_one_coord_down_with_durability_resume(test_name):
     # 5. Check everything works correctly
 
     # 1
-    inner_instances_description = get_instances_description_no_setup(test_name=test_name, use_durability=True)
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
@@ -2709,7 +2702,7 @@ def test_registration_does_not_deadlock_when_instance_is_down(test_name):
     # Goal of this test is to assert that system doesn't deadlock in case of failure on registration
 
     # 1
-    inner_instances_description = get_instances_description_no_setup(test_name=test_name, use_durability=True)
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
 
     interactive_mg_runner.start(inner_instances_description, "coordinator_1")
     interactive_mg_runner.start(inner_instances_description, "coordinator_2")
@@ -2718,6 +2711,7 @@ def test_registration_does_not_deadlock_when_instance_is_down(test_name):
     setup_queries = [
         "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111', 'management_server': 'localhost:10121'}",
         "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112', 'management_server': 'localhost:10122'}",
+        "ADD COORDINATOR 3 WITH CONFIG {'bolt_server': 'localhost:7692', 'coordinator_server': 'localhost:10113', 'management_server': 'localhost:10123'}",
     ]
 
     coord_cursor_3 = connect(host="localhost", port=7692).cursor()
@@ -2774,7 +2768,7 @@ def test_follower_have_correct_health(test_name):
     # 5. Check everything works correctly
 
     # 1
-    inner_instances_description = get_instances_description_no_setup(test_name=test_name, use_durability=True)
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
 
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
@@ -2811,14 +2805,13 @@ def test_first_coord_restarts(test_name):
     interactive_mg_runner.start(inner_instances_description, "coordinator_1")
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
 
-    leader_data = [("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader")]
+    # Empty because 'ADD COORDINATOR 1' wasn't run
+    leader_data = [("coordinator_1", "", "localhost:10111", "localhost:10121", "up", "leader")]
     mg_sleep_and_assert(leader_data, partial(show_instances, coord_cursor_1))
 
     interactive_mg_runner.kill_all(keep_directories=True)
 
     interactive_mg_runner.start(inner_instances_description, "coordinator_1")
-
-    leader_data = [("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader")]
 
     coord_cursor_1 = connect(host="localhost", port=7690).cursor()
     mg_sleep_and_assert(leader_data, partial(show_instances, coord_cursor_1))

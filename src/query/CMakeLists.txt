@@ -141,11 +141,17 @@ set(antlr_opencypher_generated_include
     ${opencypher_generated}/MemgraphCypherVisitor.h
 )
 
+set(ANTLR_GENERATOR_PATH "${CMAKE_SOURCE_DIR}/libs/antlr-4.13.2-complete.jar")
+if(DEFINED ENV{MG_TOOLCHAIN_VERSION})
+  if($ENV{MG_TOOLCHAIN_VERSION} GREATER_EQUAL 6)
+      set(ANTLR_GENERATOR_PATH "${MG_TOOLCHAIN_ROOT}/bin/antlr-4.13.2-complete.jar")
+  endif()
+endif()
 add_custom_command(
     OUTPUT ${antlr_opencypher_generated_src} ${antlr_opencypher_generated_include}
     COMMAND ${CMAKE_COMMAND} -E make_directory ${opencypher_generated}
     COMMAND
-    java -jar ${CMAKE_SOURCE_DIR}/libs/antlr-4.13.2-complete.jar
+    java -jar ${ANTLR_GENERATOR_PATH}
     -Dlanguage=Cpp -visitor -package antlropencypher
     -o ${opencypher_generated}
     ${opencypher_lexer_grammar} ${opencypher_parser_grammar}

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,7 +13,7 @@
 
 #pragma once
 
-#include "coordination/coordinator_communication_config.hpp"
+#include "coordination/coordinator_instance_aux.hpp"
 
 namespace memgraph::coordination {
 
@@ -22,7 +22,7 @@ class CoordinatorInstance;
 class CoordinationClusterChangeObserver {
  public:
   explicit CoordinationClusterChangeObserver(CoordinatorInstance *instance);
-  void Update(std::vector<CoordinatorToCoordinatorConfig> const &configs);
+  void Update(std::vector<CoordinatorInstanceAux> const &coord_instances_aux) const;
 
  private:
   CoordinatorInstance *instance_;

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,7 +14,6 @@
 #include "utils/logging.hpp"
 
 #include <cstddef>
-#include <vector>
 
 namespace memgraph::communication {
 
@@ -45,8 +44,10 @@ void Buffer::WriteEnd::Resize(size_t len) { buffer_->Resize(len); }
 void Buffer::WriteEnd::Clear() { buffer_->Clear(); }
 
 Buffer::ReadEnd *Buffer::read_end() { return &read_end_; }
+const Buffer::ReadEnd *Buffer::read_end() const { return &read_end_; }
 
 Buffer::WriteEnd *Buffer::write_end() { return &write_end_; }
+const Buffer::WriteEnd *Buffer::write_end() const { return &write_end_; }
 
 uint8_t *Buffer::data() { return data_.data(); }
 

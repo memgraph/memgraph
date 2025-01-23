@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -339,11 +339,11 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     MG_ASSERT(has_aggregation_.size() >= 2U, "Expected at least 2 has_aggregation_ flags."); \
     /* has_aggregation_ stack is reversed, last result is from the 2nd */                    \
     /* expression. */                                                                        \
-    bool aggr2 = has_aggregation_.back();                                                    \
+    bool const aggr2 = has_aggregation_.back();                                              \
     has_aggregation_.pop_back();                                                             \
-    bool aggr1 = has_aggregation_.back();                                                    \
+    bool const aggr1 = has_aggregation_.back();                                              \
     has_aggregation_.pop_back();                                                             \
-    bool has_aggr = aggr1 || aggr2;                                                          \
+    bool const has_aggr = aggr1 || aggr2;                                                    \
     if (has_aggr && !(aggr1 && aggr2)) {                                                     \
       /* Group by the expression which does not contain aggregation. */                      \
       if (aggr1 && !IsConstantLiteral(op.expression2_)) {                                    \
@@ -365,6 +365,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   VISIT_BINARY_OPERATOR(MultiplicationOperator)
   VISIT_BINARY_OPERATOR(DivisionOperator)
   VISIT_BINARY_OPERATOR(ModOperator)
+  VISIT_BINARY_OPERATOR(ExponentiationOperator)
   VISIT_BINARY_OPERATOR(NotEqualOperator)
   VISIT_BINARY_OPERATOR(EqualOperator)
   VISIT_BINARY_OPERATOR(LessOperator)

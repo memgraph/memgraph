@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -36,7 +36,7 @@ class CoordinationUtils : public ::testing::Test {
   int const bolt_port{8688};
   int const coordinator_port{20111};
   int const management_port{30111};
-  uint32_t const coordinator_id{11};
+  int32_t const coordinator_id{11};
 };
 
 // Networking is used in this test, be careful with ports used.
@@ -76,9 +76,12 @@ TEST_F(CoordinationUtils, MemgraphDbHistorySimple) {
   memgraph::replication_coordination_glue::DatabaseHistories instance_3_db_histories_{history};
   instance_database_histories.emplace_back("instance_3", instance_3_db_histories_);
 
-  CoordinatorInstanceInitConfig const init_config1{
-      coordinator_id, coordinator_port, bolt_port, management_port, test_folder_ / "high_availability" / "coordinator",
-      "localhost"};
+  CoordinatorInstanceInitConfig const init_config1{.coordinator_id = coordinator_id,
+                                                   .coordinator_port = coordinator_port,
+                                                   .bolt_port = bolt_port,
+                                                   .management_port = management_port,
+                                                   .durability_dir = test_folder_ / "high_availability" / "coordinator",
+                                                   .coordinator_hostname = "localhost"};
   memgraph::coordination::CoordinatorInstance instance{init_config1};
 
   auto [instance_name, latest_epoch, latest_commit_timestamp] =
@@ -131,9 +134,12 @@ TEST_F(CoordinationUtils, MemgraphDbHistoryLastEpochDifferent) {
   memgraph::replication_coordination_glue::DatabaseHistories instance_3_db_histories_{history3};
   instance_database_histories.emplace_back("instance_3", instance_3_db_histories_);
 
-  CoordinatorInstanceInitConfig const init_config1{
-      coordinator_id, coordinator_port, bolt_port, management_port, test_folder_ / "high_availability" / "coordinator",
-      "localhost"};
+  CoordinatorInstanceInitConfig const init_config1{.coordinator_id = coordinator_id,
+                                                   .coordinator_port = coordinator_port,
+                                                   .bolt_port = bolt_port,
+                                                   .management_port = management_port,
+                                                   .durability_dir = test_folder_ / "high_availability" / "coordinator",
+                                                   .coordinator_hostname = "localhost"};
   memgraph::coordination::CoordinatorInstance instance{init_config1};
   auto [instance_name, latest_epoch, latest_commit_timestamp] =
       *instance.ChooseMostUpToDateInstance(instance_database_histories);
@@ -189,9 +195,12 @@ TEST_F(CoordinationUtils, MemgraphDbHistoryOneInstanceAheadFewEpochs) {
   memgraph::replication_coordination_glue::DatabaseHistories instance_3_db_histories_{history_longest};
   instance_database_histories.emplace_back("instance_3", instance_3_db_histories_);
 
-  CoordinatorInstanceInitConfig const init_config1{
-      coordinator_id, coordinator_port, bolt_port, management_port, test_folder_ / "high_availability" / "coordinator",
-      "localhost"};
+  CoordinatorInstanceInitConfig const init_config1{.coordinator_id = coordinator_id,
+                                                   .coordinator_port = coordinator_port,
+                                                   .bolt_port = bolt_port,
+                                                   .management_port = management_port,
+                                                   .durability_dir = test_folder_ / "high_availability" / "coordinator",
+                                                   .coordinator_hostname = "localhost"};
   memgraph::coordination::CoordinatorInstance instance{init_config1};
   auto [instance_name, latest_epoch, latest_commit_timestamp] =
       *instance.ChooseMostUpToDateInstance(instance_database_histories);
@@ -202,7 +211,7 @@ TEST_F(CoordinationUtils, MemgraphDbHistoryOneInstanceAheadFewEpochs) {
 }
 
 TEST_F(CoordinationUtils, MemgraphDbHistoryInstancesHistoryDiverged) {
-  // When history diverged, also prioritize one with biggest last durable timestamp
+  // When history diverged, also prioritize one with the biggest last durable timestamp
   // Main      : A(1)  B(2)   C(3)    X
   // replica  1: A(1)  B(2)   C(3)    X     X up
   // replica  2: A(1)  B(2)    X     D(5)   X up
@@ -251,9 +260,12 @@ TEST_F(CoordinationUtils, MemgraphDbHistoryInstancesHistoryDiverged) {
   memgraph::replication_coordination_glue::DatabaseHistories instance_2_db_histories_{history_2};
   instance_database_histories.emplace_back("instance_2", instance_2_db_histories_);
 
-  CoordinatorInstanceInitConfig const init_config1{
-      coordinator_id, coordinator_port, bolt_port, management_port, test_folder_ / "high_availability" / "coordinator",
-      "localhost"};
+  CoordinatorInstanceInitConfig const init_config1{.coordinator_id = coordinator_id,
+                                                   .coordinator_port = coordinator_port,
+                                                   .bolt_port = bolt_port,
+                                                   .management_port = management_port,
+                                                   .durability_dir = test_folder_ / "high_availability" / "coordinator",
+                                                   .coordinator_hostname = "localhost"};
   memgraph::coordination::CoordinatorInstance instance{init_config1};
   auto [instance_name, latest_epoch, latest_commit_timestamp] =
       *instance.ChooseMostUpToDateInstance(instance_database_histories);

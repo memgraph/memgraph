@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -27,20 +27,11 @@
 
 namespace memgraph::flags {
 
-CoordinationSetup::CoordinationSetup(int management_port, int coordinator_port, uint32_t coordinator_id,
-                                     std::string nuraft_log_file, bool ha_durability, std::string coordinator_hostname)
-    : management_port(management_port),  // data instance management port or coordinator instance management port
-      coordinator_port(coordinator_port),
-      coordinator_id(coordinator_id),
-      nuraft_log_file(std::move(nuraft_log_file)),
-      ha_durability(ha_durability),
-      coordinator_hostname(std::move(coordinator_hostname)) {}
-
 std::string CoordinationSetup::ToString() {
   return fmt::format(
-      "management port: {}, coordinator port: {}, coordinator id: {}, nuraft_log_file: {} ha_durability: {}, "
+      "management port: {}, coordinator port: {}, coordinator id: {}, nuraft_log_file: {}, "
       "coordinator_hostname: {}",
-      management_port, coordinator_port, coordinator_id, nuraft_log_file, ha_durability, coordinator_hostname);
+      management_port, coordinator_port, coordinator_id, nuraft_log_file, coordinator_hostname);
 }
 
 [[nodiscard]] auto CoordinationSetup::IsDataInstanceManagedByCoordinator() const -> bool {
@@ -56,8 +47,8 @@ void SetFinalCoordinationSetup() {
 #ifdef MG_ENTERPRISE
 
   std::vector<char const *> const maybe_coord_envs{std::getenv(kMgManagementPort), std::getenv(kMgCoordinatorPort),
-                                                   std::getenv(kMgCoordinatorId),  std::getenv(kMgNuRaftLogFile),
-                                                   std::getenv(kMgHaDurability),   std::getenv(kMgCoordinatorHostname)};
+                                                   std::getenv(kMgCoordinatorId), std::getenv(kMgNuRaftLogFile),
+                                                   std::getenv(kMgCoordinatorHostname)};
 
   bool const any_envs_set = std::ranges::any_of(maybe_coord_envs, [](char const *env) { return env != nullptr; });
 
@@ -94,17 +85,20 @@ void SetFinalCoordinationSetup() {
 
     if (any_envs_set) {
       spdlog::trace("Coordinator will be initialized using environment variables.");
-      return CoordinationSetup(coord_envs[0] ? std::stoi(coord_envs[0].value()) : 0,
-                               coord_envs[1] ? std::stoi(coord_envs[1].value()) : 0,
-                               coord_envs[2] ? static_cast<uint32_t>(std::stoul(coord_envs[2].value())) : 0,
-                               coord_envs[3] ? coord_envs[3].value() : "",
-                               coord_envs[4] ? static_cast<bool>(std::stoi(coord_envs[4].value())) : false,
-                               coord_envs[5] ? coord_envs[5].value() : "");
+      return CoordinationSetup{
+          .management_port = coord_envs[0] ? std::stoi(coord_envs[0].value()) : 0,
+          .coordinator_port = coord_envs[1] ? std::stoi(coord_envs[1].value()) : 0,
+          .coordinator_id = coord_envs[2] ? static_cast<int32_t>(std::stoul(coord_envs[2].value())) : 0,
+          .nuraft_log_file = coord_envs[3] ? coord_envs[3].value() : "",
+          .coordinator_hostname = coord_envs[4] ? coord_envs[4].value() : ""};
     }
 
-    spdlog::trace("Coordinator will be initilized using flags.");
-    return CoordinationSetup{FLAGS_management_port, FLAGS_coordinator_port, FLAGS_coordinator_id,
-                             FLAGS_nuraft_log_file, FLAGS_ha_durability,    FLAGS_coordinator_hostname};
+    spdlog::trace("Coordinator will be initialized using flags.");
+    return CoordinationSetup{.management_port = FLAGS_management_port,
+                             .coordinator_port = FLAGS_coordinator_port,
+                             .coordinator_id = FLAGS_coordinator_id,
+                             .nuraft_log_file = FLAGS_nuraft_log_file,
+                             .coordinator_hostname = FLAGS_coordinator_hostname};
   }();  // iile
 #endif
 }

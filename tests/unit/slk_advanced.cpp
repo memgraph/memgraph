@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,7 +14,6 @@
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_slk.hpp"
 #include "io/network/endpoint.hpp"
-#include "replication/config.hpp"
 #include "replication_coordination_glue/mode.hpp"
 #include "slk_common.hpp"
 #include "storage/v2/property_value.hpp"

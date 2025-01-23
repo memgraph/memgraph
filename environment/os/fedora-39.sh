@@ -3,6 +3,8 @@ set -Eeuo pipefail
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 source "$DIR/../util.sh"
 
+# IMPORTANT: Deprecated since memgraph v3.0.0.
+
 check_operating_system "fedora-39"
 check_architecture "x86_64"
 
@@ -26,6 +28,10 @@ TOOLCHAIN_BUILD_DEPS=(
     patch
     perl # for openssl
     git
+    custom-rust # for mgcxx
+    libtool # for protobuf
+    pkgconf-pkg-config # for pulsar
+    cyrus-sasl-devel # for librdkafka
 )
 
 TOOLCHAIN_RUN_DEPS=(
@@ -81,6 +87,12 @@ check() {
     fi
     local missing=""
     for pkg in $1; do
+        if [ "$pkg" == custom-rust ]; then
+            if [ ! -x "$HOME/.cargo/bin/rustup" ]; then
+                missing="$pkg $missing"
+            fi
+            continue
+        fi
         if ! dnf list installed "$pkg" >/dev/null 2>/dev/null; then
             missing="$pkg $missing"
         fi
@@ -110,6 +122,14 @@ install() {
     fi
     dnf update -y
     for pkg in $1; do
+        if [ "$pkg" == custom-rust ]; then
+            install_rust "1.80"
+            continue
+        fi
+        if [ "$pkg" == custom-node ]; then
+            install_node "20"
+            continue
+        fi
         dnf install -y "$pkg"
     done
 }

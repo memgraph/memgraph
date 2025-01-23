@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -220,7 +220,9 @@ bool ValidPeriodicSnapshot(const std::string_view def) {
     // NOTE: Cron is an enterprise feature
     const auto cron = cron::make_cron(def);
     if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-      constexpr std::string_view msg = "Defining snapshot schedule via cron expressions is an enterprise feature.";
+      constexpr std::string_view msg =
+          "Defining snapshot schedule via cron expressions is an enterprise feature. Check your license status by "
+          "running SHOW LICENSE INFO.";
       if constexpr (FATAL) {
         LOG_FATAL(msg);
       }

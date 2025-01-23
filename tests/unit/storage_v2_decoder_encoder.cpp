@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,6 +14,7 @@
 #include <filesystem>
 #include <limits>
 
+#include "storage/v2/durability/marker.hpp"
 #include "storage/v2/durability/serialization.hpp"
 #include "storage/v2/point.hpp"
 #include "storage/v2/property_value.hpp"
@@ -415,6 +416,8 @@ TEST_F(DecoderEncoderTest, PropertyValueInvalidMarker) {
         case memgraph::storage::durability::Marker::DELTA_LABEL_INDEX_DROP:
         case memgraph::storage::durability::Marker::DELTA_POINT_INDEX_CREATE:
         case memgraph::storage::durability::Marker::DELTA_POINT_INDEX_DROP:
+        case memgraph::storage::durability::Marker::DELTA_VECTOR_INDEX_CREATE:
+        case memgraph::storage::durability::Marker::DELTA_VECTOR_INDEX_DROP:
         case memgraph::storage::durability::Marker::DELTA_LABEL_INDEX_STATS_SET:
         case memgraph::storage::durability::Marker::DELTA_LABEL_INDEX_STATS_CLEAR:
         case memgraph::storage::durability::Marker::DELTA_LABEL_PROPERTY_INDEX_CREATE:

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,8 +10,6 @@
 // licenses/APL.txt.
 
 #include "replication/replication_client.hpp"
-#include "io/network/endpoint.hpp"
-#include "io/network/fmt.hpp"
 
 namespace {
 auto CreateClientContext(const memgraph::replication::ReplicationClientConfig &config)

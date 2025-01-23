@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -1031,43 +1031,134 @@ TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext
   FType<Or<Null, String, Number, Date, LocalTime, LocalDateTime, Duration, ZonedDateTime, Bool, Enum>>("toString", args,
                                                                                                        nargs);
   const auto &arg = args[0];
-  if (arg.IsNull()) {
-    return TypedValue(ctx.memory);
+  using enum TypedValue::Type;
+  switch (arg.type()) {
+    case Null: {
+      return TypedValue(ctx.memory);
+    }
+
+    case String: {
+      return {arg, ctx.memory};
+    }
+
+    case Int: {
+      // TODO: This is making a pointless copy of std::string, we may want to
+      // use a different conversion to string
+      return TypedValue(std::to_string(arg.ValueInt()), ctx.memory);
+    }
+
+    case Double: {
+      return TypedValue(memgraph::utils::DoubleToString(arg.ValueDouble()), ctx.memory);
+    }
+
+    case Date: {
+      return TypedValue(arg.ValueDate().ToString(), ctx.memory);
+    }
+
+    case LocalTime: {
+      return TypedValue(arg.ValueLocalTime().ToString(), ctx.memory);
+    }
+
+    case LocalDateTime: {
+      return TypedValue(arg.ValueLocalDateTime().ToString(), ctx.memory);
+    }
+
+    case Duration: {
+      return TypedValue(arg.ValueDuration().ToString(), ctx.memory);
+    }
+
+    case ZonedDateTime: {
+      return TypedValue(arg.ValueZonedDateTime().ToString(), ctx.memory);
+    }
+
+    case Enum: {
+      auto opt_str = ctx.db_accessor->EnumToName(arg.ValueEnum());
+      if (opt_str.HasError()) throw QueryRuntimeException("'toString' the given enum can't be converted to a string");
+      return TypedValue(*opt_str, ctx.memory);
+    }
+
+    case Bool: {
+      return TypedValue(arg.ValueBool() ? "true" : "false", ctx.memory);
+    }
+
+    case List:
+    case Map:
+    case Vertex:
+    case Edge:
+    case Path:
+    case Graph:
+    case Function:
+    case Point2d:
+    case Point3d: {
+      MG_ASSERT(false, "unexpected TypedValue::Type");
+    }
   }
-  if (arg.IsString()) {
-    return TypedValue(arg, ctx.memory);
-  }
-  if (arg.IsInt()) {
-    // TODO: This is making a pointless copy of std::string, we may want to
-    // use a different conversion to string
-    return TypedValue(std::to_string(arg.ValueInt()), ctx.memory);
-  }
-  if (arg.IsDouble()) {
-    return TypedValue(memgraph::utils::DoubleToString(arg.ValueDouble()), ctx.memory);
-  }
-  if (arg.IsDate()) {
-    return TypedValue(arg.ValueDate().ToString(), ctx.memory);
-  }
-  if (arg.IsLocalTime()) {
-    return TypedValue(arg.ValueLocalTime().ToString(), ctx.memory);
-  }
-  if (arg.IsLocalDateTime()) {
-    return TypedValue(arg.ValueLocalDateTime().ToString(), ctx.memory);
-  }
-  if (arg.IsDuration()) {
-    return TypedValue(arg.ValueDuration().ToString(), ctx.memory);
-  }
-  if (arg.IsZonedDateTime()) {
-    return TypedValue(arg.ValueZonedDateTime().ToString(), ctx.memory);
+}
+
+TypedValue ToStringOrNull(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  if (nargs != 1) {
+    throw QueryRuntimeException("'toStringOrNull' requires exactly 1 argument.");
   }
 
-  if (arg.IsEnum()) {
-    auto opt_str = ctx.db_accessor->EnumToName(arg.ValueEnum());
-    if (opt_str.HasError()) throw QueryRuntimeException("'toString' the given enum can't be converted to a string");
-    return TypedValue(*opt_str, ctx.memory);
-  }
+  const auto &arg = args[0];
+  using enum TypedValue::Type;
+  switch (arg.type()) {
+    case String: {
+      return {arg, ctx.memory};
+    }
 
-  return TypedValue(arg.ValueBool() ? "true" : "false", ctx.memory);
+    case Int: {
+      // TODO: This is making a pointless copy of std::string, we may want to
+      // use a different conversion to string
+      return TypedValue(std::to_string(arg.ValueInt()), ctx.memory);
+    }
+
+    case Double: {
+      return TypedValue(memgraph::utils::DoubleToString(arg.ValueDouble()), ctx.memory);
+    }
+
+    case Date: {
+      return TypedValue(arg.ValueDate().ToString(), ctx.memory);
+    }
+
+    case LocalTime: {
+      return TypedValue(arg.ValueLocalTime().ToString(), ctx.memory);
+    }
+
+    case LocalDateTime: {
+      return TypedValue(arg.ValueLocalDateTime().ToString(), ctx.memory);
+    }
+
+    case Duration: {
+      return TypedValue(arg.ValueDuration().ToString(), ctx.memory);
+    }
+    case ZonedDateTime: {
+      return TypedValue(arg.ValueZonedDateTime().ToString(), ctx.memory);
+    }
+
+    case Enum: {
+      auto opt_str = ctx.db_accessor->EnumToName(arg.ValueEnum());
+      if (opt_str.HasError()) throw QueryRuntimeException("'toString' the given enum can't be converted to a string");
+      return TypedValue(*opt_str, ctx.memory);
+    }
+
+    case Bool: {
+      return TypedValue(arg.ValueBool() ? "true" : "false", ctx.memory);
+    }
+
+    case Null:
+    case List:
+    case Map:
+    case Vertex:
+    case Edge:
+    case Path:
+    case Graph:
+    case Function:
+    case Point2d:
+    case Point3d: {
+      return TypedValue(ctx.memory);
+    }
+  }
 }
 
 TypedValue Timestamp(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
@@ -1686,6 +1777,7 @@ auto const builtin_functions = absl::flat_hash_map<std::string, func_impl>{
     {"SUBSTRING", Substring},
     {"TOLOWER", ToLower},
     {"TOSTRING", ToString},
+    {"TOSTRINGORNULL", ToStringOrNull},
     {"TOUPPER", ToUpper},
     {"TRIM", Trim},
 
