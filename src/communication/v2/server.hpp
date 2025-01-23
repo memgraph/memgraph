@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <boost/system/detail/errc.hpp>
 #include <string>
 #include <thread>
 
@@ -103,8 +104,13 @@ class Server final {
 
   void OnError(const boost::system::error_code &ec, const std::string_view what) {
     spdlog::error("Listener failed on {}: {}", what, ec.message());
-    // Shutdown();
-    // TODO Recoverable?
+    if (ec == boost::system::errc::too_many_files_open || ec == boost::system::errc::too_many_files_open_in_system) {
+      spdlog::trace("too many open files... retrying");
+      DoAccept();
+      return;
+    }
+    spdlog::trace("fatal communication error... shutting down");
+    Shutdown();
   }
 
   ServerEndpoint endpoint_;
