@@ -144,9 +144,9 @@ class InMemoryLabelPropertyCompositeIndex : public storage::LabelPropertyComposi
                                   const std::vector<std::optional<utils::Bound<PropertyValue>>> &lower,
                                   const std::vector<std::optional<utils::Bound<PropertyValue>>> &upper) const override;
 
-  std::pair<std::vector<PropertyValue>, std::vector<PropertyValue>> GenerateBounds(
+  static std::pair<std::vector<PropertyValue>, std::vector<PropertyValue>> GenerateBounds(
       const std::vector<std::optional<utils::Bound<PropertyValue>>> &lower_bounds,
-      const std::vector<std::optional<utils::Bound<PropertyValue>>> &upper_bounds) const;
+      const std::vector<std::optional<utils::Bound<PropertyValue>>> &upper_bounds);
 
   std::vector<LabelPropertyCompositeIndexKey> ClearIndexStats();
 

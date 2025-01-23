@@ -226,9 +226,7 @@ struct MetadataDelta {
       case LABEL_INDEX_STATS_SET:
       case LABEL_INDEX_STATS_CLEAR:
       case LABEL_PROPERTY_INDEX_CREATE:
-      case LABEL_PROPERTY_COMPOSITE_INDEX_CREATE:
       case LABEL_PROPERTY_INDEX_DROP:
-      case LABEL_PROPERTY_COMPOSITE_INDEX_DROP:
       case LABEL_PROPERTY_INDEX_STATS_SET:
       case LABEL_PROPERTY_INDEX_STATS_CLEAR:
       case LABEL_PROPERTY_COMPOSITE_INDEX_STATS_SET:
@@ -252,6 +250,11 @@ struct MetadataDelta {
         break;
       case VECTOR_INDEX_DROP: {
         std::destroy_at(&vector_index_name);
+        break;
+      }
+      case LABEL_PROPERTY_COMPOSITE_INDEX_CREATE:
+      case LABEL_PROPERTY_COMPOSITE_INDEX_DROP: {
+        std::destroy_at(&label_property_composite);
         break;
       }
       case UNIQUE_CONSTRAINT_CREATE:

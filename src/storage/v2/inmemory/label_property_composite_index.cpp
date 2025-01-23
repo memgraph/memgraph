@@ -448,14 +448,15 @@ uint64_t InMemoryLabelPropertyCompositeIndex::ApproximateVertexCount(
   auto [lower_bound, upper_bound] = GenerateBounds(lower, upper);
 
   // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
-  return acc.estimate_range_count(std::optional{utils::MakeBoundInclusive(lower_bound)},
-                                  std::optional{utils::MakeBoundInclusive(upper_bound)},
-                                  utils::SkipListLayerForCountEstimation(acc.size()));
+  return acc.estimate_range_count(
+      std::optional{utils::MakeBoundInclusive(lower_bound)}, std::optional{utils::MakeBoundInclusive(upper_bound)},
+      // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
+      utils::SkipListLayerForCountEstimation(acc.size()));
 }
 
 std::pair<std::vector<PropertyValue>, std::vector<PropertyValue>> InMemoryLabelPropertyCompositeIndex::GenerateBounds(
     const std::vector<std::optional<utils::Bound<PropertyValue>>> &lower_bounds,
-    const std::vector<std::optional<utils::Bound<PropertyValue>>> &upper_bounds) const {
+    const std::vector<std::optional<utils::Bound<PropertyValue>>> &upper_bounds) {
   std::vector<std::optional<utils::Bound<PropertyValue>>> mutable_lower_bounds = lower_bounds;
   std::vector<std::optional<utils::Bound<PropertyValue>>> mutable_upper_bounds = upper_bounds;
 

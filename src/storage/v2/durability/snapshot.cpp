@@ -3110,7 +3110,7 @@ RecoveredSnapshot LoadSnapshotVersion22(const std::filesystem::path &path, utils
 
   // Cleanup of loaded data in case of failure.
   bool success = false;
-  utils::OnScopeExit cleanup([&] {
+  utils::OnScopeExit const cleanup([&] {
     if (!success) {
       edges->clear();
       vertices->clear();
@@ -3124,7 +3124,7 @@ RecoveredSnapshot LoadSnapshotVersion22(const std::filesystem::path &path, utils
   const auto info = ReadSnapshotInfo(path);
   spdlog::info("Recovering {} vertices and {} edges.", info.vertices_count, info.edges_count);
   // Check for edges.
-  bool snapshot_has_edges = info.offset_edges != 0;
+  bool const snapshot_has_edges = info.offset_edges != 0;
 
   // Recover mapper.
   std::unordered_map<uint64_t, uint64_t> snapshot_id_map;
@@ -4005,10 +4005,10 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
         if (!avg_degree)
           throw RecoveryFailure("Couldn't read average degree for label-property composite index statistics!");
         const auto label_id = get_label_from_id(*label);
-        indices_constraints.indices.label_property_composite_stats.emplace_back(std::make_pair(
+        indices_constraints.indices.label_property_composite_stats.emplace_back(
             label_id,
             std::make_pair(properties, LabelPropertyCompositeIndexStats{*count, *distinct_values_count, *statistic,
-                                                                        *avg_group_size, *avg_degree})));
+                                                                        *avg_group_size, *avg_degree}));
         SPDLOG_TRACE("Recovered metadata of label+property composite index statistics for :{}",
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)));
       }
