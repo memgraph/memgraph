@@ -659,6 +659,18 @@ TEST_P(CypherMainVisitorTest, ModOperator) {
   ast_generator.CheckLiteral(mod_operator->expression2_, 3);
 }
 
+TEST_P(CypherMainVisitorTest, ExponentiationOperator) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN 2 ^ 3"));
+  ASSERT_TRUE(query);
+  ASSERT_TRUE(query->single_query_);
+  auto *single_query = query->single_query_;
+  auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
+  auto *exp_operator = dynamic_cast<ExponentiationOperator *>(return_clause->body_.named_expressions[0]->expression_);
+  ast_generator.CheckLiteral(exp_operator->expression1_, 2);
+  ast_generator.CheckLiteral(exp_operator->expression2_, 3);
+}
+
 #define CHECK_COMPARISON(TYPE, VALUE1, VALUE2)                             \
   do {                                                                     \
     auto *and_operator = dynamic_cast<AndOperator *>(_operator);           \

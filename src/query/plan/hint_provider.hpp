@@ -307,7 +307,7 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
   }
 
   std::string ExtractAndJoin(auto &&collection, auto &&projection) {
-    auto elements = collection | ranges::views::transform(projection);
+    auto elements = collection | ranges::views::transform(std::forward<decltype(projection)>(projection));
     return boost::algorithm::join(elements, ", ");
   }
 };

@@ -486,6 +486,35 @@ class ModOperator : public memgraph::query::BinaryOperator {
   friend class AstStorage;
 };
 
+class ExponentiationOperator : public memgraph::query::BinaryOperator {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DEFVISITABLE(ExpressionVisitor<TypedValue>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<void>);
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
+    if (visitor.PreVisit(*this)) {
+      expression1_->Accept(visitor) && expression2_->Accept(visitor);
+    }
+    return visitor.PostVisit(*this);
+  }
+
+  ExponentiationOperator *Clone(AstStorage *storage) const override {
+    ExponentiationOperator *object = storage->Create<ExponentiationOperator>();
+    object->expression1_ = expression1_ ? expression1_->Clone(storage) : nullptr;
+    object->expression2_ = expression2_ ? expression2_->Clone(storage) : nullptr;
+    return object;
+  }
+
+ protected:
+  using BinaryOperator::BinaryOperator;
+
+ private:
+  friend class AstStorage;
+};
+
 class NotEqualOperator : public memgraph::query::BinaryOperator {
  public:
   static const utils::TypeInfo kType;

@@ -2701,12 +2701,10 @@ antlrcpp::Any CypherMainVisitor::visitExpression6(MemgraphCypher::Expression6Con
                                            {MemgraphCypher::ASTERISK, MemgraphCypher::SLASH, MemgraphCypher::PERCENT});
 }
 
-// Power.
+// Exponentiation.
 antlrcpp::Any CypherMainVisitor::visitExpression5(MemgraphCypher::Expression5Context *ctx) {
   if (ctx->expression4().size() > 1U) {
-    // TODO: implement power operator. In neo4j power is left associative and
-    // int^int -> float.
-    throw utils::NotYetImplemented("power (^) operator");
+    return LeftAssociativeOperatorExpression(ctx->expression4(), ctx->children, {MemgraphCypher::CARET});
   }
   return visitChildren(ctx);
 }

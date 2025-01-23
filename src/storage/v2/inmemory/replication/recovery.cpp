@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,7 +12,6 @@
 #include "storage/v2/inmemory/replication/recovery.hpp"
 #include <algorithm>
 #include <cstdint>
-#include <iterator>
 #include <type_traits>
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -20,7 +19,6 @@
 #include "storage/v2/transaction.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/uuid.hpp"
-#include "utils/variant_helpers.hpp"
 
 namespace memgraph::storage {
 
@@ -72,10 +70,10 @@ void InMemoryCurrentWalHandler::AppendBufferData(const uint8_t *buffer, const si
 
 replication::CurrentWalRes InMemoryCurrentWalHandler::Finalize() { return stream_.AwaitResponse(); }
 
-////// ReplicationClient Helpers //////
+// ReplicationClient Helpers
+// Caller should make sure that wal files aren't empty
 replication::WalFilesRes TransferWalFiles(const utils::UUID &main_uuid, const utils::UUID &uuid, rpc::Client &client,
                                           const std::vector<std::filesystem::path> &wal_files) {
-  MG_ASSERT(!wal_files.empty(), "Wal files list is empty!");
   auto stream = client.Stream<replication::WalFilesRpc>(main_uuid, uuid, wal_files.size());
   replication::Encoder encoder(stream.GetBuilder());
   for (const auto &wal : wal_files) {
@@ -93,16 +91,15 @@ replication::SnapshotRes TransferSnapshot(const utils::UUID &main_uuid, const ut
   return stream.AwaitResponse();
 }
 
-uint64_t ReplicateCurrentWal(const utils::UUID &main_uuid, const InMemoryStorage *storage, rpc::Client &client,
-                             durability::WalFile const &wal_file) {
+replication::CurrentWalRes ReplicateCurrentWal(const utils::UUID &main_uuid, const InMemoryStorage *storage,
+                                               rpc::Client &client, durability::WalFile const &wal_file) {
   InMemoryCurrentWalHandler stream{main_uuid, storage, client};
   stream.AppendFilename(wal_file.Path().filename());
   utils::InputFile file;
   MG_ASSERT(file.Open(wal_file.Path()), "Failed to open current WAL file at {}!", wal_file.Path());
   stream.AppendSize(file.GetSize());
   stream.AppendFileData(&file);
-  auto response = stream.Finalize();
-  return response.current_commit_timestamp;
+  return stream.Finalize();
 }
 
 /// This method tries to find the optimal path for recovering a single replica.
@@ -134,7 +131,6 @@ std::vector<RecoveryStep> GetRecoverySteps(uint64_t replica_commit, utils::FileR
   // otherwise save the seq_num of the current wal file
   // This lock is also necessary to force the missed transaction to finish.
   std::optional<uint64_t> current_wal_seq_num;
-  std::optional<uint64_t> current_wal_from_timestamp;
   uint64_t last_durable_timestamp{kTimestampInitialId};
 
   std::unique_lock transaction_guard(
@@ -144,7 +140,6 @@ std::vector<RecoveryStep> GetRecoverySteps(uint64_t replica_commit, utils::FileR
   if (storage->wal_file_) {
     last_durable_timestamp = storage->wal_file_->ToTimestamp();
     current_wal_seq_num.emplace(storage->wal_file_->SequenceNumber());
-    current_wal_from_timestamp.emplace(storage->wal_file_->FromTimestamp());
     // No need to hold the lock since the current WAL is present and we can simply skip them
     transaction_guard.unlock();
   }
@@ -188,7 +183,7 @@ std::vector<RecoveryStep> GetRecoverySteps(uint64_t replica_commit, utils::FileR
     // Check what part of the WAL chain is needed
     bool covered_by_wals = false;
     auto prev_seq{wal_files->back().seq_num};
-    int64_t first_useful_wal = (int64_t)wal_files->size() - 1;
+    int64_t first_useful_wal = static_cast<int64_t>(wal_files->size()) - 1;
     // Going from newest to oldest
     for (; first_useful_wal >= 0; --first_useful_wal) {
       const auto &wal = wal_files.value()[first_useful_wal];
@@ -216,10 +211,10 @@ std::vector<RecoveryStep> GetRecoverySteps(uint64_t replica_commit, utils::FileR
         if (latest_snapshot->start_timestamp > replica_commit) {
           // There is some data we need in the snapshot
           add_snapshot();
-          // Go along the WAL chain and remove unecessary parts (going from oldest to newest WAL)
+          // Go along the WAL chain and remove necessary parts (going from oldest to newest WAL)
           for (; first_useful_wal < wal_files->size(); ++first_useful_wal) {
-            const auto &wal = wal_files.value()[first_useful_wal];
-            if (wal.to_timestamp > latest_snapshot->start_timestamp) {
+            const auto &local_wal = wal_files.value()[first_useful_wal];
+            if (local_wal.to_timestamp > latest_snapshot->start_timestamp) {
               // Got to the first WAL file with data not contained in the snapshot
               break;
             }
@@ -236,7 +231,7 @@ std::vector<RecoveryStep> GetRecoverySteps(uint64_t replica_commit, utils::FileR
       for (; first_useful_wal < wal_files->size(); ++first_useful_wal) {
         auto &wal = wal_files.value()[first_useful_wal];
         const auto lock_success = locker_acc.AddPath(wal.path);
-        MG_ASSERT(!lock_success.HasError(), "Tried to lock a nonexistant WAL path.");
+        MG_ASSERT(!lock_success.HasError(), "Tried to lock a nonexistent WAL path.");
         rw.emplace_back(std::move(wal.path));
       }
       recovery_steps.emplace_back(std::in_place_type_t<RecoveryWals>{}, std::move(rw));
