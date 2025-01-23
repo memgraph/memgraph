@@ -471,6 +471,23 @@ jobs:
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph query_modules_e2e
 
+      - name: Copy build logs
+        if: always()
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          copy --build-logs --dest-dir build/logs
+
+      - name: Save test data
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: "Test data(Release build)-${{ inputs.run_id }}"
+          path: build/logs
+
       - name: Stop mgbuild container
         if: always()
         run: |

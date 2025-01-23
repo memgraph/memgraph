@@ -31,6 +31,7 @@ def db():
         f"--query-modules-directory={QM_PATH}",
         "--log-level=TRACE",
         "--also-log-to-stderr",
+        "--log-file={}".format(os.path.join(BUILD_PATH, "logs", "memgraph.log")),
     ]
 
     process = subprocess.Popen([BUILD_PATH] + BUILD_ARGS, stderr=subprocess.STDOUT)
