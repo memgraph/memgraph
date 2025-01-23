@@ -46,6 +46,11 @@ void InsertMessageRecord(mgp_result *result, mgp_memory *memory, const char *mes
 
 void OnlinePagerankGet(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   try {
+    if (!mgp_is_enterprise_valid()) {
+      mgp::result_set_error_msg(result, "To use pagerank online module you need a valid enterprise license.");
+      return;
+    }
+
     auto graph = mg_utility::GetGraphView(memgraph_graph, result, memory, mg_graph::GraphType::kDirectedGraph);
 
     auto pageranks = pagerank_online_alg::GetPagerank(*graph);
@@ -62,6 +67,11 @@ void OnlinePagerankGet(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *re
 
 void OnlinePagerankSet(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   try {
+    if (!mgp_is_enterprise_valid()) {
+      mgp::result_set_error_msg(result, "To use pagerank online module you need a valid enterprise license.");
+      return;
+    }
+
     auto walks_per_node = mgp::value_get_int(mgp::list_at(args, 0));
     auto walk_stop_epsilon = mgp::value_get_double(mgp::list_at(args, 1));
 
@@ -81,6 +91,11 @@ void OnlinePagerankSet(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *re
 
 void OnlinePagerankUpdate(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   try {
+    if (!mgp_is_enterprise_valid()) {
+      mgp::result_set_error_msg(result, "To use pagerank online module you need a valid enterprise license.");
+      return;
+    }
+
     // Created vertices
     auto created_vertices_list = mgp::value_get_list(mgp::list_at(args, 0));
     auto size = mgp::list_size(created_vertices_list);
@@ -134,6 +149,11 @@ void OnlinePagerankUpdate(mgp_list *args, mgp_graph *memgraph_graph, mgp_result 
 
 void OnlinePagerankReset(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   try {
+    if (!mgp_is_enterprise_valid()) {
+      mgp::result_set_error_msg(result, "To use pagerank online module you need a valid enterprise license.");
+      return;
+    }
+
     pagerank_online_alg::Reset();
     InsertMessageRecord(result, memory, "Pagerank context is reset! Before running again it will run initialization.");
   } catch (const std::exception &e) {

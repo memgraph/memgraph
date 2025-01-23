@@ -135,6 +135,9 @@ def set_word2vec_learner(
         CALL node2vec_online.set_gensim_word2vec_learner() YIELD *;
     """
 
+    if not mgp.is_enterprise_valid():
+        raise mgp.AbortError("To use node2vec online module you need a valid enterprise license.")
+
     global node2vec_context
 
     if node2vec_context.is_initialized():
@@ -163,6 +166,9 @@ def reset() -> mgp.Record(message=str):
     This function resets parameters and embeddings already learned.
     """
 
+    if not mgp.is_enterprise_valid():
+        raise mgp.AbortError("To use node2vec online module you need a valid enterprise license.")
+
     global node2vec_context
 
     node2vec_context.start_time = None
@@ -184,6 +190,9 @@ def get(
     Example call (with parameter):
         CALL graph_analyzer.analyze(['nodes', 'edges']) YIELD *;
     """
+
+    if not mgp.is_enterprise_valid():
+        raise mgp.AbortError("To use node2vec online module you need a valid enterprise license.")
 
     if not node2vec_context.is_initialized():
         raise mgp.AbortError(
@@ -222,6 +231,9 @@ def update(ctx: mgp.ProcCtx, edges: mgp.List[mgp.Edge]) -> mgp.Record():
         CALL node2vec_online.update(['nodes', 'edges']) YIELD *;
     """
 
+    if not mgp.is_enterprise_valid():
+        raise mgp.AbortError("To use node2vec online module you need a valid enterprise license.")
+
     global node2vec_context
 
     current_time = time.time()
@@ -245,6 +257,10 @@ def update(ctx: mgp.ProcCtx, edges: mgp.List[mgp.Edge]) -> mgp.Record():
 @mgp.read_proc
 def help() -> mgp.Record(name=str, value=str):
     """Shows manual page for graph_analyzer."""
+
+    if not mgp.is_enterprise_valid():
+        raise mgp.AbortError("To use node2vec online module you need a valid enterprise license.")
+
     records = []
 
     def make_records(name, doc):

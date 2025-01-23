@@ -42,6 +42,11 @@ void InsertMessageRecord(mgp_result *result, mgp_memory *memory, const char *mes
 
 void GetKatzCentrality(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   try {
+    if (!mgp_is_enterprise_valid()) {
+      mgp::result_set_error_msg(result, "To use katz centrality online module you need a valid enterprise license.");
+      return;
+    }
+
     auto graph = mg_utility::GetGraphView(memgraph_graph, result, memory, mg_graph::GraphType::kDirectedGraph);
     auto katz_centralities = katz_alg::GetKatz(*graph);
 
@@ -58,6 +63,11 @@ void GetKatzCentrality(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *re
 
 void SetKatzCentrality(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   try {
+    if (!mgp_is_enterprise_valid()) {
+      mgp::result_set_error_msg(result, "To use katz centrality online module you need a valid enterprise license.");
+      return;
+    }
+
     auto alpha = mgp::value_get_double(mgp::list_at(args, 0));
     auto epsilon = mgp::value_get_double(mgp::list_at(args, 1));
 
@@ -77,6 +87,11 @@ void SetKatzCentrality(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *re
 
 void UpdateKatzCentrality(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   try {
+    if (!mgp_is_enterprise_valid()) {
+      mgp::result_set_error_msg(result, "To use katz centrality online module you need a valid enterprise license.");
+      return;
+    }
+
     // Created vertices
     auto created_vertices = mg_utility::GetNodeIDs(mgp::value_get_list(mgp::list_at(args, 0)));
     auto created_edges = mg_utility::GetEdgeEndpointIDs(mgp::value_get_list(mgp::list_at(args, 1)));
@@ -105,6 +120,11 @@ void UpdateKatzCentrality(mgp_list *args, mgp_graph *memgraph_graph, mgp_result 
 }
 void KatzCentralityReset(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   try {
+    if (!mgp_is_enterprise_valid()) {
+      mgp::result_set_error_msg(result, "To use katz centrality online module you need a valid enterprise license.");
+      return;
+    }
+
     katz_alg::Reset();
     InsertMessageRecord(result, memory,
                         "Katz centrality context is reset! Before running again it will run initialization.");

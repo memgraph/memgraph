@@ -8,6 +8,7 @@
 #include <mg_utils.hpp>
 
 #include "algorithm_online/community_detection.hpp"
+#include "mg_procedure.h"
 
 namespace {
 constexpr std::string_view kFieldNode{"node"};
@@ -58,6 +59,12 @@ void InsertMessageRecord(mgp_result *result, mgp_memory *memory, const char *mes
 
 void Set(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   try {
+    if (!mgp_is_enterprise_valid()) {
+      mgp::result_set_error_msg(result,
+                                "To use community detection online module you need a valid enterprise license.");
+      return;
+    }
+
     const auto directed = mgp::value_get_bool(mgp::list_at(args, 0));
     const auto weighted = mgp::value_get_bool(mgp::list_at(args, 1));
     const auto similarity_threshold = mgp::value_get_double(mgp::list_at(args, 2));
@@ -93,6 +100,12 @@ void Set(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memo
 
 void Get(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   try {
+    if (!mgp_is_enterprise_valid()) {
+      mgp::result_set_error_msg(result,
+                                "To use community detection online module you need a valid enterprise license.");
+      return;
+    }
+
     const auto graph_type =
         saved_directedness ? mg_graph::GraphType::kDirectedGraph : mg_graph::GraphType::kUndirectedGraph;
     auto graph = saved_weightedness ? mg_utility::GetWeightedGraphView(memgraph_graph, result, memory, graph_type,
@@ -121,6 +134,12 @@ void Get(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memo
 
 void Update(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   try {
+    if (!mgp_is_enterprise_valid()) {
+      mgp::result_set_error_msg(result,
+                                "To use community detection online module you need a valid enterprise license.");
+      return;
+    }
+
     const auto created_nodes = mgp::value_get_list(mgp::list_at(args, 0));
     const auto created_edges = mgp::value_get_list(mgp::list_at(args, 1));
     const auto updated_nodes = mgp::value_get_list(mgp::list_at(args, 2));
@@ -168,6 +187,12 @@ void Update(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_m
 
 void Reset(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   try {
+    if (!mgp_is_enterprise_valid()) {
+      mgp::result_set_error_msg(result,
+                                "To use community detection online module you need a valid enterprise license.");
+      return;
+    }
+
     ::algorithm = LabelRankT::LabelRankT();
     ::initialized = false;
 
