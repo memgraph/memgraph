@@ -216,6 +216,44 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
   }
   spdlog::info("Label+property indices statistics are recreated.");
 
+  // Recover label+property composite indices.
+  spdlog::info("Recreating {} label+property composite indices from metadata.",
+               indices_metadata.label_property_composite.size());
+  auto *mem_label_property_composite_index =
+      static_cast<InMemoryLabelPropertyCompositeIndex *>(indices->label_property_composite_index_.get());
+  for (const auto &item : indices_metadata.label_property_composite) {
+    if (!mem_label_property_composite_index->CreateIndex(item.first, item.second, vertices->access(),
+                                                         parallel_exec_info)) {
+      throw RecoveryFailure("The label+property composite index must be created here!");
+    }
+    std::vector<std::string> properties;
+    properties.reserve(item.second.size());
+    for (const auto &prop : item.second) {
+      properties.push_back(name_id_mapper->IdToName(prop.AsUint()));
+    }
+    spdlog::info("Index on :{}({}) is recreated from metadata", name_id_mapper->IdToName(item.first.AsUint()),
+                 utils::Join(properties, ", "));
+  }
+  spdlog::info("Label+property composite indices are recreated.");
+
+  // Recover label+property composite indices statistics.
+  spdlog::info("Recreating {} label+property composite indices statistics from metadata.",
+               indices_metadata.label_property_composite_stats.size());
+  for (const auto &item : indices_metadata.label_property_composite_stats) {
+    const auto label_id = item.first;
+    const auto property_ids = item.second.first;
+    const auto &stats = item.second.second;
+    mem_label_property_composite_index->SetIndexStats({label_id, property_ids}, stats);
+    std::vector<std::string> properties;
+    properties.reserve(property_ids.size());
+    for (const auto &prop : property_ids) {
+      properties.push_back(name_id_mapper->IdToName(prop.AsUint()));
+    }
+    spdlog::info("Statistics for index on :{}({}) are recreated from metadata",
+                 name_id_mapper->IdToName(label_id.AsUint()), utils::Join(properties, ", "));
+  }
+  spdlog::info("Label+property composite indices statistics are recreated.");
+
   // Recover edge-type indices.
   spdlog::info("Recreating {} edge-type indices from metadata.", indices_metadata.edge.size());
   MG_ASSERT(indices_metadata.edge.empty() || properties_on_edges,
@@ -381,6 +419,10 @@ std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfo(const Recovery
 
 std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfoIndices(const RecoveryInfo &recovery_info,
                                                                          const Config &config) {
+  if (recovery_info.vertex_batches.empty()) {
+    return std::nullopt;
+  }
+
   return config.durability.allow_parallel_schema_creation
              ? std::make_optional(ParallelizedSchemaCreationInfo{recovery_info.vertex_batches,
                                                                  config.durability.recovery_thread_count})
