@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -106,12 +106,14 @@ class Buffer final {
    * buffer.
    */
   ReadEnd *read_end();
+  const ReadEnd *read_end() const;
 
   /**
    * This function returns a pointer to the associated WriteEnd object for
    * this buffer.
    */
   WriteEnd *write_end();
+  const WriteEnd *write_end() const;
 
  private:
   /**
