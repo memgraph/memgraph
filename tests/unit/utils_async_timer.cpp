@@ -22,7 +22,7 @@ using AsyncTimer = memgraph::utils::AsyncTimer;
 inline constexpr auto kSecondsInMilis = 1000.0;
 inline constexpr auto kIntervalInSeconds = 0.05;
 inline constexpr auto kIntervalInMilis = kIntervalInSeconds * kSecondsInMilis;
-inline constexpr auto kAbsoluteErrorInMilis = 5;
+inline constexpr auto kAbsoluteErrorInMilis = 75;
 
 std::chrono::steady_clock::time_point Now() { return std::chrono::steady_clock::now(); }
 

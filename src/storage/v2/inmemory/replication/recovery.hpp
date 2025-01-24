@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,8 +25,8 @@ replication::WalFilesRes TransferWalFiles(const utils::UUID &main_uuid, const ut
 replication::SnapshotRes TransferSnapshot(const utils::UUID &main_uuid, const utils::UUID &uuid, rpc::Client &client,
                                           const std::filesystem::path &path);
 
-uint64_t ReplicateCurrentWal(const utils::UUID &main_uuid, const InMemoryStorage *storage, rpc::Client &client,
-                             durability::WalFile const &wal_file);
+replication::CurrentWalRes ReplicateCurrentWal(const utils::UUID &main_uuid, const InMemoryStorage *storage,
+                                               rpc::Client &client, durability::WalFile const &wal_file);
 
 auto GetRecoverySteps(uint64_t replica_commit, utils::FileRetainer::FileLocker *file_locker,
                       const InMemoryStorage *storage) -> std::vector<RecoveryStep>;

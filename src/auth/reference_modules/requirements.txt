@@ -1,5 +1,5 @@
-cryptography==3.4.8
-PyJWT==2.3.0
+cryptography==44.0.0
+PyJWT==2.10.1
 requests==2.32.2
 ldap3==2.6
 pyyaml==6.0.1
@@ -7,3 +7,4 @@ python3-saml==1.16.0
 lxml==5.2.1
 gensim==4.3.3
 networkx==3.2.1
+setuptools==75.8.0
