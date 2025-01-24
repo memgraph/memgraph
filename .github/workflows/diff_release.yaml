@@ -453,8 +453,6 @@ jobs:
 
       - name: Run query modules e2e tests
         run: |
-          virtualenv -p python3 ve3
-          source ve3/bin/activate
           pip install -r tests/query_modules/requirements.txt
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
