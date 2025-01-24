@@ -5,3 +5,5 @@ ldap3==2.6
 pyyaml==6.0.1
 python3-saml==1.16.0
 lxml==5.2.1
+gensim==4.3.3
+networkx==3.2.1

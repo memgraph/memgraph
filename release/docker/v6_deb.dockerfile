@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y \
 
 # NOTE: The following are required to run built-in Python modules. For the full
 # list, please visit query_modules/CMakeLists.txt.
-RUN pip3 install --break-system-packages  networkx==3.4.2 numpy==2.2.1 scipy==1.15.1 gensim==4.3.3
+RUN pip3 install --break-system-packages  numpy==2.2.1 scipy==1.15.1
 
 COPY "${BINARY_NAME}${TARGETARCH}.${EXTENSION}" /
 
