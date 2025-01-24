@@ -453,7 +453,6 @@ jobs:
 
       - name: Run query modules e2e tests
         run: |
-          pip install -r tests/query_modules/requirements.txt
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
           --os $OS \
