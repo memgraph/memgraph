@@ -243,6 +243,9 @@ target_link_libraries(${test_prefix}utils_memory mg-utils)
 add_unit_test(utils_memory_tracker.cpp)
 target_link_libraries(${test_prefix}utils_memory_tracker mg-utils)
 
+add_unit_test(utils_query_memory_tracker.cpp)
+target_link_libraries(${test_prefix}utils_query_memory_tracker mg-utils)
+
 add_unit_test(utils_on_scope_exit.cpp)
 target_link_libraries(${test_prefix}utils_on_scope_exit mg-utils)
 
