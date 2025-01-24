@@ -893,7 +893,7 @@ class Aggregation : public memgraph::query::BinaryOperator {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  enum class Op { COUNT, MIN, MAX, SUM, AVG, COLLECT_LIST, COLLECT_MAP, PROJECT };
+  enum class Op { COUNT, MIN, MAX, SUM, AVG, COLLECT_LIST, COLLECT_MAP, PROJECT_PATH, PROJECT_LISTS };
 
   Aggregation() = default;
 
@@ -906,7 +906,7 @@ class Aggregation : public memgraph::query::BinaryOperator {
   static const constexpr char *const kProject = "PROJECT";
 
   static std::string OpToString(Op op) {
-    const char *op_strings[] = {kCount, kMin, kMax, kSum, kAvg, kCollect, kCollect, kProject};
+    const char *op_strings[] = {kCount, kMin, kMax, kSum, kAvg, kCollect, kCollect, kProject, kProject};
     return op_strings[static_cast<int>(op)];
   }
 
@@ -945,15 +945,15 @@ class Aggregation : public memgraph::query::BinaryOperator {
   // Use only for serialization.
   explicit Aggregation(Op op) : op_(op) {}
 
-  /// Aggregation's first expression is the value being aggregated. The second
-  /// expression is the key used only in COLLECT_MAP.
+  /// Aggregation's first expression is the value being aggregated. The second expression is used either as a key in
+  /// COLLECT_MAP or for the relationships list in the two-argument overload of PROJECT_PATH; no other aggregate
+  /// functions use this parameter.
   Aggregation(Expression *expression1, Expression *expression2, Op op, bool distinct)
       : BinaryOperator(expression1, expression2), op_(op), distinct_(distinct) {
     // COUNT without expression denotes COUNT(*) in cypher.
-    DMG_ASSERT(expression1 || op == Aggregation::Op::COUNT, "All aggregations, except COUNT require expression");
-    DMG_ASSERT((expression2 == nullptr) ^ (op == Aggregation::Op::COLLECT_MAP),
-               "The second expression is obligatory in COLLECT_MAP and "
-               "invalid otherwise");
+    DMG_ASSERT(expression1 || op == Aggregation::Op::COUNT, "All aggregations, except COUNT require expression1");
+    DMG_ASSERT((expression2 == nullptr) ^ (op == Aggregation::Op::PROJECT_LISTS || op == Aggregation::Op::COLLECT_MAP),
+               "expression2 is obligatory in COLLECT_MAP and PROJECT_LISTS, and invalid otherwise");
   }
 
  private:

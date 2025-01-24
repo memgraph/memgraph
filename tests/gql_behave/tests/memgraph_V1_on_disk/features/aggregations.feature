@@ -535,6 +535,111 @@ Feature: Aggregations
         Then the result should be:
           | y |
 
+    Scenario: Two-argument projection creates a subgraph from lists of nodes and edges
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x:1}), (b:N {x:2}), (c:N {x:3}), (d: N {x: 4}), (a)-[:R {q: 1}]->(b), (c)-[:R {q: 2}]->(d)
+            """
+        When executing query:
+            """
+            MATCH (x)-[r:R]->(z) WITH project([x, z], [r]) as graph WITH graph.nodes as nodes UNWIND nodes as n RETURN n.x as x ORDER BY x DESC
+            """
+        Then the result should be:
+            | x |
+            | 4 |
+            | 3 |
+            | 2 |
+            | 1 |
+
+    Scenario: Two-argument projection ignores duplicate nodes
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x:1}), (b:N {x:2}), (c:N {x:3}), (a)-[:R {q: 1}]->(b), (b)-[:R {q: 2}]->(c), (a)-[:R {q: 3}]->(c)
+            """
+        When executing query:
+            """
+            MATCH (x)-[r:R]->(z) WITH project([x, z], [r]) as graph WITH graph.nodes as nodes UNWIND nodes as n RETURN n.x as x ORDER BY x DESC
+            """
+        Then the result should be:
+            | x |
+            | 3 |
+            | 2 |
+            | 1 |
+
+    Scenario: Two-argument projection ignores duplicate edges
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x:1}), (b:N {x:2}), (c:N {x:3}), (a)-[:R {q: 4}]->(b), (b)-[:R {q: 5}]->(c), (a)-[:R {q: 6}]->(c)
+            """
+        When executing query:
+            """
+            MATCH p=(x)-[r:R]->(z) WITH project([x, z], [r]) as graph WITH graph.edges as edges UNWIND edges as e RETURN e.q as q ORDER BY q DESC
+            """
+        Then the result should be:
+            | q |
+            | 6 |
+            | 5 |
+            | 4 |
+
+    Scenario: Two-argument projection ignores null nodes
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x:1}), (b:N {x:2}), (c:N {x:3}), (a)-[:R {q: 1}]->(b), (b)-[:R {q: 2}]->(c), (a)-[:R {q: 3}]->(c)
+            """
+        When executing query:
+            """
+            MATCH (x1)-[r1:R]->(z1) OPTIONAL MATCH(x2)-[r2:R2]->(z2) WITH project([x1, x2, z1, z2], [r1, r2]) as graph WITH graph.nodes as nodes UNWIND nodes as n RETURN n.x as x ORDER BY x DESC
+            """
+        Then the result should be:
+            | x |
+            | 3 |
+            | 2 |
+            | 1 |
+
+    Scenario: Two-argument projection ignores null edges
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x:1}), (b:N {x:2}), (c:N {x:3}), (a)-[:R {q: 4}]->(b), (b)-[:R {q: 5}]->(c), (a)-[:R {q: 6}]->(c)
+            """
+        When executing query:
+            """
+            MATCH (x1)-[r1:R]->(z1) OPTIONAL MATCH(x2)-[r2:R2]->(z2) WITH project([x1, x2, z1, z2], [r1, r2]) as graph WITH graph.edges as edges UNWIND edges as e RETURN e.q as q ORDER BY q DESC
+            """
+        Then the result should be:
+            | q |
+            | 6 |
+            | 5 |
+            | 4 |
+
+    Scenario: Two-argument projection errors if first argument is not a list of nodes
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x:1}), (b:N {x:2}), (c:N {x:3}), (a)-[:R {q: 1}]->(b), (b)-[:R {q: 2}]->(c), (a)-[:R {q: 3}]->(c)
+            """
+        When executing query:
+            """
+            MATCH (x)-[r:R]->(z) WITH project([r], [r]) as graph WITH graph.nodes as nodes UNWIND nodes as n RETURN n.x as x ORDER BY x DESC
+            """
+        Then an error should be raised
+
+    Scenario: Two-argument projection errors if second argument is not a list of edges
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x:1}), (b:N {x:2}), (c:N {x:3}), (a)-[:R {q: 1}]->(b), (b)-[:R {q: 2}]->(c), (a)-[:R {q: 3}]->(c)
+            """
+        When executing query:
+            """
+            MATCH (x)-[r:R]->(z) WITH project([x], [x]) as graph WITH graph.nodes as nodes UNWIND nodes as n RETURN n.x as x ORDER BY x DESC
+            """
+        Then an error should be raised
+
     Scenario: Empty collect aggregation:
       Given an empty graph
       And having executed

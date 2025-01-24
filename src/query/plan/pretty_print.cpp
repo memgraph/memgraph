@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -441,11 +441,11 @@ json ToJson(const EdgeCreationInfo &edge_info, const DbAccessor &dba) {
 
 json ToJson(const Aggregate::Element &elem, const DbAccessor &dba) {
   json json;
-  if (elem.value) {
-    json["value"] = ToJson(elem.value, dba);
+  if (elem.arg1) {
+    json["arg1"] = ToJson(elem.arg1, dba);
   }
-  if (elem.key) {
-    json["key"] = ToJson(elem.key, dba);
+  if (elem.arg2) {
+    json["arg2"] = ToJson(elem.arg2, dba);
   }
   json["op"] = utils::ToLowerCase(Aggregation::OpToString(elem.op));
   json["output_symbol"] = ToJson(elem.output_sym);
