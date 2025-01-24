@@ -421,7 +421,7 @@ jobs:
     if: ${{ inputs.run_query_modules == 'true' }}
     name: "Query modules tests"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
-    timeout-minutes: 110
+    timeout-minutes: 60
     steps:
       - name: Set up repository
         uses: actions/checkout@v4
@@ -442,6 +442,15 @@ jobs:
           --arch $ARCH \
           run
 
+      - name: Build release binary
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --build-type $BUILD_TYPE \
+          build-memgraph
+
       - name: Run query modules e2e tests
         run: |
           virtualenv -p python3 ve3
@@ -454,15 +463,6 @@ jobs:
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph query_modules_e2e
-
-      - name: Build release binary
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          --build-type $BUILD_TYPE \
-          build-memgraph
 
       - name: Copy build logs
         if: always()
