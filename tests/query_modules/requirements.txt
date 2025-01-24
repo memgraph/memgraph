@@ -1,5 +1,5 @@
 setuptools==75.3.0
 numpy==1.21
 scipy==1.10.1
-networkx==2.4
+networkx==2.5.1
 gensim==4.3.3
