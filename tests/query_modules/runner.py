@@ -25,7 +25,7 @@ def db():
     PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", ".."))
     BUILD_PATH = os.path.join(PROJECT_DIR, "build", "memgraph")
     QM_PATH = os.path.join(PROJECT_DIR, "build", "query_modules")
-    LOGS_PATH = os.path.join(PROJECT_DIR, "build", "logs")
+    LOGS_PATH = os.path.join(PROJECT_DIR, "build", "memgraph-logs")
     os.makedirs(os.path.join(LOGS_PATH), exist_ok=True)
 
     BUILD_ARGS = [

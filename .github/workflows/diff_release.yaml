@@ -478,7 +478,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          copy --build-logs --dest-dir build/logs
+          copy --memgraph-logs --dest-dir build/memgraph-logs
 
       - name: Save test data
         continue-on-error: true
@@ -486,7 +486,7 @@ jobs:
         if: always()
         with:
           name: "Test data(Release build)-${{ inputs.run_id }}"
-          path: build/logs
+          path: build/memgraph-logs
 
       - name: Stop mgbuild container
         if: always()
