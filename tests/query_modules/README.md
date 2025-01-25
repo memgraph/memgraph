@@ -11,7 +11,7 @@ Static tests verify query results by comparing their output to predefined expect
 The directory contains two files: `input.cyp` which contains Cypher queries to create the initial graph state and `test.yml` which defines the test query and its expected results. Look at `example_test` folder for examples.
 
 ## Online tests
-Online tests validate dynamic changes to the graph over a series of queries. Create a test directory whose name ends with `_online`.
+Online tests validate dynamic changes to the graph over a series of queries. Create a test directory whose name starts with `test_online`.
 
 In `input.cyp` define setup, checkpoint and cleanup queries. In `test.yml` define expected results. Look at `example_online_test` for examples.
 
