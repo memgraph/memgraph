@@ -1,0 +1,18 @@
+query: >
+  CALL community_detection_online.set(FALSE, TRUE, 0.7, 5.0, 0.1, "weight", 10.0, 50, 5)
+  YIELD node, community_id
+  RETURN node.id AS node_id, community_id
+  ORDER BY node_id;
+output:
+  - node_id: 0
+    community_id: 1
+  - node_id: 1
+    community_id: 2
+  - node_id: 2
+    community_id: 3
+  - node_id: 3
+    community_id: 4
+  - node_id: 4
+    community_id: 5
+  - node_id: 5
+    community_id: 6

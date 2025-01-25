@@ -3872,7 +3872,7 @@ inline bool Value::IsDuration() const { return mgp::value_is_duration(this->ptr(
 
 inline bool Value::operator==(const Value &other) const { return util::ValuesEqual(this->ptr(), other.ptr()); }
 
-inline bool Value::operator!=(const Value &other) const { return !(this->ptr() == other.ptr()); }
+inline bool Value::operator!=(const Value &other) const { return !(*this == other); }
 
 inline bool Value::operator<(const Value &other) const {
   const mgp::Type &type = Type();
