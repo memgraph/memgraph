@@ -1136,9 +1136,12 @@ const std::map<std::string, mgp_func, std::less<>> *PythonModule::Functions() co
 namespace {
 
 #ifdef MG_ENTERPRISE
-constexpr std::array<const char *, 1> kEnterpriseModuleList = {
-    "enterprise_module_example",  // this will be replaced by actual module when one gets added, std::array
-                                  // requires at least one member
+constexpr std::array<const char *, 5> kEnterpriseModuleList = {
+    "betweenness_centrality_online",
+    "community_detection_online",
+    "katz_centrality_online",
+    "node2vec_online",
+    "pagerank_online",
 };
 #endif
 

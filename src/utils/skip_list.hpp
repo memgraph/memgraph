@@ -709,9 +709,11 @@ class SkipList final : detail::SkipListNode_base {
 
     Accessor(Accessor &&other) noexcept : skiplist_(other.skiplist_), id_(other.id_) { other.skiplist_ = nullptr; }
     Accessor &operator=(Accessor &&other) noexcept {
-      skiplist_ = other.skiplist_;
-      id_ = other.id_;
-      other.skiplist_ = nullptr;
+      if (this != &other) {
+        skiplist_ = other.skiplist_;
+        id_ = other.id_;
+        other.skiplist_ = nullptr;
+      }
       return *this;
     }
 

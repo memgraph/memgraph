@@ -82,9 +82,9 @@ bool Client::Connect(const io::network::Endpoint &endpoint) {
   return true;
 }
 
-bool Client::ErrorStatus() { return socket_.ErrorStatus(); }
+bool Client::ErrorStatus() const { return socket_.ErrorStatus(); }
 
-bool Client::IsConnected() { return socket_.IsOpen(); }
+bool Client::IsConnected() const { return socket_.IsOpen(); }
 
 void Client::Shutdown() { socket_.Shutdown(); }
 
@@ -97,7 +97,7 @@ void Client::Close() {
   socket_.Close();
 }
 
-bool Client::Read(size_t len, bool exactly_len, std::optional<int> timeout_ms) {
+bool Client::Read(size_t len, bool exactly_len, const std::optional<int> timeout_ms) {
   if (len == 0) return false;
   size_t received = 0;
   buffer_.write_end()->Resize(buffer_.read_end()->size() + len);
@@ -141,7 +141,7 @@ bool Client::Read(size_t len, bool exactly_len, std::optional<int> timeout_ms) {
       received += got;
     } else {
       // Read raw data from the socket.
-      if (!socket_.WaitForReadyRead(timeout_ms)) {
+      if (timeout_ms && !socket_.WaitForReadyRead(timeout_ms)) {
         return false;
       }
       auto got = socket_.Read(buff.data, len - received);
@@ -164,13 +164,13 @@ bool Client::Read(size_t len, bool exactly_len, std::optional<int> timeout_ms) {
 
 uint8_t *Client::GetData() { return buffer_.read_end()->data(); }
 
-size_t Client::GetDataSize() { return buffer_.read_end()->size(); }
+size_t Client::GetDataSize() const { return buffer_.read_end()->size(); }
 
 void Client::ShiftData(size_t len) { buffer_.read_end()->Shift(len); }
 
 void Client::ClearData() { buffer_.read_end()->Clear(); }
 
-bool Client::Write(const uint8_t *data, size_t len, bool have_more, std::optional<int> timeout_ms) {
+bool Client::Write(const uint8_t *data, size_t len, bool have_more, const std::optional<int> timeout_ms) {
   if (ssl_) {
     // `SSL_write` has the interface of a normal `write` call. Because of that
     // we need to ensure that all data is written to the socket manually.
@@ -206,16 +206,16 @@ bool Client::Write(const uint8_t *data, size_t len, bool have_more, std::optiona
       }
     }
     return true;
-  } else {
-    return socket_.Write(data, len, have_more, timeout_ms);
   }
+  // Non-ssl
+  return socket_.Write(data, len, have_more, timeout_ms);
 }
 
-bool Client::Write(const std::string &str, bool have_more, std::optional<int> timeout_ms) {
+bool Client::Write(const std::string &str, bool have_more, const std::optional<int> timeout_ms) {
   return Write(reinterpret_cast<const uint8_t *>(str.data()), str.size(), have_more, timeout_ms);
 }
 
-const io::network::Endpoint &Client::endpoint() { return socket_.endpoint(); }
+const io::network::Endpoint &Client::endpoint() const { return socket_.endpoint(); }
 
 void Client::ReleaseSslObjects() {
   // If we are using SSL we need to free the allocated objects. Here we only

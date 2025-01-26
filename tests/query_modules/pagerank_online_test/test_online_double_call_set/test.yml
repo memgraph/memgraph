@@ -1,0 +1,15 @@
+- query: >-
+    CALL pagerank_online.set() YIELD *
+    WITH node, rank
+    WHERE rank > 0 AND rank < 1
+    RETURN COUNT(node.id) AS count;
+  output:
+    - count: 6
+
+- query: >-
+    CALL pagerank_online.set() YIELD *
+    WITH node, rank
+    WHERE rank > 0 AND rank < 1
+    RETURN COUNT(node.id) AS count;
+  output:
+    - count: 7
