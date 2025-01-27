@@ -40,6 +40,10 @@ on:
         type: boolean
         default: true
         description: ""
+      release_query_modules:
+        type: boolean
+        default: true
+        description: ""
       flakiness_runs:
         type: number
         default: 3
@@ -59,6 +63,7 @@ jobs:
       run_release_benchmark: ${{ steps.setup.outputs.run_release_benchmark}}
       run_release_e2e: ${{ steps.setup.outputs.run_release_e2e }}
       run_release_stress: ${{ steps.setup.outputs.run_release_stress }}
+      run_release_query_modules: ${{ steps.setup.outputs.run_release_query_modules }}
       runs: ${{ steps.setup_flakiness.outputs.runs }}
     env:
       GH_CONTEXT: ${{ toJson(github) }}
@@ -166,5 +171,6 @@ jobs:
       run_benchmark: 'false'
       run_e2e: ${{ needs.DiffSetup.outputs.run_release_e2e }}
       run_stress: ${{ needs.DiffSetup.outputs.run_release_stress }}
+      run_query_modules: ${{ needs.DiffSetup.outputs.run_release_query_modules }}
       run_id: "${{ matrix.run_no }}"
     secrets: inherit
