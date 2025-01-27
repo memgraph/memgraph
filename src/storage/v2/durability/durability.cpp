@@ -37,7 +37,6 @@
 #include "storage/v2/inmemory/unique_constraints.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "utils/event_histogram.hpp"
-#include "utils/flag_validation.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/message.hpp"
@@ -79,8 +78,8 @@ void VerifyStorageDirectoryOwnerAndProcessUserOrDie(const std::filesystem::path 
 std::vector<SnapshotDurabilityInfo> GetSnapshotFiles(const std::filesystem::path &snapshot_directory,
                                                      const std::string_view uuid) {
   std::vector<SnapshotDurabilityInfo> snapshot_files;
-  std::error_code error_code;
   if (utils::DirExists(snapshot_directory)) {
+    std::error_code error_code;
     for (const auto &item : std::filesystem::directory_iterator(snapshot_directory, error_code)) {
       if (!item.is_regular_file()) continue;
       if (!utils::HasReadAccess(item.path())) {
@@ -139,7 +138,7 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
             "Wal file {} won't be used for recovery. UUID: {}. Info UUID: {}. Current seq num: {}. Info seq num: {}.",
             item.path(), uuid, info.uuid, current_seq_num, info.seq_num);
       }
-    } catch (const RecoveryFailure &e) {
+    } catch (const RecoveryFailure &) {
       spdlog::warn("Failed to read WAL file {}.", item.path());
       continue;
     }
@@ -157,7 +156,7 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
 // recovery process.
 
 void RecoverConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &constraints_metadata,
-                        Constraints *constraints, utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
+                        Constraints const *constraints, utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
                         const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info) {
   RecoverExistenceConstraints(constraints_metadata, constraints, vertices, name_id_mapper, parallel_exec_info);
   RecoverUniqueConstraints(constraints_metadata, constraints, vertices, name_id_mapper, parallel_exec_info);
@@ -289,7 +288,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
 }
 
 void RecoverExistenceConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &constraints_metadata,
-                                 Constraints *constraints, utils::SkipList<Vertex> *vertices,
+                                 Constraints const *constraints, utils::SkipList<Vertex> *vertices,
                                  NameIdMapper *name_id_mapper,
                                  const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info) {
   spdlog::info("Recreating {} existence constraints from metadata.", constraints_metadata.existence.size());
@@ -312,14 +311,15 @@ void RecoverExistenceConstraints(const RecoveredIndicesAndConstraints::Constrain
 }
 
 void RecoverUniqueConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &constraints_metadata,
-                              Constraints *constraints, utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
+                              Constraints const *constraints, utils::SkipList<Vertex> *vertices,
+                              NameIdMapper *name_id_mapper,
                               const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info) {
   spdlog::info("Recreating {} unique constraints from metadata.", constraints_metadata.unique.size());
 
   for (const auto &[label, properties] : constraints_metadata.unique) {
     auto *mem_unique_constraints = static_cast<InMemoryUniqueConstraints *>(constraints->unique_constraints_.get());
-    auto ret = mem_unique_constraints->CreateConstraint(label, properties, vertices->access(), parallel_exec_info);
-    if (ret.HasError() || ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS)
+    if (auto ret = mem_unique_constraints->CreateConstraint(label, properties, vertices->access(), parallel_exec_info);
+        ret.HasError() || ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS)
       throw RecoveryFailure("The unique constraint must be created here!");
 
     std::vector<std::string> property_names;
@@ -336,7 +336,7 @@ void RecoverUniqueConstraints(const RecoveredIndicesAndConstraints::ConstraintsM
 }
 
 void RecoverTypeConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &constraints_metadata,
-                            Constraints *constraints, utils::SkipList<Vertex> *vertices,
+                            Constraints const *constraints, utils::SkipList<Vertex> *vertices,
                             const std::optional<ParallelizedSchemaCreationInfo> & /**/) {
   // TODO: parallel recovery
   spdlog::info("Recreating {} type constraints from metadata.", constraints_metadata.type.size());
@@ -347,7 +347,8 @@ void RecoverTypeConstraints(const RecoveredIndicesAndConstraints::ConstraintsMet
   }
 
   if (constraints->HasTypeConstraints()) {
-    if (auto violation = constraints->type_constraints_->ValidateVertices(vertices->access()); violation.has_value()) {
+    if (auto const violation = constraints->type_constraints_->ValidateVertices(vertices->access());
+        violation.has_value()) {
       throw RecoveryFailure("Type constraint recovery failed because they couldn't be validated!");
     }
   }
@@ -356,17 +357,17 @@ void RecoverTypeConstraints(const RecoveredIndicesAndConstraints::ConstraintsMet
 }
 
 void RecoverIndicesStatsAndConstraints(utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
-                                       Indices *indices, Constraints *constraints, Config const &config,
+                                       Indices *indices, Constraints const *constraints, Config const &config,
                                        RecoveryInfo const &recovery_info,
                                        RecoveredIndicesAndConstraints const &indices_constraints,
                                        bool properties_on_edges) {
   auto storage_dir = std::optional<std::filesystem::path>{};
-  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+  if (AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     storage_dir = config.durability.storage_directory;
   }
 
   RecoverIndicesAndStats(indices_constraints.indices, indices, vertices, name_id_mapper, properties_on_edges,
-                         GetParallelExecInfoIndices(recovery_info, config), storage_dir);
+                         GetParallelExecInfo(recovery_info, config), storage_dir);
   RecoverConstraints(indices_constraints.constraints, constraints, vertices, name_id_mapper,
                      GetParallelExecInfo(recovery_info, config));
 }
@@ -379,20 +380,12 @@ std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfo(const Recovery
              : std::nullopt;
 }
 
-std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfoIndices(const RecoveryInfo &recovery_info,
-                                                                         const Config &config) {
-  return config.durability.allow_parallel_schema_creation
-             ? std::make_optional(ParallelizedSchemaCreationInfo{recovery_info.vertex_batches,
-                                                                 config.durability.recovery_thread_count})
-             : std::nullopt;
-}
-
 std::optional<RecoveryInfo> Recovery::RecoverData(
     utils::UUID &uuid, ReplicationStorageState &repl_storage_state, utils::SkipList<Vertex> *vertices,
     utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata, std::atomic<uint64_t> *edge_count,
     NameIdMapper *name_id_mapper, Indices *indices, Constraints *constraints, Config const &config,
     uint64_t *wal_seq_num, EnumStore *enum_store, SharedSchemaTracking *schema_info,
-    std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge) {
+    std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge) const {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   spdlog::info("Recovering persisted data using snapshot ({}) and WAL directory ({}).", snapshot_directory_,
                wal_directory_);
@@ -480,8 +473,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
       try {
         auto info = ReadWalInfo(item.path());
         wal_files.emplace_back(item.path(), std::move(info.uuid), std::move(info.epoch_id));
-      } catch (const RecoveryFailure &e) {
-        continue;
+      } catch (const RecoveryFailure &) {
       }
     }
     MG_ASSERT(!error_code, "Couldn't recover data because an error occurred: {}!", error_code.message());
@@ -603,8 +595,8 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
   RecoverIndicesStatsAndConstraints(vertices, name_id_mapper, indices, constraints, config, recovery_info,
                                     indices_constraints, config.salient.items.properties_on_edges);
 
-  memgraph::metrics::Measure(memgraph::metrics::SnapshotRecoveryLatency_us,
-                             std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed()).count());
+  metrics::Measure(memgraph::metrics::SnapshotRecoveryLatency_us,
+                   std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed()).count());
   spdlog::trace("Epoch id: {}. Last durable commit timestamp: {}.", std::string(repl_storage_state.epoch_.id()),
                 repl_storage_state.last_durable_timestamp_);
 

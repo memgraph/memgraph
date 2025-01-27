@@ -3240,7 +3240,7 @@ TEST_P(DurabilityTest, ParallelConstraintsRecovery) {
                      .items_per_batch = 13},
       .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
   };
-  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::replication::ReplicationState repl_state{ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam(), config.salient.items.enable_schema_info);
   // TODO Fix parallel recovery schema
@@ -3305,7 +3305,7 @@ TEST_P(DurabilityTest, ConstraintsRecoveryFunctionSetting) {
                                          &enum_store, nullptr /* schema_info */, [](auto in) { return std::nullopt; });
 
   MG_ASSERT(info.has_value(), "Info doesn't have value present");
-  const auto par_exec_info = memgraph::storage::durability::GetParallelExecInfo(*info, config);
+  const auto par_exec_info = GetParallelExecInfo(*info, config);
 
   MG_ASSERT(par_exec_info.has_value(), "Parallel exec info should have value present");
 
@@ -3327,6 +3327,18 @@ TEST_P(DurabilityTest, ConstraintsRecoveryFunctionSetting) {
       std::get_if<memgraph::storage::ExistenceConstraints::MultipleThreadsConstraintValidation>(
           &variant_existence_constraint_creation_func);
   MG_ASSERT(pval_existence, "Chose wrong type of function for recovery of existence constraint data");
+}
+
+// Even if allow_parallel_schema_recovery is true, if no snapshots, use serial recovery.
+TEST_P(DurabilityTest, ConstraintsParallelRecoveryNoSnapshot) {
+  const auto par_exec_info =
+      memgraph::storage::durability::ParallelizedSchemaCreationInfo{.vertex_recovery_info = {}, .thread_count = 5};
+  auto const variant_unique_constraint_creation_func =
+      memgraph::storage::InMemoryUniqueConstraints::GetCreationFunction(par_exec_info);
+
+  const auto *pval = std::get_if<memgraph::storage::InMemoryUniqueConstraints::SingleThreadConstraintValidation>(
+      &variant_unique_constraint_creation_func);
+  MG_ASSERT(pval, "Chose wrong function for recovery of data when no snapshot is loaded.");
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)

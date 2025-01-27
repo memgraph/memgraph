@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -79,8 +79,7 @@ bool LastCommittedVersionHasLabelProperty(const Vertex &vertex, LabelId label, c
 
     switch (delta->action) {
       case Delta::Action::SET_PROPERTY: {
-        auto pos = FindPropertyPosition(property_array, delta->property.key);
-        if (pos) {
+        if (auto pos = FindPropertyPosition(property_array, delta->property.key)) {
           current_value_equal_to_value[*pos] = *delta->property.value == value_array[*pos];
         }
         break;
@@ -203,8 +202,7 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, const std::
         }
         break;
       case Delta::Action::SET_PROPERTY: {
-        auto pos = FindPropertyPosition(property_array, delta->property.key);
-        if (pos) {
+        if (auto pos = FindPropertyPosition(property_array, delta->property.key)) {
           current_value_equal_to_value[*pos] = *delta->property.value == values[*pos];
         }
         break;
@@ -286,15 +284,15 @@ std::variant<InMemoryUniqueConstraints::MultipleThreadsConstraintValidation,
              InMemoryUniqueConstraints::SingleThreadConstraintValidation>
 InMemoryUniqueConstraints::GetCreationFunction(
     const std::optional<durability::ParallelizedSchemaCreationInfo> &par_exec_info) {
-  if (par_exec_info.has_value()) {
-    return InMemoryUniqueConstraints::MultipleThreadsConstraintValidation{par_exec_info.value()};
+  if (par_exec_info.has_value() && !par_exec_info->vertex_recovery_info.empty()) {
+    return MultipleThreadsConstraintValidation{par_exec_info.value()};
   }
-  return InMemoryUniqueConstraints::SingleThreadConstraintValidation{};
+  return SingleThreadConstraintValidation{};
 }
 
 bool InMemoryUniqueConstraints::MultipleThreadsConstraintValidation::operator()(
     const utils::SkipList<Vertex>::Accessor &vertex_accessor, utils::SkipList<Entry>::Accessor &constraint_accessor,
-    const LabelId &label, const std::set<PropertyId> &properties) {
+    const LabelId &label, const std::set<PropertyId> &properties) const {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   const auto &vertex_batches = parallel_exec_info.vertex_recovery_info;
   MG_ASSERT(!vertex_batches.empty(),
@@ -303,7 +301,7 @@ bool InMemoryUniqueConstraints::MultipleThreadsConstraintValidation::operator()(
   const auto thread_count = std::min(parallel_exec_info.thread_count, vertex_batches.size());
 
   std::atomic<uint64_t> batch_counter = 0;
-  memgraph::utils::Synchronized<std::optional<ConstraintViolation>, utils::RWSpinLock> has_error;
+  utils::Synchronized<std::optional<ConstraintViolation>, utils::RWSpinLock> has_error;
   {
     std::vector<std::jthread> threads;
     threads.reserve(thread_count);
@@ -320,7 +318,7 @@ bool InMemoryUniqueConstraints::MultipleThreadsConstraintValidation::operator()(
 
 bool InMemoryUniqueConstraints::SingleThreadConstraintValidation::operator()(
     const utils::SkipList<Vertex>::Accessor &vertex_accessor, utils::SkipList<Entry>::Accessor &constraint_accessor,
-    const LabelId &label, const std::set<PropertyId> &properties) {
+    const LabelId &label, const std::set<PropertyId> &properties) const {
   for (const Vertex &vertex : vertex_accessor) {
     if (const auto violation = DoValidate(vertex, constraint_accessor, label, properties); violation.has_value()) {
       return true;
@@ -387,12 +385,12 @@ InMemoryUniqueConstraints::CreateConstraint(
   if (constraints_.contains({label, properties})) {
     return CreationStatus::ALREADY_EXISTS;
   }
-  memgraph::utils::SkipList<Entry> constraints_skip_list;
+  utils::SkipList<Entry> constraints_skip_list;
   utils::SkipList<Entry>::Accessor constraint_accessor{constraints_skip_list.access()};
 
   auto multi_single_thread_processing = GetCreationFunction(par_exec_info);
 
-  bool violation_found = std::visit(
+  bool const violation_found = std::visit(
       [&vertex_accessor, &constraint_accessor, &label, &properties](auto &multi_single_thread_processing) {
         return multi_single_thread_processing(vertex_accessor, constraint_accessor, label, properties);
       },
@@ -436,7 +434,7 @@ InMemoryUniqueConstraints::DeletionStatus InMemoryUniqueConstraints::DropConstra
 }
 
 bool InMemoryUniqueConstraints::ConstraintExists(LabelId label, const std::set<PropertyId> &properties) const {
-  return constraints_.find({label, properties}) != constraints_.end();
+  return constraints_.contains({label, properties});
 }
 
 std::optional<ConstraintViolation> InMemoryUniqueConstraints::Validate(const Vertex &vertex, const Transaction &tx,
@@ -483,7 +481,7 @@ std::optional<ConstraintViolation> InMemoryUniqueConstraints::Validate(const Ver
 std::vector<std::pair<LabelId, std::set<PropertyId>>> InMemoryUniqueConstraints::ListConstraints() const {
   std::vector<std::pair<LabelId, std::set<PropertyId>>> ret;
   ret.reserve(constraints_.size());
-  for (const auto &[label_props, _] : constraints_) {
+  for (auto const &label_props : constraints_ | std::views::keys) {
     ret.push_back(label_props);
   }
   return ret;

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -68,14 +68,14 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   struct MultipleThreadsConstraintValidation {
     bool operator()(const utils::SkipList<Vertex>::Accessor &vertex_accessor,
                     utils::SkipList<Entry>::Accessor &constraint_accessor, const LabelId &label,
-                    const std::set<PropertyId> &properties);
+                    const std::set<PropertyId> &properties) const;
 
     const durability::ParallelizedSchemaCreationInfo &parallel_exec_info;
   };
   struct SingleThreadConstraintValidation {
     bool operator()(const utils::SkipList<Vertex>::Accessor &vertex_accessor,
                     utils::SkipList<Entry>::Accessor &constraint_accessor, const LabelId &label,
-                    const std::set<PropertyId> &properties);
+                    const std::set<PropertyId> &properties) const;
   };
 
   /// Indexes the given vertex for relevant labels and properties.

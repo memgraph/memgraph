@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,16 +11,13 @@
 
 #pragma once
 
-#include <atomic>
 #include <optional>
-#include <thread>
 #include <variant>
 
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/skip_list.hpp"
-#include "utils/synchronized.hpp"
 
 namespace memgraph::storage {
 
@@ -31,13 +28,13 @@ class ExistenceConstraints {
  public:
   struct MultipleThreadsConstraintValidation {
     std::optional<ConstraintViolation> operator()(const utils::SkipList<Vertex>::Accessor &vertices,
-                                                  const LabelId &label, const PropertyId &property);
+                                                  const LabelId &label, const PropertyId &property) const;
 
     const durability::ParallelizedSchemaCreationInfo &parallel_exec_info;
   };
   struct SingleThreadConstraintValidation {
     std::optional<ConstraintViolation> operator()(const utils::SkipList<Vertex>::Accessor &vertices,
-                                                  const LabelId &label, const PropertyId &property);
+                                                  const LabelId &label, const PropertyId &property) const;
   };
 
   bool empty() const { return constraints_.empty(); }

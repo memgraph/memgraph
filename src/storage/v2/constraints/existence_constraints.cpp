@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -68,10 +68,10 @@ std::variant<ExistenceConstraints::MultipleThreadsConstraintValidation,
              ExistenceConstraints::SingleThreadConstraintValidation>
 ExistenceConstraints::GetCreationFunction(
     const std::optional<durability::ParallelizedSchemaCreationInfo> &par_exec_info) {
-  if (par_exec_info.has_value()) {
-    return ExistenceConstraints::MultipleThreadsConstraintValidation{par_exec_info.value()};
+  if (par_exec_info.has_value() && !par_exec_info->vertex_recovery_info.empty()) {
+    return MultipleThreadsConstraintValidation{par_exec_info.value()};
   }
-  return ExistenceConstraints::SingleThreadConstraintValidation{};
+  return SingleThreadConstraintValidation{};
 }
 
 [[nodiscard]] std::optional<ConstraintViolation> ExistenceConstraints::ValidateVerticesOnConstraint(
@@ -84,7 +84,7 @@ ExistenceConstraints::GetCreationFunction(
 }
 
 std::optional<ConstraintViolation> ExistenceConstraints::MultipleThreadsConstraintValidation::operator()(
-    const utils::SkipList<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property) {
+    const utils::SkipList<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property) const {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
 
   const auto &vertex_batches = parallel_exec_info.vertex_recovery_info;
@@ -94,7 +94,7 @@ std::optional<ConstraintViolation> ExistenceConstraints::MultipleThreadsConstrai
   const auto thread_count = std::min(parallel_exec_info.thread_count, vertex_batches.size());
 
   std::atomic<uint64_t> batch_counter = 0;
-  memgraph::utils::Synchronized<std::optional<ConstraintViolation>, utils::RWSpinLock> maybe_error{};
+  utils::Synchronized<std::optional<ConstraintViolation>, utils::RWSpinLock> maybe_error{};
   {
     std::vector<std::jthread> threads;
     threads.reserve(thread_count);
@@ -113,7 +113,7 @@ std::optional<ConstraintViolation> ExistenceConstraints::MultipleThreadsConstrai
 }
 
 std::optional<ConstraintViolation> ExistenceConstraints::SingleThreadConstraintValidation::operator()(
-    const utils::SkipList<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property) {
+    const utils::SkipList<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property) const {
   for (const Vertex &vertex : vertices) {
     if (auto violation = ValidateVertexOnConstraint(vertex, label, property); violation.has_value()) {
       return violation;
