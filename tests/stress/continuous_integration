@@ -244,9 +244,12 @@ def run_custom_workloads(deployment, config: Config) -> bool:
                 print(f"Running step {step}.")
                 for worker in [x for x in workers if x.get("step", 1) == step]:
                     worker_object = get_worker_object(worker)
-                    process = multiprocessing.Process(target=worker_object.run, args=(deployment,))
-                    processes.append((process, workload.get("timeout_min", 10) * 60))  # Default to 10 minutes timeout
-                    process.start()
+                    for i in range(worker.get("replicas", 1)):
+                        process = multiprocessing.Process(target=worker_object.run, args=(deployment,))
+                        processes.append(
+                            (process, workload.get("timeout_min", 10) * 60)
+                        )  # Default to 10 minutes timeout
+                        process.start()
 
                 # Monitor processes and enforce timeouts
                 for process, timeout in processes:

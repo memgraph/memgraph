@@ -4,6 +4,7 @@ memgraph:
   installation:
     type: default
   args:
+    - "--telemetry-enabled=false"
     - "--bolt-server-name-for-init=Neo4j/"
     - "--storage-properties-on-edges=true"
     - "--storage-snapshot-on-exit=true"

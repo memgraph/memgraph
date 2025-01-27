@@ -79,6 +79,7 @@ persistentVolumeClaim:
   userMountPath: "/var/lib/memgraph/user"
 
 memgraphConfig:
+- "--telemetry-enabled=false"
 - "--also-log-to-stderr=true"
 - "--log-level=TRACE"
 - "--data-recovery-on-startup=true"
