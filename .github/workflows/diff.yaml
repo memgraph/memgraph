@@ -35,6 +35,9 @@ on:
       release_stress:
         type: boolean
         default: true
+      release_query_modules:
+        type: boolean
+        default: true
 
 jobs:
   DiffSetup:
