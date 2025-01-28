@@ -234,9 +234,9 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       static_cast<InMemoryEdgeTypePropertyIndex *>(indices_.edge_type_property_index_.get())->RunGC();
 
       // SkipList is already threadsafe
+      edges_metadata_.run_gc();
       vertices_.run_gc();
       edges_.run_gc();
-      edges_metadata_.run_gc();
 
       // AsyncTimer resources are global, not particularly storage related, more query releated
       // At some point in the future this should be scheduled by something else
@@ -841,7 +841,15 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
     CommitReplArgs reparg, DatabaseAccessProtector db_acc) {
   auto result = Commit(reparg, db_acc);
 
-  if (result.HasError()) {
+  const auto fatal_error =
+      result.HasError() && std::visit(
+                               [](const auto &e) {
+                                 // All errors are handled at a higher level.
+                                 // Replication errros are not fatal and should procede with finialize transaction
+                                 return !std::is_same_v<std::remove_cvref_t<decltype(e)>, storage::ReplicationError>;
+                               },
+                               result.GetError());
+  if (fatal_error) {
     return result;
   }
 
@@ -976,8 +984,8 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     // We collect vertices and edges we've created here and then splice them into
     // `deleted_vertices_` and `deleted_edges_` lists, instead of adding them one
     // by one and acquiring lock every time.
-    std::list<Gid> my_deleted_vertices;
-    std::list<Gid> my_deleted_edges;
+    std::vector<Gid> my_deleted_vertices;
+    std::vector<Gid> my_deleted_edges;
 
     std::map<LabelId, std::vector<Vertex *>> label_cleanup;
     std::map<LabelId, std::vector<std::pair<PropertyValue, Vertex *>>> label_property_cleanup;
@@ -1075,6 +1083,10 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
           auto *vertex = prev.vertex;
           auto guard = std::unique_lock{vertex->lock};
           Delta *current = vertex->delta;
+
+          auto remove_in_edges = absl::flat_hash_set<EdgeRef>{};
+          auto remove_out_edges = absl::flat_hash_set<EdgeRef>{};
+
           while (current != nullptr &&
                  current->timestamp->load(std::memory_order_acquire) == transaction_.transaction_id) {
             switch (current->action) {
@@ -1169,18 +1181,19 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 break;
               }
               case Delta::Action::ADD_IN_EDGE: {
-                std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{current->vertex_edge.edge_type,
-                                                               current->vertex_edge.vertex, current->vertex_edge.edge};
-                auto it = std::find(vertex->in_edges.begin(), vertex->in_edges.end(), link);
-                MG_ASSERT(it == vertex->in_edges.end(), "Invalid database state!");
+                auto link =
+                    std::tuple{current->vertex_edge.edge_type, current->vertex_edge.vertex, current->vertex_edge.edge};
+                DMG_ASSERT(std::find(vertex->in_edges.begin(), vertex->in_edges.end(), link) == vertex->in_edges.end(),
+                           "Invalid database state!");
                 vertex->in_edges.push_back(link);
                 break;
               }
               case Delta::Action::ADD_OUT_EDGE: {
-                std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{current->vertex_edge.edge_type,
-                                                               current->vertex_edge.vertex, current->vertex_edge.edge};
-                auto it = std::find(vertex->out_edges.begin(), vertex->out_edges.end(), link);
-                MG_ASSERT(it == vertex->out_edges.end(), "Invalid database state!");
+                auto link =
+                    std::tuple{current->vertex_edge.edge_type, current->vertex_edge.vertex, current->vertex_edge.edge};
+                DMG_ASSERT(
+                    std::find(vertex->out_edges.begin(), vertex->out_edges.end(), link) == vertex->out_edges.end(),
+                    "Invalid database state!");
                 vertex->out_edges.push_back(link);
                 // Increment edge count. We only increment the count here because
                 // the information in `ADD_IN_EDGE` and `Edge/RECREATE_OBJECT` is
@@ -1190,21 +1203,14 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 break;
               }
               case Delta::Action::REMOVE_IN_EDGE: {
-                std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{current->vertex_edge.edge_type,
-                                                               current->vertex_edge.vertex, current->vertex_edge.edge};
-                auto it = std::find(vertex->in_edges.begin(), vertex->in_edges.end(), link);
-                MG_ASSERT(it != vertex->in_edges.end(), "Invalid database state!");
-                std::swap(*it, *vertex->in_edges.rbegin());
-                vertex->in_edges.pop_back();
+                // EdgeRef is unique
+                remove_in_edges.insert(current->vertex_edge.edge);
                 break;
               }
               case Delta::Action::REMOVE_OUT_EDGE: {
-                std::tuple<EdgeTypeId, Vertex *, EdgeRef> link{current->vertex_edge.edge_type,
-                                                               current->vertex_edge.vertex, current->vertex_edge.edge};
-                auto it = std::find(vertex->out_edges.begin(), vertex->out_edges.end(), link);
-                MG_ASSERT(it != vertex->out_edges.end(), "Invalid database state!");
-                std::swap(*it, *vertex->out_edges.rbegin());
-                vertex->out_edges.pop_back();
+                // EdgeRef is unique
+                remove_out_edges.insert(current->vertex_edge.edge);
+
                 // Decrement edge count. We only decrement the count here because
                 // the information in `REMOVE_IN_EDGE` and `Edge/DELETE_OBJECT` is
                 // redundant. Also, `Edge/DELETE_OBJECT` isn't available when edge
@@ -1235,6 +1241,25 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
             }
             current = current->next.load(std::memory_order_acquire);
           }
+
+          // bulk remove in_edges
+          if (!remove_in_edges.empty()) {
+            auto mid = std::partition(vertex->in_edges.begin(), vertex->in_edges.end(), [&](auto const &edge_tuple) {
+              return !remove_in_edges.contains(std::get<EdgeRef>(edge_tuple));
+            });
+            vertex->in_edges.erase(mid, vertex->in_edges.end());
+            vertex->in_edges.shrink_to_fit();
+          }
+
+          // bulk remove out_edges
+          if (!remove_out_edges.empty()) {
+            auto mid = std::partition(vertex->out_edges.begin(), vertex->out_edges.end(), [&](auto const &edge_tuple) {
+              return !remove_out_edges.contains(std::get<EdgeRef>(edge_tuple));
+            });
+            vertex->out_edges.erase(mid, vertex->out_edges.end());
+            vertex->out_edges.shrink_to_fit();
+          }
+
           vertex->delta = current;
           if (current != nullptr) {
             current->prev.Set(vertex);
@@ -1314,27 +1339,27 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
       storage_->indices_.vector_index_.RestoreEntries(label_prop, prop_vertices);
     }
 
-    // VERTICES
+    // EDGES METADATA (has ptr to Vertices, must be before removing verticies)
+    if (!my_deleted_edges.empty() && mem_storage->config_.salient.items.enable_edges_metadata) {
+      auto edges_metadata_acc = mem_storage->edges_metadata_.access();
+      for (auto gid : my_deleted_edges) {
+        edges_metadata_acc.remove(gid);
+      }
+    }
+
+    // VERTICES (has ptr to Edges, must be before removing edges)
     if (!my_deleted_vertices.empty()) {
-      auto vertices_acc = mem_storage->vertices_.access();
+      auto acc = mem_storage->vertices_.access();
       for (auto gid : my_deleted_vertices) {
-        vertices_acc.remove(gid);
+        acc.remove(gid);
       }
     }
 
     // EDGES
     if (!my_deleted_edges.empty()) {
       auto edges_acc = mem_storage->edges_.access();
-      if (mem_storage->config_.salient.items.enable_edges_metadata) {
-        auto edges_metadata_acc = mem_storage->edges_metadata_.access();
-        for (auto gid : my_deleted_edges) {
-          edges_acc.remove(gid);
-          edges_metadata_acc.remove(gid);
-        }
-      } else {
-        for (auto gid : my_deleted_edges) {
-          edges_acc.remove(gid);
-        }
+      for (auto gid : my_deleted_edges) {
+        edges_acc.remove(gid);
       }
     }
   }
@@ -2055,24 +2080,27 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     }
   }
 
+  // EDGES METADATA (has ptr to Vertices, must be before removing verticies)
+  if (!current_deleted_edges.empty() && config_.salient.items.enable_edges_metadata) {
+    auto edge_metadata_acc = edges_metadata_.access();
+    for (auto edge : current_deleted_edges) {
+      MG_ASSERT(edge_metadata_acc.remove(edge), "Invalid database state!");
+    }
+  }
+
+  // VERTICES (has ptr to Edges, must be before removing edges)
   if (!current_deleted_vertices.empty()) {
     auto vertex_acc = vertices_.access();
     for (auto vertex : current_deleted_vertices) {
       MG_ASSERT(vertex_acc.remove(vertex), "Invalid database state!");
     }
   }
+
+  // EDGES
   if (!current_deleted_edges.empty()) {
     auto edge_acc = edges_.access();
-    if (config_.salient.items.enable_edges_metadata) {
-      auto edge_metadata_acc = edges_metadata_.access();
-      for (auto edge : current_deleted_edges) {
-        MG_ASSERT(edge_acc.remove(edge), "Invalid database state!");
-        MG_ASSERT(edge_metadata_acc.remove(edge), "Invalid database state!");
-      }
-    } else {
-      for (auto edge : current_deleted_edges) {
-        MG_ASSERT(edge_acc.remove(edge), "Invalid database state!");
-      }
+    for (auto edge : current_deleted_edges) {
+      MG_ASSERT(edge_acc.remove(edge), "Invalid database state!");
     }
   }
 

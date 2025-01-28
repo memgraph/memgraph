@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -168,12 +168,10 @@ void Load(memgraph::storage::replication::CurrentWalReq *self, memgraph::slk::Re
 // Serialize code for WalFilesRes
 
 void Save(const memgraph::storage::replication::WalFilesRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self.success, builder);
   memgraph::slk::Save(self.current_commit_timestamp, builder);
 }
 
 void Load(memgraph::storage::replication::WalFilesRes *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(&self->success, reader);
   memgraph::slk::Load(&self->current_commit_timestamp, reader);
 }
 
@@ -194,12 +192,10 @@ void Load(memgraph::storage::replication::WalFilesReq *self, memgraph::slk::Read
 // Serialize code for SnapshotRes
 
 void Save(const memgraph::storage::replication::SnapshotRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self.success, builder);
   memgraph::slk::Save(self.current_commit_timestamp, builder);
 }
 
 void Load(memgraph::storage::replication::SnapshotRes *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(&self->success, reader);
   memgraph::slk::Load(&self->current_commit_timestamp, reader);
 }
 

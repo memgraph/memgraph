@@ -54,6 +54,18 @@ MGP_ENUM_CLASS MGP_NODISCARD mgp_error{
 };
 ///@}
 
+/// @name License check
+///
+///@{
+
+/// Functions used for checking validity of the enterprise license
+
+/// Doesn't allocate anything and can't fail therefore doesn't use
+/// enum mgp_error
+int mgp_is_enterprise_valid();
+
+///@}
+
 /// @name Memory Allocation
 ///
 /// These should be preferred compared to plain malloc calls as Memgraph's

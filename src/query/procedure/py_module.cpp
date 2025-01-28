@@ -871,6 +871,8 @@ py::Object MgpListToPyTuple(mgp_list *list, PyObject *py_graph) {
   return MgpListToPyTuple(list, reinterpret_cast<PyGraph *>(py_graph));
 }
 
+PyObject *MgpIsEnterpriseValid() { return mgp_is_enterprise_valid() ? Py_True : Py_False; }
+
 void PyCollectGarbage() {
   // NOTE: No need to call _Py_IsFinalizing(), we ensure
   // Python GC thread is stopped before Py_Finalize() is called
@@ -2480,6 +2482,30 @@ static PyTypeObject PyLoggerType = {
 };
 // clang-format on
 
+struct PyUtils {
+  PyObject_HEAD
+};
+
+namespace {
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+PyMethodDef PyUtilsMethods[] = {  // NOSONAR
+    {"is_enterprise_valid", reinterpret_cast<PyCFunction>(MgpIsEnterpriseValid), METH_NOARGS | METH_STATIC,
+     "Check if enterprise license is valid."},
+    {nullptr, {}, {}, {}}};
+
+// clang-format off
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+PyTypeObject PyUtilsType = {  // NOSONAR
+    PyVarObject_HEAD_INIT(nullptr, 0).tp_name = "_mgp.Utils",
+    .tp_basicsize = sizeof(PyLogger),
+    // NOLINTNEXTLINE(hicpp-signed-bitwise)
+    .tp_flags = Py_TPFLAGS_DEFAULT,
+    .tp_doc = "Utils API.",
+    .tp_methods = PyUtilsMethods,
+};
+// clang-format on
+}  // namespace
+
 struct PyMgpError {
   const char *name;
   PyObject *&exception;
@@ -2532,6 +2558,7 @@ PyObject *PyInitMgpModule() {
   if (!register_type(&PyMessagesType, "Messages")) return nullptr;
   if (!register_type(&PyMessageType, "Message")) return nullptr;
   if (!register_type(&PyLoggerType, "Logger")) return nullptr;
+  if (!register_type(&PyUtilsType, "Utils")) return nullptr;
 
   std::array py_mgp_errors{
       PyMgpError{"_mgp.UnknownError", gMgpUnknownError, PyExc_RuntimeError, nullptr},

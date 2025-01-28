@@ -54,18 +54,18 @@ inline void MgExceptionHandle(mgp_error result_code) {
 }
 
 template <typename TResult, typename TFunc, typename... TArgs>
-TResult MgInvoke(TFunc func, TArgs... args) {
+TResult MgInvoke(TFunc func, TArgs &&...args) {
   TResult result{};
 
-  auto result_code = func(args..., &result);
+  auto result_code = func(std::forward<TArgs>(args)..., &result);
   MgExceptionHandle(result_code);
 
   return result;
 }
 
 template <typename TFunc, typename... TArgs>
-inline void MgInvokeVoid(TFunc func, TArgs... args) {
-  auto result_code = func(args...);
+inline void MgInvokeVoid(TFunc func, TArgs &&...args) {
+  auto result_code = func(std::forward<TArgs>(args)...);
   MgExceptionHandle(result_code);
 }
 }  // namespace
