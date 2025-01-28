@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -149,7 +149,8 @@ void DataInstanceManagementServerHandlers::GetInstanceUUIDHandler(replication::R
                                                                   slk::Builder *res_builder) {
   if (!replication_handler.IsReplica()) {
     spdlog::trace(
-        "Got unexpected request for fetching current main uuid as replica but the instance is not replica at the "
+        "Got unexpected request for fetching current main uuid as replica but the instance is not replica at "
+        "the "
         "moment. Returning empty uuid.");
     slk::Save(coordination::GetInstanceUUIDRes{{}}, res_builder);
     return;

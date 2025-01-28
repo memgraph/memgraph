@@ -111,7 +111,7 @@ bool ReplicationState::TryPersistRoleMain(std::string new_epoch, utils::UUID mai
   return false;
 }
 
-bool ReplicationState::TryPersistUnregisterReplica(std::string_view name) {
+bool ReplicationState::TryPersistUnregisterReplica(std::string_view name) const {
   if (!HasDurability()) return true;
 
   auto key = BuildReplicaKey(name);

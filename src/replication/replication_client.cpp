@@ -22,7 +22,7 @@ auto CreateClientContext(const memgraph::replication::ReplicationClientConfig &c
 
 namespace memgraph::replication {
 
-ReplicationClient::ReplicationClient(const memgraph::replication::ReplicationClientConfig &config)
+ReplicationClient::ReplicationClient(const ReplicationClientConfig &config)
     : name_{config.name},
       rpc_context_{CreateClientContext(config)},
       rpc_client_{config.repl_server_endpoint, &rpc_context_},

@@ -261,22 +261,23 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
 // The semantic of snapshot handler is the following: Either handling snapshot request passes or it doesn't. If it
 // passes we return the current commit timestamp of the replica. If it doesn't pass, we return optional which will
 // signal to the caller that it shouldn't update the commit timestamp value.
-void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handler,
+void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
                                                   const std::optional<utils::UUID> &current_main_uuid,
                                                   slk::Reader *req_reader, slk::Builder *res_builder) {
   storage::replication::SnapshotReq req;
-  slk::Load(&req, req_reader);
-  auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
+  Load(&req, req_reader);
+  auto db_acc = GetDatabaseAccessor(dbms_handler, req.storage_uuid);
   if (!db_acc) {
-    spdlog::error("Couldn't get database accessor in snapshot handler for request uuid {}", std::string{req.uuid});
+    spdlog::error("Couldn't get database accessor in snapshot handler for request with storage_uuid {}",
+                  std::string{req.storage_uuid});
     const storage::replication::SnapshotRes res{{}};
-    slk::Save(res, res_builder);
+    Save(res, res_builder);
     return;
   }
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::SnapshotReq::kType.name);
     const storage::replication::SnapshotRes res{{}};
-    slk::Save(res, res_builder);
+    Save(res, res_builder);
     return;
   }
 
@@ -288,7 +289,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
   if (!maybe_snapshot_path.has_value()) {
     spdlog::error("Failed to load snapshot from {}", storage->recovery_.snapshot_directory_);
     const storage::replication::SnapshotRes res{{}};
-    slk::Save(res, res_builder);
+    Save(res, res_builder);
     return;
   }
   spdlog::info("Received snapshot saved to {}", *maybe_snapshot_path);
@@ -333,7 +334,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
   spdlog::debug("Snapshot from {} loaded successfully.", *maybe_snapshot_path);
 
   const storage::replication::SnapshotRes res{storage->repl_storage_state_.last_durable_timestamp_.load()};
-  slk::Save(res, res_builder);
+  Save(res, res_builder);
 
   spdlog::trace("Deleting old snapshot files due to snapshot recovery.");
 
@@ -366,7 +367,7 @@ void InMemoryReplicationHandlers::ForceResetStorageHandler(dbms::DbmsHandler *db
   slk::Load(&req, req_reader);
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.db_uuid);
   if (!db_acc) {
-    spdlog::error("Couldn't get database accessor in force reset storage handler for request uuid {}",
+    spdlog::error("Couldn't get database accessor in force reset storage handler for request storage_uuid {}",
                   std::string{req.db_uuid});
     const storage::replication::ForceResetStorageRes res{false, 0};
     slk::Save(res, res_builder);
@@ -425,7 +426,8 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
   slk::Load(&req, req_reader);
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
   if (!db_acc) {
-    spdlog::error("Couldn't get database accessor in wal files handler for request uuid {}", std::string{req.uuid});
+    spdlog::error("Couldn't get database accessor in wal files handler for request storage_uuid {}",
+                  std::string{req.uuid});
     const storage::replication::WalFilesRes res{{}};
     slk::Save(res, res_builder);
     return;
@@ -471,7 +473,8 @@ void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_hand
   slk::Load(&req, req_reader);
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
   if (!db_acc) {
-    spdlog::error("Couldn't get database accessor in current wal handler for request uuid {}", std::string{req.uuid});
+    spdlog::error("Couldn't get database accessor in current wal handler for request storage_uuid {}",
+                  std::string{req.uuid});
     const storage::replication::CurrentWalRes res{{}};
     slk::Save(res, res_builder);
     return;

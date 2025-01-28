@@ -132,6 +132,7 @@ TEST_F(RaftStateTest, GetMixedRoutingTable) {
       ReplicationRole::REPLICA, curr_uuid);
 
   auto coord_instances = std::vector<CoordinatorInstanceContext>{};
+  coord_instances.emplace_back(1, fmt::format("localhost:{}", bolt_port));
 
   ASSERT_TRUE(raft_state_leader->AppendClusterUpdate(data_instances, coord_instances, curr_uuid));
 
