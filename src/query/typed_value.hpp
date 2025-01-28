@@ -573,8 +573,6 @@ class TypedValue {
   utils::MemoryResource *GetMemoryResource() const { return memory_; }
 
  private:
-  void DestroyValue();
-
   // Memory resource for allocations of non primitive values
   utils::MemoryResource *memory_{utils::NewDeleteResource()};
 
