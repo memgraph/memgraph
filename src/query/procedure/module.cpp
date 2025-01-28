@@ -23,7 +23,6 @@ extern "C" {
 #include <fmt/format.h>
 #include <unistd.h>
 
-#include "absl/strings/match.h"
 #include "license/license.hpp"
 #include "py/py.hpp"
 #include "query/procedure/callable_alias_mapper.hpp"
@@ -1099,7 +1098,7 @@ void ProcessFileDependencies(std::filesystem::path file_path_, const char *modul
           while ((sys_mod_key = PyIter_Next(sys_iterator))) {
             const char *sys_mod_key_name = PyUnicode_AsUTF8(sys_mod_key);
             auto sys_mod_key_name_str = std::string(sys_mod_key_name);
-            if (absl::StartsWith(sys_mod_key_name_str, module_name_str) && sys_mod_key_name_str != module_path) {
+            if (sys_mod_key_name_str.starts_with(module_name_str) && sys_mod_key_name_str != module_path) {
               PyDict_DelItemString(sys_mod_ref, sys_mod_key_name);  // don't test output
             }
             Py_DECREF(sys_mod_key);
