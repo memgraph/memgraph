@@ -619,13 +619,19 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     TypedValue res(ctx_->memory);
     // Stack allocate evaluated arguments when there's a small number of them.
     if (function.arguments_.size() <= 8) {
-      TypedValue arguments[8] = {TypedValue(ctx_->memory), TypedValue(ctx_->memory), TypedValue(ctx_->memory),
-                                 TypedValue(ctx_->memory), TypedValue(ctx_->memory), TypedValue(ctx_->memory),
-                                 TypedValue(ctx_->memory), TypedValue(ctx_->memory)};
-      for (size_t i = 0; i < function.arguments_.size(); ++i) {
-        arguments[i] = function.arguments_[i]->Accept(*this);
+      utils::uninitialised_storage<std::array<TypedValue, 8>> arguments;
+      auto constructed_count = 0;
+      auto destroy_arguments = utils::OnScopeExit{[&] {
+        for (size_t i = 0; i != constructed_count; ++i) {
+          std::destroy_at(&(*arguments.as())[i]);
+        }
+      }};
+      for (size_t i = 0; i != function.arguments_.size(); ++i) {
+        std::construct_at(&(*arguments.as())[i], function.arguments_[i]->Accept(*this));
+        ++constructed_count;
       }
-      res = function.function_(arguments, function.arguments_.size(), function_ctx);
+
+      res = function.function_(arguments.as()->data(), function.arguments_.size(), function_ctx);
     } else {
       TypedValue::TVector arguments(ctx_->memory);
       arguments.reserve(function.arguments_.size());
