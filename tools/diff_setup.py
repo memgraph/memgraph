@@ -46,7 +46,7 @@ class DiffSetup:
             "coverage": {"core": value},
             "debug": {"core": value, "integration": value},
             "jepsen": {"core": value},
-            "release": {"core": value, "benchmark": value, "e2e": value, "stress": value},
+            "release": {"core": value, "benchmark": value, "e2e": value, "stress": value, "query_modules": value},
         }
 
     def _check_diff_workflow(self) -> bool:

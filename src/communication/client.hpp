@@ -55,12 +55,12 @@ class Client final {
   /**
    * This function returns `true` if the socket is in an error state.
    */
-  bool ErrorStatus();
+  bool ErrorStatus() const;
 
   /**
    * This function returns `true` if the socket is connected to a remote host.
    */
-  bool IsConnected();
+  bool IsConnected() const;
 
   /**
    * This function shuts down the socket.
@@ -91,7 +91,7 @@ class Client final {
    * This function returns the size of the read data that is currently stored in
    * the client.
    */
-  size_t GetDataSize();
+  size_t GetDataSize() const;
 
   /**
    * This function removes first `len` bytes from the data buffer.
@@ -115,7 +115,7 @@ class Client final {
    */
   bool Write(const std::string &str, bool have_more = false, std::optional<int> timeout_ms = std::nullopt);
 
-  const io::network::Endpoint &endpoint();
+  const io::network::Endpoint &endpoint() const;
 
  private:
   void ReleaseSslObjects();

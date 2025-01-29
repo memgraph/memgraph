@@ -197,7 +197,6 @@ int main(int argc, char **argv) {
   Py_SetProgramName(program_name);
   PyImport_AppendInittab("_mgp", &memgraph::query::procedure::PyInitMgpModule);
   Py_InitializeEx(0 /* = initsigs */);
-  PyEval_InitThreads();
   Py_BEGIN_ALLOW_THREADS;
 
   // Add our Python modules to sys.path
@@ -530,7 +529,8 @@ int main(int argc, char **argv) {
     }
 
     if (is_valid_coordinator_instance) {
-      auto const high_availability_data_dir = FLAGS_data_directory + "/high_availability/raft_data";
+      constexpr auto kRaftDataDir = "/high_availability/raft_data";
+      auto const high_availability_data_dir = FLAGS_data_directory + kRaftDataDir;
       memgraph::utils::EnsureDirOrDie(high_availability_data_dir);
       coordinator_state.emplace(CoordinatorInstanceInitConfig{
           .coordinator_id = coordination_setup.coordinator_id,
