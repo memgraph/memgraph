@@ -4225,6 +4225,7 @@ inline void Result::SetValue(const List &list) {
 inline void Result::SetValue(List &&list) {
   auto *mgp_val = mgp::value_make_list(list.ptr_);
   mgp::MemHandlerCallback(func_result_set_value, result_, mgp_val);
+  mgp::value_destroy(mgp_val);
   list.ptr_ = nullptr;
 }
 
@@ -4237,6 +4238,7 @@ inline void Result::SetValue(const Map &map) {
 inline void Result::SetValue(Map &&map) {
   auto *mgp_val = mgp::value_make_map(map.ptr_);
   mgp::MemHandlerCallback(func_result_set_value, result_, mgp_val);
+  mgp::value_destroy(mgp_val);
   map.ptr_ = nullptr;
 }
 
