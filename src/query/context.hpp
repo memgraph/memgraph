@@ -31,10 +31,11 @@ namespace memgraph::query {
 enum class TransactionStatus {
   IDLE,
   ACTIVE,
-  VERIFYING,
-  TERMINATED,
   STARTED_COMMITTING,
   STARTED_ROLLBACK,
+
+  TERMINATED,  ///< Mark the interpreter as having been killed by TERMINATE TRANSACTIONS. The actual termination occurs
+               ///< during Abort(), when the state will change to STARTED_ROLLBACK.
 };
 
 struct Scope {

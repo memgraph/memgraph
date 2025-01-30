@@ -4645,18 +4645,8 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
                       Func &&privilege_checker) -> std::vector<std::vector<TypedValue>> {
   std::vector<std::vector<TypedValue>> results;
   results.reserve(interpreters.size());
-  for (Interpreter *interpreter : interpreters) {
-    TransactionStatus alive_status = TransactionStatus::ACTIVE;
-    // if it is just checking status, commit and abort should wait for the end of the check
-    // ignore interpreters that already started committing or rollback
-    if (!interpreter->transaction_status_.compare_exchange_strong(alive_status, TransactionStatus::VERIFYING)) {
-      continue;
-    }
-    utils::OnScopeExit clean_status([interpreter]() {
-      interpreter->transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
-    });
-    std::optional<uint64_t> transaction_id = interpreter->GetTransactionId();
 
+  for (Interpreter *interpreter : interpreters) {
     auto get_interpreter_db_name = [&]() -> std::string const & {
       static std::string all;
       return interpreter->current_db_.db_acc_ ? interpreter->current_db_.db_acc_->get()->name() : all;
@@ -4668,6 +4658,8 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
       return false;
     };
 
+    std::unique_lock tx_lock{interpreter->transaction_info_lock_};
+    std::optional<uint64_t> const transaction_id = interpreter->GetTransactionId();
     if (transaction_id.has_value() && (same_user(interpreter->user_or_role_, user_or_role) ||
                                        privilege_checker(user_or_role, get_interpreter_db_name()))) {
       const auto &typed_queries = interpreter->GetQueries();
@@ -4683,7 +4675,7 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
           metadata_tv.emplace(md.first, TypedValue(md.second));
         }
       }
-      results.back().emplace_back(metadata_tv);
+      results.back().emplace_back(std::move(metadata_tv));
     }
   }
   return results;
@@ -6585,8 +6577,16 @@ void Interpreter::SetupDatabaseTransaction(bool couldCommit, storage::Storage::A
 
 void Interpreter::SetupInterpreterTransaction(const QueryExtras &extras) {
   metrics::IncrementCounter(metrics::ActiveTransactions);
-  transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
-  current_transaction_ = interpreter_context_->id_handler.next();
+
+  auto metadata = GenOptional(extras.metadata_pv);
+
+  {
+    std::lock_guard const lg{transaction_info_lock_};
+    current_transaction_ = interpreter_context_->id_handler.next();
+    metadata_ = std::move(metadata);
+    transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
+  }
+
   if (query_logger_) {
     query_logger_->SetTransactionId(std::to_string(*current_transaction_));
   }
@@ -6611,39 +6611,30 @@ void Interpreter::Abort() {
     }
   });
 
-  bool decrement = true;
-
   // System tx
   // TODO Implement system transaction scope and the ability to abort
   system_transaction_.reset();
 
   // Data tx
-  auto expected = TransactionStatus::ACTIVE;
-  while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::STARTED_ROLLBACK)) {
-    if (expected == TransactionStatus::TERMINATED || expected == TransactionStatus::IDLE) {
-      transaction_status_.store(TransactionStatus::STARTED_ROLLBACK);
-      decrement = false;
-      break;
-    }
-    expected = TransactionStatus::ACTIVE;
-    std::this_thread::sleep_for(std::chrono::milliseconds(1));
-  }
+  TransactionStatus const prior_status{transaction_status_.load(std::memory_order_acquire)};
+  MG_ASSERT(prior_status != TransactionStatus::STARTED_COMMITTING);
 
-  utils::OnScopeExit clean_status(
-      [this]() { transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release); });
+  utils::OnScopeExit const clean_status([this]() {
+    std::lock_guard const lg{transaction_info_lock_};
+    current_transaction_.reset();
+    metadata_ = std::nullopt;
+    transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release);
+  });
 
+  transaction_status_.store(TransactionStatus::STARTED_ROLLBACK);
   expect_rollback_ = false;
   in_explicit_transaction_ = false;
-  metadata_ = std::nullopt;
   current_timeout_timer_.reset();
-  current_transaction_.reset();
 
-  if (decrement) {
-    // Decrement only if the transaction was active when we started to Abort
+  if (prior_status == TransactionStatus::ACTIVE) {
     memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTransactions);
   }
 
-  // if (!current_db_.db_transactional_accessor_) return;
   current_db_.CleanupDBTransaction(true);
   for (auto &qe : query_executions_) {
     if (qe) qe->CleanRuntimeData();
@@ -6746,12 +6737,18 @@ void Interpreter::Commit() {
     }
   });
 
+  utils::OnScopeExit const clean_status([this]() {
+    std::lock_guard const lg{transaction_info_lock_};
+    current_transaction_.reset();
+    metadata_ = std::nullopt;
+    transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release);
+  });
+
   // It's possible that some queries did not finish because the user did
   // not pull all of the results from the query.
   // For now, we will not check if there are some unfinished queries.
   // We should document clearly that all results should be pulled to complete
   // a query.
-  current_transaction_.reset();
   if (!current_db_.db_transactional_accessor_ || !current_db_.db_acc_) {
     // No database nor db transaction; check for system transaction
     if (!system_transaction_) return;
@@ -6765,17 +6762,6 @@ void Interpreter::Commit() {
       // Durability has happened at time of PULL
       // Commit is doing replication and timestamp update
       // The DBMS does not support MVCC, so doing durability here doesn't change the overall logic; we cannot abort!
-      // What we are trying to do is set the transaction back to IDLE
-      // We cannot simply put it to IDLE, since the status is used as a synchronization method and we have to follow
-      // its logic. There are 2 states when we could update to IDLE (ACTIVE and TERMINATED).
-      auto expected = TransactionStatus::ACTIVE;
-      while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::IDLE)) {
-        if (expected == TransactionStatus::TERMINATED) {
-          continue;
-        }
-        expected = TransactionStatus::ACTIVE;
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-      }
     });
 
     auto const main_commit = [&](replication::RoleMainData &mainData) {
@@ -6801,22 +6787,13 @@ void Interpreter::Commit() {
 
   /*
   At this point we must check that the transaction is alive to start committing. The only other possible state is
-  verifying and in that case we must check if the transaction was terminated and if yes abort committing. Exception
-  should suffice.
+  terminating, and if in that state, abort committing.
   */
-  auto expected = TransactionStatus::ACTIVE;
-  while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::STARTED_COMMITTING)) {
-    if (expected == TransactionStatus::TERMINATED) {
-      throw memgraph::utils::BasicException(
-          "Aborting transaction commit because the transaction was requested to stop from other session. ");
-    }
-    expected = TransactionStatus::ACTIVE;
-    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  TransactionStatus const prior_status{transaction_status_.exchange(TransactionStatus::STARTED_COMMITTING)};
+  if (prior_status == TransactionStatus::TERMINATED) {
+    throw memgraph::utils::BasicException(
+        "Aborting transaction commit because the transaction was requested to stop from other session. ");
   }
-
-  // Clean transaction status if something went wrong
-  utils::OnScopeExit clean_status(
-      [this]() { transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release); });
 
   auto current_storage_mode = db->GetStorageMode();
   auto creation_mode = current_db_.db_transactional_accessor_->GetCreationStorageMode();
