@@ -243,6 +243,9 @@ target_link_libraries(${test_prefix}utils_memory mg-utils)
 add_unit_test(utils_memory_tracker.cpp)
 target_link_libraries(${test_prefix}utils_memory_tracker mg-utils)
 
+add_unit_test(utils_query_memory_tracker.cpp)
+target_link_libraries(${test_prefix}utils_query_memory_tracker mg-utils)
+
 add_unit_test(utils_on_scope_exit.cpp)
 target_link_libraries(${test_prefix}utils_on_scope_exit mg-utils)
 
@@ -572,4 +575,24 @@ if(MG_ENTERPRISE)
 add_unit_test(ttl.cpp)
 target_link_libraries(${test_prefix}ttl mg-query)
 target_include_directories(${test_prefix}ttl PRIVATE ${CMAKE_SOURCE_DIR}/include)
+endif()
+
+# Test community detection online
+# avoid linking with shared library due to missing symbols
+if(MG_ENTERPRISE)
+  add_unit_test(community_detection_online.cpp ${CMAKE_SOURCE_DIR}/query_modules/community_detection_module/algorithm_online/community_detection.cpp)
+  target_include_directories(${test_prefix}community_detection_online PRIVATE
+  ${CMAKE_SOURCE_DIR}/query_modules/community_detection_module
+  ${CMAKE_SOURCE_DIR}/include
+  ${CMAKE_SOURCE_DIR}/query_modules/mg_utility)
+endif()
+
+# Test katz centrality online
+# avoid linking with shared library due to missing symbols
+if(MG_ENTERPRISE)
+  add_unit_test(katz_centrality_online.cpp ${CMAKE_SOURCE_DIR}/query_modules/katz_centrality_module/algorithm/katz.cpp)
+  target_include_directories(${test_prefix}katz_centrality_online PRIVATE
+  ${CMAKE_SOURCE_DIR}/query_modules/katz_centrality_module
+  ${CMAKE_SOURCE_DIR}/include
+  ${CMAKE_SOURCE_DIR}/query_modules/mg_utility)
 endif()

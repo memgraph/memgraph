@@ -504,7 +504,7 @@ copy_memgraph() {
     case "$1" in
       --binary)#cp -L
         if [[ "$artifact" == "build logs" ]] || [[ "$artifact" == "package" ]] || [[ "$artifact" == "libs" ]]; then
-          echo -e "Error: When executing 'copy' command, choose only one of --binary, --build-logs, --libs, or --package"
+          echo -e "Error: When executing 'copy' command, choose only one of --binary, --build-logs, --libs, --package or --memgraph-logs"
           exit 1
         fi
         artifact="binary"
@@ -515,7 +515,7 @@ copy_memgraph() {
       ;;
       --build-logs)#cp -L
         if [[ "$artifact" == "package" ]] || [[ "$artifact" == "libs" ]]; then
-          echo -e "Error: When executing 'copy' command, choose only one of --binary, --build-logs, --libs, or --package"
+          echo -e "Error: When executing 'copy' command, choose only one of --binary, --build-logs, --libs, --package or --memgraph-logs"
           exit 1
         fi
         artifact="build logs"
@@ -524,9 +524,20 @@ copy_memgraph() {
         host_dir="$PROJECT_BUILD_DIR"
         shift 1
       ;;
+      --memgraph-logs)#cp -L
+        if [[ "$artifact" == "package" ]] || [[ "$artifact" == "libs" ]]; then
+          echo -e "Error: When executing 'copy' command, choose only one of --binary, --build-logs, --libs, --package or --memgraph-logs"
+          exit 1
+        fi
+        artifact="memgraph logs"
+        artifact_name="memgraph-logs"
+        container_artifact_path="$MGBUILD_BUILD_DIR/memgraph-logs"
+        host_dir="$PROJECT_BUILD_DIR"
+        shift 1
+      ;;
       --package)#cp
         if [[ "$artifact" == "build logs" ]] || [[ "$artifact" == "libs" ]]; then
-          echo -e "Error: When executing 'copy' command, choose only one of --binary, --build-logs, --libs, or --package"
+          echo -e "Error: When executing 'copy' command, choose only one of --binary, --build-logs, --libs, --package or --memgraph-logs"
           exit 1
         fi
         artifact="package"
@@ -538,7 +549,7 @@ copy_memgraph() {
       ;;
       --libs)#cp -L
         if [[ "$artifact" == "build logs" ]] || [[ "$artifact" == "package" ]]; then
-          echo -e "Error: When executing 'copy' command, choose only one of --binary, --build-logs, --libs, or --package"
+          echo -e "Error: When executing 'copy' command, choose only one of --binary, --build-logs, --libs, --package or --memgraph-logs"
           exit 1
         fi
         artifact="libs"
@@ -695,7 +706,7 @@ test_memgraph() {
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && cd $MGBUILD_ROOT_DIR/tests && $ACTIVATE_VENV && source ve3/bin/activate_e2e && cd $MGBUILD_ROOT_DIR/tests/e2e "'&& ./run.sh'
     ;;
     query_modules_e2e)
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && cd $MGBUILD_ROOT_DIR/tests && $ACTIVATE_VENV && source ve3/bin/activate_e2e && cd $MGBUILD_ROOT_DIR/tests/query_modules "'&& python3 -m pytest .'
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && pip install -r $MGBUILD_ROOT_DIR/tests/query_modules/requirements.txt && cd $MGBUILD_ROOT_DIR/tests/query_modules "'&& python3 -m pytest .'
     ;;
     *)
       echo "Error: Unknown test '$1'"
