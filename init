@@ -136,7 +136,7 @@ fi
 # packages.
 if [[ "$ci" == "false" ]]; then
   if [ "${DISTRO}" != "centos-7" ] && [ "$DISTRO" != "debian-10" ] && [ "${DISTRO}" != "ubuntu-18.04" ] && [ "${DISTRO}" != "amzn-2" ]; then
-    python3 -m pip install --upgrade pip
+    python3 -m pip install --break-system-packages --upgrade pip
     python3 -m pip install --break-system-packages pre-commit
     python3 -m pre_commit install
     # Install py format tools for usage during the development.
