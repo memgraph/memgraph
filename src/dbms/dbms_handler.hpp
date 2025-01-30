@@ -28,9 +28,6 @@
 #include "dbms/inmemory/replication_handlers.hpp"
 #include "dbms/rpc.hpp"
 #include "kvstore/kvstore.hpp"
-#include "license/license.hpp"
-#include "replication/replication_client.hpp"
-#include "replication_coordination_glue/handler.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/transaction.hpp"
 #include "system/system.hpp"
@@ -40,15 +37,12 @@
 #include "dbms/database_handler.hpp"
 #endif
 #include "global.hpp"
-#include "query/config.hpp"
 #include "query/interpreter_context.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/isolation_level.hpp"
-#include "system/system.hpp"
 #include "utils/logging.hpp"
 #include "utils/result.hpp"
 #include "utils/rw_lock.hpp"
-#include "utils/synchronized.hpp"
 #include "utils/uuid.hpp"
 
 namespace memgraph::dbms {

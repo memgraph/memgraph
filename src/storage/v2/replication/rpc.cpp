@@ -245,12 +245,10 @@ void Load(memgraph::storage::replication::HeartbeatReq *self, memgraph::slk::Rea
 
 void Save(const memgraph::storage::replication::AppendDeltasRes &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.success, builder);
-  memgraph::slk::Save(self.current_commit_timestamp, builder);
 }
 
 void Load(memgraph::storage::replication::AppendDeltasRes *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->success, reader);
-  memgraph::slk::Load(&self->current_commit_timestamp, reader);
 }
 
 // Serialize code for AppendDeltasReq

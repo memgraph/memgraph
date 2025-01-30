@@ -47,11 +47,10 @@ struct AppendDeltasRes {
   static void Load(AppendDeltasRes *self, memgraph::slk::Reader *reader);
   static void Save(const AppendDeltasRes &self, memgraph::slk::Builder *builder);
   AppendDeltasRes() = default;
-  AppendDeltasRes(bool success, uint64_t current_commit_timestamp)
-      : success(success), current_commit_timestamp(current_commit_timestamp) {}
+
+  explicit AppendDeltasRes(bool const success) : success(success) {}
 
   bool success;
-  uint64_t current_commit_timestamp;
 };
 
 using AppendDeltasRpc = rpc::RequestResponse<AppendDeltasReq, AppendDeltasRes>;
