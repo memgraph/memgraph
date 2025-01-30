@@ -718,7 +718,7 @@ test_memgraph() {
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && cd $MGBUILD_ROOT_DIR/tests && $ACTIVATE_VENV && source ve3/bin/activate_e2e && cd $MGBUILD_ROOT_DIR/tests/e2e "'&& ./run.sh'
     ;;
     query_modules_e2e)
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && pip install -r $MGBUILD_ROOT_DIR/tests/query_modules/requirements.txt && cd $MGBUILD_ROOT_DIR/tests/query_modules "'&& python3 -m pytest .'
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && pip install --break-system-packages -r $MGBUILD_ROOT_DIR/tests/query_modules/requirements.txt && cd $MGBUILD_ROOT_DIR/tests/query_modules "'&& python3 -m pytest .'
     ;;
     *)
       echo "Error: Unknown test '$1'"
