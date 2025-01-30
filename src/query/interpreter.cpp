@@ -2308,7 +2308,6 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper,
 
       expect_rollback_ = false;
       in_explicit_transaction_ = false;
-      metadata_ = std::nullopt;
       current_timeout_timer_.reset();
     };
   } else if (query_upper == "ROLLBACK") {
@@ -2322,7 +2321,6 @@ PreparedQuery Interpreter::PrepareTransactionQuery(std::string_view query_upper,
       Abort();
       expect_rollback_ = false;
       in_explicit_transaction_ = false;
-      metadata_ = std::nullopt;
       current_timeout_timer_.reset();
     };
   } else {
@@ -4300,15 +4298,34 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
   std::vector<std::vector<TypedValue>> results;
   results.reserve(interpreters.size());
   for (Interpreter *interpreter : interpreters) {
-    TransactionStatus alive_status = TransactionStatus::ACTIVE;
-    // if it is just checking status, commit and abort should wait for the end of the check
-    // ignore interpreters that already started committing or rollback
-    if (!interpreter->transaction_status_.compare_exchange_strong(alive_status, TransactionStatus::VERIFYING)) {
+    // Atomically set the state to READING_TRANSACTION_INFO, unless
+    // 1. The interpreter is IDLE, in which case, leave it and move onto the next.
+    // 2. The interpreter is UPDATING_TRANSACTION_INFO, in which case, we wait.
+    TransactionStatus const prior_status{std::invoke(
+        [](std::atomic<TransactionStatus> &state) -> TransactionStatus {
+          TransactionStatus expected = state.load();
+
+          while (true) {
+            if (expected == TransactionStatus::IDLE) {
+              return expected;
+            } else if (expected == TransactionStatus::UPDATING_TRANSACTION_INFO) {
+              while ((expected = state.load()) == TransactionStatus::UPDATING_TRANSACTION_INFO) {
+                std::this_thread::sleep_for(std::chrono::microseconds(1));
+              }
+            } else if (state.compare_exchange_weak(expected, TransactionStatus::READING_TRANSACTION_INFO)) {
+              return expected;
+            }
+          }
+        },
+        interpreter->transaction_status_)};
+    if (prior_status == TransactionStatus::IDLE) {
       continue;
     }
-    utils::OnScopeExit clean_status([interpreter]() {
-      interpreter->transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
+
+    utils::OnScopeExit restore_prior_status([interpreter, prior_status] {
+      interpreter->transaction_status_.store(prior_status, std::memory_order_release);
     });
+
     std::optional<uint64_t> transaction_id = interpreter->GetTransactionId();
 
     auto get_interpreter_db_name = [&]() -> std::string const & {
@@ -6007,12 +6024,26 @@ void Interpreter::SetupDatabaseTransaction(bool couldCommit, bool unique) {
 
 void Interpreter::SetupInterpreterTransaction(const QueryExtras &extras) {
   metrics::IncrementCounter(metrics::ActiveTransactions);
-  transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
-  current_transaction_ = interpreter_context_->id_handler.next();
+
+  auto metadata = GenOptional(extras.metadata_pv);
+
+  {
+    for (TransactionStatus expected = TransactionStatus::IDLE;
+         !transaction_status_.compare_exchange_weak(expected, TransactionStatus::UPDATING_TRANSACTION_INFO);
+         expected = TransactionStatus::IDLE) {
+    }
+
+    utils::OnScopeExit set_status_to_active(
+        [this]() { transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release); });
+
+    current_transaction_ = interpreter_context_->id_handler.next();
+    metadata_ = std::move(metadata);
+  }
+
   if (query_logger_) {
     query_logger_->SetTransactionId(std::to_string(*current_transaction_));
   }
-  metadata_ = GenOptional(extras.metadata_pv);
+
   current_timeout_timer_ = CreateTimeoutTimer(extras, interpreter_context_->config);
 }
 
@@ -6034,35 +6065,47 @@ void Interpreter::Abort() {
     }
   });
 
-  bool decrement = true;
-
   // System tx
   // TODO Implement system transaction scope and the ability to abort
   system_transaction_.reset();
 
   // Data tx
-  auto expected = TransactionStatus::ACTIVE;
-  while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::STARTED_ROLLBACK)) {
-    if (expected == TransactionStatus::TERMINATED || expected == TransactionStatus::IDLE) {
-      transaction_status_.store(TransactionStatus::STARTED_ROLLBACK);
-      decrement = false;
-      break;
-    }
-    expected = TransactionStatus::ACTIVE;
-    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  auto expected = transaction_status_.load();
+
+  // Transition from (ACTIVE | IDLE | TERMINATED) -> STARTED_ROLLBACK.
+  while (expected != TransactionStatus::ACTIVE && expected != TransactionStatus::IDLE &&
+         expected != TransactionStatus::TERMINATED) {
+    expected = transaction_status_.load();
+    std::this_thread::sleep_for(std::chrono::microseconds(1));
   }
 
-  utils::OnScopeExit clean_status(
-      [this]() { transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release); });
+  while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::STARTED_ROLLBACK)) {
+    if (expected != TransactionStatus::ACTIVE && expected != TransactionStatus::IDLE &&
+        expected != TransactionStatus::TERMINATED) {
+      while (expected != TransactionStatus::ACTIVE && expected != TransactionStatus::IDLE &&
+             expected != TransactionStatus::TERMINATED) {
+        expected = transaction_status_.load();
+        std::this_thread::sleep_for(std::chrono::microseconds(1));
+      }
+    }
+  }
+
+  utils::OnScopeExit clean_status([this]() {
+    for (TransactionStatus expected = TransactionStatus::STARTED_ROLLBACK;
+         !transaction_status_.compare_exchange_weak(expected, TransactionStatus::UPDATING_TRANSACTION_INFO);
+         expected = TransactionStatus::STARTED_ROLLBACK) {
+    }
+
+    current_transaction_.reset();
+    metadata_ = std::nullopt;
+    transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release);
+  });
 
   expect_rollback_ = false;
   in_explicit_transaction_ = false;
-  metadata_ = std::nullopt;
   current_timeout_timer_.reset();
-  current_transaction_.reset();
 
-  if (decrement) {
-    // Decrement only if the transaction was active when we started to Abort
+  if (expected == TransactionStatus::ACTIVE) {
     memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTransactions);
   }
 
@@ -6165,12 +6208,23 @@ void Interpreter::Commit() {
     }
   });
 
+  TransactionStatus expected_status{TransactionStatus::ACTIVE};
+  utils::OnScopeExit clean_status([this, &expected_status]() {
+    for (TransactionStatus expected = expected_status;
+         !transaction_status_.compare_exchange_weak(expected, TransactionStatus::UPDATING_TRANSACTION_INFO);
+         expected = expected_status) {
+    }
+
+    current_transaction_.reset();
+    metadata_ = std::nullopt;
+    transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release);
+  });
+
   // It's possible that some queries did not finish because the user did
   // not pull all of the results from the query.
   // For now, we will not check if there are some unfinished queries.
   // We should document clearly that all results should be pulled to complete
   // a query.
-  current_transaction_.reset();
   if (!current_db_.db_transactional_accessor_ || !current_db_.db_acc_) {
     // No database nor db transaction; check for system transaction
     if (!system_transaction_) return;
@@ -6193,7 +6247,7 @@ void Interpreter::Commit() {
           continue;
         }
         expected = TransactionStatus::ACTIVE;
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        std::this_thread::sleep_for(std::chrono::microseconds(1));
       }
     });
 
@@ -6230,12 +6284,11 @@ void Interpreter::Commit() {
           "Aborting transaction commit because the transaction was requested to stop from other session. ");
     }
     expected = TransactionStatus::ACTIVE;
-    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    std::this_thread::sleep_for(std::chrono::microseconds(1));
   }
 
-  // Clean transaction status if something went wrong
-  utils::OnScopeExit clean_status(
-      [this]() { transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release); });
+  // Used by deferred `clean_status` function above
+  expected_status = TransactionStatus::STARTED_COMMITTING;
 
   auto current_storage_mode = db->GetStorageMode();
   auto creation_mode = current_db_.db_transactional_accessor_->GetCreationStorageMode();
