@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -30,10 +30,14 @@ namespace memgraph::query {
 enum class TransactionStatus {
   IDLE,
   ACTIVE,
-  VERIFYING,
-  TERMINATED,
   STARTED_COMMITTING,
   STARTED_ROLLBACK,
+
+  READING_TRANSACTION_INFO,   ///< When SHOW/TERMINATE TRANSACTIONS is considering an interpreter.
+  UPDATING_TRANSACTION_INFO,  ///< When data read by SHOW/TERMINATE TRANSACTIONS is being updated.
+
+  TERMINATED,  ///< Mark the interpreter as having been killed by TERMINATE TRANSACTIONS. The actual termination occurs
+               ///< during Abort(), when the state will change to STARTED_ROLLBACK.
 };
 
 struct Scope {

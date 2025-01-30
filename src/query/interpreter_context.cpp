@@ -50,13 +50,34 @@ std::vector<std::vector<TypedValue>> InterpreterContext::TerminateTransactions(
   interpreters.WithLock([&not_found_midpoint, &maybe_kill_transaction_ids, user_or_role,
                          privilege_checker = std::move(privilege_checker)](const auto &interpreters) {
     for (Interpreter *interpreter : interpreters) {
-      TransactionStatus alive_status = TransactionStatus::ACTIVE;
-      // if it is just checking kill, commit and abort should wait for the end of the check
-      // The only way to start checking if the transaction will get killed is if the transaction_status is
-      // active
-      if (!interpreter->transaction_status_.compare_exchange_strong(alive_status, TransactionStatus::VERIFYING)) {
+      // Only active transactions can be terminated, and we must set the state to READING_TRANSACTION_INFO to read the
+      // transaction id. In summary:
+      // 1. If the state is UPDATING_TRANSACTION_INFO, wait until the state enum reflects the "real" underlying state.
+      // 2. If the state is ACTIVE, set the state to READING_TRANSACTION_INFO.
+      // 3. If the state is anything else, we can't terminate the transaction (as the transaction is already being
+      // commmited, rolled-back, or has been flagged for termination). Skip it and move on.
+      TransactionStatus const prior_status{std::invoke(
+          [](std::atomic<TransactionStatus> &state) -> TransactionStatus {
+            TransactionStatus expected = state.load();
+
+            while (true) {
+              if (expected != TransactionStatus::ACTIVE && expected != TransactionStatus::UPDATING_TRANSACTION_INFO) {
+                return expected;
+              } else if (expected == TransactionStatus::UPDATING_TRANSACTION_INFO) {
+                while (state.load() == TransactionStatus::UPDATING_TRANSACTION_INFO) {
+                  std::this_thread::yield();
+                }
+                expected = state.load();
+              } else if (state.compare_exchange_weak(expected, TransactionStatus::READING_TRANSACTION_INFO)) {
+                return expected;
+              }
+            }
+          },
+          interpreter->transaction_status_)};
+      if (prior_status != TransactionStatus::ACTIVE) {
         continue;
       }
+
       bool killed = false;
       utils::OnScopeExit clean_status([interpreter, &killed]() {
         if (killed) {
