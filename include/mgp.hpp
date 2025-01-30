@@ -550,6 +550,9 @@ class List {
   /// @brief Extends the list and appends the given `value` to it. The `value` is copied.
   void AppendExtend(const Value &value);
 
+  /// @brief Ensure underlying capacity is at least `n`
+  void Reserve(size_t n);
+
   // Value Pop();  // not implemented (requires mgp_list_pop in the MGP API):
 
   /// @exception std::runtime_error List contains value of unknown type.
@@ -2548,6 +2551,8 @@ inline List::Iterator List::cend() const { return Iterator(this, Size()); }
 inline void List::Append(const Value &value) { mgp::list_append(ptr_, value.ptr()); }
 
 inline void List::AppendExtend(const Value &value) { mgp::list_append_extend(ptr_, value.ptr()); }
+
+inline void List::Reserve(size_t n) { mgp::list_reserve(ptr_, n); }
 
 inline bool List::operator==(const List &other) const { return util::ListsEqual(ptr_, other.ptr_); }
 

@@ -462,6 +462,10 @@ enum mgp_error mgp_list_append(struct mgp_list *list, struct mgp_value *val);
 /// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_value.
 enum mgp_error mgp_list_append_extend(struct mgp_list *list, struct mgp_value *val);
 
+/// Ensure the underlying capacity of the mgp_list is at least n.
+/// Current implementation always returns without errors.
+enum mgp_error mgp_list_reserve(struct mgp_list *list, size_t n);
+
 /// Get the number of elements stored in mgp_list.
 /// Current implementation always returns without errors.
 enum mgp_error mgp_list_size(struct mgp_list *list, size_t *result);

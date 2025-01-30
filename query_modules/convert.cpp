@@ -29,6 +29,7 @@ mgp::Value ParseJsonToMgpMap(const nlohmann::json &json_obj, mgp_memory *memory)
 
 mgp::Value ParseJsonToMgpList(const nlohmann::json &json_array, mgp_memory *memory) {
   auto list = mgp::List();
+  list.Reserve(json_array.size());
   for (const auto &element : json_array) {
     auto value = ParseJsonToMgpValue(element, memory).value();
     list.AppendExtend(value);
