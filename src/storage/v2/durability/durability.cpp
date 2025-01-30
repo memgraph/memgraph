@@ -563,7 +563,6 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
         recovery_info.next_vertex_id = std::max(recovery_info.next_vertex_id, info.next_vertex_id);
         recovery_info.next_edge_id = std::max(recovery_info.next_edge_id, info.next_edge_id);
         recovery_info.next_timestamp = std::max(recovery_info.next_timestamp, info.next_timestamp);
-
         recovery_info.last_durable_timestamp = info.last_durable_timestamp;
 
         if (recovery_info.next_timestamp != 0) {

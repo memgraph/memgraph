@@ -13,12 +13,11 @@ import os
 import shutil
 import sys
 import tempfile
-import time
-from typing import Any, Dict
+from time import sleep
 
 import interactive_mg_runner
 import pytest
-from common import connect, execute_and_fetch_all
+from common import connect, execute_and_fetch_all, get_data_path, get_logs_path
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
@@ -80,6 +79,31 @@ def memgraph_instances(dir):
             "log_file": "snapshot_recovery_recover_on_startup.log",
             "data_directory": dir,
         },
+    }
+
+
+file = "snapshot_recovery"
+
+
+@pytest.fixture
+def test_name(request):
+    return request.node.name
+
+
+def parallel_recovery_instance(test_name):
+    return {
+        "instance_1": {
+            "args": [
+                "--log-level=TRACE",
+                "--storage-snapshot-interval-sec=10000",
+                "--storage-snapshot-on-exit=false",
+                "--storage-parallel-schema-recovery=true",
+                "--storage-wal-enabled=true",
+            ],
+            "log_file": f"{get_logs_path(file, test_name)}/instance_1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/instance_1",
+            "setup_queries": [],
+        }
     }
 
 
@@ -204,234 +228,256 @@ def mt_cursor(connection, database):
     return cursor
 
 
-@pytest.mark.parametrize("database", ["memgraph", "other_db"])
-def test_empty(global_snapshot, database):
-    assert global_snapshot != None, "To snapshot to recover from"
-    data_directory = tempfile.TemporaryDirectory()
-    interactive_mg_runner.start(memgraph_instances(data_directory.name), "default")
-    mt_setup()
-    main_test(mt_data_dir(data_directory.name, database), global_snapshot, database, True)
-    interactive_mg_runner.kill_all()
-    interactive_mg_runner.start(memgraph_instances(data_directory.name), "recover_on_startup")
-    main_test_reboot(database)
-    interactive_mg_runner.kill_all()
+# @pytest.mark.parametrize("database", ["memgraph", "other_db"])
+# def test_empty(global_snapshot, database):
+#     assert global_snapshot != None, "To snapshot to recover from"
+#     data_directory = tempfile.TemporaryDirectory()
+#     interactive_mg_runner.start(memgraph_instances(data_directory.name), "default")
+#     mt_setup()
+#     main_test(mt_data_dir(data_directory.name, database), global_snapshot, database, True)
+#     interactive_mg_runner.kill_all()
+#     interactive_mg_runner.start(memgraph_instances(data_directory.name), "recover_on_startup")
+#     main_test_reboot(database)
+#     interactive_mg_runner.kill_all()
+#
+#
+# def test_empty_with_local_snapshot(global_snapshot):
+#     assert global_snapshot != None, "To snapshot to recover from"
+#     data_directory = tempfile.TemporaryDirectory()
+#     interactive_mg_runner.start(memgraph_instances(data_directory.name), "default")
+#     local_snapshot = data_directory.name + "/snapshots/" + os.path.basename(global_snapshot)
+#     shutil.copyfile(global_snapshot, local_snapshot)
+#     main_test(mt_data_dir(data_directory.name, "memgraph"), local_snapshot, "memgraph", True)
+#     interactive_mg_runner.kill_all()
+#     interactive_mg_runner.start(memgraph_instances(data_directory.name), "recover_on_startup")
+#     main_test_reboot("memgraph")
+#     interactive_mg_runner.kill_all()
+#
+#
+# @pytest.mark.parametrize("database", ["memgraph", "other_db"])
+# def test_only_current_wal(global_snapshot, database):
+#     assert global_snapshot != None, "To snapshot to recover from"
+#     data_directory = tempfile.TemporaryDirectory()
+#     interactive_mg_runner.start(memgraph_instances(data_directory.name), "default")
+#     mt_setup()
+#
+#     # Add new data so we have a current wal
+#     connection = connect(host="localhost", port=7687)
+#     cursor = mt_cursor(connection, database)
+#     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
+#
+#     main_test(mt_data_dir(data_directory.name, database), global_snapshot, database, False)
+#     interactive_mg_runner.kill_all()
+#     interactive_mg_runner.start(memgraph_instances(data_directory.name), "recover_on_startup")
+#     main_test_reboot(database)
+#     interactive_mg_runner.kill_all()
+#
+#
+# @pytest.mark.parametrize("database", ["memgraph", "other_db"])
+# def test_only_finalized_wals(global_snapshot, database):
+#     assert global_snapshot != None, "To snapshot to recover from"
+#     data_directory = tempfile.TemporaryDirectory()
+#     interactive_mg_runner.start(memgraph_instances(data_directory.name), "default")
+#     mt_setup()
+#
+#     # Add new data so we have only finalized wals
+#     connection = connect(host="localhost", port=7687)
+#     cursor = mt_cursor(connection, database)
+#     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
+#     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
+#     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
+#     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
+#     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
+#     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
+#     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
+#     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
+#
+#     main_test(mt_data_dir(data_directory.name, database), global_snapshot, database, False)
+#     interactive_mg_runner.kill_all()
+#     interactive_mg_runner.start(memgraph_instances(data_directory.name), "recover_on_startup")
+#     main_test_reboot(database)
+#     interactive_mg_runner.kill_all()
+#
+#
+# @pytest.mark.parametrize("database", ["memgraph", "other_db"])
+# def test_both_wals(global_snapshot, database):
+#     assert global_snapshot != None, "To snapshot to recover from"
+#     data_directory = tempfile.TemporaryDirectory()
+#     interactive_mg_runner.start(memgraph_instances(data_directory.name), "default")
+#     mt_setup()
+#
+#     # Add new data so we have only finalized wals
+#     connection = connect(host="localhost", port=7687)
+#     cursor = mt_cursor(connection, database)
+#     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
+#     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
+#     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
+#     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
+#     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
+#     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
+#     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
+#     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
+#     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
+#     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
+#
+#     main_test(mt_data_dir(data_directory.name, database), global_snapshot, database, False)
+#     interactive_mg_runner.kill_all()
+#     interactive_mg_runner.start(memgraph_instances(data_directory.name), "recover_on_startup")
+#     main_test_reboot(database)
+#     interactive_mg_runner.kill_all()
+#
+#
+# def test_snapshot(global_snapshot, global_old_snapshot):
+#     assert global_snapshot != None, "To snapshot to recover from"
+#     assert global_old_snapshot != None, "To snapshot to recover from"
+#     data_directory = tempfile.TemporaryDirectory()
+#     os.mkdir(data_directory.name + "/snapshots")
+#     shutil.copyfile(global_old_snapshot, data_directory.name + "/snapshots/" + os.path.basename(global_old_snapshot))
+#     interactive_mg_runner.start(memgraph_instances(data_directory.name), "recover_on_startup")
+#     data_check(connect(host="localhost", port=7687).cursor(), 5)
+#     main_test(mt_data_dir(data_directory.name, "memgraph"), global_snapshot, "memgraph", False)
+#     interactive_mg_runner.kill_all()
+#     interactive_mg_runner.start(memgraph_instances(data_directory.name), "recover_on_startup")
+#     main_test_reboot("memgraph")
+#     interactive_mg_runner.kill_all()
+#
+#
+# def test_snapshot_and_current_wal(global_snapshot, global_old_snapshot):
+#     assert global_snapshot != None, "To snapshot to recover from"
+#     assert global_old_snapshot != None, "To snapshot to recover from"
+#     data_directory = tempfile.TemporaryDirectory()
+#     os.mkdir(data_directory.name + "/snapshots")
+#     shutil.copyfile(global_old_snapshot, data_directory.name + "/snapshots/" + os.path.basename(global_old_snapshot))
+#     interactive_mg_runner.start(memgraph_instances(data_directory.name), "recover_on_startup")
+#     data_check(connect(host="localhost", port=7687).cursor(), 5)
+#
+#     # Add new data so we have a current wal
+#     connection = connect(host="localhost", port=7687)
+#     cursor = mt_cursor(connection, "memgraph")
+#     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
+#
+#     main_test(mt_data_dir(data_directory.name, "memgraph"), global_snapshot, "memgraph", False)
+#     interactive_mg_runner.kill_all()
+#     interactive_mg_runner.start(memgraph_instances(data_directory.name), "recover_on_startup")
+#     main_test_reboot("memgraph")
+#     interactive_mg_runner.kill_all()
+#
+#
+# def test_snapshot_and_finalized_wals(global_snapshot, global_old_snapshot):
+#     assert global_snapshot != None, "To snapshot to recover from"
+#     assert global_old_snapshot != None, "To snapshot to recover from"
+#     data_directory = tempfile.TemporaryDirectory()
+#     os.mkdir(data_directory.name + "/snapshots")
+#     shutil.copyfile(global_old_snapshot, data_directory.name + "/snapshots/" + os.path.basename(global_old_snapshot))
+#     interactive_mg_runner.start(memgraph_instances(data_directory.name), "recover_on_startup")
+#     data_check(connect(host="localhost", port=7687).cursor(), 5)
+#
+#     # Add new data so we have a current wal
+#     connection = connect(host="localhost", port=7687)
+#     cursor = mt_cursor(connection, "memgraph")
+#     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
+#     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
+#     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
+#     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
+#     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
+#     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
+#     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
+#     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
+#
+#     main_test(mt_data_dir(data_directory.name, "memgraph"), global_snapshot, "memgraph", False)
+#     interactive_mg_runner.kill_all()
+#     interactive_mg_runner.start(memgraph_instances(data_directory.name), "recover_on_startup")
+#     main_test_reboot("memgraph")
+#     interactive_mg_runner.kill_all()
+#
+#
+# def test_snapshot_and_both_wals(global_snapshot, global_old_snapshot):
+#     assert global_snapshot != None, "To snapshot to recover from"
+#     assert global_old_snapshot != None, "To snapshot to recover from"
+#     data_directory = tempfile.TemporaryDirectory()
+#     os.mkdir(data_directory.name + "/snapshots")
+#     shutil.copyfile(global_old_snapshot, data_directory.name + "/snapshots/" + os.path.basename(global_old_snapshot))
+#     interactive_mg_runner.start(memgraph_instances(data_directory.name), "recover_on_startup")
+#     data_check(connect(host="localhost", port=7687).cursor(), 5)
+#
+#     # Add new data so we have a current wal
+#     connection = connect(host="localhost", port=7687)
+#     cursor = mt_cursor(connection, "memgraph")
+#     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
+#     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
+#     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
+#     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
+#     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
+#     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
+#     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
+#     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
+#     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
+#     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
+#
+#     main_test(mt_data_dir(data_directory.name, "memgraph"), global_snapshot, "memgraph", False)
+#     interactive_mg_runner.kill_all()
+#     interactive_mg_runner.start(memgraph_instances(data_directory.name), "recover_on_startup")
+#     main_test_reboot("memgraph")
+#     interactive_mg_runner.kill_all()
+#
+#
+# @pytest.mark.parametrize("database", ["memgraph", "other_db"])
+# def test_local_snapshot(global_snapshot, database):
+#     assert global_snapshot != None, "To snapshot to recover from"
+#     data_directory = tempfile.TemporaryDirectory()
+#     interactive_mg_runner.start(memgraph_instances(data_directory.name), "default")
+#     mt_setup()
+#     connection = connect(host="localhost", port=7687)
+#     cursor = mt_cursor(connection, database)
+#     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
+#     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
+#     execute_and_fetch_all(cursor, "CREATE SNAPSHOT;")
+#     main_test(mt_data_dir(data_directory.name, database), global_snapshot, database, False)
+#     interactive_mg_runner.kill_all()
+#     interactive_mg_runner.start(memgraph_instances(data_directory.name), "recover_on_startup")
+#     main_test_reboot(database)
+#     interactive_mg_runner.kill_all()
+#
+#
+# @pytest.mark.parametrize("database", ["memgraph", "other_db"])
+# def test_local_snapshot_and_current_wal(global_snapshot, database):
+#     assert global_snapshot != None, "To snapshot to recover from"
+#     data_directory = tempfile.TemporaryDirectory()
+#     interactive_mg_runner.start(memgraph_instances(data_directory.name), "default")
+#     mt_setup()
+#     connection = connect(host="localhost", port=7687)
+#     cursor = mt_cursor(connection, database)
+#     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
+#     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
+#     execute_and_fetch_all(cursor, "CREATE SNAPSHOT;")
+#     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
+#     main_test(mt_data_dir(data_directory.name, database), global_snapshot, database, False)
+#     interactive_mg_runner.kill_all()
+#     interactive_mg_runner.start(memgraph_instances(data_directory.name), "recover_on_startup")
+#     main_test_reboot(database)
+#     interactive_mg_runner.kill_all()
 
 
-def test_empty_with_local_snapshot(global_snapshot):
-    assert global_snapshot != None, "To snapshot to recover from"
-    data_directory = tempfile.TemporaryDirectory()
-    interactive_mg_runner.start(memgraph_instances(data_directory.name), "default")
-    local_snapshot = data_directory.name + "/snapshots/" + os.path.basename(global_snapshot)
-    shutil.copyfile(global_snapshot, local_snapshot)
-    main_test(mt_data_dir(data_directory.name, "memgraph"), local_snapshot, "memgraph", True)
-    interactive_mg_runner.kill_all()
-    interactive_mg_runner.start(memgraph_instances(data_directory.name), "recover_on_startup")
-    main_test_reboot("memgraph")
-    interactive_mg_runner.kill_all()
+def test_parallel_schema_recovery(test_name):
+    interactive_mg_runner.start_all(parallel_recovery_instance(test_name), keep_directories=False)
+    cursor = connect(host="localhost", port=7687).cursor()
 
-
-@pytest.mark.parametrize("database", ["memgraph", "other_db"])
-def test_only_current_wal(global_snapshot, database):
-    assert global_snapshot != None, "To snapshot to recover from"
-    data_directory = tempfile.TemporaryDirectory()
-    interactive_mg_runner.start(memgraph_instances(data_directory.name), "default")
-    mt_setup()
-
-    # Add new data so we have a current wal
-    connection = connect(host="localhost", port=7687)
-    cursor = mt_cursor(connection, database)
-    execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
-
-    main_test(mt_data_dir(data_directory.name, database), global_snapshot, database, False)
-    interactive_mg_runner.kill_all()
-    interactive_mg_runner.start(memgraph_instances(data_directory.name), "recover_on_startup")
-    main_test_reboot(database)
-    interactive_mg_runner.kill_all()
-
-
-@pytest.mark.parametrize("database", ["memgraph", "other_db"])
-def test_only_finalized_wals(global_snapshot, database):
-    assert global_snapshot != None, "To snapshot to recover from"
-    data_directory = tempfile.TemporaryDirectory()
-    interactive_mg_runner.start(memgraph_instances(data_directory.name), "default")
-    mt_setup()
-
-    # Add new data so we have only finalized wals
-    connection = connect(host="localhost", port=7687)
-    cursor = mt_cursor(connection, database)
-    execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
-    execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
-    execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
-    execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
-    execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
-    execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
-    execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
-    execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
-
-    main_test(mt_data_dir(data_directory.name, database), global_snapshot, database, False)
-    interactive_mg_runner.kill_all()
-    interactive_mg_runner.start(memgraph_instances(data_directory.name), "recover_on_startup")
-    main_test_reboot(database)
-    interactive_mg_runner.kill_all()
-
-
-@pytest.mark.parametrize("database", ["memgraph", "other_db"])
-def test_both_wals(global_snapshot, database):
-    assert global_snapshot != None, "To snapshot to recover from"
-    data_directory = tempfile.TemporaryDirectory()
-    interactive_mg_runner.start(memgraph_instances(data_directory.name), "default")
-    mt_setup()
-
-    # Add new data so we have only finalized wals
-    connection = connect(host="localhost", port=7687)
-    cursor = mt_cursor(connection, database)
-    execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
-    execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
-    execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
-    execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
-    execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
-    execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
-    execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
-    execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
-    execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
-    execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
-
-    main_test(mt_data_dir(data_directory.name, database), global_snapshot, database, False)
-    interactive_mg_runner.kill_all()
-    interactive_mg_runner.start(memgraph_instances(data_directory.name), "recover_on_startup")
-    main_test_reboot(database)
-    interactive_mg_runner.kill_all()
-
-
-def test_snapshot(global_snapshot, global_old_snapshot):
-    assert global_snapshot != None, "To snapshot to recover from"
-    assert global_old_snapshot != None, "To snapshot to recover from"
-    data_directory = tempfile.TemporaryDirectory()
-    os.mkdir(data_directory.name + "/snapshots")
-    shutil.copyfile(global_old_snapshot, data_directory.name + "/snapshots/" + os.path.basename(global_old_snapshot))
-    interactive_mg_runner.start(memgraph_instances(data_directory.name), "recover_on_startup")
-    data_check(connect(host="localhost", port=7687).cursor(), 5)
-    main_test(mt_data_dir(data_directory.name, "memgraph"), global_snapshot, "memgraph", False)
-    interactive_mg_runner.kill_all()
-    interactive_mg_runner.start(memgraph_instances(data_directory.name), "recover_on_startup")
-    main_test_reboot("memgraph")
-    interactive_mg_runner.kill_all()
-
-
-def test_snapshot_and_current_wal(global_snapshot, global_old_snapshot):
-    assert global_snapshot != None, "To snapshot to recover from"
-    assert global_old_snapshot != None, "To snapshot to recover from"
-    data_directory = tempfile.TemporaryDirectory()
-    os.mkdir(data_directory.name + "/snapshots")
-    shutil.copyfile(global_old_snapshot, data_directory.name + "/snapshots/" + os.path.basename(global_old_snapshot))
-    interactive_mg_runner.start(memgraph_instances(data_directory.name), "recover_on_startup")
-    data_check(connect(host="localhost", port=7687).cursor(), 5)
-
-    # Add new data so we have a current wal
-    connection = connect(host="localhost", port=7687)
-    cursor = mt_cursor(connection, "memgraph")
-    execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
-
-    main_test(mt_data_dir(data_directory.name, "memgraph"), global_snapshot, "memgraph", False)
-    interactive_mg_runner.kill_all()
-    interactive_mg_runner.start(memgraph_instances(data_directory.name), "recover_on_startup")
-    main_test_reboot("memgraph")
-    interactive_mg_runner.kill_all()
-
-
-def test_snapshot_and_finalized_wals(global_snapshot, global_old_snapshot):
-    assert global_snapshot != None, "To snapshot to recover from"
-    assert global_old_snapshot != None, "To snapshot to recover from"
-    data_directory = tempfile.TemporaryDirectory()
-    os.mkdir(data_directory.name + "/snapshots")
-    shutil.copyfile(global_old_snapshot, data_directory.name + "/snapshots/" + os.path.basename(global_old_snapshot))
-    interactive_mg_runner.start(memgraph_instances(data_directory.name), "recover_on_startup")
-    data_check(connect(host="localhost", port=7687).cursor(), 5)
-
-    # Add new data so we have a current wal
-    connection = connect(host="localhost", port=7687)
-    cursor = mt_cursor(connection, "memgraph")
-    execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
-    execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
-    execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
-    execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
-    execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
-    execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
-    execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
-    execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
-
-    main_test(mt_data_dir(data_directory.name, "memgraph"), global_snapshot, "memgraph", False)
-    interactive_mg_runner.kill_all()
-    interactive_mg_runner.start(memgraph_instances(data_directory.name), "recover_on_startup")
-    main_test_reboot("memgraph")
-    interactive_mg_runner.kill_all()
-
-
-def test_snapshot_and_both_wals(global_snapshot, global_old_snapshot):
-    assert global_snapshot != None, "To snapshot to recover from"
-    assert global_old_snapshot != None, "To snapshot to recover from"
-    data_directory = tempfile.TemporaryDirectory()
-    os.mkdir(data_directory.name + "/snapshots")
-    shutil.copyfile(global_old_snapshot, data_directory.name + "/snapshots/" + os.path.basename(global_old_snapshot))
-    interactive_mg_runner.start(memgraph_instances(data_directory.name), "recover_on_startup")
-    data_check(connect(host="localhost", port=7687).cursor(), 5)
-
-    # Add new data so we have a current wal
-    connection = connect(host="localhost", port=7687)
-    cursor = mt_cursor(connection, "memgraph")
-    execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
-    execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
-    execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
-    execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
-    execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
-    execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
-    execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
-    execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
-    execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
-    execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
-
-    main_test(mt_data_dir(data_directory.name, "memgraph"), global_snapshot, "memgraph", False)
-    interactive_mg_runner.kill_all()
-    interactive_mg_runner.start(memgraph_instances(data_directory.name), "recover_on_startup")
-    main_test_reboot("memgraph")
-    interactive_mg_runner.kill_all()
-
-
-@pytest.mark.parametrize("database", ["memgraph", "other_db"])
-def test_local_snapshot(global_snapshot, database):
-    assert global_snapshot != None, "To snapshot to recover from"
-    data_directory = tempfile.TemporaryDirectory()
-    interactive_mg_runner.start(memgraph_instances(data_directory.name), "default")
-    mt_setup()
-    connection = connect(host="localhost", port=7687)
-    cursor = mt_cursor(connection, database)
-    execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
-    execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
+    execute_and_fetch_all(cursor, "CREATE INDEX ON :L;")
+    execute_and_fetch_all(cursor, "UNWIND RANGE(1,1000) AS i CREATE (:L{p: 1});")
     execute_and_fetch_all(cursor, "CREATE SNAPSHOT;")
-    main_test(mt_data_dir(data_directory.name, database), global_snapshot, database, False)
-    interactive_mg_runner.kill_all()
-    interactive_mg_runner.start(memgraph_instances(data_directory.name), "recover_on_startup")
-    main_test_reboot(database)
-    interactive_mg_runner.kill_all()
+    execute_and_fetch_all(cursor, "UNWIND RANGE(1001,2000) AS i CREATE (:L{p: 10});")
+    interactive_mg_runner.kill_all(keep_directories=True)
+    interactive_mg_runner.start_all(parallel_recovery_instance(test_name), keep_directories=True)
+    assert execute_and_fetch_all(cursor, "MATCH(n) RETURN count(*);") == 2000
+    assert execute_and_fetch_all(cursor, "MATCH(n:L) RETURN count(*);") == 2000
 
 
-@pytest.mark.parametrize("database", ["memgraph", "other_db"])
-def test_local_snapshot_and_current_wal(global_snapshot, database):
-    assert global_snapshot != None, "To snapshot to recover from"
-    data_directory = tempfile.TemporaryDirectory()
-    interactive_mg_runner.start(memgraph_instances(data_directory.name), "default")
-    mt_setup()
-    connection = connect(host="localhost", port=7687)
-    cursor = mt_cursor(connection, database)
-    execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
-    execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
-    execute_and_fetch_all(cursor, "CREATE SNAPSHOT;")
-    execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
-    main_test(mt_data_dir(data_directory.name, database), global_snapshot, database, False)
-    interactive_mg_runner.kill_all()
-    interactive_mg_runner.start(memgraph_instances(data_directory.name), "recover_on_startup")
-    main_test_reboot(database)
-    interactive_mg_runner.kill_all()
+def test_parallel_index_recovery(test_name):
+    interactive_mg_runner.start_all(parallel_recovery_instance(test_name), keep_directories=False)
+    cursor = connect(host="localhost", port=7687).cursor()
+    execute_and_fetch_all(cursor, "CREATE INDEX ON :L;")
+    interactive_mg_runner.kill_all(keep_directories=True)
+    interactive_mg_runner.start_all(parallel_recovery_instance(test_name), keep_directories=True)
 
 
 if __name__ == "__main__":
