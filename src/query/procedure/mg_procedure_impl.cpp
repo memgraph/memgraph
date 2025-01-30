@@ -1101,22 +1101,22 @@ mgp_error mgp_list_contains_deleted(mgp_list *list, int *result) {
   return WrapExceptions([list, result] { *result = ContainsDeleted(list); });
 }
 
-namespace {
-void MgpListAppendExtend(mgp_list &list, const mgp_value &value) { list.elems.push_back(value); }
-}  // namespace
-
 mgp_error mgp_list_append(mgp_list *list, mgp_value *val) {
   return WrapExceptions([list, val] {
     if (Call<size_t>(mgp_list_size, list) >= Call<size_t>(mgp_list_capacity, list)) {
       throw InsufficientBufferException{
           "Cannot append a new value to the mgp_list without extending it, because its size reached its capacity!"};
     }
-    MgpListAppendExtend(*list, *val);
+    list->elems.push_back(*val);
   });
 }
 
 mgp_error mgp_list_append_extend(mgp_list *list, mgp_value *val) {
-  return WrapExceptions([list, val] { MgpListAppendExtend(*list, *val); });
+  return WrapExceptions([list, val] { list->elems.push_back(*val); });
+}
+
+mgp_error mgp_list_reserve(mgp_list *list, size_t n) {
+  return WrapExceptions([list, n] { list->elems.reserve(n); });
 }
 
 mgp_error mgp_list_size(mgp_list *list, size_t *result) {

@@ -399,6 +399,8 @@ inline void list_append(mgp_list *list, mgp_value *val) { MgInvokeVoid(mgp_list_
 
 inline void list_append_extend(mgp_list *list, mgp_value *val) { MgInvokeVoid(mgp_list_append_extend, list, val); }
 
+inline void list_reserve(mgp_list *list, size_t n) { MgInvokeVoid(mgp_list_reserve, list, n); }
+
 inline size_t list_size(mgp_list *list) { return MgInvoke<size_t>(mgp_list_size, list); }
 
 inline size_t list_capacity(mgp_list *list) { return MgInvoke<size_t>(mgp_list_capacity, list); }
