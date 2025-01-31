@@ -315,10 +315,9 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
       storage->repl_storage_state_.last_durable_timestamp_ = recovery_info.next_timestamp - 1;
 
       spdlog::trace("Recovering indices and constraints from snapshot.");
-      RecoverIndicesAndStats(indices_constraints.indices, &storage->indices_, &storage->vertices_,
-                             storage->name_id_mapper_.get(), storage->config_.salient.items.properties_on_edges);
-      RecoverConstraints(indices_constraints.constraints, &storage->constraints_, &storage->vertices_,
-                         storage->name_id_mapper_.get());
+      storage::durability::RecoverIndicesStatsAndConstraints(
+          &storage->vertices_, storage->name_id_mapper_.get(), &storage->indices_, &storage->constraints_,
+          storage->config_, recovery_info, indices_constraints, storage->config_.salient.items.properties_on_edges);
     } catch (const storage::durability::RecoveryFailure &e) {
       spdlog::error("Couldn't load the snapshot from {} because of: {}. Storage will be cleared.", *maybe_snapshot_path,
                     e.what());

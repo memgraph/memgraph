@@ -366,22 +366,14 @@ void RecoverIndicesStatsAndConstraints(utils::SkipList<Vertex> *vertices, NameId
   }
 
   RecoverIndicesAndStats(indices_constraints.indices, indices, vertices, name_id_mapper, properties_on_edges,
-                         GetParallelExecInfoIndices(recovery_info, config), storage_dir);
+                         GetParallelExecInfo(recovery_info, config), storage_dir);
   RecoverConstraints(indices_constraints.constraints, constraints, vertices, name_id_mapper,
                      GetParallelExecInfo(recovery_info, config));
 }
 
 std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfo(const RecoveryInfo &recovery_info,
                                                                   const Config &config) {
-  return config.durability.allow_parallel_schema_creation
-             ? std::make_optional(ParallelizedSchemaCreationInfo{recovery_info.vertex_batches,
-                                                                 config.durability.recovery_thread_count})
-             : std::nullopt;
-}
-
-std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfoIndices(const RecoveryInfo &recovery_info,
-                                                                         const Config &config) {
-  return config.durability.allow_parallel_schema_creation
+  return (config.durability.allow_parallel_schema_creation && recovery_info.vertex_batches.size() > 1)
              ? std::make_optional(ParallelizedSchemaCreationInfo{recovery_info.vertex_batches,
                                                                  config.durability.recovery_thread_count})
              : std::nullopt;
@@ -449,6 +441,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
 
     if (!utils::DirExists(wal_directory_)) {
       // Apply data dependant meta structures now after all graph data has been loaded
+      // NOTE batch data is correct
       RecoverIndicesStatsAndConstraints(vertices, name_id_mapper, indices, constraints, config, recovery_info,
                                         indices_constraints, config.salient.items.properties_on_edges);
       return recovered_snapshot->recovery_info;
@@ -597,6 +590,25 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
     *wal_seq_num = *previous_seq_num + 1;
 
     spdlog::info("All necessary WAL files are loaded successfully.");
+
+    // Regenerate the vertex batches
+    // TODO edges?
+    size_t pos = 0;
+    size_t batched = 0;
+    recovery_info.vertex_batches.clear();
+    auto v_acc = vertices->access();
+    const auto size = v_acc.size();
+    for (auto v_itr = v_acc.begin(); v_itr != v_acc.end(); ++v_itr, ++pos) {
+      if (pos == batched) {
+        const auto left = size - pos;
+        if (left <= config.durability.items_per_batch) {
+          recovery_info.vertex_batches.emplace_back(v_itr->gid, left);
+          break;
+        }
+        recovery_info.vertex_batches.emplace_back(v_itr->gid, config.durability.items_per_batch);
+        batched += config.durability.items_per_batch;
+      }
+    }
   }
 
   // Apply meta structures now after all graph data has been loaded
