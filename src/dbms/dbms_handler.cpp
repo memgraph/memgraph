@@ -389,7 +389,7 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
   return {};  // Success
 }
 
-void DbmsHandler::UpdateDurability(const storage::Config &config, std::optional<std::filesystem::path> rel_dir) const {
+void DbmsHandler::UpdateDurability(const storage::Config &config, std::optional<std::filesystem::path> rel_dir) {
   if (!durability_) return;
   // Save database in a list of active databases
   const auto &key = Durability::GenKey(config.salient.name);

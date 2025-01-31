@@ -194,10 +194,10 @@ class ReplicationStorageClient {
   /**
    * @brief Check replica state
    *
-   * @param replica_storage pointer to the storage associated with the client
+   * @param storage pointer to the storage associated with the client
    * @param db_acc gatekeeper access that protects the database; std::any to have separation between dbms and storage
    */
-  void UpdateReplicaState(Storage *replica_storage, DatabaseAccessProtector db_acc);
+  void UpdateReplicaState(Storage *storage, DatabaseAccessProtector db_acc);
 
   /**
    * @brief Forcefully reset storage to as it is when started from scratch.

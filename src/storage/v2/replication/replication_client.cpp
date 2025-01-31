@@ -55,14 +55,14 @@ ReplicationStorageClient::ReplicationStorageClient(::memgraph::replication::Repl
                                                    utils::UUID main_uuid)
     : client_{client}, main_uuid_(main_uuid) {}
 
-void ReplicationStorageClient::UpdateReplicaState(Storage *replica_storage, DatabaseAccessProtector db_acc) {
-  auto &replStorageState = replica_storage->repl_storage_state_;
+void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAccessProtector db_acc) {
+  auto &replStorageState = storage->repl_storage_state_;
 
   // stream should be destroyed so that RPC lock is released before taking engine lock
   replication::HeartbeatRes const heartbeat_res = std::invoke([&] {
     // stream should be destroyed so that RPC lock is released
     // before taking engine lock
-    auto hb_stream = client_.rpc_client_.Stream<replication::HeartbeatRpc>(main_uuid_, replica_storage->uuid(),
+    auto hb_stream = client_.rpc_client_.Stream<replication::HeartbeatRpc>(main_uuid_, storage->uuid(),
                                                                            replStorageState.last_durable_timestamp_,
                                                                            std::string{replStorageState.epoch_.id()});
     return hb_stream.AwaitResponse();
@@ -72,8 +72,8 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *replica_storage, Data
   if (!heartbeat_res.success) {
     // Replica is missing the current database
     client_.state_.WithLock([&](auto &state) {
-      spdlog::debug("Replica '{}' can't respond or missing database '{}' - '{}'", client_.name_,
-                    replica_storage->name(), std::string{replica_storage->uuid()});
+      spdlog::debug("Replica '{}' can't respond or missing database '{}' - '{}'", client_.name_, storage->name(),
+                    std::string{storage->uuid()});
       state = memgraph::replication::ReplicationClient::State::BEHIND;
     });
     return;
@@ -151,10 +151,10 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *replica_storage, Data
     return;
   }
 
-  // Lock engine lock in order to read replica_storage timestamp and synchronize with any active commits
-  auto engine_lock = std::unique_lock{replica_storage->engine_lock_};
+  // Lock engine lock in order to read storage timestamp and synchronize with any active commits
+  auto engine_lock = std::unique_lock{storage->engine_lock_};
   spdlog::trace("Current timestamp on replica {}: {}.", client_.name_, heartbeat_res.current_commit_timestamp);
-  spdlog::trace("Current timestamp on main: {}. Current durable timestamp on main: {}", replica_storage->timestamp_,
+  spdlog::trace("Current timestamp on main: {}. Current durable timestamp on main: {}", storage->timestamp_,
                 replStorageState.last_durable_timestamp_.load());
 
   replica_state_.WithLock([&](auto &state) {
@@ -167,9 +167,9 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *replica_storage, Data
     } else {
       spdlog::debug("Replica '{}' is behind.", client_.name_);
       state = ReplicaState::RECOVERY;
-      client_.thread_pool_.AddTask([replica_storage, current_commit_timestamp = heartbeat_res.current_commit_timestamp,
+      client_.thread_pool_.AddTask([storage, current_commit_timestamp = heartbeat_res.current_commit_timestamp,
                                     gk = std::move(db_acc),
-                                    this] { this->RecoverReplica(current_commit_timestamp, replica_storage); });
+                                    this] { this->RecoverReplica(current_commit_timestamp, storage); });
     }
   });
 }

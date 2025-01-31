@@ -189,7 +189,7 @@ class DbmsHandler {
     return New_(config);
   }
 
-  void UpdateDurability(const storage::Config &config, std::optional<std::filesystem::path> rel_dir = {}) const;
+  void UpdateDurability(const storage::Config &config, std::optional<std::filesystem::path> rel_dir = {});
 
   /**
    * @brief Get the context associated with the "name" database

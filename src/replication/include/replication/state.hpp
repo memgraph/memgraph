@@ -116,7 +116,7 @@ struct ReplicationState {
 
   bool TryPersistRoleMain(std::string new_epoch, utils::UUID main_uuid);
   bool TryPersistRoleReplica(const ReplicationServerConfig &config, const std::optional<utils::UUID> &main_uuid);
-  bool TryPersistUnregisterReplica(std::string_view name) const;
+  bool TryPersistUnregisterReplica(std::string_view name);
   bool TryPersistRegisteredReplica(const ReplicationClientConfig &config, utils::UUID main_uuid);
 
   auto ReplicationData() -> ReplicationData_t & { return replication_data_; }
