@@ -13,8 +13,8 @@ on:
         default: 'debian-12'
       toolchain:
         type: string
-        description: "Toolchain version (v4, v5). Default value is v5."
-        default: 'v5'
+        description: "Toolchain version (v4, v5, v6). Default value is v6."
+        default: 'v6'
       run_core:
         type: string
         description: "Should the core coverage build tests be run? Default is true."
