@@ -57,6 +57,29 @@ class LabSimulator(Worker):
         print(f"Worker '{self._name}' finished.")
 
 
+class RandomMultitenantWriter(Worker):
+    def __init__(self, worker):
+        super().__init__()
+        self._name = worker["name"]
+        self._query = worker["query"]
+        self._repetitions = worker["num_repetitions"]
+        self._sleep_millis = worker["sleep_millis"]
+
+    def run(self, deployment):
+        print(f"Starting worker '{self._name}'...")
+        databases = [f"db{x}" for x in range(1, 101)]
+
+        for i in range(self._repetitions):
+            db = random.choice(databases)
+
+            deployment.execute_query_for_tenant(db, self._query)
+
+            if self._sleep_millis > 0:
+                time.sleep(self._sleep_millis / 1000.0)
+
+        print(f"Worker '{self._name}' finished.")
+
+
 def get_worker_object(worker) -> Worker:
     type = worker["type"]
     if type == "reader":
@@ -65,6 +88,8 @@ def get_worker_object(worker) -> Worker:
         return BasicWorker(worker)
     if type == "lab-simulator":
         return LabSimulator(worker)
+    if type == "random-multitenant-writer":
+        return RandomMultitenantWriter(worker)
     raise Exception(f"Unknown worker type: '{type}'!")
 
 

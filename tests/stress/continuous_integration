@@ -236,7 +236,7 @@ def run_custom_workloads(deployment, config: Config) -> bool:
             for query in workload.get("import", {}).get("queries", []):
                 deployment.execute_query(query)
             print(f"Finished import for workload '{workload_name}'")
-
+            execution_start = time.time()
             processes = []
             workers = workload.get("workers", [])
             steps = get_worker_steps(workers)
@@ -260,8 +260,11 @@ def run_custom_workloads(deployment, config: Config) -> bool:
                         process.join()
 
             print(f"Finished workload '{workload_name}'")
-            duration = time.time() - start
-            runtimes[workload_name] = duration
+            end = time.time()
+            whole_duration = end - start
+            execution_duration = end - execution_start
+            print(f"Workload execution duration: {execution_duration} seconds")
+            runtimes[workload_name] = whole_duration
         except Exception as ex:
             print(f"Failed to execute workload {workload_name} with following exception:", ex)
             err = True
