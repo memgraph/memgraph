@@ -222,6 +222,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
             "Trying to recover edge type indices while properties on edges are disabled.");
   auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(indices->edge_type_index_.get());
   for (const auto &item : indices_metadata.edge) {
+    // TODO: parallel execution
     if (!mem_edge_type_index->CreateIndex(item, vertices->access())) {
       throw RecoveryFailure("The edge-type index must be created here!");
     }
@@ -236,6 +237,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
   auto *mem_edge_type_property_index =
       static_cast<InMemoryEdgeTypePropertyIndex *>(indices->edge_type_property_index_.get());
   for (const auto &item : indices_metadata.edge_property) {
+    // TODO: parallel execution
     if (!mem_edge_type_property_index->CreateIndex(item.first, item.second, vertices->access())) {
       throw RecoveryFailure("The edge-type property index must be created here!");
     }
@@ -253,7 +255,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
         if (!storage_dir.has_value()) {
           throw RecoveryFailure("There must exist a storage directory in order to recover text indices!");
         }
-
+        // TODO: parallel execution
         mem_text_index.RecoverIndex(index_name, label, vertices->access(), name_id_mapper);
       } catch (...) {
         throw RecoveryFailure("The text index must be created here!");
