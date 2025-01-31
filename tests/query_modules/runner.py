@@ -1,7 +1,9 @@
 import logging
 import os
 import signal
+import socket
 import subprocess
+import time
 from pathlib import Path
 from typing import Dict, List
 
@@ -15,6 +17,17 @@ from mgclient import Relationship as relationship_mgclient
 
 log = logging.getLogger("memgraph.tests.query_modules")
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(asctime)s %(name)s] %(message)s")
+
+
+def _wait_for_server_socket(port, ip="127.0.0.1", delay=0.1, timeout=10):
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    wait_time = 0
+    while s.connect_ex((ip, int(port))) != 0:
+        time.sleep(0.01)
+        wait_time += 0.01
+        if wait_time > timeout:
+            break
+    time.sleep(delay)
 
 
 # create one memgraph instance that gets used on all tests
@@ -39,9 +52,8 @@ def db():
 
     process = subprocess.Popen([BUILD_PATH] + BUILD_ARGS, stderr=subprocess.STDOUT)
     pid = process.pid
-
+    _wait_for_server_socket(7687)
     log.info(f"Memgraph started as pid: {pid}")
-
     yield Memgraph()
 
     try:
