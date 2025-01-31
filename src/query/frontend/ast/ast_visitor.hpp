@@ -34,6 +34,7 @@ class All;
 class Single;
 class Any;
 class None;
+class ListComprehension;
 class ParameterLookup;
 class CallProcedure;
 class Create;
@@ -136,9 +137,9 @@ using TreeCompositeVisitor = utils::CompositeVisitor<
     RangeOperator, InListOperator, SubscriptOperator, ListSlicingOperator, IfOperator, UnaryPlusOperator,
     UnaryMinusOperator, IsNullOperator, ListLiteral, MapLiteral, MapProjectionLiteral, PropertyLookup,
     AllPropertiesLookup, LabelsTest, Aggregation, Function, Reduce, Coalesce, Extract, All, Single, Any, None,
-    CallProcedure, Create, Match, Return, With, Pattern, NodeAtom, EdgeAtom, Delete, Where, SetProperty, SetProperties,
-    SetLabels, RemoveProperty, RemoveLabels, Merge, Unwind, RegexMatch, LoadCsv, Foreach, Exists, CallSubquery,
-    CypherQuery, PatternComprehension>;
+    ListComprehension, CallProcedure, Create, Match, Return, With, Pattern, NodeAtom, EdgeAtom, Delete, Where,
+    SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels, Merge, Unwind, RegexMatch, LoadCsv, Foreach,
+    Exists, CallSubquery, CypherQuery, PatternComprehension>;
 
 using TreeLeafVisitor = utils::LeafVisitor<Identifier, PrimitiveLiteral, ParameterLookup, EnumValueAccess>;
 
@@ -152,14 +153,15 @@ class HierarchicalTreeVisitor : public TreeCompositeVisitor, public TreeLeafVisi
 
 template <class TResult>
 class ExpressionVisitor
-    : public utils::Visitor<
-          TResult, NamedExpression, OrOperator, XorOperator, AndOperator, NotOperator, AdditionOperator,
-          SubtractionOperator, MultiplicationOperator, DivisionOperator, ModOperator, ExponentiationOperator,
-          NotEqualOperator, EqualOperator, LessOperator, GreaterOperator, LessEqualOperator, GreaterEqualOperator,
-          RangeOperator, InListOperator, SubscriptOperator, ListSlicingOperator, IfOperator, UnaryPlusOperator,
-          UnaryMinusOperator, IsNullOperator, ListLiteral, MapLiteral, MapProjectionLiteral, PropertyLookup,
-          AllPropertiesLookup, LabelsTest, Aggregation, Function, Reduce, Coalesce, Extract, All, Single, Any, None,
-          ParameterLookup, Identifier, PrimitiveLiteral, RegexMatch, Exists, PatternComprehension, EnumValueAccess> {};
+    : public utils::Visitor<TResult, NamedExpression, OrOperator, XorOperator, AndOperator, NotOperator,
+                            AdditionOperator, SubtractionOperator, MultiplicationOperator, DivisionOperator,
+                            ModOperator, ExponentiationOperator, NotEqualOperator, EqualOperator, LessOperator,
+                            GreaterOperator, LessEqualOperator, GreaterEqualOperator, RangeOperator, InListOperator,
+                            SubscriptOperator, ListSlicingOperator, IfOperator, UnaryPlusOperator, UnaryMinusOperator,
+                            IsNullOperator, ListLiteral, MapLiteral, MapProjectionLiteral, PropertyLookup,
+                            AllPropertiesLookup, LabelsTest, Aggregation, Function, Reduce, Coalesce, Extract, All,
+                            Single, Any, None, ListComprehension, ParameterLookup, Identifier, PrimitiveLiteral,
+                            RegexMatch, Exists, PatternComprehension, EnumValueAccess> {};
 
 template <class TResult>
 class QueryVisitor

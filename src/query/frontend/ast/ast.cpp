@@ -150,6 +150,9 @@ constexpr utils::TypeInfo query::Any::kType{utils::TypeId::AST_ANY, "Any", &quer
 
 constexpr utils::TypeInfo query::None::kType{utils::TypeId::AST_NONE, "None", &query::Expression::kType};
 
+constexpr utils::TypeInfo query::ListComprehension::kType{utils::TypeId::AST_LIST_COMPREHENSION, "ListComprehension",
+                                                          &query::Expression::kType};
+
 constexpr utils::TypeInfo query::ParameterLookup::kType{utils::TypeId::AST_PARAMETER_LOOKUP, "ParameterLookup",
                                                         &query::Expression::kType};
 
