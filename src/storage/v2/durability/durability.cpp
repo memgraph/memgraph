@@ -438,15 +438,8 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
     snapshot_timestamp = recovered_snapshot->snapshot_info.start_timestamp;
     repl_storage_state.epoch_.SetEpoch(std::move(recovered_snapshot->snapshot_info.epoch_id));
     recovery_info.last_durable_timestamp = snapshot_timestamp;
-
-    if (!utils::DirExists(wal_directory_)) {
-      // Apply data dependant meta structures now after all graph data has been loaded
-      // NOTE batch data is correct
-      RecoverIndicesStatsAndConstraints(vertices, name_id_mapper, indices, constraints, config, recovery_info,
-                                        indices_constraints, config.salient.items.properties_on_edges);
-      return recovered_snapshot->recovery_info;
-    }
   } else {
+    // UUID couldn't be recovered from the snapshot; recoverying it from WALs
     spdlog::info("No snapshot file was found, collecting information from WAL directory {}.", wal_directory_);
     std::error_code error_code;
     if (!utils::DirExists(wal_directory_)) return std::nullopt;
@@ -495,28 +488,11 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
                   repl_storage_state.epoch_.id());
   }
 
-  auto maybe_wal_files = GetWalFiles(wal_directory_, std::string{uuid});
-  if (!maybe_wal_files) {
-    spdlog::warn(
-        utils::MessageWithLink("Couldn't get WAL file info from the WAL directory.", "https://memgr.ph/durability"));
-    return std::nullopt;
-  }
+  if (const auto maybe_wal_files = GetWalFiles(wal_directory_, std::string{uuid});
+      maybe_wal_files && !maybe_wal_files->empty()) {
+    // Array of all discovered WAL files, ordered by sequence number.
+    const auto &wal_files = *maybe_wal_files;
 
-  // Array of all discovered WAL files, ordered by sequence number.
-  auto &wal_files = *maybe_wal_files;
-
-  // By this point we should have recovered from a snapshot, or we should have
-  // found some WAL files to recover from in the above `else`. This is just a
-  // sanity check to circumvent the following case: The database didn't recover
-  // from a snapshot, the above `else` triggered to find the recovery UUID from
-  // a WAL file. The above `else` has an early exit in case there are no WAL
-  // files. Because we reached this point there must have been some WAL files
-  // and we must have some WAL files after this second WAL directory iteration.
-  MG_ASSERT(snapshot_timestamp || !wal_files.empty(),
-            "The database didn't recover from a snapshot and didn't find any WAL "
-            "files that match the last WAL file!");
-
-  if (!wal_files.empty()) {
     spdlog::info("Checking WAL files.");
     std::ranges::for_each(wal_files, [](auto &&wal_file) {
       spdlog::trace("Wal file: {}. Seq num: {}.", wal_file.path, wal_file.seq_num);
@@ -552,7 +528,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
       epoch_history->emplace_back(repl_storage_state.epoch_.id(), *last_loaded_timestamp);
     }
 
-    for (auto &wal_file : wal_files) {
+    for (const auto &wal_file : wal_files) {
       if (previous_seq_num && (wal_file.seq_num - *previous_seq_num) > 1) {
         LOG_FATAL("You are missing a WAL file with the sequence number {}!", *previous_seq_num + 1);
       }
