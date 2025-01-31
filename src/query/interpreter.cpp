@@ -4530,28 +4530,29 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
                       Func &&privilege_checker) -> std::vector<std::vector<TypedValue>> {
   std::vector<std::vector<TypedValue>> results;
   results.reserve(interpreters.size());
-  for (Interpreter *interpreter : interpreters) {
-    // Atomically set the state to READING_TRANSACTION_INFO, unless
-    // 1. The interpreter is IDLE, in which case, leave it and move onto the next.
-    // 2. The interpreter is UPDATING_TRANSACTION_INFO, in which case, we wait.
-    TransactionStatus const prior_status{std::invoke(
-        [](std::atomic<TransactionStatus> &state) -> TransactionStatus {
-          TransactionStatus expected = state.load();
 
-          while (true) {
-            if (expected == TransactionStatus::IDLE) {
-              return expected;
-            }
-            if (expected == TransactionStatus::UPDATING_TRANSACTION_INFO) {
-              while ((expected = state.load()) == TransactionStatus::UPDATING_TRANSACTION_INFO) {
-                std::this_thread::sleep_for(std::chrono::microseconds(1));
-              }
-            } else if (state.compare_exchange_weak(expected, TransactionStatus::READING_TRANSACTION_INFO)) {
-              return expected;
-            }
-          }
-        },
-        interpreter->transaction_status_)};
+  // Atomically set the state to READING_TRANSACTION_INFO, unless
+  // 1. The interpreter is IDLE, in which case, leave it and move onto the next.
+  // 2. The interpreter is UPDATING_TRANSACTION_INFO, in which case, we wait.
+  auto const update_transaction_status{[](std::atomic<TransactionStatus> &state) -> TransactionStatus {
+    TransactionStatus expected = state.load();
+
+    while (true) {
+      if (expected == TransactionStatus::IDLE) {
+        return expected;
+      }
+      if (expected == TransactionStatus::UPDATING_TRANSACTION_INFO) {
+        while ((expected = state.load()) == TransactionStatus::UPDATING_TRANSACTION_INFO) {
+          std::this_thread::sleep_for(std::chrono::microseconds(1));
+        }
+      } else if (state.compare_exchange_weak(expected, TransactionStatus::READING_TRANSACTION_INFO)) {
+        return expected;
+      }
+    }
+  }};
+
+  for (Interpreter *interpreter : interpreters) {
+    TransactionStatus const prior_status{update_transaction_status(interpreter->transaction_status_)};
     if (prior_status == TransactionStatus::IDLE) {
       continue;
     }
@@ -4573,8 +4574,7 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
       return false;
     };
 
-    if (transaction_id.has_value() && (same_user(interpreter->user_or_role_, user_or_role) ||
-                                       privilege_checker(user_or_role, get_interpreter_db_name()))) {
+    if (transaction_id.has_value()) {
       const auto &typed_queries = interpreter->GetQueries();
       results.push_back(
           {TypedValue(interpreter->user_or_role_

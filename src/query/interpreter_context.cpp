@@ -45,37 +45,37 @@ std::vector<std::vector<TypedValue>> InterpreterContext::TerminateTransactions(
     std::function<bool(QueryUserOrRole *, std::string const &)> privilege_checker) {
   auto not_found_midpoint = maybe_kill_transaction_ids.end();
 
+  // Only active transactions can be terminated, and we must set the state to READING_TRANSACTION_INFO to read the
+  // transaction id. In summary:
+  // 1. If the state is UPDATING_TRANSACTION_INFO, wait until the state enum reflects the "real" underlying state.
+  // 2. If the state is ACTIVE, set the state to READING_TRANSACTION_INFO.
+  // 3. If the state is anything else, we can't terminate the transaction (as the transaction is already being
+  // commmited, rolled-back, or has been flagged for termination). Skip it and move on.
+  auto const update_transaction_status{[](std::atomic<TransactionStatus> &state) -> TransactionStatus {
+    TransactionStatus expected = state.load();
+
+    while (true) {
+      if (expected != TransactionStatus::ACTIVE && expected != TransactionStatus::UPDATING_TRANSACTION_INFO) {
+        return expected;
+      }
+
+      if (expected == TransactionStatus::UPDATING_TRANSACTION_INFO) {
+        while (state.load() == TransactionStatus::UPDATING_TRANSACTION_INFO) {
+          std::this_thread::yield();
+        }
+        expected = state.load();
+      } else if (state.compare_exchange_weak(expected, TransactionStatus::READING_TRANSACTION_INFO)) {
+        return expected;
+      }
+    }
+  }};
+
   // Multiple simultaneous TERMINATE TRANSACTIONS aren't allowed
   // TERMINATE and SHOW TRANSACTIONS are mutually exclusive
-  interpreters.WithLock([&not_found_midpoint, &maybe_kill_transaction_ids, user_or_role,
+  interpreters.WithLock([&not_found_midpoint, &maybe_kill_transaction_ids, user_or_role, update_transaction_status,
                          privilege_checker = std::move(privilege_checker)](const auto &interpreters) {
     for (Interpreter *interpreter : interpreters) {
-      // Only active transactions can be terminated, and we must set the state to READING_TRANSACTION_INFO to read the
-      // transaction id. In summary:
-      // 1. If the state is UPDATING_TRANSACTION_INFO, wait until the state enum reflects the "real" underlying state.
-      // 2. If the state is ACTIVE, set the state to READING_TRANSACTION_INFO.
-      // 3. If the state is anything else, we can't terminate the transaction (as the transaction is already being
-      // commmited, rolled-back, or has been flagged for termination). Skip it and move on.
-      TransactionStatus const prior_status{std::invoke(
-          [](std::atomic<TransactionStatus> &state) -> TransactionStatus {
-            TransactionStatus expected = state.load();
-
-            while (true) {
-              if (expected != TransactionStatus::ACTIVE && expected != TransactionStatus::UPDATING_TRANSACTION_INFO) {
-                return expected;
-              }
-
-              if (expected == TransactionStatus::UPDATING_TRANSACTION_INFO) {
-                while (state.load() == TransactionStatus::UPDATING_TRANSACTION_INFO) {
-                  std::this_thread::yield();
-                }
-                expected = state.load();
-              } else if (state.compare_exchange_weak(expected, TransactionStatus::READING_TRANSACTION_INFO)) {
-                return expected;
-              }
-            }
-          },
-          interpreter->transaction_status_)};
+      TransactionStatus const prior_status{update_transaction_status(interpreter->transaction_status_)};
       if (prior_status != TransactionStatus::ACTIVE) {
         continue;
       }
