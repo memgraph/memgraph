@@ -2,6 +2,7 @@ import logging
 import os
 import signal
 import subprocess
+import time
 from pathlib import Path
 from typing import Dict, List
 
@@ -28,21 +29,38 @@ def db():
     LOGS_PATH = os.path.join(PROJECT_DIR, "build", "memgraph-logs")
     os.makedirs(os.path.join(LOGS_PATH), exist_ok=True)
 
-    BUILD_ARGS = [
+    ARGS = [
         "--telemetry-enabled=false",
         "--storage-properties-on-edges=true",
         f"--query-modules-directory={QM_PATH}",
         "--log-level=TRACE",
-        "--also-log-to-stderr",
         "--log-file={}".format(os.path.join(LOGS_PATH, "memgraph.log")),
     ]
 
-    process = subprocess.Popen([BUILD_PATH] + BUILD_ARGS, stderr=subprocess.STDOUT)
+    process = subprocess.Popen([BUILD_PATH] + ARGS, stderr=subprocess.STDOUT)
     pid = process.pid
 
     log.info(f"Memgraph started as pid: {pid}")
 
-    yield Memgraph()
+    memgraph = Memgraph()
+    timeout = 15
+
+    # wait for memgraph to start
+    while timeout > 0:
+        try:
+            memgraph.execute("RETURN 1;")
+            log.info(f"Memgraph ready.")
+            break
+        except Exception as e:
+            log.info(f"Memgraph not ready yet, retrying in 1 second.")
+            timeout -= 1
+            time.sleep(1)
+
+    if timeout == 0:
+        log.error(f"Memgraph did not start in time.")
+        raise Exception("Memgraph did not start in time.")
+
+    yield memgraph
 
     try:
         os.kill(pid, signal.SIGTERM)
