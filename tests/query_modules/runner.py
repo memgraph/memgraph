@@ -1,7 +1,6 @@
 import logging
 import os
 import signal
-import socket
 import subprocess
 import time
 from pathlib import Path
@@ -19,17 +18,6 @@ log = logging.getLogger("memgraph.tests.query_modules")
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(asctime)s %(name)s] %(message)s")
 
 
-def _wait_for_server_socket(port, ip="127.0.0.1", delay=0.1, timeout=10):
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    wait_time = 0
-    while s.connect_ex((ip, int(port))) != 0:
-        time.sleep(0.01)
-        wait_time += 0.01
-        if wait_time > timeout:
-            break
-    time.sleep(delay)
-
-
 # create one memgraph instance that gets used on all tests
 # since its a lot faster than creating new one for each test
 @pytest.fixture(scope="session")
@@ -41,20 +29,33 @@ def db():
     LOGS_PATH = os.path.join(PROJECT_DIR, "build", "memgraph-logs")
     os.makedirs(os.path.join(LOGS_PATH), exist_ok=True)
 
-    BUILD_ARGS = [
+    ARGS = [
         "--telemetry-enabled=false",
         "--storage-properties-on-edges=true",
         f"--query-modules-directory={QM_PATH}",
         "--log-level=TRACE",
-        "--also-log-to-stderr",
         "--log-file={}".format(os.path.join(LOGS_PATH, "memgraph.log")),
     ]
 
-    process = subprocess.Popen([BUILD_PATH] + BUILD_ARGS, stderr=subprocess.STDOUT)
+    process = subprocess.Popen([BUILD_PATH] + ARGS, stderr=subprocess.STDOUT)
     pid = process.pid
-    _wait_for_server_socket(7687)
+    memgraph = Memgraph()
+    timeout = 15
+    # wait for memgraph to start
+    while timeout > 0:
+        try:
+            memgraph.execute("RETURN 1;")
+            log.info(f"Memgraph ready.")
+            break
+        except Exception as e:
+            log.info(f"Memgraph not ready yet, retrying in 1 second.")
+            timeout -= 1
+            time.sleep(1)
+    if timeout == 0:
+        log.error(f"Memgraph did not start in time.")
+        raise Exception("Memgraph did not start in time.")
     log.info(f"Memgraph started as pid: {pid}")
-    yield Memgraph()
+    yield memgraph
 
     try:
         os.kill(pid, signal.SIGTERM)
