@@ -4541,7 +4541,8 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
           while (true) {
             if (expected == TransactionStatus::IDLE) {
               return expected;
-            } else if (expected == TransactionStatus::UPDATING_TRANSACTION_INFO) {
+            }
+            if (expected == TransactionStatus::UPDATING_TRANSACTION_INFO) {
               while ((expected = state.load()) == TransactionStatus::UPDATING_TRANSACTION_INFO) {
                 std::this_thread::sleep_for(std::chrono::microseconds(1));
               }
@@ -4555,7 +4556,7 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
       continue;
     }
 
-    utils::OnScopeExit restore_prior_status([interpreter, prior_status] {
+    utils::OnScopeExit const restore_prior_status([interpreter, prior_status] {
       interpreter->transaction_status_.store(prior_status, std::memory_order_release);
     });
 
@@ -6385,7 +6386,7 @@ void Interpreter::SetupInterpreterTransaction(const QueryExtras &extras) {
          expected = TransactionStatus::IDLE) {
     }
 
-    utils::OnScopeExit set_status_to_active(
+    utils::OnScopeExit const set_status_to_active(
         [this]() { transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release); });
 
     current_transaction_ = interpreter_context_->id_handler.next();
@@ -6442,7 +6443,7 @@ void Interpreter::Abort() {
     }
   }
 
-  utils::OnScopeExit clean_status([this]() {
+  utils::OnScopeExit const clean_status([this]() {
     for (TransactionStatus expected = TransactionStatus::STARTED_ROLLBACK;
          !transaction_status_.compare_exchange_weak(expected, TransactionStatus::UPDATING_TRANSACTION_INFO);
          expected = TransactionStatus::STARTED_ROLLBACK) {
@@ -6565,7 +6566,7 @@ void Interpreter::Commit() {
   });
 
   TransactionStatus expected_status{TransactionStatus::ACTIVE};
-  utils::OnScopeExit clean_status([this, &expected_status]() {
+  utils::OnScopeExit const clean_status([this, &expected_status]() {
     for (TransactionStatus expected = expected_status;
          !transaction_status_.compare_exchange_weak(expected, TransactionStatus::UPDATING_TRANSACTION_INFO);
          expected = expected_status) {

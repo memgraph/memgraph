@@ -63,7 +63,9 @@ std::vector<std::vector<TypedValue>> InterpreterContext::TerminateTransactions(
             while (true) {
               if (expected != TransactionStatus::ACTIVE && expected != TransactionStatus::UPDATING_TRANSACTION_INFO) {
                 return expected;
-              } else if (expected == TransactionStatus::UPDATING_TRANSACTION_INFO) {
+              }
+
+              if (expected == TransactionStatus::UPDATING_TRANSACTION_INFO) {
                 while (state.load() == TransactionStatus::UPDATING_TRANSACTION_INFO) {
                   std::this_thread::yield();
                 }
