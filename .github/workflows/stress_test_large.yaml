@@ -33,9 +33,9 @@ on:
       toolchain:
         type: choice
         description: "Toolchain version with which memgraph will be packaged."
-        default: 'v6'
+        default: 'v5'
         options:
-          - v6
+          - v5
   push:
     tags:
       - "v*.*.*-rc*"
@@ -49,7 +49,7 @@ jobs:
     uses: ./.github/workflows/reusable_release_tests.yaml
     with:
       os: ${{ github.event.inputs.os || 'debian-11' }}
-      toolchain: ${{ github.event.inputs.toolchain || 'v6' }}
+      toolchain: ${{ github.event.inputs.toolchain || 'v5' }}
       arch: "amd"
       threads: 24
       build_type: ${{ github.event.inputs.build_type || 'Release' }}
@@ -65,7 +65,7 @@ jobs:
     uses: ./.github/workflows/reusable_release_tests.yaml
     with:
       os: ${{ matrix.os }}
-      toolchain: ${{ github.event.inputs.toolchain || 'v6' }}
+      toolchain: ${{ github.event.inputs.toolchain || 'v5' }}
       arch: "amd"
       threads: 24
       build_type: ${{ github.event.inputs.build_type || 'Release' }}

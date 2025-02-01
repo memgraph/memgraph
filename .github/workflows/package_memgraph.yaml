@@ -38,11 +38,10 @@ on:
       toolchain:
         type: choice
         description: "Toolchain version with which memgraph will be packaged."
-        default: 'v6'
+        default: 'v5'
         options:
           - v4
           - v5
-          - v6
       push_to_github:
         type: boolean
         description: "Push final packages to GitHub?"
@@ -146,7 +145,7 @@ jobs:
     secrets: inherit
 
   Debian12:
-    if: ${{ (github.event.inputs.os == 'debian-12' || github.event.inputs.os == 'all') && github.event.inputs.toolchain == 'v6' }}
+    if: ${{ (github.event.inputs.os == 'debian-12' || github.event.inputs.os == 'all') && github.event.inputs.toolchain == 'v5' }}
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "debian-12"
@@ -161,7 +160,7 @@ jobs:
     secrets: inherit
 
   Debian12-arm:
-    if: ${{ (github.event.inputs.os == 'debian-12-arm' || github.event.inputs.os == 'all') && github.event.inputs.toolchain == 'v6' }}
+    if: ${{ (github.event.inputs.os == 'debian-12-arm' || github.event.inputs.os == 'all') && github.event.inputs.toolchain == 'v5' }}
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "debian-12"

@@ -17,8 +17,8 @@ on:
         default: 'X64'
       toolchain:
         type: string
-        description: "Toolchain version. Default value is v6."
-        default: 'v6'
+        description: "Toolchain version. Default value is v5."
+        default: 'v5'
       build_type:
         type: string
         description: "Memgraph Build type. Default value is Release."
