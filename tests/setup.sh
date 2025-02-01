@@ -20,6 +20,7 @@ PIP_DEPS=(
    "python3-saml==1.16.0"
    "setuptools==75.8.0"
    "pymgclient==1.3.1"
+   "onelogin==3.1.6"
 )
 
 # Remove old and create a new virtualenv.
@@ -40,6 +41,7 @@ done
 # https://github.com/SAML-Toolkits/python3-saml?tab=readme-ov-file#note
 pip --timeout 1000 install --upgrade lxml==5.2.1
 pip --timeout 1000 install "networkx==2.5.1"
+pip --timeout 1000 install -r "$DIR/../src/auth/reference_modules/requirements.txt"
 deactivate
 
 "$DIR"/e2e/graphql/setup.sh

@@ -714,9 +714,15 @@ test_memgraph() {
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_TOOLCHAIN && cd $MGBUILD_ROOT_DIR/tests/code_analysis && $SETUP_PASSED_ARGS "'&& ./clang_tidy.sh $PASSED_ARGS'
     ;;
     e2e)
+      # NOTE: Python query modules deps have to be installed globally because memgraph expects them to be.
+      docker exec -u mg $build_container bash -c "python3 -m pip install --upgrade pip"
+      docker exec -u mg $build_container bash -c "pip install --break-system-packages --user networkx==2.5.1"
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && cd $MGBUILD_ROOT_DIR/tests && $ACTIVATE_VENV && cd $MGBUILD_ROOT_DIR/tests/e2e "'&& ./run.sh'
     ;;
     query_modules_e2e)
+      # NOTE: Python query modules deps have to be installed globally because memgraph expects them to be.
+      docker exec -u mg $build_container bash -c "python3 -m pip install --upgrade pip"
+      docker exec -u mg $build_container bash -c "pip install --break-system-packages --user -r $MGBUILD_ROOT_DIR/tests/query_modules/requirements.txt"
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && cd $MGBUILD_ROOT_DIR/tests/query_modules && $ACTIVATE_VENV"'&& python3 -m pytest .'
     ;;
     *)
