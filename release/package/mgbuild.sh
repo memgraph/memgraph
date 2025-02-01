@@ -260,6 +260,19 @@ version_lt() {
 ##################################################
 ######## BUILD, COPY AND PACKAGE MEMGRAPH ########
 ##################################################
+copy_project_files() {
+  echo "Copying project files..."
+  project_files=$(ls -A1 "$PROJECT_ROOT")
+  while IFS= read -r f; do
+    # Skip build directory when copying project files
+    if [[ "$f" != "build" ]]; then
+      docker cp "$PROJECT_ROOT/$f" "$build_container:$MGBUILD_ROOT_DIR/"
+    fi
+  done <<< "$project_files"
+  # Change ownership of copied files so the mg user inside container can access them
+  docker exec -u root $build_container bash -c "chown -R mg:mg $MGBUILD_ROOT_DIR"
+}
+
 build_memgraph () {
   local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
   local ACTIVATE_CARGO="source $MGBUILD_HOME_DIR/.cargo/env"
@@ -350,16 +363,7 @@ build_memgraph () {
     # Ensure we have a clean build directory
     docker exec -u root "$build_container" bash -c "rm -rf $MGBUILD_ROOT_DIR"
     docker exec -u mg "$build_container" bash -c "mkdir -p $MGBUILD_ROOT_DIR"
-    echo "Copying project files..."
-    project_files=$(ls -A1 "$PROJECT_ROOT")
-    while IFS= read -r f; do
-      # Skip build directory when copying project files
-      if [[ "$f" != "build" ]]; then
-        docker cp "$PROJECT_ROOT/$f" "$build_container:$MGBUILD_ROOT_DIR/"
-      fi
-    done <<< "$project_files"
-    # Change ownership of copied files so the mg user inside container can access them
-    docker exec -u root $build_container bash -c "chown -R mg:mg $MGBUILD_ROOT_DIR"
+    copy_project_files
   fi
 
   echo "Installing dependencies using '/memgraph/environment/os/$os.sh' script..."
@@ -607,18 +611,7 @@ test_memgraph() {
   local EXPORT_ORG_NAME="export MEMGRAPH_ORGANIZATION_NAME=$organization_name"
   local BUILD_DIR="$MGBUILD_ROOT_DIR/build"
 
-  # # TODO(gitbuda): Duplicated from above to be able to faster iterate locally -> move to a function or something similar. Not required most of the time.
-  # echo "Copying project files..."
-  # project_files=$(ls -A1 "$PROJECT_ROOT")
-  # while IFS= read -r f; do
-  #   # Skip build directory when copying project files
-  #   if [[ "$f" != "build" ]]; then
-  #     # TODO(gitbuda): play with this because -a is weird option here
-  #     docker cp -a "$PROJECT_ROOT/$f" "$build_container:$MGBUILD_ROOT_DIR/"
-  #   fi
-  # done <<< "$project_files"
-  # # doesn't work because of permissions
-
+  # NOTE: If you need a fresh copy of memgraph files, call copy_project_files funcation on the line below.
   echo "Running $1 test on $build_container..."
   case "$1" in
     unit)
@@ -717,7 +710,7 @@ test_memgraph() {
       # NOTE: Python query modules deps have to be installed globally because memgraph expects them to be.
       docker exec -u mg $build_container bash -c "PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --upgrade pip"
       docker exec -u mg $build_container bash -c "pip install --break-system-packages --user networkx==2.5.1"
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && cd $MGBUILD_ROOT_DIR/tests && $ACTIVATE_VENV && cd $MGBUILD_ROOT_DIR/tests/e2e "'&& ./run.sh'
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && $ACTIVATE_TOOLCHAIN && cd $MGBUILD_ROOT_DIR/tests && $ACTIVATE_VENV && cd $MGBUILD_ROOT_DIR/tests/e2e "'&& ./run.sh'
     ;;
     query_modules_e2e)
       # NOTE: Python query modules deps have to be installed globally because memgraph expects them to be.
