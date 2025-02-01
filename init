@@ -99,6 +99,7 @@ fi
 setup_virtualenv tests/gql_behave
 setup_virtualenv tests/stress
 setup_virtualenv tests/integration/ldap
+setup_virtualenv tests/query_modules
 cd tests
 ./setup.sh
 cd ..
