@@ -177,7 +177,11 @@ run_command() {
 
 }
 
-mgconsole_bin=/opt/toolchain-v6/bin/mgconsole
+# NOTE: Since v6 of toolchain mgconsole should be included.
+mgconsole_bin=mgconsole
+if ! which $mgconsole_bin > /dev/null; then
+    mgconsole_bin="$mg_binary_dir/bin/mgconsole"
+fi
 commands=(
     "echo 'ADD COORDINATOR 1 WITH CONFIG {\"bolt_server\": \"localhost:7690\", \"coordinator_server\":  \"localhost:10111\", \"management_server\": \"localhost:10121\"};' | $mgconsole_bin --port 7690"
     "echo 'ADD COORDINATOR 2 WITH CONFIG {\"bolt_server\": \"localhost:7691\", \"coordinator_server\":  \"localhost:10112\", \"management_server\": \"localhost:10122\"};' | $mgconsole_bin --port 7690"

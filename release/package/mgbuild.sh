@@ -601,7 +601,7 @@ copy_memgraph() {
 ##################################################
 test_memgraph() {
   local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
-  local ACTIVATE_VENV="./setup.sh /opt/toolchain-${toolchain_version}/activate"
+  local ACTIVATE_VENV="source ve3/bin/activate"
   local ACTIVATE_CARGO="source $MGBUILD_HOME_DIR/.cargo/env"
   local EXPORT_LICENSE="export MEMGRAPH_ENTERPRISE_LICENSE=$enterprise_license"
   local EXPORT_ORG_NAME="export MEMGRAPH_ORGANIZATION_NAME=$organization_name"
@@ -640,7 +640,7 @@ test_memgraph() {
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR "'&& ./tests/drivers/run.sh'
     ;;
     drivers-high-availability)
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR "'&& ./tests/drivers/run_cluster.sh'
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR && $ACTIVATE_TOOLCHAIN"'&& ./tests/drivers/run_cluster.sh'
     ;;
     integration)
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR "'&& tests/integration/run.sh'
@@ -669,7 +669,7 @@ test_memgraph() {
     gql-behave)
       local test_output_dir="$MGBUILD_ROOT_DIR/tests/gql_behave"
       local test_output_host_dest="$PROJECT_ROOT/tests/gql_behave"
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests && $ACTIVATE_VENV && cd $MGBUILD_ROOT_DIR/tests/gql_behave "'&& ./continuous_integration'
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/gql_behave && $ACTIVATE_VENV"'&& ./continuous_integration'
       docker cp $build_container:$test_output_dir/gql_behave_status.csv $test_output_host_dest/gql_behave_status.csv
       docker cp $build_container:$test_output_dir/gql_behave_status.html $test_output_host_dest/gql_behave_status.html
     ;;
@@ -715,7 +715,7 @@ test_memgraph() {
     ;;
     e2e)
       docker exec -u mg $build_container bash -c "pip install --break-system-packages --user networkx && pip3 install --break-system-packages --user networkx"
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && cd $MGBUILD_ROOT_DIR/tests && $ACTIVATE_VENV && source ve3/bin/activate_e2e && cd $MGBUILD_ROOT_DIR/tests/e2e "'&& ./run.sh'
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && cd $MGBUILD_ROOT_DIR/tests && $ACTIVATE_VENV && cd $MGBUILD_ROOT_DIR/tests/e2e "'&& ./run.sh'
     ;;
     query_modules_e2e)
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && pip install --break-system-packages -r $MGBUILD_ROOT_DIR/tests/query_modules/requirements.txt && cd $MGBUILD_ROOT_DIR/tests/query_modules "'&& python3 -m pytest .'

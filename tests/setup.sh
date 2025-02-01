@@ -1,6 +1,5 @@
 #!/bin/bash
 # shellcheck disable=1091
-
 set -Eeuo pipefail
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$DIR"
@@ -20,6 +19,7 @@ PIP_DEPS=(
    "gqlalchemy==1.6.0"
    "python3-saml==1.16.0"
    "setuptools==75.8.0"
+   "pymgclient==1.3.1"
 )
 
 # Remove old and create a new virtualenv.
@@ -30,10 +30,8 @@ virtualenv -p python3 ve3
 set +u
 source "ve3/bin/activate"
 set -u
-
 # https://docs.python.org/3/library/sys.html#sys.version_info
 PYTHON_MINOR=$(python3 -c 'import sys; print(sys.version_info[:][1])')
-
 # install pulsar-client
 pip --timeout 1000 install "pulsar-client==3.5.0"
 for pkg in "${PIP_DEPS[@]}"; do
@@ -42,61 +40,6 @@ done
 # https://github.com/SAML-Toolkits/python3-saml?tab=readme-ov-file#note
 pip --timeout 1000 install --upgrade lxml==5.2.1
 pip --timeout 1000 install "networkx==2.5.1"
-
-# Install mgclient from source becasue of full flexibility.
-# TODO(gitbuda): Completly refactor this script because it's too complex.
-#   Below exports are not viable, the problem is that this script is not sourcing toolchain...
-export MGCLIENT_INCLUDE_DIR="/opt/toolchain-v6/include"
-export MGCLIENT_LIB_DIR="/opt/toolchain-v6/lib"
-pushd "$DIR/../libs/pymgclient" > /dev/null
-CFLAGS="-std=c99" python3 setup.py build
-CFLAGS="-std=c99" python3 setup.py install
-popd > /dev/null
-
 deactivate
 
 "$DIR"/e2e/graphql/setup.sh
-
-# TODO(gitbuda): I think none of the below setup is required anymore because mgclient is under toolchain.
-# Check if setup needs to setup additional variables
-if [ $# == 1 ]; then
-    toolchain=$1
-    if [ -f "$toolchain" ]; then
-        # Get the LD_LIB from toolchain
-        set +u
-        OLD_LD_LIBRARY_PATH=$LD_LIBRARY_PATH
-        source $toolchain
-        NEW_LD_LIBRARY_PATH=$LD_LIBRARY_PATH:"../libs/mgclient/lib"
-        deactivate
-        set -u
-
-        # Wrapper used to setup the correct libraries
-        tee -a ve3/bin/activate_e2e <<EOF
-#!/bin/bash
-
-# Function to set the environment variable
-set_env_variable() {
-    export LD_LIBRARY_PATH=$NEW_LD_LIBRARY_PATH
-}
-
-# Function to activate the virtual environment and set the environment variable
-activate_e2e() {
-    source ve3/bin/activate
-    set_env_variable
-}
-
-# Function to deactivate the virtual environment and unset the environment variable
-deactivate_e2e() {
-    deactivate
-    export LD_LIBRARY_PATH=$OLD_LD_LIBRARY_PATH
-}
-
-# Activate the virtual environment and set the environment variable
-activate_e2e
-EOF
-
-        chmod +x ve3/bin/activate_e2e
-    else
-        echo "Error: The toolchain virtual environment activation is not a file."
-    fi
-fi
