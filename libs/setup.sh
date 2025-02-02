@@ -6,6 +6,7 @@
 local_cache_host=${MGDEPS_CACHE_HOST_PORT:-mgdeps-cache:8000}
 working_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "${working_dir}"
+WGET_OR_CLONE_TIMEOUT=15
 
 function print_help () {
     echo "Usage: $0 [OPTION]"
@@ -42,9 +43,9 @@ clone () {
     # clone the same repo from a different source.
 
     if [ "$shallow" = true ]; then
-      git clone --depth 1 --branch "$checkout_id" "$git_repo" "$dir_name" || return 1
+      timeout $WGET_OR_CLONE_TIMEOUT git clone --depth 1 --branch "$checkout_id" "$git_repo" "$dir_name" || return 1
     else
-      git clone "$git_repo" "$dir_name" || return 1
+      timeout $WGET_OR_CLONE_TIMEOUT git clone "$git_repo" "$dir_name" || return 1
     fi
   fi
   pushd "$dir_name"
@@ -91,10 +92,10 @@ file_get_try_double () {
     if [[ "$use_cache" == true ]]; then
       echo "Download primary from $primary_url secondary from $secondary_url"
       # Redirect primary/cache to /dev/null to make it less confusing for a new contributor because only CI has access to the cache.
-      timeout 15 wget -nv "$primary_url" -O "$filename" >/dev/null 2>&1 || wget -nv "$secondary_url" -O "$filename" || exit 1
+      timeout $WGET_OR_CLONE_TIMEOUT wget -nv "$primary_url" -O "$filename" >/dev/null 2>&1 || timeout $WGET_OR_CLONE_TIMEOUT wget -nv "$secondary_url" -O "$filename" || exit 1
     else
       echo "Download from $secondary_url"
-      wget -nv "$secondary_url" -O "$filename" || exit 1
+      timeout $WGET_OR_CLONE_TIMEOUT wget -nv "$secondary_url" -O "$filename" || exit 1
     fi
 }
 
