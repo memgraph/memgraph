@@ -139,7 +139,7 @@ jobs:
     if: ${{ (github.event.inputs.os == 'docker' || github.event.inputs.os == 'all') && github.event.inputs.toolchain == 'v6' }}
     uses: ./.github/workflows/reusable_package.yaml
     with:
-      os: "debian-12"
+      os: "ubuntu-24.04"
       toolchain: ${{ github.event.inputs.toolchain }}
       arch: "amd"
       build_type: ${{ github.event.inputs.build_type }}
@@ -155,7 +155,7 @@ jobs:
     if: ${{ (github.event.inputs.os == 'docker-arm' || github.event.inputs.os == 'all') && github.event.inputs.toolchain == 'v6' }}
     uses: ./.github/workflows/reusable_package.yaml
     with:
-      os: "debian-12"
+      os: "ubuntu-24.04"
       toolchain: ${{ github.event.inputs.toolchain }}
       arch: "arm"
       build_type: ${{ github.event.inputs.build_type }}
