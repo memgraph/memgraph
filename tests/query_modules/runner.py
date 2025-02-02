@@ -39,12 +39,8 @@ def db():
 
     process = subprocess.Popen([BUILD_PATH] + ARGS, stderr=subprocess.STDOUT)
     pid = process.pid
-
-    log.info(f"Memgraph started as pid: {pid}")
-
     memgraph = Memgraph()
     timeout = 15
-
     # wait for memgraph to start
     while timeout > 0:
         try:
@@ -55,11 +51,10 @@ def db():
             log.info(f"Memgraph not ready yet, retrying in 1 second.")
             timeout -= 1
             time.sleep(1)
-
     if timeout == 0:
         log.error(f"Memgraph did not start in time.")
         raise Exception("Memgraph did not start in time.")
-
+    log.info(f"Memgraph started as pid: {pid}")
     yield memgraph
 
     try:

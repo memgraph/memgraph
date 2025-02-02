@@ -270,20 +270,16 @@ import_header_library(cppitertools ${CMAKE_CURRENT_SOURCE_DIR})
 # Setup json
 import_header_library(json ${CMAKE_CURRENT_SOURCE_DIR})
 
-# Setup RocksDB
-macro(build_rocksdb)
-  import_external_library(rocksdb STATIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/rocksdb/lib/librocksdb.a
-    ${CMAKE_CURRENT_SOURCE_DIR}/rocksdb/include
-    CMAKE_ARGS -DUSE_RTTI=ON
-      -DWITH_TESTS=OFF
-      -DGFLAGS_NOTHREADS=OFF
-      -DCMAKE_INSTALL_LIBDIR=lib
-      -DCMAKE_SKIP_INSTALL_ALL_DEPENDENCY=true
-      -DPORTABLE=ON
-    BUILD_COMMAND $(MAKE) rocksdb)
-endmacro()
-mg_build_if_needed(build_rocksdb "rocksdb")
+import_external_library(rocksdb STATIC
+  ${CMAKE_CURRENT_SOURCE_DIR}/rocksdb/lib/librocksdb.a
+  ${CMAKE_CURRENT_SOURCE_DIR}/rocksdb/include
+  CMAKE_ARGS -DUSE_RTTI=ON
+    -DWITH_TESTS=OFF
+    -DGFLAGS_NOTHREADS=OFF
+    -DCMAKE_INSTALL_LIBDIR=lib
+    -DCMAKE_SKIP_INSTALL_ALL_DEPENDENCY=true
+    -DPORTABLE=ON
+  BUILD_COMMAND $(MAKE) rocksdb)
 
 macro(build_bcrypt)
   import_external_library(libbcrypt STATIC
@@ -301,21 +297,14 @@ mg_create_linkable_if_no_cmake(libbcrypt STATIC
   "${MG_TOOLCHAIN_ROOT}/include"
 )
 
-macro(build_mgclient)
-  import_external_library(mgclient STATIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/mgclient/lib/libmgclient.a
-    ${CMAKE_CURRENT_SOURCE_DIR}/mgclient/include
-    CMAKE_ARGS -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
-    -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
-    -DBUILD_TESTING=OFF
-    -DBUILD_CPP_BINDINGS=ON)
-endmacro()
-mg_build_if_needed(build_mgclient "mgclient")
-mg_create_linkable_if_no_cmake(mgclient STATIC
-  "${MG_TOOLCHAIN_ROOT}/lib/libmgclient.a"
-  "${MG_TOOLCHAIN_ROOT}/include"
-)
-# NOTE: the following is possible because both importet targets are called the
+import_external_library(mgclient STATIC
+  ${CMAKE_CURRENT_SOURCE_DIR}/mgclient/lib/libmgclient.a
+  ${CMAKE_CURRENT_SOURCE_DIR}/mgclient/include
+  CMAKE_ARGS -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+  -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+  -DBUILD_TESTING=OFF
+  -DBUILD_CPP_BINDINGS=ON)
+# NOTE: the following is possible because both imported targets are called the
 # same. This setting should be moved under mgclient lib itself.
 find_package(OpenSSL REQUIRED)
 target_link_libraries(mgclient INTERFACE ${OPENSSL_LIBRARIES})
