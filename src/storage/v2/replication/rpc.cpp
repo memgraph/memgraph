@@ -27,6 +27,12 @@ void AppendDeltasRes::Save(const AppendDeltasRes &self, memgraph::slk::Builder *
   memgraph::slk::Save(self, builder);
 }
 void AppendDeltasRes::Load(AppendDeltasRes *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
+
+void InProgressRes::Save(const InProgressRes &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+void InProgressRes::Load(InProgressRes *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
+
 void HeartbeatReq::Save(const HeartbeatReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
 }
@@ -80,6 +86,9 @@ constexpr utils::TypeInfo storage::replication::AppendDeltasReq::kType{utils::Ty
 
 constexpr utils::TypeInfo storage::replication::AppendDeltasRes::kType{utils::TypeId::REP_APPEND_DELTAS_RES,
                                                                        "AppendDeltasRes", nullptr};
+
+constexpr utils::TypeInfo storage::replication::InProgressRes::kType{utils::TypeId::REP_IN_PROGRESS_RES,
+                                                                     "InProgressRes", nullptr};
 
 constexpr utils::TypeInfo storage::replication::HeartbeatReq::kType{utils::TypeId::REP_HEARTBEAT_REQ, "HeartbeatReq",
                                                                     nullptr};
@@ -265,6 +274,15 @@ void Load(memgraph::storage::replication::AppendDeltasReq *self, memgraph::slk::
   memgraph::slk::Load(&self->uuid, reader);
   memgraph::slk::Load(&self->previous_commit_timestamp, reader);
   memgraph::slk::Load(&self->seq_num, reader);
+}
+
+// Serialize code for InProgressRes
+void Save(const memgraph::storage::replication::InProgressRes &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.success, builder);
+}
+
+void Load(memgraph::storage::replication::InProgressRes *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->success, reader);
 }
 
 // Serialize code for ForceResetStorageReq

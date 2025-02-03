@@ -53,6 +53,20 @@ struct AppendDeltasRes {
   bool success;
 };
 
+// TODO: (andi) Try to remove success field and rely on empty stream
+struct InProgressRes {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(InProgressRes *self, memgraph::slk::Reader *reader);
+  static void Save(const InProgressRes &self, memgraph::slk::Builder *builder);
+
+  InProgressRes() = default;
+  explicit InProgressRes(bool const success) : success(success) {}
+
+  bool success;
+};
+
 using AppendDeltasRpc = rpc::RequestResponse<AppendDeltasReq, AppendDeltasRes>;
 
 struct HeartbeatReq {
@@ -280,6 +294,10 @@ void Load(memgraph::storage::replication::HeartbeatRes *self, memgraph::slk::Rea
 void Save(const memgraph::storage::replication::HeartbeatReq &self, memgraph::slk::Builder *builder);
 
 void Load(memgraph::storage::replication::HeartbeatReq *self, memgraph::slk::Reader *reader);
+
+void Save(const memgraph::storage::replication::InProgressRes &self, memgraph::slk::Builder *builder);
+
+void Load(memgraph::storage::replication::InProgressRes *self, memgraph::slk::Reader *reader);
 
 void Save(const memgraph::storage::replication::AppendDeltasRes &self, memgraph::slk::Builder *builder);
 
