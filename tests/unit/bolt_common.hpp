@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -78,6 +78,7 @@ class TestBuffer {
 
   void Write(const uint8_t *data, size_t n) { output_stream_.Write(data, n); }
   bool Flush(bool have_more = false) { return true; }
+  bool HasData() const { return false; }
 
  private:
   TestOutputStream &output_stream_;
