@@ -99,11 +99,7 @@ std::vector<std::vector<TypedValue>> InterpreterContext::TerminateTransactions(
           return interpreter->current_db_.db_acc_ ? interpreter->current_db_.db_acc_->get()->name() : all;
         };
 
-        auto same_user = [](const auto &lv, const auto &rv) {
-          if (lv.get() == rv) return true;
-          if (lv && rv) return *lv == *rv;
-          return false;
-        };
+        auto same_user = [](const auto &lv, const auto &rv) { return (lv.get() == rv) || (lv && rv && *lv == *rv); };
 
         if (same_user(interpreter->user_or_role_, user_or_role) ||
             privilege_checker(user_or_role, get_interpreter_db_name())) {
