@@ -6214,6 +6214,10 @@ void Interpreter::Commit() {
     for (TransactionStatus expected = expected_status;
          !transaction_status_.compare_exchange_weak(expected, TransactionStatus::UPDATING_TRANSACTION_INFO);
          expected = expected_status) {
+      if (expected == TransactionStatus::TERMINATED) {
+        throw memgraph::utils::BasicException(
+            "Aborting transaction commit because the transaction was requested to stop from other session. ");
+      }
     }
 
     current_transaction_.reset();
