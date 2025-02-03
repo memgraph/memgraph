@@ -39,7 +39,7 @@ void Graph::Expand(const Path &path) {
   std::for_each(path_edges_.begin(), path_edges_.end(), [this](const EdgeAccessor e) { edges_.insert(e); });
 }
 
-void Graph::Expand(TypedValue::TVector const &nodes, TypedValue::TVector const &edges) {
+void Graph::Expand(std::span<TypedValue const> const nodes, std::span<TypedValue const> const edges) {
   auto actual_nodes = nodes | rv::filter([](auto const &each) { return each.type() == TypedValue::Type::Vertex; }) |
                       rv::transform([](auto const &each) { return each.ValueVertex(); });
   vertices_.insert(actual_nodes.begin(), actual_nodes.end());

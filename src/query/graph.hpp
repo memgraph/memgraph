@@ -72,7 +72,7 @@ class Graph final {
 
   /** Expand the graph from lists of nodes and edges. Any nulls or duplicate nodes/edges in these lists are ignored.
    */
-  void Expand(TypedValue::TVector const &nodes, TypedValue::TVector const &edges);
+  void Expand(std::span<TypedValue const> nodes, std::span<TypedValue const> edges);
 
   /** Inserts the vertex in the graph. */
   void InsertVertex(const VertexAccessor &vertex);
