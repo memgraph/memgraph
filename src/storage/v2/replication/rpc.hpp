@@ -96,10 +96,11 @@ struct SnapshotReq {
   static void Load(SnapshotReq *self, memgraph::slk::Reader *reader);
   static void Save(const SnapshotReq &self, memgraph::slk::Builder *builder);
   SnapshotReq() = default;
-  explicit SnapshotReq(const utils::UUID &main_uuid, const utils::UUID &uuid) : main_uuid{main_uuid}, uuid{uuid} {}
+  explicit SnapshotReq(const utils::UUID &main_uuid, const utils::UUID &storage_uuid)
+      : main_uuid{main_uuid}, storage_uuid{storage_uuid} {}
 
   utils::UUID main_uuid;
-  utils::UUID uuid;
+  utils::UUID storage_uuid;
 };
 
 struct SnapshotRes {
@@ -125,8 +126,8 @@ struct WalFilesReq {
   static void Load(WalFilesReq *self, slk::Reader *reader);
   static void Save(const WalFilesReq &self, slk::Builder *builder);
   WalFilesReq() = default;
-  explicit WalFilesReq(const utils::UUID &main_uuid, const utils::UUID &uuid, uint64_t file_number)
-      : main_uuid{main_uuid}, uuid{uuid}, file_number(file_number) {}
+  explicit WalFilesReq(const utils::UUID &main_uuid, const utils::UUID &storage_uuid, uint64_t file_number)
+      : main_uuid{main_uuid}, uuid{storage_uuid}, file_number(file_number) {}
 
   utils::UUID main_uuid;
   utils::UUID uuid;

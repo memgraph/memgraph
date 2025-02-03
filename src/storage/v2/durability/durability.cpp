@@ -126,7 +126,8 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
     try {
       auto info = ReadWalInfo(item.path());
       spdlog::trace(
-          "Reading wal file {} with following info: uuid: {}, epoch id: {}, from timestamp {}, to_timestamp {}, "
+          "Reading wal file {} with following info: storage_uuid: {}, epoch id: {}, from timestamp {}, to_timestamp "
+          "{}, "
           "sequence "
           "number {}.",
           item.path(), info.uuid, info.epoch_id, info.from_timestamp, info.to_timestamp, info.seq_num);
