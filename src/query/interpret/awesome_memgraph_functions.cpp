@@ -1161,6 +1161,152 @@ TypedValue ToStringOrNull(const TypedValue *args, int64_t nargs, const FunctionC
   }
 }
 
+// edited by Pat
+
+TypedValue ToIntegerOrNull(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  if (nargs != 1) {
+    throw QueryRuntimeException("'toIntegerOrNull' requires exactly 1 argument.");
+  }
+
+  const auto &arg = args[0];
+  using enum TypedValue::Type;
+  switch (arg.type()) {
+    case Int: {
+      return {arg, ctx.memory};
+    }
+
+    case String: {
+      return TypedValue(std::stoi(arg.ValueString()), ctx.memory);
+    }
+
+    case Double: {
+      return TypedValue((int64_t)(arg.ValueDouble() < 0 ? arg.ValueDouble() - 0.5 : arg.ValueDouble() + 0.5), ctx.memory);
+    }
+
+	/*
+	returns as YYYYMMDD in one big integer, since years are 0-9999. e.g. 1947/07/30 -> 19470730
+	I did this because it's impossible to convert the YYYYMMDD format into days in an integer without rounding errors,
+	so this is more of a visual representation in integer form.
+	*/
+    case Date: {
+      return TypedValue((int64_t)(arg.ValueDate().year * 10000 + arg.ValueDate().month * 100 + arg.ValueDate().day), ctx.memory);
+    }
+
+    case LocalTime: { //Returns time in seconds since 00:00
+      return TypedValue((int64_t)(arg.ValueLocalTime().hour * 3600 + arg.ValueLocalTime().minute * 60 + arg.ValueLocalTime().second), ctx.memory);
+    }
+
+//    case LocalDateTime: {
+//      return TypedValue((arg.ValueLocalDateTime()), ctx.memory);
+//    }
+
+    case Duration: { //returns duration in microseconds
+      return TypedValue((int64_t)(arg.ValueDuration().microseconds), ctx.memory);
+    }
+
+//    case ZonedDateTime: {
+//      return TypedValue((arg.ValueZonedDateTime()), ctx.memory);
+//    }
+
+// Not really possible to represent different status strings as a set of ints
+//    case Enum: {
+//      auto opt_str = ctx.db_accessor->EnumToName(arg.ValueEnum());
+//      if (opt_str.HasError()) throw QueryRuntimeException("'toString' the given enum can't be converted to a string");
+//      return TypedValue(*opt_str, ctx.memory);
+//    }
+
+    case Bool: {
+      return TypedValue(arg.ValueBool() ? 1 : 0, ctx.memory);
+    }
+
+    case ZonedDateTime: //timezone returned as string
+    case LocalDateTime: //moved LocalDateTime because it's very difficult to represent the whole date and time in a single integer
+    case Enum:
+    case Null:
+    case List:
+    case Map:
+    case Vertex:
+    case Edge:
+    case Path:
+    case Graph:
+    case Function:
+    case Point2d:
+    case Point3d: {
+      return TypedValue(ctx.memory);
+    }
+  }
+}
+
+TypedValue ToFloatOrNull(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  if (nargs != 1) {
+    throw QueryRuntimeException("'toFloatOrNull' requires exactly 1 argument.");
+  }
+
+  const auto &arg = args[0];
+  using enum TypedValue::Type;
+  switch (arg.type()) {
+    case Double: {
+      return {arg, ctx.memory};
+    }
+
+    case String: {
+      return TypedValue(std::stod(arg.ValueString(), ctx.memory);
+    }
+
+    case Int: {
+      return TypedValue((double)(arg.ValueInt()), ctx.memory);
+    }
+
+    case Date: { //returns year since 0000 in number of days (very big double)
+      return TypedValue((double)(arg.ValueDate().year * 365.25 + arg.ValueDate().month * 30.4375 + arg.ValueDate().day), ctx.memory);
+    }
+
+     case LocalTime: { //Returns time in seconds since 00:00
+      return TypedValue((double)(arg.ValueLocalTime().hour * 3600 + arg.ValueLocalTime().minute * 60 + arg.ValueLocalTime().second), ctx.memory);
+    }
+
+    case LocalDateTime: { // combines Date and LocalTime, where LocalTime is appended after the decimal as a percentage of the progression of the day
+      return TypedValue((double)(arg.ValueDate().year * 365.25 + arg.ValueDate().month * 30.4375 + arg.ValueDate().day +
+                                 arg.ValueLocalTime().hour/24 + arg.ValueLocalTime().minute/1440 + arg.ValueLocalTime().second/86400), ctx.memory);
+    }
+
+    case Duration: { //returns duration in microseconds
+      return TypedValue((double)(arg.ValueDuration().microseconds), ctx.memory);
+    }
+//	  returns timezone as string
+//    case ZonedDateTime: {
+//      return TypedValue(arg.ValueZonedDateTime(), ctx.memory);
+//    }
+
+// Not really possible to represent different status strings as a set of floats
+//    case Enum: {
+//      auto opt_str = ctx.db_accessor->EnumToName(arg.ValueEnum());
+//      if (opt_str.HasError()) throw QueryRuntimeException("'toString' the given enum can't be converted to a string");
+//      return TypedValue(*opt_str, ctx.memory);
+//    }
+
+    case Bool: {
+      return TypedValue(arg.ValueBool() ? 1.0 : 0.0, ctx.memory);
+    }
+	case ZonedDateTime:
+    case Enum:
+    case Null:
+    case List:
+    case Map:
+    case Vertex:
+    case Edge:
+    case Path:
+    case Graph:
+    case Function:
+    case Point2d:
+    case Point3d: {
+      return TypedValue(ctx.memory);
+    }
+  }
+}
+
+//edited by Pat
+
 TypedValue Timestamp(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Optional<Or<Date, LocalTime, LocalDateTime, ZonedDateTime, Duration>>>("timestamp", args, nargs);
   const auto &arg = *args;
