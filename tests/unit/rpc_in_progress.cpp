@@ -41,7 +41,11 @@ void Load(SumReq *sum, Reader *reader) {
   Load(&sum->y, reader);
 }
 
-void Save(const SumRes &res, Builder *builder) { Save(res.sum, builder); }
+void Save(const SumRes &res, Builder *builder) {
+  Save(SumRes::kType.id, builder);
+  Save(memgraph::rpc::current_version, builder);
+  Save(res.sum, builder);
+}
 
 void Load(SumRes *res, Reader *reader) { Load(&res->sum, reader); }
 
@@ -82,17 +86,13 @@ TEST(RpcInProgress, SingleProgress) {
 
     // Simulate work
     std::this_thread::sleep_for(100ms);
-    memgraph::slk::Save(InProgressRes::kType.id, res_builder);
-    memgraph::slk::Save(memgraph::rpc::current_version, res_builder);
-    InProgressRes progress1{true};
+    InProgressRes progress1;
     Save(progress1, res_builder);
     res_builder->Finalize();
     spdlog::trace("Saved InProgressRes");
 
     // Simulate done
     std::this_thread::sleep_for(300ms);
-    memgraph::slk::Save(SumRes::kType.id, res_builder);
-    memgraph::slk::Save(memgraph::rpc::current_version, res_builder);
     SumRes res{5};
     Save(res, res_builder);
     spdlog::trace("Saved SumRes response");
@@ -129,17 +129,13 @@ TEST(RpcInProgress, Timeout) {
 
     // Simulate work
     std::this_thread::sleep_for(100ms);
-    memgraph::slk::Save(InProgressRes::kType.id, res_builder);
-    memgraph::slk::Save(memgraph::rpc::current_version, res_builder);
-    InProgressRes progress1{true};
+    InProgressRes progress1;
     Save(progress1, res_builder);
     res_builder->Finalize();
     spdlog::trace("Saved InProgressRes");
 
     // Simulate done
     std::this_thread::sleep_for(300ms);
-    memgraph::slk::Save(SumRes::kType.id, res_builder);
-    memgraph::slk::Save(memgraph::rpc::current_version, res_builder);
     SumRes res{5};
     Save(res, res_builder);
     spdlog::trace("Saved SumRes response");

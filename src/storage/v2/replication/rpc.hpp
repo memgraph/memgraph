@@ -53,7 +53,6 @@ struct AppendDeltasRes {
   bool success;
 };
 
-// TODO: (andi) Try to remove success field and rely on empty stream
 struct InProgressRes {
   static const utils::TypeInfo kType;
   static const utils::TypeInfo &GetTypeInfo() { return kType; }
@@ -62,9 +61,6 @@ struct InProgressRes {
   static void Save(const InProgressRes &self, memgraph::slk::Builder *builder);
 
   InProgressRes() = default;
-  explicit InProgressRes(bool const success) : success(success) {}
-
-  bool success;
 };
 
 using AppendDeltasRpc = rpc::RequestResponse<AppendDeltasReq, AppendDeltasRes>;

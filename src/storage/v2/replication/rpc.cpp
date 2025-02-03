@@ -281,15 +281,12 @@ void Load(memgraph::storage::replication::AppendDeltasReq *self, memgraph::slk::
 }
 
 // Serialize code for InProgressRes
-void Save(const memgraph::storage::replication::InProgressRes &self, memgraph::slk::Builder *builder) {
-  slk::Save(storage::replication::AppendDeltasRes::kType.id, builder);
+void Save(const memgraph::storage::replication::InProgressRes & /*self*/, memgraph::slk::Builder *builder) {
+  slk::Save(storage::replication::InProgressRes::kType.id, builder);
   slk::Save(rpc::current_version, builder);
-  slk::Save(self.success, builder);
 }
 
-void Load(memgraph::storage::replication::InProgressRes *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(&self->success, reader);
-}
+void Load(memgraph::storage::replication::InProgressRes *self, memgraph::slk::Reader *reader) {}
 
 // Serialize code for ForceResetStorageReq
 
