@@ -251,7 +251,7 @@ std::optional<std::vector<RecoveryStep>> GetRecoverySteps(uint64_t replica_commi
       RecoveryWals rw{};
       rw.reserve(wal_files.size() - first_useful_wal);
       for (; first_useful_wal < wal_files.size(); ++first_useful_wal) {
-        auto &wal = wal_files[first_useful_wal];
+        auto const &wal = wal_files[first_useful_wal];
         if (const auto lock_success = locker_acc.AddPath(wal.path); lock_success.HasError()) {
           spdlog::error("Tried to lock a nonexistent WAL path.");
           return std::nullopt;

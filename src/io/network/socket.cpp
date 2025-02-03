@@ -48,6 +48,8 @@ void Socket::Close() {
   socket_ = -1;
 }
 
+// Not const because of C-API
+// NOLINTNEXTLINE
 void Socket::Shutdown() {
   if (socket_ == -1) return;
   shutdown(socket_, SHUT_RDWR);
@@ -147,6 +149,8 @@ bool Socket::Bind(const Endpoint &endpoint) {
   return true;
 }
 
+// Not const because of C-API
+// NOLINTNEXTLINE
 void Socket::SetNonBlocking() {
   const unsigned flags = fcntl(socket_, F_GETFL);
   constexpr unsigned o_nonblock = O_NONBLOCK;
@@ -154,6 +158,8 @@ void Socket::SetNonBlocking() {
   MG_ASSERT(fcntl(socket_, F_SETFL, flags | o_nonblock) != -1, "Can't set socket nonblocking");
 }
 
+// Not const because of C-API
+// NOLINTNEXTLINE
 void Socket::SetKeepAlive() {
   int optval = 1;
   MG_ASSERT(!setsockopt(socket_, SOL_SOCKET, SO_KEEPALIVE, &optval, sizeof(optval)), "Can't set socket keep alive");
@@ -170,6 +176,8 @@ void Socket::SetKeepAlive() {
             "Can't set socket keep alive");
 }
 
+// Not const because of C-API
+// NOLINTNEXTLINE
 void Socket::SetNoDelay() {
   int optval = 1;
   MG_ASSERT(!setsockopt(socket_, SOL_TCP, TCP_NODELAY, (void *)&optval, sizeof(optval)), "Can't set socket no delay");
@@ -194,8 +202,12 @@ int Socket::ErrorStatus() const {
   return optval;
 }
 
+// Not const because of C-API
+// NOLINTNEXTLINE
 bool Socket::Listen(int backlog) { return listen(socket_, backlog) == 0; }
 
+// Not const because of C-API
+// NOLINTNEXTLINE
 std::optional<Socket> Socket::Accept() {
   sockaddr_storage addr;
   socklen_t addr_size = sizeof addr;
@@ -222,6 +234,8 @@ std::optional<Socket> Socket::Accept() {
   return Socket(sfd, endpoint);
 }
 
+// Not const because of C-API
+// NOLINTNEXTLINE
 bool Socket::Write(const uint8_t *data, size_t len, bool have_more, std::optional<int> timeout_ms) {
   // MSG_NOSIGNAL is here to disable raising a SIGPIPE signal when a
   // connection dies mid-write, the socket will only return an EPIPE error.
@@ -254,6 +268,8 @@ bool Socket::Write(std::string_view s, bool have_more, std::optional<int> timeou
   return Write(reinterpret_cast<const uint8_t *>(s.data()), s.size(), have_more, timeout_ms);
 }
 
+// Not const because of C-API
+// NOLINTNEXTLINE
 ssize_t Socket::Read(void *buffer, size_t len, bool nonblock) {
   return recv(socket_, buffer, len, nonblock ? MSG_DONTWAIT : 0);
 }
