@@ -81,11 +81,8 @@ std::vector<std::vector<TypedValue>> InterpreterContext::TerminateTransactions(
 
       bool killed = false;
       utils::OnScopeExit clean_status([interpreter, &killed]() {
-        if (killed) {
-          interpreter->transaction_status_.store(TransactionStatus::TERMINATED, std::memory_order_release);
-        } else {
-          interpreter->transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
-        }
+        interpreter->transaction_status_.store(killed ? TransactionStatus::TERMINATED : TransactionStatus::ACTIVE,
+                                               std::memory_order_release);
       });
       std::optional<uint64_t> intr_trans = interpreter->GetTransactionId();
       if (!intr_trans.has_value()) continue;
