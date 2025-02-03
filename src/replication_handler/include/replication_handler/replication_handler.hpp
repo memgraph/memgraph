@@ -18,6 +18,7 @@
 #include "flags/experimental.hpp"
 #include "replication/include/replication/state.hpp"
 #include "replication_coordination_glue/common.hpp"
+#include "replication_coordination_glue/handler.hpp"
 #include "replication_handler/system_replication.hpp"
 #include "replication_handler/system_rpc.hpp"
 #include "utils/result.hpp"

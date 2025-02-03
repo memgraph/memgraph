@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include <memory>
 #include <mutex>
 #include <optional>
 #include <utility>
@@ -19,7 +18,7 @@
 #include "communication/client.hpp"
 #include "io/network/endpoint.hpp"
 #include "rpc/exceptions.hpp"
-#include "rpc/messages.hpp"
+#include "rpc/messages.hpp"  // necessary include
 #include "rpc/version.hpp"
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"
@@ -27,7 +26,7 @@
 #include "utils/on_scope_exit.hpp"
 #include "utils/typeinfo.hpp"
 
-#include "io/network/fmt.hpp"
+#include "io/network/fmt.hpp"  // necessary include
 
 namespace memgraph::rpc {
 
@@ -46,10 +45,13 @@ class Client {
       {"GetInstanceUUIDReq"sv, 10000},        // coordinator to data instances
       {"GetDatabaseHistoriesReq"sv, 10000},   // coordinator to data instances
       {"StateCheckReq"sv, 10000},             // coordinator to data instances
-      {"HeartbeatReq"sv, 10000},              // main to replica
-      {"TimestampReq"sv, 10000},              // main to replica
       {"SwapMainUUIDReq"sv, 10000},           // coord to data instances
       {"FrequentHeartbeatReq"sv, 10000},      // coord to data instances
+      {"HeartbeatReq"sv, 10000},              // main to replica
+      {"TimestampReq"sv, 10000},              // main to replica
+      {"SystemHeartbeatReq"sv, 10000},        // main to replica
+      {"ForceResetStorageReq"sv,
+       60000},  // main to replica. Longer timeout because we need to wait for all storage locks.
   };
   // Dependency injection of rpc_timeouts
   Client(io::network::Endpoint endpoint, communication::ClientContext *context,

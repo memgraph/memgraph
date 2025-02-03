@@ -113,6 +113,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
   }
   if (branching_point) {
     auto replica_state = replica_state_.Lock();
+    // Don't put additional task in the thread pool for force resetting if the previous didn't finish
     if (*replica_state == replication::ReplicaState::DIVERGED_FROM_MAIN) {
       return;
     }
@@ -132,8 +133,8 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
       return;
     }
     client_.thread_pool_.AddTask([storage, gk = std::move(db_acc), this] {
-      if (const auto [success, timestamp] = this->ForceResetStorage(storage); success) {
-        spdlog::info("Successfully reset storage of REPLICA {} to timestamp {}.", client_.name_, timestamp);
+      if (this->ForceResetStorage(storage)) {
+        spdlog::info("Successfully reset storage of REPLICA {}.", client_.name_);
         return;
       }
       spdlog::error("You cannot register REPLICA {} to this MAIN because MAIN couldn't reset REPLICA's storage.",
@@ -455,19 +456,19 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, Storage *
   }
 }
 
-std::pair<bool, uint64_t> ReplicationStorageClient::ForceResetStorage(memgraph::storage::Storage *storage) const {
+bool ReplicationStorageClient::ForceResetStorage(Storage *storage) const {
+  // We set the state to MAYBE_BEHIND even if force reset failed. On the next ping, the branching point will be observed
+  // again and force reset will be tried once again.
   utils::OnScopeExit set_to_maybe_behind{
       [this]() { replica_state_.WithLock([](auto &state) { state = replication::ReplicaState::MAYBE_BEHIND; }); }};
   try {
     auto stream{client_.rpc_client_.Stream<replication::ForceResetStorageRpc>(main_uuid_, storage->uuid())};
-    const auto res = stream.AwaitResponse();
-    return {res.success, res.current_commit_timestamp};
+    return stream.AwaitResponse().success;
   } catch (const rpc::RpcFailedException &) {
     spdlog::error(
         utils::MessageWithLink("Couldn't ForceReset data to {}.", client_.name_, "https://memgr.ph/replication"));
   }
-
-  return {false, 0};
+  return false;
 }
 
 ////// ReplicaStream //////
