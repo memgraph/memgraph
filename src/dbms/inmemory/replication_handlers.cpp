@@ -184,14 +184,14 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
 
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::AppendDeltasReq::kType.name);
-    const storage::replication::AppendDeltasRes res{false, 0};
+    const storage::replication::AppendDeltasRes res{false};
     slk::Save(res, res_builder);
     return;
   }
 
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
   if (!db_acc) {
-    const storage::replication::AppendDeltasRes res{false, 0};
+    const storage::replication::AppendDeltasRes res{false};
     slk::Save(res, res_builder);
     return;
   }
@@ -199,13 +199,18 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
   storage::replication::Decoder decoder(req_reader);
 
   auto maybe_epoch_id = decoder.ReadString();
-  MG_ASSERT(maybe_epoch_id, "Invalid replication message");
+  if (!maybe_epoch_id) {
+    spdlog::error("Invalid replication message, couldn't read epoch id.");
+    const storage::replication::AppendDeltasRes res{false};
+    slk::Save(res, res_builder);
+    return;
+  }
 
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
   auto &repl_storage_state = storage->repl_storage_state_;
-  if (*maybe_epoch_id != storage->repl_storage_state_.epoch_.id()) {
+  if (*maybe_epoch_id != repl_storage_state.epoch_.id()) {
     spdlog::trace("Set epoch id to {} in AppendDeltasHandler.", *maybe_epoch_id);
-    auto prev_epoch = storage->repl_storage_state_.epoch_.SetEpoch(*maybe_epoch_id);
+    auto prev_epoch = repl_storage_state.epoch_.SetEpoch(*maybe_epoch_id);
     repl_storage_state.AddEpochToHistoryForce(prev_epoch);
   }
 
@@ -214,7 +219,7 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
   // It is also the first recovery step, so the WAL chain needs to restart from 0, otherwise the instance won't be
   // able to recover from durable data
   if (storage->wal_file_) {
-    if (*maybe_epoch_id != storage->repl_storage_state_.epoch_.id()) {
+    if (*maybe_epoch_id != repl_storage_state.epoch_.id()) {
       storage->wal_file_->FinalizeWal();
       storage->wal_file_.reset();
       spdlog::trace("Current WAL file finalized successfully");
@@ -226,32 +231,29 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
     // Empty the stream
     bool transaction_complete = false;
     while (!transaction_complete) {
-      SPDLOG_INFO("Skipping delta");
-      // TODO: Check if we are always using the latest version when replicating
-      const auto [timestamp, delta] = ReadDelta(&decoder, storage::durability::kVersion);
-      transaction_complete = storage::durability::IsWalDeltaDataTransactionEnd(delta, storage::durability::kVersion);
+      spdlog::info("Skipping delta");
+      const auto [_, delta] = ReadDelta(&decoder, storage::durability::kVersion);
+      transaction_complete = IsWalDeltaDataTransactionEnd(delta, storage::durability::kVersion);
     }
 
-    const storage::replication::AppendDeltasRes res{false, repl_storage_state.last_durable_timestamp_.load()};
+    const storage::replication::AppendDeltasRes res{false};
     slk::Save(res, res_builder);
     return;
   }
 
   try {
-    ReadAndApplyDeltas(
-        storage, &decoder,
-        storage::durability::kVersion);  // TODO: Check if we are always using the latest version when replicating
+    ReadAndApplyDeltas(storage, &decoder, storage::durability::kVersion);
   } catch (const utils::BasicException &e) {
     spdlog::error(
         "Error occurred while trying to apply deltas because of {}. Replication recovery from append deltas finished "
         "unsuccessfully.",
         e.what());
-    const storage::replication::AppendDeltasRes res{false, 0};
+    const storage::replication::AppendDeltasRes res{false};
     slk::Save(res, res_builder);
     return;
   }
 
-  const storage::replication::AppendDeltasRes res{true, repl_storage_state.last_durable_timestamp_.load()};
+  const storage::replication::AppendDeltasRes res{true};
   slk::Save(res, res_builder);
   spdlog::debug("Replication recovery from append deltas finished, replica is now up to date!");
 }
