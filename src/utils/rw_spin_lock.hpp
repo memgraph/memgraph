@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,8 +21,11 @@ namespace {
 struct yeilder {
   void operator()() noexcept {
 #if defined(__i386__) || defined(__x86_64__)
-    // TODO: make portable
     __builtin_ia32_pause();
+#elif defined(__aarch64__)
+    asm volatile("YIELD");
+#else
+#error("no PAUSE/YIELD instructions for unknown architecture");
 #endif
     ++count;
     if (count > 8) [[unlikely]] {
