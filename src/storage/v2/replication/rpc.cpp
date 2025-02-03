@@ -203,12 +203,12 @@ void Load(memgraph::storage::replication::SnapshotRes *self, memgraph::slk::Read
 
 void Save(const memgraph::storage::replication::SnapshotReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.main_uuid, builder);
-  memgraph::slk::Save(self.uuid, builder);
+  memgraph::slk::Save(self.storage_uuid, builder);
 }
 
 void Load(memgraph::storage::replication::SnapshotReq *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->main_uuid, reader);
-  memgraph::slk::Load(&self->uuid, reader);
+  memgraph::slk::Load(&self->storage_uuid, reader);
 }
 
 // Serialize code for HeartbeatRes

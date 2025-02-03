@@ -2687,7 +2687,7 @@ std::vector<SnapshotFileInfo> InMemoryStorage::ShowSnapshots() {
   auto dir_cleanup = utils::OnScopeExit{[&] { (void)locker_acc.RemovePath(recovery_.snapshot_directory_); }};
 
   // Add currently available snapshots
-  auto snapshot_files = durability::GetSnapshotFiles(recovery_.snapshot_directory_ /*, std::string(uuid())*/);
+  auto snapshot_files = durability::GetSnapshotFiles(recovery_.snapshot_directory_ /*, std::string(storage_uuid())*/);
   std::error_code ec;
   for (const auto &[snapshot_path, _, start_timestamp] : snapshot_files) {
     // Hacky solution to covert between different clocks
