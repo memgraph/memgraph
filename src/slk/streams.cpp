@@ -40,6 +40,7 @@ void Builder::Finalize() { FlushSegment(true); }
 
 void Builder::FlushSegment(bool final_segment) {
   if (!final_segment && pos_ < kSegmentMaxDataSize) return;
+  // TODO: (andi) Consider removing
   MG_ASSERT(pos_ > 0, "Trying to flush out a segment that has no data in it!");
 
   size_t total_size = sizeof(SegmentSize) + pos_;

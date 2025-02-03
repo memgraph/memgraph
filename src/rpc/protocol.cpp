@@ -33,7 +33,8 @@ void Session::Execute() {
   auto ret = slk::CheckStreamComplete(input_stream_->data(), input_stream_->size());
   if (ret.status == slk::StreamStatus::INVALID) {
     throw SessionException("Received an invalid SLK stream!");
-  } else if (ret.status == slk::StreamStatus::PARTIAL) {
+  }
+  if (ret.status == slk::StreamStatus::PARTIAL) {
     input_stream_->Resize(ret.stream_size);
     return;
   }
@@ -76,20 +77,23 @@ void Session::Execute() {
     throw SessionException("Session trying to execute an unregistered RPC call!");
   }
 
+  // slk::Save(it->second.res_type.id, &res_builder);
+  // slk::Save(rpc::current_version, &res_builder);
   spdlog::trace("[RpcServer] received {}", it->second.req_type.name);
-  slk::Save(it->second.res_type.id, &res_builder);
-  slk::Save(rpc::current_version, &res_builder);
   try {
+    spdlog::trace("[RpcServer] started executing callback");
     it->second.callback(&req_reader, &res_builder);
-  } catch (const slk::SlkReaderException &) {
+    spdlog::trace("[RpcServer] finished executing callback");
+  } catch (const slk::SlkReaderException &e) {
+    spdlog::error("Error occurred in the callback: {}", e.what());
     throw rpc::SlkRpcFailedException();
   }
 
   // Finalize the SLK streams.
   req_reader.Finalize();
+  spdlog::trace("[RpcServer] finalized req reader.");
   res_builder.Finalize();
-
-  spdlog::trace("[RpcServer] sent {}", it->second.res_type.name);
+  spdlog::trace("[RpcServer] finalized res builder.");
 }
 
 }  // namespace memgraph::rpc

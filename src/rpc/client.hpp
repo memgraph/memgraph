@@ -164,15 +164,16 @@ class Client {
 
         if (res_id == utils::TypeId::REP_IN_PROGRESS_RES) {
           // Continue holding the lock
-          spdlog::info("Received InProgressRes RPC message from {}:{}. Waiting for {}", self_->endpoint_.GetAddress(),
-                       self_->endpoint_.GetPort(), final_res_type_name);
+          spdlog::info("[RpcClient] Received InProgressRes RPC message from {}:{}. Waiting for {}.",
+                       self_->endpoint_.GetAddress(), self_->endpoint_.GetPort(), final_res_type_name);
           // TODO: (andi) Maybe needs loading response
           self_->client_->ShiftData(response_data_size);
           continue;
         }
 
         if (res_id != final_res_type.id) {
-          spdlog::error("Message response was of unexpected type, received TypeId {}", static_cast<uint64_t>(res_id));
+          spdlog::error("[RpcClient] Message response was of unexpected type, received TypeId {}",
+                        static_cast<uint64_t>(res_id));
           // Logically invalid state, connection is still up, defunct stream and release
           defunct_ = true;
           guard_.unlock();

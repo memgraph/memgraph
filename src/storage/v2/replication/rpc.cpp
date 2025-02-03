@@ -11,6 +11,8 @@
 
 #include "storage/v2/replication/rpc.hpp"
 #include <cstdint>
+#include <rpc/version.hpp>
+
 #include "slk/streams.hpp"
 #include "utils/enum.hpp"
 #include "utils/typeinfo.hpp"
@@ -253,7 +255,9 @@ void Load(memgraph::storage::replication::HeartbeatReq *self, memgraph::slk::Rea
 // Serialize code for AppendDeltasRes
 
 void Save(const memgraph::storage::replication::AppendDeltasRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self.success, builder);
+  slk::Save(storage::replication::AppendDeltasRes::kType.id, builder);
+  slk::Save(rpc::current_version, builder);
+  slk::Save(self.success, builder);
 }
 
 void Load(memgraph::storage::replication::AppendDeltasRes *self, memgraph::slk::Reader *reader) {
@@ -278,7 +282,9 @@ void Load(memgraph::storage::replication::AppendDeltasReq *self, memgraph::slk::
 
 // Serialize code for InProgressRes
 void Save(const memgraph::storage::replication::InProgressRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self.success, builder);
+  slk::Save(storage::replication::AppendDeltasRes::kType.id, builder);
+  slk::Save(rpc::current_version, builder);
+  slk::Save(self.success, builder);
 }
 
 void Load(memgraph::storage::replication::InProgressRes *self, memgraph::slk::Reader *reader) {

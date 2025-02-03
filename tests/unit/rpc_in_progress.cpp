@@ -25,6 +25,7 @@ using memgraph::rpc::GenericRpcFailedException;
 using memgraph::rpc::Server;
 using memgraph::slk::Load;
 using memgraph::slk::Save;
+using memgraph::storage::replication::InProgressRes;
 
 using namespace std::string_view_literals;
 using namespace std::literals::chrono_literals;
@@ -60,7 +61,9 @@ void EchoMessage::Save(const EchoMessage &obj, memgraph::slk::Builder *builder) 
 
 constexpr int port{8182};
 
-TEST(RpcInProgress, Test1) {
+// TODO: multiple progresses
+// TODO: timeout final
+TEST(RpcInProgress, SingleProgress) {
   Endpoint endpoint{"localhost", port};
 
   ServerContext server_context;
@@ -70,22 +73,85 @@ TEST(RpcInProgress, Test1) {
     rpc_server.AwaitShutdown();
   }};
 
-  rpc_server.Register<Echo>([](auto *req_reader, auto *res_builder) {
-    EchoMessage req;
+  rpc_server.Register<Sum>([](auto *req_reader, auto *res_builder) {
+    spdlog::trace("Started executing sum callback");
+    SumReq req;
     Load(&req, req_reader);
 
-    EchoMessage res{"Sending reply"};
+    spdlog::trace("Loaded sum req request");
+
+    // Simulate work
+    std::this_thread::sleep_for(100ms);
+    memgraph::slk::Save(InProgressRes::kType.id, res_builder);
+    memgraph::slk::Save(memgraph::rpc::current_version, res_builder);
+    InProgressRes progress1{true};
+    Save(progress1, res_builder);
+    res_builder->Finalize();
+    spdlog::trace("Saved InProgressRes");
+
+    // Simulate done
+    std::this_thread::sleep_for(300ms);
+    memgraph::slk::Save(SumRes::kType.id, res_builder);
+    memgraph::slk::Save(memgraph::rpc::current_version, res_builder);
+    SumRes res{5};
     Save(res, res_builder);
+    spdlog::trace("Saved SumRes response");
   });
 
   ASSERT_TRUE(rpc_server.Start());
   std::this_thread::sleep_for(100ms);
 
-  auto const rpc_timeouts = std::unordered_map{std::make_pair("EchoMessage"sv, 2000)};
+  auto const rpc_timeouts = std::unordered_map{std::make_pair("SumReq"sv, 2000)};
   ClientContext client_context;
   Client client{endpoint, &client_context, rpc_timeouts};
 
-  auto stream = client.Stream<Echo>("Sending request");
-  auto reply = stream.AwaitResponse();
-  EXPECT_EQ(reply.data, "Sending reply");
+  auto stream = client.Stream<Sum>(2, 3);
+  auto reply = stream.AwaitResponseWhileInProgress();
+  EXPECT_EQ(reply.sum, 5);
+}
+
+TEST(RpcInProgress, Timeout) {
+  Endpoint endpoint{"localhost", port};
+
+  ServerContext server_context;
+  Server rpc_server{endpoint, &server_context, /* workers */ 1};
+  auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
+    rpc_server.Shutdown();
+    rpc_server.AwaitShutdown();
+  }};
+
+  rpc_server.Register<Sum>([](auto *req_reader, auto *res_builder) {
+    spdlog::trace("Started executing sum callback");
+    SumReq req;
+    Load(&req, req_reader);
+
+    spdlog::trace("Loaded sum req request");
+
+    // Simulate work
+    std::this_thread::sleep_for(100ms);
+    memgraph::slk::Save(InProgressRes::kType.id, res_builder);
+    memgraph::slk::Save(memgraph::rpc::current_version, res_builder);
+    InProgressRes progress1{true};
+    Save(progress1, res_builder);
+    res_builder->Finalize();
+    spdlog::trace("Saved InProgressRes");
+
+    // Simulate done
+    std::this_thread::sleep_for(300ms);
+    memgraph::slk::Save(SumRes::kType.id, res_builder);
+    memgraph::slk::Save(memgraph::rpc::current_version, res_builder);
+    SumRes res{5};
+    Save(res, res_builder);
+    spdlog::trace("Saved SumRes response");
+  });
+
+  ASSERT_TRUE(rpc_server.Start());
+  std::this_thread::sleep_for(100ms);
+
+  auto const rpc_timeouts = std::unordered_map{std::make_pair("SumReq"sv, 200)};
+  ClientContext client_context;
+  Client client{endpoint, &client_context, rpc_timeouts};
+
+  auto stream = client.Stream<Sum>(2, 3);
+  EXPECT_THROW(stream.AwaitResponseWhileInProgress(), GenericRpcFailedException);
 }
