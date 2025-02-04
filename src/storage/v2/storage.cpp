@@ -139,6 +139,10 @@ std::optional<uint64_t> Storage::Accessor::GetTransactionId() const {
   return {};
 }
 
+std::unique_ptr<utils::QueryMemoryTracker> &Storage::Accessor::GetQueryMemoryTracker() {
+  return transaction_.query_memory_tracker_;
+}
+
 std::vector<LabelId> Storage::Accessor::ListAllPossiblyPresentVertexLabels() const {
   std::vector<LabelId> vertex_labels;
   storage_->stored_node_labels_.for_each([&vertex_labels](const auto &label) { vertex_labels.push_back(label); });
