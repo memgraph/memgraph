@@ -223,6 +223,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
             "Trying to recover edge type indices while properties on edges are disabled.");
   auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(indices->edge_type_index_.get());
   for (const auto &item : indices_metadata.edge) {
+    // TODO: parallel execution
     if (!mem_edge_type_index->CreateIndex(item, vertices->access())) {
       throw RecoveryFailure("The edge-type index must be created here!");
     }
@@ -237,6 +238,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
   auto *mem_edge_type_property_index =
       static_cast<InMemoryEdgeTypePropertyIndex *>(indices->edge_type_property_index_.get());
   for (const auto &item : indices_metadata.edge_property) {
+    // TODO: parallel execution
     if (!mem_edge_type_property_index->CreateIndex(item.first, item.second, vertices->access())) {
       throw RecoveryFailure("The edge-type property index must be created here!");
     }
@@ -254,7 +256,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
         if (!storage_dir.has_value()) {
           throw RecoveryFailure("There must exist a storage directory in order to recover text indices!");
         }
-
+        // TODO: parallel execution
         mem_text_index.RecoverIndex(index_name, label, vertices->access(), name_id_mapper);
       } catch (...) {
         throw RecoveryFailure("The text index must be created here!");
@@ -367,22 +369,14 @@ void RecoverIndicesStatsAndConstraints(utils::SkipList<Vertex> *vertices, NameId
   }
 
   RecoverIndicesAndStats(indices_constraints.indices, indices, vertices, name_id_mapper, properties_on_edges,
-                         GetParallelExecInfoIndices(recovery_info, config), storage_dir);
+                         GetParallelExecInfo(recovery_info, config), storage_dir);
   RecoverConstraints(indices_constraints.constraints, constraints, vertices, name_id_mapper,
                      GetParallelExecInfo(recovery_info, config));
 }
 
 std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfo(const RecoveryInfo &recovery_info,
                                                                   const Config &config) {
-  return config.durability.allow_parallel_schema_creation
-             ? std::make_optional(ParallelizedSchemaCreationInfo{recovery_info.vertex_batches,
-                                                                 config.durability.recovery_thread_count})
-             : std::nullopt;
-}
-
-std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfoIndices(const RecoveryInfo &recovery_info,
-                                                                         const Config &config) {
-  return config.durability.allow_parallel_schema_creation
+  return (config.durability.allow_parallel_schema_creation && recovery_info.vertex_batches.size() > 1)
              ? std::make_optional(ParallelizedSchemaCreationInfo{recovery_info.vertex_batches,
                                                                  config.durability.recovery_thread_count})
              : std::nullopt;
@@ -447,14 +441,8 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
     snapshot_timestamp = recovered_snapshot->snapshot_info.start_timestamp;
     repl_storage_state.epoch_.SetEpoch(std::move(recovered_snapshot->snapshot_info.epoch_id));
     recovery_info.last_durable_timestamp = snapshot_timestamp;
-
-    if (!utils::DirExists(wal_directory_)) {
-      // Apply data dependant meta structures now after all graph data has been loaded
-      RecoverIndicesStatsAndConstraints(vertices, name_id_mapper, indices, constraints, config, recovery_info,
-                                        indices_constraints, config.salient.items.properties_on_edges);
-      return recovered_snapshot->recovery_info;
-    }
   } else {
+    // UUID couldn't be recovered from the snapshot; recoverying it from WALs
     spdlog::info("No snapshot file was found, collecting information from WAL directory {}.", wal_directory_);
     std::error_code error_code;
     if (!utils::DirExists(wal_directory_)) return std::nullopt;
@@ -503,28 +491,11 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
                   repl_storage_state.epoch_.id());
   }
 
-  auto maybe_wal_files = GetWalFiles(wal_directory_, std::string{uuid});
-  if (!maybe_wal_files) {
-    spdlog::warn(
-        utils::MessageWithLink("Couldn't get WAL file info from the WAL directory.", "https://memgr.ph/durability"));
-    return std::nullopt;
-  }
+  if (const auto maybe_wal_files = GetWalFiles(wal_directory_, std::string{uuid});
+      maybe_wal_files && !maybe_wal_files->empty()) {
+    // Array of all discovered WAL files, ordered by sequence number.
+    const auto &wal_files = *maybe_wal_files;
 
-  // Array of all discovered WAL files, ordered by sequence number.
-  auto &wal_files = *maybe_wal_files;
-
-  // By this point we should have recovered from a snapshot, or we should have
-  // found some WAL files to recover from in the above `else`. This is just a
-  // sanity check to circumvent the following case: The database didn't recover
-  // from a snapshot, the above `else` triggered to find the recovery UUID from
-  // a WAL file. The above `else` has an early exit in case there are no WAL
-  // files. Because we reached this point there must have been some WAL files
-  // and we must have some WAL files after this second WAL directory iteration.
-  MG_ASSERT(snapshot_timestamp || !wal_files.empty(),
-            "The database didn't recover from a snapshot and didn't find any WAL "
-            "files that match the last WAL file!");
-
-  if (!wal_files.empty()) {
     spdlog::info("Checking WAL files.");
     std::ranges::for_each(wal_files, [](auto &&wal_file) {
       spdlog::trace("Wal file: {}. Seq num: {}.", wal_file.path, wal_file.seq_num);
@@ -560,7 +531,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
       epoch_history->emplace_back(repl_storage_state.epoch_.id(), *last_loaded_timestamp);
     }
 
-    for (auto &wal_file : wal_files) {
+    for (const auto &wal_file : wal_files) {
       if (previous_seq_num && (wal_file.seq_num - *previous_seq_num) > 1) {
         LOG_FATAL("You are missing a WAL file with the sequence number {}!", *previous_seq_num + 1);
       }
@@ -598,6 +569,25 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
     *wal_seq_num = *previous_seq_num + 1;
 
     spdlog::info("All necessary WAL files are loaded successfully.");
+
+    // Regenerate the vertex batches
+    // TODO edges?
+    size_t pos = 0;
+    size_t batched = 0;
+    recovery_info.vertex_batches.clear();
+    auto v_acc = vertices->access();
+    const auto size = v_acc.size();
+    for (auto v_itr = v_acc.begin(); v_itr != v_acc.end(); ++v_itr, ++pos) {
+      if (pos == batched) {
+        const auto left = size - pos;
+        if (left <= config.durability.items_per_batch) {
+          recovery_info.vertex_batches.emplace_back(v_itr->gid, left);
+          break;
+        }
+        recovery_info.vertex_batches.emplace_back(v_itr->gid, config.durability.items_per_batch);
+        batched += config.durability.items_per_batch;
+      }
+    }
   }
 
   // Apply meta structures now after all graph data has been loaded
