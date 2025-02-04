@@ -57,7 +57,7 @@ class TestOutputStream {
  public:
   bool Write(const uint8_t *data, size_t len, bool have_more = false) {
     if (!write_success_) return false;
-    for (size_t i = 0; i < len; ++i) output.push_back(data[i]);
+    output.insert(output.end(), data, data + len);
     return true;
   }
 
@@ -87,7 +87,7 @@ class TestBuffer {
 /**
  * TODO (mferencevic): document
  */
-void PrintOutput(std::vector<uint8_t> &output) {
+void PrintOutput(std::span<uint8_t const> output) {
   fprintf(stderr, "output: ");
   for (size_t i = 0; i < output.size(); ++i) {
     fprintf(stderr, "%02X ", output[i]);
@@ -98,7 +98,7 @@ void PrintOutput(std::vector<uint8_t> &output) {
 /**
  * TODO (mferencevic): document
  */
-void CheckOutput(std::vector<uint8_t> &output, const uint8_t *data, uint64_t len, bool clear = true) {
+void CheckOutput(std::span<uint8_t const> &output, const uint8_t *data, uint64_t len, bool clear = true) {
   if (clear) {
     ASSERT_EQ(len, output.size());
   } else {
@@ -108,9 +108,9 @@ void CheckOutput(std::vector<uint8_t> &output, const uint8_t *data, uint64_t len
     EXPECT_EQ(output[i], data[i]) << i;
   }
   if (clear) {
-    output.clear();
+    output = std::span<uint8_t const>{};
   } else {
-    output.erase(output.begin(), output.begin() + len);
+    output = output.subspan(len);
   }
 }
 
