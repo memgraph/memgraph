@@ -43,6 +43,12 @@ static_assert(kSegmentMaxDataSize <= std::numeric_limits<SegmentSize>::max(),
 /// `sizeof(SegmentSize)`. A segment of size 0 indicates that we have reached
 /// the end of a stream and that there is no more data to be read/written.
 
+class SlkBuilderException : public utils::BasicException {
+ public:
+  using utils::BasicException::BasicException;
+  SPECIALIZE_GET_EXCEPTION_NAME(SlkBuilderException)
+};
+
 /// Builder used to create a SLK segment stream.
 class Builder {
  public:

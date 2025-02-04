@@ -25,7 +25,6 @@ using memgraph::rpc::GenericRpcFailedException;
 using memgraph::rpc::Server;
 using memgraph::slk::Load;
 using memgraph::slk::Save;
-using memgraph::storage::replication::InProgressRes;
 
 using namespace std::string_view_literals;
 using namespace std::literals::chrono_literals;
@@ -59,8 +58,6 @@ void SumRes::Save(const SumRes &obj, memgraph::slk::Builder *builder) { memgraph
 
 constexpr int port{8182};
 
-// TODO: multiple progresses
-// TODO: timeout final
 TEST(RpcInProgress, SingleProgress) {
   Endpoint endpoint{"localhost", port};
 
@@ -94,6 +91,58 @@ TEST(RpcInProgress, SingleProgress) {
   std::this_thread::sleep_for(100ms);
 
   auto const rpc_timeouts = std::unordered_map{std::make_pair("SumReq"sv, 2000)};
+  ClientContext client_context;
+  Client client{endpoint, &client_context, rpc_timeouts};
+
+  auto stream = client.Stream<Sum>(2, 3);
+  auto reply = stream.AwaitResponseWhileInProgress();
+  EXPECT_EQ(reply.sum, 5);
+}
+
+// Each batch for itself shouldn't timeout
+TEST(RpcInProgress, MultipleProgresses) {
+  Endpoint endpoint{"localhost", port};
+
+  ServerContext server_context;
+  Server rpc_server{endpoint, &server_context, /* workers */ 1};
+  auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
+    rpc_server.Shutdown();
+    rpc_server.AwaitShutdown();
+  }};
+
+  rpc_server.Register<Sum>([](auto *req_reader, auto *res_builder) {
+    spdlog::trace("Started executing sum callback");
+    SumReq req;
+    Load(&req, req_reader);
+
+    spdlog::trace("Loaded sum req request");
+
+    // Simulate work
+    std::this_thread::sleep_for(100ms);
+    memgraph::slk::SendInProgressMsg(res_builder);
+    spdlog::trace("Saved InProgressRes");
+
+    // Simulate work
+    std::this_thread::sleep_for(200ms);
+    memgraph::slk::SendInProgressMsg(res_builder);
+    spdlog::trace("Saved InProgressRes");
+
+    // Simulate work
+    std::this_thread::sleep_for(250ms);
+    memgraph::slk::SendInProgressMsg(res_builder);
+    spdlog::trace("Saved InProgressRes");
+
+    // Simulate done
+    std::this_thread::sleep_for(300ms);
+    SumRes res{5};
+    Save(res, res_builder);
+    spdlog::trace("Saved SumRes response");
+  });
+
+  ASSERT_TRUE(rpc_server.Start());
+  std::this_thread::sleep_for(100ms);
+
+  auto const rpc_timeouts = std::unordered_map{std::make_pair("SumReq"sv, 500)};
   ClientContext client_context;
   Client client{endpoint, &client_context, rpc_timeouts};
 
@@ -140,4 +189,50 @@ TEST(RpcInProgress, Timeout) {
 
   auto stream = client.Stream<Sum>(2, 3);
   EXPECT_THROW(stream.AwaitResponseWhileInProgress(), GenericRpcFailedException);
+}
+
+TEST(RpcInProgress, CannotBuildInProgressOnNonEmptyBuffer) {
+  Endpoint endpoint{"localhost", port};
+
+  ServerContext server_context;
+  Server rpc_server{endpoint, &server_context, /* workers */ 1};
+  auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
+    rpc_server.Shutdown();
+    rpc_server.AwaitShutdown();
+  }};
+
+  rpc_server.Register<Sum>([](auto *req_reader, auto *res_builder) {
+    spdlog::trace("Started executing sum callback");
+    SumReq req;
+    Load(&req, req_reader);
+
+    spdlog::trace("Loaded sum req request");
+
+    // Simulate work
+    std::this_thread::sleep_for(100ms);
+    memgraph::slk::SendInProgressMsg(res_builder);
+    spdlog::trace("Saved InProgressRes");
+
+    // Simulate work
+    std::this_thread::sleep_for(200ms);
+    memgraph::slk::SendInProgressMsg(res_builder);
+    spdlog::trace("Saved InProgressRes");
+
+    std::this_thread::sleep_for(300ms);
+    SumRes res{5};
+    Save(res, res_builder);
+    EXPECT_THROW(memgraph::slk::SendInProgressMsg(res_builder), memgraph::slk::SlkBuilderException);
+    spdlog::trace("Saved SumRes response");
+  });
+
+  ASSERT_TRUE(rpc_server.Start());
+  std::this_thread::sleep_for(100ms);
+
+  auto const rpc_timeouts = std::unordered_map{std::make_pair("SumReq"sv, 500)};
+  ClientContext client_context;
+  Client client{endpoint, &client_context, rpc_timeouts};
+
+  auto stream = client.Stream<Sum>(2, 3);
+  auto reply = stream.AwaitResponseWhileInProgress();
+  EXPECT_EQ(reply.sum, 5);
 }

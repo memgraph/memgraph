@@ -284,7 +284,9 @@ void Load(memgraph::storage::replication::AppendDeltasReq *self, memgraph::slk::
 }
 
 void SendInProgressMsg(Builder *builder) {
-  MG_ASSERT(builder->IsEmpty(), "InProgress RPC message can only be sent when the builder's buffer is empty.");
+  if (!builder->IsEmpty()) {
+    throw SlkBuilderException("InProgress RPC message can only be sent when the builder's buffer is empty.");
+  }
   Save(storage::replication::InProgressRes::kType.id, builder);
   Save(rpc::current_version, builder);
   builder->Finalize();

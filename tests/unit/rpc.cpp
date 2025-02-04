@@ -54,7 +54,6 @@ void SumReq::Save(const SumReq &obj, memgraph::slk::Builder *builder) { memgraph
 void SumRes::Load(SumRes *obj, memgraph::slk::Reader *reader) { memgraph::slk::Load(obj, reader); }
 void SumRes::Save(const SumRes &obj, memgraph::slk::Builder *builder) { memgraph::slk::Save(obj, builder); }
 
-// TODO: (andi) Remove echo message usage
 void EchoMessage::Load(EchoMessage *obj, memgraph::slk::Reader *reader) { memgraph::slk::Load(obj, reader); }
 void EchoMessage::Save(const EchoMessage &obj, memgraph::slk::Builder *builder) { memgraph::slk::Save(obj, builder); }
 
@@ -176,6 +175,7 @@ TEST(Rpc, LargeMessage) {
   server.Register<Echo>([](auto *req_reader, auto *res_builder) {
     EchoMessage res;
     memgraph::slk::Load(&res, req_reader);
+    memgraph::slk::SerializeResHeader(res, res_builder);
     memgraph::slk::Save(res, res_builder);
   });
   ASSERT_TRUE(server.Start());
@@ -198,6 +198,7 @@ TEST(Rpc, JumboMessage) {
   server.Register<Echo>([](auto *req_reader, auto *res_builder) {
     EchoMessage res;
     memgraph::slk::Load(&res, req_reader);
+    memgraph::slk::SerializeResHeader(res, res_builder);
     memgraph::slk::Save(res, res_builder);
   });
   ASSERT_TRUE(server.Start());
@@ -224,6 +225,7 @@ TEST(Rpc, Stream) {
     std::string payload;
     memgraph::slk::Load(&payload, req_reader);
     EchoMessage res(req.data + payload);
+    memgraph::slk::SerializeResHeader(res, res_builder);
     memgraph::slk::Save(res, res_builder);
   });
   ASSERT_TRUE(server.Start());
@@ -249,6 +251,7 @@ TEST(Rpc, StreamLarge) {
     std::string payload;
     memgraph::slk::Load(&payload, req_reader);
     EchoMessage res(req.data + payload);
+    memgraph::slk::SerializeResHeader(res, res_builder);
     memgraph::slk::Save(res, res_builder);
   });
   ASSERT_TRUE(server.Start());
@@ -277,6 +280,7 @@ TEST(Rpc, StreamJumbo) {
     std::string payload;
     memgraph::slk::Load(&payload, req_reader);
     EchoMessage res(req.data + payload);
+    memgraph::slk::SerializeResHeader(res, res_builder);
     memgraph::slk::Save(res, res_builder);
   });
   ASSERT_TRUE(server.Start());
