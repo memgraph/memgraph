@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,14 +22,12 @@
 #include "storage/v2/inmemory/replication/recovery.hpp"
 #include "storage/v2/inmemory/snapshot_info.hpp"
 #include "storage/v2/replication/replication_client.hpp"
-#include "storage/v2/schema_info.hpp"
 #include "storage/v2/storage.hpp"
 
 /// REPLICATION ///
-#include "replication/config.hpp"
+
 #include "storage/v2/delta_container.hpp"
 #include "storage/v2/inmemory/replication/recovery.hpp"
-#include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/replication_storage_state.hpp"
 #include "storage/v2/replication/rpc.hpp"
 #include "storage/v2/replication/serialization.hpp"
@@ -38,8 +36,6 @@
 #include "utils/observer.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/synchronized.hpp"
-#include "utils/temporal.hpp"
-
 namespace memgraph::dbms {
 class InMemoryReplicationHandlers;
 }
@@ -93,12 +89,13 @@ struct IndexPerformanceTracker {
 class InMemoryStorage final : public Storage {
   friend class memgraph::dbms::InMemoryReplicationHandlers;
   friend class ReplicationStorageClient;
-  friend std::vector<RecoveryStep> GetRecoverySteps(uint64_t replica_commit,
-                                                    utils::FileRetainer::FileLocker *file_locker,
-                                                    const InMemoryStorage *storage);
+  friend std::optional<std::vector<RecoveryStep>> GetRecoverySteps(uint64_t replica_commit,
+                                                                   utils::FileRetainer::FileLocker *file_locker,
+                                                                   const InMemoryStorage *main_storage);
   friend class InMemoryLabelIndex;
   friend class InMemoryLabelPropertyIndex;
   friend class InMemoryEdgeTypeIndex;
+  friend class InMemoryEdgeTypePropertyIndex;
 
  public:
   using free_mem_fn = std::function<void(std::unique_lock<utils::ResourceLock>, bool)>;
@@ -237,6 +234,10 @@ class InMemoryStorage final : public Storage {
       return storage_->indices_.point_index_.ApproximatePointCount(label, property);
     }
 
+    std::optional<uint64_t> ApproximateVerticesVectorCount(LabelId label, PropertyId property) const override {
+      return storage_->indices_.vector_index_.ApproximateVectorCount(label, property);
+    }
+
     template <typename TResult, typename TIndex, typename TIndexKey>
     std::optional<TResult> GetIndexStatsForIndex(TIndex *index, TIndexKey &&key) const {
       return index->GetIndexStats(key);
@@ -281,12 +282,6 @@ class InMemoryStorage final : public Storage {
 
     std::optional<EdgeAccessor> FindEdge(Gid gid, View view, EdgeTypeId edge_type, VertexAccessor *from_vertex,
                                          VertexAccessor *to_vertex) override;
-
-    Result<EdgeAccessor> EdgeSetFrom(EdgeAccessor *edge, VertexAccessor *new_from) override;
-
-    Result<EdgeAccessor> EdgeSetTo(EdgeAccessor *edge, VertexAccessor *new_to) override;
-
-    Result<EdgeAccessor> EdgeChangeType(EdgeAccessor *edge, EdgeTypeId new_edge_type) override;
 
     bool LabelIndexExists(LabelId label) const override {
       return static_cast<InMemoryStorage *>(storage_)->indices_.label_index_->IndexExists(label);
@@ -397,6 +392,10 @@ class InMemoryStorage final : public Storage {
 
     utils::BasicResult<StorageIndexDefinitionError, void> DropPointIndex(storage::LabelId label,
                                                                          storage::PropertyId property) override;
+
+    utils::BasicResult<StorageIndexDefinitionError, void> CreateVectorIndex(VectorIndexSpec spec) override;
+
+    utils::BasicResult<StorageIndexDefinitionError, void> DropVectorIndex(std::string_view index_name) override;
 
     /// Returns void if the existence constraint has been created.
     /// Returns `StorageExistenceConstraintDefinitionError` if an error occures. Error can be:
@@ -586,9 +585,9 @@ class InMemoryStorage final : public Storage {
   std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>> FindEdge(Gid gid);
 
   // Main object storage
-  utils::SkipList<storage::Vertex> vertices_;
-  utils::SkipList<storage::Edge> edges_;
-  utils::SkipList<storage::EdgeMetadata> edges_metadata_;
+  utils::SkipList<Vertex> vertices_;
+  utils::SkipList<Edge> edges_;
+  utils::SkipList<EdgeMetadata> edges_metadata_;
 
   // Durability
   durability::Recovery recovery_;

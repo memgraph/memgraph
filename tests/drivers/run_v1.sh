@@ -22,14 +22,14 @@ fi
 mkdir -p $tmpdir
 
 # Find memgraph binaries.
-binary_dir="$DIR/../../build"
+mg_binary_dir="$DIR/../../build"
 
 # Start memgraph.
-$binary_dir/memgraph \
+$mg_binary_dir/memgraph \
     --data-directory=$tmpdir \
     --query-execution-timeout-sec=5 \
     --bolt-server-name-for-init="Neo4j/1.1" \
-    --log-file=$tmpdir/logs/memgarph.log \
+    --log-file=$tmpdir/logs/memgraph.log \
     --also-log-to-stderr \
     --log-level ERROR &
 pid=$!

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -31,10 +31,19 @@
 
 namespace memgraph::query {
 
-constexpr std::string_view kBoltServer = "bolt_server";
-constexpr std::string_view kReplicationServer = "replication_server";
-constexpr std::string_view kCoordinatorServer = "coordinator_server";
-constexpr std::string_view kManagementServer = "management_server";
+inline constexpr std::string_view kBoltServer = "bolt_server";
+inline constexpr std::string_view kReplicationServer = "replication_server";
+inline constexpr std::string_view kCoordinatorServer = "coordinator_server";
+inline constexpr std::string_view kManagementServer = "management_server";
+
+inline constexpr std::string_view kLabel = "label";
+inline constexpr std::string_view kProperty = "property";
+inline constexpr std::string_view kMetric = "metric";
+inline constexpr std::string_view kDimension = "dimension";
+inline constexpr std::string_view kCapacity = "capacity";
+inline constexpr std::string_view kResizeCoefficient = "resize_coefficient";
+inline constexpr std::uint16_t kDefaultResizeCoefficient = 2;
+inline constexpr std::string_view kDefaultMetric = "l2sq";
 
 struct LabelIx {
   static const utils::TypeInfo kType;
@@ -465,6 +474,35 @@ class ModOperator : public memgraph::query::BinaryOperator {
 
   ModOperator *Clone(AstStorage *storage) const override {
     ModOperator *object = storage->Create<ModOperator>();
+    object->expression1_ = expression1_ ? expression1_->Clone(storage) : nullptr;
+    object->expression2_ = expression2_ ? expression2_->Clone(storage) : nullptr;
+    return object;
+  }
+
+ protected:
+  using BinaryOperator::BinaryOperator;
+
+ private:
+  friend class AstStorage;
+};
+
+class ExponentiationOperator : public memgraph::query::BinaryOperator {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DEFVISITABLE(ExpressionVisitor<TypedValue>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<void>);
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
+    if (visitor.PreVisit(*this)) {
+      expression1_->Accept(visitor) && expression2_->Accept(visitor);
+    }
+    return visitor.PostVisit(*this);
+  }
+
+  ExponentiationOperator *Clone(AstStorage *storage) const override {
+    ExponentiationOperator *object = storage->Create<ExponentiationOperator>();
     object->expression1_ = expression1_ ? expression1_->Clone(storage) : nullptr;
     object->expression2_ = expression2_ ? expression2_->Clone(storage) : nullptr;
     return object;
@@ -2412,6 +2450,48 @@ class TextIndexQuery : public memgraph::query::Query {
   friend class AstStorage;
 };
 
+class VectorIndexQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  enum class Action { CREATE, DROP };
+
+  VectorIndexQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  memgraph::query::VectorIndexQuery::Action action_;
+  std::string index_name_;
+  memgraph::query::LabelIx label_;
+  memgraph::query::PropertyIx property_;
+  std::unordered_map<memgraph::query::Expression *, memgraph::query::Expression *> configs_;
+
+  VectorIndexQuery *Clone(AstStorage *storage) const override {
+    VectorIndexQuery *object = storage->Create<VectorIndexQuery>();
+    object->action_ = action_;
+    object->index_name_ = index_name_;
+    object->label_ = storage->GetLabelIx(label_.name);
+    object->property_ = storage->GetPropertyIx(property_.name);
+    for (const auto &[key, value] : configs_) {
+      object->configs_[key->Clone(storage)] = value->Clone(storage);
+    }
+    return object;
+  }
+
+ protected:
+  VectorIndexQuery(Action action, std::string index_name, LabelIx label, PropertyIx property,
+                   std::unordered_map<Expression *, Expression *> configs)
+      : action_(action),
+        index_name_(std::move(index_name)),
+        label_(std::move(label)),
+        property_(std::move(property)),
+        configs_(std::move(configs)) {}
+
+ private:
+  friend class AstStorage;
+};
+
 class Create : public memgraph::query::Clause {
  public:
   static const utils::TypeInfo kType;
@@ -3164,7 +3244,7 @@ class SystemInfoQuery : public memgraph::query::Query {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  enum class InfoType { STORAGE, BUILD, ACTIVE_USERS };
+  enum class InfoType { STORAGE, BUILD, ACTIVE_USERS, LICENSE };
 
   DEFVISITABLE(QueryVisitor<void>);
 
@@ -3284,8 +3364,10 @@ class CoordinatorQuery : public memgraph::query::Query {
     REGISTER_INSTANCE,
     UNREGISTER_INSTANCE,
     SET_INSTANCE_TO_MAIN,
+    SHOW_INSTANCE,
     SHOW_INSTANCES,
     ADD_COORDINATOR_INSTANCE,
+    REMOVE_COORDINATOR_INSTANCE,
     DEMOTE_INSTANCE,
     FORCE_RESET_CLUSTER_STATE
   };

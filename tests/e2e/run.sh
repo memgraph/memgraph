@@ -8,7 +8,7 @@ print_help() {
   echo "               3. If you specify --clean-logs-dir, all logs will get deleted."
   echo -e ""
   echo -e "  NOTE: some tests require enterprise licence key,"
-  echo -e "        to run those define the folowing env vars:"
+  echo -e "        to run those define the following env vars:"
   echo -e "          * MEMGRAPH_ORGANIZATION_NAME"
   echo -e "          * MEMGRAPH_ENTERPRISE_LICENSE"
   exit 1

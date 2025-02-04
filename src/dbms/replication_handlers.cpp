@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -28,7 +28,9 @@ void CreateDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system
 
   // Ignore if no license
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
-    spdlog::error("Handling CreateDatabase, an enterprise RPC message, without license.");
+    spdlog::error(
+        "Handling CreateDatabase, an enterprise RPC message, without license. Check your license status by running "
+        "SHOW LICENSE INFO.");
     memgraph::slk::Save(res, res_builder);
     return;
   }
@@ -78,7 +80,9 @@ void DropDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
 
   // Ignore if no license
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
-    spdlog::error("Handling DropDatabase, an enterprise RPC message, without license.");
+    spdlog::error(
+        "Handling DropDatabase, an enterprise RPC message, without license. Check your license status by running SHOW "
+        "LICENSE INFO.");
     memgraph::slk::Save(res, res_builder);
     return;
   }
@@ -131,7 +135,9 @@ bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage:
    * NO LICENSE
    */
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
-    spdlog::error("Handling SystemRecovery, an enterprise RPC message, without license.");
+    spdlog::error(
+        "Handling SystemRecovery, an enterprise RPC message, without license. Check your license status by running "
+        "SHOW LICENSE INFO.");
     for (const auto &config : database_configs) {
       // Only handle default DB
       if (config.name != kDefaultDB) continue;

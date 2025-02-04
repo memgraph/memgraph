@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -521,6 +521,23 @@ size_t UnwrapDegreeResult(storage::Result<size_t> maybe_degree) {
 
 }  // namespace
 
+TypedValue IsEmpty(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  FType<Or<Null, List, Map, String>>("isempty", args, nargs);
+  auto const &arg = args[0];
+  if (arg.IsNull()) return TypedValue(ctx.memory);
+  switch (arg.type()) {
+    using enum TypedValue::Type;
+    case List:
+      return TypedValue(arg.UnsafeValueList().empty(), ctx.memory);
+    case Map:
+      return TypedValue(arg.UnsafeValueMap().empty(), ctx.memory);
+    case String:
+      return TypedValue(arg.UnsafeValueString().empty(), ctx.memory);
+    default:
+      return TypedValue(ctx.memory);
+  }
+}
+
 TypedValue Degree(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Vertex>>("degree", args, nargs);
   if (args[0].IsNull()) return TypedValue(ctx.memory);
@@ -1014,43 +1031,134 @@ TypedValue ToString(const TypedValue *args, int64_t nargs, const FunctionContext
   FType<Or<Null, String, Number, Date, LocalTime, LocalDateTime, Duration, ZonedDateTime, Bool, Enum>>("toString", args,
                                                                                                        nargs);
   const auto &arg = args[0];
-  if (arg.IsNull()) {
-    return TypedValue(ctx.memory);
+  using enum TypedValue::Type;
+  switch (arg.type()) {
+    case Null: {
+      return TypedValue(ctx.memory);
+    }
+
+    case String: {
+      return {arg, ctx.memory};
+    }
+
+    case Int: {
+      // TODO: This is making a pointless copy of std::string, we may want to
+      // use a different conversion to string
+      return TypedValue(std::to_string(arg.ValueInt()), ctx.memory);
+    }
+
+    case Double: {
+      return TypedValue(memgraph::utils::DoubleToString(arg.ValueDouble()), ctx.memory);
+    }
+
+    case Date: {
+      return TypedValue(arg.ValueDate().ToString(), ctx.memory);
+    }
+
+    case LocalTime: {
+      return TypedValue(arg.ValueLocalTime().ToString(), ctx.memory);
+    }
+
+    case LocalDateTime: {
+      return TypedValue(arg.ValueLocalDateTime().ToString(), ctx.memory);
+    }
+
+    case Duration: {
+      return TypedValue(arg.ValueDuration().ToString(), ctx.memory);
+    }
+
+    case ZonedDateTime: {
+      return TypedValue(arg.ValueZonedDateTime().ToString(), ctx.memory);
+    }
+
+    case Enum: {
+      auto opt_str = ctx.db_accessor->EnumToName(arg.ValueEnum());
+      if (opt_str.HasError()) throw QueryRuntimeException("'toString' the given enum can't be converted to a string");
+      return TypedValue(*opt_str, ctx.memory);
+    }
+
+    case Bool: {
+      return TypedValue(arg.ValueBool() ? "true" : "false", ctx.memory);
+    }
+
+    case List:
+    case Map:
+    case Vertex:
+    case Edge:
+    case Path:
+    case Graph:
+    case Function:
+    case Point2d:
+    case Point3d: {
+      MG_ASSERT(false, "unexpected TypedValue::Type");
+    }
   }
-  if (arg.IsString()) {
-    return TypedValue(arg, ctx.memory);
-  }
-  if (arg.IsInt()) {
-    // TODO: This is making a pointless copy of std::string, we may want to
-    // use a different conversion to string
-    return TypedValue(std::to_string(arg.ValueInt()), ctx.memory);
-  }
-  if (arg.IsDouble()) {
-    return TypedValue(memgraph::utils::DoubleToString(arg.ValueDouble()), ctx.memory);
-  }
-  if (arg.IsDate()) {
-    return TypedValue(arg.ValueDate().ToString(), ctx.memory);
-  }
-  if (arg.IsLocalTime()) {
-    return TypedValue(arg.ValueLocalTime().ToString(), ctx.memory);
-  }
-  if (arg.IsLocalDateTime()) {
-    return TypedValue(arg.ValueLocalDateTime().ToString(), ctx.memory);
-  }
-  if (arg.IsDuration()) {
-    return TypedValue(arg.ValueDuration().ToString(), ctx.memory);
-  }
-  if (arg.IsZonedDateTime()) {
-    return TypedValue(arg.ValueZonedDateTime().ToString(), ctx.memory);
+}
+
+TypedValue ToStringOrNull(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
+  if (nargs != 1) {
+    throw QueryRuntimeException("'toStringOrNull' requires exactly 1 argument.");
   }
 
-  if (arg.IsEnum()) {
-    auto opt_str = ctx.db_accessor->EnumToName(arg.ValueEnum());
-    if (opt_str.HasError()) throw QueryRuntimeException("'toString' the given enum can't be converted to a string");
-    return TypedValue(*opt_str, ctx.memory);
-  }
+  const auto &arg = args[0];
+  using enum TypedValue::Type;
+  switch (arg.type()) {
+    case String: {
+      return {arg, ctx.memory};
+    }
 
-  return TypedValue(arg.ValueBool() ? "true" : "false", ctx.memory);
+    case Int: {
+      // TODO: This is making a pointless copy of std::string, we may want to
+      // use a different conversion to string
+      return TypedValue(std::to_string(arg.ValueInt()), ctx.memory);
+    }
+
+    case Double: {
+      return TypedValue(memgraph::utils::DoubleToString(arg.ValueDouble()), ctx.memory);
+    }
+
+    case Date: {
+      return TypedValue(arg.ValueDate().ToString(), ctx.memory);
+    }
+
+    case LocalTime: {
+      return TypedValue(arg.ValueLocalTime().ToString(), ctx.memory);
+    }
+
+    case LocalDateTime: {
+      return TypedValue(arg.ValueLocalDateTime().ToString(), ctx.memory);
+    }
+
+    case Duration: {
+      return TypedValue(arg.ValueDuration().ToString(), ctx.memory);
+    }
+    case ZonedDateTime: {
+      return TypedValue(arg.ValueZonedDateTime().ToString(), ctx.memory);
+    }
+
+    case Enum: {
+      auto opt_str = ctx.db_accessor->EnumToName(arg.ValueEnum());
+      if (opt_str.HasError()) throw QueryRuntimeException("'toString' the given enum can't be converted to a string");
+      return TypedValue(*opt_str, ctx.memory);
+    }
+
+    case Bool: {
+      return TypedValue(arg.ValueBool() ? "true" : "false", ctx.memory);
+    }
+
+    case Null:
+    case List:
+    case Map:
+    case Vertex:
+    case Edge:
+    case Path:
+    case Graph:
+    case Function:
+    case Point2d:
+    case Point3d: {
+      return TypedValue(ctx.memory);
+    }
+  }
 }
 
 TypedValue Timestamp(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
@@ -1239,13 +1347,24 @@ void MapNumericParameters(auto &parameter_mappings, const auto &input_parameters
 }
 
 TypedValue Date(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Optional<Or<String, Map, LocalDateTime>>>("date", args, nargs);
+  FType<Optional<Or<String, Map, struct Date, LocalDateTime, ZonedDateTime>>>("date", args, nargs);
   if (nargs == 0) {
     return TypedValue(utils::LocalDateTime(ctx.timestamp).date(), ctx.memory);
   }
 
+  if (args[0].IsDate()) {
+    return args[0];
+  }
+
   if (args[0].IsLocalDateTime()) {
     return TypedValue(utils::Date{args[0].ValueLocalDateTime().date()}, ctx.memory);
+  }
+
+  if (args[0].IsZonedDateTime()) {
+    auto const &zdt{args[0].ValueZonedDateTime()};
+    return TypedValue(
+        utils::Date{{zdt.LocalYear(), static_cast<int64_t>(zdt.LocalMonth()), static_cast<int64_t>(zdt.LocalDay())}},
+        ctx.memory);
   }
 
   if (args[0].IsString()) {
@@ -1265,14 +1384,25 @@ TypedValue Date(const TypedValue *args, int64_t nargs, const FunctionContext &ct
 }
 
 TypedValue LocalTime(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Optional<Or<String, Map, LocalDateTime>>>("localtime", args, nargs);
+  FType<Optional<Or<String, Map, struct LocalTime, LocalDateTime, ZonedDateTime>>>("localtime", args, nargs);
 
   if (nargs == 0) {
     return TypedValue(utils::LocalDateTime(ctx.timestamp).local_time(), ctx.memory);
   }
 
+  if (args[0].IsLocalTime()) {
+    return args[0];
+  }
+
   if (args[0].IsLocalDateTime()) {
     return TypedValue(utils::LocalTime{args[0].ValueLocalDateTime().local_time()}, ctx.memory);
+  }
+
+  if (args[0].IsZonedDateTime()) {
+    auto const &zdt{args[0].ValueZonedDateTime()};
+    return TypedValue(utils::LocalTime{{zdt.LocalHour(), zdt.LocalMinute(), zdt.LocalSecond(), zdt.LocalMillisecond(),
+                                        zdt.LocalMicrosecond()}},
+                      ctx.memory);
   }
 
   if (args[0].IsString()) {
@@ -1296,10 +1426,23 @@ TypedValue LocalTime(const TypedValue *args, int64_t nargs, const FunctionContex
 }
 
 TypedValue LocalDateTime(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Optional<Or<String, Map>>>("localdatetime", args, nargs);
+  FType<Optional<Or<String, Map, struct LocalDateTime, ZonedDateTime>>>("localdatetime", args, nargs);
 
   if (nargs == 0) {
     return TypedValue(utils::LocalDateTime(ctx.timestamp), ctx.memory);
+  }
+
+  if (args[0].IsLocalDateTime()) {
+    return args[0];
+  }
+
+  if (args[0].IsZonedDateTime()) {
+    auto const &zdt{args[0].ValueZonedDateTime()};
+    return TypedValue(
+        utils::LocalDateTime{
+            {zdt.LocalYear(), static_cast<int64_t>(zdt.LocalMonth()), static_cast<int64_t>(zdt.LocalDay())},
+            {zdt.LocalHour(), zdt.LocalMinute(), zdt.LocalSecond(), zdt.LocalMillisecond(), zdt.LocalMicrosecond()}},
+        ctx.memory);
   }
 
   if (args[0].IsString()) {
@@ -1361,10 +1504,14 @@ utils::Timezone GetTimezone(const memgraph::query::TypedValue::TMap &input_param
 
 // Refers to ZonedDateTime; called DateTime for compatibility with Cypher
 TypedValue DateTime(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Optional<Or<String, Map>>>("datetime", args, nargs);
+  FType<Optional<Or<String, Map, ZonedDateTime>>>("datetime", args, nargs);
 
   if (nargs == 0) {
     return TypedValue(utils::ZonedDateTime(utils::AsSysTime(ctx.timestamp), utils::DefaultTimezone()), ctx.memory);
+  }
+
+  if (args[0].IsZonedDateTime()) {
+    return args[0];
   }
 
   if (args[0].IsString()) {
@@ -1597,6 +1744,9 @@ TypedValue WithinBBox(const TypedValue *args, int64_t nargs, const FunctionConte
 }
 
 auto const builtin_functions = absl::flat_hash_map<std::string, func_impl>{
+    // Predicate functions
+    {"ISEMPTY", IsEmpty},
+
     // Scalar functions
     {"DEGREE", Degree},
     {"INDEGREE", InDegree},
@@ -1666,6 +1816,7 @@ auto const builtin_functions = absl::flat_hash_map<std::string, func_impl>{
     {"SUBSTRING", Substring},
     {"TOLOWER", ToLower},
     {"TOSTRING", ToString},
+    {"TOSTRINGORNULL", ToStringOrNull},
     {"TOUPPER", ToUpper},
     {"TRIM", Trim},
 

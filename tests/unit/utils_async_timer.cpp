@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,9 +20,9 @@
 using AsyncTimer = memgraph::utils::AsyncTimer;
 
 inline constexpr auto kSecondsInMilis = 1000.0;
-inline constexpr auto kIntervalInSeconds = 0.3;
+inline constexpr auto kIntervalInSeconds = 0.05;
 inline constexpr auto kIntervalInMilis = kIntervalInSeconds * kSecondsInMilis;
-inline constexpr auto kAbsoluteErrorInMilis = 50;
+inline constexpr auto kAbsoluteErrorInMilis = 75;
 
 std::chrono::steady_clock::time_point Now() { return std::chrono::steady_clock::now(); }
 

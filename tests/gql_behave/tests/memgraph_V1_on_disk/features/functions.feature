@@ -702,8 +702,8 @@ Feature: Functions
             RETURN all(x IN [Null, Null, 0] WHERE x = 0) AS a
             """
         Then the result should be:
-            | a     |
-            | false |
+            | a    |
+            | null |
 
     Scenario: All test 06:
         When executing query:
@@ -790,8 +790,8 @@ Feature: Functions
             RETURN single(x IN [Null, Null, 0] WHERE x > 0) AS a
             """
         Then the result should be:
-            | a     |
-            | false |
+            | a    |
+            | null |
 
     Scenario: Single test 08:
         When executing query:
@@ -872,8 +872,8 @@ Feature: Functions
             RETURN any(x IN [Null, Null, 0] WHERE x > 0) AS a
             """
         Then the result should be:
-            | a     |
-            | false |
+            | a    |
+            | null |
 
    Scenario: Any test 07:
         When executing query:
@@ -936,7 +936,7 @@ Feature: Functions
             """
         Then the result should be:
             | a    |
-            | true |
+            | null |
 
     Scenario: None test 06:
         When executing query:

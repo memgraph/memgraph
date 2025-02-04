@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -306,68 +306,67 @@ TypedValue::TypedValue(TypedValue &&other, utils::MemoryResource *memory) : memo
     case TypedValue::Type::Null:
       break;
     case TypedValue::Type::Bool:
-      this->bool_v = other.bool_v;
+      std::construct_at(&bool_v, other.bool_v);
       break;
     case Type::Int:
-      this->int_v = other.int_v;
+      std::construct_at(&int_v, other.int_v);
       break;
     case Type::Double:
-      this->double_v = other.double_v;
+      std::construct_at(&double_v, other.double_v);
       break;
     case TypedValue::Type::String:
-      new (&string_v) TString(std::move(other.string_v), memory_);
+      std::construct_at(&string_v, std::move(other.string_v), memory_);
       break;
     case Type::List:
-      new (&list_v) TVector(std::move(other.list_v), memory_);
+      std::construct_at(&list_v, std::move(other.list_v), memory_);
       break;
     case Type::Map:
-      new (&map_v) TMap(std::move(other.map_v), memory_);
+      std::construct_at(&map_v, std::move(other.map_v), memory_);
       break;
     case Type::Vertex:
-      new (&vertex_v) VertexAccessor(std::move(other.vertex_v));
+      std::construct_at(&vertex_v, other.vertex_v);
       break;
     case Type::Edge:
-      new (&edge_v) EdgeAccessor(std::move(other.edge_v));
+      std::construct_at(&edge_v, other.edge_v);
       break;
     case Type::Path:
-      new (&path_v) Path(std::move(other.path_v), memory_);
+      std::construct_at(&path_v, std::move(other.path_v), memory_);
       break;
     case Type::Date:
-      new (&date_v) utils::Date(other.date_v);
+      std::construct_at(&date_v, other.date_v);
       break;
     case Type::LocalTime:
-      new (&local_time_v) utils::LocalTime(other.local_time_v);
+      std::construct_at(&local_time_v, other.local_time_v);
       break;
     case Type::LocalDateTime:
-      new (&local_date_time_v) utils::LocalDateTime(other.local_date_time_v);
+      std::construct_at(&local_date_time_v, other.local_date_time_v);
       break;
     case Type::ZonedDateTime:
-      new (&zoned_date_time_v) utils::ZonedDateTime(other.zoned_date_time_v);
+      std::construct_at(&zoned_date_time_v, other.zoned_date_time_v);
       break;
     case Type::Duration:
-      new (&duration_v) utils::Duration(other.duration_v);
+      std::construct_at(&duration_v, other.duration_v);
       break;
     case Type::Enum:
-      new (&enum_v) storage::Enum(other.enum_v);
+      std::construct_at(&enum_v, other.enum_v);
       break;
     case Type::Point2d:
-      new (&point_2d_v) storage::Point2d(other.point_2d_v);
+      std::construct_at(&point_2d_v, other.point_2d_v);
       break;
     case Type::Point3d:
-      new (&point_3d_v) storage::Point3d(other.point_3d_v);
+      std::construct_at(&point_3d_v, other.point_3d_v);
       break;
     case Type::Function:
-      new (&function_v) std::function<void(TypedValue *)>(other.function_v);
+      std::construct_at(&function_v, std::move(other.function_v));
       break;
     case Type::Graph:
       if (other.GetMemoryResource() == memory_) {
-        new (&graph_v) std::unique_ptr<Graph>(std::move(other.graph_v));
+        std::construct_at(&graph_v, std::move(other.graph_v));
       } else {
         auto *graph_ptr = utils::Allocator<Graph>(memory_).new_object<Graph>(std::move(*other.graph_v));
-        new (&graph_v) std::unique_ptr<Graph>(graph_ptr);
+        std::construct_at(&graph_v, graph_ptr);
       }
   }
-  other.DestroyValue();
 }
 
 TypedValue::operator storage::PropertyValue() const {
@@ -674,167 +673,176 @@ DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT(Path, Path, path_v)
 #undef DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT
 
 TypedValue &TypedValue::operator=(const TypedValue &other) {
+  static_assert(!std::allocator_traits<utils::Allocator<TypedValue>>::propagate_on_container_copy_assignment::value,
+                "Allocator propagation not implemented");
   if (this != &other) {
-    // NOTE: STL uses
-    // std::allocator_traits<>::propagate_on_container_copy_assignment to
-    // determine whether to take the allocator from `other`, or use the one in
-    // `this`. Our utils::Allocator never propagates, so we use the allocator
-    // from `this`.
-    static_assert(!std::allocator_traits<utils::Allocator<TypedValue>>::propagate_on_container_copy_assignment::value,
-                  "Allocator propagation not implemented");
-    DestroyValue();
-    type_ = other.type_;
-    switch (other.type_) {
-      case TypedValue::Type::Null:
-        return *this;
-      case TypedValue::Type::Bool:
-        this->bool_v = other.bool_v;
-        return *this;
-      case TypedValue::Type::Int:
-        this->int_v = other.int_v;
-        return *this;
-      case TypedValue::Type::Double:
-        this->double_v = other.double_v;
-        return *this;
-      case TypedValue::Type::String:
-        new (&string_v) TString(other.string_v, memory_);
-        return *this;
-      case TypedValue::Type::List:
-        new (&list_v) TVector(other.list_v, memory_);
-        return *this;
-      case TypedValue::Type::Map:
-        new (&map_v) TMap(other.map_v, memory_);
-        return *this;
-      case TypedValue::Type::Vertex:
-        new (&vertex_v) VertexAccessor(other.vertex_v);
-        return *this;
-      case TypedValue::Type::Edge:
-        new (&edge_v) EdgeAccessor(other.edge_v);
-        return *this;
-      case TypedValue::Type::Path:
-        new (&path_v) Path(other.path_v, memory_);
-        return *this;
-      case TypedValue::Type::Graph: {
-        auto *graph_ptr = utils::Allocator<Graph>(memory_).new_object<Graph>(*other.graph_v);
-        new (&graph_v) std::unique_ptr<Graph>(graph_ptr);
-        return *this;
+    if (type_ == other.type_ && memory_ == other.memory_) {
+      // same type, copy assign value
+      switch (type_) {
+        case Type::Null:
+          break;
+        case Type::Bool:
+          bool_v = other.bool_v;
+          break;
+        case Type::Int:
+          int_v = other.int_v;
+          break;
+        case Type::Double:
+          double_v = other.double_v;
+          break;
+        case Type::String:
+          string_v = other.string_v;
+          break;
+        case Type::List:
+          list_v = other.list_v;
+          break;
+        case Type::Map:
+          map_v = other.map_v;
+          break;
+        case Type::Vertex:
+          vertex_v = other.vertex_v;
+          break;
+        case Type::Edge:
+          edge_v = other.edge_v;
+          break;
+        case Type::Path:
+          path_v = other.path_v;
+          break;
+        case Type::Date:
+          date_v = other.date_v;
+          break;
+        case Type::LocalTime:
+          local_time_v = other.local_time_v;
+          break;
+        case Type::LocalDateTime:
+          local_date_time_v = other.local_date_time_v;
+          break;
+        case Type::ZonedDateTime:
+          zoned_date_time_v = other.zoned_date_time_v;
+          break;
+        case Type::Duration:
+          duration_v = other.duration_v;
+          break;
+        case Type::Graph: {
+          auto *graph = graph_v.release();
+          if (graph) {
+            utils::Allocator<Graph>(memory_).delete_object(graph);
+          }
+          if (other.graph_v) {
+            auto *graph_ptr = utils::Allocator<Graph>(memory_).new_object<Graph>(*other.graph_v);
+            graph_v = std::unique_ptr<Graph>(graph_ptr);
+          }
+          break;
+        }
+        case Type::Function:
+          function_v = other.function_v;
+          break;
+        case Type::Enum:
+          enum_v = other.enum_v;
+          break;
+        case Type::Point2d:
+          point_2d_v = other.point_2d_v;
+          break;
+        case Type::Point3d:
+          point_3d_v = other.point_3d_v;
+          break;
       }
-      case Type::Date:
-        new (&date_v) utils::Date(other.date_v);
-        return *this;
-      case Type::LocalTime:
-        new (&local_time_v) utils::LocalTime(other.local_time_v);
-        return *this;
-      case Type::LocalDateTime:
-        new (&local_date_time_v) utils::LocalDateTime(other.local_date_time_v);
-        return *this;
-      case Type::ZonedDateTime:
-        new (&zoned_date_time_v) utils::ZonedDateTime(other.zoned_date_time_v);
-        return *this;
-      case Type::Duration:
-        new (&duration_v) utils::Duration(other.duration_v);
-        return *this;
-      case Type::Enum:
-        new (&enum_v) storage::Enum(other.enum_v);
-        return *this;
-      case Type::Point2d:
-        new (&point_2d_v) storage::Point2d(other.point_2d_v);
-        return *this;
-      case Type::Point3d:
-        new (&point_3d_v) storage::Point3d(other.point_3d_v);
-        return *this;
-      case Type::Function:
-        new (&function_v) std::function<void(TypedValue *)>(other.function_v);
-        return *this;
+      return *this;
     }
-    LOG_FATAL("Unsupported TypedValue::Type");
+    // destroy + construct
+    auto *orig_mem = memory_;
+    std::destroy_at(this);
+    // NOLINTNEXTLINE(cppcoreguidelines-c-copy-assignment-signature,misc-unconventional-assign-operator)
+    return *std::construct_at(std::launder(this), other, orig_mem);
   }
   return *this;
 }
 
 TypedValue &TypedValue::operator=(TypedValue &&other) noexcept(false) {
+  static_assert(!std::allocator_traits<utils::Allocator<TypedValue>>::propagate_on_container_move_assignment::value,
+                "Allocator propagation not implemented");
   if (this != &other) {
-    DestroyValue();
-    // NOTE: STL uses
-    // std::allocator_traits<>::propagate_on_container_move_assignment to
-    // determine whether to take the allocator from `other`, or use the one in
-    // `this`. Our utils::Allocator never propagates, so we use the allocator
-    // from `this`.
-    static_assert(!std::allocator_traits<utils::Allocator<TypedValue>>::propagate_on_container_move_assignment::value,
-                  "Allocator propagation not implemented");
-    type_ = other.type_;
-    switch (other.type_) {
-      case TypedValue::Type::Null:
-        break;
-      case TypedValue::Type::Bool:
-        this->bool_v = other.bool_v;
-        break;
-      case TypedValue::Type::Int:
-        this->int_v = other.int_v;
-        break;
-      case TypedValue::Type::Double:
-        this->double_v = other.double_v;
-        break;
-      case TypedValue::Type::String:
-        new (&string_v) TString(std::move(other.string_v), memory_);
-        break;
-      case TypedValue::Type::List:
-        new (&list_v) TVector(std::move(other.list_v), memory_);
-        break;
-      case TypedValue::Type::Map:
-        new (&map_v) TMap(std::move(other.map_v), memory_);
-        break;
-      case TypedValue::Type::Vertex:
-        new (&vertex_v) VertexAccessor(std::move(other.vertex_v));
-        break;
-      case TypedValue::Type::Edge:
-        new (&edge_v) EdgeAccessor(std::move(other.edge_v));
-        break;
-      case TypedValue::Type::Path:
-        new (&path_v) Path(std::move(other.path_v), memory_);
-        break;
-      case Type::Date:
-        new (&date_v) utils::Date(other.date_v);
-        break;
-      case Type::LocalTime:
-        new (&local_time_v) utils::LocalTime(other.local_time_v);
-        break;
-      case Type::LocalDateTime:
-        new (&local_date_time_v) utils::LocalDateTime(other.local_date_time_v);
-        break;
-      case Type::ZonedDateTime:
-        new (&zoned_date_time_v) utils::ZonedDateTime(other.zoned_date_time_v);
-        break;
-      case Type::Duration:
-        new (&duration_v) utils::Duration(other.duration_v);
-        break;
-      case Type::Enum:
-        new (&enum_v) storage::Enum(other.enum_v);
-        break;
-      case Type::Point2d:
-        new (&point_2d_v) storage::Point2d(other.point_2d_v);
-        break;
-      case Type::Point3d:
-        new (&point_3d_v) storage::Point3d(other.point_3d_v);
-        break;
-      case Type::Function:
-        new (&function_v) std::function<void(TypedValue *)>{other.function_v};
-        break;
-      case Type::Graph:
-        if (other.GetMemoryResource() == memory_) {
-          new (&graph_v) std::unique_ptr<Graph>(std::move(other.graph_v));
-        } else {
-          auto *graph_ptr = utils::Allocator<Graph>(memory_).new_object<Graph>(std::move(*other.graph_v));
-          new (&graph_v) std::unique_ptr<Graph>(graph_ptr);
+    if (type_ == other.type_ && memory_ == other.memory_) {
+      // same type, move assign value
+      switch (type_) {
+        case Type::Null:
+          break;
+        case Type::Bool:
+          bool_v = other.bool_v;
+          break;
+        case Type::Int:
+          int_v = other.int_v;
+          break;
+        case Type::Double:
+          double_v = other.double_v;
+          break;
+        case Type::String:
+          string_v = std::move(other.string_v);
+          break;
+        case Type::List:
+          list_v = std::move(other.list_v);
+          break;
+        case Type::Map:
+          map_v = std::move(other.map_v);
+          break;
+        case Type::Vertex:
+          vertex_v = other.vertex_v;
+          break;
+        case Type::Edge:
+          edge_v = other.edge_v;
+          break;
+        case Type::Path:
+          path_v = std::move(other.path_v);
+          break;
+        case Type::Date:
+          date_v = other.date_v;
+          break;
+        case Type::LocalTime:
+          local_time_v = other.local_time_v;
+          break;
+        case Type::LocalDateTime:
+          local_date_time_v = other.local_date_time_v;
+          break;
+        case Type::ZonedDateTime:
+          zoned_date_time_v = other.zoned_date_time_v;
+          break;
+        case Type::Duration:
+          duration_v = other.duration_v;
+          break;
+        case Type::Graph: {
+          auto *graph = graph_v.release();
+          if (graph) {
+            utils::Allocator<Graph>(memory_).delete_object(graph);
+          }
+          graph_v = std::move(other.graph_v);
+          break;
         }
-        break;
+        case Type::Function:
+          function_v = std::move(other.function_v);
+          break;
+        case Type::Enum:
+          enum_v = other.enum_v;
+          break;
+        case Type::Point2d:
+          point_2d_v = other.point_2d_v;
+          break;
+        case Type::Point3d:
+          point_3d_v = other.point_3d_v;
+          break;
+      }
+
+      return *this;
     }
-    other.DestroyValue();
+    // destroy + construct
+    auto *orig_mem = memory_;
+    std::destroy_at(this);
+    // NOLINTNEXTLINE(cppcoreguidelines-c-copy-assignment-signature,misc-unconventional-assign-operator)
+    return *std::construct_at(std::launder(this), std::move(other), orig_mem);
   }
   return *this;
 }
 
-void TypedValue::DestroyValue() {
+TypedValue::~TypedValue() {
   switch (type_) {
       // destructor for primitive types does nothing
     case Type::Null:
@@ -885,11 +893,7 @@ void TypedValue::DestroyValue() {
       break;
     }
   }
-
-  type_ = TypedValue::Type::Null;
 }
-
-TypedValue::~TypedValue() { DestroyValue(); }
 
 /**
  * Returns the double value of a value.
@@ -1298,6 +1302,13 @@ TypedValue operator%(const TypedValue &a, const TypedValue &b) {
     if (b.ValueInt() == 0LL) throw TypedValueException("Mod with zero");
     return TypedValue(a.ValueInt() % b.ValueInt(), a.GetMemoryResource());
   }
+}
+
+TypedValue pow(const TypedValue &a, const TypedValue &b) {
+  if (a.IsNull() || b.IsNull()) return TypedValue(a.GetMemoryResource());
+  EnsureArithmeticallyOk(a, b, false, "^");
+
+  return TypedValue(std::pow(ToDouble(a), ToDouble(b)), a.GetMemoryResource());
 }
 
 inline void EnsureLogicallyOk(const TypedValue &a, const TypedValue &b, const std::string &op_name) {

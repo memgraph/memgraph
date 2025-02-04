@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include <memory>
 #include <mutex>
 #include <optional>
 #include <utility>
@@ -19,7 +18,7 @@
 #include "communication/client.hpp"
 #include "io/network/endpoint.hpp"
 #include "rpc/exceptions.hpp"
-#include "rpc/messages.hpp"
+#include "rpc/messages.hpp"  // necessary include
 #include "rpc/version.hpp"
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"
@@ -27,14 +26,36 @@
 #include "utils/on_scope_exit.hpp"
 #include "utils/typeinfo.hpp"
 
-#include "io/network/fmt.hpp"
+#include "io/network/fmt.hpp"  // necessary include
 
 namespace memgraph::rpc {
+
+using namespace std::string_view_literals;
 
 /// Client is thread safe, but it is recommended to use thread_local clients.
 class Client {
  public:
-  Client(io::network::Endpoint endpoint, communication::ClientContext *context);
+  inline static std::unordered_map<std::string_view, int> const default_rpc_timeouts_ms{
+      {"ShowInstancesReq"sv, 10000},          // coordinator sending to coordinator
+      {"DemoteMainToReplicaReq"sv, 10000},    // coordinator sending to main
+      {"PromoteToMainReq"sv, 10000},          // coordinator sending to replica
+      {"RegisterReplicaOnMainReq"sv, 10000},  // coordinator sending to main
+      {"UnregisterReplicaReq"sv, 10000},      // coordinator sending to main
+      {"EnableWritingOnMainReq"sv, 10000},    // coordinator to main
+      {"GetInstanceUUIDReq"sv, 10000},        // coordinator to data instances
+      {"GetDatabaseHistoriesReq"sv, 10000},   // coordinator to data instances
+      {"StateCheckReq"sv, 10000},             // coordinator to data instances
+      {"SwapMainUUIDReq"sv, 10000},           // coord to data instances
+      {"FrequentHeartbeatReq"sv, 10000},      // coord to data instances
+      {"HeartbeatReq"sv, 10000},              // main to replica
+      {"TimestampReq"sv, 10000},              // main to replica
+      {"SystemHeartbeatReq"sv, 10000},        // main to replica
+      {"ForceResetStorageReq"sv,
+       60000},  // main to replica. Longer timeout because we need to wait for all storage locks.
+  };
+  // Dependency injection of rpc_timeouts
+  Client(io::network::Endpoint endpoint, communication::ClientContext *context,
+         std::unordered_map<std::string_view, int> const &rpc_timeouts_ms = Client::default_rpc_timeouts_ms);
 
   /// Object used to handle streaming of request data to the RPC server.
   template <class TRequestResponse>
@@ -43,22 +64,29 @@ class Client {
     friend class Client;
 
     StreamHandler(Client *self, std::unique_lock<std::mutex> &&guard,
-                  std::function<typename TRequestResponse::Response(slk::Reader *)> res_load)
-        : self_(self), guard_(std::move(guard)), req_builder_(GenBuilderCallback(self, this)), res_load_(res_load) {}
+                  std::function<typename TRequestResponse::Response(slk::Reader *)> res_load,
+                  std::optional<int> timeout_ms)
+        : self_(self),
+          timeout_ms_(timeout_ms),
+          guard_(std::move(guard)),
+          req_builder_(GenBuilderCallback(self, this, timeout_ms_)),
+          res_load_(res_load) {}
 
    public:
     StreamHandler(StreamHandler &&other) noexcept
         : self_{std::exchange(other.self_, nullptr)},
+          timeout_ms_{std::move(other.timeout_ms_)},
           defunct_{std::exchange(other.defunct_, true)},
           guard_{std::move(other.guard_)},
-          req_builder_{std::move(other.req_builder_), GenBuilderCallback(self_, this)},
+          req_builder_{std::move(other.req_builder_), GenBuilderCallback(self_, this, timeout_ms_)},
           res_load_{std::move(other.res_load_)} {}
     StreamHandler &operator=(StreamHandler &&other) noexcept {
       if (&other != this) {
         self_ = std::exchange(other.self_, nullptr);
+        timeout_ms_ = std::move(other.timeout_ms_);
         defunct_ = std::exchange(other.defunct_, true);
         guard_ = std::move(other.guard_);
-        req_builder_ = slk::Builder(std::move(other.req_builder_, GenBuilderCallback(self_, this)));
+        req_builder_ = slk::Builder(std::move(other.req_builder_, GenBuilderCallback(self_, this, timeout_ms_)));
         res_load_ = std::move(other.res_load_);
       }
       return *this;
@@ -75,10 +103,13 @@ class Client {
       auto res_type = TRequestResponse::Response::kType;
       auto req_type = TRequestResponse::Request::kType;
 
+      auto req_type_name = std::string_view{req_type.name};
+      auto res_type_name = std::string_view{res_type.name};
+
       // Finalize the request.
       req_builder_.Finalize();
 
-      spdlog::trace("[RpcClient] sent {} to {}", req_type.name, self_->client_->endpoint().SocketAddress());
+      spdlog::trace("[RpcClient] sent {} to {}", req_type_name, self_->client_->endpoint().SocketAddress());
 
       // Receive the response.
       uint64_t response_data_size = 0;
@@ -92,8 +123,8 @@ class Client {
         }
         if (ret.status == slk::StreamStatus::PARTIAL) {
           if (!self_->client_->Read(ret.stream_size - self_->client_->GetDataSize(),
-                                    /* exactly_len = */ false)) {
-            // Failed connection, abort and let somebody retry in the future
+                                    /* exactly_len = */ false, /* timeout_ms = */ timeout_ms_)) {
+            // Failed connection, abort and let somebody retry in the future.
             defunct_ = true;
             self_->Abort();
             guard_.unlock();
@@ -136,7 +167,7 @@ class Client {
         throw GenericRpcFailedException();
       }
 
-      spdlog::trace("[RpcClient] received {} from endpoint {}:{}.", res_type.name, self_->endpoint_.GetAddress(),
+      spdlog::trace("[RpcClient] received {} from endpoint {}:{}.", res_type_name, self_->endpoint_.GetAddress(),
                     self_->endpoint_.GetPort());
 
       return res_load_(&res_reader);
@@ -145,10 +176,10 @@ class Client {
     bool IsDefunct() const { return defunct_; }
 
    private:
-    static auto GenBuilderCallback(Client *client, StreamHandler *self) {
-      return [client, self](const uint8_t *data, size_t size, bool have_more) {
+    static auto GenBuilderCallback(Client *client, StreamHandler *self, std::optional<int> timeout_ms) {
+      return [client, self, timeout_ms](const uint8_t *data, size_t size, bool have_more) {
         if (self->defunct_) throw GenericRpcFailedException();
-        if (!client->client_->Write(data, size, have_more)) {
+        if (!client->client_->Write(data, size, have_more, timeout_ms)) {
           self->defunct_ = true;
           client->Abort();
           self->guard_.unlock();
@@ -158,6 +189,7 @@ class Client {
     }
 
     Client *self_;
+    std::optional<int> timeout_ms_;
     bool defunct_ = false;
     std::unique_lock<std::mutex> guard_;
     slk::Builder req_builder_;
@@ -213,8 +245,17 @@ class Client {
       }
     }
 
+    std::optional<int> timeout_ms{std::nullopt};
+
+    auto req_type_name = std::string_view{req_type.name};
+    auto const maybe_timeout = std::ranges::find_if(
+        rpc_timeouts_ms_, [req_type_name](auto const &entry) { return entry.first == req_type_name; });
+    if (maybe_timeout != rpc_timeouts_ms_.end()) {
+      timeout_ms.emplace(maybe_timeout->second);
+    }
+
     // Create the stream handler.
-    StreamHandler<TRequestResponse> handler(this, std::move(guard), load);
+    StreamHandler<TRequestResponse> handler(this, std::move(guard), load, timeout_ms);
 
     // Build and send the request.
     slk::Save(req_type.id, handler.GetBuilder());
@@ -257,8 +298,9 @@ class Client {
   io::network::Endpoint endpoint_;
   communication::ClientContext *context_;
   std::optional<communication::Client> client_;
+  std::unordered_map<std::string_view, int> rpc_timeouts_ms_;
 
-  std::mutex mutex_;
+  mutable std::mutex mutex_;
 };
 
 }  // namespace memgraph::rpc

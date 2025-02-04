@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -657,6 +657,18 @@ TEST_P(CypherMainVisitorTest, ModOperator) {
   auto *mod_operator = dynamic_cast<ModOperator *>(return_clause->body_.named_expressions[0]->expression_);
   ast_generator.CheckLiteral(mod_operator->expression1_, 2);
   ast_generator.CheckLiteral(mod_operator->expression2_, 3);
+}
+
+TEST_P(CypherMainVisitorTest, ExponentiationOperator) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN 2 ^ 3"));
+  ASSERT_TRUE(query);
+  ASSERT_TRUE(query->single_query_);
+  auto *single_query = query->single_query_;
+  auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
+  auto *exp_operator = dynamic_cast<ExponentiationOperator *>(return_clause->body_.named_expressions[0]->expression_);
+  ast_generator.CheckLiteral(exp_operator->expression1_, 2);
+  ast_generator.CheckLiteral(exp_operator->expression2_, 3);
 }
 
 #define CHECK_COMPARISON(TYPE, VALUE1, VALUE2)                             \
@@ -2720,6 +2732,16 @@ TEST_P(CypherMainVisitorTest, TestRegisterAsyncInstance) {
   EXPECT_EQ(config_map.find(memgraph::query::kReplicationServer)->second, "127.0.0.1:10001");
 }
 
+TEST_P(CypherMainVisitorTest, TestRemoveCoordinatorInstance) {
+  auto &ast_generator = *GetParam();
+
+  std::string const correct_query = R"(REMOVE COORDINATOR 1)";
+  auto *parsed_query = dynamic_cast<CoordinatorQuery *>(ast_generator.ParseQuery(correct_query));
+
+  EXPECT_EQ(parsed_query->action_, CoordinatorQuery::Action::REMOVE_COORDINATOR_INSTANCE);
+  ast_generator.CheckLiteral(parsed_query->coordinator_id_, TypedValue(1));
+}
+
 TEST_P(CypherMainVisitorTest, TestAddCoordinatorInstance) {
   auto &ast_generator = *GetParam();
 
@@ -2748,6 +2770,14 @@ TEST_P(CypherMainVisitorTest, TestAddCoordinatorInstance) {
   EXPECT_EQ(config_map.find(kBoltServer)->second, "127.0.0.1:7688");
   EXPECT_EQ(config_map.find(kCoordinatorServer)->second, "127.0.0.1:10111");
 }
+
+TEST_P(CypherMainVisitorTest, TestShowInstance) {
+  auto &ast_generator = *GetParam();
+  std::string const query = "SHOW INSTANCE";
+  auto *parsed_query = dynamic_cast<CoordinatorQuery *>(ast_generator.ParseQuery(query));
+  EXPECT_EQ(parsed_query->action_, CoordinatorQuery::Action::SHOW_INSTANCE);
+}
+
 #endif
 
 TEST_P(CypherMainVisitorTest, TestDeleteReplica) {

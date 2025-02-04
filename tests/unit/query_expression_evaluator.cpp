@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -245,6 +245,19 @@ TYPED_TEST(ExpressionEvaluatorTest, ModOperator) {
                                                         this->storage.template Create<PrimitiveLiteral>(10));
   auto value = this->Eval(op);
   ASSERT_EQ(value.ValueInt(), 5);
+}
+
+TYPED_TEST(ExpressionEvaluatorTest, ExponentiationOperator) {
+  auto *op = this->storage.template Create<ExponentiationOperator>(
+      this->storage.template Create<PrimitiveLiteral>(2.0), this->storage.template Create<PrimitiveLiteral>(3.0));
+  auto val1 = this->Eval(op);
+  ASSERT_EQ(val1.ValueDouble(), 8.0);
+
+  // `a ^ b` always yields a double, even if both `a` and `b` are integers.
+  op = this->storage.template Create<ExponentiationOperator>(this->storage.template Create<PrimitiveLiteral>(3),
+                                                             this->storage.template Create<PrimitiveLiteral>(4));
+  auto val2 = this->Eval(op);
+  ASSERT_EQ(val2.ValueDouble(), 81.0);
 }
 
 TYPED_TEST(ExpressionEvaluatorTest, EqualOperator) {
@@ -897,6 +910,18 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionAll2) {
   EXPECT_FALSE(value.ValueBool());
 }
 
+TYPED_TEST(ExpressionEvaluatorTest, FunctionAllEmptyList) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *all = ALL("x", LIST(), WHERE(LITERAL(true)));
+  const auto x_sym = this->symbol_table.CreateSymbol("x", true);
+  all->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = this->Eval(all);
+  ASSERT_TRUE(value.IsBool());
+  EXPECT_TRUE(value.ValueBool());
+}
+
 TYPED_TEST(ExpressionEvaluatorTest, FunctionAllNullList) {
   AstStorage storage;
   auto *all = ALL("x", LITERAL(memgraph::storage::PropertyValue()), WHERE(LITERAL(true)));
@@ -909,19 +934,18 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionAllNullList) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionAllNullElementInList1) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *all = ALL("x", LIST(LITERAL(1), LITERAL(memgraph::storage::PropertyValue())), WHERE(EQ(ident_x, LITERAL(1))));
+  auto *all = ALL("x", LIST(LITERAL(true), LITERAL(memgraph::storage::PropertyValue())), WHERE(ident_x));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   all->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
   auto value = this->Eval(all);
-  ASSERT_TRUE(value.IsBool());
-  EXPECT_FALSE(value.ValueBool());
+  EXPECT_TRUE(value.IsNull());
 }
 
 TYPED_TEST(ExpressionEvaluatorTest, FunctionAllNullElementInList2) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *all = ALL("x", LIST(LITERAL(2), LITERAL(memgraph::storage::PropertyValue())), WHERE(EQ(ident_x, LITERAL(1))));
+  auto *all = ALL("x", LIST(LITERAL(false), LITERAL(memgraph::storage::PropertyValue())), WHERE(ident_x));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   all->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -962,6 +986,18 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionSingle2) {
   EXPECT_FALSE(value.ValueBool());
 }
 
+TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleEmptyList) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *single = SINGLE("x", LIST(), WHERE(LITERAL(true)));
+  const auto x_sym = this->symbol_table.CreateSymbol("x", true);
+  single->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = this->Eval(single);
+  ASSERT_TRUE(value.IsBool());
+  EXPECT_FALSE(value.ValueBool());
+}
+
 TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleNullList) {
   AstStorage storage;
   auto *single = SINGLE("x", LITERAL(memgraph::storage::PropertyValue()), WHERE(LITERAL(true)));
@@ -974,8 +1010,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleNullList) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleNullElementInList1) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *single =
-      SINGLE("x", LIST(LITERAL(1), LITERAL(memgraph::storage::PropertyValue())), WHERE(EQ(ident_x, LITERAL(1))));
+  auto *single = SINGLE("x", LIST(LITERAL(true), LITERAL(memgraph::storage::PropertyValue())), WHERE(ident_x));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   single->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -987,8 +1022,19 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleNullElementInList1) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleNullElementInList2) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
+  auto *single = SINGLE("x", LIST(LITERAL(false), LITERAL(memgraph::storage::PropertyValue())), WHERE(ident_x));
+  const auto x_sym = this->symbol_table.CreateSymbol("x", true);
+  single->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = this->Eval(single);
+  EXPECT_TRUE(value.IsNull());
+}
+
+TYPED_TEST(ExpressionEvaluatorTest, FunctionSingleNullElementInList3) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
   auto *single =
-      SINGLE("x", LIST(LITERAL(2), LITERAL(memgraph::storage::PropertyValue())), WHERE(EQ(ident_x, LITERAL(1))));
+      SINGLE("x", LIST(LITERAL(memgraph::storage::PropertyValue()), LITERAL(true), LITERAL(true)), WHERE(ident_x));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   single->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -1021,6 +1067,18 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionAny2) {
   EXPECT_FALSE(value.ValueBool());
 }
 
+TYPED_TEST(ExpressionEvaluatorTest, FunctionAnyEmptyList) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *any = ANY("x", LIST(), WHERE(LITERAL(true)));
+  const auto x_sym = this->symbol_table.CreateSymbol("x", true);
+  any->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = this->Eval(any);
+  ASSERT_TRUE(value.IsBool());
+  EXPECT_FALSE(value.ValueBool());
+}
+
 TYPED_TEST(ExpressionEvaluatorTest, FunctionAnyNullList) {
   AstStorage storage;
   auto *any = ANY("x", LITERAL(memgraph::storage::PropertyValue()), WHERE(LITERAL(true)));
@@ -1033,7 +1091,7 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionAnyNullList) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionAnyNullElementInList1) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *any = ANY("x", LIST(LITERAL(0), LITERAL(memgraph::storage::PropertyValue())), WHERE(EQ(ident_x, LITERAL(0))));
+  auto *any = ANY("x", LIST(LITERAL(true), LITERAL(memgraph::storage::PropertyValue())), WHERE(ident_x));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   any->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -1044,12 +1102,12 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionAnyNullElementInList1) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionAnyNullElementInList2) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *any = ANY("x", LIST(LITERAL(1), LITERAL(memgraph::storage::PropertyValue())), WHERE(EQ(ident_x, LITERAL(0))));
+  auto *any = ANY("x", LIST(LITERAL(false), LITERAL(memgraph::storage::PropertyValue())), WHERE(ident_x));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   any->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
   auto value = this->Eval(any);
-  EXPECT_FALSE(value.ValueBool());
+  EXPECT_TRUE(value.IsNull());
 }
 
 TYPED_TEST(ExpressionEvaluatorTest, FunctionAnyWhereWrongType) {
@@ -1084,6 +1142,18 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionNone2) {
   EXPECT_FALSE(value.ValueBool());
 }
 
+TYPED_TEST(ExpressionEvaluatorTest, FunctionNoneEmptyList) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *none = NONE("x", LIST(), WHERE(LITERAL(true)));
+  const auto x_sym = this->symbol_table.CreateSymbol("x", true);
+  none->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
+  auto value = this->Eval(none);
+  ASSERT_TRUE(value.IsBool());
+  EXPECT_TRUE(value.ValueBool());
+}
+
 TYPED_TEST(ExpressionEvaluatorTest, FunctionNoneNullList) {
   AstStorage storage;
   auto *none = NONE("x", LITERAL(memgraph::storage::PropertyValue()), WHERE(LITERAL(true)));
@@ -1096,18 +1166,18 @@ TYPED_TEST(ExpressionEvaluatorTest, FunctionNoneNullList) {
 TYPED_TEST(ExpressionEvaluatorTest, FunctionNoneNullElementInList1) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *any = NONE("x", LIST(LITERAL(1), LITERAL(memgraph::storage::PropertyValue())), WHERE(EQ(ident_x, LITERAL(0))));
+  auto *any = NONE("x", LIST(LITERAL(false), LITERAL(memgraph::storage::PropertyValue())), WHERE(ident_x));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   any->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
   auto value = this->Eval(any);
-  EXPECT_TRUE(value.ValueBool());
+  EXPECT_TRUE(value.IsNull());
 }
 
 TYPED_TEST(ExpressionEvaluatorTest, FunctionNoneNullElementInList2) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
-  auto *none = NONE("x", LIST(LITERAL(0), LITERAL(memgraph::storage::PropertyValue())), WHERE(EQ(ident_x, LITERAL(0))));
+  auto *none = NONE("x", LIST(LITERAL(true), LITERAL(memgraph::storage::PropertyValue())), WHERE(ident_x));
   const auto x_sym = this->symbol_table.CreateSymbol("x", true);
   none->identifier_->MapTo(x_sym);
   ident_x->MapTo(x_sym);
@@ -1714,6 +1784,30 @@ TYPED_TEST(FunctionTest, StartNode) {
   ASSERT_THROW(this->EvaluateFunction("STARTNODE", 2), QueryRuntimeException);
 }
 
+TYPED_TEST(FunctionTest, IsEmpty) {
+  ASSERT_THROW(this->EvaluateFunction("ISEMPTY"), QueryRuntimeException);
+
+  auto null = TypedValue{};
+
+  ASSERT_TRUE(this->EvaluateFunction("ISEMPTY", null).IsNull());
+
+  auto empty_list = TypedValue(std::vector<TypedValue>{});
+  auto empty_map = TypedValue(std::map<std::string, TypedValue>{});
+  auto empty_string = TypedValue("");
+
+  ASSERT_TRUE(this->EvaluateFunction("ISEMPTY", empty_list).ValueBool());
+  ASSERT_TRUE(this->EvaluateFunction("ISEMPTY", empty_map).ValueBool());
+  ASSERT_TRUE(this->EvaluateFunction("ISEMPTY", empty_string).ValueBool());
+
+  auto non_empty_list = TypedValue(std::vector{null});
+  auto non_empty_map = TypedValue(std::map{std::pair<std::string, TypedValue>{"key", null}});
+  auto non_empty_string = TypedValue("nonempty");
+
+  ASSERT_FALSE(this->EvaluateFunction("ISEMPTY", non_empty_list).ValueBool());
+  ASSERT_FALSE(this->EvaluateFunction("ISEMPTY", non_empty_map).ValueBool());
+  ASSERT_FALSE(this->EvaluateFunction("ISEMPTY", non_empty_string).ValueBool());
+}
+
 TYPED_TEST(FunctionTest, Degree) {
   ASSERT_THROW(this->EvaluateFunction("DEGREE"), QueryRuntimeException);
   ASSERT_TRUE(this->EvaluateFunction("DEGREE", TypedValue()).IsNull());
@@ -2205,6 +2299,72 @@ TYPED_TEST(FunctionTest, ToStringExceptions) {
   EXPECT_THROW(this->EvaluateFunction("TOSTRING", 1, 2, 3), QueryRuntimeException);
 }
 
+TYPED_TEST(FunctionTest, ToStringOrNullNull) {
+  EXPECT_TRUE(this->EvaluateFunction("TOSTRINGORNULL", TypedValue()).IsNull());
+}
+
+TYPED_TEST(FunctionTest, ToStringOrNullString) {
+  EXPECT_EQ(this->EvaluateFunction("TOSTRINGORNULL", "").ValueString(), "");
+  EXPECT_EQ(this->EvaluateFunction("TOSTRINGORNULL", "this is a string").ValueString(), "this is a string");
+}
+
+TYPED_TEST(FunctionTest, ToStringOrNullInteger) {
+  EXPECT_EQ(this->EvaluateFunction("TOSTRINGORNULL", -23321312).ValueString(), "-23321312");
+  EXPECT_EQ(this->EvaluateFunction("TOSTRINGORNULL", 0).ValueString(), "0");
+  EXPECT_EQ(this->EvaluateFunction("TOSTRINGORNULL", 42).ValueString(), "42");
+}
+
+TYPED_TEST(FunctionTest, ToStringOrNullDouble) {
+  EXPECT_EQ(this->EvaluateFunction("TOSTRINGORNULL", -42.42).ValueString(), "-42.420000000000002");
+  EXPECT_EQ(this->EvaluateFunction("TOSTRINGORNULL", 0.0).ValueString(), "0");
+  EXPECT_EQ(this->EvaluateFunction("TOSTRINGORNULL", 238910.2313217).ValueString(), "238910.231321700004628");
+  EXPECT_EQ(this->EvaluateFunction("TOSTRINGORNULL", 238910.23132171234).ValueString(), "238910.231321712344652");
+}
+
+TYPED_TEST(FunctionTest, ToStringOrNullBool) {
+  EXPECT_EQ(this->EvaluateFunction("TOSTRINGORNULL", true).ValueString(), "true");
+  EXPECT_EQ(this->EvaluateFunction("TOSTRINGORNULL", false).ValueString(), "false");
+}
+
+TYPED_TEST(FunctionTest, ToStringOrNullDate) {
+  const auto date = memgraph::utils::Date({1970, 1, 2});
+  EXPECT_EQ(this->EvaluateFunction("TOSTRINGORNULL", date).ValueString(), "1970-01-02");
+}
+
+TYPED_TEST(FunctionTest, ToStringOrNullLocalTime) {
+  const auto lt = memgraph::utils::LocalTime({13, 2, 40, 100, 50});
+  EXPECT_EQ(this->EvaluateFunction("TOSTRINGORNULL", lt).ValueString(), "13:02:40.100050");
+}
+
+TYPED_TEST(FunctionTest, ToStringOrNullLocalDateTime) {
+  auto test = [&]() {
+    const auto ldt = memgraph::utils::LocalDateTime({1970, 1, 2}, {23, 02, 59});
+    EXPECT_EQ(this->EvaluateFunction("TOSTRINGORNULL", ldt).ValueString(), "1970-01-02T23:02:59.000000");
+  };
+  HandleTimezone htz;
+  test();
+  htz.Set("Europe/Rome");
+  test();
+  htz.Set("America/Los_Angeles");
+  test();
+}
+
+TYPED_TEST(FunctionTest, ToStringOrNullDuration) {
+  memgraph::utils::Duration duration{{.minute = 2, .second = 2, .microsecond = 33}};
+  EXPECT_EQ(this->EvaluateFunction("TOSTRINGORNULL", duration).ValueString(), "P0DT0H2M2.000033S");
+}
+
+TYPED_TEST(FunctionTest, ToStringOrNullZonedDateTime) {
+  const auto zdt = memgraph::utils::ZonedDateTime(
+      {{2024, 3, 25}, {14, 18, 13, 206, 22}, memgraph::utils::Timezone("Europe/Zagreb")});
+  EXPECT_EQ(this->EvaluateFunction("TOSTRINGORNULL", zdt).ValueString(),
+            "2024-03-25T14:18:13.206022+01:00[Europe/Zagreb]");
+}
+
+TYPED_TEST(FunctionTest, ToStringOrNullUnstringifiableType) {
+  EXPECT_TRUE(this->EvaluateFunction("TOSTRINGORNULL", MakeTypedValueList(1, 2, 3)).IsNull());
+}
+
 TYPED_TEST(FunctionTest, TimestampVoid) {
   this->ctx.timestamp = 42;
   EXPECT_EQ(this->EvaluateFunction("TIMESTAMP").ValueInt(), 42);
@@ -2408,6 +2568,15 @@ TYPED_TEST(FunctionTest, Date) {
                QueryRuntimeException);
   EXPECT_THROW(this->EvaluateFunction("DATE", std::map<std::string, TypedValue>{{"dayz", TypedValue(1970)}}),
                QueryRuntimeException);
+
+  EXPECT_EQ(this->EvaluateFunction("DATE", memgraph::utils::Date({1977, 1, 11})).ValueDate(),
+            memgraph::utils::Date({1977, 1, 11}));
+
+  EXPECT_EQ(this->EvaluateFunction(
+                    "DATE", memgraph::utils::ZonedDateTime(
+                                {{2013, 2, 1}, {12, 52, 34, 12, 11}, memgraph::utils::Timezone("America/Barbados")}))
+                .ValueDate(),
+            memgraph::utils::Date({2013, 2, 1}));
 }
 
 TYPED_TEST(FunctionTest, LocalTime) {
@@ -2435,6 +2604,16 @@ TYPED_TEST(FunctionTest, LocalTime) {
   EXPECT_THROW(
       this->EvaluateFunction("LOCALTIME", TypedValue(std::map<std::string, TypedValue>{{"seconds", TypedValue(1970)}})),
       QueryRuntimeException);
+
+  EXPECT_EQ(this->EvaluateFunction("LOCALTIME", memgraph::utils::LocalTime({10, 33, 23, 42, 123})).ValueLocalTime(),
+            memgraph::utils::LocalTime({10, 33, 23, 42, 123}));
+
+  EXPECT_EQ(
+      this->EvaluateFunction("LOCALTIME",
+                             memgraph::utils::ZonedDateTime(
+                                 {{2013, 2, 1}, {13, 52, 34, 12, 11}, memgraph::utils::Timezone("America/Barbados")}))
+          .ValueLocalTime(),
+      memgraph::utils::LocalTime({13, 52, 34, 12, 11}));
 }
 
 TYPED_TEST(FunctionTest, LocalDateTime) {
@@ -2465,6 +2644,18 @@ TYPED_TEST(FunctionTest, LocalDateTime) {
     EXPECT_THROW(this->EvaluateFunction("LOCALDATETIME",
                                         TypedValue(std::map<std::string, TypedValue>{{"seconds", TypedValue(1970)}})),
                  QueryRuntimeException);
+
+    EXPECT_EQ(
+        this->EvaluateFunction("LOCALDATETIME", memgraph::utils::LocalDateTime({2025, 1, 22}, {10, 33, 23, 42, 123}))
+            .ValueLocalDateTime(),
+        memgraph::utils::LocalDateTime({2025, 1, 22}, {10, 33, 23, 42, 123}));
+
+    EXPECT_EQ(
+        this->EvaluateFunction("LOCALDATETIME",
+                               memgraph::utils::ZonedDateTime(
+                                   {{2013, 2, 1}, {13, 52, 34, 12, 11}, memgraph::utils::Timezone("America/Barbados")}))
+            .ValueLocalDateTime(),
+        memgraph::utils::LocalDateTime({2013, 2, 1}, {13, 52, 34, 12, 11}));
   };
 
   HandleTimezone htz;
@@ -2563,5 +2754,13 @@ TYPED_TEST(FunctionTest, ZonedDateTime) {
                                                    {"timezone", TypedValue("America/Los_Angeles")}}))
                 .ValueZonedDateTime(),
             memgraph::utils::ZonedDateTime({{}, {}, memgraph::utils::Timezone("America/Los_Angeles")}));
+
+  EXPECT_EQ(
+      this->EvaluateFunction(
+              "DATETIME", memgraph::utils::ZonedDateTime(
+                              {{2025, 1, 22}, {10, 33, 23, 42, 123}, memgraph::utils::Timezone("America/Los_Angeles")}))
+          .ValueZonedDateTime(),
+      memgraph::utils::ZonedDateTime(
+          {{2025, 1, 22}, {10, 33, 23, 42, 123}, memgraph::utils::Timezone("America/Los_Angeles")}));
 }
 }  // namespace

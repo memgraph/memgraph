@@ -34,6 +34,53 @@ def ignore_elapsed_time_from_results(results: typing.List[tuple]) -> typing.List
     return [result[:-1] for result in results]
 
 
+def wait_until_main_writeable_assert_replica_down(cursor, query):
+    """
+    After becoming main, the instance can be in non-writeable state at the beginning. Therefore, we try
+    to execute the query and if succeed, we return immediately. If an exception occurs, there are 3 possible situations.
+    If the error message is that write query is forbidden on the main, then we will try once again execute the query.
+    If not, then the only allowed option is that one of SYNC replicas are down. Otherwise, we assert false and crash the
+    program.
+    """
+    while True:
+        try:
+            execute_and_fetch_all(cursor, query)
+            break
+        except Exception as e:
+            if "Write query forbidden on the main" in str(e):
+                continue
+            assert "At least one SYNC replica has not confirmed committing last transaction." in str(e)
+            break
+
+
+def show_instances(cursor):
+    """
+    Accepts a cursor and returns a list of all instances using the `SHOW INSTANCES` query.
+    """
+    return sorted(ignore_elapsed_time_from_results(list(execute_and_fetch_all(cursor, "SHOW INSTANCES;"))))
+
+
+def show_replicas(cursor):
+    """
+    Accepts a cursor and returns a list of all replicas using the `SHOW REPLICAS` query.
+    """
+    return sorted(list(execute_and_fetch_all(cursor, "SHOW REPLICAS;")))
+
+
+def get_vertex_count(cursor):
+    """
+    Accepts a cursor and returns a count of vertices.
+    """
+    return execute_and_fetch_all(cursor, "MATCH (n) RETURN count(n)")[0][0]
+
+
+def show_replication_role(cursor):
+    """
+    Accepts a cursor and returns the replication role.
+    """
+    return sorted(list(execute_and_fetch_all(cursor, "SHOW REPLICATION ROLE;")))
+
+
 def execute_and_fetch_all(cursor: mgclient.Cursor, query: str, params: dict = {}) -> typing.List[tuple]:
     cursor.execute(query, params)
     return cursor.fetchall()

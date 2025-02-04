@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -28,8 +28,6 @@
 #include <rocksdb/utilities/transaction_db.h>
 
 #include "flags/experimental.hpp"
-#include "flags/run_time_configurable.hpp"
-#include "kvstore/kvstore.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/constraints/unique_constraints.hpp"
 #include "storage/v2/delta.hpp"
@@ -59,20 +57,12 @@
 #include "utils/exceptions.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
-#include "utils/memory.hpp"
 #include "utils/memory_tracker.hpp"
-#include "utils/message.hpp"
-#include "utils/on_scope_exit.hpp"
-#include "utils/readable_size.hpp"
-#include "utils/result.hpp"
 #include "utils/rocksdb_serialization.hpp"
 #include "utils/skip_list.hpp"
 #include "utils/small_vector.hpp"
 #include "utils/stat.hpp"
 #include "utils/string.hpp"
-#include "utils/typeinfo.hpp"
-
-#include <mutex>
 
 namespace memgraph::metrics {
 extern const Event PeakMemoryRes;
@@ -123,6 +113,8 @@ constexpr const char *kOutEdgesHandle = "out_edges";
 constexpr const char *kInEdgesHandle = "in_edges";
 constexpr const char *kLabelPropertyIndexStr = "label_property_index";
 constexpr const char *kExistenceConstraintsStr = "existence_constraints";
+constexpr const char *kErrorMessage =
+    "Consider switching to the IN_MEMORY_TRANSACTIONAL storage mode or contact the Memgraph team for support.";
 
 /// TODO: (andi) Maybe a better way of checking would be if the first delta is DELETE_DESERIALIZED
 /// then we now that the vertex has only been deserialized and nothing more has been done on it.
@@ -817,18 +809,18 @@ void DiskStorage::LoadVerticesFromDiskLabelPropertyIndexForIntervalSearch(
 
 EdgesIterable DiskStorage::DiskAccessor::Edges(EdgeTypeId /*edge_type*/, View /*view*/) {
   throw utils::NotYetImplemented(
-      "Edge-type index related operations are not yet supported using on-disk storage mode.");
+      "Edge-type index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
 }
 
 EdgesIterable DiskStorage::DiskAccessor::Edges(EdgeTypeId /*edge_type*/, PropertyId /*property*/, View /*view*/) {
   throw utils::NotYetImplemented(
-      "Edge-type index related operations are not yet supported using on-disk storage mode.");
+      "Edge-type index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
 }
 
 EdgesIterable DiskStorage::DiskAccessor::Edges(EdgeTypeId /*edge_type*/, PropertyId /*property*/,
                                                const PropertyValue & /*value*/, View /*view*/) {
   throw utils::NotYetImplemented(
-      "Edge-type index related operations are not yet supported using on-disk storage mode.");
+      "Edge-type index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
 }
 
 EdgesIterable DiskStorage::DiskAccessor::Edges(EdgeTypeId /*edge_type*/, PropertyId /*property*/,
@@ -836,7 +828,7 @@ EdgesIterable DiskStorage::DiskAccessor::Edges(EdgeTypeId /*edge_type*/, Propert
                                                const std::optional<utils::Bound<PropertyValue>> & /*upper_bound*/,
                                                View /*view*/) {
   throw utils::NotYetImplemented(
-      "Edge-type index related operations are not yet supported using on-disk storage mode.");
+      "Edge-type index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
 }
 
 uint64_t DiskStorage::DiskAccessor::ApproximateVertexCount() const {
@@ -942,7 +934,8 @@ std::optional<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::Gid
 }
 
 std::optional<EdgeAccessor> DiskStorage::DiskAccessor::FindEdge(storage::Gid gid, View view) {
-  throw utils::NotYetImplemented("Id based lookup for on-disk storage mode is not yet implemented on edges.");
+  throw utils::NotYetImplemented("Id based lookup for on-disk storage mode is not yet implemented on edges. {}",
+                                 kErrorMessage);
 }
 
 Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>>
@@ -1039,21 +1032,6 @@ std::optional<EdgeAccessor> DiskStorage::DiskAccessor::FindEdge(Gid gid, View vi
   if (it == res->edges.end()) return std::nullopt;  // TODO: use a Result type
 
   return *it;
-}
-
-Result<EdgeAccessor> DiskStorage::DiskAccessor::EdgeSetFrom(EdgeAccessor * /*edge*/, VertexAccessor * /*new_from*/) {
-  MG_ASSERT(false, "EdgeSetFrom is currently only implemented for InMemory storage");
-  return Error::NONEXISTENT_OBJECT;
-}
-
-Result<EdgeAccessor> DiskStorage::DiskAccessor::EdgeSetTo(EdgeAccessor * /*edge*/, VertexAccessor * /*new_to*/) {
-  MG_ASSERT(false, "EdgeSetTo is currently only implemented for InMemory storage");
-  return Error::NONEXISTENT_OBJECT;
-}
-
-Result<EdgeAccessor> DiskStorage::DiskAccessor::EdgeChangeType(EdgeAccessor * /*edge*/, EdgeTypeId /*new_edge_type*/) {
-  MG_ASSERT(false, "EdgeChangeType is currently only implemented for InMemory storage");
-  return Error::NONEXISTENT_OBJECT;
 }
 
 bool DiskStorage::WriteVertexToVertexColumnFamily(Transaction *transaction, const Vertex &vertex) {
@@ -1680,11 +1658,12 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
           }
         } break;
         case MetadataDelta::Action::EDGE_INDEX_CREATE: {
-          throw utils::NotYetImplemented("Edge-type indexing is not yet implemented on on-disk storage mode.");
+          throw utils::NotYetImplemented("Edge-type indexing is not yet implemented on on-disk storage mode. {}",
+                                         kErrorMessage);
         }
         case MetadataDelta::Action::EDGE_PROPERTY_INDEX_CREATE: {
           throw utils::NotYetImplemented(
-              "Edge-type + property indexing is not yet implemented on on-disk storage mode.");
+              "Edge-type + property indexing is not yet implemented on on-disk storage mode. {}", kErrorMessage);
         }
         case MetadataDelta::Action::LABEL_INDEX_DROP: {
           if (!disk_storage->durable_metadata_.PersistLabelIndexDeletion(md_delta.label)) {
@@ -1699,23 +1678,26 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
           }
         } break;
         case MetadataDelta::Action::EDGE_INDEX_DROP: {
-          throw utils::NotYetImplemented("Edge-type indexing is not yet implemented on on-disk storage mode.");
+          throw utils::NotYetImplemented("Edge-type indexing is not yet implemented on on-disk storage mode. {}",
+                                         kErrorMessage);
         }
         case MetadataDelta::Action::EDGE_PROPERTY_INDEX_DROP: {
           throw utils::NotYetImplemented(
-              "Edge-type + property indexing is not yet implemented on on-disk storage mode.");
+              "Edge-type + property indexing is not yet implemented on on-disk storage mode. {}", kErrorMessage);
         }
         case MetadataDelta::Action::LABEL_INDEX_STATS_SET: {
-          throw utils::NotYetImplemented("SetIndexStats(stats) is not implemented for DiskStorage.");
+          throw utils::NotYetImplemented("SetIndexStats(stats) is not implemented for DiskStorage. {}", kErrorMessage);
         } break;
         case MetadataDelta::Action::LABEL_INDEX_STATS_CLEAR: {
-          throw utils::NotYetImplemented("ClearIndexStats(stats) is not implemented for DiskStorage.");
+          throw utils::NotYetImplemented("ClearIndexStats(stats) is not implemented for DiskStorage. {}",
+                                         kErrorMessage);
         } break;
         case MetadataDelta::Action::LABEL_PROPERTY_INDEX_STATS_SET: {
-          throw utils::NotYetImplemented("SetIndexStats(stats) is not implemented for DiskStorage.");
+          throw utils::NotYetImplemented("SetIndexStats(stats) is not implemented for DiskStorage. {}", kErrorMessage);
         } break;
         case MetadataDelta::Action::LABEL_PROPERTY_INDEX_STATS_CLEAR: {
-          throw utils::NotYetImplemented("ClearIndexStats(stats) is not implemented for DiskStorage.");
+          throw utils::NotYetImplemented("ClearIndexStats(stats) is not implemented for DiskStorage. {}",
+                                         kErrorMessage);
         } break;
         case MetadataDelta::Action::TEXT_INDEX_CREATE: {
           const auto &info = md_delta.text_index;
@@ -1758,19 +1740,22 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
 
         case MetadataDelta::Action::TYPE_CONSTRAINT_CREATE:
         case MetadataDelta::Action::TYPE_CONSTRAINT_DROP: {
-          throw utils::NotYetImplemented("Type constraints are not implemented for DiskStorage.");
+          throw utils::NotYetImplemented("Type constraints are not implemented for DiskStorage. {}", kErrorMessage);
           break;
         }
 
         case MetadataDelta::Action::ENUM_CREATE:
         case MetadataDelta::Action::ENUM_ALTER_ADD:
         case MetadataDelta::Action::ENUM_ALTER_UPDATE: {
-          throw utils::NotYetImplemented("Enum types is not implemented for DiskStorage.");
+          throw utils::NotYetImplemented("Enum types is not implemented for DiskStorage. {}", kErrorMessage);
           break;
         }
         case MetadataDelta::Action::POINT_INDEX_CREATE:
         case MetadataDelta::Action::POINT_INDEX_DROP:
-          throw utils::NotYetImplemented("Point index is not implemented for DiskStorage.");
+          throw utils::NotYetImplemented("Point index is not implemented for DiskStorage. {}", kErrorMessage);
+        case MetadataDelta::Action::VECTOR_INDEX_CREATE:
+        case MetadataDelta::Action::VECTOR_INDEX_DROP:
+          throw utils::NotYetImplemented("Vector index is not implemented for DiskStorage. {}", kErrorMessage);
       }
     }
   } else if (transaction_.deltas.empty() ||
@@ -1859,7 +1844,7 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
 // NOLINTNEXTLINE(google-default-arguments)
 utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::PeriodicCommit(
     CommitReplArgs /*reparg*/, DatabaseAccessProtector /*db_acc*/) {
-  throw utils::NotYetImplemented("Periodic commit is not yet supported using on-disk storage mode.");
+  throw utils::NotYetImplemented("Periodic commit is not yet supported using on-disk storage mode. {}", kErrorMessage);
 };
 
 std::vector<std::pair<std::string, std::string>> DiskStorage::SerializeVerticesForLabelIndex(LabelId label) {
@@ -1964,9 +1949,6 @@ void DiskStorage::DiskAccessor::UpdateObjectsCountOnAbort() {
         break;
     }
   }
-
-  auto delta_size = transaction_.deltas.size();
-  memgraph::metrics::DecrementCounter(memgraph::metrics::UnreleasedDeltaObjects, delta_size);
 }
 
 void DiskStorage::DiskAccessor::Abort() {
@@ -2034,13 +2016,13 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(
     EdgeTypeId /*edge_type*/, bool /*unique_access_needed*/) {
   throw utils::NotYetImplemented(
-      "Edge-type index related operations are not yet supported using on-disk storage mode.");
+      "Edge-type index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(EdgeTypeId /*edge_type*/,
                                                                                              PropertyId /*property*/) {
   throw utils::NotYetImplemented(
-      "Edge-type index related operations are not yet supported using on-disk storage mode.");
+      "Edge-type index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropIndex(LabelId label) {
@@ -2073,23 +2055,37 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropIndex(EdgeTypeId /*edge_type*/) {
   throw utils::NotYetImplemented(
-      "Edge-type index related operations are not yet supported using on-disk storage mode.");
+      "Edge-type index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropIndex(EdgeTypeId /*edge_type*/,
                                                                                            PropertyId /*property*/) {
   throw utils::NotYetImplemented(
-      "Edge-type index related operations are not yet supported using on-disk storage mode.");
+      "Edge-type index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
 }
 
 utils::BasicResult<storage::StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreatePointIndex(
     storage::LabelId /*label*/, storage::PropertyId /*property*/) {
-  throw utils::NotYetImplemented("Point index related operations are not yet supported using on-disk storage mode.");
+  throw utils::NotYetImplemented("Point index related operations are not yet supported using on-disk storage mode. {}",
+                                 kErrorMessage);
 }
 
 utils::BasicResult<storage::StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropPointIndex(
     storage::LabelId /*label*/, storage::PropertyId /*property*/) {
-  throw utils::NotYetImplemented("Point index related operations are not yet supported using on-disk storage mode.");
+  throw utils::NotYetImplemented("Point index related operations are not yet supported using on-disk storage mode. {}",
+                                 kErrorMessage);
+}
+
+utils::BasicResult<storage::StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateVectorIndex(
+    VectorIndexSpec /*spec*/) {
+  throw utils::NotYetImplemented("Vector index related operations are not yet supported using on-disk storage mode. {}",
+                                 kErrorMessage);
+}
+
+utils::BasicResult<storage::StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropVectorIndex(
+    std::string_view /*index_name*/) {
+  throw utils::NotYetImplemented("Vector index related operations are not yet supported using on-disk storage mode. {}",
+                                 kErrorMessage);
 }
 
 utils::BasicResult<StorageExistenceConstraintDefinitionError, void>
@@ -2156,39 +2152,39 @@ UniqueConstraints::DeletionStatus DiskStorage::DiskAccessor::DropUniqueConstrain
 
 utils::BasicResult<StorageExistenceConstraintDefinitionError, void> DiskStorage::DiskAccessor::CreateTypeConstraint(
     LabelId /**/, PropertyId /**/, TypeConstraintKind /**/) {
-  throw utils::NotYetImplemented("Type constraints are not yet implemented for on-disk storage");
+  throw utils::NotYetImplemented("Type constraints are not yet implemented for on-disk storage. {}", kErrorMessage);
 }
 
 utils::BasicResult<StorageExistenceConstraintDroppingError, void> DiskStorage::DiskAccessor::DropTypeConstraint(
     LabelId /**/, PropertyId /**/, TypeConstraintKind /**/) {
-  throw utils::NotYetImplemented("Type constraints are not yet implemented for on-disk storage");
+  throw utils::NotYetImplemented("Type constraints are not yet implemented for on-disk storage. {}", kErrorMessage);
 }
 
 void DiskStorage::DiskAccessor::DropGraph() {
-  throw utils::NotYetImplemented("Drop graph is not yet implemented for on-disk storage");
+  throw utils::NotYetImplemented("Drop graph is not yet implemented for on-disk storage. {}", kErrorMessage);
 }
 
 auto DiskStorage::DiskAccessor::PointVertices(LabelId /*label*/, PropertyId /*property*/,
                                               CoordinateReferenceSystem /*crs*/, PropertyValue const & /*point_value*/,
                                               PropertyValue const & /*boundary_value*/,
                                               PointDistanceCondition /*condition*/) -> PointIterable {
-  throw utils::NotYetImplemented("Point Vertices is not yet implemented for on-disk storage");
+  throw utils::NotYetImplemented("Point Vertices is not yet implemented for on-disk storage. {}", kErrorMessage);
 }
 
 std::vector<std::tuple<VertexAccessor, double, double>> DiskStorage::DiskAccessor::VectorIndexSearch(
     const std::string & /*index_name*/, uint64_t /*number_of_results*/, const std::vector<float> & /*vector*/) {
-  throw utils::NotYetImplemented("Vector index is not yet implemented for on-disk storage");
+  throw utils::NotYetImplemented("Vector index is not yet implemented for on-disk storage. {}", kErrorMessage);
 }
 
 std::vector<VectorIndexInfo> DiskStorage::DiskAccessor::ListAllVectorIndices() const {
-  throw utils::NotYetImplemented("Vector index is not yet implemented for on-disk storage");
+  throw utils::NotYetImplemented("Vector index is not yet implemented for on-disk storage. {}", kErrorMessage);
 };
 
 auto DiskStorage::DiskAccessor::PointVertices(LabelId /*label*/, PropertyId /*property*/,
                                               CoordinateReferenceSystem /*crs*/, PropertyValue const & /*bottom_left*/,
                                               PropertyValue const & /*top_right*/, WithinBBoxCondition /*condition*/)
     -> PointIterable {
-  throw utils::NotYetImplemented("Point Vertices is not yet implemented for on-disk storage");
+  throw utils::NotYetImplemented("Point Vertices is not yet implemented for on-disk storage. {}", kErrorMessage);
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
@@ -2222,7 +2218,7 @@ uint64_t DiskStorage::GetCommitTimestamp() { return timestamp_++; }
 std::unique_ptr<Storage::Accessor> DiskStorage::Access(std::optional<IsolationLevel> override_isolation_level) {
   auto isolation_level = override_isolation_level.value_or(isolation_level_);
   if (isolation_level != IsolationLevel::SNAPSHOT_ISOLATION) {
-    throw utils::NotYetImplemented("Disk storage supports only SNAPSHOT isolation level.");
+    throw utils::NotYetImplemented("Disk storage supports only SNAPSHOT isolation level. {}", kErrorMessage);
   }
   return std::unique_ptr<DiskAccessor>(
       new DiskAccessor{Storage::Accessor::shared_access, this, isolation_level, storage_mode_});
@@ -2230,24 +2226,26 @@ std::unique_ptr<Storage::Accessor> DiskStorage::Access(std::optional<IsolationLe
 std::unique_ptr<Storage::Accessor> DiskStorage::UniqueAccess(std::optional<IsolationLevel> override_isolation_level) {
   auto isolation_level = override_isolation_level.value_or(isolation_level_);
   if (isolation_level != IsolationLevel::SNAPSHOT_ISOLATION) {
-    throw utils::NotYetImplemented("Disk storage supports only SNAPSHOT isolation level.");
+    throw utils::NotYetImplemented("Disk storage supports only SNAPSHOT isolation level. {}", kErrorMessage);
   }
   return std::unique_ptr<DiskAccessor>(
       new DiskAccessor{Storage::Accessor::unique_access, this, isolation_level, storage_mode_});
 }
 
 bool DiskStorage::DiskAccessor::EdgeTypeIndexExists(EdgeTypeId /*edge_type*/) const {
-  spdlog::info("Edge-type index related operations are not yet supported using on-disk storage mode.");
+  spdlog::info("Edge-type index related operations are not yet supported using on-disk storage mode. {}",
+               kErrorMessage);
   return false;
 }
 
 bool DiskStorage::DiskAccessor::EdgeTypePropertyIndexExists(EdgeTypeId /*edge_type*/, PropertyId /*property*/) const {
-  spdlog::info("Edge-type index related operations are not yet supported using on-disk storage mode.");
+  spdlog::info("Edge-type index related operations are not yet supported using on-disk storage mode. {}",
+               kErrorMessage);
   return false;
 }
 
 bool DiskStorage::DiskAccessor::PointIndexExists(LabelId /*label*/, PropertyId /*property*/) const {
-  spdlog::info("Point index related operations are not yet supported using on-disk storage mode.");
+  spdlog::info("Point index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
   return false;
 }
 
@@ -2259,7 +2257,8 @@ IndicesInfo DiskStorage::DiskAccessor::ListAllIndices() const {
   auto &text_index = storage_->indices_.text_index_;
   return {disk_label_index->ListIndices(), disk_label_property_index->ListIndices(),
           {/* edge type indices */},       {/* edge_type_property */},
-          text_index.ListIndices(),        {/*  */}};
+          text_index.ListIndices(),        {/* point indices */},
+          {/* vector indices */}};
 }
 ConstraintsInfo DiskStorage::DiskAccessor::ListAllConstraints() const {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);

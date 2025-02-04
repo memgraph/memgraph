@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,7 +11,6 @@
 
 #include <pwd.h>
 #include <sys/stat.h>
-#include <sys/types.h>
 #include <unistd.h>
 
 #include <cerrno>
@@ -29,10 +28,8 @@
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/metadata.hpp"
-#include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/wal.hpp"
-#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
@@ -129,7 +126,8 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
     try {
       auto info = ReadWalInfo(item.path());
       spdlog::trace(
-          "Reading wal file {} with following info: uuid: {}, epoch id: {}, from timestamp {}, to_timestamp {}, "
+          "Reading wal file {} with following info: storage_uuid: {}, epoch id: {}, from timestamp {}, to_timestamp "
+          "{}, "
           "sequence "
           "number {}.",
           item.path(), info.uuid, info.epoch_id, info.from_timestamp, info.to_timestamp, info.seq_num);
@@ -257,7 +255,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
           throw RecoveryFailure("There must exist a storage directory in order to recover text indices!");
         }
 
-        mem_text_index.RecoverIndex(storage_dir.value(), index_name, label, vertices->access(), name_id_mapper);
+        mem_text_index.RecoverIndex(index_name, label, vertices->access(), name_id_mapper);
       } catch (...) {
         throw RecoveryFailure("The text index must be created here!");
       }
@@ -277,14 +275,16 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
   }
   spdlog::info("Point indices are recreated.");
 
-  // Recover vector index
-  if (flags::AreExperimentsEnabled(flags::Experiments::VECTOR_SEARCH)) {
-    auto acc = vertices->access();
-    for (auto &vertex : acc) {
-      indices->vector_index_.TryInsertVertex(&vertex);
+  spdlog::info("Recreating {} vector indices from metadata.", indices_metadata.vector_indices.size());
+  auto vertices_acc = vertices->access();
+  for (const auto &spec : indices_metadata.vector_indices) {
+    if (!indices->vector_index_.CreateIndex(spec, vertices_acc)) {
+      throw RecoveryFailure("The vector index must be created here!");
     }
-    spdlog::info("Vector indices are recreated.");
+    spdlog::info("Vector index on :{}({}) is recreated from metadata", name_id_mapper->IdToName(spec.label.AsUint()),
+                 name_id_mapper->IdToName(spec.property.AsUint()));
   }
+  spdlog::info("Vector indices are recreated.");
 
   spdlog::info("Indices are recreated.");
 }

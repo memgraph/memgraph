@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,6 +14,7 @@
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/edge_info_helpers.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 #include "utils/counter.hpp"
 
 namespace {
@@ -121,10 +122,10 @@ std::vector<EdgeTypeId> InMemoryEdgeTypeIndex::ListIndices() const {
 void InMemoryEdgeTypeIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) {
   auto maybe_stop = utils::ResettableCounter<2048>();
 
-  for (auto &label_storage : index_) {
+  for (auto &[_, et_index] : index_) {
     if (token.stop_requested()) return;
 
-    auto edges_acc = label_storage.second.access();
+    auto edges_acc = et_index.access();
     for (auto it = edges_acc.begin(); it != edges_acc.end();) {
       if (maybe_stop() && token.stop_requested()) return;
 
@@ -198,9 +199,13 @@ void InMemoryEdgeTypeIndex::UpdateOnEdgeModification(Vertex *old_from, Vertex *o
 
 void InMemoryEdgeTypeIndex::DropGraphClearIndices() { index_.clear(); }
 
-InMemoryEdgeTypeIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor, EdgeTypeId edge_type,
+InMemoryEdgeTypeIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor,
+                                          utils::SkipList<Vertex>::ConstAccessor vertex_accessor,
+                                          utils::SkipList<Edge>::ConstAccessor edge_accessor, EdgeTypeId edge_type,
                                           View view, Storage *storage, Transaction *transaction)
-    : index_accessor_(std::move(index_accessor)),
+    : pin_accessor_edge_(std::move(edge_accessor)),
+      pin_accessor_vertex_(std::move(vertex_accessor)),
+      index_accessor_(std::move(index_accessor)),
       edge_type_(edge_type),
       view_(view),
       storage_(storage),
@@ -256,7 +261,9 @@ InMemoryEdgeTypeIndex::Iterable InMemoryEdgeTypeIndex::Edges(EdgeTypeId edge_typ
                                                              Transaction *transaction) {
   const auto it = index_.find(edge_type);
   MG_ASSERT(it != index_.end(), "Index for edge-type {} doesn't exist", edge_type.AsUint());
-  return {it->second.access(), edge_type, view, storage, transaction};
+  auto vertex_acc = static_cast<InMemoryStorage const *>(storage)->vertices_.access();
+  auto edge_acc = static_cast<InMemoryStorage const *>(storage)->edges_.access();
+  return {it->second.access(), std::move(vertex_acc), std::move(edge_acc), edge_type, view, storage, transaction};
 }
 
 std::vector<EdgeTypeId> InMemoryEdgeTypeIndex::Analysis() const {

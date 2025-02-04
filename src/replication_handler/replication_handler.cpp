@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,19 +22,19 @@ namespace memgraph::replication {
 
 namespace {
 #ifdef MG_ENTERPRISE
-void RecoverReplication(replication::ReplicationState &repl_state, system::System &system,
-                        dbms::DbmsHandler &dbms_handler, auth::SynchedAuth &auth) {
+void RecoverReplication(ReplicationState &repl_state, system::System &system, dbms::DbmsHandler &dbms_handler,
+                        auth::SynchedAuth &auth) {
   /*
    * REPLICATION RECOVERY AND STARTUP
    */
 
   // Startup replication state (if recovered at startup)
-  auto replica = [&dbms_handler, &auth, &system](replication::RoleReplicaData &data) {
-    return replication::StartRpcServer(dbms_handler, data, auth, system);
+  auto replica = [&dbms_handler, &auth, &system](RoleReplicaData &data) {
+    return StartRpcServer(dbms_handler, data, auth, system);
   };
 
   // Replication recovery and frequent check start
-  auto main = [&system, &dbms_handler, &auth](replication::RoleMainData &mainData) {
+  auto main = [&system, &dbms_handler, &auth](RoleMainData &mainData) {
     for (auto &client : mainData.registered_replicas_) {
       if (client.try_set_uuid &&
           replication_coordination_glue::SendSwapMainUUIDRpc(client.rpc_client_, mainData.uuid_)) {
@@ -64,7 +64,7 @@ void RecoverReplication(replication::ReplicationState &repl_state, system::Syste
     return true;
   };
 
-  auto result = std::visit(utils::Overloaded{replica, main}, repl_state.ReplicationData());
+  auto const result = std::visit(utils::Overloaded{replica, main}, repl_state.ReplicationData());
   MG_ASSERT(result, "Replica recovery failure!");
 }
 #else
@@ -106,19 +106,19 @@ void RecoverReplication(replication::ReplicationState &repl_state, dbms::DbmsHan
 }  // namespace
 
 inline std::optional<query::RegisterReplicaError> HandleRegisterReplicaStatus(
-    utils::BasicResult<replication::RegisterReplicaStatus, replication::ReplicationClient *> &instance_client) {
+    utils::BasicResult<RegisterReplicaStatus, ReplicationClient *> &instance_client) {
   if (instance_client.HasError()) {
     switch (instance_client.GetError()) {
-      case replication::RegisterReplicaStatus::NOT_MAIN:
+      case RegisterReplicaStatus::NOT_MAIN:
         MG_ASSERT(false, "Only main instance can register a replica!");
         return {};
-      case replication::RegisterReplicaStatus::NAME_EXISTS:
+      case RegisterReplicaStatus::NAME_EXISTS:
         return query::RegisterReplicaError::NAME_EXISTS;
-      case replication::RegisterReplicaStatus::ENDPOINT_EXISTS:
+      case RegisterReplicaStatus::ENDPOINT_EXISTS:
         return query::RegisterReplicaError::ENDPOINT_EXISTS;
-      case replication::RegisterReplicaStatus::COULD_NOT_BE_PERSISTED:
+      case RegisterReplicaStatus::COULD_NOT_BE_PERSISTED:
         return query::RegisterReplicaError::COULD_NOT_BE_PERSISTED;
-      case replication::RegisterReplicaStatus::SUCCESS:
+      case RegisterReplicaStatus::SUCCESS:
         break;
     }
   }
@@ -126,7 +126,7 @@ inline std::optional<query::RegisterReplicaError> HandleRegisterReplicaStatus(
 }
 
 #ifdef MG_ENTERPRISE
-void StartReplicaClient(replication::ReplicationClient &client, system::System &system, dbms::DbmsHandler &dbms_handler,
+void StartReplicaClient(ReplicationClient &client, system::System &system, dbms::DbmsHandler &dbms_handler,
                         utils::UUID main_uuid, auth::SynchedAuth &auth) {
 #else
 void StartReplicaClient(replication::ReplicationClient &client, dbms::DbmsHandler &dbms_handler,
@@ -136,20 +136,19 @@ void StartReplicaClient(replication::ReplicationClient &client, dbms::DbmsHandle
   auto const &endpoint = client.rpc_client_.Endpoint();
   spdlog::trace("Replication client started at: {}", endpoint.SocketAddress());  // non-resolved IP
   client.StartFrequentCheck([&, license = license::global_license_checker.IsEnterpriseValidFast(), main_uuid](
-                                bool reconnect, replication::ReplicationClient &client) mutable {
+                                bool reconnect, ReplicationClient &client) mutable {
     if (client.try_set_uuid && replication_coordination_glue::SendSwapMainUUIDRpc(client.rpc_client_, main_uuid)) {
       client.try_set_uuid = false;
     }
     // Working connection
     // Check if system needs restoration
     if (reconnect) {
-      client.state_.WithLock([](auto &state) { state = replication::ReplicationClient::State::BEHIND; });
+      client.state_.WithLock([](auto &state) { state = ReplicationClient::State::BEHIND; });
     }
     // Check if license has changed
-    const auto new_license = license::global_license_checker.IsEnterpriseValidFast();
-    if (new_license != license) {
+    if (const auto new_license = license::global_license_checker.IsEnterpriseValidFast(); new_license != license) {
       license = new_license;
-      client.state_.WithLock([](auto &state) { state = replication::ReplicationClient::State::BEHIND; });
+      client.state_.WithLock([](auto &state) { state = ReplicationClient::State::BEHIND; });
     }
 #ifdef MG_ENTERPRISE
     SystemRestore<true>(client, system, dbms_handler, main_uuid, auth);
@@ -168,7 +167,7 @@ void StartReplicaClient(replication::ReplicationClient &client, dbms::DbmsHandle
 }
 
 #ifdef MG_ENTERPRISE
-ReplicationHandler::ReplicationHandler(replication::ReplicationState &repl_state, dbms::DbmsHandler &dbms_handler,
+ReplicationHandler::ReplicationHandler(ReplicationState &repl_state, dbms::DbmsHandler &dbms_handler,
                                        system::System &system, auth::SynchedAuth &auth)
     : repl_state_{repl_state}, dbms_handler_{dbms_handler}, system_{system}, auth_{auth} {
   RecoverReplication(repl_state_, system_, dbms_handler_, auth_);
@@ -181,41 +180,42 @@ ReplicationHandler::ReplicationHandler(replication::ReplicationState &repl_state
 #endif
 
 bool ReplicationHandler::SetReplicationRoleMain() {
-  auto const main_handler = [](replication::RoleMainData &) {
+  auto const main_handler = [](RoleMainData &) {
     // If we are already MAIN, we don't want to change anything
     return false;
   };
 
-  auto const replica_handler = [this](replication::RoleReplicaData const &) {
-    return DoToMainPromotion(utils::UUID{});
-  };
+  auto const replica_handler = [this](RoleReplicaData const &) { return DoToMainPromotion(utils::UUID{}); };
 
   // TODO: under lock
   return std::visit(utils::Overloaded{main_handler, replica_handler}, repl_state_.ReplicationData());
 }
 
-bool ReplicationHandler::SetReplicationRoleReplica(const replication::ReplicationServerConfig &config,
+bool ReplicationHandler::SetReplicationRoleReplica(const ReplicationServerConfig &config,
                                                    const std::optional<utils::UUID> &main_uuid) {
   return SetReplicationRoleReplica_<true>(config, main_uuid);
 }
 
-bool ReplicationHandler::TrySetReplicationRoleReplica(const memgraph::replication::ReplicationServerConfig &config,
+bool ReplicationHandler::TrySetReplicationRoleReplica(const ReplicationServerConfig &config,
                                                       const std::optional<utils::UUID> &main_uuid) {
   return SetReplicationRoleReplica_<false>(config, main_uuid);
 }
 
-bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid) {
+auto ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid) const -> bool {
   if (!repl_state_.TryLock()) {
     return false;
   }
 
   auto unlock_repl_state = utils::OnScopeExit([this]() { repl_state_.Unlock(); });
 
-  // Shutdown any remaining client
-  // Main can be promoted while being MAIN; we do this in order to update the uuid and epoch
-  // Shutdown must be done after lock on repl_state is taken so that COMMIT and PROMOTION operations are serialized
   if (IsMain()) {
+    // Shutdown any remaining client
+    // Main can be promoted while being MAIN; we do this in order to update the uuid and epoch
+    // Shutdown must be done after lock on repl_state is taken so that COMMIT and PROMOTION operations are serialized
     ClientsShutdown();
+  } else {
+    // Before preparing storage for new epoch, we need to finish everything from ReplicationServer (recovery)
+    repl_state_.GetReplicaRole().server->Shutdown();
   }
 
   // STEP 1) bring down all REPLICA servers
@@ -254,14 +254,14 @@ bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid) {
   return true;
 };
 
-// as MAIN, define and connect to REPLICAs
-auto ReplicationHandler::TryRegisterReplica(const memgraph::replication::ReplicationClientConfig &config)
-    -> memgraph::utils::BasicResult<memgraph::query::RegisterReplicaError> {
+// as MAIN, define and connect to REPLICAS
+auto ReplicationHandler::TryRegisterReplica(const ReplicationClientConfig &config)
+    -> utils::BasicResult<query::RegisterReplicaError> {
   return RegisterReplica_<true>(config);
 }
 
-auto ReplicationHandler::RegisterReplica(const memgraph::replication::ReplicationClientConfig &config)
-    -> memgraph::utils::BasicResult<memgraph::query::RegisterReplicaError> {
+auto ReplicationHandler::RegisterReplica(const ReplicationClientConfig &config)
+    -> utils::BasicResult<query::RegisterReplicaError> {
   return RegisterReplica_<false>(config);
 }
 
@@ -272,10 +272,10 @@ auto ReplicationHandler::UnregisterReplica(std::string_view name) -> query::Unre
 
   auto unlock_repl_state = utils::OnScopeExit([this]() { repl_state_.Unlock(); });
 
-  auto const replica_handler = [](replication::RoleReplicaData const &) -> query::UnregisterReplicaResult {
+  auto const replica_handler = [](RoleReplicaData const &) -> query::UnregisterReplicaResult {
     return query::UnregisterReplicaResult::NOT_MAIN;
   };
-  auto const main_handler = [this, name](replication::RoleMainData &mainData) -> query::UnregisterReplicaResult {
+  auto const main_handler = [this, name](RoleMainData &mainData) -> query::UnregisterReplicaResult {
     if (!repl_state_.TryPersistUnregisterReplica(name)) {
       return query::UnregisterReplicaResult::COULD_NOT_BE_PERSISTED;
     }
@@ -299,9 +299,9 @@ auto ReplicationHandler::GetRole() const -> replication_coordination_glue::Repli
   return repl_state_.GetRole();
 }
 
-auto ReplicationHandler::GetDatabasesHistories() -> replication_coordination_glue::DatabaseHistories {
+auto ReplicationHandler::GetDatabasesHistories() const -> replication_coordination_glue::DatabaseHistories {
   replication_coordination_glue::DatabaseHistories results;
-  dbms_handler_.ForEach([&results](memgraph::dbms::DatabaseAccess db_acc) {
+  dbms_handler_.ForEach([&results](dbms::DatabaseAccess db_acc) {
     auto &repl_storage_state = db_acc->storage()->repl_storage_state_;
 
     std::vector<std::pair<std::string, uint64_t>> history = utils::fmap(repl_storage_state.history);
@@ -316,18 +316,18 @@ auto ReplicationHandler::GetDatabasesHistories() -> replication_coordination_glu
   return results;
 }
 
-auto ReplicationHandler::GetMainUUID() -> utils::UUID {
+auto ReplicationHandler::GetMainUUID() const -> utils::UUID {
   return std::get<RoleMainData>(repl_state_.ReplicationData()).uuid_;
 }
 
 // Caller's job to check whether we are main or replica.
-auto ReplicationHandler::GetReplicaUUID() -> std::optional<utils::UUID> {
+auto ReplicationHandler::GetReplicaUUID() const -> std::optional<utils::UUID> {
   return std::get<RoleReplicaData>(repl_state_.ReplicationData()).uuid_;
 }
 
-auto ReplicationHandler::GetReplState() const -> const memgraph::replication::ReplicationState & { return repl_state_; }
+auto ReplicationHandler::GetReplState() const -> const ReplicationState & { return repl_state_; }
 
-auto ReplicationHandler::GetReplState() -> replication::ReplicationState & { return repl_state_; }
+auto ReplicationHandler::GetReplState() -> ReplicationState & { return repl_state_; }
 
 bool ReplicationHandler::IsMain() const { return repl_state_.IsMain(); }
 
@@ -348,8 +348,8 @@ auto ReplicationHandler::ShowReplicas() const -> utils::BasicResult<query::ShowR
         // ATM we only support IN_MEMORY_TRANSACTIONAL
         if (storage->storage_mode_ != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) return;
         if (!full_info && storage->name() != dbms::kDefaultDB) return;
-        [[maybe_unused]] auto ok =
-            storage->repl_storage_state_.WithClient(replica.name_, [&](storage::ReplicationStorageClient &client) {
+        [[maybe_unused]] auto ok = storage->repl_storage_state_.WithClient(
+            replica.name_, [&](const storage::ReplicationStorageClient &client) {
               auto ts_info = client.GetTimestampInfo(storage);
               auto state = client.State();
 

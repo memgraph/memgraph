@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -33,23 +33,24 @@ class TextIndex {
  private:
   static constexpr bool kDoSkipCommit = true;
   static constexpr std::string_view kTextIndicesDirectory = "text_indices";
+  std::filesystem::path text_index_storage_dir_;
 
-  inline std::string MakeIndexPath(const std::filesystem::path &storage_dir, const std::string &index_name);
+  inline std::string MakeIndexPath(const std::string &index_name);
 
-  void CreateEmptyIndex(const std::filesystem::path &storage_dir, const std::string &index_name, LabelId label);
+  void CreateEmptyIndex(const std::string &index_name, LabelId label);
 
   template <typename T>
   nlohmann::json SerializeProperties(const std::map<PropertyId, PropertyValue> &properties, T *name_resolver);
 
-  std::string StringifyProperties(const std::map<PropertyId, PropertyValue> &properties);
+  static std::string StringifyProperties(const std::map<PropertyId, PropertyValue> &properties);
 
   std::vector<mgcxx::text_search::Context *> GetApplicableTextIndices(std::span<storage::LabelId const> labels);
 
-  void LoadNodeToTextIndices(const std::int64_t gid, const nlohmann::json &properties,
-                             const std::string &property_values_as_str,
-                             const std::vector<mgcxx::text_search::Context *> &applicable_text_indices);
+  static void LoadNodeToTextIndices(std::int64_t gid, const nlohmann::json &properties,
+                                    const std::string &property_values_as_str,
+                                    const std::vector<mgcxx::text_search::Context *> &applicable_text_indices);
 
-  void CommitLoadedNodes(mgcxx::text_search::Context &index_context);
+  static void CommitLoadedNodes(mgcxx::text_search::Context &index_context);
 
   mgcxx::text_search::SearchOutput SearchGivenProperties(const std::string &index_name,
                                                          const std::string &search_query);
@@ -59,7 +60,8 @@ class TextIndex {
   mgcxx::text_search::SearchOutput SearchAllProperties(const std::string &index_name, const std::string &search_query);
 
  public:
-  TextIndex() = default;
+  explicit TextIndex(const std::filesystem::path &storage_dir)
+      : text_index_storage_dir_(storage_dir / kTextIndicesDirectory) {}
 
   TextIndex(const TextIndex &) = delete;
   TextIndex(TextIndex &&) = delete;
@@ -81,13 +83,13 @@ class TextIndex {
       Vertex *vertex,
       const std::optional<std::vector<mgcxx::text_search::Context *>> &maybe_applicable_text_indices = std::nullopt);
 
-  void CreateIndex(std::filesystem::path const &storage_dir, std::string const &index_name, LabelId label,
-                   memgraph::storage::VerticesIterable vertices, NameIdMapper *nameIdMapper);
+  void CreateIndex(std::string const &index_name, LabelId label, memgraph::storage::VerticesIterable vertices,
+                   NameIdMapper *nameIdMapper);
 
-  void RecoverIndex(const std::filesystem::path &storage_dir, const std::string &index_name, LabelId label,
-                    memgraph::utils::SkipList<Vertex>::Accessor vertices, NameIdMapper *name_id_mapper);
+  void RecoverIndex(const std::string &index_name, LabelId label, memgraph::utils::SkipList<Vertex>::Accessor vertices,
+                    NameIdMapper *name_id_mapper);
 
-  LabelId DropIndex(const std::filesystem::path &storage_dir, const std::string &index_name);
+  LabelId DropIndex(const std::string &index_name);
 
   bool IndexExists(const std::string &index_name) const;
 
@@ -101,6 +103,8 @@ class TextIndex {
   void Rollback();
 
   std::vector<std::pair<std::string, LabelId>> ListIndices() const;
+
+  void Clear();
 };
 
 }  // namespace memgraph::storage

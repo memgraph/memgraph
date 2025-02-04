@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,8 +12,6 @@
 #include "utils/file.hpp"
 
 #include <fcntl.h>
-#include <sys/stat.h>
-#include <sys/types.h>
 #include <unistd.h>
 
 #include <cstring>
@@ -162,18 +160,17 @@ bool InputFile::IsOpen() const { return fd_ != -1; }
 const std::filesystem::path &InputFile::path() const { return path_; }
 
 bool InputFile::Read(uint8_t *data, size_t size) {
-  size_t offset = 0;
-
-  while (size > 0) {
+  uint8_t *write_ptr = data;
+  while (size != 0) {
     auto buffer_left = buffer_size_ - buffer_position_;
-    if (!buffer_start_ || buffer_left == 0) {
+    if (buffer_left == 0) {
       if (!LoadBuffer()) return false;
-      continue;
+      buffer_left = buffer_size_ - buffer_position_;
     }
-    auto to_copy = size < buffer_left ? size : buffer_left;
-    memcpy(data + offset, buffer_ + buffer_position_, to_copy);
+    auto to_copy = std::min(size, buffer_left);
+    memcpy(write_ptr, buffer_ + buffer_position_, to_copy);
     size -= to_copy;
-    offset += to_copy;
+    write_ptr += to_copy;
     buffer_position_ += to_copy;
   }
 

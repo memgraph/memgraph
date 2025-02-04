@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -29,6 +29,7 @@
 #include "utils/memory_tracker.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/readable_size.hpp"
+#include "utils/rw_spin_lock.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/stack.hpp"
 #include "utils/stat.hpp"
@@ -40,6 +41,8 @@
 // instructions, see: https://www.cl.cam.ac.uk/~pes20/cpp/cpp0xmappings.html
 
 namespace memgraph::utils {
+
+enum class GCPolicy : uint8_t { Random, DoNotRun };
 
 /// This is the maximum height of the list. This value shouldn't be changed from
 /// this value because it isn't practical to have skip lists that have larger
@@ -71,6 +74,9 @@ constexpr uint64_t kSkipListGcBlockSize = 8189;
 constexpr uint64_t kSkipListGcStackSize = 8191;
 
 namespace detail {
+
+auto thread_local_mt19937() -> std::mt19937 &;
+
 struct SkipListNode_base {
   // This function generates a binomial distribution using the same technique
   // described here: http://ticki.github.io/blog/skip-lists-done-right/ under
@@ -79,11 +85,10 @@ struct SkipListNode_base {
   // returns 0 which is an invalid height. To make the distribution binomial
   // this value is then mapped to `kSkipListMaxSize`.
   static uint32_t gen_height() {
-    thread_local std::mt19937 gen{std::random_device{}()};
     static_assert(kSkipListMaxHeight <= 32,
                   "utils::SkipList::gen_height is implemented only for heights "
                   "up to 32!");
-    uint32_t value = gen();
+    uint32_t value = thread_local_mt19937()();
     if (value == 0) return kSkipListMaxHeight;
     // The value should have exactly `kSkipListMaxHeight` bits.
     value >>= (32 - kSkipListMaxHeight);
@@ -118,13 +123,13 @@ struct SkipListNode {
   // The items here are carefully placed to minimize padding gaps.
 
   TObj obj;
-  SpinLock lock;
-  std::atomic<bool> marked;
-  std::atomic<bool> fully_linked;
+  SpinLock lock{};
+  std::atomic<bool> marked{false};
+  std::atomic<bool> fully_linked{false};
   static_assert(std::numeric_limits<uint8_t>::max() >= kSkipListMaxHeight, "Maximum height doesn't fit in uint8_t");
   uint8_t height;
   // uint8_t PAD;
-  std::atomic<SkipListNode<TObj> *> nexts[0];
+  std::atomic<SkipListNode *> nexts[0];
 };
 
 /// Maximum size of a single SkipListNode instance.
@@ -312,8 +317,8 @@ class SkipListGc final {
     // which could have OOMException enabled in its thread so to ensure no exception
     // is thrown while cleaning the skip list, we add the blocker.
     utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
-    if (!lock_.try_lock()) return;
-    OnScopeExit cleanup([&] { lock_.unlock(); });
+    auto guard = std::unique_lock{lock_, std::defer_lock};
+    if (!guard.try_lock()) return;
     Block *tail = tail_.load(std::memory_order_acquire);
     uint64_t last_dead = 0;
     bool remove_block = true;
@@ -406,7 +411,7 @@ class SkipListGc final {
 
  private:
   MemoryResource *memory_;
-  SpinLock lock_;
+  RWSpinLock lock_;
   std::atomic<uint64_t> accessor_id_{0};
   std::atomic<Block *> head_{nullptr};
   std::atomic<Block *> tail_{nullptr};
@@ -690,7 +695,13 @@ class SkipList final : detail::SkipListNode_base {
     using const_iterator = ConstIterator;
 
     ~Accessor() {
-      if (skiplist_ != nullptr) skiplist_->gc_.ReleaseId(id_);
+      if (skiplist_ != nullptr) {
+        skiplist_->gc_.ReleaseId(id_);
+        auto d = std::bernoulli_distribution(1.0 / 1024.0);
+        if (d(detail::thread_local_mt19937())) {
+          skiplist_->run_gc();
+        }
+      }
     }
 
     Accessor(const Accessor &) = delete;
@@ -698,9 +709,11 @@ class SkipList final : detail::SkipListNode_base {
 
     Accessor(Accessor &&other) noexcept : skiplist_(other.skiplist_), id_(other.id_) { other.skiplist_ = nullptr; }
     Accessor &operator=(Accessor &&other) noexcept {
-      skiplist_ = other.skiplist_;
-      id_ = other.id_;
-      other.skiplist_ = nullptr;
+      if (this != &other) {
+        skiplist_ = other.skiplist_;
+        id_ = other.id_;
+        other.skiplist_ = nullptr;
+      }
       return *this;
     }
 
@@ -995,7 +1008,7 @@ class SkipList final : detail::SkipListNode_base {
   void run_gc() { gc_.Run(); }
 
  private:
-  template <typename TKey>
+  template <GCPolicy policy = GCPolicy::Random, typename TKey>
   int find_node(const TKey &key, TNode *preds[], TNode *succs[]) const {
     int layer_found = -1;
     TNode *pred = head_;
@@ -1013,7 +1026,9 @@ class SkipList final : detail::SkipListNode_base {
       preds[layer] = pred;
       succs[layer] = curr;
     }
-    if (layer_found + 1 >= kSkipListGcHeightTrigger) gc_.Run();
+    if constexpr (policy == GCPolicy::Random) {
+      if (layer_found + 1 >= kSkipListGcHeightTrigger) gc_.Run();
+    }
     return layer_found;
   }
 
@@ -1036,17 +1051,27 @@ class SkipList final : detail::SkipListNode_base {
 
       TNode *new_node;
       {
-        TNode *prev_pred = nullptr;
+        TNode *previous_locked = nullptr;
         bool valid = true;
-        std::unique_lock<SpinLock> guards[kSkipListMaxHeight];
+
+        auto locked_count = 0;
+        TNode *locked[kSkipListMaxHeight];
+        auto guard = OnScopeExit{[&] {
+          for (auto i = 0; i != locked_count; ++i) {
+            locked[i]->lock.unlock();
+          }
+        }};
+
         // The paper has a wrong condition here. In the paper it states that this
         // loop should have `(layer <= top_layer)`, but that isn't correct.
         for (int layer = 0; valid && (layer < top_layer); ++layer) {
           TNode *pred = preds[layer];
           TNode *succ = succs[layer];
-          if (pred != prev_pred) {
-            guards[layer] = std::unique_lock{pred->lock};
-            prev_pred = pred;
+          if (pred != previous_locked) {
+            pred->lock.lock();
+            locked[locked_count] = pred;
+            ++locked_count;
+            previous_locked = pred;
           }
           // Existence test is missing in the paper.
           valid = !pred->marked.load(std::memory_order_acquire) &&
@@ -1060,8 +1085,6 @@ class SkipList final : detail::SkipListNode_base {
 
         MemoryResource *memoryResource = GetMemoryResource();
         void *ptr = memoryResource->Allocate(node_bytes, SkipListNodeAlign<TObj>());
-        // `calloc` would be faster, but the API has no such call.
-        memset(ptr, 0, node_bytes);
         new_node = static_cast<TNode *>(ptr);
 
         // Construct through allocator so it propagates if needed.
@@ -1072,6 +1095,8 @@ class SkipList final : detail::SkipListNode_base {
         // `top_layer` which is wrong.
         for (int layer = 0; layer < top_layer; ++layer) {
           new_node->nexts[layer].store(succs[layer], std::memory_order_release);
+        }
+        for (int layer = 0; layer < top_layer; ++layer) {
           preds[layer]->nexts[layer].store(new_node, std::memory_order_release);
         }
       }
@@ -1316,7 +1341,7 @@ class SkipList final : detail::SkipListNode_base {
     TNode *preds[kSkipListMaxHeight], *succs[kSkipListMaxHeight];
     std::unique_lock<SpinLock> node_guard;
     while (true) {
-      int layer_found = find_node(key, preds, succs);
+      int layer_found = find_node<GCPolicy::DoNotRun>(key, preds, succs);
       if (is_marked || (layer_found != -1 && ok_to_delete(succs[layer_found], layer_found))) {
         if (!is_marked) {
           node_to_delete = succs[layer_found];

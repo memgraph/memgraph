@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -31,9 +31,7 @@ class CoordinatorHandler {
  public:
   explicit CoordinatorHandler(coordination::CoordinatorState &coordinator_state);
 
-  // TODO: (andi) When moving coordinator state on same instances, rename from RegisterReplicationInstance to
-  // RegisterInstance
-  auto RegisterReplicationInstance(coordination::CoordinatorToReplicaConfig const &config)
+  auto RegisterReplicationInstance(coordination::DataInstanceConfig const &config)
       -> coordination::RegisterInstanceCoordinatorStatus;
 
   auto UnregisterReplicationInstance(std::string_view instance_name)
@@ -45,14 +43,18 @@ class CoordinatorHandler {
 
   auto ForceResetClusterState() -> coordination::ReconcileClusterStateStatus;
 
+  auto ShowInstance() const -> coordination::InstanceStatus;
   auto ShowInstances() const -> std::vector<coordination::InstanceStatus>;
 
-  auto AddCoordinatorInstance(coordination::CoordinatorToCoordinatorConfig const &config)
+  auto AddCoordinatorInstance(coordination::CoordinatorInstanceConfig const &config)
       -> coordination::AddCoordinatorInstanceStatus;
 
-  auto GetLeaderCoordinatorData() const -> std::optional<coordination::CoordinatorToCoordinatorConfig>;
+  auto RemoveCoordinatorInstance(int32_t coordinator_id) -> coordination::RemoveCoordinatorInstanceStatus;
+
+  auto GetLeaderCoordinatorData() const -> std::optional<coordination::LeaderCoordinatorData>;
 
  private:
+  // NOLINTNEXTLINE
   coordination::CoordinatorState &coordinator_state_;
 };
 

@@ -221,11 +221,12 @@ set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libgcc -static-lib
 
 # Use lld linker to speedup build and use less memory.
 add_link_options(-fuse-ld=lld)
-# NOTE: Moving to latest Clang (probably starting from 15), lld stopped to work
-# without explicit link_directories call.
-string(REPLACE ":" " " LD_LIBS $ENV{LD_LIBRARY_PATH})
-separate_arguments(LD_LIBS)
-link_directories(${LD_LIBS})
+if (DEFINED ENV{LD_LIBRARY_PATH})
+    string(REPLACE ":" " " LD_LIBS $ENV{LD_LIBRARY_PATH})
+    separate_arguments(LD_LIBS)
+    link_directories(${LD_LIBS})
+endif ()
+add_link_options(LINKER:--build-id)
 
 # After linker is set, check we can use link-time optimization
 cmake_policy(SET CMP0138 NEW)
@@ -422,15 +423,46 @@ if(QUERY_MODULES)
 endif()
 
 # All targets which generate code, useful as a single target to build for clang-tidy analysis to work
-add_custom_target(generated_code DEPENDS
-    generate_opencypher_parser
-    mgcxx-proj
-    librdkafka-proj
-    antlr4-proj
-    librdtsc-proj
-    pulsar-proj
-)
+# NOTE: It's big because https://stackoverflow.com/questions/74870212/how-to-add-dependencies-to-a-custom-target-after-the-fact
+if(DEFINED ENV{MG_TOOLCHAIN_VERSION})
+  if($ENV{MG_TOOLCHAIN_VERSION} GREATER_EQUAL 6)
+    # NOTE: The rest of the generated code should already under toolchain.
+    add_custom_target(generated_code DEPENDS
+        generate_opencypher_parser
+    )
+  else()
+    add_custom_target(generated_code DEPENDS
+        generate_opencypher_parser
+        mgcxx-proj
+        librdkafka-proj
+        antlr4-proj
+        librdtsc-proj
+        pulsar-proj
+    )
+  endif()
+else()
+  add_custom_target(generated_code DEPENDS
+      generate_opencypher_parser
+      mgcxx-proj
+      librdkafka-proj
+      antlr4-proj
+      librdtsc-proj
+      pulsar-proj
+  )
+endif()
 
-install(FILES ${CMAKE_BINARY_DIR}/bin/mgconsole
-  PERMISSIONS OWNER_EXECUTE OWNER_READ OWNER_WRITE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
-  TYPE BIN)
+if(DEFINED ENV{MG_TOOLCHAIN_VERSION})
+  if($ENV{MG_TOOLCHAIN_VERSION} GREATER_EQUAL 6)
+    install(FILES ${MG_TOOLCHAIN_ROOT}/bin/mgconsole
+      PERMISSIONS OWNER_EXECUTE OWNER_READ OWNER_WRITE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
+      TYPE BIN)
+  else()
+    install(FILES ${CMAKE_BINARY_DIR}/bin/mgconsole
+      PERMISSIONS OWNER_EXECUTE OWNER_READ OWNER_WRITE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
+      TYPE BIN)
+  endif()
+else()
+  install(FILES ${CMAKE_BINARY_DIR}/bin/mgconsole
+    PERMISSIONS OWNER_EXECUTE OWNER_READ OWNER_WRITE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
+    TYPE BIN)
+endif()

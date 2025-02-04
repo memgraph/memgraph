@@ -99,6 +99,7 @@ memgraphCypherKeyword : cypherKeyword
                       | KAFKA
                       | LABELS
                       | LEVEL
+                      | LICENSE
                       | LIST
                       | LOAD
                       | LOCALDATETIME
@@ -106,6 +107,7 @@ memgraphCypherKeyword : cypherKeyword
                       | LOCK
                       | MAIN
                       | MAP
+                      | METRICS
                       | MODE
                       | MODULE_READ
                       | MODULE_WRITE
@@ -184,6 +186,7 @@ memgraphCypherKeyword : cypherKeyword
                       | USING
                       | VALUE
                       | VALUES
+                      | VECTOR
                       | VERSION
                       | WEBSOCKET
                       | ZONEDDATETIME
@@ -199,6 +202,7 @@ query : cypherQuery
       | edgeIndexQuery
       | pointIndexQuery
       | textIndexQuery
+      | vectorIndexQuery
       | explainQuery
       | profileQuery
       | databaseInfoQuery
@@ -273,8 +277,10 @@ replicationQuery : setReplicationRole
 coordinatorQuery : registerInstanceOnCoordinator
                  | unregisterInstanceOnCoordinator
                  | setInstanceToMain
+                 | showInstance
                  | showInstances
                  | addCoordinatorInstance
+                 | removeCoordinatorInstance
                  | forceResetClusterStateOnCoordinator
                  | demoteInstanceOnCoordinator
                  ;
@@ -481,6 +487,7 @@ setReplicationRole : SET REPLICATION ROLE TO ( MAIN | REPLICA )
 
 showReplicationRole : SHOW REPLICATION ROLE ;
 
+showInstance : SHOW INSTANCE ;
 showInstances : SHOW INSTANCES ;
 
 instanceName : symbolicName ;
@@ -507,6 +514,8 @@ setInstanceToMain : SET INSTANCE instanceName TO MAIN ;
 coordinatorServerId : literal ;
 
 addCoordinatorInstance : ADD COORDINATOR coordinatorServerId WITH CONFIG configsMap=configMap ;
+
+removeCoordinatorInstance : REMOVE COORDINATOR coordinatorServerId ;
 
 dropReplica : DROP REPLICA instanceName ;
 
@@ -651,6 +660,12 @@ createPointIndex : CREATE POINT INDEX ON ':' labelName '(' propertyKeyName ')';
 dropPointIndex : DROP POINT INDEX ON ':' labelName '(' propertyKeyName ')' ;
 
 pointIndexQuery : createPointIndex | dropPointIndex ;
+
+createVectorIndex : CREATE VECTOR INDEX indexName ON ':' labelName ( '(' propertyKeyName ')' )? WITH CONFIG configsMap=configMap ;
+
+dropVectorIndex : DROP VECTOR INDEX indexName ;
+
+vectorIndexQuery : createVectorIndex | dropVectorIndex ;
 
 dropGraphQuery : DROP GRAPH ;
 

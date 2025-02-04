@@ -25,6 +25,7 @@ target_sources(mg-utils
     logging.cpp
     string.cpp
     scheduler.cpp
+    skip_list.cpp
 
     PUBLIC
     FILE_SET HEADERS
@@ -41,7 +42,7 @@ target_sources(mg-utils
     scheduler.hpp
 )
 
-find_package(Boost REQUIRED)
+find_package(Boost REQUIRED CONFIG)
 find_package(fmt REQUIRED)
 find_package(gflags REQUIRED)
 find_package(Threads REQUIRED)

@@ -1,0 +1,45 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index c936a41..3222e2f 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -214,26 +214,6 @@ set(EXAMPLES_SRC ${PROJECT_SOURCE_DIR}/examples)
+ file(COPY ${PROJECT_SOURCE_DIR}/scripts/test/runtests.sh
+      DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
+
+-# === Generate dummy self-signed cert and key for testing ===
+-add_custom_target(build_ssl_key)
+-if (NOT (DISABLE_SSL GREATER 0))
+-    add_custom_command(
+-        TARGET build_ssl_key
+-        PRE_BUILD
+-        COMMAND
+-        openssl req
+-        -new
+-        -newkey rsa:4096
+-        -days 365
+-        -nodes
+-        -x509
+-        -subj "/C=AB/ST=CD/L=EFG/O=ORG/CN=localhost"
+-        -keyout ${CMAKE_CURRENT_BINARY_DIR}/key.pem
+-        -out ${CMAKE_CURRENT_BINARY_DIR}/cert.pem
+-        2> /dev/null
+-    )
+-endif ()
+-
+ # === Source files ===
+ set(RAFT_CORE
+     ${ROOT_SRC}/asio_service.cxx
+@@ -303,13 +283,6 @@ else ()
+ endif ()
+ message(STATUS "Output library file name: ${LIBRARY_OUTPUT_NAME}")
+
+-# === Examples ===
+-add_subdirectory("${PROJECT_SOURCE_DIR}/examples")
+-
+-
+-# === Tests ===
+-add_subdirectory("${PROJECT_SOURCE_DIR}/tests")
+-
+
+ if (CODE_COVERAGE GREATER 0)
+     set(CODE_COVERAGE_DEPS

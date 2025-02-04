@@ -276,5 +276,22 @@ def test_type_constraint_with_triggers_fail_create(memgraph):
     memgraph.execute("DROP CONSTRAINT ON (n:Node) ASSERT n.prop IS TYPED INTEGER;")
 
 
+def test_delta_release_on_unique_constraint_error(memgraph):
+    memgraph.execute("create constraint on (n:Label) ASSERT n.id IS UNIQUE;")
+    memgraph.execute("foreach (i in range(1, 100000) | CREATE (:Label {id: i}));")
+
+    with pytest.raises(GQLAlchemyError):
+        memgraph.execute("foreach (i in range(1, 10) | CREATE (:Label {id: i}));")
+
+    memgraph.execute("FREE MEMORY;")
+
+    results = list(memgraph.execute_and_fetch("SHOW STORAGE INFO;"))
+    unreleased_delta_objects_actual = [x for x in results if x["storage info"] == "unreleased_delta_objects"][0][
+        "value"
+    ]
+
+    assert unreleased_delta_objects_actual == 0
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,8 +11,6 @@
 
 #include "query/metadata.hpp"
 
-#include <algorithm>
-#include <compare>
 #include <string>
 #include <string_view>
 
@@ -71,6 +69,8 @@ constexpr std::string_view GetCodeString(const NotificationCode code) {
       return "RegisterReplicationInstance"sv;
     case NotificationCode::ADD_COORDINATOR_INSTANCE:
       return "AddCoordinatorInstance"sv;
+    case NotificationCode::REMOVE_COORDINATOR_INSTANCE:
+      return "RemoveCoordinatorInstance"sv;
     case NotificationCode::UNREGISTER_INSTANCE:
       return "UnregisterInstance"sv;
     case NotificationCode::DEMOTE_INSTANCE_TO_REPLICA:

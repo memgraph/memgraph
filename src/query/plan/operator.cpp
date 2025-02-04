@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -27,13 +27,11 @@
 #include <cppitertools/imap.hpp>
 #include "memory/query_memory_control.hpp"
 #include "query/common.hpp"
-#include "query/procedure/module_fwd.hpp"
 #include "spdlog/spdlog.h"
 
 #include "csv/parsing.hpp"
 #include "flags/experimental.hpp"
 #include "license/license.hpp"
-#include "query/auth_checker.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
@@ -47,7 +45,9 @@
 #include "query/procedure/module.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/point_iterator.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/storage_error.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/event_counter.hpp"
@@ -152,6 +152,31 @@ namespace memgraph::query::plan {
 using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
 namespace {
+template <typename>
+constexpr auto kAlwaysFalse = false;
+
+void HandlePeriodicCommitError(const storage::StorageManipulationError &error) {
+  std::visit(
+      []<typename T>(const T & /* unused */) {
+        using ErrorType = std::remove_cvref_t<T>;
+        if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
+          spdlog::warn(
+              "PeriodicCommit warning: At least one SYNC replica has not confirmed the "
+              "commit.");
+        } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
+          throw QueryException(
+              "PeriodicCommit failed: Unable to commit due to constraint "
+              "violation.");
+        } else if constexpr (std::is_same_v<ErrorType, storage::SerializationError>) {
+          throw QueryException("PeriodicCommit failed: Unable to commit due to serialization error.");
+        } else if constexpr (std::is_same_v<ErrorType, storage::PersistenceError>) {
+          throw QueryException("PeriodicCommit failed: Unable to commit due to persistance error.");
+        } else {
+          static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
+        }
+      },
+      error);
+}
 
 // Custom equality function for a vector of typed values.
 // Used in unordered_maps in Aggregate and Distinct operators.
@@ -5397,11 +5422,9 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
 
 class CallProcedureCursor : public Cursor {
   const CallProcedure *self_;
-  utils::MonotonicBufferResource monotonic_memory_{1024UL * 1024UL};
-  utils::MemoryResource *memory_resource_ = &monotonic_memory_;
   UniqueCursorPtr input_cursor_;
-  mgp_result *result_;
-  decltype(result_->rows.end()) result_row_it_{result_->rows.end()};
+  mgp_result result_;
+  decltype(result_.rows.end()) result_row_it_{result_.rows.end()};
   size_t result_signature_size_{0};
   bool stream_exhausted{true};
   bool call_initializer{false};
@@ -5414,7 +5437,7 @@ class CallProcedureCursor : public Cursor {
         // result_ needs to live throughout multiple Pull evaluations, until all
         // rows are produced. We don't use the memory dedicated for QueryExecution (and Frame),
         // but memory dedicated for procedure to wipe result_ and everything allocated in procedure all at once.
-        result_(utils::Allocator<mgp_result>(memory_resource_).new_object<mgp_result>(nullptr, memory_resource_)) {
+        result_(nullptr, mem) {
     MG_ASSERT(self_->result_fields_.size() == self_->result_symbols_.size(), "Incorrectly constructed CallProcedure");
   }
 
@@ -5425,7 +5448,7 @@ class CallProcedureCursor : public Cursor {
     AbortCheck(context);
 
     auto skip_rows_with_deleted_values = [this]() {
-      while (result_row_it_ != result_->rows.end() && result_row_it_->has_deleted_values) {
+      while (result_row_it_ != result_.rows.end() && result_row_it_->has_deleted_values) {
         ++result_row_it_;
       }
     };
@@ -5438,7 +5461,7 @@ class CallProcedureCursor : public Cursor {
     auto module = std::shared_ptr<procedure::Module>{};
     mgp_proc const *proc = nullptr;
 
-    while (result_row_it_ == result_->rows.end()) {
+    while (result_row_it_ == result_.rows.end()) {
       if (!module) {
         auto maybe_found = procedure::FindProcedure(procedure::gModuleRegistry, self_->procedure_name_);
         if (!maybe_found) {
@@ -5476,46 +5499,40 @@ class CallProcedureCursor : public Cursor {
       if (!cleanup_ && proc->cleanup) [[unlikely]] {
         cleanup_.emplace(*proc->cleanup);
       }
-      // Unpluging memory without calling destruct on each object since everything was allocated with this memory
-      // resource
-      monotonic_memory_.Release();
-      result_ = utils::Allocator<mgp_result>(memory_resource_).new_object<mgp_result>(nullptr, memory_resource_);
+      result_.rows.clear();
 
       const auto graph_view = proc->info.is_write ? storage::View::NEW : storage::View::OLD;
       ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                     graph_view);
 
-      result_->signature = &proc->results;
-      result_->is_transactional = storage::IsTransactional(context.db_accessor->GetStorageMode());
+      result_.signature = &proc->results;
+      result_.is_transactional = storage::IsTransactional(context.db_accessor->GetStorageMode());
 
-      // Use special memory as invoking procedure is complex
-      // TODO: This will probably need to be changed when we add support for
-      // generator like procedures which yield a new result on new query calls.
-      auto *memory = memory_resource_;
+      auto *memory = context.evaluation_context.memory;
       auto memory_limit = EvaluateMemoryLimit(evaluator, self_->memory_limit_, self_->memory_scale_);
       auto graph = mgp_graph::WritableGraph(*context.db_accessor, graph_view, context);
       const auto transaction_id = context.db_accessor->GetTransactionId();
       MG_ASSERT(transaction_id.has_value());
       CallCustomProcedure(self_->procedure_name_, *proc, self_->arguments_, graph, &evaluator, memory, memory_limit,
-                          result_, self_->procedure_id_, transaction_id.value(), call_initializer);
+                          &result_, self_->procedure_id_, transaction_id.value(), call_initializer);
 
       if (call_initializer) call_initializer = false;
 
       // Reset result_.signature to nullptr, because outside of this scope we
       // will no longer hold a lock on the `module`. If someone were to reload
       // it, the pointer would be invalid.
-      result_signature_size_ = result_->signature->size();
-      result_->signature = nullptr;
-      if (result_->error_msg) {
+      result_signature_size_ = result_.signature->size();
+      result_.signature = nullptr;
+      if (result_.error_msg) {
         memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker blocker;
-        throw QueryRuntimeException("{}: {}", self_->procedure_name_, *result_->error_msg);
+        throw QueryRuntimeException("{}: {}", self_->procedure_name_, *result_.error_msg);
       }
-      result_row_it_ = result_->rows.begin();
-      if (!result_->is_transactional) {
+      result_row_it_ = result_.rows.begin();
+      if (!result_.is_transactional) {
         skip_rows_with_deleted_values();
       }
 
-      stream_exhausted = result_row_it_ == result_->rows.end();
+      stream_exhausted = result_row_it_ == result_.rows.end();
     }
 
     auto &values = result_row_it_->values;
@@ -5543,7 +5560,7 @@ class CallProcedureCursor : public Cursor {
       }
     }
     ++result_row_it_;
-    if (!result_->is_transactional) {
+    if (!result_.is_transactional) {
       skip_rows_with_deleted_values();
     }
 
@@ -5551,15 +5568,13 @@ class CallProcedureCursor : public Cursor {
   }
 
   void Reset() override {
-    monotonic_memory_.Release();
-    result_ = utils::Allocator<mgp_result>(memory_resource_).new_object<mgp_result>(nullptr, memory_resource_);
+    result_.rows.clear();
     if (cleanup_) {
       cleanup_.value()();
     }
   }
 
   void Shutdown() override {
-    monotonic_memory_.Release();
     if (cleanup_) {
       cleanup_.value()();
     }
@@ -6282,13 +6297,18 @@ class PeriodicCommitCursor : public Cursor {
     bool const pull_value = input_cursor_->Pull(frame, context);
 
     pulled_++;
+    utils::BasicResult<storage::StorageManipulationError, void> commit_result;
     if (pulled_ >= commit_frequency_) {
       // do periodic commit since we pulled that many times
-      [[maybe_unused]] auto commit_result = context.db_accessor->PeriodicCommit({}, context.db_acc);
+      commit_result = context.db_accessor->PeriodicCommit({}, context.db_acc);
       pulled_ = 0;
     } else if (!pull_value && pulled_ > 0) {
       // do periodic commit for the rest of pulled items
-      [[maybe_unused]] auto commit_result = context.db_accessor->PeriodicCommit({}, context.db_acc);
+      commit_result = context.db_accessor->PeriodicCommit({}, context.db_acc);
+    }
+
+    if (commit_result.HasError()) {
+      HandlePeriodicCommitError(commit_result.GetError());
     }
 
     return pull_value;
@@ -6371,7 +6391,10 @@ class PeriodicSubqueryCursor : public Cursor {
         } else {
           if (pulled_ > 0) {
             // do periodic commit for the rest of pulled items
-            [[maybe_unused]] auto commit_result = context.db_accessor->PeriodicCommit({}, context.db_acc);
+            const auto commit_result = context.db_accessor->PeriodicCommit({}, context.db_acc);
+            if (commit_result.HasError()) {
+              HandlePeriodicCommitError(commit_result.GetError());
+            }
           }
           return false;
         }
@@ -6385,7 +6408,10 @@ class PeriodicSubqueryCursor : public Cursor {
 
       if (pulled_ >= commit_frequency_) {
         // do periodic commit since we pulled that many times
-        [[maybe_unused]] auto commit_result = context.db_accessor->PeriodicCommit({}, context.db_acc);
+        const auto commit_result = context.db_accessor->PeriodicCommit({}, context.db_acc);
+        if (commit_result.HasError()) {
+          HandlePeriodicCommitError(commit_result.GetError());
+        }
         pulled_ = 0;
       }
 

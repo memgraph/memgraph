@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,6 +13,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <set>
 #include <string>
 
@@ -48,192 +49,252 @@ struct WalInfo {
   uint64_t num_deltas;
 };
 
-/// Structure used to return loaded WAL delta data.
-struct WalDeltaData {
-  enum class Type {
-    VERTEX_CREATE,
-    VERTEX_DELETE,
-    VERTEX_ADD_LABEL,
-    VERTEX_REMOVE_LABEL,
-    VERTEX_SET_PROPERTY,
-    EDGE_CREATE,
-    EDGE_DELETE,
-    EDGE_SET_PROPERTY,
-    TRANSACTION_END,
-    LABEL_INDEX_CREATE,
-    LABEL_INDEX_DROP,
-    LABEL_INDEX_STATS_SET,
-    LABEL_INDEX_STATS_CLEAR,
-    LABEL_PROPERTY_INDEX_CREATE,
-    LABEL_PROPERTY_INDEX_DROP,
-    LABEL_PROPERTY_INDEX_STATS_SET,
-    LABEL_PROPERTY_INDEX_STATS_CLEAR,
-    EDGE_INDEX_CREATE,
-    EDGE_INDEX_DROP,
-    EDGE_PROPERTY_INDEX_CREATE,
-    EDGE_PROPERTY_INDEX_DROP,
-    TEXT_INDEX_CREATE,
-    TEXT_INDEX_DROP,
-    EXISTENCE_CONSTRAINT_CREATE,
-    EXISTENCE_CONSTRAINT_DROP,
-    UNIQUE_CONSTRAINT_CREATE,
-    UNIQUE_CONSTRAINT_DROP,
-    TYPE_CONSTRAINT_CREATE,
-    TYPE_CONSTRAINT_DROP,
-    ENUM_CREATE,
-    ENUM_ALTER_ADD,
-    ENUM_ALTER_UPDATE,
-    POINT_INDEX_CREATE,
-    POINT_INDEX_DROP,
-  };
+template <auto MIN_VER, typename Type>
+struct VersionDependant {};
 
-  Type type{Type::TRANSACTION_END};
-
-  // TODO: this is a massive object....no union
-  struct {
-    Gid gid;
-  } vertex_create_delete;
-
-  struct {
-    Gid gid;
-    std::string label;
-  } vertex_add_remove_label;
-
-  struct {
-    Gid gid;
-    std::string property;
-    PropertyValue value;
-    Gid from_gid;  //!< Used only for edges (simplifies the edge search)
-  } vertex_edge_set_property;
-
-  struct {
-    Gid gid;
-    std::string edge_type;
-    Gid from_vertex;
-    Gid to_vertex;
-  } edge_create_delete;
-
-  struct {
-    std::string label;
-  } operation_label;
-
-  struct {
-    std::string label;
-    std::string property;
-  } operation_label_property;
-
-  struct {
-    std::string label;
-    std::set<std::string, std::less<>> properties;
-  } operation_label_properties;
-
-  struct {
-    std::string label;
-    std::string property;
-    TypeConstraintKind type;
-  } operation_label_property_type;
-  struct {
-    std::string edge_type;
-  } operation_edge_type;
-
-  struct {
-    std::string edge_type;
-    std::string property;
-  } operation_edge_type_property;
-
-  struct {
-    std::string label;
-    std::string stats;
-  } operation_label_stats;
-
-  struct {
-    std::string label;
-    std::string property;
-    std::string stats;
-  } operation_label_property_stats;
-
-  struct {
-    std::string index_name;
-    std::string label;
-  } operation_text;
-
-  struct {
-    std::string etype;
-    std::vector<std::string> evalues;
-  } operation_enum_create;
-
-  struct {
-    std::string etype;
-    std::string evalue;
-  } operation_enum_alter_add;
-
-  struct {
-    std::string etype;
-    std::string evalue_old;
-    std::string evalue_new;
-  } operation_enum_alter_update;
+// Common structures used by more than one WAL Delta
+struct VertexOpInfo {
+  friend bool operator==(const VertexOpInfo &, const VertexOpInfo &) = default;
+  using ctr_types = std::tuple<Gid>;
+  Gid gid;
+};
+struct VertexLabelOpInfo {
+  friend bool operator==(const VertexLabelOpInfo &, const VertexLabelOpInfo &) = default;
+  using ctr_types = std::tuple<Gid, std::string>;
+  Gid gid;
+  std::string label;
+};
+struct EdgeOpInfo {
+  friend bool operator==(const EdgeOpInfo &, const EdgeOpInfo &) = default;
+  using ctr_types = std::tuple<Gid, std::string, Gid, Gid>;
+  Gid gid;
+  std::string edge_type;
+  Gid from_vertex;
+  Gid to_vertex;
+};
+struct LabelOpInfo {
+  friend bool operator==(const LabelOpInfo &, const LabelOpInfo &) = default;
+  using ctr_types = std::tuple<std::string>;
+  std::string label;
+};
+struct LabelPropertyOpInfo {
+  friend bool operator==(const LabelPropertyOpInfo &, const LabelPropertyOpInfo &) = default;
+  using ctr_types = std::tuple<std::string, std::string>;
+  std::string label;
+  std::string property;
+};
+struct LabelPropertiesOpInfo {
+  friend bool operator==(const LabelPropertiesOpInfo &, const LabelPropertiesOpInfo &) = default;
+  using ctr_types = std::tuple<std::string, std::set<std::string, std::less<>>>;
+  std::string label;
+  std::set<std::string, std::less<>> properties;
+};
+struct EdgeTypeOpInfo {
+  friend bool operator==(const EdgeTypeOpInfo &, const EdgeTypeOpInfo &) = default;
+  using ctr_types = std::tuple<std::string>;
+  std::string edge_type;
+};
+struct EdgeTypePropertyOpInfo {
+  friend bool operator==(const EdgeTypePropertyOpInfo &, const EdgeTypePropertyOpInfo &) = default;
+  using ctr_types = std::tuple<std::string, std::string>;
+  std::string edge_type;
+  std::string property;
+};
+struct TypeConstraintOpInfo {
+  friend bool operator==(const TypeConstraintOpInfo &, const TypeConstraintOpInfo &) = default;
+  using ctr_types = std::tuple<std::string, std::string, TypeConstraintKind>;
+  std::string label;
+  std::string property;
+  TypeConstraintKind kind;
+};
+struct TextIndexOpInfo {
+  friend bool operator==(const TextIndexOpInfo &, const TextIndexOpInfo &) = default;
+  using ctr_types = std::tuple<std::string, std::string>;
+  std::string index_name;
+  std::string label;
 };
 
-bool operator==(const WalDeltaData &a, const WalDeltaData &b);
-bool operator!=(const WalDeltaData &a, const WalDeltaData &b);
-
-constexpr bool IsWalDeltaDataTypeTransactionEndVersion15(const WalDeltaData::Type type) {
-  switch (type) {
-    // These delta actions are all found inside transactions so they don't
-    // indicate a transaction end.
-    case WalDeltaData::Type::VERTEX_CREATE:
-    case WalDeltaData::Type::VERTEX_DELETE:
-    case WalDeltaData::Type::VERTEX_ADD_LABEL:
-    case WalDeltaData::Type::VERTEX_REMOVE_LABEL:
-    case WalDeltaData::Type::EDGE_CREATE:
-    case WalDeltaData::Type::EDGE_DELETE:
-    case WalDeltaData::Type::VERTEX_SET_PROPERTY:
-    case WalDeltaData::Type::EDGE_SET_PROPERTY:
-      return false;
-
-    // This delta explicitly indicates that a transaction is done.
-    case WalDeltaData::Type::TRANSACTION_END:
-      return true;
-
-    // These operations aren't transactional and they are encoded only using
-    // a single delta, so they each individually mark the end of their
-    // 'transaction'.
-    case WalDeltaData::Type::LABEL_INDEX_CREATE:
-    case WalDeltaData::Type::LABEL_INDEX_DROP:
-    case WalDeltaData::Type::LABEL_INDEX_STATS_SET:
-    case WalDeltaData::Type::LABEL_INDEX_STATS_CLEAR:
-    case WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE:
-    case WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP:
-    case WalDeltaData::Type::LABEL_PROPERTY_INDEX_STATS_SET:
-    case WalDeltaData::Type::LABEL_PROPERTY_INDEX_STATS_CLEAR:
-    case WalDeltaData::Type::EDGE_INDEX_CREATE:
-    case WalDeltaData::Type::EDGE_INDEX_DROP:
-    case WalDeltaData::Type::EDGE_PROPERTY_INDEX_CREATE:
-    case WalDeltaData::Type::EDGE_PROPERTY_INDEX_DROP:
-    case WalDeltaData::Type::TEXT_INDEX_CREATE:
-    case WalDeltaData::Type::TEXT_INDEX_DROP:
-    case WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE:
-    case WalDeltaData::Type::EXISTENCE_CONSTRAINT_DROP:
-    case WalDeltaData::Type::UNIQUE_CONSTRAINT_CREATE:
-    case WalDeltaData::Type::UNIQUE_CONSTRAINT_DROP:
-    case WalDeltaData::Type::ENUM_CREATE:
-    case WalDeltaData::Type::ENUM_ALTER_ADD:
-    case WalDeltaData::Type::ENUM_ALTER_UPDATE:
-    case WalDeltaData::Type::POINT_INDEX_CREATE:
-    case WalDeltaData::Type::POINT_INDEX_DROP:
-    case WalDeltaData::Type::TYPE_CONSTRAINT_CREATE:
-    case WalDeltaData::Type::TYPE_CONSTRAINT_DROP:
-      return true;  // TODO: Still true?
-      break;
+// Wal Deltas after Decode
+struct WalVertexCreate : VertexOpInfo {};
+struct WalVertexDelete : VertexOpInfo {};
+struct WalVertexAddLabel : VertexLabelOpInfo {};
+struct WalVertexRemoveLabel : VertexLabelOpInfo {};
+struct WalVertexSetProperty {
+  friend bool operator==(const WalVertexSetProperty &, const WalVertexSetProperty &) = default;
+  using ctr_types = std::tuple<Gid, std::string, PropertyValue>;
+  Gid gid;
+  std::string property;
+  PropertyValue value;
+};
+struct WalEdgeSetProperty {
+  friend bool operator==(const WalEdgeSetProperty &lhs, const WalEdgeSetProperty &rhs) {
+    // Since kEdgeSetDeltaWithVertexInfo version delta holds from vertex gid; this is an extra information (no need to
+    // check it)
+    return std::tie(lhs.gid, lhs.property, lhs.value) == std::tie(rhs.gid, rhs.property, rhs.value);
   }
+  using ctr_types = std::tuple<Gid, std::string, PropertyValue, VersionDependant<kEdgeSetDeltaWithVertexInfo, Gid>>;
+  Gid gid;
+  std::string property;
+  PropertyValue value;
+  std::optional<Gid> from_gid;  //!< Used to simplify the edge search (from kEdgeSetDeltaWithVertexInfo)
+};
+struct WalEdgeCreate : EdgeOpInfo {};
+struct WalEdgeDelete : EdgeOpInfo {};
+struct WalTransactionEnd {
+  friend bool operator==(const WalTransactionEnd &, const WalTransactionEnd &) = default;
+  using ctr_types = std::tuple<>;
+};
+struct WalLabelIndexCreate : LabelOpInfo {};
+struct WalLabelIndexDrop : LabelOpInfo {};
+struct WalLabelIndexStatsClear : LabelOpInfo {};
+struct WalLabelPropertyIndexStatsClear : LabelOpInfo {
+};  // Special case, this clear is done on all label/property pairs that contain the defined label
+struct WalEdgeTypeIndexCreate : EdgeTypeOpInfo {};
+struct WalEdgeTypeIndexDrop : EdgeTypeOpInfo {};
+struct WalLabelIndexStatsSet {
+  friend bool operator==(const WalLabelIndexStatsSet &, const WalLabelIndexStatsSet &) = default;
+  using ctr_types = std::tuple<std::string, std::string>;
+  std::string label;
+  std::string json_stats;
+};
+struct WalLabelPropertyIndexCreate : LabelPropertyOpInfo {};
+struct WalLabelPropertyIndexDrop : LabelPropertyOpInfo {};
+struct WalPointIndexCreate : LabelPropertyOpInfo {};
+struct WalPointIndexDrop : LabelPropertyOpInfo {};
+struct WalExistenceConstraintCreate : LabelPropertyOpInfo {};
+struct WalExistenceConstraintDrop : LabelPropertyOpInfo {};
+struct WalLabelPropertyIndexStatsSet {
+  friend bool operator==(const WalLabelPropertyIndexStatsSet &, const WalLabelPropertyIndexStatsSet &) = default;
+  using ctr_types = std::tuple<std::string, std::string, std::string>;
+  std::string label;
+  std::string property;
+  std::string json_stats;
+};
+struct WalEdgeTypePropertyIndexCreate : EdgeTypePropertyOpInfo {};
+struct WalEdgeTypePropertyIndexDrop : EdgeTypePropertyOpInfo {};
+struct WalUniqueConstraintCreate : LabelPropertiesOpInfo {};
+struct WalUniqueConstraintDrop : LabelPropertiesOpInfo {};
+struct WalTypeConstraintCreate : TypeConstraintOpInfo {};
+struct WalTypeConstraintDrop : TypeConstraintOpInfo {};
+struct WalTextIndexCreate : TextIndexOpInfo {};
+struct WalTextIndexDrop : TextIndexOpInfo {};
+struct WalEnumCreate {
+  friend bool operator==(const WalEnumCreate &, const WalEnumCreate &) = default;
+  using ctr_types = std::tuple<std::string, std::vector<std::string>>;
+  std::string etype;
+  std::vector<std::string> evalues;
+};
+struct WalEnumAlterAdd {
+  friend bool operator==(const WalEnumAlterAdd &, const WalEnumAlterAdd &) = default;
+  using ctr_types = std::tuple<std::string, std::string>;
+  std::string etype;
+  std::string evalue;
+};
+struct WalEnumAlterUpdate {
+  friend bool operator==(const WalEnumAlterUpdate &, const WalEnumAlterUpdate &) = default;
+  using ctr_types = std::tuple<std::string, std::string, std::string>;
+  std::string etype;
+  std::string evalue_old;
+  std::string evalue_new;
+};
+struct WalVectorIndexCreate {
+  friend bool operator==(const WalVectorIndexCreate &, const WalVectorIndexCreate &) = default;
+  using ctr_types =
+      std::tuple<std::string, std::string, std::string, std::string, std::uint16_t, std::uint16_t, std::size_t>;
+  std::string index_name;
+  std::string label;
+  std::string property;
+  std::string metric_kind;
+  std::uint16_t dimension;
+  std::uint16_t resize_coefficient;
+  std::size_t capacity;
+};
+struct WalVectorIndexDrop {
+  friend bool operator==(const WalVectorIndexDrop &, const WalVectorIndexDrop &) = default;
+  using ctr_types = std::tuple<std::string>;
+  std::string index_name;
+};
+
+/// Structure used to return loaded WAL delta data.
+struct WalDeltaData {
+  friend bool operator==(const WalDeltaData &a, const WalDeltaData &b) {
+    return std::visit(utils::Overloaded{
+                          []<typename T>(T const &lhs, T const &rhs) { return lhs == rhs; },
+                          [](auto const &, auto const &) { return false; },
+
+                      },
+                      a.data_, b.data_);
+  }
+
+  std::variant<WalVertexCreate, WalVertexDelete, WalVertexAddLabel, WalVertexRemoveLabel, WalVertexSetProperty,
+               WalEdgeSetProperty, WalEdgeCreate, WalEdgeDelete, WalTransactionEnd, WalLabelIndexCreate,
+               WalLabelIndexDrop, WalLabelIndexStatsClear, WalLabelPropertyIndexStatsClear, WalEdgeTypeIndexCreate,
+               WalEdgeTypeIndexDrop, WalLabelIndexStatsSet, WalLabelPropertyIndexCreate, WalLabelPropertyIndexDrop,
+               WalPointIndexCreate, WalPointIndexDrop, WalExistenceConstraintCreate, WalExistenceConstraintDrop,
+               WalLabelPropertyIndexStatsSet, WalEdgeTypePropertyIndexCreate, WalEdgeTypePropertyIndexDrop,
+               WalUniqueConstraintCreate, WalUniqueConstraintDrop, WalTypeConstraintCreate, WalTypeConstraintDrop,
+               WalTextIndexCreate, WalTextIndexDrop, WalEnumCreate, WalEnumAlterAdd, WalEnumAlterUpdate,
+               WalVectorIndexCreate, WalVectorIndexDrop>
+      data_ = WalTransactionEnd{};
+};
+
+constexpr bool IsWalDeltaDataImplicitTransactionEndVersion15(const WalDeltaData &delta) {
+  return std::visit(utils::Overloaded{
+                        // These delta actions are all found inside transactions so they don't
+                        // indicate a transaction end.
+                        [](WalVertexCreate const &) { return false; },
+                        [](WalVertexDelete const &) { return false; },
+                        [](WalVertexAddLabel const &) { return false; },
+                        [](WalVertexRemoveLabel const &) { return false; },
+                        [](WalVertexSetProperty const &) { return false; },
+                        [](WalEdgeCreate const &) { return false; },
+                        [](WalEdgeDelete const &) { return false; },
+                        [](WalEdgeSetProperty const &) { return false; },
+
+                        // This delta explicitly indicates that a transaction is done.
+                        [](WalTransactionEnd const &) { return true; },
+
+                        // These operations aren't transactional and they are encoded only using
+                        // a single delta, so they each individually mark the end of their
+                        // 'transaction'.
+                        [](WalLabelIndexCreate const &) { return true; },
+                        [](WalLabelIndexDrop const &) { return true; },
+                        [](WalLabelIndexStatsSet const &) { return true; },
+                        [](WalLabelIndexStatsClear const &) { return true; },
+                        [](WalLabelPropertyIndexCreate const &) { return true; },
+                        [](WalLabelPropertyIndexDrop const &) { return true; },
+                        [](WalLabelPropertyIndexStatsSet const &) { return true; },
+                        [](WalLabelPropertyIndexStatsClear const &) { return true; },
+                        [](WalEdgeTypeIndexCreate const &) { return true; },
+                        [](WalEdgeTypeIndexDrop const &) { return true; },
+                        [](WalEdgeTypePropertyIndexCreate const &) { return true; },
+                        [](WalEdgeTypePropertyIndexDrop const &) { return true; },
+                        [](WalTextIndexCreate const &) { return true; },
+                        [](WalTextIndexDrop const &) { return true; },
+                        [](WalExistenceConstraintCreate const &) { return true; },
+                        [](WalExistenceConstraintDrop const &) { return true; },
+                        [](WalUniqueConstraintCreate const &) { return true; },
+                        [](WalUniqueConstraintDrop const &) { return true; },
+                        [](WalEnumCreate const &) { return true; },
+                        [](WalEnumAlterAdd const &) { return true; },
+                        [](WalEnumAlterUpdate const &) { return true; },
+                        [](WalPointIndexCreate const &) { return true; },
+                        [](WalPointIndexDrop const &) { return true; },
+                        [](WalTypeConstraintCreate const &) { return true; },
+                        [](WalTypeConstraintDrop const &) { return true; },
+                        [](WalVectorIndexCreate const &) { return true; },
+                        [](WalVectorIndexDrop const &) { return true; },
+                    },
+                    delta.data_);
 }
 
-constexpr bool IsWalDeltaDataTypeTransactionEnd(const WalDeltaData::Type type, const uint64_t version = kVersion) {
-  if (version < 18U) {
-    return IsWalDeltaDataTypeTransactionEndVersion15(type);
+constexpr bool IsWalDeltaDataTransactionEnd(const WalDeltaData &delta, const uint64_t version = kVersion) {
+  if (version < kMetaDataDeltasHaveExplicitTransactionEnd) [[unlikely]] {
+    return IsWalDeltaDataImplicitTransactionEndVersion15(delta);
   }
-  // All deltas are now handled in a transactional scope
-  return type == WalDeltaData::Type::TRANSACTION_END;
+  // All deltas are now handled in a transactional scope, this is because it is
+  // possible to have metadeltas and deltas in the same txn
+  return std::holds_alternative<WalTransactionEnd>(delta.data_);
 }
 
 /// Function used to read information about the WAL file.
@@ -255,7 +316,7 @@ WalDeltaData ReadWalDeltaData(BaseDecoder *decoder, uint64_t version = kVersion)
 /// skipped delta type. The WAL delta header must be read before calling this
 /// function.
 /// @throw RecoveryFailure
-WalDeltaData::Type SkipWalDeltaData(BaseDecoder *decoder, uint64_t version = kVersion);
+bool SkipWalDeltaData(BaseDecoder *decoder, uint64_t version = kVersion);
 
 /// Function used to encode a `Delta` that originated from a `Vertex`.
 void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, SalientConfig::Items items, const Delta &delta,
@@ -287,6 +348,8 @@ void EncodeLabelPropertyStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper
 void EncodeLabelStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label, LabelIndexStats stats);
 void EncodeTextIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, std::string_view text_index_name,
                      LabelId label);
+void EncodeVectorIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper, const VectorIndexSpec &spec);
+void EncodeVectorIndexName(BaseEncoder &encoder, std::string_view index_name);
 
 void EncodeOperationPreamble(BaseEncoder &encoder, StorageMetadataOperation Op, uint64_t timestamp);
 

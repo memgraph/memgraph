@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -56,6 +56,7 @@ class SubtractionOperator;
 class MultiplicationOperator;
 class DivisionOperator;
 class ModOperator;
+class ExponentiationOperator;
 class UnaryPlusOperator;
 class UnaryMinusOperator;
 class IsNullOperator;
@@ -86,6 +87,7 @@ class IndexQuery;
 class EdgeIndexQuery;
 class PointIndexQuery;
 class TextIndexQuery;
+class VectorIndexQuery;
 class DatabaseInfoQuery;
 class SystemInfoQuery;
 class ConstraintQuery;
@@ -129,13 +131,14 @@ class SessionTraceQuery;
 
 using TreeCompositeVisitor = utils::CompositeVisitor<
     SingleQuery, CypherUnion, NamedExpression, OrOperator, XorOperator, AndOperator, NotOperator, AdditionOperator,
-    SubtractionOperator, MultiplicationOperator, DivisionOperator, ModOperator, NotEqualOperator, EqualOperator,
-    LessOperator, GreaterOperator, LessEqualOperator, GreaterEqualOperator, RangeOperator, InListOperator,
-    SubscriptOperator, ListSlicingOperator, IfOperator, UnaryPlusOperator, UnaryMinusOperator, IsNullOperator,
-    ListLiteral, MapLiteral, MapProjectionLiteral, PropertyLookup, AllPropertiesLookup, LabelsTest, Aggregation,
-    Function, Reduce, Coalesce, Extract, All, Single, Any, None, CallProcedure, Create, Match, Return, With, Pattern,
-    NodeAtom, EdgeAtom, Delete, Where, SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels, Merge,
-    Unwind, RegexMatch, LoadCsv, Foreach, Exists, CallSubquery, CypherQuery, PatternComprehension>;
+    SubtractionOperator, MultiplicationOperator, DivisionOperator, ModOperator, ExponentiationOperator,
+    NotEqualOperator, EqualOperator, LessOperator, GreaterOperator, LessEqualOperator, GreaterEqualOperator,
+    RangeOperator, InListOperator, SubscriptOperator, ListSlicingOperator, IfOperator, UnaryPlusOperator,
+    UnaryMinusOperator, IsNullOperator, ListLiteral, MapLiteral, MapProjectionLiteral, PropertyLookup,
+    AllPropertiesLookup, LabelsTest, Aggregation, Function, Reduce, Coalesce, Extract, All, Single, Any, None,
+    CallProcedure, Create, Match, Return, With, Pattern, NodeAtom, EdgeAtom, Delete, Where, SetProperty, SetProperties,
+    SetLabels, RemoveProperty, RemoveLabels, Merge, Unwind, RegexMatch, LoadCsv, Foreach, Exists, CallSubquery,
+    CypherQuery, PatternComprehension>;
 
 using TreeLeafVisitor = utils::LeafVisitor<Identifier, PrimitiveLiteral, ParameterLookup, EnumValueAccess>;
 
@@ -151,23 +154,23 @@ template <class TResult>
 class ExpressionVisitor
     : public utils::Visitor<
           TResult, NamedExpression, OrOperator, XorOperator, AndOperator, NotOperator, AdditionOperator,
-          SubtractionOperator, MultiplicationOperator, DivisionOperator, ModOperator, NotEqualOperator, EqualOperator,
-          LessOperator, GreaterOperator, LessEqualOperator, GreaterEqualOperator, RangeOperator, InListOperator,
-          SubscriptOperator, ListSlicingOperator, IfOperator, UnaryPlusOperator, UnaryMinusOperator, IsNullOperator,
-          ListLiteral, MapLiteral, MapProjectionLiteral, PropertyLookup, AllPropertiesLookup, LabelsTest, Aggregation,
-          Function, Reduce, Coalesce, Extract, All, Single, Any, None, ParameterLookup, Identifier, PrimitiveLiteral,
-          RegexMatch, Exists, PatternComprehension, EnumValueAccess> {};
+          SubtractionOperator, MultiplicationOperator, DivisionOperator, ModOperator, ExponentiationOperator,
+          NotEqualOperator, EqualOperator, LessOperator, GreaterOperator, LessEqualOperator, GreaterEqualOperator,
+          RangeOperator, InListOperator, SubscriptOperator, ListSlicingOperator, IfOperator, UnaryPlusOperator,
+          UnaryMinusOperator, IsNullOperator, ListLiteral, MapLiteral, MapProjectionLiteral, PropertyLookup,
+          AllPropertiesLookup, LabelsTest, Aggregation, Function, Reduce, Coalesce, Extract, All, Single, Any, None,
+          ParameterLookup, Identifier, PrimitiveLiteral, RegexMatch, Exists, PatternComprehension, EnumValueAccess> {};
 
 template <class TResult>
 class QueryVisitor
-    : public utils::Visitor<TResult, CypherQuery, ExplainQuery, ProfileQuery, IndexQuery, EdgeIndexQuery,
-                            PointIndexQuery, TextIndexQuery, AuthQuery, DatabaseInfoQuery, SystemInfoQuery,
-                            ConstraintQuery, DumpQuery, ReplicationQuery, LockPathQuery, FreeMemoryQuery, TriggerQuery,
-                            IsolationLevelQuery, CreateSnapshotQuery, RecoverSnapshotQuery, ShowSnapshotsQuery,
-                            StreamQuery, SettingQuery, VersionQuery, ShowConfigQuery, TransactionQueueQuery,
-                            StorageModeQuery, AnalyzeGraphQuery, MultiDatabaseQuery, ShowDatabasesQuery,
-                            EdgeImportModeQuery, CoordinatorQuery, DropGraphQuery, CreateEnumQuery, ShowEnumsQuery,
-                            AlterEnumAddValueQuery, AlterEnumUpdateValueQuery, AlterEnumRemoveValueQuery, DropEnumQuery,
-                            ShowSchemaInfoQuery, TtlQuery, SessionTraceQuery> {};
+    : public utils::Visitor<
+          TResult, CypherQuery, ExplainQuery, ProfileQuery, IndexQuery, EdgeIndexQuery, PointIndexQuery, TextIndexQuery,
+          VectorIndexQuery, AuthQuery, DatabaseInfoQuery, SystemInfoQuery, ConstraintQuery, DumpQuery, ReplicationQuery,
+          LockPathQuery, FreeMemoryQuery, TriggerQuery, IsolationLevelQuery, CreateSnapshotQuery, RecoverSnapshotQuery,
+          ShowSnapshotsQuery, StreamQuery, SettingQuery, VersionQuery, ShowConfigQuery, TransactionQueueQuery,
+          StorageModeQuery, AnalyzeGraphQuery, MultiDatabaseQuery, ShowDatabasesQuery, EdgeImportModeQuery,
+          CoordinatorQuery, DropGraphQuery, CreateEnumQuery, ShowEnumsQuery, AlterEnumAddValueQuery,
+          AlterEnumUpdateValueQuery, AlterEnumRemoveValueQuery, DropEnumQuery, ShowSchemaInfoQuery, TtlQuery,
+          SessionTraceQuery> {};
 
 }  // namespace memgraph::query

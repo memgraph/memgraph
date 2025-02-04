@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -81,6 +81,8 @@ enum class Marker : uint8_t {
   DELTA_POINT_INDEX_DROP = 0x6f,
   DELTA_TYPE_CONSTRAINT_CREATE = 0x70,
   DELTA_TYPE_CONSTRAINT_DROP = 0x71,
+  DELTA_VECTOR_INDEX_CREATE = 0x72,
+  DELTA_VECTOR_INDEX_DROP = 0x73,
 
   VALUE_FALSE = 0x00,
   VALUE_TRUE = 0xff,
@@ -88,7 +90,7 @@ enum class Marker : uint8_t {
 
 /// List of all available markers.
 /// IMPORTANT: Don't forget to update this list when you add a new Marker.
-static const Marker kMarkersAll[] = {
+static constexpr Marker kMarkersAll[] = {
     Marker::TYPE_NULL,
     Marker::TYPE_BOOL,
     Marker::TYPE_INT,
@@ -147,6 +149,8 @@ static const Marker kMarkersAll[] = {
     Marker::DELTA_POINT_INDEX_DROP,
     Marker::DELTA_TYPE_CONSTRAINT_CREATE,
     Marker::DELTA_TYPE_CONSTRAINT_DROP,
+    Marker::DELTA_VECTOR_INDEX_CREATE,
+    Marker::DELTA_VECTOR_INDEX_DROP,
     Marker::VALUE_FALSE,
     Marker::VALUE_TRUE,
 };

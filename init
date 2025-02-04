@@ -1,8 +1,6 @@
 #!/bin/bash -e
-
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$DIR"
-
 source "$DIR/environment/util.sh"
 
 DISTRO=$(operating_system)
@@ -98,27 +96,13 @@ else
   fi
 fi
 
-# setup gql_behave dependencies
 setup_virtualenv tests/gql_behave
-
-# setup stress dependencies
 setup_virtualenv tests/stress
-
-# setup integration/ldap dependencies
 setup_virtualenv tests/integration/ldap
-
-# Setup tests dependencies.
-# NOTE: This is commented out because of the build order (at the time of
-# execution mgclient is not built yet) which makes this setup to fail. mgclient
-# is built during the make phase. The tests/setup.sh is called under GHA CI
-# jobs.
-# cd tests
-# ./setup.sh
-# cd ..
-# TODO(gitbuda): Remove setup_virtualenv, replace it with tests/ve3. Take care
-# of the build order because tests/setup.py builds pymgclient which depends on
-# mgclient which is build after this script by calling make.
-
+setup_virtualenv tests/query_modules
+cd tests
+./setup.sh
+cd ..
 echo "Done installing dependencies for Memgraph"
 
 echo "Linking git hooks OR skip if .git folder is not there"
@@ -136,13 +120,14 @@ fi
 # packages.
 if [[ "$ci" == "false" ]]; then
   if [ "${DISTRO}" != "centos-7" ] && [ "$DISTRO" != "debian-10" ] && [ "${DISTRO}" != "ubuntu-18.04" ] && [ "${DISTRO}" != "amzn-2" ]; then
-    python3 -m pip install pre-commit
+    python3 -m pip install --break-system-packages --upgrade pip
+    python3 -m pip install --break-system-packages pre-commit
     python3 -m pre_commit install
     # Install py format tools for usage during the development.
     echo "Install black formatter"
-    python3 -m pip install black==23.1.*
+    python3 -m pip install --break-system-packages black==23.1.*
     echo "Install isort"
-    python3 -m pip install isort==5.12.*
+    python3 -m pip install --break-system-packages isort==5.12.*
   fi
 fi
 

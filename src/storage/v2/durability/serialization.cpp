@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -212,12 +212,24 @@ size_t Encoder::GetSize() { return file_.GetSize(); }
 //////////////////////////
 
 namespace {
-std::optional<Marker> CastToMarker(uint8_t value) {
-  for (auto marker : kMarkersAll) {
-    if (static_cast<uint8_t>(marker) == value) {
-      return marker;
+
+constexpr bool isValidMarkerValue(uint8_t v) {
+  // build lookup bitmaps
+  // 0b1100'0000 - top two bits, bitmap selector (2^2 == 4), hence 4 bitmaps
+  // 0b0011'0000 - bottom 6 bits, bitmap position (2^6 == 64), hence uint64_t
+  constexpr auto validMarkerBitMaps = std::invoke([] {
+    auto arr = std::array<uint64_t, 4>{};
+    for (auto const valid_marker : kMarkersAll) {
+      auto const as_u8 = static_cast<uint8_t>(valid_marker);
+      arr[as_u8 >> 6UL] |= (1UL << (as_u8 & 0x3FUL));
     }
-  }
+    return arr;
+  });
+  return validMarkerBitMaps[v >> 6UL] & (1UL << (v & 0x3FUL));
+}
+
+std::optional<Marker> CastToMarker(uint8_t value) {
+  if (isValidMarkerValue(value)) return static_cast<Marker>(value);
   return std::nullopt;
 }
 
@@ -246,17 +258,13 @@ bool Decoder::Peek(uint8_t *data, size_t size) { return file_.Peek(data, size); 
 std::optional<Marker> Decoder::PeekMarker() {
   uint8_t value;
   if (!Peek(&value, sizeof(value))) return std::nullopt;
-  auto marker = CastToMarker(value);
-  if (!marker) return std::nullopt;
-  return *marker;
+  return CastToMarker(value);
 }
 
 std::optional<Marker> Decoder::ReadMarker() {
   uint8_t value;
   if (!Read(&value, sizeof(value))) return std::nullopt;
-  auto marker = CastToMarker(value);
-  if (!marker) return std::nullopt;
-  return *marker;
+  return CastToMarker(value);
 }
 
 std::optional<bool> Decoder::ReadBool() {
@@ -272,8 +280,7 @@ std::optional<uint64_t> Decoder::ReadUint() {
   if (!marker || *marker != Marker::TYPE_INT) return std::nullopt;
   uint64_t value;
   if (!Read(reinterpret_cast<uint8_t *>(&value), sizeof(value))) return std::nullopt;
-  value = utils::LittleEndianToHost(value);
-  return value;
+  return utils::LittleEndianToHost(value);
 }
 
 std::optional<double> Decoder::ReadDouble() {
@@ -282,8 +289,7 @@ std::optional<double> Decoder::ReadDouble() {
   uint64_t value_int;
   if (!Read(reinterpret_cast<uint8_t *>(&value_int), sizeof(value_int))) return std::nullopt;
   value_int = utils::LittleEndianToHost(value_int);
-  auto value = utils::MemcpyCast<double>(value_int);
-  return value;
+  return utils::MemcpyCast<double>(value_int);
 }
 
 std::optional<std::string> Decoder::ReadString() {
@@ -533,6 +539,8 @@ std::optional<PropertyValue> Decoder::ReadPropertyValue() {
     case Marker::DELTA_ENUM_ALTER_UPDATE:
     case Marker::DELTA_POINT_INDEX_CREATE:
     case Marker::DELTA_POINT_INDEX_DROP:
+    case Marker::DELTA_VECTOR_INDEX_CREATE:
+    case Marker::DELTA_VECTOR_INDEX_DROP:
     case Marker::DELTA_TYPE_CONSTRAINT_CREATE:
     case Marker::DELTA_TYPE_CONSTRAINT_DROP:
     case Marker::VALUE_FALSE:
@@ -663,6 +671,8 @@ bool Decoder::SkipPropertyValue() {
     case Marker::DELTA_ENUM_ALTER_UPDATE:
     case Marker::DELTA_POINT_INDEX_CREATE:
     case Marker::DELTA_POINT_INDEX_DROP:
+    case Marker::DELTA_VECTOR_INDEX_CREATE:
+    case Marker::DELTA_VECTOR_INDEX_DROP:
     case Marker::DELTA_TYPE_CONSTRAINT_CREATE:
     case Marker::DELTA_TYPE_CONSTRAINT_DROP:
     case Marker::VALUE_FALSE:

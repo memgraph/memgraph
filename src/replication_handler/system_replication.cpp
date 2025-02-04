@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -24,25 +24,26 @@ namespace memgraph::replication {
 #ifdef MG_ENTERPRISE
 void SystemHeartbeatHandler(const uint64_t ts, const std::optional<utils::UUID> &current_main_uuid,
                             slk::Reader *req_reader, slk::Builder *res_builder) {
-  replication::SystemHeartbeatRes res{0};
-
   // Ignore if no license
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
-    spdlog::error("Handling SystemHeartbeat, an enterprise RPC message, without license.");
+    spdlog::error(
+        "Handling SystemHeartbeat, an enterprise RPC message, without license. Check your license status by running "
+        "SHOW LICENSE INFO.");
+    SystemHeartbeatRes const res{0};
     memgraph::slk::Save(res, res_builder);
     return;
   }
-  replication::SystemHeartbeatReq req;
-  replication::SystemHeartbeatReq::Load(&req, req_reader);
+  SystemHeartbeatReq req;
+  SystemHeartbeatReq::Load(&req, req_reader);
 
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
-    LogWrongMain(current_main_uuid, req.main_uuid, replication::SystemHeartbeatRes::kType.name);
-    replication::SystemHeartbeatRes res(-1);
+    LogWrongMain(current_main_uuid, req.main_uuid, SystemHeartbeatRes::kType.name);
+    SystemHeartbeatRes const res(-1);
     memgraph::slk::Save(res, res_builder);
     return;
   }
 
-  res = replication::SystemHeartbeatRes{ts};
+  SystemHeartbeatRes const res(ts);
   memgraph::slk::Save(res, res_builder);
 }
 
@@ -94,7 +95,7 @@ void Register(replication::RoleReplicaData const &data, system::System &system, 
         SystemHeartbeatHandler(system_state_access.LastCommitedTS(), data.uuid_, req_reader, res_builder);
       });
 
-  // Needed even with experimental_system_replication=false becasue
+  // Needed even with experimental_system_replication=false because
   // need to tell REPLICA the uuid to use for "memgraph" default database
   data.server->rpc_server_.Register<replication::SystemRecoveryRpc>(
       [&data, system_state_access, &dbms_handler, &auth](auto *req_reader, auto *res_builder) mutable {

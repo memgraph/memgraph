@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,6 +26,7 @@
 #include "utils/flag_validation.hpp"
 #include "utils/logging.hpp"
 #include "utils/observer.hpp"
+#include "utils/result.hpp"
 #include "utils/rw_spin_lock.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/settings.hpp"
@@ -160,9 +161,12 @@ auto ToLLEnum(std::string_view val) {
   return *ll_enum;
 }
 
-bool ValidBoolStr(std::string_view in) {
+memgraph::utils::Settings::ValidatorResult ValidBoolStr(std::string_view in) {
   const auto lc = memgraph::utils::ToLowerCase(in);
-  return lc == "false" || lc == "true";
+  if (lc != "false" && lc != "true") {
+    return {"Boolean value supports only 'false' or 'true' as the input."};
+  }
+  return {};
 }
 
 auto GenHandler(std::string flag, std::string key) {
@@ -216,7 +220,9 @@ bool ValidPeriodicSnapshot(const std::string_view def) {
     // NOTE: Cron is an enterprise feature
     const auto cron = cron::make_cron(def);
     if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-      constexpr std::string_view msg = "Defining snapshot schedule via cron expressions is an enterprise feature.";
+      constexpr std::string_view msg =
+          "Defining snapshot schedule via cron expressions is an enterprise feature. Check your license status by "
+          "running SHOW LICENSE INFO.";
       if constexpr (FATAL) {
         LOG_FATAL(msg);
       }
@@ -254,7 +260,8 @@ void Initialize() {
   auto register_flag = [&](
                            const std::string &flag, const std::string &key, bool restore,
                            std::function<void(const std::string &)> post_update = [](auto) {},
-                           std::function<bool(std::string_view)> validator = [](std::string_view) { return true; }) {
+                           utils::Settings::Validation validator =
+                               [](std::string_view) -> utils::Settings::ValidatorResult { return {}; }) {
     // Get flag info
     gflags::CommandLineFlagInfo info;
     gflags::GetCommandLineFlagInfo(flag.c_str(), &info);
@@ -265,7 +272,7 @@ void Initialize() {
       post_update(val);
     };
     // Register setting
-    memgraph::utils::global_settings.RegisterSetting(key, info.default_value, callback, validator);
+    memgraph::utils::global_settings.RegisterSetting(key, info.default_value, callback, std::move(validator));
 
     if (restore && info.is_default) {
       // No input from the user, restore persistent value from settings
@@ -305,7 +312,13 @@ void Initialize() {
         spdlog::set_level(ll_enum);
         UpdateStderr(ll_enum);  // Updates level if active
       },
-      memgraph::flags::ValidLogLevel);
+      [](auto in) -> utils::Settings::ValidatorResult {
+        if (!memgraph::flags::ValidLogLevel(in)) {
+          return {"Unsupported log level. Log level must be defined as one of the following strings: " +
+                  allowed_log_levels};
+        }
+        return {};
+      });
 
   /*
    * Register logging to stderr
@@ -338,7 +351,12 @@ void Initialize() {
       [](const std::string &val) {
         timezone_ = ::GetTimezone(val);  // Cache for faster access
       },
-      ValidTimezone);
+      [](auto in) -> utils::Settings::ValidatorResult {
+        if (!ValidTimezone(in)) {
+          return {"Timezone names must follow the IANA standard. Please note that the names are case-sensitive."};
+        }
+        return {};
+      });
 
   /*
    * Register query log directory setting
@@ -372,7 +390,14 @@ void Initialize() {
           snapshot_periodic_.Modify(std::string{val});
         }
       },
-      ValidPeriodicSnapshot<false>);
+      [](auto in) -> utils::Settings::ValidatorResult {
+        if (!ValidPeriodicSnapshot<false>(in)) {
+          return {
+              "Snapshot interval can be defined as an integer period in seconds or as a 6-field cron expression. "
+              "Please note that a valid license is needed in order to use cron expressions."};
+        }
+        return {};
+      });
 }
 
 std::string GetServerName() {

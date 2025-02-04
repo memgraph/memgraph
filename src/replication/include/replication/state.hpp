@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,7 +20,6 @@
 #include "replication_server.hpp"
 #include "status.hpp"
 #include "utils/result.hpp"
-#include "utils/synchronized.hpp"
 #include "utils/uuid.hpp"
 
 #include <atomic>
@@ -38,12 +37,8 @@ enum class RegisterReplicaStatus : uint8_t { NAME_EXISTS, ENDPOINT_EXISTS, COULD
 
 struct RoleMainData {
   RoleMainData() = default;
-  explicit RoleMainData(ReplicationEpoch e, bool writing_enabled, std::optional<utils::UUID> uuid = std::nullopt)
-      : epoch_(std::move(e)), writing_enabled_(writing_enabled) {
-    if (uuid) {
-      uuid_ = *uuid;
-    }
-  }
+  explicit RoleMainData(ReplicationEpoch e, bool writing_enabled, utils::UUID uuid)
+      : epoch_(std::move(e)), uuid_(uuid), writing_enabled_(writing_enabled) {}
   ~RoleMainData() = default;
 
   RoleMainData(RoleMainData const &) = delete;
@@ -53,7 +48,8 @@ struct RoleMainData {
 
   ReplicationEpoch epoch_;
   std::list<ReplicationClient> registered_replicas_{};  // TODO: data race issues
-  utils::UUID uuid_;
+  utils::UUID uuid_;  // also used in ReplicationStorageClient but important thing is that at both places, the value is
+  // immutable.
   bool writing_enabled_{false};
 };
 
@@ -109,6 +105,11 @@ struct ReplicationState {
   auto GetMainRole() -> RoleMainData & {
     MG_ASSERT(IsMain(), "Instance is not MAIN");
     return std::get<RoleMainData>(replication_data_);
+  }
+
+  auto GetReplicaRole() -> RoleReplicaData & {
+    MG_ASSERT(!IsMain(), "Instance is MAIN");
+    return std::get<RoleReplicaData>(replication_data_);
   }
 
   bool HasDurability() const { return nullptr != durability_; }

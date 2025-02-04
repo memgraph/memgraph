@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,8 +18,6 @@
 #include <string>
 
 #include <json/json.hpp>
-
-#include "query/procedure/mg_procedure_impl.hpp"
 
 namespace memgraph::query::stream {
 
@@ -41,31 +39,6 @@ concept ConvertableToJson = requires(T value, nlohmann::json data) {
   { from_json(data, value) } -> std::same_as<void>;
 };
 
-template <typename T>
-concept ConvertableToMgpMessage = requires(T value) {
-  mgp_message{value};
-};
-
-template <typename TStream>
-concept Stream = requires(TStream stream) {
-  typename TStream::StreamInfo;
-  typename TStream::Message;
-  TStream{std::string{""}, typename TStream::StreamInfo{}, ConsumerFunction<typename TStream::Message>{}};
-  { stream.Start() } -> std::same_as<void>;
-  { stream.StartWithLimit(uint64_t{}, std::optional<std::chrono::milliseconds>{}) } -> std::same_as<void>;
-  { stream.Stop() } -> std::same_as<void>;
-  { stream.IsRunning() } -> std::same_as<bool>;
-  {
-    stream.Check(std::optional<std::chrono::milliseconds>{}, std::optional<uint64_t>{},
-                 ConsumerFunction<typename TStream::Message>{})
-    } -> std::same_as<void>;
-  requires std::same_as<std::decay_t<decltype(std::declval<typename TStream::StreamInfo>().common_info)>,
-                        CommonStreamInfo>;
-
-  requires ConvertableToMgpMessage<typename TStream::Message>;
-  requires ConvertableToJson<typename TStream::StreamInfo>;
-};
-
 enum class StreamSourceType : uint8_t { KAFKA, PULSAR };
 
 constexpr std::string_view StreamSourceTypeToString(StreamSourceType type) {
@@ -77,7 +50,7 @@ constexpr std::string_view StreamSourceTypeToString(StreamSourceType type) {
   }
 }
 
-template <Stream T>
+template <typename T>
 StreamSourceType StreamType(const T & /*stream*/);
 
 const std::string kCommonInfoKey = "common_info";

@@ -1,5 +1,5 @@
 find_package(gflags REQUIRED)
-find_package(Boost REQUIRED)
+find_package(Boost REQUIRED CONFIG)
 
 add_executable(memgraph__e2e__monitoring_server monitoring.cpp)
 target_link_libraries(memgraph__e2e__monitoring_server mgclient mg-utils json gflags Boost::headers)

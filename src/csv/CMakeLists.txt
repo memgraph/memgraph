@@ -9,7 +9,7 @@ target_sources(mg-csv
         )
 target_include_directories(mg-csv PUBLIC include)
 
-find_package(Boost REQUIRED COMPONENTS iostreams)
+find_package(Boost REQUIRED CONFIG COMPONENTS iostreams)
 target_link_libraries(mg-csv
         PUBLIC mg-utils
         PRIVATE lib::ctre mg-requests Boost::iostreams
