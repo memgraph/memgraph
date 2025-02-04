@@ -1147,13 +1147,18 @@ EXPECT_EQ(session.state_, State::Close);
       0x00,
   };
   EXPECT_EQ(input_stream.size(), 0U);
-  CheckOutput(output, expected_resp, sizeof(expected_resp));
+  auto to_validate = std::span<uint8_t const>{output};
+  CheckOutput(to_validate, expected_resp, sizeof(expected_resp));
+  output.clear();
+
   EXPECT_EQ(session.state_, State::Error);
 
   SCOPED_TRACE("Try to reset connection after ROUTE failed");
   ASSERT_NO_THROW(ExecuteCommand(input_stream, session, v4::reset_req, sizeof(v4::reset_req)));
   EXPECT_EQ(input_stream.size(), 0U);
-  CheckOutput(output, success_resp, sizeof(success_resp));
+  to_validate = std::span<uint8_t const>{output};
+  CheckOutput(to_validate, success_resp, sizeof(success_resp));
+  output.clear();
   EXPECT_EQ(session.state_, State::Idle);
 }
 #endif
