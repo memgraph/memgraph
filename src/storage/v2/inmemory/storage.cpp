@@ -2628,10 +2628,9 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
     repl_storage_state_.last_durable_timestamp_ = recovery_info.next_timestamp - 1;
 
     spdlog::trace("Recovering indices and constraints from snapshot.");
-    durability::RecoverIndicesAndStats(recovered_snapshot.indices_constraints.indices, &indices_, &vertices_,
-                                       name_id_mapper_.get(), config_.salient.items.properties_on_edges);
-    durability::RecoverConstraints(recovered_snapshot.indices_constraints.constraints, &constraints_, &vertices_,
-                                   name_id_mapper_.get());
+    storage::durability::RecoverIndicesStatsAndConstraints(
+        &vertices_, name_id_mapper_.get(), &indices_, &constraints_, config_, recovery_info,
+        recovered_snapshot.indices_constraints, config_.salient.items.properties_on_edges);
 
     spdlog::trace("Successfully recovered from snapshot {}", local_path);
 
