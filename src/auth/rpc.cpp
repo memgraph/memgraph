@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -105,6 +105,7 @@ void Load(memgraph::replication::UpdateAuthDataReq *self, memgraph::slk::Reader 
 
 // Serialize code for UpdateAuthDataRes
 void Save(const memgraph::replication::UpdateAuthDataRes &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::SerializeResHeader(self, builder);
   memgraph::slk::Save(self.success, builder);
 }
 void Load(memgraph::replication::UpdateAuthDataRes *self, memgraph::slk::Reader *reader) {
@@ -135,6 +136,7 @@ void Load(memgraph::replication::DropAuthDataReq *self, memgraph::slk::Reader *r
 
 // Serialize code for DropAuthDataRes
 void Save(const memgraph::replication::DropAuthDataRes &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::SerializeResHeader(self, builder);
   memgraph::slk::Save(self.success, builder);
 }
 void Load(memgraph::replication::DropAuthDataRes *self, memgraph::slk::Reader *reader) {

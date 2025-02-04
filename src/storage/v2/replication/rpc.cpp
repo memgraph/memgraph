@@ -36,6 +36,7 @@ void HeartbeatReq::Save(const HeartbeatReq &self, memgraph::slk::Builder *builde
 
 void HeartbeatReq::Load(HeartbeatReq *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
 void HeartbeatRes::Save(const HeartbeatRes &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::SerializeResHeader(self, builder);
   memgraph::slk::Save(self, builder);
 }
 void HeartbeatRes::Load(HeartbeatRes *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
@@ -129,6 +130,7 @@ namespace slk {
 // Serialize code for TimestampRes
 
 void Save(const memgraph::storage::replication::TimestampRes &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::SerializeResHeader(self, builder);
   memgraph::slk::Save(self.success, builder);
   memgraph::slk::Save(self.current_commit_timestamp, builder);
 }
@@ -153,6 +155,7 @@ void Load(memgraph::storage::replication::TimestampReq *self, memgraph::slk::Rea
 // Serialize code for CurrentWalRes
 
 void Save(const memgraph::storage::replication::CurrentWalRes &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::SerializeResHeader(self, builder);
   memgraph::slk::Save(self.current_commit_timestamp, builder);
 }
 
@@ -175,6 +178,7 @@ void Load(memgraph::storage::replication::CurrentWalReq *self, memgraph::slk::Re
 // Serialize code for WalFilesRes
 
 void Save(const memgraph::storage::replication::WalFilesRes &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::SerializeResHeader(self, builder);
   memgraph::slk::Save(self.current_commit_timestamp, builder);
 }
 
@@ -199,6 +203,7 @@ void Load(memgraph::storage::replication::WalFilesReq *self, memgraph::slk::Read
 // Serialize code for SnapshotRes
 
 void Save(const memgraph::storage::replication::SnapshotRes &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::SerializeResHeader(self, builder);
   memgraph::slk::Save(self.current_commit_timestamp, builder);
 }
 
@@ -221,6 +226,7 @@ void Load(memgraph::storage::replication::SnapshotReq *self, memgraph::slk::Read
 // Serialize code for HeartbeatRes
 
 void Save(const memgraph::storage::replication::HeartbeatRes &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::SerializeResHeader(self, builder);
   memgraph::slk::Save(self.success, builder);
   memgraph::slk::Save(self.current_commit_timestamp, builder);
   memgraph::slk::Save(self.epoch_id, builder);
@@ -251,6 +257,7 @@ void Load(memgraph::storage::replication::HeartbeatReq *self, memgraph::slk::Rea
 // Serialize code for AppendDeltasRes
 
 void Save(const memgraph::storage::replication::AppendDeltasRes &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::SerializeResHeader(self, builder);
   slk::Save(storage::replication::AppendDeltasRes::kType.id, builder);
   slk::Save(rpc::current_version, builder);
   slk::Save(self.success, builder);
@@ -277,6 +284,7 @@ void Load(memgraph::storage::replication::AppendDeltasReq *self, memgraph::slk::
 }
 
 void SendInProgressMsg(Builder *builder) {
+  MG_ASSERT(builder->IsEmpty(), "InProgress RPC message can only be sent when the builder's buffer is empty.");
   Save(storage::replication::InProgressRes::kType.id, builder);
   Save(rpc::current_version, builder);
   builder->Finalize();
@@ -297,6 +305,7 @@ void Load(memgraph::storage::replication::ForceResetStorageReq *self, memgraph::
 // Serialize code for ForceResetStorageRes
 
 void Save(const memgraph::storage::replication::ForceResetStorageRes &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::SerializeResHeader(self, builder);
   memgraph::slk::Save(self.success, builder);
   memgraph::slk::Save(self.current_commit_timestamp, builder);
 }

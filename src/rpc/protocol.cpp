@@ -77,13 +77,9 @@ void Session::Execute() {
     throw SessionException("Session trying to execute an unregistered RPC call!");
   }
 
-  // slk::Save(it->second.res_type.id, &res_builder);
-  // slk::Save(rpc::current_version, &res_builder);
   spdlog::trace("[RpcServer] received {}", it->second.req_type.name);
   try {
-    spdlog::trace("[RpcServer] started executing callback");
     it->second.callback(&req_reader, &res_builder);
-    spdlog::trace("[RpcServer] finished executing callback");
   } catch (const slk::SlkReaderException &e) {
     spdlog::error("Error occurred in the callback: {}", e.what());
     throw rpc::SlkRpcFailedException();
@@ -91,7 +87,6 @@ void Session::Execute() {
 
   // Finalize the SLK streams.
   req_reader.Finalize();
-  spdlog::trace("[RpcServer] finalized req reader.");
   res_builder.Finalize();
   spdlog::trace("[RpcServer] finalized res builder.");
 }

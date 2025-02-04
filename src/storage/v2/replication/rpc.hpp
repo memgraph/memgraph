@@ -12,6 +12,7 @@
 #pragma once
 
 #include <cstdint>
+#include <rpc/version.hpp>
 #include <string>
 #include <utility>
 

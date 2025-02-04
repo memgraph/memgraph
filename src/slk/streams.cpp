@@ -20,6 +20,8 @@ namespace memgraph::slk {
 
 Builder::Builder(std::function<void(const uint8_t *, size_t, bool)> write_func) : write_func_(std::move(write_func)) {}
 
+bool Builder::IsEmpty() const { return pos_ == 0; }
+
 void Builder::Save(const uint8_t *data, uint64_t size) {
   size_t offset = 0;
   while (size > 0) {
@@ -40,7 +42,6 @@ void Builder::Finalize() { FlushSegment(true); }
 
 void Builder::FlushSegment(bool final_segment) {
   if (!final_segment && pos_ < kSegmentMaxDataSize) return;
-  // TODO: (andi) Consider removing
   MG_ASSERT(pos_ > 0, "Trying to flush out a segment that has no data in it!");
 
   size_t total_size = sizeof(SegmentSize) + pos_;

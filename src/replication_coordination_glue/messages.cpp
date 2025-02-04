@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,7 +16,9 @@
 
 namespace memgraph::slk {
 // Serialize code for FrequentHeartbeatRes
-void Save(const memgraph::replication_coordination_glue::FrequentHeartbeatRes &self, memgraph::slk::Builder *builder) {}
+void Save(const memgraph::replication_coordination_glue::FrequentHeartbeatRes &self, memgraph::slk::Builder *builder) {
+  slk::SerializeResHeader(self, builder);
+}
 void Load(memgraph::replication_coordination_glue::FrequentHeartbeatRes *self, memgraph::slk::Reader *reader) {}
 
 // Serialize code for FrequentHeartbeatReq
@@ -32,6 +34,7 @@ void Load(memgraph::replication_coordination_glue::FrequentHeartbeatReq * /*self
 // Serialize code for SwapMainUUIDRes
 
 void Save(const memgraph::replication_coordination_glue::SwapMainUUIDRes &self, memgraph::slk::Builder *builder) {
+  slk::SerializeResHeader(self, builder);
   memgraph::slk::Save(self.success, builder);
 }
 

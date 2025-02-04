@@ -36,7 +36,10 @@ void Load(SumReq *sum, Reader *reader) {
   Load(&sum->y, reader);
 }
 
-void Save(const SumRes &res, Builder *builder) { Save(res.sum, builder); }
+void Save(const SumRes &self, Builder *builder) {
+  memgraph::slk::SerializeResHeader(self, builder);
+  Save(self.sum, builder);
+}
 
 void Load(SumRes *res, Reader *reader) { Load(&res->sum, reader); }
 
@@ -51,6 +54,7 @@ void SumReq::Save(const SumReq &obj, memgraph::slk::Builder *builder) { memgraph
 void SumRes::Load(SumRes *obj, memgraph::slk::Reader *reader) { memgraph::slk::Load(obj, reader); }
 void SumRes::Save(const SumRes &obj, memgraph::slk::Builder *builder) { memgraph::slk::Save(obj, builder); }
 
+// TODO: (andi) Remove echo message usage
 void EchoMessage::Load(EchoMessage *obj, memgraph::slk::Reader *reader) { memgraph::slk::Load(obj, reader); }
 void EchoMessage::Save(const EchoMessage &obj, memgraph::slk::Builder *builder) { memgraph::slk::Save(obj, builder); }
 

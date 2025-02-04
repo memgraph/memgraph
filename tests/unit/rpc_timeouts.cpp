@@ -40,7 +40,10 @@ void Load(SumReq *sum, Reader *reader) {
   Load(&sum->y, reader);
 }
 
-void Save(const SumRes &res, Builder *builder) { Save(res.sum, builder); }
+void Save(const SumRes &res, Builder *builder) {
+  memgraph::slk::SerializeResHeader(res, builder);
+  Save(res.sum, builder);
+}
 
 void Load(SumRes *res, Reader *reader) { Load(&res->sum, reader); }
 
@@ -76,6 +79,7 @@ TEST(RpcTimeout, TimeoutNoFailure) {
     Load(&req, req_reader);
 
     EchoMessage res{"Sending reply"};
+    memgraph::slk::SerializeResHeader(res, res_builder);
     Save(res, res_builder);
   });
 
@@ -108,6 +112,7 @@ TEST(RpcTimeout, TimeoutExecutionBlocks) {
 
     std::this_thread::sleep_for(1100ms);
     EchoMessage res{"Sending reply"};
+    memgraph::slk::SerializeResHeader(res, res_builder);
     Save(res, res_builder);
   });
 
@@ -148,6 +153,7 @@ TEST(RpcTimeout, TimeoutServerBusy) {
     Load(&req, req_reader);
 
     EchoMessage res{"Sending reply"};
+    memgraph::slk::SerializeResHeader(res, res_builder);
     Save(res, res_builder);
   });
 
@@ -188,6 +194,7 @@ TEST(RpcTimeout, SendingToWrongSocket) {
 
     std::this_thread::sleep_for(1100ms);
     EchoMessage res{"Sending reply"};
+    memgraph::slk::SerializeResHeader(res, res_builder);
     Save(res, res_builder);
   });
 
