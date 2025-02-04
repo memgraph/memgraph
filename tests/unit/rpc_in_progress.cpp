@@ -43,15 +43,12 @@ void Load(SumReq *sum, Reader *reader) {
 
 void Save(const SumRes &res, Builder *builder) {
   Save(SumRes::kType.id, builder);
-  Save(memgraph::rpc::current_version, builder);
+  Save(rpc::current_version, builder);
   Save(res.sum, builder);
 }
 
 void Load(SumRes *res, Reader *reader) { Load(&res->sum, reader); }
 
-void Save(const EchoMessage &echo, Builder *builder) { Save(echo.data, builder); }
-
-void Load(EchoMessage *echo, Reader *reader) { Load(&echo->data, reader); }
 }  // namespace memgraph::slk
 
 void SumReq::Load(SumReq *obj, memgraph::slk::Reader *reader) { memgraph::slk::Load(obj, reader); }
@@ -59,9 +56,6 @@ void SumReq::Save(const SumReq &obj, memgraph::slk::Builder *builder) { memgraph
 
 void SumRes::Load(SumRes *obj, memgraph::slk::Reader *reader) { memgraph::slk::Load(obj, reader); }
 void SumRes::Save(const SumRes &obj, memgraph::slk::Builder *builder) { memgraph::slk::Save(obj, builder); }
-
-void EchoMessage::Load(EchoMessage *obj, memgraph::slk::Reader *reader) { memgraph::slk::Load(obj, reader); }
-void EchoMessage::Save(const EchoMessage &obj, memgraph::slk::Builder *builder) { memgraph::slk::Save(obj, builder); }
 
 constexpr int port{8182};
 
@@ -86,9 +80,7 @@ TEST(RpcInProgress, SingleProgress) {
 
     // Simulate work
     std::this_thread::sleep_for(100ms);
-    InProgressRes progress1;
-    Save(progress1, res_builder);
-    res_builder->Finalize();
+    memgraph::slk::SendInProgressMsg(res_builder);
     spdlog::trace("Saved InProgressRes");
 
     // Simulate done
@@ -129,9 +121,7 @@ TEST(RpcInProgress, Timeout) {
 
     // Simulate work
     std::this_thread::sleep_for(100ms);
-    InProgressRes progress1;
-    Save(progress1, res_builder);
-    res_builder->Finalize();
+    memgraph::slk::SendInProgressMsg(res_builder);
     spdlog::trace("Saved InProgressRes");
 
     // Simulate done

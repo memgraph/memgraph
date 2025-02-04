@@ -57,9 +57,6 @@ struct InProgressRes {
   static const utils::TypeInfo kType;
   static const utils::TypeInfo &GetTypeInfo() { return kType; }
 
-  static void Load(InProgressRes *self, memgraph::slk::Reader *reader);
-  static void Save(const InProgressRes &self, memgraph::slk::Builder *builder);
-
   InProgressRes() = default;
 };
 
@@ -291,9 +288,7 @@ void Save(const memgraph::storage::replication::HeartbeatReq &self, memgraph::sl
 
 void Load(memgraph::storage::replication::HeartbeatReq *self, memgraph::slk::Reader *reader);
 
-void Save(const memgraph::storage::replication::InProgressRes &self, memgraph::slk::Builder *builder);
-
-void Load(memgraph::storage::replication::InProgressRes *self, memgraph::slk::Reader *reader);
+void SendInProgressMsg(Builder *builder);
 
 void Save(const memgraph::storage::replication::AppendDeltasRes &self, memgraph::slk::Builder *builder);
 

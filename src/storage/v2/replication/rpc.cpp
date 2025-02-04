@@ -30,14 +30,10 @@ void AppendDeltasRes::Save(const AppendDeltasRes &self, memgraph::slk::Builder *
 }
 void AppendDeltasRes::Load(AppendDeltasRes *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
 
-void InProgressRes::Save(const InProgressRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self, builder);
-}
-void InProgressRes::Load(InProgressRes *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
-
 void HeartbeatReq::Save(const HeartbeatReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
 }
+
 void HeartbeatReq::Load(HeartbeatReq *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
 void HeartbeatRes::Save(const HeartbeatRes &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
@@ -280,13 +276,11 @@ void Load(memgraph::storage::replication::AppendDeltasReq *self, memgraph::slk::
   memgraph::slk::Load(&self->seq_num, reader);
 }
 
-// Serialize code for InProgressRes
-void Save(const memgraph::storage::replication::InProgressRes & /*self*/, memgraph::slk::Builder *builder) {
-  slk::Save(storage::replication::InProgressRes::kType.id, builder);
-  slk::Save(rpc::current_version, builder);
+void SendInProgressMsg(Builder *builder) {
+  Save(storage::replication::InProgressRes::kType.id, builder);
+  Save(rpc::current_version, builder);
+  builder->Finalize();
 }
-
-void Load(memgraph::storage::replication::InProgressRes *self, memgraph::slk::Reader *reader) {}
 
 // Serialize code for ForceResetStorageReq
 
