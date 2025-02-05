@@ -5380,7 +5380,7 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
     // can disable tracking on that arena if it is not
     // once we are done with procedure tracking
 
-    bool is_transaction_tracked = memgraph::memory::IsQueryTracked();
+    const bool is_transaction_tracked = memgraph::memory::IsQueryTracked();
 
     std::unique_ptr<utils::QueryMemoryTracker> tmp_query_tracker{};
     if (!is_transaction_tracked) {
@@ -5396,13 +5396,13 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
     // memory. Here we need to update tracking
     memgraph::memory::CreateOrContinueProcedureTracking(procedure_id, *memory_limit);
 
-    mgp_memory proc_memory{&memory_tracking_resource};
-    MG_ASSERT(result->signature == &proc.results);
-
-    utils::OnScopeExit on_scope_exit{[is_transaction_tracked]() {
+    const utils::OnScopeExit on_scope_exit{[is_transaction_tracked]() {
       memgraph::memory::PauseProcedureTracking();
       if (!is_transaction_tracked) memgraph::memory::StopTrackingCurrentThread();
     }};
+
+    mgp_memory proc_memory{&memory_tracking_resource};
+    MG_ASSERT(result->signature == &proc.results);
 
     // TODO: What about cross library boundary exceptions? OMG C++?!
     proc.cb(&proc_args, &graph, result, &proc_memory);

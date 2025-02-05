@@ -27,6 +27,7 @@ inline int &GetThreadTracked() {
 }
 
 inline auto &GetQueryTracker() {
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
   static thread_local utils::QueryMemoryTracker *query_memory_tracker_ = nullptr;
   return query_memory_tracker_;
 }

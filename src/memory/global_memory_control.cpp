@@ -63,11 +63,11 @@ void *my_alloc(extent_hooks_t *extent_hooks, void *new_addr, size_t size, size_t
   // This needs to be before, to throw exception in case of too big alloc
   if (*commit) [[likely]] {
     if (IsThreadTracked()) [[unlikely]] {
-      bool ok = TrackAllocOnCurrentThread(size);
+      const bool ok = TrackAllocOnCurrentThread(size);
       if (!ok) return nullptr;
     }
     // This needs to be here so it doesn't get incremented in case the first TrackAlloc throws an exception
-    bool ok = memgraph::utils::total_memory_tracker.Alloc(static_cast<int64_t>(size));
+    const bool ok = memgraph::utils::total_memory_tracker.Alloc(static_cast<int64_t>(size));
     if (!ok) return nullptr;
   }
 
@@ -124,11 +124,11 @@ static bool my_commit(extent_hooks_t *extent_hooks, void *addr, size_t size, siz
 
   [[maybe_unused]] auto blocker = memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker{};
   if (IsThreadTracked()) [[unlikely]] {
-    [[maybe_unused]] bool ok = TrackAllocOnCurrentThread(length);
+    [[maybe_unused]] const bool ok = TrackAllocOnCurrentThread(length);
     DMG_ASSERT(ok);
   }
 
-  [[maybe_unused]] auto ok = memgraph::utils::total_memory_tracker.Alloc(static_cast<int64_t>(length));
+  [[maybe_unused]] const auto ok = memgraph::utils::total_memory_tracker.Alloc(static_cast<int64_t>(length));
   DMG_ASSERT(ok);
 
   return false;
