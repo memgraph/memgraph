@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -71,42 +71,25 @@ void Session::Execute() {
   // acquiring the `mutex_` because we don't allow RPC registration after the
   // server was started so those two maps will never be updated when we `find`
   // over them.
-  auto it = server_->callbacks_.find(req_id);
-  auto extended_it = server_->extended_callbacks_.end();
+  auto const it = server_->callbacks_.find(req_id);
   if (it == server_->callbacks_.end()) {
-    // We couldn't find a regular callback to call, try to find an extended
-    // callback to call.
-    extended_it = server_->extended_callbacks_.find(req_id);
+    throw SessionException("Session trying to execute an unregistered RPC call!");
+  }
 
-    if (extended_it == server_->extended_callbacks_.end()) {
-      // Throw exception to close the socket and cleanup the session.
-      throw SessionException("Session trying to execute an unregistered RPC call!");
-    }
-    SPDLOG_TRACE("[RpcServer] received {}", extended_it->second.req_type.name);
-    slk::Save(extended_it->second.res_type.id, &res_builder);
-    slk::Save(rpc::current_version, &res_builder);
-    try {
-      extended_it->second.callback(endpoint_, &req_reader, &res_builder);
-    } catch (const slk::SlkReaderException &) {
-      throw rpc::SlkRpcFailedException();
-    }
-  } else {
-    SPDLOG_TRACE("[RpcServer] received {}", it->second.req_type.name);
-    slk::Save(it->second.res_type.id, &res_builder);
-    slk::Save(rpc::current_version, &res_builder);
-    try {
-      it->second.callback(&req_reader, &res_builder);
-    } catch (const slk::SlkReaderException &) {
-      throw rpc::SlkRpcFailedException();
-    }
+  spdlog::trace("[RpcServer] received {}", it->second.req_type.name);
+  slk::Save(it->second.res_type.id, &res_builder);
+  slk::Save(rpc::current_version, &res_builder);
+  try {
+    it->second.callback(&req_reader, &res_builder);
+  } catch (const slk::SlkReaderException &) {
+    throw rpc::SlkRpcFailedException();
   }
 
   // Finalize the SLK streams.
   req_reader.Finalize();
   res_builder.Finalize();
 
-  SPDLOG_TRACE("[RpcServer] sent {}",
-               (it != server_->callbacks_.end() ? it->second.res_type.name : extended_it->second.res_type.name));
+  spdlog::trace("[RpcServer] sent {}", it->second.res_type.name);
 }
 
 }  // namespace memgraph::rpc
