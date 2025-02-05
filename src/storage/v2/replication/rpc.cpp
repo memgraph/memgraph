@@ -36,7 +36,6 @@ void HeartbeatReq::Save(const HeartbeatReq &self, memgraph::slk::Builder *builde
 
 void HeartbeatReq::Load(HeartbeatReq *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
 void HeartbeatRes::Save(const HeartbeatRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::SerializeResHeader(self, builder);
   memgraph::slk::Save(self, builder);
 }
 void HeartbeatRes::Load(HeartbeatRes *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
@@ -258,8 +257,6 @@ void Load(memgraph::storage::replication::HeartbeatReq *self, memgraph::slk::Rea
 
 void Save(const memgraph::storage::replication::AppendDeltasRes &self, memgraph::slk::Builder *builder) {
   memgraph::slk::SerializeResHeader(self, builder);
-  slk::Save(storage::replication::AppendDeltasRes::kType.id, builder);
-  slk::Save(rpc::current_version, builder);
   slk::Save(self.success, builder);
 }
 

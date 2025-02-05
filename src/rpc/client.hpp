@@ -166,7 +166,6 @@ class Client {
           // Continue holding the lock
           spdlog::info("[RpcClient] Received InProgressRes RPC message from {}:{}. Waiting for {}.",
                        self_->endpoint_.GetAddress(), self_->endpoint_.GetPort(), final_res_type_name);
-          // TODO: (andi) Maybe needs loading response
           self_->client_->ShiftData(response_data_size);
           continue;
         }
