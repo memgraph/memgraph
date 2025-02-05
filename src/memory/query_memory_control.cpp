@@ -21,11 +21,6 @@ namespace memgraph::memory {
 
 namespace {
 
-inline int &GetThreadTracked() {
-  static thread_local int is_thread_tracked{0};
-  return is_thread_tracked;
-}
-
 inline auto &GetQueryTracker() {
   // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
   static thread_local utils::QueryMemoryTracker *query_memory_tracker_ = nullptr;
@@ -35,29 +30,37 @@ inline auto &GetQueryTracker() {
 }  // namespace
 
 bool TrackAllocOnCurrentThread(size_t size) {
+  // Read and check tracker before blocker as it wil temporarily reset the tracker
+  auto *const tracker = GetQueryTracker();
+  if (!tracker) return true;
+
   const ThreadTrackingBlocker
       blocker{};  // makes sure we cannot recursevly track allocations
                   // if allocations could happen here we would try to track that, which calls alloc
-  return !GetQueryTracker() || GetQueryTracker()->TrackAlloc(size);
+  return tracker->TrackAlloc(size);
 }
 
 void TrackFreeOnCurrentThread(size_t size) {
+  // Read and check tracker before blocker as it wil temporarily reset the tracker
+  auto *const tracker = GetQueryTracker();
+  if (!tracker) return;
+
   const ThreadTrackingBlocker
       blocker{};  // makes sure we cannot recursevly track allocations
                   // if allocations could happen here we would try to track that, which calls alloc
-  if (GetQueryTracker()) GetQueryTracker()->TrackFree(size);
+  tracker->TrackFree(size);
 }
 
-bool IsThreadTracked() { return GetThreadTracked() == 1; }
+bool IsThreadTracked() { return GetQueryTracker() != nullptr; }
 
-ThreadTrackingBlocker::ThreadTrackingBlocker() : prev_state_{GetThreadTracked()} {
+ThreadTrackingBlocker::ThreadTrackingBlocker() : prev_state_{GetQueryTracker()} {
   // Disable thread tracking
-  GetThreadTracked() = 0;
+  GetQueryTracker() = nullptr;
 }
 
 ThreadTrackingBlocker::~ThreadTrackingBlocker() {
   // Reset thread tracking to previous state
-  GetThreadTracked() = prev_state_;
+  GetQueryTracker() = static_cast<utils::QueryMemoryTracker *>(prev_state_);
 }
 
 #endif
@@ -65,22 +68,22 @@ ThreadTrackingBlocker::~ThreadTrackingBlocker() {
 void StartTrackingCurrentThread(utils::QueryMemoryTracker *tracker) {
 #if USE_JEMALLOC
   GetQueryTracker() = tracker;
-  GetThreadTracked() = 1;
 #endif
 }
 
 void StopTrackingCurrentThread() {
 #if USE_JEMALLOC
   GetQueryTracker() = nullptr;
-  GetThreadTracked() = 0;
 #endif
 }
 
+bool IsQueryTracked() {
 #if USE_JEMALLOC
-bool IsQueryTracked() { return IsThreadTracked(); }
+  return IsThreadTracked();
 #else
-bool IsQueryTracked() { return false; }
+  return false;
 #endif
+}
 
 void CreateOrContinueProcedureTracking(int64_t procedure_id, size_t limit) {
 #if USE_JEMALLOC

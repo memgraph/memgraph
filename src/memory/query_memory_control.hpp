@@ -42,16 +42,16 @@ struct ThreadTrackingBlocker {
   ThreadTrackingBlocker &operator=(ThreadTrackingBlocker &&) = delete;
 
  private:
-  int prev_state_;
+  void *prev_state_;
 };
 
 #endif
 
-// API function call for to start tracking current thread.
+// API function call to start tracking current thread.
 // Does nothing if jemalloc is not enabled
 void StartTrackingCurrentThread(utils::QueryMemoryTracker *tracker);
 
-// API function call for to stop tracking current thread.
+// API function call to stop tracking current thread.
 // Does nothing if jemalloc is not enabled
 void StopTrackingCurrentThread();
 

@@ -2134,7 +2134,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
     memgraph::memory::StartTrackingCurrentThread(memory_tracker.get());
   }
 
-  const utils::OnScopeExit<std::function<void()>> reset_query_limit{[this]() {
+  const utils::OnScopeExit reset_query_limit{[this]() {
     if (memory_limit_.has_value()) {
       // Stopping tracking of transaction occurs in interpreter::pull
       // Exception can occur so we need to handle that case there.
