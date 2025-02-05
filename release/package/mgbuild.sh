@@ -261,6 +261,19 @@ version_lt() {
 ##################################################
 ######## BUILD, COPY AND PACKAGE MEMGRAPH ########
 ##################################################
+copy_project_files() {
+  echo "Copying project files..."
+  project_files=$(ls -A1 "$PROJECT_ROOT")
+  while IFS= read -r f; do
+    # Skip build directory when copying project files
+    if [[ "$f" != "build" ]]; then
+      docker cp "$PROJECT_ROOT/$f" "$build_container:$MGBUILD_ROOT_DIR/"
+    fi
+  done <<< "$project_files"
+  # Change ownership of copied files so the mg user inside container can access them
+  docker exec -u root $build_container bash -c "chown -R mg:mg $MGBUILD_ROOT_DIR"
+}
+
 build_memgraph () {
   local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
   local ACTIVATE_CARGO="source $MGBUILD_HOME_DIR/.cargo/env"
@@ -356,16 +369,7 @@ build_memgraph () {
     # Ensure we have a clean build directory
     docker exec -u root "$build_container" bash -c "rm -rf $MGBUILD_ROOT_DIR"
     docker exec -u mg "$build_container" bash -c "mkdir -p $MGBUILD_ROOT_DIR"
-    echo "Copying project files..."
-    project_files=$(ls -A1 "$PROJECT_ROOT")
-    while IFS= read -r f; do
-      # Skip build directory when copying project files
-      if [[ "$f" != "build" ]]; then
-        docker cp "$PROJECT_ROOT/$f" "$build_container:$MGBUILD_ROOT_DIR/"
-      fi
-    done <<< "$project_files"
-    # Change ownership of copied files so the mg user inside container can access them
-    docker exec -u root $build_container bash -c "chown -R mg:mg $MGBUILD_ROOT_DIR"
+    copy_project_files
   fi
 
   echo "Installing dependencies using '/memgraph/environment/os/$os.sh' script..."
@@ -607,13 +611,14 @@ copy_memgraph() {
 ##################################################
 test_memgraph() {
   local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
-  local ACTIVATE_VENV="./setup.sh /opt/toolchain-${toolchain_version}/activate"
+  local ACTIVATE_VENV="source ve3/bin/activate"
   local ACTIVATE_CARGO="source $MGBUILD_HOME_DIR/.cargo/env"
   local EXPORT_LICENSE="export MEMGRAPH_ENTERPRISE_LICENSE=$enterprise_license"
   local EXPORT_ORG_NAME="export MEMGRAPH_ORGANIZATION_NAME=$organization_name"
   local BUILD_DIR="$MGBUILD_ROOT_DIR/build"
-  echo "Running $1 test on $build_container..."
 
+  # NOTE: If you need a fresh copy of memgraph files, call copy_project_files funcation on the line below.
+  echo "Running $1 test on $build_container..."
   case "$1" in
     unit)
       if [[ "$threads" == "$DEFAULT_THREADS" ]]; then
@@ -634,7 +639,7 @@ test_memgraph() {
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR "'&& ./tests/drivers/run.sh'
     ;;
     drivers-high-availability)
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR "'&& ./tests/drivers/run_cluster.sh'
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR && $ACTIVATE_TOOLCHAIN"'&& ./tests/drivers/run_cluster.sh'
     ;;
     integration)
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR "'&& tests/integration/run.sh'
@@ -663,7 +668,7 @@ test_memgraph() {
     gql-behave)
       local test_output_dir="$MGBUILD_ROOT_DIR/tests/gql_behave"
       local test_output_host_dest="$PROJECT_ROOT/tests/gql_behave"
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests && $ACTIVATE_VENV && cd $MGBUILD_ROOT_DIR/tests/gql_behave "'&& ./continuous_integration'
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/gql_behave && $ACTIVATE_VENV"'&& ./continuous_integration'
       docker cp $build_container:$test_output_dir/gql_behave_status.csv $test_output_host_dest/gql_behave_status.csv
       docker cp $build_container:$test_output_dir/gql_behave_status.html $test_output_host_dest/gql_behave_status.html
     ;;
@@ -708,11 +713,16 @@ test_memgraph() {
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_TOOLCHAIN && cd $MGBUILD_ROOT_DIR/tests/code_analysis && $SETUP_PASSED_ARGS "'&& ./clang_tidy.sh $PASSED_ARGS'
     ;;
     e2e)
-      docker exec -u mg $build_container bash -c "pip install --user networkx && pip3 install --user networkx"
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && cd $MGBUILD_ROOT_DIR/tests && $ACTIVATE_VENV && source ve3/bin/activate_e2e && cd $MGBUILD_ROOT_DIR/tests/e2e "'&& ./run.sh'
+      # NOTE: Python query modules deps have to be installed globally because memgraph expects them to be.
+      docker exec -u mg $build_container bash -c "PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --upgrade pip"
+      docker exec -u mg $build_container bash -c "pip install --break-system-packages --user networkx==2.5.1"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && $ACTIVATE_TOOLCHAIN && cd $MGBUILD_ROOT_DIR/tests && $ACTIVATE_VENV && cd $MGBUILD_ROOT_DIR/tests/e2e "'&& ./run.sh'
     ;;
     query_modules_e2e)
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && pip install -r $MGBUILD_ROOT_DIR/tests/query_modules/requirements.txt && cd $MGBUILD_ROOT_DIR/tests/query_modules "'&& python3 -m pytest .'
+      # NOTE: Python query modules deps have to be installed globally because memgraph expects them to be.
+      docker exec -u mg $build_container bash -c "PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --upgrade pip"
+      docker exec -u mg $build_container bash -c "pip install --break-system-packages --user -r $MGBUILD_ROOT_DIR/tests/query_modules/requirements.txt"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && cd $MGBUILD_ROOT_DIR/tests/query_modules && $ACTIVATE_VENV"'&& python3 -m pytest .'
     ;;
     *)
       echo "Error: Unknown test '$1'"

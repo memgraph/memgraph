@@ -184,14 +184,14 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
 
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::AppendDeltasReq::kType.name);
-    const storage::replication::AppendDeltasRes res{false, 0};
+    const storage::replication::AppendDeltasRes res{false};
     slk::Save(res, res_builder);
     return;
   }
 
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
   if (!db_acc) {
-    const storage::replication::AppendDeltasRes res{false, 0};
+    const storage::replication::AppendDeltasRes res{false};
     slk::Save(res, res_builder);
     return;
   }
@@ -199,13 +199,18 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
   storage::replication::Decoder decoder(req_reader);
 
   auto maybe_epoch_id = decoder.ReadString();
-  MG_ASSERT(maybe_epoch_id, "Invalid replication message");
+  if (!maybe_epoch_id) {
+    spdlog::error("Invalid replication message, couldn't read epoch id.");
+    const storage::replication::AppendDeltasRes res{false};
+    slk::Save(res, res_builder);
+    return;
+  }
 
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
   auto &repl_storage_state = storage->repl_storage_state_;
-  if (*maybe_epoch_id != storage->repl_storage_state_.epoch_.id()) {
+  if (*maybe_epoch_id != repl_storage_state.epoch_.id()) {
     spdlog::trace("Set epoch id to {} in AppendDeltasHandler.", *maybe_epoch_id);
-    auto prev_epoch = storage->repl_storage_state_.epoch_.SetEpoch(*maybe_epoch_id);
+    auto prev_epoch = repl_storage_state.epoch_.SetEpoch(*maybe_epoch_id);
     repl_storage_state.AddEpochToHistoryForce(prev_epoch);
   }
 
@@ -214,7 +219,7 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
   // It is also the first recovery step, so the WAL chain needs to restart from 0, otherwise the instance won't be
   // able to recover from durable data
   if (storage->wal_file_) {
-    if (*maybe_epoch_id != storage->repl_storage_state_.epoch_.id()) {
+    if (*maybe_epoch_id != repl_storage_state.epoch_.id()) {
       storage->wal_file_->FinalizeWal();
       storage->wal_file_.reset();
       spdlog::trace("Current WAL file finalized successfully");
@@ -226,32 +231,29 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
     // Empty the stream
     bool transaction_complete = false;
     while (!transaction_complete) {
-      SPDLOG_INFO("Skipping delta");
-      // TODO: Check if we are always using the latest version when replicating
-      const auto [timestamp, delta] = ReadDelta(&decoder, storage::durability::kVersion);
-      transaction_complete = storage::durability::IsWalDeltaDataTransactionEnd(delta, storage::durability::kVersion);
+      spdlog::info("Skipping delta");
+      const auto [_, delta] = ReadDelta(&decoder, storage::durability::kVersion);
+      transaction_complete = IsWalDeltaDataTransactionEnd(delta, storage::durability::kVersion);
     }
 
-    const storage::replication::AppendDeltasRes res{false, repl_storage_state.last_durable_timestamp_.load()};
+    const storage::replication::AppendDeltasRes res{false};
     slk::Save(res, res_builder);
     return;
   }
 
   try {
-    ReadAndApplyDeltas(
-        storage, &decoder,
-        storage::durability::kVersion);  // TODO: Check if we are always using the latest version when replicating
+    ReadAndApplyDeltas(storage, &decoder, storage::durability::kVersion);
   } catch (const utils::BasicException &e) {
     spdlog::error(
         "Error occurred while trying to apply deltas because of {}. Replication recovery from append deltas finished "
         "unsuccessfully.",
         e.what());
-    const storage::replication::AppendDeltasRes res{false, 0};
+    const storage::replication::AppendDeltasRes res{false};
     slk::Save(res, res_builder);
     return;
   }
 
-  const storage::replication::AppendDeltasRes res{true, repl_storage_state.last_durable_timestamp_.load()};
+  const storage::replication::AppendDeltasRes res{true};
   slk::Save(res, res_builder);
   spdlog::debug("Replication recovery from append deltas finished, replica is now up to date!");
 }
@@ -259,22 +261,23 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
 // The semantic of snapshot handler is the following: Either handling snapshot request passes or it doesn't. If it
 // passes we return the current commit timestamp of the replica. If it doesn't pass, we return optional which will
 // signal to the caller that it shouldn't update the commit timestamp value.
-void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handler,
+void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
                                                   const std::optional<utils::UUID> &current_main_uuid,
                                                   slk::Reader *req_reader, slk::Builder *res_builder) {
   storage::replication::SnapshotReq req;
-  slk::Load(&req, req_reader);
-  auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
+  Load(&req, req_reader);
+  auto db_acc = GetDatabaseAccessor(dbms_handler, req.storage_uuid);
   if (!db_acc) {
-    spdlog::error("Couldn't get database accessor in snapshot handler for request uuid {}", std::string{req.uuid});
+    spdlog::error("Couldn't get database accessor in snapshot handler for request with storage_uuid {}",
+                  std::string{req.storage_uuid});
     const storage::replication::SnapshotRes res{{}};
-    slk::Save(res, res_builder);
+    Save(res, res_builder);
     return;
   }
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::SnapshotReq::kType.name);
     const storage::replication::SnapshotRes res{{}};
-    slk::Save(res, res_builder);
+    Save(res, res_builder);
     return;
   }
 
@@ -286,7 +289,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
   if (!maybe_snapshot_path.has_value()) {
     spdlog::error("Failed to load snapshot from {}", storage->recovery_.snapshot_directory_);
     const storage::replication::SnapshotRes res{{}};
-    slk::Save(res, res_builder);
+    Save(res, res_builder);
     return;
   }
   spdlog::info("Received snapshot saved to {}", *maybe_snapshot_path);
@@ -315,10 +318,9 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
       storage->repl_storage_state_.last_durable_timestamp_ = recovery_info.next_timestamp - 1;
 
       spdlog::trace("Recovering indices and constraints from snapshot.");
-      RecoverIndicesAndStats(indices_constraints.indices, &storage->indices_, &storage->vertices_,
-                             storage->name_id_mapper_.get(), storage->config_.salient.items.properties_on_edges);
-      RecoverConstraints(indices_constraints.constraints, &storage->constraints_, &storage->vertices_,
-                         storage->name_id_mapper_.get());
+      storage::durability::RecoverIndicesStatsAndConstraints(
+          &storage->vertices_, storage->name_id_mapper_.get(), &storage->indices_, &storage->constraints_,
+          storage->config_, recovery_info, indices_constraints, storage->config_.salient.items.properties_on_edges);
     } catch (const storage::durability::RecoveryFailure &e) {
       spdlog::error("Couldn't load the snapshot from {} because of: {}. Storage will be cleared.", *maybe_snapshot_path,
                     e.what());
@@ -331,7 +333,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(dbms::DbmsHandler *dbms_handle
   spdlog::debug("Snapshot from {} loaded successfully.", *maybe_snapshot_path);
 
   const storage::replication::SnapshotRes res{storage->repl_storage_state_.last_durable_timestamp_.load()};
-  slk::Save(res, res_builder);
+  Save(res, res_builder);
 
   spdlog::trace("Deleting old snapshot files due to snapshot recovery.");
 
@@ -364,7 +366,7 @@ void InMemoryReplicationHandlers::ForceResetStorageHandler(dbms::DbmsHandler *db
   slk::Load(&req, req_reader);
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.db_uuid);
   if (!db_acc) {
-    spdlog::error("Couldn't get database accessor in force reset storage handler for request uuid {}",
+    spdlog::error("Couldn't get database accessor in force reset storage handler for request storage_uuid {}",
                   std::string{req.db_uuid});
     const storage::replication::ForceResetStorageRes res{false, 0};
     slk::Save(res, res_builder);
@@ -423,7 +425,8 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
   slk::Load(&req, req_reader);
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
   if (!db_acc) {
-    spdlog::error("Couldn't get database accessor in wal files handler for request uuid {}", std::string{req.uuid});
+    spdlog::error("Couldn't get database accessor in wal files handler for request storage_uuid {}",
+                  std::string{req.uuid});
     const storage::replication::WalFilesRes res{{}};
     slk::Save(res, res_builder);
     return;
@@ -469,7 +472,8 @@ void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_hand
   slk::Load(&req, req_reader);
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
   if (!db_acc) {
-    spdlog::error("Couldn't get database accessor in current wal handler for request uuid {}", std::string{req.uuid});
+    spdlog::error("Couldn't get database accessor in current wal handler for request storage_uuid {}",
+                  std::string{req.uuid});
     const storage::replication::CurrentWalRes res{{}};
     slk::Save(res, res_builder);
     return;

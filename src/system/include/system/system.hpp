@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,7 +25,7 @@ struct TransactionGuard {
 
 struct System {
   // NOTE: default arguments to make testing easier.
-  System(std::optional<std::filesystem::path> storage = std::nullopt, bool recovery_on_startup = false)
+  explicit System(std::optional<std::filesystem::path> storage = std::nullopt, bool recovery_on_startup = false)
       : state_(std::move(storage), recovery_on_startup), timestamp_{state_.LastCommittedSystemTimestamp()} {}
 
   auto TryCreateTransaction(std::chrono::microseconds try_time = std::chrono::milliseconds{100})

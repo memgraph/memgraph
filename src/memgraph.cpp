@@ -197,7 +197,6 @@ int main(int argc, char **argv) {
   Py_SetProgramName(program_name);
   PyImport_AppendInittab("_mgp", &memgraph::query::procedure::PyInitMgpModule);
   Py_InitializeEx(0 /* = initsigs */);
-  PyEval_InitThreads();
   Py_BEGIN_ALLOW_THREADS;
 
   // Add our Python modules to sys.path

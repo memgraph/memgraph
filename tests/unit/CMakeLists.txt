@@ -513,13 +513,6 @@ target_link_libraries(${test_prefix}coordinator_raft_state gflags mg-coordinatio
 target_include_directories(${test_prefix}coordinator_raft_state PRIVATE ${CMAKE_SOURCE_DIR}/include)
 endif()
 
-# Test coordinator instance
-if(MG_ENTERPRISE)
-add_unit_test(coordinator_instance.cpp)
-target_link_libraries(${test_prefix}coordinator_instance gflags mg-coordination mg-repl_coord_glue)
-target_include_directories(${test_prefix}coordinator_instance PRIVATE ${CMAKE_SOURCE_DIR}/include)
-endif()
-
 # Test coordinator env flag handler
 if(MG_ENTERPRISE)
 add_unit_test(coordinator_env_flag_handler.cpp)
@@ -558,7 +551,6 @@ if(MG_ENTERPRISE)
           memgraph__unit__coordinator_state_manager
           memgraph__unit__coordinator_log_store
           memgraph__unit__coordinator_raft_state
-          memgraph__unit__coordinator_instance
           memgraph__unit__coordinator_env_flag_handler
           memgraph__unit__coordinator_instance_context
           memgraph__unit__coordinator_instance_aux

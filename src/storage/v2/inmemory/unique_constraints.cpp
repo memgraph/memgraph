@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -245,17 +245,11 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, const std::
 }  // namespace
 
 bool InMemoryUniqueConstraints::Entry::operator<(const Entry &rhs) const {
-  if (values < rhs.values) {
-    return true;
-  }
-  if (rhs.values < values) {
-    return false;
-  }
-  return std::make_tuple(vertex, timestamp) < std::make_tuple(rhs.vertex, rhs.timestamp);
+  return std::tie(values, vertex, timestamp) < std::tie(rhs.values, rhs.vertex, rhs.timestamp);
 }
 
 bool InMemoryUniqueConstraints::Entry::operator==(const Entry &rhs) const {
-  return values == rhs.values && vertex == rhs.vertex && timestamp == rhs.timestamp;
+  return std::tie(values, vertex, timestamp) == std::tie(rhs.values, rhs.vertex, rhs.timestamp);
 }
 
 bool InMemoryUniqueConstraints::Entry::operator<(const std::vector<PropertyValue> &rhs) const { return values < rhs; }

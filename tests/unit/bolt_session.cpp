@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -263,7 +263,9 @@ void ExecuteHandshake(TestInputStream &input_stream, TestSession &session, std::
   session.Execute();
   ASSERT_EQ(session.state_, State::Init);
   PrintOutput(output);
-  CheckOutput(output, expected_resp, 4);
+  auto to_validate = std::span<uint8_t const>{output};
+  CheckOutput(to_validate, expected_resp, 4);
+  output.clear();
 }
 
 // Write bolt chunk and execute command
@@ -284,7 +286,9 @@ void ExecuteInit(TestInputStream &input_stream, TestSession &session, std::vecto
   ASSERT_EQ(session.state_, State::Idle);
   PrintOutput(output);
   const auto *response = is_v4 ? v4::init_resp : init_resp;
-  CheckOutput(output, response, 28);
+  auto to_validate = std::span<uint8_t const>{output};
+  CheckOutput(to_validate, response, 28);
+  output.clear();
 }
 
 // Write bolt encoded run request
@@ -342,7 +346,9 @@ TEST(BoltSession, HandshakeInTwoPackets) {
 
   ASSERT_EQ(session.state_, State::Init);
   PrintOutput(output);
-  CheckOutput(output, handshake_resp, 4);
+  auto to_validate = std::span<uint8_t const>{output};
+  CheckOutput(to_validate, handshake_resp, 4);
+  output.clear();
 }
 
 TEST(BoltSession, HandshakeWriteFail) {
@@ -700,7 +706,9 @@ TEST(BoltSession, ErrorIgnoreMessage) {
 
     if (i == 0) {
       ASSERT_EQ(session.state_, State::Error);
-      CheckOutput(output, ignored_resp, sizeof(ignored_resp));
+      auto to_validate = std::span<uint8_t const>{output};
+      CheckOutput(to_validate, ignored_resp, sizeof(ignored_resp));
+      output.clear();
     } else {
       ASSERT_EQ(session.state_, State::Close);
       ASSERT_EQ(output.size(), 0);
@@ -804,7 +812,9 @@ TEST(BoltSession, ErrorOK) {
 
         if (write_success) {
           EXPECT_EQ(session.state_, State::Idle);
-          CheckOutput(output, success_resp, sizeof(success_resp));
+          auto to_validate = std::span<uint8_t const>{output};
+          CheckOutput(to_validate, success_resp, sizeof(success_resp));
+          output.clear();
         } else {
           EXPECT_EQ(session.state_, State::Close);
           EXPECT_EQ(output.size(), 0);
@@ -845,10 +855,14 @@ TEST(BoltSession, ErrorOK) {
         if (write_success) {
           if (is_reset) {
             EXPECT_EQ(session.state_, State::Idle);
-            CheckOutput(output, success_resp, sizeof(success_resp));
+            auto to_validate = std::span<uint8_t const>{output};
+            CheckOutput(to_validate, success_resp, sizeof(success_resp));
+            output.clear();
           } else {
             ASSERT_EQ(session.state_, State::Error);
-            CheckOutput(output, ignored_resp, sizeof(ignored_resp));
+            auto to_validate = std::span<uint8_t const>{output};
+            CheckOutput(to_validate, ignored_resp, sizeof(ignored_resp));
+            output.clear();
           }
         } else {
           EXPECT_EQ(session.state_, State::Close);
@@ -1133,13 +1147,18 @@ EXPECT_EQ(session.state_, State::Close);
       0x00,
   };
   EXPECT_EQ(input_stream.size(), 0U);
-  CheckOutput(output, expected_resp, sizeof(expected_resp));
+  auto to_validate = std::span<uint8_t const>{output};
+  CheckOutput(to_validate, expected_resp, sizeof(expected_resp));
+  output.clear();
+
   EXPECT_EQ(session.state_, State::Error);
 
   SCOPED_TRACE("Try to reset connection after ROUTE failed");
   ASSERT_NO_THROW(ExecuteCommand(input_stream, session, v4::reset_req, sizeof(v4::reset_req)));
   EXPECT_EQ(input_stream.size(), 0U);
-  CheckOutput(output, success_resp, sizeof(success_resp));
+  to_validate = std::span<uint8_t const>{output};
+  CheckOutput(to_validate, success_resp, sizeof(success_resp));
+  output.clear();
   EXPECT_EQ(session.state_, State::Idle);
 }
 #endif

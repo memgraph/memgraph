@@ -33,26 +33,6 @@ namespace {
 constexpr std::string_view kDBPrefix = "database:";  // Key prefix for database durability
 #endif
 
-std::string RegisterReplicaErrorToString(query::RegisterReplicaError error) {
-  switch (error) {
-    using enum query::RegisterReplicaError;
-    case NOT_MAIN:
-      return "NOT_MAIN";
-    case NAME_EXISTS:
-      return "NAME_EXISTS";
-    case ENDPOINT_EXISTS:
-      return "ENDPOINT_EXISTS";
-    case CONNECTION_FAILED:
-      return "CONNECTION_FAILED";
-    case COULD_NOT_BE_PERSISTED:
-      return "COULD_NOT_BE_PERSISTED";
-    case ERROR_ACCEPTING_MAIN:
-      return "ERROR_ACCEPTING_MAIN";
-    case NO_ACCESS:
-      return "NO_ACCESS";
-  }
-}
-
 // Per storage
 // NOTE Storage will connect to all replicas. Future work might change this
 void RestoreReplication(replication::RoleMainData &mainData, DatabaseAccess db_acc) {
@@ -128,7 +108,7 @@ struct Durability {
 
     // Update from V0 to V1
     if (ver == DurabilityVersion::V0) {
-      for (const auto &[key, val] : *durability) {
+      for (const auto &[key, _] : *durability) {
         if (key == "version") continue;  // Reserved key
         // Generate a UUID
         auto const uuid = utils::UUID();
@@ -444,8 +424,7 @@ void DbmsHandler::RestoreTriggers(query::InterpreterContext *ic) {
   {
     auto &db_gk = db_gatekeeper_;
 #endif
-    auto db_acc_opt = db_gk.access();
-    if (db_acc_opt) {
+    if (auto db_acc_opt = db_gk.access()) {
       auto &db_acc = *db_acc_opt;
       spdlog::debug("Restoring trigger for database \"{}\"", db_acc->name());
       auto storage_accessor = db_acc->Access();

@@ -34,7 +34,6 @@ extern "C" {
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
 #include "utils/message.hpp"
-#include "utils/string.hpp"
 
 #include <mutex>
 #include <shared_mutex>
@@ -47,7 +46,7 @@ namespace memgraph::query::procedure {
 
 constexpr const char *func_code =
     "import ast\n\n"
-    "no_removals = ['collections', 'abc', 'sys', 'torch', 'torch_geometric', 'igraph']\n"
+    "no_removals = ['collections', 'abc', 'sys', 'torch', 'torch_geometric', 'igraph', 'dgl', 'numpy']\n"
     "modules = set()\n\n"
     "def visit_Import(node):\n"
     "  for name in node.names:\n"
@@ -1099,7 +1098,7 @@ void ProcessFileDependencies(std::filesystem::path file_path_, const char *modul
           while ((sys_mod_key = PyIter_Next(sys_iterator))) {
             const char *sys_mod_key_name = PyUnicode_AsUTF8(sys_mod_key);
             auto sys_mod_key_name_str = std::string(sys_mod_key_name);
-            if (sys_mod_key_name_str.rfind(module_name_str, 0) == 0 && sys_mod_key_name_str.compare(module_path) != 0) {
+            if (sys_mod_key_name_str.starts_with(module_name_str) && sys_mod_key_name_str != module_path) {
               PyDict_DelItemString(sys_mod_ref, sys_mod_key_name);  // don't test output
             }
             Py_DECREF(sys_mod_key);
