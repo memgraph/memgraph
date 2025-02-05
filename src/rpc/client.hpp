@@ -51,7 +51,8 @@ class Client {
       {"TimestampReq"sv, 10000},              // main to replica
       {"SystemHeartbeatReq"sv, 10000},        // main to replica
       {"ForceResetStorageReq"sv,
-       60000},  // main to replica. Longer timeout because we need to wait for all storage locks.
+       60000},                        // main to replica. Longer timeout because we need to wait for all storage locks.
+      {"SystemRecoveryReq"sv, 30000}  // main to replica when MT is used. Recovering 1000DBs should take around 25''.
   };
   // Dependency injection of rpc_timeouts
   Client(io::network::Endpoint endpoint, communication::ClientContext *context,
