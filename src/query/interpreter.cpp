@@ -5156,8 +5156,6 @@ PreparedQuery PrepareUseDatabaseQuery(ParsedQuery parsed_query, CurrentDB &curre
   auto *query = utils::Downcast<UseDatabaseQuery>(parsed_query.query);
   auto *db_handler = interpreter_context->dbms_handler;
 
-  const bool is_replica = interpreter_context->repl_state->IsReplica();
-
   if (current_db.in_explicit_db_) {
     throw QueryException("Database switching is prohibited if session explicitly defines the used database");
   }
