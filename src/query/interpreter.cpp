@@ -5750,10 +5750,11 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
 
     // Some queries do not require a database to be executed (current_db_ won't be passed on to the Prepare*; special
     // case for use database which overwrites the current database)
-    bool no_db_required = system_queries || utils::Downcast<ShowConfigQuery>(parsed_query.query) ||
-                          utils::Downcast<SettingQuery>(parsed_query.query) ||
-                          utils::Downcast<VersionQuery>(parsed_query.query) ||
-                          utils::Downcast<TransactionQueueQuery>(parsed_query.query);
+    bool no_db_required =
+        system_queries || utils::Downcast<ShowConfigQuery>(parsed_query.query) ||
+        utils::Downcast<SettingQuery>(parsed_query.query) || utils::Downcast<VersionQuery>(parsed_query.query) ||
+        utils::Downcast<TransactionQueueQuery>(parsed_query.query) ||
+        utils::Downcast<UseDatabaseQuery>(parsed_query.query) || utils::Downcast<ShowDatabaseQuery>(parsed_query.query);
     if (!no_db_required && !current_db_.db_acc_) {
       throw DatabaseContextRequiredException("Database required for the query.");
     }
