@@ -5733,7 +5733,6 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     // System queries require strict ordering; since there is no MVCC-like thing, we allow single queries
     bool system_queries = utils::Downcast<AuthQuery>(parsed_query.query) ||
                           utils::Downcast<MultiDatabaseQuery>(parsed_query.query) ||
-                          utils::Downcast<ShowDatabasesQuery>(parsed_query.query) ||
                           utils::Downcast<ReplicationQuery>(parsed_query.query);
 
     // TODO Split SHOW REPLICAS (which needs the db) and other replication queries
@@ -5750,11 +5749,13 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
 
     // Some queries do not require a database to be executed (current_db_ won't be passed on to the Prepare*; special
     // case for use database which overwrites the current database)
-    bool no_db_required =
-        system_queries || utils::Downcast<ShowConfigQuery>(parsed_query.query) ||
-        utils::Downcast<SettingQuery>(parsed_query.query) || utils::Downcast<VersionQuery>(parsed_query.query) ||
-        utils::Downcast<TransactionQueueQuery>(parsed_query.query) ||
-        utils::Downcast<UseDatabaseQuery>(parsed_query.query) || utils::Downcast<ShowDatabaseQuery>(parsed_query.query);
+    bool no_db_required = system_queries || utils::Downcast<ShowConfigQuery>(parsed_query.query) ||
+                          utils::Downcast<SettingQuery>(parsed_query.query) ||
+                          utils::Downcast<VersionQuery>(parsed_query.query) ||
+                          utils::Downcast<TransactionQueueQuery>(parsed_query.query) ||
+                          utils::Downcast<UseDatabaseQuery>(parsed_query.query) ||
+                          utils::Downcast<ShowDatabaseQuery>(parsed_query.query) ||
+                          utils::Downcast<ShowDatabasesQuery>(parsed_query.query);
     if (!no_db_required && !current_db_.db_acc_) {
       throw DatabaseContextRequiredException("Database required for the query.");
     }
