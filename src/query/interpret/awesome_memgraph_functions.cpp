@@ -472,6 +472,8 @@ TypedValue Size(const TypedValue *args, int64_t nargs, const FunctionContext &ct
   }
 }
 
+TypedValue Length(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) { return Size(args, nargs, ctx); }
+
 TypedValue PropertySize(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Or<Null, Vertex, Edge>, Or<String>>("propertySize", args, nargs);
 
@@ -1758,6 +1760,7 @@ auto const builtin_functions = absl::flat_hash_map<std::string, func_impl>{
     {"PROPERTIES", Properties},
     {"RANDOMUUID", RandomUuid},
     {"SIZE", Size},
+    {"LENGTH", Length},
     {"PROPERTYSIZE", PropertySize},
     {"STARTNODE", StartNode},
     {"TIMESTAMP", Timestamp},
