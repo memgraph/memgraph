@@ -439,15 +439,6 @@ class AnalyzeGraphInMulticommandTxException : public QueryException {
   SPECIALIZE_GET_EXCEPTION_NAME(AnalyzeGraphInMulticommandTxException)
 };
 
-class ReplicationException : public utils::BasicException {
- public:
-  using utils::BasicException::BasicException;
-  explicit ReplicationException(const std::string &message)
-      : utils::BasicException("Replication Exception: {} Check the status of the replicas using 'SHOW REPLICAS' query.",
-                              message) {}
-  SPECIALIZE_GET_EXCEPTION_NAME(ReplicationException)
-};
-
 class WriteQueryOnReplicaException : public QueryException {
  public:
   WriteQueryOnReplicaException() : QueryException("Write query forbidden on the replica!") {}

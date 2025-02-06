@@ -289,10 +289,6 @@ std::pair<std::vector<std::string>, std::optional<int>> SessionHL::Interpret(con
     // Wrap QueryException into ClientError, because we want to allow the
     // client to fix their query.
     throw memgraph::communication::bolt::ClientError(e.what());
-  } catch (const memgraph::query::ReplicationException &e) {
-    // Count the number of specific exceptions thrown
-    metrics::IncrementCounter(GetExceptionName(e));
-    throw memgraph::communication::bolt::ClientError(e.what());
   }
 }
 
@@ -337,10 +333,6 @@ void SessionHL::RollbackTransaction() {
     // Wrap QueryException into ClientError, because we want to allow the
     // client to fix their query.
     throw memgraph::communication::bolt::ClientError(e.what());
-  } catch (const memgraph::query::ReplicationException &e) {
-    // Count the number of specific exceptions thrown
-    metrics::IncrementCounter(GetExceptionName(e));
-    throw memgraph::communication::bolt::ClientError(e.what());
   }
 }
 
@@ -353,10 +345,6 @@ bolt_map_t SessionHL::CommitTransaction() {
     // Wrap QueryException into ClientError, because we want to allow the
     // client to fix their query.
     throw memgraph::communication::bolt::ClientError(e.what());
-  } catch (const memgraph::query::ReplicationException &e) {
-    // Count the number of specific exceptions thrown
-    metrics::IncrementCounter(GetExceptionName(e));
-    throw memgraph::communication::bolt::ClientError(e.what());
   }
 }
 
@@ -368,10 +356,6 @@ void SessionHL::BeginTransaction(const bolt_map_t &extra) {
     metrics::IncrementCounter(GetExceptionName(e));
     // Wrap QueryException into ClientError, because we want to allow the
     // client to fix their query.
-    throw memgraph::communication::bolt::ClientError(e.what());
-  } catch (const memgraph::query::ReplicationException &e) {
-    // Count the number of specific exceptions thrown
-    metrics::IncrementCounter(GetExceptionName(e));
     throw memgraph::communication::bolt::ClientError(e.what());
   }
 }
