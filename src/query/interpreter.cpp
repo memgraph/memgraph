@@ -5139,6 +5139,10 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
     }
   };
 #else
+  // here to satisfy clang-tidy
+  (void)parsed_query;
+  (void)interpreter_context;
+  (void)interpreter;
   throw QueryException("Query not supported.");
 #endif
 }
@@ -5189,6 +5193,11 @@ PreparedQuery PrepareUseDatabaseQuery(ParsedQuery parsed_query, CurrentDB &curre
                        RWType::NONE,
                        query->db_name_};
 #else
+  // here to satisfy clang-tidy
+  (void)parsed_query;
+  (void)current_db;
+  (void)interpreter_context;
+  (void)on_change_cb;
   throw QueryException("Query not supported.");
 #endif
 }
@@ -5222,6 +5231,9 @@ PreparedQuery PrepareShowDatabaseQuery(ParsedQuery parsed_query, CurrentDB &curr
       ""  // No target DB
   };
 #else
+  // here to satisfy clang-tidy
+  (void)parsed_query;
+  (void)current_db;
   throw QueryException("Query not supported.");
 #endif
 }
