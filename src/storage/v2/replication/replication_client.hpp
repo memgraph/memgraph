@@ -108,6 +108,9 @@ class ReplicationStorageClient {
   auto Name() const -> std::string const & { return client_.name_; }
   auto Endpoint() const -> io::network::Endpoint const & { return client_.rpc_client_.Endpoint(); }
 
+  void SetBehind() {
+    replica_state_.WithLock([](auto &val) { val = replication::ReplicaState::MAYBE_BEHIND; });
+  }
   auto State() const -> replication::ReplicaState { return *replica_state_.Lock(); }
 
   auto GetTimestampInfo(Storage const *storage) const -> TimestampInfo;

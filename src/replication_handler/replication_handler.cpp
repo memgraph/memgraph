@@ -135,35 +135,42 @@ void StartReplicaClient(replication::ReplicationClient &client, dbms::DbmsHandle
   // No client error, start instance level client
   auto const &endpoint = client.rpc_client_.Endpoint();
   spdlog::trace("Replication client started at: {}", endpoint.SocketAddress());  // non-resolved IP
-  client.StartFrequentCheck([&, license = license::global_license_checker.IsEnterpriseValidFast(), main_uuid](
-                                bool reconnect, ReplicationClient &client) mutable {
-    if (client.try_set_uuid && replication_coordination_glue::SendSwapMainUUIDRpc(client.rpc_client_, main_uuid)) {
-      client.try_set_uuid = false;
-    }
-    // Working connection
-    // Check if system needs restoration
-    if (reconnect) {
-      client.state_.WithLock([](auto &state) { state = ReplicationClient::State::BEHIND; });
-    }
-    // Check if license has changed
-    if (const auto new_license = license::global_license_checker.IsEnterpriseValidFast(); new_license != license) {
-      license = new_license;
-      client.state_.WithLock([](auto &state) { state = ReplicationClient::State::BEHIND; });
-    }
-#ifdef MG_ENTERPRISE
-    SystemRestore<true>(client, system, dbms_handler, main_uuid, auth);
-#endif
-    // Check if any database has been left behind
-    dbms_handler.ForEach([&name = client.name_, reconnect](dbms::DatabaseAccess db_acc) {
-      // Specific database <-> replica client
-      db_acc->storage()->repl_storage_state_.WithClient(name, [&](storage::ReplicationStorageClient &client) {
-        if (reconnect || client.State() == storage::replication::ReplicaState::MAYBE_BEHIND) {
-          // Database <-> replica might be behind, check and recover
-          client.TryCheckReplicaStateAsync(db_acc->storage(), db_acc);
+  client.StartFrequentCheck(
+      [&, license = license::global_license_checker.IsEnterpriseValidFast(),
+       main_uuid](ReplicationClient &client) mutable {
+        // Working connection
+        if (client.try_set_uuid && replication_coordination_glue::SendSwapMainUUIDRpc(client.rpc_client_, main_uuid)) {
+          client.try_set_uuid = false;
         }
+        // Check if license has changed
+        if (const auto new_license = license::global_license_checker.IsEnterpriseValidFast(); new_license != license) {
+          license = new_license;
+          client.state_.WithLock([](auto &state) { state = ReplicationClient::State::BEHIND; });
+        }
+#ifdef MG_ENTERPRISE
+        SystemRestore<true>(client, system, dbms_handler, main_uuid, auth);
+#endif
+        // Check if any database has been left behind
+        dbms_handler.ForEach([&name = client.name_](dbms::DatabaseAccess db_acc) {
+          // Specific database <-> replica client
+          db_acc->storage()->repl_storage_state_.WithClient(name, [&](storage::ReplicationStorageClient &client) {
+            if (client.State() == storage::replication::ReplicaState::MAYBE_BEHIND) {
+              // Database <-> replica might be behind, check and recover
+              client.TryCheckReplicaStateAsync(db_acc->storage(), db_acc);
+            }
+          });
+        });
+      },
+      [&](ReplicationClient &client) {
+        // Connection lost, instance could be behind
+        client.state_.WithLock([](auto &state) { state = ReplicationClient::State::BEHIND; });
+        dbms_handler.ForEach([&name = client.name_](dbms::DatabaseAccess db_acc) {
+          db_acc->storage()->repl_storage_state_.WithClient(name, [&](storage::ReplicationStorageClient &client) {
+            // Specific database <-> replica client
+            client.SetBehind();
+          });
+        });
       });
-    });
-  });
 }
 
 #ifdef MG_ENTERPRISE
@@ -352,7 +359,6 @@ auto ReplicationHandler::ShowReplicas() const -> utils::BasicResult<query::ShowR
             replica.name_, [&](const storage::ReplicationStorageClient &client) {
               auto ts_info = client.GetTimestampInfo(storage);
               auto state = client.State();
-
               data_info.emplace(storage->name(),
                                 query::ReplicaInfoState{ts_info.current_timestamp_of_replica,
                                                         ts_info.current_number_of_timestamp_behind_main, state});

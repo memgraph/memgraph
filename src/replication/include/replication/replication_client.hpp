@@ -25,7 +25,7 @@ namespace memgraph::replication {
 struct ReplicationClient;
 
 template <typename F>
-concept FrequentCheckCB = std::invocable<F, bool, ReplicationClient &>;
+concept FrequentCheckCB = std::invocable<F, ReplicationClient &>;
 
 struct ReplicationClient {
   explicit ReplicationClient(const ReplicationClientConfig &config);
@@ -40,27 +40,32 @@ struct ReplicationClient {
 
   ReplicationClient &operator=(ReplicationClient &&) noexcept = delete;
 
-  template <FrequentCheckCB F>
-  void StartFrequentCheck(F &&callback) {
+  template <FrequentCheckCB FS, FrequentCheckCB FF>
+  void StartFrequentCheck(FS &&callback, FF &&fail_callback) {
     // Help the user to get the most accurate replica state possible.
     if (replica_check_frequency_ > std::chrono::seconds(0)) {
       replica_checker_.SetInterval(replica_check_frequency_);
-      replica_checker_.Run("Replica Checker", [this, cb = std::forward<F>(callback), reconnect = false]() mutable {
-        try {
-          {
-            auto stream{rpc_client_.Stream<replication_coordination_glue::FrequentHeartbeatRpc>()};
-            stream.AwaitResponse();
-          }
-          cb(reconnect, *this);
-          reconnect = false;
-        } catch (const rpc::RpcFailedException &) {
-          // Nothing to do...wait for a reconnect
-          // NOTE: Here we are communicating with the instance connection.
-          //       We don't have access to the underlying client; so the only thing we can do it
-          //       tell the callback that this is a reconnection and to check the state
-          reconnect = true;
-        }
-      });
+      replica_checker_.Run("Replica Checker",
+                           [this, cb = std::forward<FS>(callback), fail_cb = std::forward<FF>(fail_callback),
+                            failed_attempts = 0UL]() mutable {
+                             constexpr auto kFailureAfterN = 3UL;
+                             try {
+                               {
+                                 auto stream{rpc_client_.Stream<replication_coordination_glue::FrequentHeartbeatRpc>()};
+                                 stream.AwaitResponse();
+                               }
+                               cb(*this);
+                               failed_attempts = 0U;
+                             } catch (const rpc::RpcFailedException &) {
+                               // Nothing to do...wait for a reconnect
+                               // NOTE: Here we are communicating with the instance connection.
+                               //       We don't have access to the underlying client; so the only thing we can do it
+                               //       tell the callback that this is a reconnection and to check the state
+                               if (++failed_attempts == kFailureAfterN) {
+                                 fail_cb(*this);
+                               }
+                             }
+                           });
     }
   }
 
