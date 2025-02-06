@@ -33,18 +33,6 @@ void TrackFreeOnCurrentThread(size_t size);
 
 bool IsThreadTracked();
 
-struct ThreadTrackingBlocker {
-  ThreadTrackingBlocker();
-  ~ThreadTrackingBlocker();
-  ThreadTrackingBlocker(ThreadTrackingBlocker &) = delete;
-  ThreadTrackingBlocker &operator=(ThreadTrackingBlocker &) = delete;
-  ThreadTrackingBlocker(ThreadTrackingBlocker &&) = delete;
-  ThreadTrackingBlocker &operator=(ThreadTrackingBlocker &&) = delete;
-
- private:
-  void *prev_state_;
-};
-
 #endif
 
 // API function call to start tracking current thread.

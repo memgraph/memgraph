@@ -27,6 +27,26 @@ inline auto &GetQueryTracker() {
   return query_memory_tracker_;
 }
 
+struct ThreadTrackingBlocker {
+  ThreadTrackingBlocker() : prev_state_{GetQueryTracker()} {
+    // Disable thread tracking
+    GetQueryTracker() = nullptr;
+  }
+
+  ~ThreadTrackingBlocker() {
+    // Reset thread tracking to previous state
+    GetQueryTracker() = prev_state_;
+  }
+
+  ThreadTrackingBlocker(ThreadTrackingBlocker &) = delete;
+  ThreadTrackingBlocker &operator=(ThreadTrackingBlocker &) = delete;
+  ThreadTrackingBlocker(ThreadTrackingBlocker &&) = delete;
+  ThreadTrackingBlocker &operator=(ThreadTrackingBlocker &&) = delete;
+
+ private:
+  utils::QueryMemoryTracker *prev_state_;
+};
+
 }  // namespace
 
 bool TrackAllocOnCurrentThread(size_t size) {
@@ -52,16 +72,6 @@ void TrackFreeOnCurrentThread(size_t size) {
 }
 
 bool IsThreadTracked() { return GetQueryTracker() != nullptr; }
-
-ThreadTrackingBlocker::ThreadTrackingBlocker() : prev_state_{GetQueryTracker()} {
-  // Disable thread tracking
-  GetQueryTracker() = nullptr;
-}
-
-ThreadTrackingBlocker::~ThreadTrackingBlocker() {
-  // Reset thread tracking to previous state
-  GetQueryTracker() = static_cast<utils::QueryMemoryTracker *>(prev_state_);
-}
 
 #endif
 
