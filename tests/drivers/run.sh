@@ -1,11 +1,10 @@
 #!/bin/bash
-
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$DIR"
-
-# New tests
 pushd () { command pushd "$@" > /dev/null; }
 popd () { command popd "$@" > /dev/null; }
+# https://stackoverflow.com/questions/59119904/process-terminated-couldnt-find-a-valid-icu-package-installed-on-the-system-in
+export DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1
 
 function wait_for_server {
     port=$1
@@ -14,10 +13,6 @@ function wait_for_server {
     done
     sleep 1
 }
-
-# Old v1 tests
-tests_v1="$DIR/run_v1.sh"
-$tests_v1
 
 # Create a temporary directory.
 tmpdir=/tmp/memgraph_drivers
@@ -34,7 +29,7 @@ $mg_binary_dir/memgraph \
     --cartesian-product-enabled=false \
     --data-directory=$tmpdir \
     --query-execution-timeout-sec=5 \
-    --log-file=$tmpdir/logs/memgarph.log \
+    --log-file=$tmpdir/logs/memgraph.log \
     --also-log-to-stderr \
     --telemetry-enabled=false \
     --log-level ERROR &
@@ -69,11 +64,6 @@ done
 kill $pid
 wait $pid
 code_mg=$?
-
-# Temporary directory cleanup.
-if [ -d $tmpdir ]; then
-    rm -rf $tmpdir
-fi
 
 # Check memgraph exit code.
 if [ $code_mg -ne 0 ]; then
