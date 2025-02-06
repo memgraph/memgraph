@@ -17,6 +17,16 @@
 #include "rpc/messages.hpp"
 
 namespace memgraph::replication_coordination_glue {
+
+template <typename TResponse>
+void SendFinalResponse(TResponse const &res, slk::Builder *builder) {
+  slk::Save(TResponse::kType.id, builder);
+  slk::Save(rpc::current_version, builder);
+  slk::Save(res, builder);
+  builder->Finalize();
+  spdlog::trace("[RpcServer] sent {}", TResponse::kType.name);
+}
+
 inline bool SendSwapMainUUIDRpc(memgraph::rpc::Client &rpc_client_, const memgraph::utils::UUID &uuid) {
   try {
     auto stream{rpc_client_.Stream<SwapMainUUIDRpc>(uuid)};
@@ -36,6 +46,6 @@ inline void FrequentHeartbeatHandler(slk::Reader *req_reader, slk::Builder *res_
   FrequentHeartbeatReq::Load(&req, req_reader);
   memgraph::slk::Load(&req, req_reader);
   FrequentHeartbeatRes res{};
-  memgraph::slk::Save(res, res_builder);
+  SendFinalResponse(res, res_builder);
 }
 }  // namespace memgraph::replication_coordination_glue

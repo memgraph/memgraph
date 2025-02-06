@@ -13,6 +13,7 @@
 
 #include "dbms/dbms_handler.hpp"
 #include "replication/replication_server.hpp"
+#include "rpc/server.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/snapshot.hpp"
@@ -160,20 +161,21 @@ void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handl
   if (!current_main_uuid.has_value() || req.main_uuid != *current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::HeartbeatReq::kType.name);
     const storage::replication::HeartbeatRes res{false, 0, ""};
-    slk::Save(res, res_builder);
+    SendFinalResponse(res, res_builder);
     return;
   }
   // TODO: this handler is agnostic of InMemory, move to be reused by on-disk
   if (!db_acc.has_value()) {
     spdlog::warn("No database accessor");
     storage::replication::HeartbeatRes const res{false, 0, ""};
-    slk::Save(res, res_builder);
+    SendFinalResponse(res, res_builder);
     return;
   }
+  // Move db acc
   auto const *storage = db_acc->get()->storage();
   const storage::replication::HeartbeatRes res{true, storage->repl_storage_state_.last_durable_timestamp_.load(),
                                                std::string{storage->repl_storage_state_.epoch_.id()}};
-  slk::Save(res, res_builder);
+  SendFinalResponse(res, res_builder);
 }
 
 void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_handler,
@@ -185,14 +187,14 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::AppendDeltasReq::kType.name);
     const storage::replication::AppendDeltasRes res{false};
-    slk::Save(res, res_builder);
+    SendFinalResponse(res, res_builder);
     return;
   }
 
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
   if (!db_acc) {
     const storage::replication::AppendDeltasRes res{false};
-    slk::Save(res, res_builder);
+    SendFinalResponse(res, res_builder);
     return;
   }
 
@@ -202,7 +204,7 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
   if (!maybe_epoch_id) {
     spdlog::error("Invalid replication message, couldn't read epoch id.");
     const storage::replication::AppendDeltasRes res{false};
-    slk::Save(res, res_builder);
+    SendFinalResponse(res, res_builder);
     return;
   }
 
@@ -237,7 +239,7 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
     }
 
     const storage::replication::AppendDeltasRes res{false};
-    slk::Save(res, res_builder);
+    SendFinalResponse(res, res_builder);
     return;
   }
 
@@ -249,12 +251,12 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
         "unsuccessfully.",
         e.what());
     const storage::replication::AppendDeltasRes res{false};
-    slk::Save(res, res_builder);
+    SendFinalResponse(res, res_builder);
     return;
   }
 
   const storage::replication::AppendDeltasRes res{true};
-  slk::Save(res, res_builder);
+  SendFinalResponse(res, res_builder);
   spdlog::debug("Replication recovery from append deltas finished, replica is now up to date!");
 }
 
@@ -271,13 +273,13 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
     spdlog::error("Couldn't get database accessor in snapshot handler for request with storage_uuid {}",
                   std::string{req.storage_uuid});
     const storage::replication::SnapshotRes res{{}};
-    Save(res, res_builder);
+    SendFinalResponse(res, res_builder);
     return;
   }
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::SnapshotReq::kType.name);
     const storage::replication::SnapshotRes res{{}};
-    Save(res, res_builder);
+    SendFinalResponse(res, res_builder);
     return;
   }
 
@@ -289,7 +291,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
   if (!maybe_snapshot_path.has_value()) {
     spdlog::error("Failed to load snapshot from {}", storage->recovery_.snapshot_directory_);
     const storage::replication::SnapshotRes res{{}};
-    Save(res, res_builder);
+    SendFinalResponse(res, res_builder);
     return;
   }
   spdlog::info("Received snapshot saved to {}", *maybe_snapshot_path);
@@ -333,7 +335,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
   spdlog::debug("Snapshot from {} loaded successfully.", *maybe_snapshot_path);
 
   const storage::replication::SnapshotRes res{storage->repl_storage_state_.last_durable_timestamp_.load()};
-  Save(res, res_builder);
+  SendFinalResponse(res, res_builder);
 
   spdlog::trace("Deleting old snapshot files due to snapshot recovery.");
 
@@ -369,13 +371,13 @@ void InMemoryReplicationHandlers::ForceResetStorageHandler(dbms::DbmsHandler *db
     spdlog::error("Couldn't get database accessor in force reset storage handler for request storage_uuid {}",
                   std::string{req.db_uuid});
     const storage::replication::ForceResetStorageRes res{false, 0};
-    slk::Save(res, res_builder);
+    SendFinalResponse(res, res_builder);
     return;
   }
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::SnapshotReq::kType.name);
     const storage::replication::ForceResetStorageRes res{false, 0};
-    slk::Save(res, res_builder);
+    SendFinalResponse(res, res_builder);
     return;
   }
 
@@ -388,7 +390,7 @@ void InMemoryReplicationHandlers::ForceResetStorageHandler(dbms::DbmsHandler *db
 
   const storage::replication::ForceResetStorageRes res{true,
                                                        storage->repl_storage_state_.last_durable_timestamp_.load()};
-  slk::Save(res, res_builder);
+  SendFinalResponse(res, res_builder);
 
   spdlog::trace("Deleting old snapshot files.");
 
@@ -428,13 +430,13 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
     spdlog::error("Couldn't get database accessor in wal files handler for request storage_uuid {}",
                   std::string{req.uuid});
     const storage::replication::WalFilesRes res{{}};
-    slk::Save(res, res_builder);
+    SendFinalResponse(res, res_builder);
     return;
   }
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::WalFilesReq::kType.name);
     const storage::replication::WalFilesRes res{{}};
-    slk::Save(res, res_builder);
+    SendFinalResponse(res, res_builder);
     return;
   }
 
@@ -449,7 +451,7 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
     if (!LoadWal(storage, &decoder)) {
       spdlog::debug("Replication recovery from WAL files failed while loading one of WAL files.");
       const storage::replication::WalFilesRes res{{}};
-      slk::Save(res, res_builder);
+      SendFinalResponse(res, res_builder);
       return;
     }
   }
@@ -457,7 +459,7 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
   spdlog::debug("Replication recovery from WAL files succeeded");
   const storage::replication::WalFilesRes res{
       storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire)};
-  slk::Save(res, res_builder);
+  SendFinalResponse(res, res_builder);
 }
 
 // Commit timestamp on MAIN's side shouldn't be updated if:
@@ -475,14 +477,14 @@ void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_hand
     spdlog::error("Couldn't get database accessor in current wal handler for request storage_uuid {}",
                   std::string{req.uuid});
     const storage::replication::CurrentWalRes res{{}};
-    slk::Save(res, res_builder);
+    SendFinalResponse(res, res_builder);
     return;
   }
 
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::CurrentWalReq::kType.name);
     const storage::replication::CurrentWalRes res{{}};
-    slk::Save(res, res_builder);
+    SendFinalResponse(res, res_builder);
     return;
   }
 
@@ -500,7 +502,7 @@ void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_hand
 
   const storage::replication::CurrentWalRes res{
       storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire)};
-  slk::Save(res, res_builder);
+  SendFinalResponse(res, res_builder);
 }
 
 // The method will return false and hence signal the failure of completely loading the WAL file if:
@@ -586,21 +588,21 @@ void InMemoryReplicationHandlers::TimestampHandler(dbms::DbmsHandler *dbms_handl
   auto const db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
   if (!db_acc) {
     const storage::replication::TimestampRes res{false, 0};
-    slk::Save(res, res_builder);
+    SendFinalResponse(res, res_builder);
     return;
   }
 
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::TimestampReq::kType.name);
     const storage::replication::TimestampRes res{false, 0};
-    slk::Save(res, res_builder);
+    SendFinalResponse(res, res_builder);
     return;
   }
 
   // TODO: this handler is agnostic of InMemory, move to be reused by on-disk
   auto const *storage = db_acc->get()->storage();
   const storage::replication::TimestampRes res{true, storage->repl_storage_state_.last_durable_timestamp_.load()};
-  slk::Save(res, res_builder);
+  SendFinalResponse(res, res_builder);
 }
 
 // The number of applied deltas also includes skipped deltas.

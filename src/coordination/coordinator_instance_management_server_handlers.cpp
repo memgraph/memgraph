@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -23,12 +23,13 @@ void CoordinatorInstanceManagementServerHandlers::Register(CoordinatorInstanceMa
   });
 }
 
-void CoordinatorInstanceManagementServerHandlers::ShowInstancesHandler(CoordinatorInstance &coordinator_instance,
+void CoordinatorInstanceManagementServerHandlers::ShowInstancesHandler(CoordinatorInstance const &coordinator_instance,
                                                                        slk::Reader *req_reader,
                                                                        slk::Builder *res_builder) {
   coordination::ShowInstancesReq req;
   slk::Load(&req, req_reader);
-  slk::Save(coordination::ShowInstancesRes{coordinator_instance.ShowInstancesAsLeader()}, res_builder);
+  coordination::ShowInstancesRes const rpc_res{coordinator_instance.ShowInstancesAsLeader()};
+  SendFinalResponse(rpc_res, res_builder);
   spdlog::trace("Replying to ShowInstancesRpc.");
 }
 #endif

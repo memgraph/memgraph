@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2022 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,11 +13,8 @@
 
 #include <cstdint>
 #include <memory>
-#include <slk/serialization.hpp>
-#include <slk/streams.hpp>
 
 #include "utils/typeinfo.hpp"
-#include "version.hpp"
 
 namespace memgraph::rpc {
 
@@ -38,14 +35,3 @@ struct RequestResponse {
 };
 
 }  // namespace memgraph::rpc
-
-namespace memgraph::slk {
-
-// For all response messages, header needs to be manually serialized since InProgressRes message could be sent.
-template <typename TResponse>
-void SerializeResHeader(TResponse const & /*self*/, slk::Builder *builder) {
-  slk::Save(TResponse::kType.id, builder);
-  slk::Save(rpc::current_version, builder);
-}
-
-}  // namespace memgraph::slk

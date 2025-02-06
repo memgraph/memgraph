@@ -62,6 +62,14 @@ std::optional<memgraph::communication::ClientContext> client_context;
 std::optional<memgraph::rpc::Client> clients[kThreadsNum];
 std::optional<memgraph::rpc::ClientPool> client_pool;
 
+template <typename TResponse>
+void SendFinalResponse(TResponse const &res, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(TResponse::kType.id, builder);
+  memgraph::slk::Save(memgraph::rpc::current_version, builder);
+  memgraph::slk::Save(res, builder);
+  builder->Finalize();
+}
+
 static void BenchmarkRpc(benchmark::State &state) {
   std::string data(state.range(0), 'a');
   while (state.KeepRunning()) {
@@ -110,8 +118,7 @@ int main(int argc, char **argv) {
     server->Register<Echo>([](const auto &req_reader, auto *res_builder) {
       EchoMessage res;
       Load(&res, req_reader);
-      memgraph::slk::SerializeResHeader(res, res_builder);
-      Save(res, res_builder);
+      SendFinalResponse(res, res_builder);
     });
     server->Start();
   }

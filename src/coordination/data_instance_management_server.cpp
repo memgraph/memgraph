@@ -37,5 +37,14 @@ DataInstanceManagementServer::~DataInstanceManagementServer() {
 
 bool DataInstanceManagementServer::Start() { return rpc_server_.Start(); }
 
+template <typename TResponse>
+void SendFinalResponse(TResponse const &res, slk::Builder *builder) {
+  slk::Save(TResponse::kType.id, builder);
+  slk::Save(rpc::current_version, builder);
+  slk::Save(res, builder);
+  builder->Finalize();
+  spdlog::trace("[RpcServer] sent {}", TResponse::kType.name);
+}
+
 }  // namespace memgraph::coordination
 #endif

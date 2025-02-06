@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -224,7 +224,6 @@ namespace slk {
 // PromoteToMainRpc
 
 void Save(const memgraph::coordination::PromoteToMainRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::SerializeResHeader(self, builder);
   memgraph::slk::Save(self.success, builder);
 }
 
@@ -252,7 +251,6 @@ void Load(memgraph::coordination::DemoteMainToReplicaReq *self, memgraph::slk::R
 }
 
 void Save(const memgraph::coordination::DemoteMainToReplicaRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::SerializeResHeader(self, builder);
   memgraph::slk::Save(self.success, builder);
 }
 
@@ -271,7 +269,6 @@ void Load(memgraph::coordination::UnregisterReplicaReq *self, memgraph::slk::Rea
 }
 
 void Save(memgraph::coordination::UnregisterReplicaRes const &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::SerializeResHeader(self, builder);
   memgraph::slk::Save(self.success, builder);
 }
 
@@ -280,7 +277,6 @@ void Load(memgraph::coordination::UnregisterReplicaRes *self, memgraph::slk::Rea
 }
 
 void Save(memgraph::coordination::EnableWritingOnMainRes const &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::SerializeResHeader(self, builder);
   memgraph::slk::Save(self.success, builder);
 }
 
@@ -299,7 +295,6 @@ void Load(memgraph::coordination::GetInstanceUUIDReq * /*self*/, memgraph::slk::
 }
 
 void Save(const memgraph::coordination::GetInstanceUUIDRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::SerializeResHeader(self, builder);
   memgraph::slk::Save(self.uuid, builder);
 }
 
@@ -310,7 +305,6 @@ void Load(memgraph::coordination::GetInstanceUUIDRes *self, memgraph::slk::Reade
 // GetInstanceTimestampsRpc
 
 void Save(const memgraph::coordination::GetDatabaseHistoriesRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::SerializeResHeader(self, builder);
   memgraph::slk::Save(self.database_histories, builder);
 }
 
@@ -321,7 +315,6 @@ void Load(memgraph::coordination::GetDatabaseHistoriesRes *self, memgraph::slk::
 // RegisterReplicaOnMainRpc
 
 void Save(const memgraph::coordination::RegisterReplicaOnMainRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::SerializeResHeader(self, builder);
   memgraph::slk::Save(self.success, builder);
 }
 
@@ -347,7 +340,6 @@ void Load(memgraph::coordination::ShowInstancesReq *self, memgraph::slk::Reader 
 }
 
 void Save(const memgraph::coordination::ShowInstancesRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::SerializeResHeader(self, builder);
   memgraph::slk::Save(self.instances_status_, builder);
 }
 
@@ -362,7 +354,6 @@ void Load(memgraph::coordination::StateCheckReq *self, memgraph::slk::Reader *re
 }
 
 void Save(const memgraph::coordination::StateCheckRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::SerializeResHeader(self, builder);
   memgraph::slk::Save(self.state, builder);
 }
 

@@ -36,10 +36,7 @@ void Load(SumReq *sum, Reader *reader) {
   Load(&sum->y, reader);
 }
 
-void Save(const SumRes &self, Builder *builder) {
-  memgraph::slk::SerializeResHeader(self, builder);
-  Save(self.sum, builder);
-}
+void Save(const SumRes &self, Builder *builder) { Save(self.sum, builder); }
 
 void Load(SumRes *res, Reader *reader) { Load(&res->sum, reader); }
 
@@ -57,6 +54,14 @@ void SumRes::Save(const SumRes &obj, memgraph::slk::Builder *builder) { memgraph
 void EchoMessage::Load(EchoMessage *obj, memgraph::slk::Reader *reader) { memgraph::slk::Load(obj, reader); }
 void EchoMessage::Save(const EchoMessage &obj, memgraph::slk::Builder *builder) { memgraph::slk::Save(obj, builder); }
 
+template <typename TResponse>
+void SendFinalResponse(TResponse const &res, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(TResponse::kType.id, builder);
+  memgraph::slk::Save(memgraph::rpc::current_version, builder);
+  memgraph::slk::Save(res, builder);
+  builder->Finalize();
+}
+
 TEST(Rpc, Call) {
   memgraph::communication::ServerContext server_context;
   Server server({"127.0.0.1", 0}, &server_context);
@@ -68,7 +73,7 @@ TEST(Rpc, Call) {
     SumReq req;
     memgraph::slk::Load(&req, req_reader);
     SumRes res(req.x + req.y);
-    memgraph::slk::Save(res, res_builder);
+    SendFinalResponse(res, res_builder);
   });
   ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);
@@ -87,7 +92,7 @@ TEST(Rpc, Abort) {
     memgraph::slk::Load(&req, req_reader);
     std::this_thread::sleep_for(500ms);
     SumRes res(req.x + req.y);
-    memgraph::slk::Save(res, res_builder);
+    SendFinalResponse(res, res_builder);
   });
   ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);
@@ -119,7 +124,7 @@ TEST(Rpc, ClientPool) {
     Load(&req, req_reader);
     std::this_thread::sleep_for(100ms);
     SumRes res(req.x + req.y);
-    Save(res, res_builder);
+    SendFinalResponse(res, res_builder);
   });
   ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);
@@ -175,8 +180,7 @@ TEST(Rpc, LargeMessage) {
   server.Register<Echo>([](auto *req_reader, auto *res_builder) {
     EchoMessage res;
     memgraph::slk::Load(&res, req_reader);
-    memgraph::slk::SerializeResHeader(res, res_builder);
-    memgraph::slk::Save(res, res_builder);
+    SendFinalResponse(res, res_builder);
   });
   ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);
@@ -198,8 +202,7 @@ TEST(Rpc, JumboMessage) {
   server.Register<Echo>([](auto *req_reader, auto *res_builder) {
     EchoMessage res;
     memgraph::slk::Load(&res, req_reader);
-    memgraph::slk::SerializeResHeader(res, res_builder);
-    memgraph::slk::Save(res, res_builder);
+    SendFinalResponse(res, res_builder);
   });
   ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);
@@ -225,8 +228,7 @@ TEST(Rpc, Stream) {
     std::string payload;
     memgraph::slk::Load(&payload, req_reader);
     EchoMessage res(req.data + payload);
-    memgraph::slk::SerializeResHeader(res, res_builder);
-    memgraph::slk::Save(res, res_builder);
+    SendFinalResponse(res, res_builder);
   });
   ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);
@@ -251,8 +253,7 @@ TEST(Rpc, StreamLarge) {
     std::string payload;
     memgraph::slk::Load(&payload, req_reader);
     EchoMessage res(req.data + payload);
-    memgraph::slk::SerializeResHeader(res, res_builder);
-    memgraph::slk::Save(res, res_builder);
+    SendFinalResponse(res, res_builder);
   });
   ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);
@@ -280,8 +281,7 @@ TEST(Rpc, StreamJumbo) {
     std::string payload;
     memgraph::slk::Load(&payload, req_reader);
     EchoMessage res(req.data + payload);
-    memgraph::slk::SerializeResHeader(res, res_builder);
-    memgraph::slk::Save(res, res_builder);
+    SendFinalResponse(res, res_builder);
   });
   ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);

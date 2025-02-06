@@ -129,7 +129,6 @@ namespace slk {
 // Serialize code for TimestampRes
 
 void Save(const memgraph::storage::replication::TimestampRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::SerializeResHeader(self, builder);
   memgraph::slk::Save(self.success, builder);
   memgraph::slk::Save(self.current_commit_timestamp, builder);
 }
@@ -154,7 +153,6 @@ void Load(memgraph::storage::replication::TimestampReq *self, memgraph::slk::Rea
 // Serialize code for CurrentWalRes
 
 void Save(const memgraph::storage::replication::CurrentWalRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::SerializeResHeader(self, builder);
   memgraph::slk::Save(self.current_commit_timestamp, builder);
 }
 
@@ -177,7 +175,6 @@ void Load(memgraph::storage::replication::CurrentWalReq *self, memgraph::slk::Re
 // Serialize code for WalFilesRes
 
 void Save(const memgraph::storage::replication::WalFilesRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::SerializeResHeader(self, builder);
   memgraph::slk::Save(self.current_commit_timestamp, builder);
 }
 
@@ -202,7 +199,6 @@ void Load(memgraph::storage::replication::WalFilesReq *self, memgraph::slk::Read
 // Serialize code for SnapshotRes
 
 void Save(const memgraph::storage::replication::SnapshotRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::SerializeResHeader(self, builder);
   memgraph::slk::Save(self.current_commit_timestamp, builder);
 }
 
@@ -225,7 +221,6 @@ void Load(memgraph::storage::replication::SnapshotReq *self, memgraph::slk::Read
 // Serialize code for HeartbeatRes
 
 void Save(const memgraph::storage::replication::HeartbeatRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::SerializeResHeader(self, builder);
   memgraph::slk::Save(self.success, builder);
   memgraph::slk::Save(self.current_commit_timestamp, builder);
   memgraph::slk::Save(self.epoch_id, builder);
@@ -256,7 +251,6 @@ void Load(memgraph::storage::replication::HeartbeatReq *self, memgraph::slk::Rea
 // Serialize code for AppendDeltasRes
 
 void Save(const memgraph::storage::replication::AppendDeltasRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::SerializeResHeader(self, builder);
   slk::Save(self.success, builder);
 }
 
@@ -304,7 +298,6 @@ void Load(memgraph::storage::replication::ForceResetStorageReq *self, memgraph::
 // Serialize code for ForceResetStorageRes
 
 void Save(const memgraph::storage::replication::ForceResetStorageRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::SerializeResHeader(self, builder);
   memgraph::slk::Save(self.success, builder);
   memgraph::slk::Save(self.current_commit_timestamp, builder);
 }

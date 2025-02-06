@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,6 +12,7 @@
 #pragma once
 
 #include "auth/auth.hpp"
+#include "auth/rpc.hpp"
 #include "replication/state.hpp"
 #include "slk/streams.hpp"
 #include "system/state.hpp"
@@ -33,5 +34,15 @@ bool SystemRecoveryHandler(auth::SynchedAuth &auth, auth::Auth::Config auth_conf
                            const std::vector<auth::User> &users, const std::vector<auth::Role> &roles);
 void Register(replication::RoleReplicaData const &data, system::ReplicaHandlerAccessToState &system_state_access,
               auth::SynchedAuth &auth);
+
+template <typename TResponse>
+void SendFinalResponse(TResponse const &res, slk::Builder *builder) {
+  slk::Save(TResponse::kType.id, builder);
+  slk::Save(rpc::current_version, builder);
+  slk::Save(res, builder);
+  builder->Finalize();
+  spdlog::trace("[RpcServer] sent {}", TResponse::kType.name);
+}
+
 #endif
 }  // namespace memgraph::auth

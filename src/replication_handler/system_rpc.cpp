@@ -20,7 +20,6 @@
 namespace memgraph::slk {
 // Serialize code for SystemHeartbeatRes
 void Save(const memgraph::replication::SystemHeartbeatRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::SerializeResHeader(self, builder);
   memgraph::slk::Save(self.system_timestamp, builder);
 }
 void Load(memgraph::replication::SystemHeartbeatRes *self, memgraph::slk::Reader *reader) {
@@ -56,7 +55,6 @@ void Load(memgraph::replication::SystemRecoveryReq *self, memgraph::slk::Reader 
 
 // Serialize code for SystemRecoveryRes
 void Save(const memgraph::replication::SystemRecoveryRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::SerializeResHeader(self, builder);
   memgraph::slk::Save(utils::EnumToNum<uint8_t>(self.result), builder);
 }
 

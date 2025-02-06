@@ -87,8 +87,6 @@ void Session::Execute() {
 
   // Finalize the SLK streams.
   req_reader.Finalize();
-  res_builder.Finalize();
-  spdlog::trace("[RpcServer] finalized res builder.");
 }
 
 }  // namespace memgraph::rpc
