@@ -172,7 +172,8 @@ class ReplicationStorageClient {
    * @return false
    */
   [[nodiscard]] bool FinalizeTransactionReplication(DatabaseAccessProtector db_acc,
-                                                    std::optional<ReplicaStream> &&replica_stream) const;
+                                                    std::optional<ReplicaStream> &&replica_stream,
+                                                    uint64_t timestamp) const;
 
   /**
    * @brief Asynchronously try to check the replica state and start a recovery thread if necessary
@@ -217,6 +218,7 @@ class ReplicationStorageClient {
   void TryCheckReplicaStateSync(Storage *storage, DatabaseAccessProtector db_acc);
 
   ::memgraph::replication::ReplicationClient &client_;
+  mutable std::atomic<uint64_t> last_known_ts_{0};
   mutable utils::Synchronized<replication::ReplicaState, utils::SpinLock> replica_state_{
       replication::ReplicaState::MAYBE_BEHIND};
 
