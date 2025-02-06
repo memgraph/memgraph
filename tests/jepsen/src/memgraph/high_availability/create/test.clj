@@ -172,7 +172,7 @@
 
 (defn add-coordinator-instances
   "Add coordinator instances."
-  [session myself nodes-config]
+  [session _myself nodes-config]
   (doseq [coord-config (->> nodes-config
                             (filter #(contains? (val %) :coordinator-id)))]
     (try
@@ -215,12 +215,19 @@
   (open! [this _test node]
     (info "Opening bolt connection to node..." node)
     (let [bolt-conn (utils/open-bolt node)
-          node-config (get nodes-config node)]
-      (assoc this
-             :bolt-conn bolt-conn
-             :node-config node-config
-             :node node)))
-  ; Use Bolt connection to set enterprise.license and organization.name.
+          node-config (get nodes-config node)
+          bolt-routing-conn (if (hautils/coord-instance? node)
+                              (utils/open-bolt-routing node)
+                              nil)]
+
+      (merge this
+             {:bolt-conn bolt-conn
+              :node-config node-config
+              :node node}
+             (when bolt-routing-conn
+               {:bolt-routing-conn bolt-routing-conn}))))
+
+; Use Bolt connection to set enterprise.license and organization.name.
   (setup! [this _test]
     (try
       (utils/with-session (:bolt-conn this) session
@@ -248,7 +255,7 @@
                        (utils/with-session bolt-conn session
                            ; If query failed because the instance got killed, we should catch TransientException -> this will be logged as
                            ; fail result.
-                           (mgquery/add-nodes session {:batchSize batch-size}))
+                         (mgquery/add-nodes session {:batchSize batch-size}))
                        (assoc op :type :ok :value "Nodes created.")
 
                        (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
