@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -62,7 +62,7 @@ class ClientEncoder : private BaseEncoder<Buffer> {
     WriteMap(extra);
     // Try to flush all remaining data in the buffer, but tell it that we will
     // send more data (the end of message chunk).
-    if (!buffer_.Flush(true)) return false;
+    if (buffer_.HasData() && !buffer_.Flush(true)) return false;
     // Flush an empty chunk to indicate that the message is done.
     return buffer_.Flush();
   }
@@ -90,7 +90,7 @@ class ClientEncoder : private BaseEncoder<Buffer> {
     WriteMap(extra);
     // Try to flush all remaining data in the buffer, but tell it that we will
     // send more data (the end of message chunk).
-    if (!buffer_.Flush(true)) return false;
+    if (buffer_.HasData() && !buffer_.Flush(true)) return false;
     // Flush an empty chunk to indicate that the message is done. Here we
     // forward the `have_more` flag to indicate if there is more data that will
     // be sent.
@@ -114,7 +114,7 @@ class ClientEncoder : private BaseEncoder<Buffer> {
     WriteMap(extra);
     // Try to flush all remaining data in the buffer, but tell it that we will
     // send more data (the end of message chunk).
-    if (!buffer_.Flush(true)) return false;
+    if (buffer_.HasData() && !buffer_.Flush(true)) return false;
     // Flush an empty chunk to indicate that the message is done.
     return buffer_.Flush();
   }
@@ -136,7 +136,7 @@ class ClientEncoder : private BaseEncoder<Buffer> {
     WriteMap(extra);
     // Try to flush all remaining data in the buffer, but tell it that we will
     // send more data (the end of message chunk).
-    if (!buffer_.Flush(true)) return false;
+    if (buffer_.HasData() && !buffer_.Flush(true)) return false;
     // Flush an empty chunk to indicate that the message is done.
     return buffer_.Flush();
   }
@@ -156,7 +156,7 @@ class ClientEncoder : private BaseEncoder<Buffer> {
     WriteRAW(utils::UnderlyingCast(Signature::Reset));
     // Try to flush all remaining data in the buffer, but tell it that we will
     // send more data (the end of message chunk).
-    if (!buffer_.Flush(true)) return false;
+    if (buffer_.HasData() && !buffer_.Flush(true)) return false;
     // Flush an empty chunk to indicate that the message is done.
     return buffer_.Flush();
   }
@@ -186,7 +186,7 @@ class ClientEncoder : private BaseEncoder<Buffer> {
     }
     // Try to flush all remaining data in the buffer, but tell it that we will
     // send more data (the end of message chunk).
-    if (!buffer_.Flush(true)) return false;
+    if (buffer_.HasData() && !buffer_.Flush(true)) return false;
     // Flush an empty chunk to indicate that the message is done.
     return buffer_.Flush();
   }
