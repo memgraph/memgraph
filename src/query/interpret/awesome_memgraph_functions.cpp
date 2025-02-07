@@ -1163,6 +1163,11 @@ TypedValue ToStringOrNull(const TypedValue *args, int64_t nargs, const FunctionC
 
 TypedValue Timestamp(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Optional<Or<Date, LocalTime, LocalDateTime, ZonedDateTime, Duration>>>("timestamp", args, nargs);
+
+  if (nargs == 0) {
+    return TypedValue(ctx.timestamp, ctx.memory);
+  }
+
   const auto &arg = *args;
   if (arg.IsDate()) {
     return TypedValue(arg.ValueDate().MicrosecondsSinceEpoch(), ctx.memory);
