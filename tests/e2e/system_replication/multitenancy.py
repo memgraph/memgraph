@@ -1293,14 +1293,14 @@ def test_multitenancy_drop_while_replica_using(connection, test_name):
             "replica_1",
             f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
             "sync",
-            {"ts": 6, "behind": None, "status": "ready"},
+            {"ts": 7, "behind": None, "status": "ready"},
             {"B": {"ts": 0, "behind": 0, "status": "ready"}, "memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
         ),
         (
             "replica_2",
             f"127.0.0.1:{REPLICATION_PORTS['replica_2']}",
             "async",
-            {"ts": 6, "behind": None, "status": "ready"},
+            {"ts": 7, "behind": None, "status": "ready"},
             {"B": {"ts": 0, "behind": 0, "status": "ready"}, "memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
         ),
     ]
@@ -1390,14 +1390,14 @@ def test_multitenancy_drop_and_recreate_while_replica_using(connection, test_nam
             "replica_1",
             f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
             "sync",
-            {"ts": 6, "behind": None, "status": "ready"},
+            {"ts": 7, "behind": None, "status": "ready"},
             {"A": {"ts": 0, "behind": 0, "status": "ready"}, "memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
         ),
         (
             "replica_2",
             f"127.0.0.1:{REPLICATION_PORTS['replica_2']}",
             "async",
-            {"ts": 6, "behind": None, "status": "ready"},
+            {"ts": 7, "behind": None, "status": "ready"},
             {"A": {"ts": 0, "behind": 0, "status": "ready"}, "memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
         ),
     ]
