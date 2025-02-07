@@ -23,7 +23,7 @@ namespace memgraph::dbms {
 void DataInstanceManagementServerHandlers::Register(memgraph::coordination::DataInstanceManagementServer &server,
                                                     replication::ReplicationHandler &replication_handler) {
   server.Register<coordination::StateCheckRpc>([&](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
-    spdlog::info("Received StateCheckRpc");
+    spdlog::trace("Received StateCheckRpc");
     DataInstanceManagementServerHandlers::StateCheckHandler(replication_handler, req_reader, res_builder);
   });
 
