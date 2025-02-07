@@ -5038,9 +5038,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                        RWType::NONE};
 }
 
-PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &current_db,
-                                        InterpreterContext *interpreter_context,
-                                        std::optional<std::function<void(std::string_view)>> on_change_cb,
+PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterContext *interpreter_context,
                                         Interpreter &interpreter) {
 #ifdef MG_ENTERPRISE
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
@@ -5100,40 +5098,6 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &cur
           ""  // No target DB possible
       };
     }
-    case MultiDatabaseQuery::Action::USE: {
-      if (current_db.in_explicit_db_) {
-        throw QueryException("Database switching is prohibited if session explicitly defines the used database");
-      }
-      return PreparedQuery{{"STATUS"},
-                           std::move(parsed_query.required_privileges),
-                           [db_name = query->db_name_, db_handler, &current_db, on_change = std::move(on_change_cb)](
-                               AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
-                             std::vector<std::vector<TypedValue>> status;
-                             std::string res;
-
-                             try {
-                               if (current_db.db_acc_ && db_name == current_db.db_acc_->get()->name()) {
-                                 res = "Already using " + db_name;
-                               } else {
-                                 auto tmp = db_handler->Get(db_name);
-                                 if (on_change) (*on_change)(db_name);  // Will trow if cb fails
-                                 current_db.SetCurrentDB(std::move(tmp), false);
-                                 res = "Using " + db_name;
-                               }
-                             } catch (const utils::BasicException &e) {
-                               throw QueryRuntimeException(e.what());
-                             }
-
-                             status.emplace_back(std::vector<TypedValue>{TypedValue(res)});
-                             auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
-                             if (pull_plan->Pull(stream, n)) {
-                               return QueryHandlerResult::COMMIT;
-                             }
-                             return std::nullopt;
-                           },
-                           RWType::NONE,
-                           query->db_name_};
-    }
     case MultiDatabaseQuery::Action::DROP: {
       if (is_replica) {
         throw QueryException("Query forbidden on the replica!");
@@ -5184,30 +5148,103 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, CurrentDB &cur
           RWType::W,
           query->db_name_};
     }
-    case MultiDatabaseQuery::Action::SHOW: {
-      return PreparedQuery{
-          {"Current"},
-          std::move(parsed_query.required_privileges),
-          [db_acc = current_db.db_acc_, pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
-              AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
-            if (!pull_plan) {
-              std::vector<std::vector<TypedValue>> results;
-              auto db_name = db_acc ? TypedValue{db_acc->get()->storage()->name()} : TypedValue{};
-              results.push_back({std::move(db_name)});
-              pull_plan = std::make_shared<PullPlanVector>(std::move(results));
-            }
-
-            if (pull_plan->Pull(stream, n)) {
-              return QueryHandlerResult::NOTHING;
-            }
-            return std::nullopt;
-          },
-          RWType::NONE,
-          ""  // No target DB
-      };
-    }
   };
 #else
+  // here to satisfy clang-tidy
+  (void)parsed_query;
+  (void)interpreter_context;
+  (void)interpreter;
+  throw EnterpriseOnlyException();
+#endif
+}
+
+PreparedQuery PrepareUseDatabaseQuery(ParsedQuery parsed_query, CurrentDB &current_db,
+                                      InterpreterContext *interpreter_context,
+                                      std::optional<std::function<void(std::string_view)>> on_change_cb) {
+#ifdef MG_ENTERPRISE
+  if (!license::global_license_checker.IsEnterpriseValidFast()) {
+    throw QueryException(
+        "Trying to use enterprise feature without a valid license. Check your license status by running SHOW LICENSE "
+        "INFO.");
+  }
+
+  auto *query = utils::Downcast<UseDatabaseQuery>(parsed_query.query);
+  auto *db_handler = interpreter_context->dbms_handler;
+
+  if (current_db.in_explicit_db_) {
+    throw QueryException("Database switching is prohibited if session explicitly defines the used database");
+  }
+  return PreparedQuery{{"STATUS"},
+                       std::move(parsed_query.required_privileges),
+                       [db_name = query->db_name_, db_handler, &current_db, on_change = std::move(on_change_cb)](
+                           AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+                         std::vector<std::vector<TypedValue>> status;
+                         std::string res;
+
+                         try {
+                           if (current_db.db_acc_ && db_name == current_db.db_acc_->get()->name()) {
+                             res = "Already using " + db_name;
+                           } else {
+                             auto tmp = db_handler->Get(db_name);
+                             if (on_change) (*on_change)(db_name);  // Will trow if cb fails
+                             current_db.SetCurrentDB(std::move(tmp), false);
+                             res = "Using " + db_name;
+                           }
+                         } catch (const utils::BasicException &e) {
+                           throw QueryRuntimeException(e.what());
+                         }
+
+                         status.emplace_back(std::vector<TypedValue>{TypedValue(res)});
+                         auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
+                         if (pull_plan->Pull(stream, n)) {
+                           return QueryHandlerResult::COMMIT;
+                         }
+                         return std::nullopt;
+                       },
+                       RWType::NONE,
+                       query->db_name_};
+#else
+  // here to satisfy clang-tidy
+  (void)parsed_query;
+  (void)current_db;
+  (void)interpreter_context;
+  (void)on_change_cb;
+  throw EnterpriseOnlyException();
+#endif
+}
+
+PreparedQuery PrepareShowDatabaseQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
+#ifdef MG_ENTERPRISE
+  if (!license::global_license_checker.IsEnterpriseValidFast()) {
+    throw QueryException(
+        "Trying to use enterprise feature without a valid license. Check your license status by running SHOW LICENSE "
+        "INFO.");
+  }
+
+  return PreparedQuery{
+      {"Current"},
+      std::move(parsed_query.required_privileges),
+      [db_acc = current_db.db_acc_, pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+          AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+        if (!pull_plan) {
+          std::vector<std::vector<TypedValue>> results;
+          auto db_name = db_acc ? TypedValue{db_acc->get()->storage()->name()} : TypedValue{};
+          results.push_back({std::move(db_name)});
+          pull_plan = std::make_shared<PullPlanVector>(std::move(results));
+        }
+
+        if (pull_plan->Pull(stream, n)) {
+          return QueryHandlerResult::NOTHING;
+        }
+        return std::nullopt;
+      },
+      RWType::NONE,
+      ""  // No target DB
+  };
+#else
+  // here to satisfy clang-tidy
+  (void)parsed_query;
+  (void)current_db;
   throw EnterpriseOnlyException();
 #endif
 }
@@ -5719,7 +5756,6 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     // System queries require strict ordering; since there is no MVCC-like thing, we allow single queries
     bool system_queries = utils::Downcast<AuthQuery>(parsed_query.query) ||
                           utils::Downcast<MultiDatabaseQuery>(parsed_query.query) ||
-                          utils::Downcast<ShowDatabasesQuery>(parsed_query.query) ||
                           utils::Downcast<ReplicationQuery>(parsed_query.query);
 
     // TODO Split SHOW REPLICAS (which needs the db) and other replication queries
@@ -5739,7 +5775,10 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
     bool no_db_required = system_queries || utils::Downcast<ShowConfigQuery>(parsed_query.query) ||
                           utils::Downcast<SettingQuery>(parsed_query.query) ||
                           utils::Downcast<VersionQuery>(parsed_query.query) ||
-                          utils::Downcast<TransactionQueueQuery>(parsed_query.query);
+                          utils::Downcast<TransactionQueueQuery>(parsed_query.query) ||
+                          utils::Downcast<UseDatabaseQuery>(parsed_query.query) ||
+                          utils::Downcast<ShowDatabaseQuery>(parsed_query.query) ||
+                          utils::Downcast<ShowDatabasesQuery>(parsed_query.query);
     if (!no_db_required && !current_db_.db_acc_) {
       throw DatabaseContextRequiredException("Database required for the query.");
     }
@@ -5914,8 +5953,14 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
       }
       /// SYSTEM (Replication) + INTERPRETER
       // DMG_ASSERT(system_guard);
-      prepared_query =
-          PrepareMultiDatabaseQuery(std::move(parsed_query), current_db_, interpreter_context_, on_change_, *this);
+      prepared_query = PrepareMultiDatabaseQuery(std::move(parsed_query), interpreter_context_, *this);
+    } else if (utils::Downcast<UseDatabaseQuery>(parsed_query.query)) {
+      if (in_explicit_transaction_) {
+        throw UseDatabaseQueryInMulticommandTxException();
+      }
+      prepared_query = PrepareUseDatabaseQuery(std::move(parsed_query), current_db_, interpreter_context_, on_change_);
+    } else if (utils::Downcast<ShowDatabaseQuery>(parsed_query.query)) {
+      prepared_query = PrepareShowDatabaseQuery(std::move(parsed_query), current_db_);
     } else if (utils::Downcast<ShowDatabasesQuery>(parsed_query.query)) {
       prepared_query = PrepareShowDatabasesQuery(std::move(parsed_query), interpreter_context_, user_or_role_);
     } else if (utils::Downcast<EdgeImportModeQuery>(parsed_query.query)) {

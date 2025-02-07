@@ -483,8 +483,15 @@ class TransactionQueueInMulticommandTxException : public MulticommandTxException
 class MultiDatabaseQueryInMulticommandTxException : public MulticommandTxException {
  public:
   MultiDatabaseQueryInMulticommandTxException()
-      : MulticommandTxException("Creating/dropping databases or switching the currently active database") {}
+      : MulticommandTxException("Creating/dropping databases") {}
   SPECIALIZE_GET_EXCEPTION_NAME(MultiDatabaseQueryInMulticommandTxException)
+};
+  
+class UseDatabaseQueryInMulticommandTxException : public MulticommandTxException {
+ public:
+  UseDatabaseQueryInMulticommandTxException()
+      : MulticommandTxException("Switching the currently active database") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(UseDatabaseQueryInMulticommandTxException)
 };
 
 class DropGraphInMulticommandTxException : public MulticommandTxException {
