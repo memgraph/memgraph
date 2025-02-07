@@ -128,12 +128,12 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
       case MultiDatabaseQuery::Action::DROP:
         AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_EDIT);
         break;
-      case MultiDatabaseQuery::Action::USE:
-      case MultiDatabaseQuery::Action::SHOW:
-        AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_USE);
-        break;
     }
   }
+
+  void Visit(UseDatabaseQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_USE); }
+
+  void Visit(ShowDatabaseQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_USE); }
 
   void Visit(ShowDatabasesQuery & /*unused*/) override {
     AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_USE); /* OR EDIT */
