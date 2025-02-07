@@ -96,6 +96,7 @@
 #include "utils/memory.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/on_scope_exit.hpp"
+#include "utils/query_memory_tracker.hpp"
 #include "utils/readable_size.hpp"
 #include "utils/settings.hpp"
 #include "utils/stat.hpp"
@@ -2126,23 +2127,27 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
 std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *stream, std::optional<int> n,
                                                                 const std::vector<Symbol> &output_symbols,
                                                                 std::map<std::string, TypedValue> *summary) {
-  std::optional<uint64_t> transaction_id = ctx_.db_accessor->GetTransactionId();
-  MG_ASSERT(transaction_id.has_value());
-
   if (memory_limit_) {
-    memgraph::memory::TryStartTrackingOnTransaction(*transaction_id, *memory_limit_);
-    memgraph::memory::StartTrackingCurrentThreadTransaction(*transaction_id);
+    auto &memory_tracker = ctx_.db_accessor->GetQueryMemoryTracker();
+    if (!memory_tracker) memory_tracker = std::make_unique<utils::QueryMemoryTracker>();
+    memory_tracker->SetQueryLimit(*memory_limit_);
+    memgraph::memory::StartTrackingCurrentThread(memory_tracker.get());
   }
-  utils::OnScopeExit<std::function<void()>> reset_query_limit{
-      [memory_limit = memory_limit_, transaction_id = *transaction_id]() {
-        if (memory_limit) {
-          // Stopping tracking of transaction occurs in interpreter::pull
-          // Exception can occur so we need to handle that case there.
-          // We can't stop tracking here as there can be multiple pulls
-          // so we need to take care of that after everything was pulled
-          memgraph::memory::StopTrackingCurrentThreadTransaction(transaction_id);
-        }
-      }};
+
+  const utils::OnScopeExit reset_query_limit{[this]() {
+    if (memory_limit_.has_value()) {
+      // Stopping tracking of transaction occurs in interpreter::pull
+      // Exception can occur so we need to handle that case there.
+      // We can't stop tracking here as there can be multiple pulls
+      // so we need to take care of that after everything was pulled
+      memgraph::memory::StopTrackingCurrentThread();
+      // Pull has completted or has thrown an exception; either way, reset the query tracker
+      if (!has_unsent_results_ || std::uncaught_exceptions()) {
+        auto &memory_tracker = ctx_.db_accessor->GetQueryMemoryTracker();
+        memory_tracker.reset();
+      }
+    }
+  }};
 
   // Returns true if a result was pulled.
   const auto pull_result = [&]() -> bool { return cursor_->Pull(frame_, ctx_); };
