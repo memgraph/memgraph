@@ -1492,6 +1492,18 @@ TEST_F(ReplicationTest, SchemaReplication) {
     EXPECT_TRUE(ConfrontJSON(get_schema(*main), get_schema(*replica)));
   }
 
+  auto stop_replica = [&]() {
+    replica.reset();
+    {
+      int tries = 0;
+      while (main->repl_handler.ShowReplicas().GetValue().entries_[0].data_info_.at("memgraph").state_ !=
+             ReplicaState::MAYBE_BEHIND) {
+        std::this_thread::sleep_for(std::chrono::seconds{1});
+        ASSERT_LE(++tries, 20) << "Waited too long for shutdown";
+      }
+    }
+  };
+
   auto start_replica = [&]() {
     replica.emplace(repl_conf);
     replica->repl_handler.TrySetReplicationRoleReplica(
@@ -1507,9 +1519,11 @@ TEST_F(ReplicationTest, SchemaReplication) {
   };
 
   // Check current wal recovery
-  replica.reset();
+  stop_replica();
   start_replica();
-  EXPECT_TRUE(ConfrontJSON(get_schema(*main), get_schema(*replica)));
+  EXPECT_TRUE(ConfrontJSON(get_schema(*main), get_schema(*replica))) << "MAIN:\n"
+                                                                     << get_schema(*main) << "\nREPLICA:\n"
+                                                                     << get_schema(*replica);
 
   // Check wal recovery
   // Exiting will finalize the current wal
