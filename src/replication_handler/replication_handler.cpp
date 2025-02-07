@@ -236,6 +236,7 @@ auto ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid) const -
   const auto &epoch = std::get<replication::RoleMainData>(std::as_const(repl_state_).ReplicationData()).epoch_;
   dbms_handler_.ForEach([&](dbms::DatabaseAccess db_acc) {
     auto *storage = db_acc->storage();
+
     storage->repl_storage_state_.epoch_ = epoch;
 
     // Durability is tracking last durable timestamp from MAIN, whereas timestamp_ is dependent on MVCC
@@ -303,8 +304,8 @@ auto ReplicationHandler::GetDatabasesHistories() const -> replication_coordinati
   replication_coordination_glue::DatabaseHistories results;
   dbms_handler_.ForEach([&results](dbms::DatabaseAccess db_acc) {
     auto &repl_storage_state = db_acc->storage()->repl_storage_state_;
-
-    std::vector<std::pair<std::string, uint64_t>> history = utils::fmap(repl_storage_state.history);
+    std::vector<std::pair<std::string, uint64_t>> history;
+    repl_storage_state.history.WithLock([&history](auto const &repl_history) { history = utils::fmap(repl_history); });
 
     history.emplace_back(std::string(repl_storage_state.epoch_.id()),
                          repl_storage_state.last_durable_timestamp_.load());

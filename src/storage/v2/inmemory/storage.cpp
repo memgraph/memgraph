@@ -21,7 +21,6 @@
 
 #include "dbms/constants.hpp"
 #include "flags/experimental.hpp"
-#include "flags/general.hpp"
 #include "memory/global_memory_control.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/durability/durability.hpp"
@@ -288,12 +287,12 @@ InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryAccessor &&other) no
 
 InMemoryStorage::InMemoryAccessor::~InMemoryAccessor() {
   if (is_transaction_active_) {
-    Abort();
+    InMemoryAccessor::Abort();
     // We didn't actually commit
     commit_timestamp_.reset();
   }
 
-  FinalizeTransaction();
+  InMemoryAccessor::FinalizeTransaction();
 }
 
 VertexAccessor InMemoryStorage::InMemoryAccessor::CreateVertex() {
@@ -845,7 +844,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
       result.HasError() && std::visit(
                                [](const auto &e) {
                                  // All errors are handled at a higher level.
-                                 // Replication errros are not fatal and should procede with finialize transaction
+                                 // Replication errors are not fatal and should proceed with finalize transaction
                                  return !std::is_same_v<std::remove_cvref_t<decltype(e)>, storage::ReplicationError>;
                                },
                                result.GetError());
@@ -2426,6 +2425,8 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
           case Delta::Action::REMOVE_IN_EDGE:
           case Delta::Action::REMOVE_OUT_EDGE:
             return false;
+          default:
+            LOG_FATAL("Unknown delta type observed");
         }
       });
     }
@@ -2448,6 +2449,8 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
           case Delta::Action::ADD_OUT_EDGE:
           case Delta::Action::REMOVE_IN_EDGE:
             return false;
+          default:
+            LOG_FATAL("Unknown delta type observed");
         }
       });
     }
@@ -2470,6 +2473,8 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
           case Delta::Action::REMOVE_IN_EDGE:
           case Delta::Action::REMOVE_OUT_EDGE:
             return false;
+          default:
+            LOG_FATAL("Unknown delta type observed");
         }
       });
     }
@@ -2492,6 +2497,8 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
           case Delta::Action::REMOVE_IN_EDGE:
           case Delta::Action::REMOVE_OUT_EDGE:
             return false;
+          default:
+            LOG_FATAL("Unknown delta type observed");
         }
       });
     }
@@ -2514,6 +2521,8 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
           case Delta::Action::REMOVE_IN_EDGE:
           case Delta::Action::REMOVE_OUT_EDGE:
             return false;
+          default:
+            LOG_FATAL("Unknown delta type observed");
         }
       });
     }
@@ -2616,7 +2625,7 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
   try {
     spdlog::debug("Recovering from a snapshot {}", local_path);
     auto recovered_snapshot = storage::durability::LoadSnapshot(
-        local_path, &vertices_, &edges_, &edges_metadata_, &repl_storage_state_.history, name_id_mapper_.get(),
+        local_path, &vertices_, &edges_, &edges_metadata_, repl_storage_state_.history, name_id_mapper_.get(),
         &edge_count_, config_, &enum_store_, config_.salient.items.enable_schema_info ? &schema_info_.Get() : nullptr);
     spdlog::debug("Snapshot recovered successfully");
     uuid().set(recovered_snapshot.snapshot_info.uuid);
@@ -2893,7 +2902,7 @@ void InMemoryStorage::Clear() {
   // Replication epoch and timestamp reset
   repl_storage_state_.epoch_.SetEpoch(std::string(utils::UUID{}));
   repl_storage_state_.last_durable_timestamp_ = 0;
-  repl_storage_state_.history.clear();
+  repl_storage_state_.history->clear();
 }
 
 bool InMemoryStorage::InMemoryAccessor::PointIndexExists(LabelId label, PropertyId property) const {

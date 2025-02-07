@@ -14,12 +14,7 @@
 #include "replication/replication_server.hpp"
 #include "storage/v2/replication/replication_transaction.hpp"
 
-#include <span>
-
-#include <range/v3/view.hpp>
-
 namespace memgraph::storage {
-
 auto ReplicationStorageState::InitializeTransaction(uint64_t seq_num, Storage *storage, DatabaseAccessProtector db_acc)
     -> TransactionReplication {
   return {seq_num, storage, db_acc, replication_clients_};
@@ -42,15 +37,17 @@ void ReplicationStorageState::Reset() {
 
 void ReplicationStorageState::TrackLatestHistory() {
   constexpr uint16_t kEpochHistoryRetention = 1000;
-  // Generate new epoch id and save the last one to the history.
-  if (history.size() == kEpochHistoryRetention) {
-    history.pop_front();
-  }
-  history.emplace_back(epoch_.id(), last_durable_timestamp_);
+
+  history.WithLock([this](auto &history) {
+    // Generate new epoch id and save the last one to the history.
+    if (history.size() == kEpochHistoryRetention) {
+      history.pop_front();
+    }
+    history.emplace_back(epoch_.id(), last_durable_timestamp_);
+  });
 }
 
 void ReplicationStorageState::AddEpochToHistoryForce(std::string prev_epoch) {
-  history.emplace_back(std::move(prev_epoch), last_durable_timestamp_);
+  history->emplace_back(std::move(prev_epoch), last_durable_timestamp_);
 }
-
 }  // namespace memgraph::storage

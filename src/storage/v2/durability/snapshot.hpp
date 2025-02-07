@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -68,7 +68,7 @@ SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path);
 /// @throw RecoveryFailure
 RecoveredSnapshot LoadSnapshot(std::filesystem::path const &path, utils::SkipList<Vertex> *vertices,
                                utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata,
-                               std::deque<std::pair<std::string, uint64_t>> *epoch_history,
+                               utils::Synchronized<std::deque<std::pair<std::string, uint64_t>>> &epoch_history,
                                NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count, Config const &config,
                                memgraph::storage::EnumStore *enum_store,
                                memgraph::storage::SharedSchemaTracking *schema_info);
@@ -77,7 +77,7 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
                     const std::filesystem::path &wal_directory, utils::SkipList<Vertex> *vertices,
                     utils::SkipList<Edge> *edges, utils::UUID const &uuid,
                     const memgraph::replication::ReplicationEpoch &epoch,
-                    const std::deque<std::pair<std::string, uint64_t>> &epoch_history,
+                    utils::Synchronized<std::deque<std::pair<std::string, uint64_t>>> &epoch_history,
                     utils::FileRetainer *file_retainer);
 
 }  // namespace memgraph::storage::durability
