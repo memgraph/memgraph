@@ -649,11 +649,11 @@ void RecoverOnMultipleThreads(size_t thread_count, const TFunc &func, const std:
   }
 }
 
-RecoveredSnapshot LoadSnapshotVersion14(const std::filesystem::path &path, utils::SkipList<Vertex> *vertices,
-                                        utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata,
-                                        std::deque<std::pair<std::string, uint64_t>> *epoch_history,
-                                        NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
-                                        SharedSchemaTracking *schema_info, SalientConfig::Items items) {
+RecoveredSnapshot LoadSnapshotVersion14(
+    const std::filesystem::path &path, utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
+    utils::SkipList<EdgeMetadata> *edges_metadata,
+    utils::Synchronized<std::deque<std::pair<std::string, uint64_t>>> &epoch_history, NameIdMapper *name_id_mapper,
+    std::atomic<uint64_t> *edge_count, SharedSchemaTracking *schema_info, SalientConfig::Items items) {
   RecoveryInfo ret;
   RecoveredIndicesAndConstraints indices_constraints;
 
@@ -1130,11 +1130,11 @@ RecoveredSnapshot LoadSnapshotVersion14(const std::filesystem::path &path, utils
   return {info, ret, std::move(indices_constraints)};
 }
 
-RecoveredSnapshot LoadSnapshotVersion15(const std::filesystem::path &path, utils::SkipList<Vertex> *vertices,
-                                        utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata,
-                                        std::deque<std::pair<std::string, uint64_t>> *epoch_history,
-                                        NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
-                                        SharedSchemaTracking *schema_info, const Config &config) {
+RecoveredSnapshot LoadSnapshotVersion15(
+    const std::filesystem::path &path, utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
+    utils::SkipList<EdgeMetadata> *edges_metadata,
+    utils::Synchronized<std::deque<std::pair<std::string, uint64_t>>> &epoch_history, NameIdMapper *name_id_mapper,
+    std::atomic<uint64_t> *edge_count, SharedSchemaTracking *schema_info, const Config &config) {
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
 
@@ -1422,11 +1422,11 @@ RecoveredSnapshot LoadSnapshotVersion15(const std::filesystem::path &path, utils
   return {info, recovery_info, std::move(indices_constraints)};
 }
 
-RecoveredSnapshot LoadSnapshotVersion16(const std::filesystem::path &path, utils::SkipList<Vertex> *vertices,
-                                        utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata,
-                                        std::deque<std::pair<std::string, uint64_t>> *epoch_history,
-                                        NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
-                                        SharedSchemaTracking *schema_info, const Config &config) {
+RecoveredSnapshot LoadSnapshotVersion16(
+    const std::filesystem::path &path, utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
+    utils::SkipList<EdgeMetadata> *edges_metadata,
+    utils::Synchronized<std::deque<std::pair<std::string, uint64_t>>> &epoch_history, NameIdMapper *name_id_mapper,
+    std::atomic<uint64_t> *edge_count, SharedSchemaTracking *schema_info, const Config &config) {
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
 
@@ -1768,11 +1768,11 @@ RecoveredSnapshot LoadSnapshotVersion16(const std::filesystem::path &path, utils
   return {info, recovery_info, std::move(indices_constraints)};
 }
 
-RecoveredSnapshot LoadSnapshotVersion17(const std::filesystem::path &path, utils::SkipList<Vertex> *vertices,
-                                        utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata,
-                                        std::deque<std::pair<std::string, uint64_t>> *epoch_history,
-                                        NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
-                                        SharedSchemaTracking *schema_info, const Config &config) {
+RecoveredSnapshot LoadSnapshotVersion17(
+    const std::filesystem::path &path, utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
+    utils::SkipList<EdgeMetadata> *edges_metadata,
+    utils::Synchronized<std::deque<std::pair<std::string, uint64_t>>> &epoch_history, NameIdMapper *name_id_mapper,
+    std::atomic<uint64_t> *edge_count, SharedSchemaTracking *schema_info, const Config &config) {
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
 
@@ -2155,12 +2155,12 @@ RecoveredSnapshot LoadSnapshotVersion17(const std::filesystem::path &path, utils
 
 /// We messed up and accidentally introduced a version bump in a release it was not needed for
 /// hence same load for 18 will work for 19
-RecoveredSnapshot LoadSnapshotVersion18or19(const std::filesystem::path &path, utils::SkipList<Vertex> *vertices,
-                                            utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata,
-                                            std::deque<std::pair<std::string, uint64_t>> *epoch_history,
-                                            NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
-                                            SharedSchemaTracking *schema_info, const Config &config,
-                                            memgraph::storage::EnumStore *enum_store) {
+RecoveredSnapshot LoadSnapshotVersion18or19(
+    const std::filesystem::path &path, utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
+    utils::SkipList<EdgeMetadata> *edges_metadata,
+    utils::Synchronized<std::deque<std::pair<std::string, uint64_t>>> &epoch_history, NameIdMapper *name_id_mapper,
+    std::atomic<uint64_t> *edge_count, SharedSchemaTracking *schema_info, const Config &config,
+    memgraph::storage::EnumStore *enum_store) {
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
 
@@ -2599,12 +2599,12 @@ RecoveredSnapshot LoadSnapshotVersion18or19(const std::filesystem::path &path, u
   return {info, recovery_info, std::move(indices_constraints)};
 }
 
-RecoveredSnapshot LoadSnapshotVersion20or21(const std::filesystem::path &path, utils::SkipList<Vertex> *vertices,
-                                            utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata,
-                                            std::deque<std::pair<std::string, uint64_t>> *epoch_history,
-                                            NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
-                                            SharedSchemaTracking *schema_info, const Config &config,
-                                            memgraph::storage::EnumStore *enum_store) {
+RecoveredSnapshot LoadSnapshotVersion20or21(
+    const std::filesystem::path &path, utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
+    utils::SkipList<EdgeMetadata> *edges_metadata,
+    utils::Synchronized<std::deque<std::pair<std::string, uint64_t>>> &epoch_history, NameIdMapper *name_id_mapper,
+    std::atomic<uint64_t> *edge_count, SharedSchemaTracking *schema_info, const Config &config,
+    memgraph::storage::EnumStore *enum_store) {
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
 
@@ -3096,7 +3096,7 @@ RecoveredSnapshot LoadSnapshotVersion20or21(const std::filesystem::path &path, u
 
 RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipList<Vertex> *vertices,
                                utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata,
-                               std::deque<std::pair<std::string, uint64_t>> *epoch_history,
+                               utils::Synchronized<std::deque<std::pair<std::string, uint64_t>>> &epoch_history,
                                NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count, const Config &config,
                                memgraph::storage::EnumStore *enum_store, SharedSchemaTracking *schema_info) {
   RecoveryInfo recovery_info;
@@ -3749,7 +3749,7 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
                     const std::filesystem::path &wal_directory, utils::SkipList<Vertex> *vertices,
                     utils::SkipList<Edge> *edges, utils::UUID const &uuid,
                     const memgraph::replication::ReplicationEpoch &epoch,
-                    const std::deque<std::pair<std::string, uint64_t>> &epoch_history,
+                    utils::Synchronized<std::deque<std::pair<std::string, uint64_t>>> &epoch_history,
                     utils::FileRetainer *file_retainer) {
   // Ensure that the storage directory exists.
   utils::EnsureDirOrDie(snapshot_directory);
@@ -4176,11 +4176,13 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
   {
     offset_epoch_history = snapshot.GetPosition();
     snapshot.WriteMarker(Marker::SECTION_EPOCH_HISTORY);
-    snapshot.WriteUint(epoch_history.size());
-    for (const auto &[epoch_id, last_durable_timestamp] : epoch_history) {
-      snapshot.WriteString(epoch_id);
-      snapshot.WriteUint(last_durable_timestamp);
-    }
+    epoch_history.WithLock([&snapshot](auto &history) {
+      snapshot.WriteUint(history.size());
+      for (const auto &[epoch_id, last_durable_timestamp] : history) {
+        snapshot.WriteString(epoch_id);
+        snapshot.WriteUint(last_durable_timestamp);
+      }
+    });
   }
 
   // Write metadata.

@@ -37,7 +37,6 @@
 #include "storage/v2/inmemory/unique_constraints.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "utils/event_histogram.hpp"
-#include "utils/flag_validation.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/message.hpp"
@@ -140,7 +139,7 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
             "Wal file {} won't be used for recovery. UUID: {}. Info UUID: {}. Current seq num: {}. Info seq num: {}.",
             item.path(), uuid, info.uuid, current_seq_num, info.seq_num);
       }
-    } catch (const RecoveryFailure &e) {
+    } catch (const RecoveryFailure &) {
       spdlog::warn("Failed to read WAL file {}.", item.path());
       continue;
     }
@@ -397,7 +396,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
     return std::nullopt;
   }
 
-  auto *const epoch_history = &repl_storage_state.history;
+  auto &epoch_history = repl_storage_state.history;
   utils::Timer timer;
 
   auto snapshot_files = GetSnapshotFiles(snapshot_directory_);
@@ -469,7 +468,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
       try {
         auto info = ReadWalInfo(item.path());
         wal_files.emplace_back(item.path(), std::move(info.uuid), std::move(info.epoch_id));
-      } catch (const RecoveryFailure &e) {
+      } catch (const RecoveryFailure &) {
         continue;
       }
     }
@@ -600,8 +599,10 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
                 repl_storage_state.last_durable_timestamp_);
 
   spdlog::trace("History with its epochs and attached commit timestamps.");
-  std::ranges::for_each(repl_storage_state.history, [](auto &&history) {
-    spdlog::trace("Epoch id: {}. Commit timestamp: {}.", std::string(history.first), history.second);
+  epoch_history.WithLock([](auto const &history) {
+    std::ranges::for_each(history, [](auto const &entry) {
+      spdlog::trace("Epoch id: {}. Commit timestamp: {}.", std::string(entry.first), entry.second);
+    });
   });
   return recovery_info;
 }

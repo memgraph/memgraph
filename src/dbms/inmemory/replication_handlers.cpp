@@ -305,8 +305,8 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
       spdlog::debug("Loading snapshot");
       auto [snapshot_info, recovery_info, indices_constraints] = storage::durability::LoadSnapshot(
           *maybe_snapshot_path, &storage->vertices_, &storage->edges_, &storage->edges_metadata_,
-          &storage->repl_storage_state_.history, storage->name_id_mapper_.get(), &storage->edge_count_,
-          storage->config_, &storage->enum_store_,
+          storage->repl_storage_state_.history, storage->name_id_mapper_.get(), &storage->edge_count_, storage->config_,
+          &storage->enum_store_,
           storage->config_.salient.items.enable_schema_info ? &storage->schema_info_.Get() : nullptr);
       // If this step is present it should always be the first step of
       // the recovery so we use the UUID we read from snapshot

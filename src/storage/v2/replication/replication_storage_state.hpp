@@ -70,13 +70,11 @@ struct ReplicationStorageState {
     });
   }
 
-  // Questions:
-  //    - storage durability <- databases/*name*/wal and snapshots (where this for epoch_id)
   //    - multi-tenant durability <- databases/.durability (there is a list of all active tenants)
   // History of the previous epoch ids.
   // Each value consists of the epoch id along the last commit belonging to that
   // epoch.
-  std::deque<std::pair<std::string, uint64_t>> history;
+  utils::Synchronized<std::deque<std::pair<std::string, uint64_t>>> history;
   std::atomic<uint64_t> last_durable_timestamp_{kTimestampInitialId};
 
   // We create ReplicationClient using unique_ptr so we can move

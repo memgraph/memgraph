@@ -91,30 +91,32 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
         client_.name_, std::string(heartbeat_res.epoch_id), heartbeat_res.current_commit_timestamp,
         std::string(replStorageState.epoch_.id()), replStorageState.last_durable_timestamp_);
 
-    auto const &history = replStorageState.history;
-    const auto epoch_info_iter = std::find_if(history.crbegin(), history.crend(), [&](const auto &main_epoch_info) {
-      return main_epoch_info.first == heartbeat_res.epoch_id;
-    });
+    replStorageState.history.WithLock([&branching_point, &heartbeat_res, client_name = client_.name_](auto &history) {
+      const auto epoch_info_iter = std::find_if(history.crbegin(), history.crend(), [&](const auto &main_epoch_info) {
+        return main_epoch_info.first == heartbeat_res.epoch_id;
+      });
 
-    if (epoch_info_iter == history.crend()) {
-      branching_point = 0;
-      spdlog::trace("Couldn't find epoch {} in main, setting branching point to 0.",
-                    std::string(heartbeat_res.epoch_id));
-    } else if (epoch_info_iter->second <
-               heartbeat_res
-                   .current_commit_timestamp) {  // replica has larger commit ts associated with epoch than main
-      spdlog::trace(
-          "Found epoch {} on main with last_durable_timestamp {}, replica {} has last_durable_timestamp {}. Setting "
-          "branching point to {}.",
-          std::string(epoch_info_iter->first), epoch_info_iter->second, client_.name_,
-          heartbeat_res.current_commit_timestamp, epoch_info_iter->second);
-      branching_point = epoch_info_iter->second;
-    } else {
-      branching_point = std::nullopt;
-      spdlog::trace("Found continuous history between replica {} and main. Our commit timestamp for epoch {} was {}.",
-                    client_.name_, epoch_info_iter->first, epoch_info_iter->second);
-    }
+      if (epoch_info_iter == history.crend()) {
+        branching_point = 0;
+        spdlog::trace("Couldn't find epoch {} in main, setting branching point to 0.",
+                      std::string(heartbeat_res.epoch_id));
+      } else if (epoch_info_iter->second <
+                 heartbeat_res
+                     .current_commit_timestamp) {  // replica has larger commit ts associated with epoch than main
+        spdlog::trace(
+            "Found epoch {} on main with last_durable_timestamp {}, replica {} has last_durable_timestamp {}. Setting "
+            "branching point to {}.",
+            std::string(epoch_info_iter->first), epoch_info_iter->second, client_name,
+            heartbeat_res.current_commit_timestamp, epoch_info_iter->second);
+        branching_point = epoch_info_iter->second;
+      } else {
+        branching_point = std::nullopt;
+        spdlog::trace("Found continuous history between replica {} and main. Our commit timestamp for epoch {} was {}.",
+                      client_name, epoch_info_iter->first, epoch_info_iter->second);
+      }
+    });
   }
+
   if (branching_point) {
     auto replica_state = replica_state_.Lock();
     // Don't put additional task in the thread pool for force resetting if the previous didn't finish
