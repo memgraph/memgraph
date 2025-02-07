@@ -1763,6 +1763,7 @@ auto const builtin_functions = absl::flat_hash_map<std::string, func_impl>{
     {"PROPERTIES", Properties},
     {"RANDOMUUID", RandomUuid},
     {"SIZE", Size},
+    {"LENGTH", Size},
     {"PROPERTYSIZE", PropertySize},
     {"STARTNODE", StartNode},
     {"TIMESTAMP", Timestamp},
