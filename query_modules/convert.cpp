@@ -29,6 +29,7 @@ mgp::Value ParseJsonToMgpMap(const nlohmann::json &json_obj, mgp_memory *memory)
 
 mgp::Value ParseJsonToMgpList(const nlohmann::json &json_array, mgp_memory *memory) {
   auto list = mgp::List();
+  list.Reserve(json_array.size());
   for (const auto &element : json_array) {
     auto value = ParseJsonToMgpValue(element, memory).value();
     list.AppendExtend(value);
@@ -43,13 +44,13 @@ std::optional<mgp::Value> ParseJsonToMgpValue(const nlohmann::json &json_obj, mg
   } else if (json_obj.is_array()) {
     return ParseJsonToMgpList(json_obj, memory);
   } else if (json_obj.is_string()) {
-    return mgp::Value(mgp::value_make_string(json_obj.get<std::string>().c_str(), memory));
+    return mgp::Value(mgp::steal_type, mgp::value_make_string(json_obj.get<std::string>().c_str(), memory));
   } else if (json_obj.is_number_integer()) {
-    return mgp::Value(mgp::value_make_int(json_obj.get<int64_t>(), memory));
+    return mgp::Value(mgp::steal_type, mgp::value_make_int(json_obj.get<int64_t>(), memory));
   } else if (json_obj.is_number_float()) {
-    return mgp::Value(mgp::value_make_double(json_obj.get<double>(), memory));
+    return mgp::Value(mgp::steal_type, mgp::value_make_double(json_obj.get<double>(), memory));
   } else if (json_obj.is_boolean()) {
-    return mgp::Value(mgp::value_make_bool(json_obj.get<bool>(), memory));
+    return mgp::Value(mgp::steal_type, mgp::value_make_bool(json_obj.get<bool>(), memory));
   } else if (json_obj.is_null()) {
     return mgp::Value();
   } else {

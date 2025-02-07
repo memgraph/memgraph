@@ -54,18 +54,18 @@ inline void MgExceptionHandle(mgp_error result_code) {
 }
 
 template <typename TResult, typename TFunc, typename... TArgs>
-TResult MgInvoke(TFunc func, TArgs... args) {
+TResult MgInvoke(TFunc func, TArgs &&...args) {
   TResult result{};
 
-  auto result_code = func(args..., &result);
+  auto result_code = func(std::forward<TArgs>(args)..., &result);
   MgExceptionHandle(result_code);
 
   return result;
 }
 
 template <typename TFunc, typename... TArgs>
-inline void MgInvokeVoid(TFunc func, TArgs... args) {
-  auto result_code = func(args...);
+inline void MgInvokeVoid(TFunc func, TArgs &&...args) {
+  auto result_code = func(std::forward<TArgs>(args)...);
   MgExceptionHandle(result_code);
 }
 }  // namespace
@@ -398,6 +398,8 @@ inline bool list_contains_deleted(mgp_list *list) { return MgInvoke<int>(mgp_lis
 inline void list_append(mgp_list *list, mgp_value *val) { MgInvokeVoid(mgp_list_append, list, val); }
 
 inline void list_append_extend(mgp_list *list, mgp_value *val) { MgInvokeVoid(mgp_list_append_extend, list, val); }
+
+inline void list_reserve(mgp_list *list, size_t n) { MgInvokeVoid(mgp_list_reserve, list, n); }
 
 inline size_t list_size(mgp_list *list) { return MgInvoke<size_t>(mgp_list_size, list); }
 

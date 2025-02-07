@@ -488,6 +488,13 @@ class MultiDatabaseQueryInMulticommandTxException : public QueryException {
   SPECIALIZE_GET_EXCEPTION_NAME(MultiDatabaseQueryInMulticommandTxException)
 };
 
+class UseDatabaseQueryInMulticommandTxException : public QueryException {
+ public:
+  UseDatabaseQueryInMulticommandTxException()
+      : QueryException("Switching databases is not allowed in multicommand transactions.") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(UseDatabaseQueryInMulticommandTxException)
+};
+
 class DropGraphInMulticommandTxException : public QueryException {
  public:
   DropGraphInMulticommandTxException()

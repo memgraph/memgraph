@@ -26,6 +26,7 @@
 #include "storage/v2/storage.hpp"
 
 /// REPLICATION ///
+
 #include "storage/v2/delta_container.hpp"
 #include "storage/v2/inmemory/replication/recovery.hpp"
 #include "storage/v2/replication/replication_storage_state.hpp"
@@ -89,9 +90,9 @@ struct IndexPerformanceTracker {
 class InMemoryStorage final : public Storage {
   friend class memgraph::dbms::InMemoryReplicationHandlers;
   friend class ReplicationStorageClient;
-  friend std::vector<RecoveryStep> GetRecoverySteps(uint64_t replica_commit,
-                                                    utils::FileRetainer::FileLocker *file_locker,
-                                                    const InMemoryStorage *storage);
+  friend std::optional<std::vector<RecoveryStep>> GetRecoverySteps(uint64_t replica_commit,
+                                                                   utils::FileRetainer::FileLocker *file_locker,
+                                                                   const InMemoryStorage *main_storage);
   friend class InMemoryLabelIndex;
   friend class InMemoryLabelPropertyIndex;
   friend class InMemoryLabelPropertyCompositeIndex;

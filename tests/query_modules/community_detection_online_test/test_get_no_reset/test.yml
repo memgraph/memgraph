@@ -1,0 +1,6 @@
+query: >
+    CALL community_detection_online.get()
+    YIELD node, community_id
+    RETURN COUNT(node) AS n_nodes;
+output:
+  - n_nodes: 5
