@@ -13,7 +13,6 @@
 
 #include "dbms/dbms_handler.hpp"
 #include "replication/replication_server.hpp"
-#include "rpc/server.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/snapshot.hpp"
@@ -138,7 +137,7 @@ void InMemoryReplicationHandlers::SwapMainUUIDHandler(dbms::DbmsHandler *dbms_ha
                                                       slk::Reader *req_reader, slk::Builder *res_builder) {
   if (!dbms_handler->IsReplica()) {
     spdlog::error("Setting main uuid must be performed on replica.");
-    slk::Save(replication_coordination_glue::SwapMainUUIDRes{false}, res_builder);
+    SendFinalResponse(replication_coordination_glue::SwapMainUUIDRes{false}, res_builder);
     return;
   }
 
@@ -148,7 +147,7 @@ void InMemoryReplicationHandlers::SwapMainUUIDHandler(dbms::DbmsHandler *dbms_ha
   dbms_handler->ReplicationState().TryPersistRoleReplica(role_replica_data.config, req.uuid);
   role_replica_data.uuid_ = req.uuid;
 
-  slk::Save(replication_coordination_glue::SwapMainUUIDRes{true}, res_builder);
+  SendFinalResponse(replication_coordination_glue::SwapMainUUIDRes{true}, res_builder);
 }
 
 void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handler,

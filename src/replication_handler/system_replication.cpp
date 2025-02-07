@@ -53,7 +53,7 @@ void SystemRecoveryHandler(memgraph::system::ReplicaHandlerAccessToState &system
   using memgraph::replication::SystemRecoveryRes;
   SystemRecoveryRes res(SystemRecoveryRes::Result::FAILURE);
 
-  utils::OnScopeExit send_on_exit([&]() { memgraph::slk::Save(res, res_builder); });
+  utils::OnScopeExit send_on_exit([&]() { SendFinalResponse(res, res_builder); });
 
   memgraph::replication::SystemRecoveryReq req;
   memgraph::slk::Load(&req, req_reader);
