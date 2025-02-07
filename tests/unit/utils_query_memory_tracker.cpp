@@ -13,12 +13,14 @@
 
 #include "memory/global_memory_control.hpp"
 #include "memory/query_memory_control.hpp"
+#include "utils/query_memory_tracker.hpp"
 
 TEST(MemoryTrackerTest, ExceptionEnabler) {
 #ifdef USE_JEMALLOC
   memgraph::memory::SetHooks();
-  memgraph::memory::StartTrackingCurrentThreadTransaction(1);
-  memgraph::memory::TryStartTrackingOnTransaction(1, 100000);
+  memgraph::utils::QueryMemoryTracker qmt;
+  qmt.SetQueryLimit(memgraph::memory::UNLIMITED_MEMORY);
+  memgraph::memory::StartTrackingCurrentThread(&qmt);
 
   for (int i = 0; i < 1e6; i++) {
     std::vector<int> vi;

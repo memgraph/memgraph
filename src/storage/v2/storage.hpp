@@ -320,6 +320,8 @@ class Storage {
 
     std::optional<uint64_t> GetTransactionId() const;
 
+    std::unique_ptr<utils::QueryMemoryTracker> &GetQueryMemoryTracker();
+
     void AdvanceCommand();
 
     const std::string &LabelToName(LabelId label) const { return storage_->LabelToName(label); }
