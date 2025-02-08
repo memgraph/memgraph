@@ -523,3 +523,17 @@ Feature: WHERE exists
           MATCH (n) RETURN exists((n)-[]-());
           """
       Then an error should be raised
+
+  Scenario: Test exists with curly brackets
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:One {prop:1})-[:TYPE]->(:Two)
+          """
+      When executing query:
+          """
+          MATCH (n:One) WHERE EXISTS { (n)-[]-() } RETURN n.prop;
+          """
+      Then the result should be:
+          | n.prop |
+          | 1      |
