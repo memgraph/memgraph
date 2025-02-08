@@ -537,3 +537,31 @@ Feature: WHERE exists
       Then the result should be:
           | n.prop |
           | 1      |
+
+  Scenario: Test exists subquery with match
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:One {prop:1})-[:TYPE]->(:Two)
+          """
+      When executing query:
+          """
+          MATCH (n:One) WHERE EXISTS { MATCH (n)-[]-() } RETURN n.prop;
+          """
+      Then the result should be:
+          | n.prop |
+          | 1      |
+
+  Scenario: Test exists subquery with match and where
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:One {prop:1})-[:TYPE]->(:Two)
+          """
+      When executing query:
+          """
+          MATCH (n:One) WHERE EXISTS { MATCH (n)-[]-() WHERE n.prop = 1 } RETURN n.prop;
+          """
+      Then the result should be:
+          | n.prop |
+          | 1      |
