@@ -1008,9 +1008,9 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitParameter(MemgraphCypher::ParameterContext *ctx) override;
 
   /**
-   * @return Exists* (Expression)
+   * @return Exists* | ExistsSubquery* (Expression)
    */
-  antlrcpp::Any visitExistsExpression(MemgraphCypher::ExistsExpressionContext *ctx) override;
+  antlrcpp::Any visitExistsAtom(MemgraphCypher::ExistsAtomContext *ctx) override;
 
   /**
    * @return pattern comprehension (Expression)

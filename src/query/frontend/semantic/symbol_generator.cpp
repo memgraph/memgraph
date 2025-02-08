@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -246,7 +246,7 @@ bool SymbolGenerator::PreVisit(CallSubquery & /*call_sub*/) {
 }
 
 bool SymbolGenerator::PostVisit(CallSubquery & /*call_sub*/) {
-  // no need to set the flag to true as we are popping the scope
+  // no need to set the flag to false as we are popping the scope
   auto subquery_scope = scopes_.back();
   scopes_.pop_back();
   auto &main_query_scope = scopes_.back();
@@ -264,6 +264,17 @@ bool SymbolGenerator::PostVisit(CallSubquery & /*call_sub*/) {
     main_query_scope.symbols[symbol_name] = symbol;
   }
 
+  return true;
+}
+
+bool SymbolGenerator::PreVisit(ExistsSubquery & /*exists_sub*/) {
+  scopes_.emplace_back(Scope{.in_exists_subquery = true});
+  return true;
+}
+
+bool SymbolGenerator::PostVisit(ExistsSubquery & /*exists_sub*/) {
+  // no need to set the flag to false as we are popping the scope
+  scopes_.pop_back();
   return true;
 }
 
