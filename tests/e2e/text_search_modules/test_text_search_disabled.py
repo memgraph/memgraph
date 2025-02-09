@@ -10,6 +10,7 @@
 # licenses/APL.txt.
 
 import json
+import re
 import sys
 
 import gqlalchemy
@@ -17,7 +18,7 @@ import pytest
 from common import memgraph
 
 TEXT_SEARCH_DISABLED_ERROR = (
-    "To use text indices and text search, start Memgraph with the experimental text search feature enabled."
+    "To use text indices and text search, start Memgraph with the --experimental-enabled='text-search' flag."
 )
 
 
