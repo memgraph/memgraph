@@ -58,12 +58,12 @@
 (defn query-forbidden-on-main?
   "Accepts exception e as argument."
   [e]
-  (string/includes? (str e) "query forbidden on the main"))
+  (string/includes? (str e) "Write queries are forbidden on the main"))
 
 (defn query-forbidden-on-replica?
   "Accepts exception e as argument."
   [e]
-  (string/includes? (str e) "query forbidden on the replica"))
+  (string/includes? (str e) "Write queries are forbidden on the replica"))
 
 (defn sync-replica-down?
   "Accepts exception e as argument."
