@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,6 +11,7 @@
 
 #include "telemetry/telemetry.hpp"
 
+#include <chrono>
 #include <filesystem>
 #include <utility>
 
@@ -56,14 +57,19 @@ Telemetry::Telemetry(std::string url, std::filesystem::path storage_directory, s
          metrics::global_one_shot_events[metrics::OneShotEvents::kFirstSuccessfulQueryTs].load()},
         {"first_failed_query", metrics::global_one_shot_events[metrics::OneShotEvents::kFirstFailedQueryTs].load()}};
   });
-  // TODO(gitbuda): Check if CollectData() should be called here -> an issue might be that some collectors are added
-  // after constructor call.
-  //   NOTE: scheduler is fist waiting and then executing the function.
-  //   IDEA: Probably the best way is to implement scheduler_.Run|FireOnce to get all measurements right after
-  //   instance start, e.g. 60s after successful run.
-  scheduler_.SetInterval(refresh_interval);
-  scheduler_.Run("Telemetry", [&] { CollectData(); });
+  scheduler_.Pause();  // Don't run until all collects have been added
+  scheduler_.SetInterval(std::chrono::seconds{60});
+  scheduler_.Run("Telemetry", [this, final_interval = refresh_interval, first = true]() mutable {
+    CollectData();
+    // First run after 60s; all subsequent runs at the user-defined interval
+    if (first) {
+      first = false;
+      scheduler_.SetInterval(final_interval);
+    }
+  });
 }
+
+void Telemetry::Start() { scheduler_.Resume(); }
 
 void Telemetry::AddCollector(const std::string &name, const std::function<const nlohmann::json(void)> &func) {
   auto guard = std::lock_guard{lock_};
