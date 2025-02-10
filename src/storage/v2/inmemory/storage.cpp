@@ -727,7 +727,8 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
 
       commit_timestamp_.emplace(mem_storage->GetCommitTimestamp());
 
-      if (transaction_.constraint_verification_info &&
+      auto has_any_unique_constraints = !storage_->constraints_.unique_constraints_->empty();
+      if (has_any_unique_constraints && transaction_.constraint_verification_info &&
           transaction_.constraint_verification_info->NeedsUniqueConstraintVerification()) {
         // Before committing and validating vertices against unique constraints,
         // we have to update unique constraints with the vertices that are going
