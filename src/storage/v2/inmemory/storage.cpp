@@ -659,7 +659,8 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
     transaction_.EnsureCommitTimestampExists();
 
     // ExistenceConstraints validation block
-    if (transaction_.constraint_verification_info &&
+    auto has_any_existence_constraints = !storage_->constraints_.existence_constraints_->empty();
+    if (has_any_existence_constraints && transaction_.constraint_verification_info &&
         transaction_.constraint_verification_info->NeedsExistenceConstraintVerification()) {
       const auto vertices_to_update =
           transaction_.constraint_verification_info->GetVerticesForExistenceConstraintChecking();
