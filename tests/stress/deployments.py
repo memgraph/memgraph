@@ -32,11 +32,15 @@ class Deployment(ABC):
     def wait_for_server(self, port=None) -> None:
         pass
 
-    def execute_query(self, query: str) -> None:
+    def execute(self, query: str) -> None:
         memgraph = Memgraph()
         memgraph.execute(query)
 
-    def execute_query_for_tenant(self, tenant: str, query: str) -> None:
+    def execute_and_fetch(self, query: str) -> None:
+        memgraph = Memgraph()
+        return memgraph.execute_and_fetch(query)
+
+    def execute_for_tenant(self, tenant: str, query: str) -> None:
         with self._driver.session(database=tenant) as session:
             session.run(query)
 
@@ -422,7 +426,7 @@ class MinikubeHelmStandaloneDeployment(Deployment):
                 print(f"Pod not ready yet!")
                 time.sleep(1)
 
-    def execute_query(self, query: str) -> None:
+    def execute(self, query: str) -> None:
         """Execute a Cypher query on Memgraph"""
         # Get Minikube IP and NodePort
         minikube_ip = self.get_minikube_ip()
@@ -440,6 +444,25 @@ class MinikubeHelmStandaloneDeployment(Deployment):
 
         # Execute the Cypher query
         memgraph.execute(query)
+
+    def execute_and_fetch(self, query: str):
+        """Execute a Cypher query on Memgraph"""
+        # Get Minikube IP and NodePort
+        minikube_ip = self.get_minikube_ip()
+        if not minikube_ip:
+            print("Failed to get Minikube IP.")
+            return
+
+        nodeport = self.get_service_nodeport(self.release_name)
+        if not nodeport:
+            print("Failed to get NodePort for Memgraph service.")
+            return
+
+        # Connect to Memgraph using the Minikube IP and NodePort
+        memgraph = Memgraph(host=minikube_ip, port=nodeport)
+
+        # Execute the Cypher query
+        return memgraph.execute_and_fetch(query)
 
     def get_minikube_ip(self) -> str:
         """Get Minikube external IP."""
@@ -535,35 +558,35 @@ class MinikubeHelmHADeployment(Deployment):
         minikube_ip = self.get_minikube_ip()
 
         coordinator_2_nodeport = self.get_service_nodeport(self._coord_ext_service_names[1])
-        self._execute_query_on_service(
+        self._execute_on_service(
             coordinator_service_name,
             f'ADD COORDINATOR 2 WITH CONFIG {{"bolt_server": "{minikube_ip}:{coordinator_2_nodeport}", "coordinator_server": "{self._coord_service_names[1]}.default.svc.cluster.local:12000", "management_server": "{self._coord_service_names[1]}.default.svc.cluster.local:10000"}};',
         )
 
         coordinator_3_nodeport = self.get_service_nodeport(self._coord_ext_service_names[2])
-        self._execute_query_on_service(
+        self._execute_on_service(
             coordinator_service_name,
             f'ADD COORDINATOR 3 WITH CONFIG {{"bolt_server": "{minikube_ip}:{coordinator_3_nodeport}", "coordinator_server": "{self._coord_service_names[2]}.default.svc.cluster.local:12000", "management_server": "{self._coord_service_names[2]}.default.svc.cluster.local:10000"}};',
         )
 
         data_0_nodeport = self.get_service_nodeport(self._data_ext_service_names[0])
-        self._execute_query_on_service(
+        self._execute_on_service(
             coordinator_service_name,
             f'REGISTER INSTANCE instance_1 WITH CONFIG {{"bolt_server": "{minikube_ip}:{data_0_nodeport}", "management_server": "{self._data_service_names[0]}.default.svc.cluster.local:10000", "replication_server": "{self._data_service_names[0]}.default.svc.cluster.local:20000"}};',
         )
 
         data_1_nodeport = self.get_service_nodeport(self._data_ext_service_names[1])
-        self._execute_query_on_service(
+        self._execute_on_service(
             coordinator_service_name,
             f'REGISTER INSTANCE instance_2 WITH CONFIG {{"bolt_server": "{minikube_ip}:{data_1_nodeport}", "management_server": "{self._data_service_names[1]}.default.svc.cluster.local:10000", "replication_server": "{self._data_service_names[1]}.default.svc.cluster.local:20000"}};',
         )
 
         data_2_nodeport = self.get_service_nodeport(self._data_ext_service_names[2])
-        self._execute_query_on_service(
+        self._execute_on_service(
             coordinator_service_name,
             f'REGISTER INSTANCE instance_3 WITH CONFIG {{"bolt_server": "{minikube_ip}:{data_2_nodeport}", "management_server": "{self._data_service_names[2]}.default.svc.cluster.local:10000", "replication_server": "{self._data_service_names[2]}.default.svc.cluster.local:20000"}};',
         )
-        self._execute_query_on_service(coordinator_service_name, "SET INSTANCE instance_1 TO MAIN;")
+        self._execute_on_service(coordinator_service_name, "SET INSTANCE instance_1 TO MAIN;")
 
     def stop_memgraph(self) -> None:
         """Uninstalls Memgraph using Helm"""
@@ -626,13 +649,19 @@ class MinikubeHelmHADeployment(Deployment):
 
         print("All pods ready!")
 
-    def execute_query(self, query: str) -> None:
+    def execute(self, query: str) -> None:
         if self._querying_type == "data":
-            self._execute_query_on_data_instance(query)
+            self._execute_on_data_instance(query)
         elif self._querying_type == "bolt+routing":
             self._execute_bolt_routing_query(query)
 
-    def _execute_query_on_data_instance(self, query: str):
+    def execute_and_fetch(self, query: str) -> None:
+        if self._querying_type == "data":
+            self._execute_on_data_instance(query)
+
+        raise Exception("Execute and fetch not applicable at the moment on bolt+routing query!")
+
+    def _execute_on_data_instance(self, query: str):
         """Execute a Cypher query on Memgraph"""
         # Get Minikube IP and NodePort
         minikube_ip = self.get_minikube_ip()
@@ -650,6 +679,25 @@ class MinikubeHelmHADeployment(Deployment):
 
         # Execute the Cypher query
         memgraph.execute(query)
+
+    def _execute_and_fetch_on_data_instance(self, query: str):
+        """Execute a Cypher query on Memgraph"""
+        # Get Minikube IP and NodePort
+        minikube_ip = self.get_minikube_ip()
+        if not minikube_ip:
+            print("Failed to get Minikube IP.")
+            return
+
+        nodeport = self.get_service_nodeport(self._data_ext_service_names[0])
+        if not nodeport:
+            print("Failed to get NodePort for Memgraph service.")
+            return
+
+        # Connect to Memgraph using the Minikube IP and NodePort
+        memgraph = Memgraph(host=minikube_ip, port=nodeport)
+
+        # Execute the Cypher query
+        return memgraph.execute_and_fetch(query)
 
     def _execute_bolt_routing_query(self, query: str):
         minikube_ip = self.get_minikube_ip()
@@ -669,7 +717,7 @@ class MinikubeHelmHADeployment(Deployment):
         if not successful_query:
             raise Exception(f"Driver wasn't able to execute query {query} across all coordinators!")
 
-    def _execute_query_on_service(self, service_name: str, query: str):
+    def _execute_on_service(self, service_name: str, query: str):
         minikube_ip = self.get_minikube_ip()
         if not minikube_ip:
             print("Failed to get Minikube IP.")

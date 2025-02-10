@@ -137,7 +137,7 @@ customWorkloads:
       # 20 workers -> 4M nodes and 2M edges
       workers:
         - name: dummy-worker
-          type: random-multitenant-writer
+          type: random-multitenant-worker
           step: 1
           query: >
             UNWIND range(1, 100) as x
