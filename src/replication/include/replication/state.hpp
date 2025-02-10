@@ -21,6 +21,7 @@
 #include "status.hpp"
 #include "utils/result.hpp"
 #include "utils/uuid.hpp"
+#include "utils/variant_helpers.hpp"
 
 #include <atomic>
 #include <cstdint>
@@ -107,7 +108,17 @@ struct ReplicationState {
     return std::get<RoleMainData>(replication_data_);
   }
 
+  auto GetMainRole() const -> RoleMainData const & {
+    MG_ASSERT(IsMain(), "Instance is not MAIN");
+    return std::get<RoleMainData>(replication_data_);
+  }
+
   auto GetReplicaRole() -> RoleReplicaData & {
+    MG_ASSERT(!IsMain(), "Instance is MAIN");
+    return std::get<RoleReplicaData>(replication_data_);
+  }
+
+  auto GetReplicaRole() const -> RoleReplicaData const & {
     MG_ASSERT(!IsMain(), "Instance is MAIN");
     return std::get<RoleReplicaData>(replication_data_);
   }
@@ -127,16 +138,11 @@ struct ReplicationState {
   bool SetReplicationRoleReplica(const ReplicationServerConfig &config,
                                  const std::optional<utils::UUID> &main_uuid = std::nullopt);
 
-  auto TryLock() -> bool { return mutex_.try_lock(); }
-  auto Lock() -> void { mutex_.lock(); }
-  auto Unlock() -> void { mutex_.unlock(); }
-
  private:
   bool HandleVersionMigration(durability::ReplicationRoleEntry &data) const;
 
   std::unique_ptr<kvstore::KVStore> durability_;
   ReplicationData_t replication_data_;
-  std::mutex mutex_;
   std::atomic<RolePersisted> role_persisted = RolePersisted::UNKNOWN_OR_NO;
 };
 

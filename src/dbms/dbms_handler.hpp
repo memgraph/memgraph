@@ -109,7 +109,8 @@ class DbmsHandler {
    * @param auth pointer to the global authenticator
    * @param recovery_on_startup restore databases (and its content) and authentication data
    */
-  DbmsHandler(storage::Config config, replication::ReplicationState &repl_state, auth::SynchedAuth &auth,
+  DbmsHandler(storage::Config config, utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &repl_state,
+              auth::SynchedAuth &auth,
               bool recovery_on_startup);  // TODO If more arguments are added use a config struct
 #else
   /**
@@ -117,7 +118,7 @@ class DbmsHandler {
    *
    * @param configs storage configuration
    */
-  DbmsHandler(storage::Config config, replication::ReplicationState &repl_state)
+  DbmsHandler(storage::Config config, utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &repl_state)
       : repl_state_{repl_state},
         db_gatekeeper_{[&] {
                          config.salient.name = kDefaultDB;
@@ -268,11 +269,11 @@ class DbmsHandler {
 #endif
   }
 
-  replication::ReplicationState &ReplicationState() { return repl_state_; }
-  replication::ReplicationState const &ReplicationState() const { return repl_state_; }
+  auto ReplicationState() { return repl_state_.Lock(); }
+  auto ReplicationState() const { return repl_state_.ReadLock(); }
 
-  bool IsMain() const { return repl_state_.IsMain(); }
-  bool IsReplica() const { return repl_state_.IsReplica(); }
+  bool IsMain() const { return repl_state_->IsMain(); }
+  bool IsReplica() const { return repl_state_->IsReplica(); }
 
   /**
    * @brief Return all active databases.
@@ -610,7 +611,8 @@ class DbmsHandler {
   //       Database only uses it as a convience to make the correct Access without out needing to be told the
   //       current replication role. TODO: make Database Access explicit about the role and remove this from
   //       dbms stuff
-  replication::ReplicationState &repl_state_;  //!< Ref to global replication state
+  utils::Synchronized<replication::ReplicationState, utils::RWSpinLock>
+      &repl_state_;  //!< Ref to global replication state
 
 #ifndef MG_ENTERPRISE
   mutable utils::Gatekeeper<Database> db_gatekeeper_;  //!< Single databases gatekeeper

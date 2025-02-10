@@ -111,10 +111,11 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
 /// A handler type that keep in sync current ReplicationState and the MAIN/REPLICA-ness of Storage
 struct ReplicationHandler : public query::ReplicationQueryHandler {
 #ifdef MG_ENTERPRISE
-  explicit ReplicationHandler(ReplicationState &repl_state, memgraph::dbms::DbmsHandler &dbms_handler,
-                              memgraph::system::System &system, memgraph::auth::SynchedAuth &auth);
+  explicit ReplicationHandler(utils::Synchronized<ReplicationState, utils::RWSpinLock> &repl_state,
+                              memgraph::dbms::DbmsHandler &dbms_handler, memgraph::system::System &system,
+                              memgraph::auth::SynchedAuth &auth);
 #else
-  explicit ReplicationHandler(memgraph::replication::ReplicationState &repl_state,
+  explicit ReplicationHandler(utils::Synchronized<ReplicationState, utils::RWSpinLock> &repl_state,
                               memgraph::dbms::DbmsHandler &dbms_handler);
 #endif
 
@@ -139,7 +140,7 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
   // as MAIN, remove a REPLICA connection
   auto UnregisterReplica(std::string_view name) -> query::UnregisterReplicaResult override;
 
-  bool DoToMainPromotion(const utils::UUID &main_uuid) const;
+  bool DoToMainPromotion(const utils::UUID &main_uuid, bool force = true);
 
   // Helper pass-through (TODO: remove)
   auto GetRole() const -> replication_coordination_glue::ReplicationRole override;
@@ -148,19 +149,16 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
 
   auto ShowReplicas() const -> utils::BasicResult<query::ShowReplicaError, query::ReplicasInfos> override;
 
-  auto GetReplState() const -> const ReplicationState &;
-  auto GetReplState() -> ReplicationState &;
-
-  auto GetReplicaUUID() const -> std::optional<utils::UUID>;
-  auto GetMainUUID() const -> utils::UUID;
+  auto GetReplState() const { return repl_state_.ReadLock(); }
+  auto GetReplState() -> auto { return repl_state_.Lock(); }
 
   auto GetDatabasesHistories() const -> replication_coordination_glue::DatabaseHistories;
 
  private:
-  void ClientsShutdown() const {
+  void ClientsShutdown(auto &locked_repl_state) const {
     spdlog::trace("Shutting down instance level clients.");
 
-    auto &repl_clients = std::get<RoleMainData>(repl_state_.ReplicationData()).registered_replicas_;
+    auto &repl_clients = std::get<RoleMainData>(locked_repl_state->ReplicationData()).registered_replicas_;
     for (auto &client : repl_clients) {
       client.Shutdown();
     }
@@ -179,17 +177,12 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
   }
 
   template <bool SendSwapUUID>
-  auto RegisterReplica_(const ReplicationClientConfig &config) -> utils::BasicResult<query::RegisterReplicaError> {
+  auto RegisterReplica_(auto &locked_repl_state, const ReplicationClientConfig &config)
+      -> utils::BasicResult<query::RegisterReplicaError> {
     using query::RegisterReplicaError;
     using ClientRegisterReplicaStatus = RegisterReplicaStatus;
 
-    if (!repl_state_.TryLock()) {
-      return RegisterReplicaError::NO_ACCESS;
-    }
-
-    auto unlock_repl_state = utils::OnScopeExit([this]() { repl_state_.Unlock(); });
-
-    auto maybe_client = repl_state_.RegisterReplica(config);
+    auto maybe_client = locked_repl_state->RegisterReplica(config);
     if (maybe_client.HasError()) {
       switch (maybe_client.GetError()) {
         case ClientRegisterReplicaStatus::NOT_MAIN:
@@ -205,7 +198,7 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
       }
     }
 
-    auto const main_uuid = std::get<RoleMainData>(dbms_handler_.ReplicationState().ReplicationData()).uuid_;
+    auto const main_uuid = std::get<RoleMainData>(locked_repl_state->ReplicationData()).uuid_;
     if constexpr (SendSwapUUID) {
       if (!replication_coordination_glue::SendSwapMainUUIDRpc(maybe_client.GetValue()->rpc_client_, main_uuid)) {
         return RegisterReplicaError::ERROR_ACCEPTING_MAIN;
@@ -299,25 +292,18 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
   }
 
   template <bool AllowIdempotency>
-  bool SetReplicationRoleReplica_(const ReplicationServerConfig &config, const std::optional<utils::UUID> &main_uuid) {
-    // If we cannot acquire lock on repl_state, we cannot set role to replica.
-    if (!repl_state_.TryLock()) {
-      spdlog::trace("Cannot acquire lock on repl state while setting role to replica.");
-      return false;
-    }
-
-    auto unlock_repl_state = utils::OnScopeExit([this]() { repl_state_.Unlock(); });
-
-    if (repl_state_.IsReplica()) {
+  bool SetReplicationRoleReplica_(auto &locked_repl_state, const ReplicationServerConfig &config,
+                                  const std::optional<utils::UUID> &main_uuid) {
+    if (locked_repl_state->IsReplica()) {
       if (!AllowIdempotency) {
         return false;
       }
       // We don't want to restart the server if we're already a REPLICA with correct config
-      auto &replica_data = std::get<RoleReplicaData>(repl_state_.ReplicationData());
+      auto &replica_data = std::get<RoleReplicaData>(locked_repl_state->ReplicationData());
       if (replica_data.config == config) {
         return true;
       }
-      repl_state_.SetReplicationRoleReplica(config, main_uuid);
+      locked_repl_state->SetReplicationRoleReplica(config, main_uuid);
 #ifdef MG_ENTERPRISE
       return StartRpcServer(dbms_handler_, replica_data, auth_, system_);
 #else
@@ -326,9 +312,9 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
     }
 
     // Shutdown any clients we might have had
-    ClientsShutdown();
+    ClientsShutdown(locked_repl_state);
     // Creates the server
-    repl_state_.SetReplicationRoleReplica(config, main_uuid);
+    locked_repl_state->SetReplicationRoleReplica(config, main_uuid);
     spdlog::trace("Role set to replica, instance-level clients destroyed.");
 
     // Start
@@ -343,7 +329,7 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
                                                         return StartRpcServer(dbms_handler_, data);
 #endif
                                                       }},
-                                    repl_state_.ReplicationData());
+                                    locked_repl_state->ReplicationData());
 
     // Pause TTL
     dbms_handler_.ForEach([&](dbms::DatabaseAccess db_acc) {
@@ -355,7 +341,7 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
     return success;
   }
 
-  ReplicationState &repl_state_;
+  utils::Synchronized<ReplicationState, utils::RWSpinLock> &repl_state_;
   dbms::DbmsHandler &dbms_handler_;
 
 #ifdef MG_ENTERPRISE

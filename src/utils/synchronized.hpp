@@ -14,8 +14,15 @@
 #include <mutex>
 #include <shared_mutex>
 #include <utility>
+#include "utils/exceptions.hpp"
 
 namespace memgraph::utils {
+
+class TryLockException final : public BasicException {
+ public:
+  TryLockException() : BasicException("TryLock failed.") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(TryLockException)
+};
 
 template <typename TMutex>
 concept SharedMutex = requires(TMutex mutex) {
@@ -84,6 +91,7 @@ class Synchronized {
     friend class Synchronized<T, TMutex>;
 
     LockedPtr(T *object_ptr, TMutex *mutex) : object_ptr_(object_ptr), guard_(*mutex) {}
+    LockedPtr(T *object_ptr, std::unique_lock<TMutex> &&guard) : object_ptr_(object_ptr), guard_(std::move(guard)) {}
 
    public:
     T *operator->() { return object_ptr_; }
@@ -91,7 +99,7 @@ class Synchronized {
 
    private:
     T *object_ptr_;
-    std::lock_guard<TMutex> guard_;
+    std::unique_lock<TMutex> guard_;
   };
 
   class ReadLockedPtr {
@@ -99,6 +107,8 @@ class Synchronized {
     friend class Synchronized<T, TMutex>;
 
     ReadLockedPtr(const T *object_ptr, TMutex *mutex) : object_ptr_(object_ptr), guard_(*mutex) {}
+    ReadLockedPtr(const T *object_ptr, std::shared_lock<TMutex> &&guard)
+        : object_ptr_(object_ptr), guard_(std::move(guard)) {}
 
    public:
     const T *operator->() const { return object_ptr_; }
@@ -116,6 +126,8 @@ class Synchronized {
     friend class Synchronized<T, TMutex>;
 
     MutableSharedLockPtr(T *object_ptr, TMutex *mutex) : object_ptr_(object_ptr), guard_(*mutex) {}
+    MutableSharedLockPtr(T *object_ptr, std::shared_lock<TMutex> &&guard)
+        : object_ptr_(object_ptr), guard_(std::move(guard)) {}
 
    public:
     T *operator->() { return object_ptr_; }
@@ -127,10 +139,21 @@ class Synchronized {
   };
 
   LockedPtr Lock() { return LockedPtr(&object_, &mutex_); }
+  LockedPtr TryLock() {
+    auto guard = std::unique_lock{mutex_, std::defer_lock};
+    if (guard.try_lock()) {
+      return LockedPtr(&object_, std::move(guard));
+    }
+    throw TryLockException{};
+  }
 
   template <class TCallable>
   decltype(auto) WithLock(TCallable &&callable) {
     return callable(*Lock());
+  }
+  template <class TCallable>
+  decltype(auto) TryWithLock(TCallable &&callable) {
+    return callable(*TryLock());
   }
 
   LockedPtr operator->() { return LockedPtr(&object_, &mutex_); }
@@ -138,10 +161,22 @@ class Synchronized {
   template <typename = void>
   requires SharedMutex<TMutex> ReadLockedPtr ReadLock()
   const { return ReadLockedPtr(&object_, &mutex_); }
+  template <typename = void>
+  requires SharedMutex<TMutex> ReadLockedPtr TryReadLock()
+  const {
+    auto guard = std::shared_lock{mutex_, std::defer_lock};
+    if (guard.try_lock()) {
+      return {&object_, std::move(guard)};
+    }
+    throw TryLockException{};
+  }
 
   template <class TCallable>
   requires SharedMutex<TMutex> && requires(TCallable &&c, const T &v) { c(v); }
   decltype(auto) WithReadLock(TCallable &&callable) const { return callable(*ReadLock()); }
+  template <class TCallable>
+  requires SharedMutex<TMutex> && requires(TCallable &&c, const T &v) { c(v); }
+  decltype(auto) TryWithReadLock(TCallable &&callable) const { return callable(*TryReadLock()); }
 
   template <typename = void>
   requires SharedMutex<TMutex> ReadLockedPtr operator->() const { return ReadLockedPtr(&object_, &mutex_); }

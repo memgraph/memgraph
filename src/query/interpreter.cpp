@@ -360,6 +360,7 @@ class ReplQueryHandler {
                        const ReplicationQuery::SyncMode sync_mode, const std::chrono::seconds replica_check_frequency) {
     // Coordinator is main by default so this check is OK although it should actually be nothing (neither main nor
     // replica)
+    // TODO Is Replica should be handed by the RegisterReplica
     if (handler_->IsReplica()) {
       // replica can't register another replica
       throw QueryRuntimeException("Replica can't register another replica!");
@@ -6350,16 +6351,16 @@ void Interpreter::Commit() {
 
   auto commit_confirmed_by_all_sync_replicas = true;
 
-  interpreter_context_->repl_state->Lock();
-  bool const is_main = interpreter_context_->repl_state->IsMain();
+  auto locked_repl_state = std::optional{interpreter_context_->repl_state.ReadLock()};
+  bool const is_main = locked_repl_state.value()->IsMain();
   auto *curr_txn = current_db_.db_transactional_accessor_->GetTransaction();
   // if I was main with write txn which became replica, abort.
   if (!is_main && !curr_txn->deltas.empty()) {
-    interpreter_context_->repl_state->Unlock();
     throw QueryException("Cannot commit because instance is not main anymore.");
   }
   auto maybe_commit_error = current_db_.db_transactional_accessor_->Commit({.is_main = is_main}, current_db_.db_acc_);
-  interpreter_context_->repl_state->Unlock();
+  // Proactively unlock repl_state
+  locked_repl_state.reset();
 
   if (maybe_commit_error.HasError()) {
     const auto &error = maybe_commit_error.GetError();
