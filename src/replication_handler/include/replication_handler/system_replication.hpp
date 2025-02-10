@@ -13,7 +13,6 @@
 
 #include "auth/auth.hpp"
 #include "dbms/dbms_handler.hpp"
-#include "replication_handler/system_rpc.hpp"
 #include "system/state.hpp"
 
 namespace memgraph::replication {
@@ -40,14 +39,5 @@ bool StartRpcServer(dbms::DbmsHandler &dbms_handler, replication::RoleReplicaDat
 #else
 bool StartRpcServer(dbms::DbmsHandler &dbms_handler, replication::RoleReplicaData &data);
 #endif
-
-template <typename TResponse>
-void SendFinalResponse(TResponse const &res, slk::Builder *builder) {
-  slk::Save(TResponse::kType.id, builder);
-  slk::Save(rpc::current_version, builder);
-  slk::Save(res, builder);
-  builder->Finalize();
-  spdlog::trace("[RpcServer] sent {}", TResponse::kType.name);
-}
 
 }  // namespace memgraph::replication

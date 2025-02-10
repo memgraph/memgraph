@@ -18,6 +18,7 @@
 #include "flags/experimental.hpp"
 #include "license/license.hpp"
 #include "replication_handler/system_rpc.hpp"
+#include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
 
 namespace memgraph::replication {
 
@@ -53,7 +54,7 @@ void SystemRecoveryHandler(memgraph::system::ReplicaHandlerAccessToState &system
   using memgraph::replication::SystemRecoveryRes;
   SystemRecoveryRes res(SystemRecoveryRes::Result::FAILURE);
 
-  utils::OnScopeExit send_on_exit([&]() { SendFinalResponse(res, res_builder); });
+  utils::OnScopeExit const send_on_exit([&]() { rpc::SendFinalResponse(res, res_builder); });
 
   memgraph::replication::SystemRecoveryReq req;
   memgraph::slk::Load(&req, req_reader);

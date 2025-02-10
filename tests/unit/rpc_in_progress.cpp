@@ -12,10 +12,11 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
+#include "rpc_messages.hpp"
+
 #include "rpc/client.hpp"
 #include "rpc/server.hpp"
-
-#include "rpc_messages.hpp"
+#include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
 
 using memgraph::communication::ClientContext;
 using memgraph::communication::ServerContext;
@@ -54,14 +55,6 @@ void SumRes::Save(const SumRes &obj, memgraph::slk::Builder *builder) { memgraph
 
 constexpr int port{8182};
 
-template <typename TResponse>
-void SendFinalResponse(TResponse const &res, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(TResponse::kType.id, builder);
-  memgraph::slk::Save(memgraph::rpc::current_version, builder);
-  memgraph::slk::Save(res, builder);
-  builder->Finalize();
-}
-
 TEST(RpcInProgress, SingleProgress) {
   Endpoint endpoint{"localhost", port};
 
@@ -87,7 +80,7 @@ TEST(RpcInProgress, SingleProgress) {
     // Simulate done
     std::this_thread::sleep_for(300ms);
     SumRes res{5};
-    SendFinalResponse(res, res_builder);
+    memgraph::rpc::SendFinalResponse(res, res_builder);
     spdlog::trace("Saved SumRes response");
   });
 
@@ -139,7 +132,7 @@ TEST(RpcInProgress, MultipleProgresses) {
     // Simulate done
     std::this_thread::sleep_for(300ms);
     SumRes res{5};
-    SendFinalResponse(res, res_builder);
+    memgraph::rpc::SendFinalResponse(res, res_builder);
     spdlog::trace("Saved SumRes response");
   });
 
@@ -180,7 +173,7 @@ TEST(RpcInProgress, Timeout) {
     // Simulate done
     std::this_thread::sleep_for(300ms);
     SumRes res{5};
-    SendFinalResponse(res, res_builder);
+    memgraph::rpc::SendFinalResponse(res, res_builder);
     spdlog::trace("Saved SumRes response");
   });
 

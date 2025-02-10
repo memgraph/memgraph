@@ -12,6 +12,8 @@
 #include "coordination/coordinator_instance_management_server_handlers.hpp"
 #include "coordination/coordinator_rpc.hpp"
 
+#include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
+
 namespace memgraph::coordination {
 
 #ifdef MG_ENTERPRISE
@@ -29,7 +31,7 @@ void CoordinatorInstanceManagementServerHandlers::ShowInstancesHandler(Coordinat
   coordination::ShowInstancesReq req;
   slk::Load(&req, req_reader);
   coordination::ShowInstancesRes const rpc_res{coordinator_instance.ShowInstancesAsLeader()};
-  SendFinalResponse(rpc_res, res_builder);
+  rpc::SendFinalResponse(rpc_res, res_builder);
   spdlog::trace("Replying to ShowInstancesRpc.");
 }
 #endif

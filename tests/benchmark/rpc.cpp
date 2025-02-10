@@ -19,6 +19,7 @@
 #include "rpc/client_pool.hpp"
 #include "rpc/messages.hpp"
 #include "rpc/server.hpp"
+#include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
 #include "slk/serialization.hpp"
 #include "utils/timer.hpp"
 
@@ -61,14 +62,6 @@ std::optional<memgraph::rpc::Server> server;
 std::optional<memgraph::communication::ClientContext> client_context;
 std::optional<memgraph::rpc::Client> clients[kThreadsNum];
 std::optional<memgraph::rpc::ClientPool> client_pool;
-
-template <typename TResponse>
-void SendFinalResponse(TResponse const &res, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(TResponse::kType.id, builder);
-  memgraph::slk::Save(memgraph::rpc::current_version, builder);
-  memgraph::slk::Save(res, builder);
-  builder->Finalize();
-}
 
 static void BenchmarkRpc(benchmark::State &state) {
   std::string data(state.range(0), 'a');
@@ -118,7 +111,7 @@ int main(int argc, char **argv) {
     server->Register<Echo>([](const auto &req_reader, auto *res_builder) {
       EchoMessage res;
       Load(&res, req_reader);
-      SendFinalResponse(res, res_builder);
+      rpc::SendFinalResponse(res, res_builder);
     });
     server->Start();
   }
