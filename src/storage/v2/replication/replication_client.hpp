@@ -89,7 +89,6 @@ class ReplicaStreamExecutor {
 template <typename F>
 concept InvocableWithStream = std::invocable<F, ReplicaStream &>;
 
-// TODO Rename to something without the word "client"
 class ReplicationStorageClient {
   friend class InMemoryCurrentWalHandler;
   friend class ReplicaStream;
@@ -105,12 +104,11 @@ class ReplicationStorageClient {
 
   ~ReplicationStorageClient() = default;
 
-  // TODO Remove the client related functions
-  auto Mode() const -> memgraph::replication_coordination_glue::ReplicationMode { return client_.mode_; }
+  auto Mode() const -> replication_coordination_glue::ReplicationMode { return client_.mode_; }
   auto Name() const -> std::string const & { return client_.name_; }
   auto Endpoint() const -> io::network::Endpoint const & { return client_.rpc_client_.Endpoint(); }
 
-  auto State() const -> replication::ReplicaState { return replica_state_.WithLock(std::identity()); }
+  auto State() const -> replication::ReplicaState { return *replica_state_.Lock(); }
 
   auto GetTimestampInfo(Storage const *storage) const -> TimestampInfo;
 
@@ -118,7 +116,7 @@ class ReplicationStorageClient {
    * @brief Check the replica state
    *
    * @param storage pointer to the storage associated with the client
-   * @param gk gatekeeper access that protects the database; std::any to have separation between dbms and storage
+   * @param db_acc gatekeeper access that protects the database; std::any to have separation between dbms and storage
    */
   void Start(Storage *storage, DatabaseAccessProtector db_acc);
 
@@ -127,7 +125,7 @@ class ReplicationStorageClient {
    *
    * @param current_wal_seq_num
    * @param storage pointer to the storage associated with the client
-   * @param gk gatekeeper access that protects the database; std::any to have separation between dbms and storage
+   * @param db_acc gatekeeper access that protects the database; std::any to have separation between dbms and storage
    */
   auto StartTransactionReplication(uint64_t current_wal_seq_num, Storage *storage, DatabaseAccessProtector db_acc)
       -> std::optional<ReplicaStream>;
@@ -168,37 +166,36 @@ class ReplicationStorageClient {
   /**
    * @brief Return whether the transaction could be finalized on the replication client or not.
    *
-   * @param storage pointer to the storage associated with the client
-   * @param gk gatekeeper access that protects the database; std::any to have separation between dbms and storage
+   * @param db_acc gatekeeper access that protects the database; std::any to have separation between dbms and storage
    * @param replica_stream replica stream to finalize the transaction on
    * @return true
    * @return false
    */
-  [[nodiscard]] bool FinalizeTransactionReplication(Storage *storage, DatabaseAccessProtector db_acc,
+  [[nodiscard]] bool FinalizeTransactionReplication(DatabaseAccessProtector db_acc,
                                                     std::optional<ReplicaStream> &&replica_stream) const;
 
   /**
    * @brief Asynchronously try to check the replica state and start a recovery thread if necessary
    *
    * @param storage pointer to the storage associated with the client
-   * @param gk gatekeeper access that protects the database; std::any to have separation between dbms and storage
+   * @param db_acc gatekeeper access that protects the database; std::any to have separation between dbms and storage
    */
-  void TryCheckReplicaStateAsync(Storage *storage, DatabaseAccessProtector db_acc);  // TODO Move back to private
+  void TryCheckReplicaStateAsync(Storage *storage, DatabaseAccessProtector db_acc);
 
  private:
   /**
    * @brief Get necessary recovery steps and execute them.
    *
    * @param replica_commit the commit up to which we should recover to
-   * @param gk gatekeeper access that protects the database; std::any to have separation between dbms and storage
+   * @param storage pointer to the storage associated with the client
    */
-  void RecoverReplica(uint64_t replica_commit, memgraph::storage::Storage *storage) const;
+  void RecoverReplica(uint64_t replica_commit, Storage *storage) const;
 
   /**
    * @brief Check replica state
    *
    * @param storage pointer to the storage associated with the client
-   * @param gk gatekeeper access that protects the database; std::any to have separation between dbms and storage
+   * @param db_acc gatekeeper access that protects the database; std::any to have separation between dbms and storage
    */
   void UpdateReplicaState(Storage *storage, DatabaseAccessProtector db_acc);
 
@@ -207,7 +204,7 @@ class ReplicationStorageClient {
    *
    * @param storage pointer to the storage associated with the client
    */
-  std::pair<bool, uint64_t> ForceResetStorage(Storage *storage) const;
+  bool ForceResetStorage(Storage *storage) const;
 
   void LogRpcFailure() const;
 
@@ -215,7 +212,7 @@ class ReplicationStorageClient {
    * @brief Synchronously try to check the replica state and start a recovery thread if necessary
    *
    * @param storage pointer to the storage associated with the client
-   * @param gk gatekeeper access that protects the database; std::any to have separation between dbms and storage
+   * @param db_acc gatekeeper access that protects the database; std::any to have separation between dbms and storage
    */
   void TryCheckReplicaStateSync(Storage *storage, DatabaseAccessProtector db_acc);
 

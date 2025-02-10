@@ -6,6 +6,7 @@
 local_cache_host=${MGDEPS_CACHE_HOST_PORT:-mgdeps-cache:8000}
 working_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "${working_dir}"
+WGET_OR_CLONE_TIMEOUT=15
 
 function print_help () {
     echo "Usage: $0 [OPTION]"
@@ -42,9 +43,9 @@ clone () {
     # clone the same repo from a different source.
 
     if [ "$shallow" = true ]; then
-      git clone --depth 1 --branch "$checkout_id" "$git_repo" "$dir_name" || return 1
+      timeout $WGET_OR_CLONE_TIMEOUT git clone --depth 1 --branch "$checkout_id" "$git_repo" "$dir_name" || return 1
     else
-      git clone "$git_repo" "$dir_name" || return 1
+      timeout $WGET_OR_CLONE_TIMEOUT git clone "$git_repo" "$dir_name" || return 1
     fi
   fi
   pushd "$dir_name"
@@ -91,10 +92,10 @@ file_get_try_double () {
     if [[ "$use_cache" == true ]]; then
       echo "Download primary from $primary_url secondary from $secondary_url"
       # Redirect primary/cache to /dev/null to make it less confusing for a new contributor because only CI has access to the cache.
-      timeout 15 wget -nv "$primary_url" -O "$filename" >/dev/null 2>&1 || wget -nv "$secondary_url" -O "$filename" || exit 1
+      timeout $WGET_OR_CLONE_TIMEOUT wget -nv "$primary_url" -O "$filename" >/dev/null 2>&1 || timeout $WGET_OR_CLONE_TIMEOUT wget -nv "$secondary_url" -O "$filename" || exit 1
     else
       echo "Download from $secondary_url"
-      wget -nv "$secondary_url" -O "$filename" || exit 1
+      timeout $WGET_OR_CLONE_TIMEOUT wget -nv "$secondary_url" -O "$filename" || exit 1
     fi
 }
 
@@ -146,7 +147,6 @@ declare -A primary_urls=(
   ["libbcrypt"]="http://$local_cache_host/git/libbcrypt.git"
   ["rocksdb"]="http://$local_cache_host/git/rocksdb.git"
   ["mgclient"]="http://$local_cache_host/git/mgclient.git"
-  ["pymgclient"]="http://$local_cache_host/git/pymgclient.git"
   ["mgconsole"]="http://$local_cache_host/git/mgconsole.git"
   ["spdlog"]="http://$local_cache_host/git/spdlog"
   ["nlohmann"]="http://$local_cache_host/file/nlohmann/json/4f8fba14066156b73f1189a2b8bd568bde5284c5/single_include/nlohmann/json.hpp"
@@ -181,7 +181,6 @@ declare -A secondary_urls=(
   ["libbcrypt"]="https://github.com/rg3/libbcrypt"
   ["rocksdb"]="https://github.com/facebook/rocksdb.git"
   ["mgclient"]="https://github.com/memgraph/mgclient.git"
-  ["pymgclient"]="https://github.com/memgraph/pymgclient.git"
   ["mgconsole"]="https://github.com/memgraph/mgconsole.git"
   ["spdlog"]="https://github.com/gabime/spdlog"
   ["nlohmann"]="https://raw.githubusercontent.com/nlohmann/json/4f8fba14066156b73f1189a2b8bd568bde5284c5/single_include/nlohmann/json.hpp"
@@ -249,27 +248,15 @@ cd json
 file_get_try_double "${primary_urls[nlohmann]}" "${secondary_urls[nlohmann]}"
 cd ..
 
-if [ -z "${MG_TOOLCHAIN_VERSION}" ]; then
-  rocksdb_tag="v8.1.1" # (2023-04-21)
-  repo_clone_try_double "${primary_urls[rocksdb]}" "${secondary_urls[rocksdb]}" "rocksdb" "$rocksdb_tag" true
-  pushd rocksdb
-  git apply ../rocksdb8.1.1.patch
-  popd
-else
-  echo "Skipping rocksdb download because it's already under the toolchain v$MG_TOOLCHAIN_VERSION"
-fi
+rocksdb_tag="v8.1.1" # (2023-04-21)
+repo_clone_try_double "${primary_urls[rocksdb]}" "${secondary_urls[rocksdb]}" "rocksdb" "$rocksdb_tag" true
+pushd rocksdb
+git apply ../rocksdb8.1.1.patch
+popd
 
-if [ -z "${MG_TOOLCHAIN_VERSION}" ]; then
-  mgclient_tag="v1.4.0" # (2022-06-14)
-  repo_clone_try_double "${primary_urls[mgclient]}" "${secondary_urls[mgclient]}" "mgclient" "$mgclient_tag"
-  sed -i 's/\${CMAKE_INSTALL_LIBDIR}/lib/' mgclient/src/CMakeLists.txt
-else
-  echo "Skipping mgclient download because it's already under the toolchain v$MG_TOOLCHAIN_VERSION"
-fi
-
-# pymgclient
-pymgclient_tag="4f85c179e56302d46a1e3e2cf43509db65f062b3" # (2021-01-15)
-repo_clone_try_double "${primary_urls[pymgclient]}" "${secondary_urls[pymgclient]}" "pymgclient" "$pymgclient_tag"
+mgclient_tag="v1.4.0" # (2022-06-14)
+repo_clone_try_double "${primary_urls[mgclient]}" "${secondary_urls[mgclient]}" "mgclient" "$mgclient_tag"
+sed -i 's/\${CMAKE_INSTALL_LIBDIR}/lib/' mgclient/src/CMakeLists.txt
 
 # mgconsole
 mgconsole_tag="v1.4.0" # (2023-05-21)

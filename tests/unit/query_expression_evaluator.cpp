@@ -2568,6 +2568,15 @@ TYPED_TEST(FunctionTest, Date) {
                QueryRuntimeException);
   EXPECT_THROW(this->EvaluateFunction("DATE", std::map<std::string, TypedValue>{{"dayz", TypedValue(1970)}}),
                QueryRuntimeException);
+
+  EXPECT_EQ(this->EvaluateFunction("DATE", memgraph::utils::Date({1977, 1, 11})).ValueDate(),
+            memgraph::utils::Date({1977, 1, 11}));
+
+  EXPECT_EQ(this->EvaluateFunction(
+                    "DATE", memgraph::utils::ZonedDateTime(
+                                {{2013, 2, 1}, {12, 52, 34, 12, 11}, memgraph::utils::Timezone("America/Barbados")}))
+                .ValueDate(),
+            memgraph::utils::Date({2013, 2, 1}));
 }
 
 TYPED_TEST(FunctionTest, LocalTime) {
@@ -2595,6 +2604,16 @@ TYPED_TEST(FunctionTest, LocalTime) {
   EXPECT_THROW(
       this->EvaluateFunction("LOCALTIME", TypedValue(std::map<std::string, TypedValue>{{"seconds", TypedValue(1970)}})),
       QueryRuntimeException);
+
+  EXPECT_EQ(this->EvaluateFunction("LOCALTIME", memgraph::utils::LocalTime({10, 33, 23, 42, 123})).ValueLocalTime(),
+            memgraph::utils::LocalTime({10, 33, 23, 42, 123}));
+
+  EXPECT_EQ(
+      this->EvaluateFunction("LOCALTIME",
+                             memgraph::utils::ZonedDateTime(
+                                 {{2013, 2, 1}, {13, 52, 34, 12, 11}, memgraph::utils::Timezone("America/Barbados")}))
+          .ValueLocalTime(),
+      memgraph::utils::LocalTime({13, 52, 34, 12, 11}));
 }
 
 TYPED_TEST(FunctionTest, LocalDateTime) {
@@ -2625,6 +2644,18 @@ TYPED_TEST(FunctionTest, LocalDateTime) {
     EXPECT_THROW(this->EvaluateFunction("LOCALDATETIME",
                                         TypedValue(std::map<std::string, TypedValue>{{"seconds", TypedValue(1970)}})),
                  QueryRuntimeException);
+
+    EXPECT_EQ(
+        this->EvaluateFunction("LOCALDATETIME", memgraph::utils::LocalDateTime({2025, 1, 22}, {10, 33, 23, 42, 123}))
+            .ValueLocalDateTime(),
+        memgraph::utils::LocalDateTime({2025, 1, 22}, {10, 33, 23, 42, 123}));
+
+    EXPECT_EQ(
+        this->EvaluateFunction("LOCALDATETIME",
+                               memgraph::utils::ZonedDateTime(
+                                   {{2013, 2, 1}, {13, 52, 34, 12, 11}, memgraph::utils::Timezone("America/Barbados")}))
+            .ValueLocalDateTime(),
+        memgraph::utils::LocalDateTime({2013, 2, 1}, {13, 52, 34, 12, 11}));
   };
 
   HandleTimezone htz;
@@ -2723,5 +2754,13 @@ TYPED_TEST(FunctionTest, ZonedDateTime) {
                                                    {"timezone", TypedValue("America/Los_Angeles")}}))
                 .ValueZonedDateTime(),
             memgraph::utils::ZonedDateTime({{}, {}, memgraph::utils::Timezone("America/Los_Angeles")}));
+
+  EXPECT_EQ(
+      this->EvaluateFunction(
+              "DATETIME", memgraph::utils::ZonedDateTime(
+                              {{2025, 1, 22}, {10, 33, 23, 42, 123}, memgraph::utils::Timezone("America/Los_Angeles")}))
+          .ValueZonedDateTime(),
+      memgraph::utils::ZonedDateTime(
+          {{2025, 1, 22}, {10, 33, 23, 42, 123}, memgraph::utils::Timezone("America/Los_Angeles")}));
 }
 }  // namespace

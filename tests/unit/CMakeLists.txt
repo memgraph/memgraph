@@ -243,6 +243,9 @@ target_link_libraries(${test_prefix}utils_memory mg-utils)
 add_unit_test(utils_memory_tracker.cpp)
 target_link_libraries(${test_prefix}utils_memory_tracker mg-utils)
 
+add_unit_test(utils_query_memory_tracker.cpp)
+target_link_libraries(${test_prefix}utils_query_memory_tracker mg-utils)
+
 add_unit_test(utils_on_scope_exit.cpp)
 target_link_libraries(${test_prefix}utils_on_scope_exit mg-utils)
 
@@ -324,6 +327,9 @@ target_link_libraries(${test_prefix}property_value_v2 mg-storage-v2 mg-utils)
 
 add_unit_test(storage_v2.cpp)
 target_link_libraries(${test_prefix}storage_v2 mg-storage-v2 storage_test_utils)
+
+add_unit_test(storage_v2_acc.cpp)
+target_link_libraries(${test_prefix}storage_v2_acc mg-storage-v2)
 
 add_unit_test(storage_v2_delta_container.cpp)
 target_link_libraries(${test_prefix}storage_v2_delta_container mg-storage-v2)
@@ -510,13 +516,6 @@ target_link_libraries(${test_prefix}coordinator_raft_state gflags mg-coordinatio
 target_include_directories(${test_prefix}coordinator_raft_state PRIVATE ${CMAKE_SOURCE_DIR}/include)
 endif()
 
-# Test coordinator instance
-if(MG_ENTERPRISE)
-add_unit_test(coordinator_instance.cpp)
-target_link_libraries(${test_prefix}coordinator_instance gflags mg-coordination mg-repl_coord_glue)
-target_include_directories(${test_prefix}coordinator_instance PRIVATE ${CMAKE_SOURCE_DIR}/include)
-endif()
-
 # Test coordinator env flag handler
 if(MG_ENTERPRISE)
 add_unit_test(coordinator_env_flag_handler.cpp)
@@ -555,7 +554,6 @@ if(MG_ENTERPRISE)
           memgraph__unit__coordinator_state_manager
           memgraph__unit__coordinator_log_store
           memgraph__unit__coordinator_raft_state
-          memgraph__unit__coordinator_instance
           memgraph__unit__coordinator_env_flag_handler
           memgraph__unit__coordinator_instance_context
           memgraph__unit__coordinator_instance_aux
@@ -572,4 +570,24 @@ if(MG_ENTERPRISE)
 add_unit_test(ttl.cpp)
 target_link_libraries(${test_prefix}ttl mg-query)
 target_include_directories(${test_prefix}ttl PRIVATE ${CMAKE_SOURCE_DIR}/include)
+endif()
+
+# Test community detection online
+# avoid linking with shared library due to missing symbols
+if(MG_ENTERPRISE)
+  add_unit_test(community_detection_online.cpp ${CMAKE_SOURCE_DIR}/query_modules/community_detection_module/algorithm_online/community_detection.cpp)
+  target_include_directories(${test_prefix}community_detection_online PRIVATE
+  ${CMAKE_SOURCE_DIR}/query_modules/community_detection_module
+  ${CMAKE_SOURCE_DIR}/include
+  ${CMAKE_SOURCE_DIR}/query_modules/mg_utility)
+endif()
+
+# Test katz centrality online
+# avoid linking with shared library due to missing symbols
+if(MG_ENTERPRISE)
+  add_unit_test(katz_centrality_online.cpp ${CMAKE_SOURCE_DIR}/query_modules/katz_centrality_module/algorithm/katz.cpp)
+  target_include_directories(${test_prefix}katz_centrality_online PRIVATE
+  ${CMAKE_SOURCE_DIR}/query_modules/katz_centrality_module
+  ${CMAKE_SOURCE_DIR}/include
+  ${CMAKE_SOURCE_DIR}/query_modules/mg_utility)
 endif()

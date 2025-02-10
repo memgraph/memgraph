@@ -22,19 +22,22 @@
 #include <concepts>
 
 namespace memgraph::replication {
-
 struct ReplicationClient;
 
 template <typename F>
 concept FrequentCheckCB = std::invocable<F, bool, ReplicationClient &>;
 
 struct ReplicationClient {
-  explicit ReplicationClient(const memgraph::replication::ReplicationClientConfig &config);
+  explicit ReplicationClient(const ReplicationClientConfig &config);
 
   ~ReplicationClient();
+
   ReplicationClient(ReplicationClient const &) = delete;
+
   ReplicationClient &operator=(ReplicationClient const &) = delete;
+
   ReplicationClient(ReplicationClient &&) noexcept = delete;
+
   ReplicationClient &operator=(ReplicationClient &&) noexcept = delete;
 
   template <FrequentCheckCB F>
@@ -45,7 +48,7 @@ struct ReplicationClient {
       replica_checker_.Run("Replica Checker", [this, cb = std::forward<F>(callback), reconnect = false]() mutable {
         try {
           {
-            auto stream{rpc_client_.Stream<memgraph::replication_coordination_glue::FrequentHeartbeatRpc>()};
+            auto stream{rpc_client_.Stream<replication_coordination_glue::FrequentHeartbeatRpc>()};
             stream.AwaitResponse();
           }
           cb(reconnect, *this);
@@ -63,7 +66,6 @@ struct ReplicationClient {
 
   //! \tparam RPC An rpc::RequestResponse
   //! \tparam Args the args type
-  //! \param client the client to use for rpc communication
   //! \param check predicate to check response is ok
   //! \param args arguments to forward to the rpc request
   //! \return If replica stream is completed or enqueued
@@ -73,30 +75,30 @@ struct ReplicationClient {
       auto stream = rpc_client_.template Stream<RPC>(std::forward<Args>(args)...);
       auto task = [this, check = std::forward<decltype(check)>(check), stream = std::move(stream)]() mutable {
         if (stream.IsDefunct()) {
-          state_.WithLock([](auto &state) { state = memgraph::replication::ReplicationClient::State::BEHIND; });
+          state_.WithLock([](auto &state) { state = State::BEHIND; });
           return false;
         }
         try {
           if (check(stream.AwaitResponse())) {
             return true;
           }
-        } catch (memgraph::rpc::GenericRpcFailedException const &e) {
+        } catch (rpc::GenericRpcFailedException const &) {
           // swallow error, fallthrough to error handling
         }
         // This replica needs SYSTEM recovery
-        state_.WithLock([](auto &state) { state = memgraph::replication::ReplicationClient::State::BEHIND; });
+        state_.WithLock([](auto &state) { state = State::BEHIND; });
         return false;
       };
 
-      if (mode_ == memgraph::replication_coordination_glue::ReplicationMode::ASYNC) {
+      if (mode_ == replication_coordination_glue::ReplicationMode::ASYNC) {
         thread_pool_.AddTask([task = utils::CopyMovableFunctionWrapper{std::move(task)}]() mutable { task(); });
         return true;
       }
 
       return task();
-    } catch (memgraph::rpc::GenericRpcFailedException const &e) {
+    } catch (rpc::GenericRpcFailedException const &) {
       // This replica needs SYSTEM recovery
-      state_.WithLock([](auto &state) { state = memgraph::replication::ReplicationClient::State::BEHIND; });
+      state_.WithLock([](auto &state) { state = State::BEHIND; });
       return false;
     }
   };
@@ -111,12 +113,12 @@ struct ReplicationClient {
   // and we want to set replica to listen to main
   bool try_set_uuid{false};
 
-  // TODO: Better, this was the easiest place to put this
   enum class State {
     BEHIND,
     READY,
     RECOVERY,
   };
+
   utils::Synchronized<State, utils::WritePrioritizedRWLock> state_{State::BEHIND};
 
   replication_coordination_glue::ReplicationMode mode_{replication_coordination_glue::ReplicationMode::SYNC};
@@ -131,11 +133,9 @@ struct ReplicationClient {
   //  - the implementation is simplified as we have a total control of what
   //    this pool is executing. Also, we can simply queue multiple tasks
   //    and be sure of the execution order.
-  //    Not having mulitple possible threads in the same client allows us
+  //    Not having multiple possible threads in the same client allows us
   //    to ignore concurrency problems inside the client.
   utils::ThreadPool thread_pool_{1};
-
   utils::Scheduler replica_checker_;
 };
-
 }  // namespace memgraph::replication
