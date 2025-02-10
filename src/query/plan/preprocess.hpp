@@ -72,7 +72,7 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
   }
 
   bool Visit(Identifier &ident) override {
-    if (!in_exists || ident.user_declared_) {
+    if ((!in_exists && !in_exists_subquery) || ident.user_declared_) {
       symbols_.insert(symbol_table_.at(ident));
     }
 
@@ -95,6 +95,17 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
     return true;
   }
 
+  bool PreVisit(ExistsSubquery &exists) override {
+    in_exists_subquery = true;
+    exists.cypher_query_->Accept(*this);
+    return false;
+  }
+
+  bool PostVisit(ExistsSubquery & /*exists_subquery*/) override {
+    in_exists_subquery = false;
+    return true;
+  }
+
   bool Visit(PrimitiveLiteral &) override { return true; }
   bool Visit(ParameterLookup &) override { return true; }
   bool Visit(EnumValueAccess &) override { return true; }
@@ -104,6 +115,7 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
 
  private:
   bool in_exists{false};
+  bool in_exists_subquery{false};
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
@@ -161,162 +173,6 @@ struct PatternComprehensionMatching;
 struct FilterMatching;
 
 enum class PatternFilterType { EXISTS };
-
-/// Collects matchings that include patterns
-class PatternVisitor : public ExpressionVisitor<void> {
- public:
-  explicit PatternVisitor(SymbolTable &symbol_table, AstStorage &storage);
-  PatternVisitor(const PatternVisitor &);
-  PatternVisitor &operator=(const PatternVisitor &) = delete;
-  PatternVisitor(PatternVisitor &&) noexcept;
-  PatternVisitor &operator=(PatternVisitor &&) noexcept = delete;
-  ~PatternVisitor() override;
-
-  using ExpressionVisitor<void>::Visit;
-
-  // Unary operators
-  void Visit(NotOperator &op) override { op.expression_->Accept(*this); }
-  void Visit(IsNullOperator &op) override { op.expression_->Accept(*this); };
-  void Visit(UnaryPlusOperator &op) override{};
-  void Visit(UnaryMinusOperator &op) override{};
-
-  // Binary operators
-  void Visit(OrOperator &op) override {
-    op.expression1_->Accept(*this);
-    op.expression2_->Accept(*this);
-  }
-
-  void Visit(XorOperator &op) override {
-    op.expression1_->Accept(*this);
-    op.expression2_->Accept(*this);
-  }
-
-  void Visit(AndOperator &op) override {
-    op.expression1_->Accept(*this);
-    op.expression2_->Accept(*this);
-  }
-
-  void Visit(NotEqualOperator &op) override {
-    op.expression1_->Accept(*this);
-    op.expression2_->Accept(*this);
-  }
-
-  void Visit(EqualOperator &op) override {
-    op.expression1_->Accept(*this);
-    op.expression2_->Accept(*this);
-  }
-
-  void Visit(InListOperator &op) override {
-    op.expression1_->Accept(*this);
-    op.expression2_->Accept(*this);
-  }
-
-  void Visit(AdditionOperator &op) override {
-    op.expression1_->Accept(*this);
-    op.expression2_->Accept(*this);
-  }
-
-  void Visit(SubtractionOperator &op) override {
-    op.expression1_->Accept(*this);
-    op.expression2_->Accept(*this);
-  }
-
-  void Visit(MultiplicationOperator &op) override {
-    op.expression1_->Accept(*this);
-    op.expression2_->Accept(*this);
-  }
-
-  void Visit(DivisionOperator &op) override {
-    op.expression1_->Accept(*this);
-    op.expression2_->Accept(*this);
-  }
-
-  void Visit(ModOperator &op) override {
-    op.expression1_->Accept(*this);
-    op.expression2_->Accept(*this);
-  }
-
-  void Visit(ExponentiationOperator &op) override {
-    op.expression1_->Accept(*this);
-    op.expression2_->Accept(*this);
-  }
-
-  void Visit(LessOperator &op) override {
-    op.expression1_->Accept(*this);
-    op.expression2_->Accept(*this);
-  }
-
-  void Visit(GreaterOperator &op) override {
-    op.expression1_->Accept(*this);
-    op.expression2_->Accept(*this);
-  }
-
-  void Visit(LessEqualOperator &op) override {
-    op.expression1_->Accept(*this);
-    op.expression2_->Accept(*this);
-  }
-
-  void Visit(GreaterEqualOperator &op) override {
-    op.expression1_->Accept(*this);
-    op.expression2_->Accept(*this);
-  }
-
-  void Visit(RangeOperator &op) override {
-    op.expr1_->Accept(*this);
-    op.expr2_->Accept(*this);
-  }
-
-  void Visit(SubscriptOperator &op) override {
-    op.expression1_->Accept(*this);
-    op.expression2_->Accept(*this);
-  }
-
-  // Other
-  void Visit(ListSlicingOperator &op) override{};
-  void Visit(IfOperator &op) override{};
-  void Visit(ListLiteral &op) override{};
-  void Visit(MapLiteral &op) override{};
-  void Visit(MapProjectionLiteral &op) override{};
-  void Visit(LabelsTest &op) override{};
-  void Visit(Aggregation &op) override{};
-
-  void Visit(Function &op) override {
-    for (auto *argument : op.arguments_) {
-      argument->Accept(*this);
-    }
-  }
-
-  void Visit(Reduce &op) override{};
-  void Visit(Coalesce &op) override{};
-  void Visit(Extract &op) override{};
-  void Visit(Exists &op) override;
-  void Visit(All &op) override{};
-  void Visit(Single &op) override{};
-  void Visit(Any &op) override{};
-  void Visit(None &op) override{};
-  void Visit(Identifier &op) override{};
-  void Visit(PrimitiveLiteral &op) override{};
-  void Visit(PropertyLookup &op) override{};
-  void Visit(AllPropertiesLookup &op) override{};
-  void Visit(ParameterLookup &op) override{};
-  void Visit(RegexMatch &op) override{};
-  void Visit(NamedExpression &op) override;
-  void Visit(PatternComprehension &op) override;
-  void Visit(EnumValueAccess &op) override{};
-
-  std::vector<FilterMatching> getFilterMatchings();
-  std::vector<PatternComprehensionMatching> getPatternComprehensionMatchings();
-
-  SymbolTable &symbol_table_;
-  AstStorage &storage_;
-
- private:
-  /// Collection of matchings in the filter expression being analyzed.
-  std::vector<FilterMatching> filter_matchings_;
-
-  /// Collection of matchings in the pattern comprehension being analyzed.
-  std::vector<PatternComprehensionMatching> pattern_comprehension_matchings_;
-};
 
 /// Stores the symbols and expression used to filter a property.
 class PropertyFilter {
@@ -734,5 +590,162 @@ std::vector<Expression *> SplitExpressionOnAnd(Expression *expression);
  * @return Expression *
  */
 Expression *SubstituteExpression(Expression *expr, Expression *old, Expression *in);
+
+/// Collects matchings that include patterns
+class PatternVisitor : public ExpressionVisitor<void> {
+ public:
+  explicit PatternVisitor(SymbolTable &symbol_table, AstStorage &storage);
+  PatternVisitor(const PatternVisitor &);
+  PatternVisitor &operator=(const PatternVisitor &) = delete;
+  PatternVisitor(PatternVisitor &&) noexcept;
+  PatternVisitor &operator=(PatternVisitor &&) noexcept = delete;
+  ~PatternVisitor() override;
+
+  using ExpressionVisitor<void>::Visit;
+
+  // Unary operators
+  void Visit(NotOperator &op) override { op.expression_->Accept(*this); }
+  void Visit(IsNullOperator &op) override { op.expression_->Accept(*this); };
+  void Visit(UnaryPlusOperator &op) override{};
+  void Visit(UnaryMinusOperator &op) override{};
+
+  // Binary operators
+  void Visit(OrOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(XorOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(AndOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(NotEqualOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(EqualOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(InListOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(AdditionOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(SubtractionOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(MultiplicationOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(DivisionOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(ModOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(ExponentiationOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(LessOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(GreaterOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(LessEqualOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(GreaterEqualOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(RangeOperator &op) override {
+    op.expr1_->Accept(*this);
+    op.expr2_->Accept(*this);
+  }
+
+  void Visit(SubscriptOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  // Other
+  void Visit(ListSlicingOperator &op) override{};
+  void Visit(IfOperator &op) override{};
+  void Visit(ListLiteral &op) override{};
+  void Visit(MapLiteral &op) override{};
+  void Visit(MapProjectionLiteral &op) override{};
+  void Visit(LabelsTest &op) override{};
+  void Visit(Aggregation &op) override{};
+
+  void Visit(Function &op) override {
+    for (auto *argument : op.arguments_) {
+      argument->Accept(*this);
+    }
+  }
+
+  void Visit(Reduce &op) override{};
+  void Visit(Coalesce &op) override{};
+  void Visit(Extract &op) override{};
+  void Visit(Exists &op) override;
+  void Visit(All &op) override{};
+  void Visit(Single &op) override{};
+  void Visit(Any &op) override{};
+  void Visit(None &op) override{};
+  void Visit(Identifier &op) override{};
+  void Visit(PrimitiveLiteral &op) override{};
+  void Visit(PropertyLookup &op) override{};
+  void Visit(AllPropertiesLookup &op) override{};
+  void Visit(ParameterLookup &op) override{};
+  void Visit(RegexMatch &op) override{};
+  void Visit(NamedExpression &op) override;
+  void Visit(PatternComprehension &op) override;
+  void Visit(EnumValueAccess &op) override{};
+  void Visit(ExistsSubquery &op) override;
+
+  std::vector<FilterMatching> getFilterMatchings();
+  std::vector<PatternComprehensionMatching> getPatternComprehensionMatchings();
+
+  SymbolTable &symbol_table_;
+  AstStorage &storage_;
+
+ private:
+  /// Collection of matchings in the filter expression being analyzed.
+  std::vector<FilterMatching> filter_matchings_;
+
+  /// Collection of matchings in the pattern comprehension being analyzed.
+  std::vector<PatternComprehensionMatching> pattern_comprehension_matchings_;
+};
 
 }  // namespace memgraph::query::plan

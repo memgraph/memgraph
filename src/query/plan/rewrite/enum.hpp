@@ -176,6 +176,7 @@ class ExpressionEnumAccessRewriter : public ExpressionVisitor<void> {
   void Visit(RegexMatch &op) override {}
   void Visit(NamedExpression &op) override { AcceptExpression(op.expression_); }
   void Visit(PatternComprehension &op) override { AcceptExpression(op.resultExpr_); }
+  void Visit(ExistsSubquery &op) override {}
 
  private:
   TDbAccessor *dba_;

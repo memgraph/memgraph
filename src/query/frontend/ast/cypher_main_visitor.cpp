@@ -1446,7 +1446,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
     }
   }
   bool is_standalone_call_procedure = has_call_procedure && single_query->clauses_.size() == 1U;
-  if (!has_update && !has_return && !is_standalone_call_procedure) {
+  if (!has_update && !has_return && !is_standalone_call_procedure && !in_exists_) {
     throw SemanticException("Query should either create or update something, or return results!");
   }
 
@@ -2933,7 +2933,18 @@ antlrcpp::Any CypherMainVisitor::visitLiteral(MemgraphCypher::LiteralContext *ct
 
 antlrcpp::Any CypherMainVisitor::visitExistsAtom(MemgraphCypher::ExistsAtomContext *ctx) {
   if (ctx->existsSubquery()) {
-    throw SyntaxException("EXISTS does not yet support subqueries!");
+    auto *exists_ctx = ctx->existsSubquery();
+    auto *exists_subquery = storage_->Create<ExistsSubquery>();
+
+    MG_ASSERT(exists_ctx->cypherQuery(), "Expected query inside exists subquery clause");
+
+    if (exists_ctx->cypherQuery()->queryMemoryLimit()) {
+      throw SyntaxException("Memory limit cannot be set on exists subqueries!");
+    }
+    in_exists_ = true;
+    exists_subquery->cypher_query_ = std::any_cast<CypherQuery *>(exists_ctx->cypherQuery()->accept(this));
+    in_exists_ = false;
+    return static_cast<Expression *>(exists_subquery);
   }
 
   auto *exists = storage_->Create<Exists>();

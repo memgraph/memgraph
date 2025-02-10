@@ -298,8 +298,8 @@ reduceExpression : accumulator=variable '=' initial=expression ',' idInColl '|' 
 extractExpression : idInColl '|' expression ;
 
 existsAtom : '(' existsExpression ')'
-           | '{' existsExpression '}'
            | '{' existsSubquery '}'
+           | '{' existsExpression '}'
            ;
 
 

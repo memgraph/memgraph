@@ -155,14 +155,15 @@ class HierarchicalTreeVisitor : public TreeCompositeVisitor, public TreeLeafVisi
 
 template <class TResult>
 class ExpressionVisitor
-    : public utils::Visitor<
-          TResult, NamedExpression, OrOperator, XorOperator, AndOperator, NotOperator, AdditionOperator,
-          SubtractionOperator, MultiplicationOperator, DivisionOperator, ModOperator, ExponentiationOperator,
-          NotEqualOperator, EqualOperator, LessOperator, GreaterOperator, LessEqualOperator, GreaterEqualOperator,
-          RangeOperator, InListOperator, SubscriptOperator, ListSlicingOperator, IfOperator, UnaryPlusOperator,
-          UnaryMinusOperator, IsNullOperator, ListLiteral, MapLiteral, MapProjectionLiteral, PropertyLookup,
-          AllPropertiesLookup, LabelsTest, Aggregation, Function, Reduce, Coalesce, Extract, All, Single, Any, None,
-          ParameterLookup, Identifier, PrimitiveLiteral, RegexMatch, Exists, PatternComprehension, EnumValueAccess> {};
+    : public utils::Visitor<TResult, NamedExpression, OrOperator, XorOperator, AndOperator, NotOperator,
+                            AdditionOperator, SubtractionOperator, MultiplicationOperator, DivisionOperator,
+                            ModOperator, ExponentiationOperator, NotEqualOperator, EqualOperator, LessOperator,
+                            GreaterOperator, LessEqualOperator, GreaterEqualOperator, RangeOperator, InListOperator,
+                            SubscriptOperator, ListSlicingOperator, IfOperator, UnaryPlusOperator, UnaryMinusOperator,
+                            IsNullOperator, ListLiteral, MapLiteral, MapProjectionLiteral, PropertyLookup,
+                            AllPropertiesLookup, LabelsTest, Aggregation, Function, Reduce, Coalesce, Extract, All,
+                            Single, Any, None, ParameterLookup, Identifier, PrimitiveLiteral, RegexMatch, Exists,
+                            PatternComprehension, EnumValueAccess, ExistsSubquery> {};
 
 template <class TResult>
 class QueryVisitor

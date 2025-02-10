@@ -267,8 +267,34 @@ bool SymbolGenerator::PostVisit(CallSubquery & /*call_sub*/) {
   return true;
 }
 
-bool SymbolGenerator::PreVisit(ExistsSubquery & /*exists_sub*/) {
+bool SymbolGenerator::PreVisit(ExistsSubquery &exists_subquery) {
+  auto &scope = scopes_.back();
+
+  if (scope.in_set_property) {
+    throw utils::NotYetImplemented("Exists cannot be used within SET clause.!");
+  }
+
+  if (scope.in_with) {
+    throw utils::NotYetImplemented("Exists cannot be used within WITH!");
+  }
+
+  if (scope.in_return) {
+    throw utils::NotYetImplemented("Exists cannot be used within RETURN!");
+  }
+
+  if (scope.in_reduce) {
+    throw utils::NotYetImplemented("Exists cannot be used within REDUCE!");
+  }
+
+  if (scope.num_if_operators) {
+    throw utils::NotYetImplemented("IF operator cannot be used with exists, but only during matching!");
+  }
+
   scopes_.emplace_back(Scope{.in_exists_subquery = true});
+
+  const auto &symbol = CreateAnonymousSymbol();
+  exists_subquery.MapTo(symbol);
+
   return true;
 }
 

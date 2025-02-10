@@ -841,31 +841,6 @@ void AddMatching(const Match &match, SymbolTable &symbol_table, AstStorage &stor
   }
 }
 
-PatternVisitor::PatternVisitor(SymbolTable &symbol_table, AstStorage &storage)
-    : symbol_table_(symbol_table), storage_(storage) {}
-PatternVisitor::PatternVisitor(const PatternVisitor &) = default;
-PatternVisitor::PatternVisitor(PatternVisitor &&) noexcept = default;
-PatternVisitor::~PatternVisitor() = default;
-
-void PatternVisitor::Visit(Exists &op) {
-  std::vector<Pattern *> patterns;
-  patterns.push_back(op.pattern_);
-
-  FilterMatching filter_matching;
-  AddMatching(patterns, nullptr, symbol_table_, storage_, filter_matching);
-
-  filter_matching.type = PatternFilterType::EXISTS;
-  filter_matching.symbol = std::make_optional<Symbol>(symbol_table_.at(op));
-
-  filter_matchings_.push_back(std::move(filter_matching));
-}
-
-std::vector<FilterMatching> PatternVisitor::getFilterMatchings() { return filter_matchings_; }
-
-std::vector<PatternComprehensionMatching> PatternVisitor::getPatternComprehensionMatchings() {
-  return pattern_comprehension_matchings_;
-}
-
 static void ParseForeach(query::Foreach &foreach, SingleQueryPart &query_part, AstStorage &storage,
                          SymbolTable &symbol_table) {
   for (auto *clause : foreach.clauses_) {
@@ -1030,5 +1005,52 @@ FilterInfo &FilterInfo::operator=(const FilterInfo &) = default;
 FilterInfo::FilterInfo(FilterInfo &&) noexcept = default;
 FilterInfo &FilterInfo::operator=(FilterInfo &&) noexcept = default;
 FilterInfo::~FilterInfo() = default;
+
+PatternVisitor::PatternVisitor(SymbolTable &symbol_table, AstStorage &storage)
+    : symbol_table_(symbol_table), storage_(storage) {}
+PatternVisitor::PatternVisitor(const PatternVisitor &) = default;
+PatternVisitor::PatternVisitor(PatternVisitor &&) noexcept = default;
+PatternVisitor::~PatternVisitor() = default;
+
+void PatternVisitor::Visit(Exists &op) {
+  std::vector<Pattern *> patterns;
+  patterns.push_back(op.pattern_);
+
+  FilterMatching filter_matching;
+  AddMatching(patterns, nullptr, symbol_table_, storage_, filter_matching);
+
+  filter_matching.type = PatternFilterType::EXISTS;
+  filter_matching.symbol = std::make_optional<Symbol>(symbol_table_.at(op));
+
+  filter_matchings_.push_back(std::move(filter_matching));
+}
+
+void PatternVisitor::Visit(ExistsSubquery &op) {
+  auto *single_query = op.cypher_query_->single_query_;
+  MG_ASSERT(single_query, "Expected at least a single query");
+  std::vector<SingleQueryPart> single_query_parts = CollectSingleQueryParts(symbol_table_, storage_, single_query);
+
+  if (single_query_parts.size() != 1) {
+    throw SemanticException("Exists subquery expects only one match clause!");
+  }
+
+  const auto &matching = single_query_parts[0].matching;
+  FilterMatching filter_matching;
+  filter_matching.type = PatternFilterType::EXISTS;
+  filter_matching.expansions = matching.expansions;
+  filter_matching.atom_symbol_to_expansions = matching.atom_symbol_to_expansions;
+  filter_matching.filters = matching.filters;
+  filter_matching.named_paths = matching.named_paths;
+  filter_matching.node_symbol_to_expansion_group_id = matching.node_symbol_to_expansion_group_id;
+
+  filter_matching.symbol = std::make_optional<Symbol>(symbol_table_.at(op));
+  filter_matchings_.push_back(std::move(filter_matching));
+}
+
+std::vector<FilterMatching> PatternVisitor::getFilterMatchings() { return filter_matchings_; }
+
+std::vector<PatternComprehensionMatching> PatternVisitor::getPatternComprehensionMatchings() {
+  return pattern_comprehension_matchings_;
+}
 
 }  // namespace memgraph::query::plan

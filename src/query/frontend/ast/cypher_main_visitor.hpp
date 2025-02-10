@@ -1247,6 +1247,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   // We use this variable in visitReturnItem to check if we are in with or
   // return.
   bool in_with_ = false;
+  bool in_exists_ = false;
 
   Parameters *parameters_;
 

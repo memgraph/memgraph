@@ -105,6 +105,7 @@ class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue *> {
   UNSUCCESSFUL_VISIT(Exists);
   UNSUCCESSFUL_VISIT(PatternComprehension);
   UNSUCCESSFUL_VISIT(EnumValueAccess);
+  UNSUCCESSFUL_VISIT(ExistsSubquery);
 
 #undef UNSUCCESSFUL_VISIT
 
@@ -178,6 +179,7 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
   INVALID_VISIT(Exists)
   INVALID_VISIT(PatternComprehension)
   INVALID_VISIT(EnumValueAccess)
+  INVALID_VISIT(ExistsSubquery)
 
 #undef INVALID_VISIT
  private:
@@ -692,6 +694,18 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   TypedValue Visit(Exists &exists) override {
     TypedValue &frame_exists_value = frame_->at(symbol_table_->at(exists));
+    if (!frame_exists_value.IsFunction()) [[unlikely]] {
+      throw QueryRuntimeException(
+          "Unexpected behavior: Exists expected a function, got {}. Please report the problem on GitHub issues",
+          frame_exists_value.type());
+    }
+    TypedValue result{ctx_->memory};
+    frame_exists_value.ValueFunction()(&result);
+    return result;
+  }
+
+  TypedValue Visit(ExistsSubquery &exists_subquery) override {
+    TypedValue &frame_exists_value = frame_->at(symbol_table_->at(exists_subquery));
     if (!frame_exists_value.IsFunction()) [[unlikely]] {
       throw QueryRuntimeException(
           "Unexpected behavior: Exists expected a function, got {}. Please report the problem on GitHub issues",
