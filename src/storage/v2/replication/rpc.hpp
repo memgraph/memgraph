@@ -12,6 +12,7 @@
 #pragma once
 
 #include <cstdint>
+#include <rpc/version.hpp>
 #include <string>
 #include <utility>
 
@@ -51,6 +52,13 @@ struct AppendDeltasRes {
   explicit AppendDeltasRes(bool const success) : success(success) {}
 
   bool success;
+};
+
+struct InProgressRes {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  InProgressRes() = default;
 };
 
 using AppendDeltasRpc = rpc::RequestResponse<AppendDeltasReq, AppendDeltasRes>;
@@ -280,6 +288,8 @@ void Load(memgraph::storage::replication::HeartbeatRes *self, memgraph::slk::Rea
 void Save(const memgraph::storage::replication::HeartbeatReq &self, memgraph::slk::Builder *builder);
 
 void Load(memgraph::storage::replication::HeartbeatReq *self, memgraph::slk::Reader *reader);
+
+void SendInProgressMsg(Builder *builder);
 
 void Save(const memgraph::storage::replication::AppendDeltasRes &self, memgraph::slk::Builder *builder);
 

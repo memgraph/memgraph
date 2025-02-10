@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -46,11 +46,11 @@ class DataInstanceManagementServerHandlers {
   static void EnableWritingOnMainHandler(replication::ReplicationHandler &replication_handler, slk::Reader *req_reader,
                                          slk::Builder *res_builder);
 
-  static void GetInstanceUUIDHandler(replication::ReplicationHandler &replication_handler, slk::Reader *req_reader,
-                                     slk::Builder *res_builder);
+  static void GetInstanceUUIDHandler(replication::ReplicationHandler const &replication_handler,
+                                     slk::Reader *req_reader, slk::Builder *res_builder);
 
-  static void GetDatabaseHistoriesHandler(replication::ReplicationHandler &replication_handler, slk::Reader *req_reader,
-                                          slk::Builder *res_builder);
+  static void GetDatabaseHistoriesHandler(replication::ReplicationHandler const &replication_handler,
+                                          slk::Reader *req_reader, slk::Builder *res_builder);
 
   template <typename TResponse>
   static auto DoRegisterReplica(replication::ReplicationHandler &replication_handler,
