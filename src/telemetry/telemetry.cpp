@@ -33,6 +33,10 @@
 
 #include <mutex>
 
+namespace {
+constexpr auto kFirstShotAfter = std::chrono::seconds{60};
+}  // namespace
+
 namespace memgraph::telemetry {
 
 constexpr auto kMaxBatchSize{100};
@@ -58,12 +62,14 @@ Telemetry::Telemetry(std::string url, std::filesystem::path storage_directory, s
         {"first_failed_query", metrics::global_one_shot_events[metrics::OneShotEvents::kFirstFailedQueryTs].load()}};
   });
   scheduler_.Pause();  // Don't run until all collects have been added
-  scheduler_.SetInterval(std::chrono::seconds{60});
-  scheduler_.Run("Telemetry", [this, final_interval = refresh_interval, first = true]() mutable {
+  scheduler_.SetInterval(
+      std::min(kFirstShotAfter, refresh_interval));  // use user-defined interval if shorter than first shot
+  scheduler_.Run("Telemetry", [this, final_interval = refresh_interval,
+                               update_interval = kFirstShotAfter < refresh_interval]() mutable {
     CollectData();
     // First run after 60s; all subsequent runs at the user-defined interval
-    if (first) {
-      first = false;
+    if (update_interval) {
+      update_interval = false;
       scheduler_.SetInterval(final_interval);
     }
   });
