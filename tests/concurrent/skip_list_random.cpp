@@ -15,11 +15,10 @@
 #include <ranges>
 #include "utils/skip_list.hpp"
 
-constexpr int kNumWriterThreads = 8;
-constexpr int kNumDeleterThreads = kNumWriterThreads - 1;
-constexpr int kNumReaderThreads = 8;
+constexpr int kNumWriterDeleterThreadPairs = 8;
+constexpr int kNumReaderThreads = 4;
 constexpr int kBlockSize = 8192;
-constexpr int kDataSetSize = kNumWriterThreads * kBlockSize;
+constexpr int kDataSetSize = (kNumWriterDeleterThreadPairs + 1) * kBlockSize;
 
 namespace stdr = std::ranges;
 
@@ -34,6 +33,9 @@ TEST(SkipList, IsDurableWhilstHandlingConcurrentReadsDeletesAndWrites) {
   std::iota(dataset.begin(), std::next(dataset.begin(), kDataSetSize), 0);
   stdr::shuffle(dataset, rng);
 
+  // One block of the dataset is synchronously written to the skip list. The
+  // entries from this stable block will never be removed, and so the reader
+  // threads will always be able to find them.
   {
     auto b{std::next(dataset.cbegin(), kDataSetSize - kBlockSize)};
     auto e{dataset.cend()};
@@ -43,8 +45,10 @@ TEST(SkipList, IsDurableWhilstHandlingConcurrentReadsDeletesAndWrites) {
     }
   }
 
+  // The other blocks are each being written and deleted by a pair of
+  // writer/deleter threads.
   std::vector<std::thread> active_threads;
-  for (int i = 0; i < kNumWriterThreads - 1; ++i) {
+  for (int i = 0; i < kNumWriterDeleterThreadPairs; ++i) {
     active_threads.emplace_back([&, offset = i * kBlockSize]() {
       auto b{std::next(dataset.cbegin(), offset)};
       auto e{std::next(b, kBlockSize)};
@@ -53,9 +57,7 @@ TEST(SkipList, IsDurableWhilstHandlingConcurrentReadsDeletesAndWrites) {
         accessor.insert(*b);
       }
     });
-  }
 
-  for (int i = 0; i < kNumDeleterThreads; ++i) {
     active_threads.emplace_back([&, offset = i * kBlockSize]() {
       std::vector<uint64_t> to_delete(std::next(dataset.cbegin(), offset),
                                       std::next(dataset.cbegin(), offset + kBlockSize));
