@@ -350,7 +350,7 @@ void InMemoryUniqueConstraints::AbortEntries(std::span<Vertex const *const> vert
     for (const auto &label : vertex->labels) {
       const auto &constraint = constraints_by_label_.find(label);
       if (constraint == constraints_by_label_.end()) {
-        return;
+        continue;
       }
 
       for (auto &[props, storage] : constraint->second) {
