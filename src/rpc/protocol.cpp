@@ -33,7 +33,8 @@ void Session::Execute() {
   auto ret = slk::CheckStreamComplete(input_stream_->data(), input_stream_->size());
   if (ret.status == slk::StreamStatus::INVALID) {
     throw SessionException("Received an invalid SLK stream!");
-  } else if (ret.status == slk::StreamStatus::PARTIAL) {
+  }
+  if (ret.status == slk::StreamStatus::PARTIAL) {
     input_stream_->Resize(ret.stream_size);
     return;
   }
@@ -77,19 +78,15 @@ void Session::Execute() {
   }
 
   spdlog::trace("[RpcServer] received {}", it->second.req_type.name);
-  slk::Save(it->second.res_type.id, &res_builder);
-  slk::Save(rpc::current_version, &res_builder);
   try {
     it->second.callback(&req_reader, &res_builder);
-  } catch (const slk::SlkReaderException &) {
+  } catch (const slk::SlkReaderException &e) {
+    spdlog::error("Error occurred in the callback: {}", e.what());
     throw rpc::SlkRpcFailedException();
   }
 
   // Finalize the SLK streams.
   req_reader.Finalize();
-  res_builder.Finalize();
-
-  spdlog::trace("[RpcServer] sent {}", it->second.res_type.name);
 }
 
 }  // namespace memgraph::rpc
