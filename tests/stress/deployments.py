@@ -657,7 +657,7 @@ class MinikubeHelmHADeployment(Deployment):
 
     def execute_and_fetch(self, query: str) -> None:
         if self._querying_type == "data":
-            self._execute_on_data_instance(query)
+            return self._execute_and_fetch_on_data_instance(query)
 
         raise Exception("Execute and fetch not applicable at the moment on bolt+routing query!")
 
