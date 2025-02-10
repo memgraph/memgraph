@@ -12,12 +12,8 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <thread>
-#include <unordered_map>
 
-#include "utils/memory_tracker.hpp"
 #include "utils/query_memory_tracker.hpp"
-#include "utils/skip_list.hpp"
 
 namespace memgraph::memory {
 
@@ -25,143 +21,37 @@ static constexpr int64_t UNLIMITED_MEMORY{0};
 
 #if USE_JEMALLOC
 
-// Track memory allocations per query.
-// Multiple threads can allocate inside one transaction.
-// If user forgets to unregister tracking for that thread before it dies, it will continue to
-// track allocations for that arena indefinitely.
-// As multiple queries can be executed inside one transaction, one by one (multi-transaction)
-// it is necessary to restart tracking at the beginning of new query for that transaction.
-class QueriesMemoryControl {
- public:
-  /*
-    Transaction id <-> tracker
-  */
+// Find tracker for current thread if exists, track
+// query allocation and procedure allocation if
+// necessary
+bool TrackAllocOnCurrentThread(size_t size);
 
-  // Create new tracker for transaction_id with initial limit
-  void CreateTransactionIdTracker(uint64_t, size_t);
+// Find tracker for current thread if exists, track
+// query allocation and procedure allocation if
+// necessary
+void TrackFreeOnCurrentThread(size_t size);
 
-  // Check if tracker for given transaction id exists
-  bool CheckTransactionIdTrackerExists(uint64_t);
-
-  // Remove current tracker for transaction_id
-  bool EraseTransactionIdTracker(uint64_t);
-
-  /*
-  Thread handlings
-  */
-
-  // Map thread to transaction with given id
-  // This way we can know which thread belongs to which transaction
-  // and get correct tracker for given transaction
-  void UpdateThreadToTransactionId(const std::thread::id &, uint64_t);
-
-  // Remove tracking of thread from transaction.
-  // Important to reset if one thread gets reused for different transaction
-  void EraseThreadToTransactionId(const std::thread::id &, uint64_t);
-
-  // Find tracker for current thread if exists, track
-  // query allocation and procedure allocation if
-  // necessary
-  bool TrackAllocOnCurrentThread(size_t size);
-
-  // Find tracker for current thread if exists, track
-  // query allocation and procedure allocation if
-  // necessary
-  void TrackFreeOnCurrentThread(size_t size);
-
-  void TryCreateTransactionProcTracker(uint64_t, int64_t, size_t);
-
-  void SetActiveProcIdTracker(uint64_t, int64_t);
-
-  void PauseProcedureTracking(uint64_t);
-
-  bool IsThreadTracked();
-
- private:
-  struct TransactionId {
-    uint64_t id;
-    uint64_t cnt;
-
-    bool operator<(const TransactionId &other) const { return id < other.id; }
-    bool operator==(const TransactionId &other) const { return id == other.id; }
-
-    bool operator<(uint64_t other) const { return id < other; }
-    bool operator==(uint64_t other) const { return id == other; }
-  };
-
-  struct ThreadIdToTransactionId {
-    std::thread::id thread_id;
-    TransactionId transaction_id;
-
-    bool operator<(const ThreadIdToTransactionId &other) const { return thread_id < other.thread_id; }
-    bool operator==(const ThreadIdToTransactionId &other) const { return thread_id == other.thread_id; }
-
-    bool operator<(const std::thread::id other) const { return thread_id < other; }
-    bool operator==(const std::thread::id other) const { return thread_id == other; }
-  };
-
-  struct TransactionIdToTracker {
-    uint64_t transaction_id;
-    utils::QueryMemoryTracker tracker;
-
-    bool operator<(const TransactionIdToTracker &other) const { return transaction_id < other.transaction_id; }
-    bool operator==(const TransactionIdToTracker &other) const { return transaction_id == other.transaction_id; }
-
-    bool operator<(uint64_t other) const { return transaction_id < other; }
-    bool operator==(uint64_t other) const { return transaction_id == other; }
-
-    bool operator<(TransactionId other) const { return transaction_id < other.id; }
-    bool operator==(TransactionId other) const { return transaction_id == other.id; }
-  };
-
-  struct ThreadTrackingBlocker {
-    ThreadTrackingBlocker();
-    ~ThreadTrackingBlocker();
-    ThreadTrackingBlocker(ThreadTrackingBlocker &) = delete;
-    ThreadTrackingBlocker &operator=(ThreadTrackingBlocker &) = delete;
-    ThreadTrackingBlocker(ThreadTrackingBlocker &&) = delete;
-    ThreadTrackingBlocker &operator=(ThreadTrackingBlocker &&) = delete;
-
-   private:
-    int prev_state_;
-  };
-
-  utils::SkipList<ThreadIdToTransactionId> thread_id_to_transaction_id;
-  utils::SkipList<TransactionIdToTracker> transaction_id_to_tracker;
-};
-
-inline QueriesMemoryControl &GetQueriesMemoryControl() {
-  static QueriesMemoryControl queries_memory_control_;
-  return queries_memory_control_;
-}
+bool IsThreadTracked();
 
 #endif
 
-// API function call for to start tracking current thread for given transaction.
+// API function call to start tracking current thread.
 // Does nothing if jemalloc is not enabled
-void StartTrackingCurrentThreadTransaction(uint64_t transaction_id);
+void StartTrackingCurrentThread(utils::QueryMemoryTracker *tracker);
 
-// API function call for to stop tracking current thread for given transaction.
+// API function call to stop tracking current thread.
 // Does nothing if jemalloc is not enabled
-void StopTrackingCurrentThreadTransaction(uint64_t transaction_id);
+void StopTrackingCurrentThread();
 
-// API function call for try to create tracker for transaction and set it to given limit.
-// Does nothing if jemalloc is not enabled. Does nothing if tracker already exists
-void TryStartTrackingOnTransaction(uint64_t transaction_id, size_t limit);
-
-// API function call to stop tracking for given transaction.
-// Does nothing if jemalloc is not enabled. Does nothing if tracker doesn't exist
-void TryStopTrackingOnTransaction(uint64_t transaction_id);
-
-// Is transaction with given id tracked in memory tracker
-bool IsTransactionTracked(uint64_t transaction_id);
+// Is query's memory tracked
+bool IsQueryTracked();
 
 // Creates tracker on procedure if doesn't exist. Sets query tracker
 // to track procedure with id.
-void CreateOrContinueProcedureTracking(uint64_t transaction_id, int64_t procedure_id, size_t limit);
+void CreateOrContinueProcedureTracking(int64_t procedure_id, size_t limit);
 
 // Pauses procedure tracking. This enables to continue
 // tracking on procedure once procedure execution resumes.
-void PauseProcedureTracking(uint64_t transaction_id);
+void PauseProcedureTracking();
 
 }  // namespace memgraph::memory

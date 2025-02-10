@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -48,7 +48,7 @@ class Listener final {
   // because each event represents the start of a network request and it doesn't
   // make sense to take more than one event because the processing of an event
   // can take a long time.
-  static const int kMaxEvents = 1;
+  static constexpr int kMaxEvents = 1;
 
   using SessionHandler = Session<TSession, TSessionContext>;
 

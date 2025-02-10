@@ -1,8 +1,8 @@
 #!/bin/bash
-
 pushd () { command pushd "$@" > /dev/null; }
 popd () { command popd "$@" > /dev/null; }
-
+# https://stackoverflow.com/questions/59119904/process-terminated-couldnt-find-a-valid-icu-package-installed-on-the-system-in
+export DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1
 declare -a pids=()
 
 function cleanup() {
@@ -177,14 +177,19 @@ run_command() {
 
 }
 
+# NOTE: Since v6 of toolchain mgconsole should be included.
+mgconsole_bin=mgconsole
+if ! which $mgconsole_bin > /dev/null; then
+    mgconsole_bin="$mg_binary_dir/bin/mgconsole"
+fi
 commands=(
-    "echo 'ADD COORDINATOR 1 WITH CONFIG {\"bolt_server\": \"localhost:7690\", \"coordinator_server\":  \"localhost:10111\", \"management_server\": \"localhost:10121\"};' | $mg_binary_dir/bin/mgconsole --port 7690"
-    "echo 'ADD COORDINATOR 2 WITH CONFIG {\"bolt_server\": \"localhost:7691\", \"coordinator_server\":  \"localhost:10112\", \"management_server\": \"localhost:10122\"};' | $mg_binary_dir/bin/mgconsole --port 7690"
-    "echo 'ADD COORDINATOR 3 WITH CONFIG {\"bolt_server\": \"localhost:7692\", \"coordinator_server\":  \"localhost:10113\", \"management_server\": \"localhost:10123\"};' | $mg_binary_dir/bin/mgconsole --port 7690"
-    "echo 'REGISTER INSTANCE instance_1 WITH CONFIG {\"bolt_server\": \"localhost:7687\", \"management_server\": \"localhost:10011\", \"replication_server\": \"localhost:10001\"};' | $mg_binary_dir/bin/mgconsole --port 7690"
-    "echo 'REGISTER INSTANCE instance_2 WITH CONFIG {\"bolt_server\": \"localhost:7688\", \"management_server\": \"localhost:10012\", \"replication_server\": \"localhost:10002\"};' | $mg_binary_dir/bin/mgconsole --port 7690"
-    "echo 'REGISTER INSTANCE instance_3 WITH CONFIG {\"bolt_server\": \"localhost:7689\", \"management_server\": \"localhost:10013\", \"replication_server\": \"localhost:10003\"};' | $mg_binary_dir/bin/mgconsole --port 7690"
-    "echo 'SET INSTANCE instance_1 TO MAIN;' | $mg_binary_dir/bin/mgconsole --port 7690"
+    "echo 'ADD COORDINATOR 1 WITH CONFIG {\"bolt_server\": \"localhost:7690\", \"coordinator_server\":  \"localhost:10111\", \"management_server\": \"localhost:10121\"};' | $mgconsole_bin --port 7690"
+    "echo 'ADD COORDINATOR 2 WITH CONFIG {\"bolt_server\": \"localhost:7691\", \"coordinator_server\":  \"localhost:10112\", \"management_server\": \"localhost:10122\"};' | $mgconsole_bin --port 7690"
+    "echo 'ADD COORDINATOR 3 WITH CONFIG {\"bolt_server\": \"localhost:7692\", \"coordinator_server\":  \"localhost:10113\", \"management_server\": \"localhost:10123\"};' | $mgconsole_bin --port 7690"
+    "echo 'REGISTER INSTANCE instance_1 WITH CONFIG {\"bolt_server\": \"localhost:7687\", \"management_server\": \"localhost:10011\", \"replication_server\": \"localhost:10001\"};' | $mgconsole_bin --port 7690"
+    "echo 'REGISTER INSTANCE instance_2 WITH CONFIG {\"bolt_server\": \"localhost:7688\", \"management_server\": \"localhost:10012\", \"replication_server\": \"localhost:10002\"};' | $mgconsole_bin --port 7690"
+    "echo 'REGISTER INSTANCE instance_3 WITH CONFIG {\"bolt_server\": \"localhost:7689\", \"management_server\": \"localhost:10013\", \"replication_server\": \"localhost:10003\"};' | $mgconsole_bin --port 7690"
+    "echo 'SET INSTANCE instance_1 TO MAIN;' | $mgconsole_bin --port 7690"
 )
 
 for cmd in "${commands[@]}"; do
@@ -197,7 +202,7 @@ done
 
 sleep 1
 
-local instances=$(echo "SHOW INSTANCES;" | $mg_binary_dir/bin/mgconsole --port 7690)
+local instances=$(echo "SHOW INSTANCES;" | $mgconsole_bin --port 7690)
 
 local num_leaders=$(echo "$instances" | grep -c "leader")
 if [ $num_leaders -ne 1 ]; then
