@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -330,8 +330,10 @@ class RuleBasedPlanner {
         transformed_edge_types.push_back(GetEdgeType(*edge_type_atom));
       } else {
         throw QueryException(
-            "Failed to work with dynamic edge types! Please contact Memgraph support as this scenario should not "
-            "happen!");
+            "Failed to work with dynamic edge types! Avoid using parameters or variables when creating a new edge. "
+            "Also, please contact Memgraph support or submit a GitHub issue, as this scenario should not happen. This "
+            "is an unexpected code "
+            "path, but we didn't want to just crash Memgraph, help us improve the query planner)!");
       }
     }
 
