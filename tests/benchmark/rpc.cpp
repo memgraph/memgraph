@@ -19,7 +19,6 @@
 #include "rpc/client_pool.hpp"
 #include "rpc/messages.hpp"
 #include "rpc/server.hpp"
-#include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
 #include "slk/serialization.hpp"
 #include "utils/timer.hpp"
 
@@ -46,6 +45,8 @@ void EchoMessage::Save(const EchoMessage &obj, memgraph::slk::Builder *builder) 
 const memgraph::utils::TypeInfo EchoMessage::kType{memgraph::utils::TypeId::UNKNOWN, "EchoMessage"};
 
 using Echo = memgraph::rpc::RequestResponse<EchoMessage, EchoMessage>;
+
+#include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
 
 const int kThreadsNum = 16;
 
@@ -111,7 +112,7 @@ int main(int argc, char **argv) {
     server->Register<Echo>([](const auto &req_reader, auto *res_builder) {
       EchoMessage res;
       Load(&res, req_reader);
-      rpc::SendFinalResponse(res, res_builder);
+      memgraph::rpc::SendFinalResponse(res, res_builder);
     });
     server->Start();
   }
