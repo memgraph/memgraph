@@ -225,13 +225,12 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
       client->Start(storage, db_acc);
 
       all_clients_good &= storage->repl_storage_state_.replication_clients_.WithLock(
-          [is_data_instance_managed_by_coord = flags::CoordinationSetupInstance().IsDataInstanceManagedByCoordinator(),
-           client = std::move(client)](auto &storage_clients) mutable {  // NOLINT
-            bool const success = std::invoke([&is_data_instance_managed_by_coord, state = client->State()]() {
+          [client = std::move(client)](auto &storage_clients) mutable {  // NOLINT
+            bool const success = std::invoke([state = client->State()]() {
               // We force sync replicas in other situation
               if (state == storage::replication::ReplicaState::DIVERGED_FROM_MAIN) {
 #ifdef MG_ENTERPRISE
-                return is_data_instance_managed_by_coord;
+                return flags::CoordinationSetupInstance().IsDataInstanceManagedByCoordinator();
 #else
                 return false;
 #endif
