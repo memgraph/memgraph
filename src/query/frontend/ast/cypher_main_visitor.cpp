@@ -495,6 +495,13 @@ antlrcpp::Any CypherMainVisitor::visitReplicationQuery(MemgraphCypher::Replicati
   return replication_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitReplicationInfoQuery(MemgraphCypher::ReplicationInfoQueryContext *ctx) {
+  MG_ASSERT(ctx->children.size() == 1, "ReplicationInfoQuery should have exactly one child!");
+  auto *replication_info_query = std::any_cast<ReplicationInfoQuery *>(ctx->children[0]->accept(this));
+  query_ = replication_info_query;
+  return replication_info_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitCoordinatorQuery(MemgraphCypher::CoordinatorQueryContext *ctx) {
   MG_ASSERT(ctx->children.size() == 1, "CoordinatorQuery should have exactly one child!");
   auto *coordinator_query = std::any_cast<CoordinatorQuery *>(ctx->children[0]->accept(this));
@@ -546,12 +553,6 @@ antlrcpp::Any CypherMainVisitor::visitSetReplicationRole(MemgraphCypher::SetRepl
     }
   }
 
-  return replication_query;
-}
-
-antlrcpp::Any CypherMainVisitor::visitShowReplicationRole(MemgraphCypher::ShowReplicationRoleContext * /*ctx*/) {
-  auto *replication_query = storage_->Create<ReplicationQuery>();
-  replication_query->action_ = ReplicationQuery::Action::SHOW_REPLICATION_ROLE;
   return replication_query;
 }
 
@@ -655,9 +656,15 @@ antlrcpp::Any CypherMainVisitor::visitDropReplica(MemgraphCypher::DropReplicaCon
   return replication_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitShowReplicationRole(MemgraphCypher::ShowReplicationRoleContext * /*ctx*/) {
+  auto *replication_query = storage_->Create<ReplicationInfoQuery>();
+  replication_query->action_ = ReplicationInfoQuery::Action::SHOW_REPLICATION_ROLE;
+  return replication_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitShowReplicas(MemgraphCypher::ShowReplicasContext * /*ctx*/) {
-  auto *replication_query = storage_->Create<ReplicationQuery>();
-  replication_query->action_ = ReplicationQuery::Action::SHOW_REPLICAS;
+  auto *replication_query = storage_->Create<ReplicationInfoQuery>();
+  replication_query->action_ = ReplicationInfoQuery::Action::SHOW_REPLICAS;
   return replication_query;
 }
 

@@ -1214,21 +1214,6 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
                       repl_query->role_ == ReplicationQuery::ReplicationRole::MAIN ? "MAIN" : "REPLICA"));
       return callback;
     }
-    case ReplicationQuery::Action::SHOW_REPLICATION_ROLE: {
-      callback.header = {"replication role"};
-      callback.fn = [handler = ReplQueryHandler{replication_query_handler}] {
-        auto mode = handler.ShowReplicationRole();
-        switch (mode) {
-          case ReplicationQuery::ReplicationRole::MAIN: {
-            return std::vector<std::vector<TypedValue>>{{TypedValue("main")}};
-          }
-          case ReplicationQuery::ReplicationRole::REPLICA: {
-            return std::vector<std::vector<TypedValue>>{{TypedValue("replica")}};
-          }
-        }
-      };
-      return callback;
-    }
     case ReplicationQuery::Action::REGISTER_REPLICA: {
 #ifdef MG_ENTERPRISE
       if (is_managed_by_coordinator) {
@@ -1265,7 +1250,29 @@ Callback HandleReplicationQuery(ReplicationQuery *repl_query, const Parameters &
                                   fmt::format("Replica {} is dropped.", repl_query->instance_name_));
       return callback;
     }
-    case ReplicationQuery::Action::SHOW_REPLICAS: {
+  }
+}
+
+Callback HandleReplicationInfoQuery(ReplicationInfoQuery *repl_query,
+                                    ReplicationQueryHandler &replication_query_handler) {
+  Callback callback;
+  switch (repl_query->action_) {
+    case ReplicationInfoQuery::Action::SHOW_REPLICATION_ROLE: {
+      callback.header = {"replication role"};
+      callback.fn = [handler = ReplQueryHandler{replication_query_handler}] {
+        auto mode = handler.ShowReplicationRole();
+        switch (mode) {
+          case ReplicationQuery::ReplicationRole::MAIN: {
+            return std::vector<std::vector<TypedValue>>{{TypedValue("main")}};
+          }
+          case ReplicationQuery::ReplicationRole::REPLICA: {
+            return std::vector<std::vector<TypedValue>>{{TypedValue("replica")}};
+          }
+        }
+      };
+      return callback;
+    }
+    case ReplicationInfoQuery::Action::SHOW_REPLICAS: {
       bool full_info = false;
 #ifdef MG_ENTERPRISE
       full_info = license::global_license_checker.IsEnterpriseValidFast();
@@ -3566,6 +3573,31 @@ PreparedQuery PrepareReplicationQuery(
   // False positive report for the std::make_shared above
   // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
 }
+PreparedQuery PrepareReplicationInfoQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
+                                          ReplicationQueryHandler &replication_query_handler) {
+  if (in_explicit_transaction) {
+    throw ReplicationModificationInMulticommandTxException();
+  }
+
+  auto *replication_query = utils::Downcast<ReplicationInfoQuery>(parsed_query.query);
+  auto callback = HandleReplicationInfoQuery(replication_query, replication_query_handler);
+
+  return PreparedQuery{callback.header, std::move(parsed_query.required_privileges),
+                       [callback_fn = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>{nullptr}](
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+                         if (UNLIKELY(!pull_plan)) {
+                           pull_plan = std::make_shared<PullPlanVector>(callback_fn());
+                         }
+
+                         if (pull_plan->Pull(stream, n)) {
+                           return QueryHandlerResult::COMMIT;
+                         }
+                         return std::nullopt;
+                       },
+                       RWType::NONE};
+  // False positive report for the std::make_shared above
+  // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
+}
 
 #ifdef MG_ENTERPRISE
 PreparedQuery PrepareCoordinatorQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
@@ -5784,7 +5816,8 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                           utils::Downcast<TransactionQueueQuery>(parsed_query.query) ||
                           utils::Downcast<UseDatabaseQuery>(parsed_query.query) ||
                           utils::Downcast<ShowDatabaseQuery>(parsed_query.query) ||
-                          utils::Downcast<ShowDatabasesQuery>(parsed_query.query);
+                          utils::Downcast<ShowDatabasesQuery>(parsed_query.query) ||
+                          utils::Downcast<ReplicationInfoQuery>(parsed_query.query);
     if (!no_db_required && !current_db_.db_acc_) {
       throw DatabaseContextRequiredException("Database required for the query.");
     }
@@ -5897,6 +5930,10 @@ Interpreter::PrepareResult Interpreter::Prepare(const std::string &query_string,
                                   interpreter_context_->coordinator_state_
 #endif
           );
+
+    } else if (utils::Downcast<ReplicationInfoQuery>(parsed_query.query)) {
+      prepared_query = PrepareReplicationInfoQuery(std::move(parsed_query), in_explicit_transaction_,
+                                                   *interpreter_context_->replication_handler_);
 
     } else if (utils::Downcast<CoordinatorQuery>(parsed_query.query)) {
 #ifdef MG_ENTERPRISE

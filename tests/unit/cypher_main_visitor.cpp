@@ -2599,15 +2599,15 @@ void check_replication_query(Base *ast_generator, const ReplicationQuery *query,
 TEST_P(CypherMainVisitorTest, TestShowReplicationMode) {
   auto &ast_generator = *GetParam();
   const std::string raw_query = "SHOW REPLICATION ROLE";
-  auto *parsed_query = dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(raw_query));
-  EXPECT_EQ(parsed_query->action_, ReplicationQuery::Action::SHOW_REPLICATION_ROLE);
+  auto *parsed_query = dynamic_cast<ReplicationInfoQuery *>(ast_generator.ParseQuery(raw_query));
+  EXPECT_EQ(parsed_query->action_, ReplicationInfoQuery::Action::SHOW_REPLICATION_ROLE);
 }
 
 TEST_P(CypherMainVisitorTest, TestShowReplicasQuery) {
   auto &ast_generator = *GetParam();
   const std::string raw_query = "SHOW REPLICAS";
-  auto *parsed_query = dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(raw_query));
-  EXPECT_EQ(parsed_query->action_, ReplicationQuery::Action::SHOW_REPLICAS);
+  auto *parsed_query = dynamic_cast<ReplicationInfoQuery *>(ast_generator.ParseQuery(raw_query));
+  EXPECT_EQ(parsed_query->action_, ReplicationInfoQuery::Action::SHOW_REPLICAS);
 }
 
 TEST_P(CypherMainVisitorTest, TestSetReplicationMode) {
