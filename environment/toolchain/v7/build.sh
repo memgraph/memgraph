@@ -36,7 +36,7 @@ fi
 TOOLCHAIN_VERSION=7
 # package versions used
 GCC_VERSION=14.2.0
-BINUTILS_VERSION=2.43
+BINUTILS_VERSION=2.44
 case "$DISTRO" in
     centos-7) # because GDB >= 9 does NOT compile with readline6.
         GDB_VERSION=8.3
