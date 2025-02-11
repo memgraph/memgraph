@@ -40,7 +40,6 @@ void ReplicationStorageState::Reset() {
   replication_clients_.WithLock([](auto &clients) { clients.clear(); });
 }
 
-// Done under engine lock
 void ReplicationStorageState::TrackLatestHistory() {
   constexpr uint16_t kEpochHistoryRetention = 1000;
   // Generate new epoch id and save the last one to the history.

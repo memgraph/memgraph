@@ -600,7 +600,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
                 repl_storage_state.last_durable_timestamp_);
 
   spdlog::trace("History with its epochs and attached commit timestamps.");
-  std::ranges::for_each(*epoch_history, [](auto &&history) {
+  std::ranges::for_each(repl_storage_state.history, [](auto &&history) {
     spdlog::trace("Epoch id: {}. Commit timestamp: {}.", std::string(history.first), history.second);
   });
   return recovery_info;
