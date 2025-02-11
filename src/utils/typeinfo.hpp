@@ -84,6 +84,7 @@ enum class TypeId : uint64_t {
   // NOTE: these NEED to be stable in the 2000+ range (see rpc version)
   REP_APPEND_DELTAS_REQ = 2000,
   REP_APPEND_DELTAS_RES,
+  REP_IN_PROGRESS_RES,
   REP_HEARTBEAT_REQ,
   REP_HEARTBEAT_RES,
   REP_FREQUENT_HEARTBEAT_REQ,
