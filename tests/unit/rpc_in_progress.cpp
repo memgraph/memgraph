@@ -74,7 +74,7 @@ TEST(RpcInProgress, SingleProgress) {
 
     // Simulate work
     std::this_thread::sleep_for(100ms);
-    memgraph::slk::SendInProgressMsg(res_builder);
+    memgraph::rpc::SendInProgressMsg(res_builder);
     spdlog::trace("Saved InProgressRes");
 
     // Simulate done
@@ -116,17 +116,17 @@ TEST(RpcInProgress, MultipleProgresses) {
 
     // Simulate work
     std::this_thread::sleep_for(100ms);
-    memgraph::slk::SendInProgressMsg(res_builder);
+    memgraph::rpc::SendInProgressMsg(res_builder);
     spdlog::trace("Saved InProgressRes");
 
     // Simulate work
     std::this_thread::sleep_for(200ms);
-    memgraph::slk::SendInProgressMsg(res_builder);
+    memgraph::rpc::SendInProgressMsg(res_builder);
     spdlog::trace("Saved InProgressRes");
 
     // Simulate work
     std::this_thread::sleep_for(250ms);
-    memgraph::slk::SendInProgressMsg(res_builder);
+    memgraph::rpc::SendInProgressMsg(res_builder);
     spdlog::trace("Saved InProgressRes");
 
     // Simulate done
@@ -167,7 +167,7 @@ TEST(RpcInProgress, Timeout) {
 
     // Simulate work
     std::this_thread::sleep_for(100ms);
-    memgraph::slk::SendInProgressMsg(res_builder);
+    memgraph::rpc::SendInProgressMsg(res_builder);
     spdlog::trace("Saved InProgressRes");
 
     // Simulate done

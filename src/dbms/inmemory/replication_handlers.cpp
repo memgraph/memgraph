@@ -42,6 +42,9 @@ using memgraph::storage::durability::WalDeltaData;
 
 namespace memgraph::dbms {
 namespace {
+
+constexpr uint32_t kDeltasBatchProgressSize = 100000;
+
 std::pair<uint64_t, WalDeltaData> ReadDelta(storage::durability::BaseDecoder *decoder, const uint64_t version) {
   try {
     auto timestamp = ReadWalDeltaHeader(decoder);
@@ -229,6 +232,7 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
   }
 
   // last_durable_timestamp could be set by snapshot; so we cannot guarantee exactly what's the previous timestamp
+  // TODO: (andi) Not sure if emptying the stream is needed?
   if (req.previous_commit_timestamp > repl_storage_state.last_durable_timestamp_.load()) {
     // Empty the stream
     bool transaction_complete = false;
@@ -244,7 +248,7 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
   }
 
   try {
-    ReadAndApplyDeltas(storage, &decoder, storage::durability::kVersion);
+    ReadAndApplyDeltasSingleTxn(storage, &decoder, storage::durability::kVersion, res_builder);
   } catch (const utils::BasicException &e) {
     spdlog::error(
         "Error occurred while trying to apply deltas because of {}. Replication recovery from append deltas finished "
@@ -295,7 +299,6 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
     return;
   }
   spdlog::info("Received snapshot saved to {}", *maybe_snapshot_path);
-
   {
     auto storage_guard = std::lock_guard{storage->main_lock_};
     spdlog::trace("Clearing database before recovering from snapshot.");
@@ -447,13 +450,16 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
   spdlog::debug("Received {} WAL files.", wal_file_number);
   storage::replication::Decoder decoder(req_reader);
 
+  uint32_t local_batch_counter = 0;
   for (auto i = 0; i < wal_file_number; ++i) {
-    if (!LoadWal(storage, &decoder)) {
+    auto const [success, current_batch_counter] = LoadWal(storage, &decoder, res_builder, local_batch_counter);
+    if (!success) {
       spdlog::debug("Replication recovery from WAL files failed while loading one of WAL files.");
       const storage::replication::WalFilesRes res{{}};
       rpc::SendFinalResponse(res, res_builder);
       return;
     }
+    local_batch_counter = current_batch_counter;
   }
 
   spdlog::debug("Replication recovery from WAL files succeeded");
@@ -494,7 +500,8 @@ void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_hand
   storage::replication::Decoder decoder(req_reader);
 
   // Even if loading wal file failed, we return last_durable_timestamp to the main because it is not a fatal error
-  if (!LoadWal(storage, &decoder)) {
+  // When loading a single WAL file, we don't care about saving number of deltas
+  if (!LoadWal(storage, &decoder, res_builder).first) {
     spdlog::debug("Replication recovery from current WAL didn't end successfully but the error is non-fatal error.");
   } else {
     spdlog::debug("Replication recovery from current WAL ended successfully!");
@@ -512,14 +519,17 @@ void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_hand
 // 4.) If reading WAL info fails
 // 5.) If applying some of the deltas failed
 // If WAL file doesn't contain any new changes, we ignore it and consider WAL file as successfully applied.
-bool InMemoryReplicationHandlers::LoadWal(storage::InMemoryStorage *storage, storage::replication::Decoder *decoder) {
+std::pair<bool, uint32_t> InMemoryReplicationHandlers::LoadWal(storage::InMemoryStorage *storage,
+                                                               storage::replication::Decoder *decoder,
+                                                               slk::Builder *res_builder,
+                                                               uint32_t start_batch_counter) {
   const auto temp_wal_directory =
       std::filesystem::temp_directory_path() / "memgraph" / storage::durability::kWalDirectory;
   utils::EnsureDir(temp_wal_directory);
   auto maybe_wal_path = decoder->ReadFile(temp_wal_directory);
   if (!maybe_wal_path) {
     spdlog::error("Failed to load WAL file from {}!", temp_wal_directory);
-    return false;
+    return {false, 0};
   }
   spdlog::trace("Received WAL saved to {}", *maybe_wal_path);
   try {
@@ -533,7 +543,7 @@ bool InMemoryReplicationHandlers::LoadWal(storage::InMemoryStorage *storage, sto
     // If WAL file doesn't contain any changes that need to be applied, ignore it
     if (wal_info.to_timestamp <= storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire)) {
       spdlog::trace("WAL file won't be applied since all changes already exist.");
-      return true;
+      return {true, 0};
     }
     // We trust only WAL files which contain changes we are interested in (newer changes)
     if (auto &replica_epoch = storage->repl_storage_state_.epoch_; wal_info.epoch_id != replica_epoch.id()) {
@@ -557,26 +567,30 @@ bool InMemoryReplicationHandlers::LoadWal(storage::InMemoryStorage *storage, sto
     spdlog::debug("WAL file {} loaded successfully", *maybe_wal_path);
     if (!version) {
       spdlog::error("Couldn't read WAL magic and/or version!");
-      return false;
+      return {false, 0};
     }
     if (!storage::durability::IsVersionSupported(*version)) {
       spdlog::error("Invalid WAL version!");
-      return false;
+      return {false, 0};
     }
     wal.SetPosition(wal_info.offset_deltas);
 
-    for (size_t i = 0; i < wal_info.num_deltas;) {
-      i += ReadAndApplyDeltas(storage, &wal, *version);
+    uint32_t local_batch_counter = start_batch_counter;
+    for (size_t local_delta_idx = 0; local_delta_idx < wal_info.num_deltas;) {
+      auto const [current_delta_idx, current_batch_counter] =
+          ReadAndApplyDeltasSingleTxn(storage, &wal, *version, res_builder, local_batch_counter);
+      local_delta_idx += current_delta_idx;
+      local_batch_counter = current_batch_counter;
     }
 
     spdlog::trace("Replication from WAL file {} successful!", *maybe_wal_path);
-    return true;
+    return {true, local_batch_counter};
   } catch (const storage::durability::RecoveryFailure &e) {
     spdlog::error("Couldn't recover WAL deltas from {} because of: {}.", *maybe_wal_path, e.what());
-    return false;
+    return {false, 0};
   } catch (const utils::BasicException &e) {
     spdlog::error("Loading WAL from {} failed because of {}.", *maybe_wal_path, e.what());
-    return false;
+    return {false, 0};
   }
 }
 
@@ -606,9 +620,9 @@ void InMemoryReplicationHandlers::TimestampHandler(dbms::DbmsHandler *dbms_handl
 }
 
 // The number of applied deltas also includes skipped deltas.
-uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorage *storage,
-                                                         storage::durability::BaseDecoder *decoder,
-                                                         const uint64_t version) {
+std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSingleTxn(
+    storage::InMemoryStorage *storage, storage::durability::BaseDecoder *decoder, const uint64_t version,
+    slk::Builder *res_builder, uint32_t const start_batch_counter) {
   auto edge_acc = storage->edges_.access();
   auto vertex_acc = storage->vertices_.access();
 
@@ -638,10 +652,17 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
 
   uint64_t current_delta_idx = 0;  // tracks over how many deltas we iterated, includes also skipped deltas.
   uint64_t applied_deltas = 0;     // Non-skipped deltas
+  uint32_t current_batch_counter = start_batch_counter;
   auto max_delta_timestamp = storage->repl_storage_state_.last_durable_timestamp_.load();
   auto current_durable_commit_timestamp = max_delta_timestamp;
 
-  for (bool transaction_complete = false; !transaction_complete; ++current_delta_idx) {
+  for (bool transaction_complete = false; !transaction_complete; ++current_delta_idx, ++current_batch_counter) {
+    if (current_batch_counter == kDeltasBatchProgressSize) {
+      spdlog::trace("Sending in progress msg");
+      rpc::SendInProgressMsg(res_builder);
+      current_batch_counter = 0;
+    }
+
     const auto [delta_timestamp, delta] = ReadDelta(decoder, version);
     max_delta_timestamp = std::max(max_delta_timestamp, delta_timestamp);
 
@@ -1128,6 +1149,6 @@ uint64_t InMemoryReplicationHandlers::ReadAndApplyDeltas(storage::InMemoryStorag
   storage->repl_storage_state_.last_durable_timestamp_ = max_delta_timestamp;
 
   spdlog::debug("Applied {} deltas", applied_deltas);
-  return current_delta_idx;
+  return {current_delta_idx, current_batch_counter};
 }
 }  // namespace memgraph::dbms

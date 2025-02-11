@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include "replication/replication_server.hpp"
 #include "replication/state.hpp"
 #include "storage/v2/replication/serialization.hpp"
 
@@ -53,10 +52,13 @@ class InMemoryReplicationHandlers {
                                        const std::optional<utils::UUID> &current_main_uuid, slk::Reader *req_reader,
                                        slk::Builder *res_builder);
 
-  static bool LoadWal(storage::InMemoryStorage *storage, storage::replication::Decoder *decoder);
+  static std::pair<bool, uint32_t> LoadWal(storage::InMemoryStorage *storage, storage::replication::Decoder *decoder,
+                                           slk::Builder *res_builder, uint32_t start_batch_counter = 0);
 
-  static uint64_t ReadAndApplyDeltas(storage::InMemoryStorage *storage, storage::durability::BaseDecoder *decoder,
-                                     uint64_t version);
+  static std::pair<uint64_t, uint32_t> ReadAndApplyDeltasSingleTxn(storage::InMemoryStorage *storage,
+                                                                   storage::durability::BaseDecoder *decoder,
+                                                                   uint64_t version, slk::Builder *,
+                                                                   uint32_t start_batch_counter = 0);
 };
 
 }  // namespace memgraph::dbms
