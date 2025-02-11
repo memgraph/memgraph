@@ -167,7 +167,7 @@ void StartReplicaClient(replication::ReplicationClient &client, dbms::DbmsHandle
         dbms_handler.ForEach([&name = client.name_](dbms::DatabaseAccess db_acc) {
           db_acc->storage()->repl_storage_state_.WithClient(name, [&](storage::ReplicationStorageClient &client) {
             // Specific database <-> replica client
-            client.SetBehind();
+            client.SetMaybeBehind();
           });
         });
       });

@@ -41,20 +41,20 @@ struct ReplicationClient {
   ReplicationClient &operator=(ReplicationClient &&) noexcept = delete;
 
   template <FrequentCheckCB FS, FrequentCheckCB FF>
-  void StartFrequentCheck(FS &&callback, FF &&fail_callback) {
+  void StartFrequentCheck(FS &&success_callback, FF &&fail_callback) {
     // Help the user to get the most accurate replica state possible.
     if (replica_check_frequency_ > std::chrono::seconds(0)) {
       replica_checker_.SetInterval(replica_check_frequency_);
       replica_checker_.Run("Replica Checker",
-                           [this, cb = std::forward<FS>(callback), fail_cb = std::forward<FF>(fail_callback),
-                            failed_attempts = 0UL]() mutable {
+                           [this, succ_cb = std::forward<FS>(success_callback),
+                            fail_cb = std::forward<FF>(fail_callback), failed_attempts = 0UL]() mutable {
                              constexpr auto kFailureAfterN = 3UL;
                              try {
                                {
                                  auto stream{rpc_client_.Stream<replication_coordination_glue::FrequentHeartbeatRpc>()};
                                  stream.AwaitResponse();
                                }
-                               cb(*this);
+                               succ_cb(*this);
                                failed_attempts = 0U;
                              } catch (const rpc::RpcFailedException &) {
                                // Nothing to do...wait for a reconnect
