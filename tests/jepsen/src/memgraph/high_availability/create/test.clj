@@ -172,7 +172,7 @@
 
 (defn add-coordinator-instances
   "Add coordinator instances."
-  [session myself nodes-config]
+  [session _myself nodes-config]
   (doseq [coord-config (->> nodes-config
                             (filter #(contains? (val %) :coordinator-id)))]
     (try
@@ -220,7 +220,8 @@
              :bolt-conn bolt-conn
              :node-config node-config
              :node node)))
-  ; Use Bolt connection to set enterprise.license and organization.name.
+
+; Use Bolt connection to set enterprise.license and organization.name.
   (setup! [this _test]
     (try
       (utils/with-session (:bolt-conn this) session
@@ -244,27 +245,29 @@
                      (assoc op :type :info :value "Not data instance."))
 
         :add-nodes (if (and (hautils/data-instance? node) (is-main? bolt-conn))
-                     (try
-                       (utils/with-session bolt-conn session
+                     (let [max-idx (atom nil)]
+                       (try
+                         (utils/with-session bolt-conn session
                            ; If query failed because the instance got killed, we should catch TransientException -> this will be logged as
                            ; fail result.
-                           (mgquery/add-nodes session {:batchSize batch-size}))
-                       (assoc op :type :ok :value "Nodes created.")
+                           (let [local-idx (->> (mgquery/add-nodes session {:batchSize batch-size}) (map :id) (reduce conj []) first)]
+                             (reset! max-idx local-idx)
+                             (assoc op :type :ok :value {:str "Nodes created" :max-idx @max-idx})))
 
-                       (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
-                         (utils/process-service-unavailable-exc op node))
+                         (catch org.neo4j.driver.exceptions.ServiceUnavailableException _e
+                           (utils/process-service-unavailable-exc op node))
 
-                       (catch Exception e
+                         (catch Exception e
                            ; Even if sync replica is down, nodes will get created on the main.
-                         (cond (utils/sync-replica-down? e)
-                               (assoc op :type :ok :value "Nodes created. SYNC replica is down.")
+                           (cond (utils/sync-replica-down? e)
+                                 (assoc op :type :ok :value {:str "Nodes created. SYNC replica is down." :max-idx @max-idx}))
 
-                               (or (utils/query-forbidden-on-replica? e)
-                                   (utils/query-forbidden-on-main? e))
-                               (assoc op :type :info :value (str e))
+                           (or (utils/query-forbidden-on-replica? e)
+                               (utils/query-forbidden-on-main? e))
+                           (assoc op :type :info :value (str e))
 
-                               :else
-                               (assoc op :type :fail :value (str e)))))
+                           :else
+                           (assoc op :type :fail :value (str e)))))
 
                      (assoc op :type :info :value "Not main data instance."))
 

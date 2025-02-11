@@ -39,7 +39,8 @@
   "MATCH (n:Node)
   WITH coalesce(max(n.id), 0) as max_idx
   FOREACH (i in range(max_idx + 1, max_idx + $batchSize)
-    | CREATE (:Node {id: i}));
+    | CREATE (:Node {id: i}))
+  RETURN max_idx + $batchSize as id;
   ")
 
 (defn register-replication-instance
