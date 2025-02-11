@@ -968,7 +968,7 @@ if [ ! -f $PREFIX/include/lz4.h ]; then
 fi
 
 log_tool_name "python $PYTHON_VERSION"
-if [ ! -f $PREFIX/include/python3.13/Python.h ]; then
+if [ ! -f $PREFIX/include/python3.12/Python.h ]; then
     if [ -d python3-$PYTHON_VERSION ]; then
         rm -rf Python-$PYTHON_VERSION
     fi
