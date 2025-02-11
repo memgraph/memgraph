@@ -33,7 +33,7 @@ if [[ "$TOOLCHAIN_STDCXX" != "libstdc++" && "$TOOLCHAIN_STDCXX" != "libc++" ]]; 
 fi
 # TODO(gitbuda): Make LLVM linker configurable -DLLVM_ENABLE_LLD=ON + -fuse-ld=lld (gold vs lld).
 # TODO(gitbuda): Add --skip-gpg and somehow make gpg check configurable per OS.
-TOOLCHAIN_VERSION=6
+TOOLCHAIN_VERSION=7
 # package versions used
 GCC_VERSION=14.2.0
 BINUTILS_VERSION=2.43
@@ -42,12 +42,12 @@ case "$DISTRO" in
         GDB_VERSION=8.3
     ;;
     *)
-        GDB_VERSION=15.2
+        GDB_VERSION=16.2
     ;;
 esac
-CMAKE_VERSION=3.31.3
+CMAKE_VERSION=3.31.5
 CPPCHECK_VERSION=2.16.0
-LLVM_VERSION=18.1.8
+LLVM_VERSION=19.1.7 
 SWIG_VERSION=4.3.0 # used only for LLVM compilation
 
 # define the name used to make the toolchain archive
