@@ -21,7 +21,7 @@ class BasicWorker(Worker):
         print(f"Starting worker '{self._name}'...")
 
         for i in range(self._repetitions):
-            deployment.execute_query(self._query)
+            deployment.execute(self._query)
             if self._sleep_millis > 0:
                 time.sleep(self._sleep_millis / 1000.0)
 
@@ -50,7 +50,7 @@ class LabSimulator(Worker):
         ]
         for i in range(self._repetitions):
             query = random.choice(queries)
-            deployment.execute_query(query)
+            deployment.execute(query)
             if self._sleep_millis > 0:
                 time.sleep(self._sleep_millis / 1000.0)
 
@@ -72,7 +72,7 @@ class RandomMultitenantWorker(Worker):
         for i in range(self._repetitions):
             db = random.choice(databases)
 
-            deployment.execute_query_for_tenant(db, self._query)
+            deployment.execute_for_tenant(db, self._query)
 
             if self._sleep_millis > 0:
                 time.sleep(self._sleep_millis / 1000.0)

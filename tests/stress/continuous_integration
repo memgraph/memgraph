@@ -234,7 +234,7 @@ def run_custom_workloads(deployment, config: Config) -> bool:
 
             print(f"Started import for workload '{workload_name}'")
             for query in workload.get("import", {}).get("queries", []):
-                deployment.execute_query(query)
+                deployment.execute(query)
             print(f"Finished import for workload '{workload_name}'")
             execution_start = time.time()
             processes = []
