@@ -515,6 +515,15 @@ Feature: Functions
             | n    | a | b |
             | null | 3 | 2 |
 
+    Scenario: Lgngth test:
+        When executing query:
+            """
+            RETURN LENGTH(null) AS n, LENGTH([[1, 2], 3, 4]) AS a, LENGTH([1, [2, 3, 4]]) AS b
+            """
+        Then the result should be:
+            | n    | a | b |
+            | null | 3 | 2 |
+
     Scenario: Degree test:
         When executing query:
             """

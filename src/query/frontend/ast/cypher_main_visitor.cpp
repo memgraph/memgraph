@@ -2896,7 +2896,11 @@ antlrcpp::Any CypherMainVisitor::visitAtom(MemgraphCypher::AtomContext *ctx) {
     return static_cast<Expression *>(storage_->Create<ListComprehension>(ident, list, where, expr));
   }
 
-  throw utils::NotYetImplemented("atom expression '{}'", ctx->getText());
+  // NOTE: Memgraph does NOT support patterns under filtering.
+  // To test run, e.g. MATCH (c) WHERE NOT ((c)-[:EdgeType]->(d)) RETURN c;
+  throw utils::NotYetImplemented(
+      "atom expression '{}'. Try to rewrite the query by using OPTIONAL MATCH, WITH and WHERE clauses.",
+      ctx->getText());
 }
 
 antlrcpp::Any CypherMainVisitor::visitParameter(MemgraphCypher::ParameterContext *ctx) {
@@ -3300,14 +3304,6 @@ antlrcpp::Any CypherMainVisitor::visitCreateDatabase(MemgraphCypher::CreateDatab
   return mdb_query;
 }
 
-antlrcpp::Any CypherMainVisitor::visitUseDatabase(MemgraphCypher::UseDatabaseContext *ctx) {
-  auto *mdb_query = storage_->Create<MultiDatabaseQuery>();
-  mdb_query->db_name_ = std::any_cast<std::string>(ctx->databaseName()->accept(this));
-  mdb_query->action_ = MultiDatabaseQuery::Action::USE;
-  query_ = mdb_query;
-  return mdb_query;
-}
-
 antlrcpp::Any CypherMainVisitor::visitDropDatabase(MemgraphCypher::DropDatabaseContext *ctx) {
   auto *mdb_query = storage_->Create<MultiDatabaseQuery>();
   mdb_query->db_name_ = std::any_cast<std::string>(ctx->databaseName()->accept(this));
@@ -3316,12 +3312,16 @@ antlrcpp::Any CypherMainVisitor::visitDropDatabase(MemgraphCypher::DropDatabaseC
   return mdb_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitUseDatabase(MemgraphCypher::UseDatabaseContext *ctx) {
+  auto *query = storage_->Create<UseDatabaseQuery>();
+  query->db_name_ = std::any_cast<std::string>(ctx->databaseName()->accept(this));
+  query_ = query;
+  return query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitShowDatabase(MemgraphCypher::ShowDatabaseContext * /*ctx*/) {
-  auto *mdb_query = storage_->Create<MultiDatabaseQuery>();
-  mdb_query->db_name_ = "";
-  mdb_query->action_ = MultiDatabaseQuery::Action::SHOW;
-  query_ = mdb_query;
-  return mdb_query;
+  query_ = storage_->Create<ShowDatabaseQuery>();
+  return query_;
 }
 
 antlrcpp::Any CypherMainVisitor::visitShowDatabases(MemgraphCypher::ShowDatabasesContext * /*ctx*/) {

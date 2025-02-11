@@ -20,7 +20,7 @@ def test_assert_fails_in_explicit_txn():
     execute_and_fetch_all(cursor, "BEGIN")
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(cursor, "CALL schema.assert({}, {}, {}, true) YIELD * RETURN *;")
-    assert str(e.value) == "SCHEMA.ASSERT not allowed in multicommand transactions."
+    assert str(e.value).startswith("Schema-related procedures call is not allowed in multicommand transactions.")
 
 
 def test_assert_creates_label_index_empty_list():

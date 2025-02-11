@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -68,7 +68,16 @@ StrippedQuery::StrippedQuery(std::string query) : original_(std::move(query)) {
     update(MatchEscapedName(i), Token::ESCAPED_NAME);
     update(MatchUnescapedName(i), Token::UNESCAPED_NAME);
     update(MatchWhitespaceAndComments(i), Token::SPACE);
-    if (token == Token::UNMATCHED) throw LexingException("Invalid query.");
+    // NOTE: To throw run, e.g. MATCH (n) RETURN n`;
+    if (token == Token::UNMATCHED) {
+      if (i < original_.size()) {
+        throw LexingException(
+            "Invalid query. There is a wrong token at postion {} starting with {}. Remove that part of the query and "
+            "try to rerun it.",
+            i, original_[i]);
+      }
+      throw LexingException("Invalid query because of a wrong token.");
+    }
     tokens.emplace_back(token, original_.substr(i, len));
     i += len;
 
