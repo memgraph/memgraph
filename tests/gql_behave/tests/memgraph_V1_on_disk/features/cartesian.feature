@@ -171,3 +171,11 @@ Feature: Cartesian
             MATCH (a)-[]->() MATCH (a:B) MATCH (a:C) RETURN a
             """
         Then the result should be empty
+
+    Scenario: Match multiple paths with already bound symbols
+        Given an empty graph
+        When executing query:
+            """
+            MATCH (n1),(n0) OPTIONAL MATCH p0 = (n1), p1 = (n0) RETURN n1, n0;
+            """
+        Then the result should be empty

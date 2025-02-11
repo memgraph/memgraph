@@ -465,3 +465,11 @@ Feature: Cartesian
         Then the result should be:
             | a    | b    | c    | d    | e    |
             | (:A) | (:B) | (:C) | (:D) | (:E) |
+
+    Scenario: Match multiple paths with already bound symbols
+        Given an empty graph
+        When executing query:
+            """
+            MATCH (n1),(n0) OPTIONAL MATCH p0 = (n1), p1 = (n0) RETURN n1, n0;
+            """
+        Then the result should be empty
