@@ -24,6 +24,7 @@
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
+#include <atomic>
 
 namespace {
 template <typename>
@@ -68,8 +69,10 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
     return hb_stream.AwaitResponse();
   });
 
+  if (heartbeat_res.success) {
+    last_known_ts_.store(heartbeat_res.current_commit_timestamp, std::memory_order_release);
+  } else {
 #ifdef MG_ENTERPRISE  // Multi-tenancy is only supported in enterprise
-  if (!heartbeat_res.success) {
     // Replica is missing the current database
     client_.state_.WithLock([&](auto &state) {
       spdlog::debug("Replica '{}' can't respond or missing database '{}' - '{}'", client_.name_, storage->name(),
@@ -77,8 +80,8 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
       state = memgraph::replication::ReplicationClient::State::BEHIND;
     });
     return;
-  }
 #endif
+  }
 
   std::optional<uint64_t> branching_point;
   // different epoch id, replica was main
@@ -176,22 +179,9 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *storage, DatabaseAcce
 
 TimestampInfo ReplicationStorageClient::GetTimestampInfo(Storage const *storage) const {
   TimestampInfo info;
-  info.current_timestamp_of_replica = 0;
-  info.current_number_of_timestamp_behind_main = 0;
-
-  try {
-    // Exclusive access to client
-    auto stream{client_.rpc_client_.Stream<replication::TimestampRpc>(main_uuid_, storage->uuid())};
-    const auto response = stream.AwaitResponse();
-    auto main_time_stamp = storage->repl_storage_state_.last_durable_timestamp_.load();
-    info.current_timestamp_of_replica = response.current_commit_timestamp;
-    info.current_number_of_timestamp_behind_main = response.current_commit_timestamp - main_time_stamp;
-  } catch (const rpc::RpcFailedException &) {
-    replica_state_.WithLock([](auto &val) { val = replication::ReplicaState::MAYBE_BEHIND; });
-    LogRpcFailure();  // mutex already unlocked, if the new enqueued task dispatches immediately it probably
-    // won't block
-  }
-
+  auto main_time_stamp = storage->repl_storage_state_.last_durable_timestamp_.load();
+  info.current_timestamp_of_replica = last_known_ts_.load(std::memory_order::acquire);
+  info.current_number_of_timestamp_behind_main = info.current_timestamp_of_replica - main_time_stamp;
   return info;
 }
 
@@ -276,7 +266,8 @@ auto ReplicationStorageClient::StartTransactionReplication(const uint64_t curren
 }
 
 bool ReplicationStorageClient::FinalizeTransactionReplication(DatabaseAccessProtector db_acc,
-                                                              std::optional<ReplicaStream> &&replica_stream) const {
+                                                              std::optional<ReplicaStream> &&replica_stream,
+                                                              uint64_t timestamp) const {
   // We can only check the state because it guarantees to be only
   // valid during a single transaction replication (if the assumption
   // that this and other transaction replication functions can only be
@@ -297,28 +288,31 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(DatabaseAccessProt
     return false;
   }
 
-  auto task = [this, db_acc = std::move(db_acc), replica_stream_obj = std::move(replica_stream)]() mutable -> bool {
+  auto task = [this, db_acc = std::move(db_acc), replica_stream_obj = std::move(replica_stream),
+               timestamp]() mutable -> bool {
     MG_ASSERT(replica_stream_obj, "Missing stream for transaction deltas for replica {}", client_.name_);
     try {
       auto response = replica_stream_obj->Finalize();
       // NOLINTNEXTLINE
-      return replica_state_.WithLock([response, db_acc = std::move(db_acc), &replica_stream_obj](auto &state) mutable {
-        replica_stream_obj.reset();
-        // If we didn't receive successful response to AppendDeltas, or we got into MAYBE_BEHIND state since the
-        // moment we started committing as ASYNC replica, we cannot set the ready state. We could have got into
-        // MAYBE_BEHIND state if we missed next txn.
-        if (state != ReplicaState::REPLICATING) {
-          return false;
-        }
+      return replica_state_.WithLock(
+          [this, response, db_acc = std::move(db_acc), &replica_stream_obj, timestamp](auto &state) mutable {
+            replica_stream_obj.reset();
+            // If we didn't receive successful response to AppendDeltas, or we got into MAYBE_BEHIND state since the
+            // moment we started committing as ASYNC replica, we cannot set the ready state. We could have got into
+            // MAYBE_BEHIND state if we missed next txn.
+            if (state != ReplicaState::REPLICATING) {
+              return false;
+            }
 
-        if (!response.success) {
-          state = ReplicaState::MAYBE_BEHIND;
-          return false;
-        }
+            if (!response.success) {
+              state = ReplicaState::MAYBE_BEHIND;
+              return false;
+            }
 
-        state = ReplicaState::READY;
-        return true;
-      });
+            last_known_ts_.store(timestamp, std::memory_order_release);
+            state = ReplicaState::READY;
+            return true;
+          });
     } catch (const rpc::RpcFailedException &) {
       replica_state_.WithLock([&replica_stream_obj](auto &state) {
         replica_stream_obj.reset();
@@ -448,6 +442,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, Storage *
           },
           recovery_step);
     } catch (const rpc::RpcFailedException &) {
+      last_known_ts_.store(replica_commit, std::memory_order_release);
       replica_state_.WithLock([](auto &val) { val = ReplicaState::MAYBE_BEHIND; });
       LogRpcFailure();
       return;
@@ -455,6 +450,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, Storage *
     // If recovery failed, set the state to MAYBE_BEHIND because replica for sure didn't recover completely
     if (recovery_failed) {
       spdlog::debug("One of recovery steps failed, setting replica state to MAYBE_BEHIND");
+      last_known_ts_.store(replica_commit, std::memory_order_release);
       replica_state_.WithLock([](auto &val) { val = ReplicaState::MAYBE_BEHIND; });
       return;
     }
@@ -462,6 +458,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_commit, Storage *
 
   const auto last_durable_timestamp = storage->repl_storage_state_.last_durable_timestamp_.load();
   spdlog::info("Replica {} timestamp: {}, Last commit: {}", client_.name_, replica_commit, last_durable_timestamp);
+  last_known_ts_.store(replica_commit, std::memory_order_release);
   // ldt can be larger on replica due to a snapshot
   if (last_durable_timestamp <= replica_commit) {
     replica_state_.WithLock([name = client_.name_](auto &val) {
@@ -484,12 +481,16 @@ bool ReplicationStorageClient::ForceResetStorage(Storage *storage) const {
       [this]() { replica_state_.WithLock([](auto &state) { state = ReplicaState::MAYBE_BEHIND; }); }};
   try {
     auto stream{client_.rpc_client_.Stream<replication::ForceResetStorageRpc>(main_uuid_, storage->uuid())};
-    return stream.AwaitResponse().success;
+    auto res = stream.AwaitResponse().success;
+    if (res) {
+      last_known_ts_.store(0, std::memory_order_release);
+    }
+    return res;
   } catch (const rpc::RpcFailedException &) {
     spdlog::error(
         utils::MessageWithLink("Couldn't ForceReset data to {}.", client_.name_, "https://memgr.ph/replication"));
+    return false;
   }
-  return false;
 }
 
 ////// ReplicaStream //////
