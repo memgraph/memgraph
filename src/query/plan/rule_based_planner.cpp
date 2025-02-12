@@ -219,7 +219,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     MG_ASSERT(has_aggregation_.size() >= 3U,
               "Expected at least 3 has_aggregation_ flags for list comprehension arguments!");
     bool has_aggr = false;
-    uint8_t limit = list_comprehension.where_ ? 4 : 3;
+    const uint8_t limit = list_comprehension.where_ ? 4 : 3;
     for (int i = 0; i < limit; ++i) {
       has_aggr = has_aggr || has_aggregation_.back();
       has_aggregation_.pop_back();

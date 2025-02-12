@@ -548,7 +548,7 @@ bool SymbolGenerator::PreVisit(ListComprehension &list_comprehension) {
   return false;
 }
 
-bool SymbolGenerator::PostVisit(ListComprehension &list_comprehension) {
+bool SymbolGenerator::PostVisit(ListComprehension &/*list_comprehension*/) {
   auto &scope = scopes_.back();
   scope.in_list_comprehension = false;
   return true;
