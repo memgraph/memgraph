@@ -2208,7 +2208,10 @@ antlrcpp::Any CypherMainVisitor::visitNodeLabels(MemgraphCypher::NodeLabelsConte
       const auto *param_lookup = std::any_cast<ParameterLookup *>(node_label->accept(this));
       const auto label_name = parameters_->AtTokenPosition(param_lookup->token_position_).ValueString();
       labels.emplace_back(storage_->GetLabelIx(label_name));
-      query_info_.is_cacheable = false;  // We can't cache queries with label parameters.
+
+      // We can't cache queries with label parameters because these parameters are resolved during the parsing stage.
+      // The same parameter could be resolved to different values if the user changes its value.
+      query_info_.is_cacheable = false;
     } else {
       auto variable = std::any_cast<std::string>(label_name->variable()->accept(this));
       users_identifiers.insert(variable);
@@ -2559,7 +2562,10 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipTypes(MemgraphCypher::Relation
       const auto *param_lookup = std::any_cast<ParameterLookup *>(edge_type->accept(this));
       const auto edge_type_name = parameters_->AtTokenPosition(param_lookup->token_position_).ValueString();
       types.emplace_back(storage_->GetEdgeTypeIx(edge_type_name));
-      query_info_.is_cacheable = false;  // We can't cache queries with edge type parameters.
+
+      // We can't cache queries with edge type parameters because these parameters are resolved during the parsing
+      // stage. The same parameter could be resolved to different values if the user changes its value.
+      query_info_.is_cacheable = false;
     } else {
       auto variable = std::any_cast<std::string>(edge_type->variable()->accept(this));
       users_identifiers.insert(variable);
