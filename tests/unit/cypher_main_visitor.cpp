@@ -5238,6 +5238,16 @@ TEST_P(CypherMainVisitorTest, ListComprehension) {
     const auto *query = dynamic_cast<CypherQuery *>(
         ast_generator.ParseQuery("RETURN [x in ['one', 'two', 'three'] WHERE x = 'one' | toUpper(x)] ;"));
     ASSERT_NE(query, nullptr);
+    ASSERT_EQ(query->single_query_->clauses_.size(), 1);
+
+    const auto *ret = dynamic_cast<Return *>(query->single_query_->clauses_[0]);
+    const auto *lc = dynamic_cast<ListComprehension *>(ret->body_.named_expressions[0]->expression_);
+    ASSERT_NE(lc, nullptr);
+
+    ASSERT_NE(lc->identifier_, nullptr);
+    ASSERT_NE(lc->list_, nullptr);
+    ASSERT_NE(lc->where_, nullptr);
+    ASSERT_NE(lc->expression_, nullptr);
   }
 
   {
@@ -5245,6 +5255,16 @@ TEST_P(CypherMainVisitorTest, ListComprehension) {
     const auto *query = dynamic_cast<CypherQuery *>(
         ast_generator.ParseQuery("RETURN [x in ['one', 'two', 'three'] WHERE x = 'one'] ;"));
     ASSERT_NE(query, nullptr);
+    ASSERT_EQ(query->single_query_->clauses_.size(), 1);
+
+    const auto *ret = dynamic_cast<Return *>(query->single_query_->clauses_[0]);
+    const auto *lc = dynamic_cast<ListComprehension *>(ret->body_.named_expressions[0]->expression_);
+    ASSERT_NE(lc, nullptr);
+
+    ASSERT_NE(lc->identifier_, nullptr);
+    ASSERT_NE(lc->list_, nullptr);
+    ASSERT_NE(lc->where_, nullptr);
+    ASSERT_EQ(lc->expression_, nullptr);
   }
 
   {
@@ -5252,5 +5272,15 @@ TEST_P(CypherMainVisitorTest, ListComprehension) {
     const auto *query =
         dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN [x in ['one', 'two', 'three'] | toUpper(x)] ;"));
     ASSERT_NE(query, nullptr);
+    ASSERT_EQ(query->single_query_->clauses_.size(), 1);
+
+    const auto *ret = dynamic_cast<Return *>(query->single_query_->clauses_[0]);
+    const auto *lc = dynamic_cast<ListComprehension *>(ret->body_.named_expressions[0]->expression_);
+    ASSERT_NE(lc, nullptr);
+
+    ASSERT_NE(lc->identifier_, nullptr);
+    ASSERT_NE(lc->list_, nullptr);
+    ASSERT_EQ(lc->where_, nullptr);
+    ASSERT_NE(lc->expression_, nullptr);
   }
 }
