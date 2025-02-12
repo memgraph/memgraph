@@ -236,9 +236,9 @@ class MockModule : public procedure::Module {
   std::map<std::string, mgp_func, std::less<>> functions{};
 };
 
-void DummyProcCallback(mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result * /*result*/, mgp_memory * /*memory*/){};
+void DummyProcCallback(mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result * /*result*/, mgp_memory * /*memory*/) {};
 void DummyFuncCallback(mgp_list * /*args*/, mgp_func_context * /*func_ctx*/, mgp_func_result * /*result*/,
-                       mgp_memory * /*memory*/){};
+                       mgp_memory * /*memory*/) {};
 
 enum class ProcedureType { WRITE, READ };
 
@@ -5109,11 +5109,17 @@ TEST_P(CypherMainVisitorTest, TopLevelPeriodicCommitQuery) {
     ast_generator.CheckLiteral(query->pre_query_directives_.commit_frequency_, 10);
   }
 
-  { ASSERT_THROW(ast_generator.ParseQuery("USING PERIODIC COMMIT 'a' CREATE (n);"), SyntaxException); }
+  {
+    ASSERT_THROW(ast_generator.ParseQuery("USING PERIODIC COMMIT 'a' CREATE (n);"), SyntaxException);
+  }
 
-  { ASSERT_THROW(ast_generator.ParseQuery("USING PERIODIC COMMIT -1 CREATE (n);"), SyntaxException); }
+  {
+    ASSERT_THROW(ast_generator.ParseQuery("USING PERIODIC COMMIT -1 CREATE (n);"), SyntaxException);
+  }
 
-  { ASSERT_THROW(ast_generator.ParseQuery("USING PERIODIC COMMIT 3.0 CREATE (n);"), SyntaxException); }
+  {
+    ASSERT_THROW(ast_generator.ParseQuery("USING PERIODIC COMMIT 3.0 CREATE (n);"), SyntaxException);
+  }
 
   {
     ASSERT_THROW(ast_generator.ParseQuery("USING PERIODIC COMMIT 10, PERIODIC COMMIT 10 CREATE (n);"), SyntaxException);
@@ -5223,5 +5229,28 @@ TEST_P(CypherMainVisitorTest, TtlQuery) {
     ASSERT_TRUE(p.IsString() && p.ValueString() == "56m");
     auto st = ast_generator.LiteralValue(query->specific_time_);
     ASSERT_TRUE(st.IsString() && st.ValueString() == "16:45:00");
+  }
+}
+
+TEST_P(CypherMainVisitorTest, ListComprehension) {
+  {
+    auto &ast_generator = *GetParam();
+    const auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("RETURN [x in ['one', 'two', 'three'] WHERE x = 'one' | toUpper(x)] ;"));
+    ASSERT_NE(query, nullptr);
+  }
+
+  {
+    auto &ast_generator = *GetParam();
+    const auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("RETURN [x in ['one', 'two', 'three'] WHERE x = 'one'] ;"));
+    ASSERT_NE(query, nullptr);
+  }
+
+  {
+    auto &ast_generator = *GetParam();
+    const auto *query =
+        dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN [x in ['one', 'two', 'three'] | toUpper(x)] ;"));
+    ASSERT_NE(query, nullptr);
   }
 }
