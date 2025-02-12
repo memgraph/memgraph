@@ -1446,7 +1446,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
     }
   }
   bool is_standalone_call_procedure = has_call_procedure && single_query->clauses_.size() == 1U;
-  if (!has_update && !has_return && !is_standalone_call_procedure) {
+  if (!has_update && !has_return && !is_standalone_call_procedure && !in_exists_) {
     throw SemanticException("Query should either create or update something, or return results!");
   }
 
@@ -2803,8 +2803,8 @@ antlrcpp::Any CypherMainVisitor::visitAtom(MemgraphCypher::AtomContext *ctx) {
     auto variable = std::any_cast<std::string>(ctx->variable()->accept(this));
     users_identifiers.insert(variable);
     return static_cast<Expression *>(storage_->Create<Identifier>(variable));
-  } else if (ctx->existsExpression()) {
-    return std::any_cast<Expression *>(ctx->existsExpression()->accept(this));
+  } else if (ctx->existsAtom()) {
+    return std::any_cast<Expression *>(ctx->existsAtom()->accept(this));
   } else if (ctx->functionInvocation()) {
     return std::any_cast<Expression *>(ctx->functionInvocation()->accept(this));
   } else if (ctx->COALESCE()) {
@@ -2933,10 +2933,26 @@ antlrcpp::Any CypherMainVisitor::visitLiteral(MemgraphCypher::LiteralContext *ct
   return visitChildren(ctx);
 }
 
-antlrcpp::Any CypherMainVisitor::visitExistsExpression(MemgraphCypher::ExistsExpressionContext *ctx) {
+antlrcpp::Any CypherMainVisitor::visitExistsAtom(MemgraphCypher::ExistsAtomContext *ctx) {
+  if (ctx->existsSubquery()) {
+    auto *exists_ctx = ctx->existsSubquery();
+    auto *exists_subquery = storage_->Create<ExistsSubquery>();
+
+    MG_ASSERT(exists_ctx->cypherQuery(), "Expected query inside exists subquery clause");
+
+    if (exists_ctx->cypherQuery()->queryMemoryLimit()) {
+      throw SyntaxException("Memory limit cannot be set on exists subqueries!");
+    }
+    in_exists_ = true;
+    exists_subquery->cypher_query_ = std::any_cast<CypherQuery *>(exists_ctx->cypherQuery()->accept(this));
+    in_exists_ = false;
+    return static_cast<Expression *>(exists_subquery);
+  }
+
   auto *exists = storage_->Create<Exists>();
-  if (ctx->forcePatternPart()) {
-    exists->pattern_ = std::any_cast<Pattern *>(ctx->forcePatternPart()->accept(this));
+  auto *existsExpression = ctx->existsExpression();
+  if (existsExpression->forcePatternPart()) {
+    exists->pattern_ = std::any_cast<Pattern *>(existsExpression->forcePatternPart()->accept(this));
     if (exists->pattern_->identifier_) {
       throw SyntaxException("Identifiers are not supported in exists(...).");
     }

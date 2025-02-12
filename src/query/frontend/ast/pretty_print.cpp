@@ -80,6 +80,7 @@ class ExpressionPrettyPrinter : public ExpressionVisitor<void> {
   void Visit(RegexMatch &op) override;
   void Visit(PatternComprehension &op) override;
   void Visit(EnumValueAccess &op) override;
+  void Visit(ExistsSubquery &op) override;
 
  private:
   std::ostream *out_;
@@ -407,6 +408,10 @@ void ExpressionPrettyPrinter::Visit(PatternComprehension &op) {
 }
 
 void ExpressionPrettyPrinter::Visit(EnumValueAccess &op) { PrintObject(out_, op); }
+
+void ExpressionPrettyPrinter::Visit(ExistsSubquery & /*op*/) {
+  PrintOperator(out_, dba_, "ExistsSubquery", "expression");
+}
 
 }  // namespace
 

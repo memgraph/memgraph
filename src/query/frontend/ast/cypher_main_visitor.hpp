@@ -1008,9 +1008,9 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitParameter(MemgraphCypher::ParameterContext *ctx) override;
 
   /**
-   * @return Exists* (Expression)
+   * @return Exists* | ExistsSubquery* (Expression)
    */
-  antlrcpp::Any visitExistsExpression(MemgraphCypher::ExistsExpressionContext *ctx) override;
+  antlrcpp::Any visitExistsAtom(MemgraphCypher::ExistsAtomContext *ctx) override;
 
   /**
    * @return pattern comprehension (Expression)
@@ -1247,6 +1247,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   // We use this variable in visitReturnItem to check if we are in with or
   // return.
   bool in_with_ = false;
+  bool in_exists_ = false;
 
   Parameters *parameters_;
 

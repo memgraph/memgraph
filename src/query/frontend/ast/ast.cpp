@@ -318,6 +318,9 @@ constexpr utils::TypeInfo query::Exists::kType{utils::TypeId::AST_EXISTS, "Exist
 constexpr utils::TypeInfo query::CallSubquery::kType{utils::TypeId::AST_CALL_SUBQUERY, "CallSubquery",
                                                      &query::Clause::kType};
 
+constexpr utils::TypeInfo query::ExistsSubquery::kType{utils::TypeId::AST_EXISTS_SUBQUERY, "ExistsSubquery",
+                                                       &query::Clause::kType};
+
 constexpr utils::TypeInfo query::MultiDatabaseQuery::kType{utils::TypeId::AST_MULTI_DATABASE_QUERY,
                                                            "MultiDatabaseQuery", &query::Query::kType};
 

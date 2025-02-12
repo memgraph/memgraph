@@ -3999,6 +3999,42 @@ class CallSubquery : public memgraph::query::Clause {
   friend class AstStorage;
 };
 
+class ExistsSubquery : public memgraph::query::Expression {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  ExistsSubquery() = default;
+
+  DEFVISITABLE(ExpressionVisitor<TypedValue>);
+  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
+  DEFVISITABLE(ExpressionVisitor<void>);
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
+    if (visitor.PreVisit(*this)) {
+      cypher_query_->Accept(visitor);
+    }
+    return visitor.PostVisit(*this);
+  }
+
+  ExistsSubquery *MapTo(const Symbol &symbol) {
+    symbol_pos_ = symbol.position();
+    return this;
+  }
+
+  memgraph::query::CypherQuery *cypher_query_;
+  int32_t symbol_pos_{-1};
+
+  ExistsSubquery *Clone(AstStorage *storage) const override {
+    ExistsSubquery *object = storage->Create<ExistsSubquery>();
+    object->cypher_query_ = cypher_query_ ? cypher_query_->Clone(storage) : nullptr;
+    object->symbol_pos_ = symbol_pos_;
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
 class MultiDatabaseQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
