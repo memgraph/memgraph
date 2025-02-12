@@ -11,11 +11,13 @@
 
 #include "query/graph.hpp"
 #include <ranges>
+#include "query/exceptions.hpp"
 #include "query/path.hpp"
 
 namespace memgraph::query {
 
-namespace rv = std::ranges::views;
+namespace r = std::ranges;
+namespace rv = r::views;
 
 Graph::Graph(utils::MemoryResource *memory) : vertices_(memory), edges_(memory) {}
 
@@ -42,12 +44,19 @@ void Graph::Expand(const Path &path) {
 void Graph::Expand(std::span<TypedValue const> const nodes, std::span<TypedValue const> const edges) {
   auto actual_nodes = nodes | rv::filter([](auto const &each) { return each.type() == TypedValue::Type::Vertex; }) |
                       rv::transform([](auto const &each) { return each.ValueVertex(); });
-  vertices_.insert(actual_nodes.begin(), actual_nodes.end());
 
-  auto actual_edges =
-      edges | rv::filter([](auto const &each) { return each.type() == TypedValue::Type::Edge; }) |
-      rv::transform([](auto const &each) { return each.ValueEdge(); }) |
-      rv::filter([this](auto const &each) { return vertices_.contains(each.From()) && vertices_.contains(each.To()); });
+  auto actual_edges = edges | rv::filter([](auto const &each) { return each.type() == TypedValue::Type::Edge; }) |
+                      rv::transform([](auto const &each) { return each.ValueEdge(); });
+
+  if (r::any_of(actual_edges, [&](auto const &edge) {
+        return r::find(actual_nodes, edge.From()) == actual_nodes.end() ||
+               r::find(actual_nodes, edge.To()) == actual_nodes.end();
+      })) {
+    throw memgraph::query::QueryRuntimeException(
+        "Cannot project graph with any projected relationships whose start or end nodes are not also projected.");
+  }
+
+  vertices_.insert(actual_nodes.begin(), actual_nodes.end());
   edges_.insert(actual_edges.begin(), actual_edges.end());
 }
 

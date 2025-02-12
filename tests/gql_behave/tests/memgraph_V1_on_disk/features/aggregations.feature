@@ -640,6 +640,42 @@ Feature: Aggregations
             """
         Then an error should be raised
 
+    Scenario: Two-argument projection errors if incident start node is missing from a projected edge
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x:1}), (b:N {x:2}), (a)-[:R {q: 1}]->(b)
+            """
+        When executing query:
+            """
+            MATCH (x)-[r:R]->(z) RETURN project([z], [r]) AS graph;
+            """
+        Then an error should be raised
+
+    Scenario: Two-argument projection errors if incident end node is missing from a projected edge
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x:1}), (b:N {x:2}), (a)-[:R {q: 1}]->(b)
+            """
+        When executing query:
+            """
+            MATCH (x)-[r:R]->(z) RETURN project([x], [r]) AS graph;
+            """
+        Then an error should be raised
+
+    Scenario: Two-argument projection errors if both incident nodes are missing from a projected edge
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x:1}), (b:N {x:2}), (a)-[:R {q: 1}]->(b)
+            """
+        When executing query:
+            """
+            MATCH (x)-[r:R]->(z) RETURN project([], [r]) AS graph;
+            """
+        Then an error should be raised
+
     Scenario: Empty collect aggregation:
       Given an empty graph
       And having executed
