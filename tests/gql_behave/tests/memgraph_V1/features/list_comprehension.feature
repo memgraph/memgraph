@@ -47,7 +47,7 @@ Feature: ListComprehension
     When executing query:
       """
       MATCH (n)-->(b)
-      WHERE n.prop IN [x IN labels(b) | lower(x)]
+      WHERE n.prop IN [x IN labels(b) | toLower(x)]
       RETURN b
       """
     Then the result should be:
