@@ -106,15 +106,20 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
    *
    * @return std::string
    */
-  std::optional<std::string> GetDefaultDB();
+  std::optional<std::string> GetDefaultDB() const;
+
+  std::optional<std::string> GetDefaultUser() const;
+
+  std::string GetCurrentUser() const;
 
   memgraph::query::InterpreterContext *interpreter_context_;
   memgraph::query::Interpreter interpreter_;
-  std::unique_ptr<query::QueryUserOrRole> user_or_role_;
+  std::shared_ptr<query::QueryUserOrRole> user_or_role_;
 #ifdef MG_ENTERPRISE
   memgraph::audit::Log *audit_log_;
 #endif
   RunTimeConfig runtime_db_;
+  RunTimeConfig runtime_user_;
   memgraph::auth::SynchedAuth *auth_;
   memgraph::communication::v2::ServerEndpoint endpoint_;
 };
