@@ -1,1 +1,2 @@
 neo4j-driver==4.1.1
+PyYAML==6.0.1
