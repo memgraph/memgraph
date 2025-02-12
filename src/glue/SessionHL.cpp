@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -157,9 +157,9 @@ void SessionHL::TryDefaultDB() {
   }
   auto db = GetCurrentDB();
   if (db.empty())
-    implicit_db_.reset();
+    runtime_db_.implicit_config_.reset();
   else
-    implicit_db_.emplace(std::move(db));
+    runtime_db_.implicit_config_.emplace(std::move(db));
 #else
   // Community has to connect to the default database
   interpreter_.SetCurrentDB();
@@ -378,42 +378,9 @@ void SessionHL::BeginTransaction(const bolt_map_t &extra) {
 
 void SessionHL::Configure(const bolt_map_t &run_time_info) {
 #ifdef MG_ENTERPRISE
-  std::optional<std::string> db{};
-  bool update = false;
-  // Check if user explicitly defined the database to use
-  if (run_time_info.contains("db")) {
-    const auto &db_info = run_time_info.at("db");
-    if (!db_info.IsString()) {
-      throw memgraph::communication::bolt::ClientError("Malformed database name.");
-    }
-    db = db_info.ValueString();
-    const auto &current = GetCurrentDB();
-    update = db != current;
-    if (!in_explicit_db_) {
-      implicit_db_.emplace(current);  // Still not in an explicit database, save for recovery
-      update = true;
-    }
-    in_explicit_db_ = true;
-    // NOTE: Once in a transaction, the drivers stop explicitly sending the db and count on using it until commit
-  } else if (in_explicit_db_ && !interpreter_.in_explicit_transaction_) {  // Just on a switch
-    if (implicit_db_) {
-      db = *implicit_db_;
-    } else {
-      db = GetDefaultDB();
-    }
-    update = true;  // We have to update in order to update the explicit flag
-    in_explicit_db_ = false;
-  }
-
-  // Check if the underlying database needs to be updated
-  if (update) {
-    if (db) {  // Db connection
-      MultiDatabaseAuth(user_or_role_.get(), *db);
-      interpreter_.SetCurrentDB(*db, in_explicit_db_);
-    } else {  // Non-db connection
-      interpreter_.ResetDB();
-    }
-  }
+  runtime_db_.Configure(run_time_info, interpreter_.in_explicit_transaction_);
+#else
+  (void)run_time_info;
 #endif
 }
 SessionHL::SessionHL(memgraph::query::InterpreterContext *interpreter_context,
@@ -432,9 +399,17 @@ SessionHL::SessionHL(memgraph::query::InterpreterContext *interpreter_context,
 #ifdef MG_ENTERPRISE
       audit_log_(audit_log),
 #endif
+      runtime_db_{"db", [this]() { return GetCurrentDB(); }, [this]() { return GetDefaultDB(); },
+                  [this](std::optional<std::string> user_defined_db, bool user_defined) {
+                    if (user_defined_db) {  // Db connection
+                      MultiDatabaseAuth(user_or_role_.get(), *user_defined_db);
+                      interpreter_.SetCurrentDB(*user_defined_db, user_defined);
+                    } else {  // Non-db connection
+                      interpreter_.ResetDB();
+                    }
+                  }},
       auth_(auth),
-      endpoint_(std::move(endpoint)),
-      implicit_db_(std::nullopt) {
+      endpoint_(std::move(endpoint)) {
   // Metrics update
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveBoltSessions);
 #ifdef MG_ENTERPRISE
@@ -473,5 +448,40 @@ bolt_map_t SessionHL::DecodeSummary(const std::map<std::string, memgraph::query:
   decoded_summary.emplace("run_id", memgraph::glue::run_id_);
 
   return decoded_summary;
+}
+
+void RunTimeConfig::Configure(auto run_time_info, bool in_explicit_tx) {
+  std::optional<std::string> user_defined_config{};
+  bool update = false;
+
+  // Check if user explicitly defined this config
+  if (run_time_info.contains(key_)) {
+    const auto &info = run_time_info.at(key_);
+    if (!info.IsString()) {
+      throw memgraph::communication::bolt::ClientError("Malformed config input.");
+    }
+    user_defined_config = info.ValueString();
+    const auto &current_config = get_current_();
+    update = user_defined_config != current_config;
+    if (!explicit_) {
+      implicit_config_.emplace(current_config);  // Still not in an explicit database, save for recovery
+      update = true;
+    }
+    explicit_ = true;
+    // NOTE: Once in a transaction, the drivers stop explicitly sending the config and count on using it until commit
+  } else if (explicit_ && !in_explicit_tx) {  // Just on a switch
+    if (implicit_config_) {
+      user_defined_config = *implicit_config_;
+    } else {
+      user_defined_config = get_default_();
+    }
+    update = true;  // We have to update in order to update the explicit flag
+    explicit_ = false;
+  }
+
+  // Check if the underlying config needs updating
+  if (update) {
+    update_(user_defined_config, explicit_);
+  }
 }
 }  // namespace memgraph::glue
