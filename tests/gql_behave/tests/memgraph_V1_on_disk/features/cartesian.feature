@@ -183,8 +183,8 @@ Feature: Cartesian
             MATCH (n0:N) OPTIONAL MATCH p0 = (n0), p1 = (n0) RETURN *;
             """
         Then the result should be:
-        | n0   | p0     | p1     |
-        | (:N) | <(:N)> | <(:N)> |
+            | n0   | p0     | p1     |
+            | (:N) | <(:N)> | <(:N)> |
 
     Scenario: Unmatched pattern match multiple paths with already bound symbols
         Given an empty graph
