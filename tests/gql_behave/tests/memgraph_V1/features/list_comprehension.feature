@@ -15,7 +15,6 @@ Feature: ListComprehension
     Then the result should be:
       | p            |
       | [(:A), (:A)] |
-    And no side effects
 
   Scenario: Using a list comprehension in a WITH
     Given an empty graph
@@ -34,7 +33,6 @@ Feature: ListComprehension
     Then the result should be:
       | p            | c |
       | [(:A), (:A)] | 2 |
-    And no side effects
 
   Scenario: Using a list comprehension in a WHERE
     Given an empty graph
@@ -53,4 +51,33 @@ Feature: ListComprehension
     Then the result should be:
       | b    |
       | (:C) |
-    And no side effects
+
+  Scenario: Using full list comprehension features
+    Given an empty graph
+    When executing query:
+      """
+      RETURN [x in [1, 2, 3] WHERE x = 2| toString(x)] as processed
+      """
+    Then the result should be:
+      | processed |
+      | ['2']     |
+
+  Scenario: Using a list comprehension without WHERE part
+    Given an empty graph
+    When executing query:
+      """
+      RETURN [x in [1, 2, 3] | toString(x)] as processed
+      """
+    Then the result should be:
+      | processed       |
+      | ['1', '2', '3'] |
+
+  Scenario: Using a list comprehension without expression part
+    Given an empty graph
+    When executing query:
+      """
+      RETURN [x in [1, 2, 3] WHERE x = 2] as processed
+      """
+    Then the result should be:
+      | processed |
+      | [2]       |
