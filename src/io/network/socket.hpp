@@ -43,7 +43,7 @@ class Socket {
   /**
    * Shutdown the socket if it is open.
    */
-  void Shutdown() const;
+  void Shutdown();
 
   /**
    * Checks whether the socket is open.
@@ -86,7 +86,7 @@ class Socket {
    *             true if the listen succeeded
    *             false if the listen failed
    */
-  bool Listen(int backlog) const;
+  bool Listen(int backlog);
 
   /**
    * Accepts a new connection.
@@ -94,24 +94,24 @@ class Socket {
    *
    * @return socket if accepted, nullopt otherwise.
    */
-  std::optional<Socket> Accept() const;
+  std::optional<Socket> Accept();
 
   /**
    * Sets the socket to non-blocking.
    */
-  void SetNonBlocking() const;
+  void SetNonBlocking();
 
   /**
    * Enables TCP keep-alive on the socket.
    */
-  void SetKeepAlive() const;
+  void SetKeepAlive();
 
   /**
    * Enables TCP no_delay on the socket.
    * When enabled, the socket doesn't wait for an ACK of every data packet
    * before sending the next packet.
    */
-  void SetNoDelay() const;
+  void SetNoDelay();
 
   /**
    * Sets the socket timeout.
@@ -152,9 +152,8 @@ class Socket {
    *             false if write failed
    */
 
-  bool Write(const uint8_t *data, size_t len, bool have_more = false,
-             std::optional<int> timeout_ms = std::nullopt) const;
-  bool Write(std::string_view s, bool have_more = false, std::optional<int> timeout_ms = std::nullopt) const;
+  bool Write(const uint8_t *data, size_t len, bool have_more = false, std::optional<int> timeout_ms = std::nullopt);
+  bool Write(std::string_view s, bool have_more = false, std::optional<int> timeout_ms = std::nullopt);
 
   /**
    * Read data from the socket.
@@ -169,7 +168,7 @@ class Socket {
    *             == 0 if the client closed the connection
    *             < 0 if an error has occurred
    */
-  ssize_t Read(void *buffer, size_t len, bool nonblock = false) const;
+  ssize_t Read(void *buffer, size_t len, bool nonblock = false);
 
   /**
    * Wait until the socket becomes ready for a `Read` operation.

@@ -197,7 +197,6 @@ int main(int argc, char **argv) {
   Py_SetProgramName(program_name);
   PyImport_AppendInittab("_mgp", &memgraph::query::procedure::PyInitMgpModule);
   Py_InitializeEx(0 /* = initsigs */);
-  PyEval_InitThreads();
   Py_BEGIN_ALLOW_THREADS;
 
   // Add our Python modules to sys.path
@@ -668,7 +667,7 @@ int main(int argc, char **argv) {
   std::optional<memgraph::telemetry::Telemetry> telemetry;
   if (FLAGS_telemetry_enabled) {
     telemetry.emplace(telemetry_server, data_directory / "telemetry", memgraph::glue::run_id_, machine_id,
-                      service_name == "BoltS", FLAGS_data_directory, std::chrono::minutes(10));
+                      service_name == "BoltS", FLAGS_data_directory, std::chrono::hours(8), 1);
     telemetry->AddStorageCollector(dbms_handler, *auth_);
 #ifdef MG_ENTERPRISE
     telemetry->AddDatabaseCollector(dbms_handler);
@@ -680,6 +679,7 @@ int main(int argc, char **argv) {
     telemetry->AddQueryModuleCollector();
     telemetry->AddExceptionCollector();
     telemetry->AddReplicationCollector();
+    telemetry->Start();
   }
   memgraph::license::LicenseInfoSender license_info_sender(telemetry_server, memgraph::glue::run_id_, machine_id,
                                                            memory_limit,

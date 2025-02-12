@@ -16,7 +16,7 @@ import java.util.*;
 public class Transactions {
     public static String createPerson(Transaction tx, String name) {
         Result result = tx.run("CREATE (a:Person {name: $name}) RETURN a.name", parameters("name", name));
-        return result.single().get(0).asString();
+        return result.single().get(0) + "";
     }
 
     public static void main(String[] args) {
@@ -31,7 +31,7 @@ public class Transactions {
                     public String execute(Transaction tx) {
                         createPerson(tx, "mirko");
                         Result result = tx.run("CREATE (");
-                        return result.single().get(0).asString();
+                        return result.single().get(0) + "";
                     }
                 });
             } catch (ClientException e) {
@@ -56,8 +56,9 @@ public class Transactions {
               {
                 @Override
                 public String execute(Transaction tx) {
-                  Result result = tx.run("MATCH (a), (b), (c), (d), (e), (f) RETURN COUNT(*) AS cnt");
-                  return result.single().get(0).asString();
+                  // NOTE: The following line is tricky because maybe fast hardware can get it done -> auto generate the MATCH pattern.
+                  Result result = tx.run("MATCH (a), (b), (c), (d), (e), (f), (g), (h), (i) RETURN COUNT(*) AS cnt");
+                  return result.single().get(0) + "";
                 }
               });
             } catch (TransientException e) {

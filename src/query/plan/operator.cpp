@@ -65,6 +65,7 @@
 #include "utils/pmr/unordered_map.hpp"
 #include "utils/pmr/unordered_set.hpp"
 #include "utils/pmr/vector.hpp"
+#include "utils/query_memory_tracker.hpp"
 #include "utils/readable_size.hpp"
 #include "utils/tag.hpp"
 #include "utils/temporal.hpp"
@@ -5407,27 +5408,31 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
     // can disable tracking on that arena if it is not
     // once we are done with procedure tracking
 
-    bool is_transaction_tracked = memgraph::memory::IsTransactionTracked(transaction_id);
+#if USE_JEMALLOC
+    const bool is_transaction_tracked = memgraph::memory::IsQueryTracked();
 
+    std::unique_ptr<utils::QueryMemoryTracker> tmp_query_tracker{};
     if (!is_transaction_tracked) {
       // start tracking with unlimited limit on query
       // which is same as not being tracked at all
-      memgraph::memory::TryStartTrackingOnTransaction(transaction_id, memgraph::memory::UNLIMITED_MEMORY);
+      tmp_query_tracker = std::make_unique<utils::QueryMemoryTracker>();
+      tmp_query_tracker->SetQueryLimit(memgraph::memory::UNLIMITED_MEMORY);
+      memgraph::memory::StartTrackingCurrentThread(tmp_query_tracker.get());
     }
-    memgraph::memory::StartTrackingCurrentThreadTransaction(transaction_id);
 
     // due to mgp_batch_read_proc and mgp_batch_write_proc
     // we can return to execution without exhausting whole
     // memory. Here we need to update tracking
-    memgraph::memory::CreateOrContinueProcedureTracking(transaction_id, procedure_id, *memory_limit);
+    memgraph::memory::CreateOrContinueProcedureTracking(procedure_id, *memory_limit);
+
+    const utils::OnScopeExit on_scope_exit{[is_transaction_tracked]() {
+      memgraph::memory::PauseProcedureTracking();
+      if (!is_transaction_tracked) memgraph::memory::StopTrackingCurrentThread();
+    }};
+#endif
 
     mgp_memory proc_memory{&memory_tracking_resource};
     MG_ASSERT(result->signature == &proc.results);
-
-    utils::OnScopeExit on_scope_exit{[transaction_id = transaction_id]() {
-      memgraph::memory::StopTrackingCurrentThreadTransaction(transaction_id);
-      memgraph::memory::PauseProcedureTracking(transaction_id);
-    }};
 
     // TODO: What about cross library boundary exceptions? OMG C++?!
     proc.cb(&proc_args, &graph, result, &proc_memory);

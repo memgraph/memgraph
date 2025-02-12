@@ -1,0 +1,10 @@
+- query: >-
+    CALL node2vec_online.get() YIELD node, embedding
+    RETURN count(embedding) as embeddings_count;
+  exception: >
+      Learner or updater are not initialized. Initialize them by calling:`CALL node2vec_online.set_word2vec_learner() YIELD *;` `CALL node2vec_online.set_streamwalk_updater() YIELD *;`
+- query: >-
+    CALL node2vec_online.get() YIELD node, embedding
+    RETURN count(embedding) as embeddings_count;
+  exception: >
+      Learner or updater are not initialized. Initialize them by calling:`CALL node2vec_online.set_word2vec_learner() YIELD *;` `CALL node2vec_online.set_streamwalk_updater() YIELD *;`
