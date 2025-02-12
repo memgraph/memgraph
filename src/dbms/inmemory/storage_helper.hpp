@@ -27,7 +27,7 @@ inline std::unique_ptr<storage::Storage> CreateInMemoryStorage(
   // Connect replication state and storage
   storage->CreateSnapshotHandler(
       [storage = storage.get(), &repl_state]() -> utils::BasicResult<storage::InMemoryStorage::CreateSnapshotError> {
-        return storage->CreateSnapshot(repl_state->GetRole());
+        return storage->CreateSnapshot(repl_state.ReadLock()->GetRole());
       });
 
   return std::move(storage);

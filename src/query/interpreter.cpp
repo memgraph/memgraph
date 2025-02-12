@@ -360,32 +360,28 @@ class ReplQueryHandler {
                        const ReplicationQuery::SyncMode sync_mode, const std::chrono::seconds replica_check_frequency) {
     // Coordinator is main by default so this check is OK although it should actually be nothing (neither main nor
     // replica)
-    // TODO Is Replica should be handed by the RegisterReplica
-    if (handler_->IsReplica()) {
-      // replica can't register another replica
-      throw QueryRuntimeException("Replica can't register another replica!");
-    }
-
     const auto repl_mode = convertToReplicationMode(sync_mode);
 
     auto maybe_endpoint = io::network::Endpoint::ParseAndCreateSocketOrAddress(
         socket_address, memgraph::replication::kDefaultReplicationPort);
-    if (maybe_endpoint) {
-      const auto replication_config = replication::ReplicationClientConfig{
-          .name = name,
-          .mode = repl_mode,
-          .repl_server_endpoint = std::move(*maybe_endpoint),  // don't resolve early
-          .replica_check_frequency = replica_check_frequency,
-          .ssl = std::nullopt};
-
-      const auto error = handler_->TryRegisterReplica(replication_config).HasError();
-
-      if (error) {
-        throw QueryRuntimeException("Couldn't register replica {}.", name);
-      }
-
-    } else {
+    if (!maybe_endpoint) {
       throw QueryRuntimeException("Invalid socket address. {}", kSocketErrorExplanation);
+    }
+
+    const auto replication_config =
+        replication::ReplicationClientConfig{.name = name,
+                                             .mode = repl_mode,
+                                             .repl_server_endpoint = std::move(*maybe_endpoint),  // don't resolve early
+                                             .replica_check_frequency = replica_check_frequency,
+                                             .ssl = std::nullopt};
+
+    const auto error = handler_->TryRegisterReplica(replication_config);
+
+    if (error.HasError()) {
+      if (error.GetError() == RegisterReplicaError::NOT_MAIN) {
+        throw QueryRuntimeException("Replica can't register another replica!");
+      }
+      throw QueryRuntimeException("Couldn't register replica {}.", name);
     }
   }
 
@@ -1260,7 +1256,7 @@ Callback HandleReplicationInfoQuery(ReplicationInfoQuery *repl_query,
     case ReplicationInfoQuery::Action::SHOW_REPLICATION_ROLE: {
       callback.header = {"replication role"};
       callback.fn = [handler = ReplQueryHandler{replication_query_handler}] {
-        auto mode = handler.ShowReplicationRole();
+        const auto mode = handler.ShowReplicationRole();
         switch (mode) {
           case ReplicationQuery::ReplicationRole::MAIN: {
             return std::vector<std::vector<TypedValue>>{{TypedValue("main")}};
@@ -1348,10 +1344,10 @@ Callback HandleReplicationInfoQuery(ReplicationInfoQuery *repl_query,
           return TypedValue{std::move(data_info)};
         };
 
-        auto replicas = handler.ShowReplicas();
+        const auto replicas = handler.ShowReplicas();
         auto typed_replicas = std::vector<std::vector<TypedValue>>{};
         typed_replicas.reserve(replicas.size());
-        for (auto &replica : replicas) {
+        for (const auto &replica : replicas) {
           std::vector<TypedValue> typed_replica;
           typed_replica.reserve(replica_nfields);
 

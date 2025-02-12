@@ -74,12 +74,12 @@ void DataInstanceManagementServerHandlers::Register(memgraph::coordination::Data
   });
 }
 
-void DataInstanceManagementServerHandlers::StateCheckHandler(replication::ReplicationHandler &replication_handler,
+void DataInstanceManagementServerHandlers::StateCheckHandler(const replication::ReplicationHandler &replication_handler,
                                                              slk::Reader *req_reader, slk::Builder *res_builder) {
   coordination::StateCheckReq req;
   slk::Load(&req, req_reader);
 
-  auto locked_repl_state = replication_handler.GetReplState();
+  const auto locked_repl_state = replication_handler.GetReplState();
 
   bool const is_replica = locked_repl_state->IsReplica();
   auto const uuid = std::invoke([&locked_repl_state, is_replica]() -> std::optional<utils::UUID> {
@@ -158,7 +158,7 @@ void DataInstanceManagementServerHandlers::DemoteMainToReplicaHandler(
 void DataInstanceManagementServerHandlers::GetInstanceUUIDHandler(
     replication::ReplicationHandler const &replication_handler, slk::Reader * /*req_reader*/,
     slk::Builder *res_builder) {
-  auto locked_repl_state = replication_handler.GetReplState();
+  const auto locked_repl_state = replication_handler.GetReplState();
   if (!locked_repl_state->IsReplica()) {
     spdlog::trace(
         "Got unexpected request for fetching current main uuid as replica but the instance is not replica at "
@@ -180,8 +180,9 @@ void DataInstanceManagementServerHandlers::PromoteToMainHandler(replication::Rep
   coordination::PromoteToMainReq req;
   slk::Load(&req, req_reader);
 
-  // TODO: Fix potential datarace. All actions need to be performed under the same lock. Since this can happen only
-  // if coordinator is present AND RPC is single threaded, this is fine for now.
+  // TODO: Fix potential datarace. Main promotion, replica registration and main write enabling should all be performed
+  // under the same lock. Since this can happen only if coordinator is present AND RPC is single threaded, this is fine
+  // for now.
 
   // This can fail because of disk. If it does, the cluster state could get inconsistent.
   // We don't handle disk issues. If I receive request to promote myself to main when I am already main
@@ -212,8 +213,8 @@ void DataInstanceManagementServerHandlers::PromoteToMainHandler(replication::Rep
 
 void DataInstanceManagementServerHandlers::RegisterReplicaOnMainHandler(
     replication::ReplicationHandler &replication_handler, slk::Reader *req_reader, slk::Builder *res_builder) {
-  // TODO: Fix potential datarace. Both actions need to be performed under the same lock. Since this can happen only
-  // if coordinator is present AND RPC is single threaded, this is fine for now.
+  // TODO: Fix potential datarace. Main check, uuid check and replica registration should all be performed under the
+  // same lock. Since this can happen only if coordinator is present AND RPC is single threaded, this is fine for now.
   if (!replication_handler.IsMain()) {
     spdlog::error("Registering replica on main must be performed on main!");
     coordination::RegisterReplicaOnMainRes const res{false};
