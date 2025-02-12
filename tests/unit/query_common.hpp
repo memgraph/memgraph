@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -708,3 +708,5 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
 #define COMMIT_FREQUENCY(expr) \
   memgraph::query::test_common::CommitFrequency { (expr) }
 #define LOAD_CSV(...) memgraph::query::test_common::GetLoadCSV(this->storage, __VA_ARGS__)
+#define LIST_COMPREHENSION(variable, list, where, expr) \
+  this->storage.template Create<memgraph::query::ListComprehension>(variable, list, where, expr)
