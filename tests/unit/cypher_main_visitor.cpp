@@ -5283,4 +5283,24 @@ TEST_P(CypherMainVisitorTest, ListComprehension) {
     ASSERT_EQ(lc->where_, nullptr);
     ASSERT_NE(lc->expression_, nullptr);
   }
+
+  {
+    auto &ast_generator = *GetParam();
+    const auto *query =
+        dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN [x in ['one', 'two', 'three']] ;"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_EQ(query->single_query_->clauses_.size(), 1);
+
+    const auto *ret = dynamic_cast<Return *>(query->single_query_->clauses_[0]);
+
+    // TODO: This should also be list comprehension but we don't parse it well
+    // We parse it as an IN LIST operator
+    // const auto *lc = dynamic_cast<ListComprehension *>(ret->body_.named_expressions[0]->expression_);
+    // ASSERT_NE(lc, nullptr);
+
+    // ASSERT_NE(lc->identifier_, nullptr);
+    // ASSERT_NE(lc->list_, nullptr);
+    // ASSERT_EQ(lc->where_, nullptr);
+    // ASSERT_EQ(lc->expression_, nullptr);
+  }
 }
