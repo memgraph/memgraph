@@ -34,6 +34,7 @@ inline void SendInProgressMsg(slk::Builder *builder) {
   Save(storage::replication::InProgressRes::kType.id, builder);
   Save(rpc::current_version, builder);
   builder->Finalize();
+  spdlog::trace("[RpcServer] sent {}", storage::replication::InProgressRes::kType.name);
 }
 
 }  // namespace memgraph::rpc

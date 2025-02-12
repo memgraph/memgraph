@@ -13,6 +13,7 @@
 #include "gtest/gtest.h"
 
 #include "dbms/inmemory/replication_handlers.hpp"
+#include "storage/v2/inmemory/replication/recovery.cpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
 
@@ -75,6 +76,37 @@ class ReplicationRpcProgressTest : public ::testing::Test {
 };
 
 // Timeout immediately
+TEST_F(ReplicationRpcProgressTest, AppendDeltasNoTimeout) {
+  Endpoint endpoint{"localhost", port};
+
+  ServerContext server_context;
+  Server rpc_server{endpoint, &server_context, /* workers */ 1};
+  auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
+    rpc_server.Shutdown();
+    rpc_server.AwaitShutdown();
+  }};
+
+  rpc_server.Register<memgraph::storage::replication::AppendDeltasRpc>([](auto *req_reader, auto *res_builder) {
+    AppendDeltasReq req;
+    Load(&req, req_reader);
+
+    // Simulate done
+    AppendDeltasRes res{true};
+    memgraph::rpc::SendFinalResponse(res, res_builder);
+  });
+
+  ASSERT_TRUE(rpc_server.Start());
+  std::this_thread::sleep_for(100ms);
+
+  auto const rpc_timeouts = std::unordered_map{std::make_pair("AppendDeltasReq"sv, 100)};
+  ClientContext client_context;
+  Client client{endpoint, &client_context, rpc_timeouts};
+
+  ReplicaStream stream{&main_storage, client, 1, UUID{}};
+  EXPECT_NO_THROW(stream.Finalize());
+}
+
+// Timeout immediately
 TEST_F(ReplicationRpcProgressTest, AppendDeltasTimeout) {
   Endpoint endpoint{"localhost", port};
 
@@ -124,6 +156,8 @@ TEST_F(ReplicationRpcProgressTest, AppendDeltasProgressTimeout) {
     std::this_thread::sleep_for(100ms);
     memgraph::rpc::SendInProgressMsg(res_builder);
     std::this_thread::sleep_for(200ms);
+    memgraph::rpc::SendInProgressMsg(res_builder);
+    std::this_thread::sleep_for(100ms);
     AppendDeltasRes res{true};
     memgraph::rpc::SendFinalResponse(res, res_builder);
   });
@@ -136,7 +170,138 @@ TEST_F(ReplicationRpcProgressTest, AppendDeltasProgressTimeout) {
   Client client{endpoint, &client_context, rpc_timeouts};
 
   ReplicaStream stream{&main_storage, client, 1, UUID{}};
-  Delta delta{Delta::DeleteObjectTag{}, (std::atomic<uint64_t> *)nullptr, 0};
 
   EXPECT_THROW(stream.Finalize(), GenericRpcFailedException);
+}
+
+// First send progress, then timeout
+TEST_F(ReplicationRpcProgressTest, CurrentWalNoTimeout) {
+  Endpoint endpoint{"localhost", port};
+
+  ServerContext server_context;
+  Server rpc_server{endpoint, &server_context, /* workers */ 1};
+  auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
+    rpc_server.Shutdown();
+    rpc_server.AwaitShutdown();
+  }};
+
+  rpc_server.Register<memgraph::storage::replication::CurrentWalRpc>([](auto *req_reader, auto *res_builder) {
+    memgraph::storage::replication::CurrentWalReq req;
+    Load(&req, req_reader);
+
+    memgraph::storage::replication::CurrentWalRes res{true};
+    memgraph::rpc::SendFinalResponse(res, res_builder);
+  });
+
+  ASSERT_TRUE(rpc_server.Start());
+  std::this_thread::sleep_for(100ms);
+
+  auto const rpc_timeouts = std::unordered_map{std::make_pair("CurrentWalReq"sv, 150)};
+  ClientContext client_context;
+  Client client{endpoint, &client_context, rpc_timeouts};
+
+  auto stream = memgraph::storage::InMemoryCurrentWalHandler{UUID{}, &main_storage, client};
+
+  EXPECT_NO_THROW(stream.Finalize());
+}
+
+// First send progress, then timeout
+TEST_F(ReplicationRpcProgressTest, CurrentWalProgressTimeout) {
+  Endpoint endpoint{"localhost", port};
+
+  ServerContext server_context;
+  Server rpc_server{endpoint, &server_context, /* workers */ 1};
+  auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
+    rpc_server.Shutdown();
+    rpc_server.AwaitShutdown();
+  }};
+
+  rpc_server.Register<memgraph::storage::replication::CurrentWalRpc>([](auto *req_reader, auto *res_builder) {
+    memgraph::storage::replication::CurrentWalReq req;
+    Load(&req, req_reader);
+
+    std::this_thread::sleep_for(100ms);
+    memgraph::rpc::SendInProgressMsg(res_builder);
+    std::this_thread::sleep_for(200ms);
+    memgraph::rpc::SendInProgressMsg(res_builder);
+    std::this_thread::sleep_for(100ms);
+    memgraph::storage::replication::CurrentWalRes res{true};
+    memgraph::rpc::SendFinalResponse(res, res_builder);
+  });
+
+  ASSERT_TRUE(rpc_server.Start());
+  std::this_thread::sleep_for(100ms);
+
+  auto const rpc_timeouts = std::unordered_map{std::make_pair("CurrentWalReq"sv, 150)};
+  ClientContext client_context;
+  Client client{endpoint, &client_context, rpc_timeouts};
+
+  auto stream = memgraph::storage::InMemoryCurrentWalHandler{UUID{}, &main_storage, client};
+
+  EXPECT_THROW(stream.Finalize(), GenericRpcFailedException);
+}
+
+// First send progress, then timeout
+TEST_F(ReplicationRpcProgressTest, WalFilesNoTimeout) {
+  Endpoint endpoint{"localhost", port};
+
+  ServerContext server_context;
+  Server rpc_server{endpoint, &server_context, /* workers */ 1};
+  auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
+    rpc_server.Shutdown();
+    rpc_server.AwaitShutdown();
+  }};
+
+  rpc_server.Register<memgraph::storage::replication::WalFilesRpc>([](auto *req_reader, auto *res_builder) {
+    memgraph::storage::replication::WalFilesReq req;
+    Load(&req, req_reader);
+
+    memgraph::storage::replication::WalFilesRes res{true};
+    memgraph::rpc::SendFinalResponse(res, res_builder);
+  });
+
+  ASSERT_TRUE(rpc_server.Start());
+  std::this_thread::sleep_for(100ms);
+
+  auto const rpc_timeouts = std::unordered_map{std::make_pair("WalFilesReq"sv, 150)};
+  ClientContext client_context;
+  Client client{endpoint, &client_context, rpc_timeouts};
+
+  auto stream = client.Stream<memgraph::storage::replication::WalFilesRpc>(UUID{}, UUID{}, 1);
+  EXPECT_NO_THROW(stream.AwaitResponseWhileInProgress());
+}
+
+// First send progress, then timeout
+TEST_F(ReplicationRpcProgressTest, WalFilesProgressTimeout) {
+  Endpoint endpoint{"localhost", port};
+
+  ServerContext server_context;
+  Server rpc_server{endpoint, &server_context, /* workers */ 1};
+  auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
+    rpc_server.Shutdown();
+    rpc_server.AwaitShutdown();
+  }};
+
+  rpc_server.Register<memgraph::storage::replication::WalFilesRpc>([](auto *req_reader, auto *res_builder) {
+    memgraph::storage::replication::WalFilesReq req;
+    Load(&req, req_reader);
+
+    std::this_thread::sleep_for(100ms);
+    memgraph::rpc::SendInProgressMsg(res_builder);
+    std::this_thread::sleep_for(200ms);
+    memgraph::rpc::SendInProgressMsg(res_builder);
+    std::this_thread::sleep_for(100ms);
+    memgraph::storage::replication::WalFilesRes res{true};
+    memgraph::rpc::SendFinalResponse(res, res_builder);
+  });
+
+  ASSERT_TRUE(rpc_server.Start());
+  std::this_thread::sleep_for(100ms);
+
+  auto const rpc_timeouts = std::unordered_map{std::make_pair("WalFilesReq"sv, 150)};
+  ClientContext client_context;
+  Client client{endpoint, &client_context, rpc_timeouts};
+
+  auto stream = client.Stream<memgraph::storage::replication::WalFilesRpc>(UUID{}, UUID{}, 1);
+  EXPECT_THROW(stream.AwaitResponseWhileInProgress(), GenericRpcFailedException);
 }
