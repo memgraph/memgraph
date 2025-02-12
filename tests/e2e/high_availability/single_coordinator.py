@@ -1039,7 +1039,7 @@ def test_replication_works_on_replica_instance_restart(test_name):
             "instance_2",
             "localhost:10002",
             "sync",
-            {"ts": 0, "behind": None, "status": "ready"},
+            {"ts": 0, "behind": None, "status": "invalid"},
             {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}},
         ),
     ]
@@ -1067,8 +1067,8 @@ def test_replication_works_on_replica_instance_restart(test_name):
             "instance_2",
             "localhost:10002",
             "sync",
-            {"ts": 0, "behind": None, "status": "ready"},
-            {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}},
+            {"ts": 0, "behind": None, "status": "invalid"},
+            {"memgraph": {"ts": 0, "behind": -2, "status": "invalid"}},
         ),
     ]
     mg_sleep_and_assert_collection(expected_data_on_main, partial(show_replicas, main_cursor))
