@@ -18,7 +18,6 @@ BUILD_DIR = os.path.join(BASE_DIR, "build")
 class Deployment(ABC):
     def __init__(self):
         super().__init__()
-        self._driver = GraphDatabase.driver("bolt://127.0.0.1:7687", auth=("", ""))
 
     def start_memgraph(self, additional_flags: List[str] = None):
         pass
@@ -41,6 +40,8 @@ class Deployment(ABC):
         return memgraph.execute_and_fetch(query)
 
     def execute_for_tenant(self, tenant: str, query: str) -> None:
+        if self._driver is None:
+            self._driver = GraphDatabase.driver("bolt://127.0.0.1:7687", auth=("", ""))
         with self._driver.session(database=tenant) as session:
             session.run(query)
 
