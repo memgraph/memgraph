@@ -114,6 +114,7 @@ print_help () {
   echo -e "  --no-copy                     Don't copy the memgraph repo from host."
   echo -e "                                Use this option with caution, be sure that memgraph source code is in correct location inside mgbuild container"
   echo -e "  --ubsan                       Build with UBSAN"
+  echo -e "  --disable-jemalloc            Build without jemalloc"
 
   echo -e "\ncopy options (default \"--binary\"):"
   echo -e "  --artifact-name string        Specify a custom name for the copied artifact"
@@ -288,6 +289,7 @@ build_memgraph () {
   local coverage_flag=""
   local asan_flag=""
   local ubsan_flag=""
+  local disable_jemalloc_flag=""
   local init_only=false
   local cmake_only=false
   local for_docker=false
@@ -341,6 +343,10 @@ build_memgraph () {
         copy_from_host=false
         shift 1
       ;;
+      --disable-jemalloc)
+        disable_jemalloc_flag="-DENABLE_JEMALLOC=OFF"
+        shift 1
+      ;;
       *)
         echo "Error: Unknown flag '$1'"
         print_help
@@ -385,7 +391,7 @@ build_memgraph () {
   docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && git remote set-url origin https://github.com/memgraph/memgraph.git"
 
   # Define cmake command
-  local cmake_cmd="cmake $build_type_flag $arm_flag $community_flag $telemetry_id_override_flag $coverage_flag $asan_flag $ubsan_flag .."
+  local cmake_cmd="cmake $build_type_flag $arm_flag $community_flag $telemetry_id_override_flag $coverage_flag $asan_flag $ubsan_flag $disable_jemalloc_flag .."
   docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO && $cmake_cmd"
   if [[ "$cmake_only" == "true" ]]; then
     build_target(){

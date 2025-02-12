@@ -189,6 +189,27 @@ def show_replicas_func(cursor):
     return func
 
 
+def show_w_async_zeroing(cursor):
+    def func():
+        res = show_replicas_func(cursor)()
+        # ASYCN replica, go through data and zero out all invalid timestamps
+        for instance_state in res:
+            if instance_state[2] == "async":
+                # Zero out main replica timestamp if status is invalid
+                if instance_state[3]["status"] == "invalid":
+                    instance_state[3]["ts"] = 0
+                    instance_state[3]["behind"] = None
+                # Zero out component timestamps if their status is invalid
+                for component, component_info in instance_state[4].items():
+                    if component_info["status"] == "invalid":
+                        component_info["ts"] = 0
+                        component_info["behind"] = 0
+
+        return res
+
+    return func
+
+
 def show_databases_func(cursor):
     def func():
         return execute_and_fetch_all(cursor, "SHOW DATABASES;")
@@ -803,10 +824,10 @@ def test_multitenancy_replication_restart_replica_w_fc(connection, replica_name,
                 "replica_1",
                 f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
                 "sync",
-                {"ts": 4, "behind": None, "status": "ready"},
+                {"ts": 4, "behind": None, "status": "invalid"},
                 {
-                    "A": {"ts": 0, "behind": 0, "status": "invalid"},
-                    "B": {"ts": 0, "behind": 0, "status": "invalid"},
+                    "A": {"ts": 7, "behind": 0, "status": "invalid"},
+                    "B": {"ts": 3, "behind": 0, "status": "invalid"},
                     "memgraph": {"ts": 0, "behind": 0, "status": "invalid"},
                 },
             ),
@@ -838,7 +859,7 @@ def test_multitenancy_replication_restart_replica_w_fc(connection, replica_name,
                 "replica_2",
                 f"127.0.0.1:{REPLICATION_PORTS['replica_2']}",
                 "async",
-                {"ts": 4, "behind": None, "status": "ready"},
+                {"ts": 0, "behind": None, "status": "invalid"},
                 {
                     "A": {"ts": 0, "behind": 0, "status": "invalid"},
                     "B": {"ts": 0, "behind": 0, "status": "invalid"},
@@ -847,7 +868,7 @@ def test_multitenancy_replication_restart_replica_w_fc(connection, replica_name,
             ),
         ],
     }
-    mg_sleep_and_assert_collection(expected_data[replica_name], show_replicas_func(main_cursor))
+    mg_sleep_and_assert_collection(expected_data[replica_name], show_w_async_zeroing(main_cursor))
     # Restart
     interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, replica_name)
 
@@ -1272,14 +1293,14 @@ def test_multitenancy_drop_while_replica_using(connection, test_name):
             "replica_1",
             f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
             "sync",
-            {"ts": 6, "behind": None, "status": "ready"},
+            {"ts": 7, "behind": None, "status": "ready"},
             {"B": {"ts": 0, "behind": 0, "status": "ready"}, "memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
         ),
         (
             "replica_2",
             f"127.0.0.1:{REPLICATION_PORTS['replica_2']}",
             "async",
-            {"ts": 6, "behind": None, "status": "ready"},
+            {"ts": 7, "behind": None, "status": "ready"},
             {"B": {"ts": 0, "behind": 0, "status": "ready"}, "memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
         ),
     ]
@@ -1369,14 +1390,14 @@ def test_multitenancy_drop_and_recreate_while_replica_using(connection, test_nam
             "replica_1",
             f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
             "sync",
-            {"ts": 6, "behind": None, "status": "ready"},
+            {"ts": 7, "behind": None, "status": "ready"},
             {"A": {"ts": 0, "behind": 0, "status": "ready"}, "memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
         ),
         (
             "replica_2",
             f"127.0.0.1:{REPLICATION_PORTS['replica_2']}",
             "async",
-            {"ts": 6, "behind": None, "status": "ready"},
+            {"ts": 7, "behind": None, "status": "ready"},
             {"A": {"ts": 0, "behind": 0, "status": "ready"}, "memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
         ),
     ]

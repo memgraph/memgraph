@@ -1110,12 +1110,19 @@ class SkipList final : detail::SkipListNode_base {
   template <typename TKey>
   SkipListNode<TObj> *find_(const TKey &key) const {
     TNode *preds[kSkipListMaxHeight], *succs[kSkipListMaxHeight];
-    int layer_found = find_node(key, preds, succs);
-    if (layer_found != -1 && succs[layer_found]->fully_linked.load(std::memory_order_acquire) &&
-        !succs[layer_found]->marked.load(std::memory_order_acquire)) {
-      return succs[layer_found];
+    while (true) {
+      int layer_found = find_node(key, preds, succs);
+      if (layer_found == -1) [[unlikely]] {
+        // not found
+        return nullptr;
+      }
+      bool valid = succs[layer_found]->fully_linked.load(std::memory_order_acquire) &&
+                   !succs[layer_found]->marked.load(std::memory_order_acquire);
+      if (valid) {
+        return succs[layer_found];
+      }
+      // found entry no longer valid, try again
     }
-    return nullptr;
   }
 
   template <typename TKey>
@@ -1136,12 +1143,19 @@ class SkipList final : detail::SkipListNode_base {
   template <typename TKey>
   Iterator find_equal_or_greater_(const TKey &key) const {
     TNode *preds[kSkipListMaxHeight], *succs[kSkipListMaxHeight];
-    find_node(key, preds, succs);
-    if (succs[0] && succs[0]->fully_linked.load(std::memory_order_acquire) &&
-        !succs[0]->marked.load(std::memory_order_acquire)) {
-      return Iterator{succs[0]};
+    while (true) {
+      find_node(key, preds, succs);
+      if (!succs[0]) {
+        // not found
+        return Iterator{nullptr};
+      }
+      auto valid =
+          succs[0]->fully_linked.load(std::memory_order_acquire) && !succs[0]->marked.load(std::memory_order_acquire);
+      if (valid) {
+        return Iterator{succs[0]};
+      }
+      // found entry no longer valid, try again
     }
-    return Iterator{nullptr};
   }
 
   template <typename TKey>
