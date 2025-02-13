@@ -4077,7 +4077,8 @@ TypedValue DefaultAggregationOpValue(const Aggregate::Element &element, utils::M
       return TypedValue(TypedValue::TVector(memory));
     case Aggregation::Op::COLLECT_MAP:
       return TypedValue(TypedValue::TMap(memory));
-    case Aggregation::Op::PROJECT:
+    case Aggregation::Op::PROJECT_PATH:
+    case Aggregation::Op::PROJECT_LISTS:
       return TypedValue(query::Graph(memory));
   }
 }
@@ -4240,7 +4241,8 @@ class AggregateCursor : public Cursor {
         case Aggregation::Op::SUM:
         case Aggregation::Op::COLLECT_LIST:
         case Aggregation::Op::COLLECT_MAP:
-        case Aggregation::Op::PROJECT:
+        case Aggregation::Op::PROJECT_PATH:
+        case Aggregation::Op::PROJECT_LISTS:
           break;
       }
     }
@@ -4307,7 +4309,7 @@ class AggregateCursor : public Cursor {
     for (; count_it != counts_end; ++count_it, ++value_it, ++unique_values_it, ++agg_elem_it) {
       // COUNT(*) is the only case where input expression is optional
       // handle it here
-      auto input_expr_ptr = agg_elem_it->value;
+      auto *input_expr_ptr = agg_elem_it->arg1;
       if (!input_expr_ptr) {
         *count_it += 1;
         // value is deferred to post-processing
@@ -4345,13 +4347,17 @@ class AggregateCursor : public Cursor {
           case Aggregation::Op::COLLECT_LIST:
             value_it->ValueList().push_back(std::move(input_value));
             break;
-          case Aggregation::Op::PROJECT: {
-            EnsureOkForProject(input_value);
+          case Aggregation::Op::PROJECT_PATH: {
+            EnsureOkForProjectPath(input_value);
             value_it->ValueGraph().Expand(input_value.ValuePath());
             break;
           }
+          case Aggregation::Op::PROJECT_LISTS: {
+            ProjectList(input_value, agg_elem_it->arg2->Accept(*evaluator), value_it->ValueGraph());
+            break;
+          }
           case Aggregation::Op::COLLECT_MAP:
-            auto key = agg_elem_it->key->Accept(*evaluator);
+            auto key = agg_elem_it->arg2->Accept(*evaluator);
             if (key.type() != TypedValue::Type::String) throw QueryRuntimeException("Map key must be a string.");
             value_it->ValueMap().emplace(key.ValueString(), std::move(input_value));
             break;
@@ -4398,18 +4404,41 @@ class AggregateCursor : public Cursor {
         case Aggregation::Op::COLLECT_LIST:
           value_it->ValueList().push_back(std::move(input_value));
           break;
-        case Aggregation::Op::PROJECT: {
-          EnsureOkForProject(input_value);
+        case Aggregation::Op::PROJECT_PATH: {
+          EnsureOkForProjectPath(input_value);
           value_it->ValueGraph().Expand(input_value.ValuePath());
           break;
         }
+
+        case Aggregation::Op::PROJECT_LISTS: {
+          ProjectList(input_value, agg_elem_it->arg2->Accept(*evaluator), value_it->ValueGraph());
+          break;
+        }
         case Aggregation::Op::COLLECT_MAP:
-          auto key = agg_elem_it->key->Accept(*evaluator);
+          auto key = agg_elem_it->arg2->Accept(*evaluator);
           if (key.type() != TypedValue::Type::String) throw QueryRuntimeException("Map key must be a string.");
           value_it->ValueMap().emplace(key.ValueString(), std::move(input_value));
           break;
       }  // end switch over Aggregation::Op enum
     }    // end loop over all aggregations
+  }
+
+  /** Project a subgraph from lists of nodes and lists of edges. Any nulls in these lists are ignored.
+   */
+  static void ProjectList(TypedValue const &arg1, TypedValue const &arg2, Graph &projectedGraph) {
+    if (arg1.type() != TypedValue::Type::List || !std::ranges::all_of(arg1.ValueList(), [](TypedValue const &each) {
+          return each.type() == TypedValue::Type::Vertex || each.type() == TypedValue::Type::Null;
+        })) {
+      throw QueryRuntimeException("project() argument 1 must be a list of nodes or nulls.");
+    }
+
+    if (arg2.type() != TypedValue::Type::List || !std::ranges::all_of(arg2.ValueList(), [](TypedValue const &each) {
+          return each.type() == TypedValue::Type::Edge || each.type() == TypedValue::Type::Null;
+        })) {
+      throw QueryRuntimeException("project() argument 2 must be a list of relationships or nulls.");
+    }
+
+    projectedGraph.Expand(arg1.ValueList(), arg2.ValueList());
   }
 
   /** Checks if the given TypedValue is legal in MIN and MAX. If not
@@ -4443,10 +4472,9 @@ class AggregateCursor : public Cursor {
     }
   }
 
-  /** Checks if the given TypedValue is legal in PROJECT and PROJECT_TRANSITIVE. If not
-   * an appropriate exception is thrown. */
+  /** Checks if the given TypedValue is legal in PROJECT_PATH. If not an appropriate exception is thrown. */
   // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
-  void EnsureOkForProject(const TypedValue &value) const {
+  void EnsureOkForProjectPath(const TypedValue &value) const {
     switch (value.type()) {
       case TypedValue::Type::Path:
         return;
