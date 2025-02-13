@@ -272,9 +272,6 @@ class DbmsHandler {
   auto ReplicationState() { return repl_state_.Lock(); }
   auto ReplicationState() const { return repl_state_.ReadLock(); }
 
-  bool IsMain() const { return repl_state_->IsMain(); }
-  bool IsReplica() const { return repl_state_->IsReplica(); }
-
   /**
    * @brief Return all active databases.
    *

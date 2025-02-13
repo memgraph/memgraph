@@ -6193,8 +6193,10 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
       continue;
     }
 
-    bool is_main = interpreter_context->repl_state->IsMain();
+    auto locked_repl_state = std::optional{interpreter_context->repl_state.ReadLock()};
+    const bool is_main = locked_repl_state.value()->IsMain();
     auto maybe_commit_error = db_accessor.Commit({.is_main = is_main}, db_acc);
+    locked_repl_state.reset();  // proactively unlock
 
     if (maybe_commit_error.HasError()) {
       const auto &error = maybe_commit_error.GetError();
