@@ -1,7 +1,7 @@
 memgraph:
   image:
     repository: memgraph/memgraph
-    tag: latest
+    tag: "3.0.0"
     pullPolicy: IfNotPresent
   env:
     MEMGRAPH_ENTERPRISE_LICENSE: <MEMGRAPH_ENTERPRISE_LICENSE>

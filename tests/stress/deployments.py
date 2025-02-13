@@ -39,14 +39,8 @@ class Deployment(ABC):
         memgraph = Memgraph()
         return memgraph.execute_and_fetch(query)
 
-    def execute_for_tenant(self, tenant: str, query: str) -> None:
-        if self._driver is None:
-            self._driver = GraphDatabase.driver("bolt://127.0.0.1:7687", auth=("", ""))
-        with self._driver.session(database=tenant) as session:
-            session.run(query)
 
-
-class DefaultStandaloneDeployment(Deployment):
+class BinaryStandaloneDeployment(Deployment):
     def __init__(self, memgraph: str, flags: List[str]):
         super().__init__()
         self._memgraph = memgraph
@@ -85,7 +79,7 @@ class DefaultStandaloneDeployment(Deployment):
         time.sleep(2)
 
 
-class DefaultHADeployment(Deployment):
+class BinaryHADeployment(Deployment):
     def __init__(self, memgraph: str, flags: List[str]):
         super().__init__()
         self._memgraph = memgraph

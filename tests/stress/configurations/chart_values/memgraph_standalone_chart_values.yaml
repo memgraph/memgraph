@@ -2,7 +2,7 @@ image:
   # repository: memgraphaksclusterregistry.azurecr.io/memgraph-mage
   repository: memgraph/memgraph
   # Overrides the image tag whose default is v{{ .Chart.AppVersion }}
-  tag: "2.22.0"
+  tag: "3.0.0"
   pullPolicy: IfNotPresent
 
 ## Override the default imagePullSecrets

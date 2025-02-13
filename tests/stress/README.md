@@ -12,7 +12,7 @@ memgraph:
   deployment:
     type: <ha|standalone>  # Specifies the deployment type: High Availability (ha) or Standalone (run from a binary).
   installation:
-    type: <default|docker|k8s>  # Specifies the installation type: default (binary), Docker, or Kubernetes (k8s).
+    type: <binary|docker|k8s>  # Specifies the installation type: binary, Docker, or Kubernetes (k8s).
     options:
       release_name: <string>  # Kubernetes release name (if applicable).
       chart_name: <string>  # Helm chart name (if applicable).
@@ -21,7 +21,7 @@ memgraph:
       # Values file path needs to be stored in stress/configurations/chart_values/
       querying_type: <bolt+routing|data>  # Querying type (for HA setup, either uses bolt+routing or queries directly the main instance)
   args:
-  # The args is needed for <default|docker> installation types. K8s installation type is in the values file
+  # The args is needed for <binary|docker> installation types. K8s installation type is in the values file
   # Below are examples of memgraph flags passed
     - "--telemetry-enabled=false"  # Disables telemetry.
     - "--bolt-server-name-for-init=Neo4j/"  # Specifies the Bolt server name.
@@ -75,7 +75,6 @@ customWorkloads:
           # 2. writer -> executes ingestion queries (is not different by nature from a reader, but used as a semantic distinction)
           # 3. lab-simulator -> executes a set of queries performed usually by Memgraph Lab to monitor the instance. Used for
           # users which frequently use Memgraph Lab to see if Lab is doing any instability in the database workload
-          # 4. random-multitenant-worker -> executes a query against a random database
           query: "<Cypher Query>"  # Cypher query executed by the worker.
           num_repetitions: <int>  # Number of times the query should be executed.
           sleep_millis: <int>  # Sleep duration in milliseconds between executions.

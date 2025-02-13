@@ -6,6 +6,7 @@ memgraph:
     options:
       release_name: memgraph-standalone
       chart_name: memgraph/memgraph
+      # Image tag is in the values file
       values_file: memgraph_standalone_chart_values.yaml
 
 general:

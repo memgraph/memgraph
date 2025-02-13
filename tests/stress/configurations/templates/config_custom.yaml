@@ -2,7 +2,7 @@ memgraph:
   deployment:
     type: standalone
   installation:
-    type: default
+    type: binary
   args:
     - "--telemetry-enabled=false"
     - "--bolt-server-name-for-init=Neo4j/"

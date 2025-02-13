@@ -11,8 +11,8 @@ from typing import Dict, List, Optional
 
 import yaml
 from deployments import (
-    DefaultHADeployment,
-    DefaultStandaloneDeployment,
+    BinaryHADeployment,
+    BinaryStandaloneDeployment,
     DockerStandaloneDeployment,
     MinikubeHelmHADeployment,
     MinikubeHelmStandaloneDeployment,
@@ -44,7 +44,7 @@ class Config:
         deployment = memgraph.get("deployment", {})
         self._deployment_type = deployment.get("type", "standalone")
         installation = memgraph.get("installation", {})
-        self._installation_type = installation.get("type", "default")
+        self._installation_type = installation.get("type", "binary")
         self._memgraph_args = memgraph.get("args", [])
 
         # Dataset tests
@@ -121,11 +121,11 @@ class Config:
 
 
 def deployment_factory(args: Args, config: Config):
-    if config.installation_type == "default":
+    if config.installation_type == "binary":
         if config.deployment_type == "standalone":
-            return DefaultStandaloneDeployment(args.memgraph, config.memgraph_args)
+            return BinaryStandaloneDeployment(args.memgraph, config.memgraph_args)
         elif config.deployment_type == "ha":
-            return DefaultHADeployment(args.memgraph, config.memgraph_args)
+            return BinaryHADeployment(args.memgraph, config.memgraph_args)
         else:
             raise Exception("Unknown Memgraph deployment type!")
 

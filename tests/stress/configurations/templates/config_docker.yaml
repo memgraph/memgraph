@@ -5,7 +5,7 @@ memgraph:
     type: docker
     options:
       image: memgraph/memgraph
-      tag: latest
+      tag: "3.0.0"
   args:
     - "--telemetry-enabled=false"
     - "--bolt-server-name-for-init=Neo4j/"
