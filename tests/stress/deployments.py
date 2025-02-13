@@ -231,8 +231,6 @@ class BinaryHADeployment(Deployment):
             f"--metrics-port={data_config['metrics-port']}",
             f"--data-directory=mg_data_{data_config['id']}",
             f"--log-file=mg_data_{data_config['id']}.log",
-            f"--replication-restore-state-on-startup=false",
-            f"--data-recovery-on-startup=false",
         ]
 
     def _get_coordinator_instance_ha_flags(self, coord_config):
@@ -246,8 +244,6 @@ class BinaryHADeployment(Deployment):
             f"--metrics-port={coord_config['metrics-port']}",
             f"--data-directory=mg_coord_{coord_config['id']}",
             f"--log-file=mg_coord_{coord_config['id']}.log",
-            f"--replication-restore-state-on-startup=false",
-            f"--data-recovery-on-startup=false",
         ]
 
 

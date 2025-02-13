@@ -27,7 +27,6 @@ memgraph:
     - "--bolt-server-name-for-init=Neo4j/"  # Specifies the Bolt server name.
     - "--log-file=stress_test.log"  # Log file location.
     - "--data-directory=stress_data"  # Directory for storing data.
-    - "--data-recovery-on-startup=false"  # Disables data recovery on startup. Useful when running multiple HA tests
 ```
 
 ### 2. General Configuration

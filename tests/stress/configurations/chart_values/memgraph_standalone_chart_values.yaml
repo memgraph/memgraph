@@ -96,7 +96,6 @@ memgraphConfig:
 - "--telemetry-enabled=false"
 - "--also-log-to-stderr=true"
 - "--log-level=TRACE"
-- "--data-recovery-on-startup=true"
 - "--storage-snapshot-interval-sec=3600"
 - "--storage-snapshot-on-exit=false"
 - "--storage-snapshot-retention-count=3"
