@@ -438,7 +438,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
               "and restart the database.");
     recovery_info = recovered_snapshot->recovery_info;
     indices_constraints = std::move(recovered_snapshot->indices_constraints);
-    snapshot_timestamp = recovered_snapshot->snapshot_info.start_timestamp;
+    snapshot_timestamp = recovered_snapshot->snapshot_info.durable_timestamp;
     repl_storage_state.epoch_.SetEpoch(std::move(recovered_snapshot->snapshot_info.epoch_id));
     recovery_info.last_durable_timestamp = snapshot_timestamp;
   } else {

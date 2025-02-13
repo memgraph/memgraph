@@ -317,7 +317,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
       storage->vertex_id_ = recovery_info.next_vertex_id;
       storage->edge_id_ = recovery_info.next_edge_id;
       storage->timestamp_ = std::max(storage->timestamp_, recovery_info.next_timestamp);
-      storage->repl_storage_state_.last_durable_timestamp_ = recovery_info.next_timestamp - 1;
+      storage->repl_storage_state_.last_durable_timestamp_ = snapshot_info.durable_timestamp;
 
       spdlog::trace("Recovering indices and constraints from snapshot.");
       storage::durability::RecoverIndicesStatsAndConstraints(

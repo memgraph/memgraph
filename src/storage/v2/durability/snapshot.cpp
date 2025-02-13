@@ -129,7 +129,7 @@ struct BatchInfo {
 };
 
 // Function used to read information about the snapshot file.
-SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path) {
+SnapshotInfo ReadSnapshotInfoPreVersion23(const std::filesystem::path &path) {
   // Check magic and version.
   Decoder snapshot;
   auto version = snapshot.Initialize(path, kSnapshotMagic);
@@ -201,6 +201,100 @@ SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path) {
     auto maybe_timestamp = snapshot.ReadUint();
     if (!maybe_timestamp) throw RecoveryFailure("Couldn't read start timestamp!");
     info.start_timestamp = *maybe_timestamp;
+    info.durable_timestamp = *maybe_timestamp;  // Falling back to the old logic
+
+    auto maybe_edges = snapshot.ReadUint();
+    if (!maybe_edges) throw RecoveryFailure("Couldn't read the number of edges!");
+    info.edges_count = *maybe_edges;
+
+    auto maybe_vertices = snapshot.ReadUint();
+    if (!maybe_vertices) throw RecoveryFailure("Couldn't read the number of vertices!");
+    info.vertices_count = *maybe_vertices;
+  }
+
+  return info;
+}
+// Function used to read information about the snapshot file.
+SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path) {
+  // Check magic and version.
+  Decoder snapshot;
+  auto version = snapshot.Initialize(path, kSnapshotMagic);
+  if (!version) throw RecoveryFailure("Couldn't read snapshot magic and/or version!");
+  if (!IsVersionSupported(*version)) throw RecoveryFailure("Invalid snapshot version!");
+
+  if (version < kDurableTS) {
+    return ReadSnapshotInfoPreVersion23(path);
+  }
+
+  // Prepare return value.
+  SnapshotInfo info;
+
+  // Read offsets.
+  {
+    auto marker = snapshot.ReadMarker();
+    if (!marker || *marker != Marker::SECTION_OFFSETS)
+      throw RecoveryFailure("Couldn't read marker for section offsets!");
+
+    auto snapshot_size = snapshot.GetSize();
+    if (!snapshot_size) throw RecoveryFailure("Couldn't read snapshot size!");
+
+    auto read_offset = [&snapshot, snapshot_size] {
+      auto maybe_offset = snapshot.ReadUint();
+      if (!maybe_offset) throw RecoveryFailure("Invalid snapshot format!");
+      auto offset = *maybe_offset;
+      if (offset > *snapshot_size) throw RecoveryFailure("Invalid snapshot format!");
+      return offset;
+    };
+
+    info.offset_edges = read_offset();
+    info.offset_vertices = read_offset();
+    info.offset_indices = read_offset();
+    if (*version >= kEdgeIndicesVersion) {
+      info.offset_edge_indices = read_offset();
+    } else {
+      info.offset_edge_indices = 0U;
+    }
+    info.offset_constraints = read_offset();
+    info.offset_mapper = read_offset();
+    if (*version >= kEnumsVersion) {
+      info.offset_enums = read_offset();
+    } else {
+      info.offset_enums = 0U;
+    }
+    info.offset_epoch_history = read_offset();
+    info.offset_metadata = read_offset();
+    if (*version >= 15U) {
+      info.offset_edge_batches = read_offset();
+      info.offset_vertex_batches = read_offset();
+    } else {
+      info.offset_edge_batches = 0U;
+      info.offset_vertex_batches = 0U;
+    }
+  }
+
+  // Read metadata.
+  {
+    if (!snapshot.SetPosition(info.offset_metadata)) throw RecoveryFailure("Couldn't read metadata offset!");
+
+    auto marker = snapshot.ReadMarker();
+    if (!marker || *marker != Marker::SECTION_METADATA)
+      throw RecoveryFailure("Couldn't read marker for section metadata!");
+
+    auto maybe_uuid = snapshot.ReadString();
+    if (!maybe_uuid) throw RecoveryFailure("Couldn't read storage_uuid!");
+    info.uuid = std::move(*maybe_uuid);
+
+    auto maybe_epoch_id = snapshot.ReadString();
+    if (!maybe_epoch_id) throw RecoveryFailure("Couldn't read epoch id!");
+    info.epoch_id = std::move(*maybe_epoch_id);
+
+    auto maybe_timestamp = snapshot.ReadUint();
+    if (!maybe_timestamp) throw RecoveryFailure("Couldn't read start timestamp!");
+    info.start_timestamp = *maybe_timestamp;
+
+    auto maybe_durable_timestamp = snapshot.ReadUint();
+    if (!maybe_durable_timestamp) throw RecoveryFailure("Couldn't read durable timestamp!");
+    info.durable_timestamp = *maybe_durable_timestamp;
 
     auto maybe_edges = snapshot.ReadUint();
     if (!maybe_edges) throw RecoveryFailure("Couldn't read the number of edges!");
@@ -3131,6 +3225,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
     return LoadSnapshotVersion20or21(path, vertices, edges, edges_metadata, epoch_history, name_id_mapper, edge_count,
                                      schema_info, config, enum_store);
   }
+  // Version 23 updated the snapshot info (handled via the ReadSnapshotInfo function)
 
   // Cleanup of loaded data in case of failure.
   bool success = false;
@@ -4191,6 +4286,8 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
     snapshot.WriteString(uuid_str);
     snapshot.WriteString(epoch.id());
     snapshot.WriteUint(transaction->start_timestamp);
+    snapshot.WriteUint(transaction->last_durable_ts_ ? *transaction->last_durable_ts_
+                                                     : transaction->start_timestamp);  // Fallback to start ts
     snapshot.WriteUint(edges_count);
     snapshot.WriteUint(vertices_count);
   }
