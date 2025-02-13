@@ -162,6 +162,9 @@ class BinaryHADeployment(Deployment):
 
         memgraph = Memgraph(port=self._coord_config[0]["bolt-port"])
         memgraph.execute(
+            'ADD COORDINATOR 1 WITH CONFIG {"bolt_server": "localhost:7691", "coordinator_server": "localhost:10111", "management_server": "localhost:12121"};'
+        )
+        memgraph.execute(
             'ADD COORDINATOR 2 WITH CONFIG {"bolt_server": "localhost:7692", "coordinator_server": "localhost:10112", "management_server": "localhost:12122"};'
         )
         memgraph.execute(
@@ -551,6 +554,12 @@ class MinikubeHelmHADeployment(Deployment):
     def setup_ha(self) -> None:
         coordinator_service_name = self._coord_ext_service_names[0]
         minikube_ip = self.get_minikube_ip()
+
+        coordinator_1_nodeport = self.get_service_nodeport(self._coord_ext_service_names[0])
+        self._execute_on_service(
+            coordinator_service_name,
+            f'ADD COORDINATOR 1 WITH CONFIG {{"bolt_server": "{minikube_ip}:{coordinator_1_nodeport}", "coordinator_server": "{self._coord_service_names[0]}.default.svc.cluster.local:12000", "management_server": "{self._coord_service_names[0]}.default.svc.cluster.local:10000"}};',
+        )
 
         coordinator_2_nodeport = self.get_service_nodeport(self._coord_ext_service_names[1])
         self._execute_on_service(
