@@ -280,14 +280,14 @@ class DbAccessor final {
   void FinalizeTransaction() { accessor_->FinalizeTransaction(); }
 
   void TrackCurrentThreadAllocations() {
-    memgraph::memory::StartTrackingCurrentThreadTransaction(*accessor_->GetTransactionId());
+    memgraph::memory::StartTrackingCurrentThread(accessor_->GetQueryMemoryTracker().get());
   }
 
-  void UntrackCurrentThreadAllocations() {
-    memgraph::memory::StopTrackingCurrentThreadTransaction(*accessor_->GetTransactionId());
-  }
+  void UntrackCurrentThreadAllocations() { memgraph::memory::StopTrackingCurrentThread(); }
 
-  std::optional<uint64_t> GetTransactionId() { return accessor_->GetTransactionId(); }
+  auto &GetQueryMemoryTracker() { return accessor_->GetQueryMemoryTracker(); }
+
+  auto GetTransactionId() { return accessor_->GetTransactionId(); }
 
   VerticesIterable Vertices(storage::View view) { return VerticesIterable(accessor_->Vertices(view)); }
 

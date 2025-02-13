@@ -587,7 +587,7 @@ Feature: Match
             | n.a | m.a |
             | 1   | 2   |
 
-    Scenario: Named path with length function.
+    Scenario: Named path with size function.
         Given an empty graph
         And having executed:
             """
@@ -599,6 +599,21 @@ Feature: Match
             """
         Then the result should be:
             | size(path) |
+            | 0          |
+            | 1          |
+
+    Scenario: Named path with length function.
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:starting)-[:type]->()
+            """
+        When executing query:
+            """
+            MATCH path = (:starting) -[*0..1]-> () RETURN length(path)
+            """
+        Then the result should be:
+            | length(path) |
             | 0          |
             | 1          |
 

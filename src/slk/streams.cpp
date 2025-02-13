@@ -20,6 +20,8 @@ namespace memgraph::slk {
 
 Builder::Builder(std::function<void(const uint8_t *, size_t, bool)> write_func) : write_func_(std::move(write_func)) {}
 
+bool Builder::IsEmpty() const { return pos_ == 0; }
+
 void Builder::Save(const uint8_t *data, uint64_t size) {
   size_t offset = 0;
   while (size > 0) {

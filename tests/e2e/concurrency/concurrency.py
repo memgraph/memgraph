@@ -53,5 +53,29 @@ def test_concurrency_if_no_delta_on_same_edge_property_update(first_connection, 
     assert test_has_error is False
 
 
+def test_concurrency_unique_v_shared_storage_acc(first_connection, second_connection):
+    first_connection.autocommit = False  # needed so the data query to trigger a transaction
+    second_connection.autocommit = True  # needed so the index query does not trigger a transaction
+
+    m1c = first_connection.cursor()
+    m2c = second_connection.cursor()
+
+    # m1c takes and holds on to shared storage acc (data query)
+    execute_and_fetch_all(m1c, "RETURN 1")
+    # m2c tries to take a unique storage accessor (index query); should timeout
+    m2c_timeout = False
+    try:
+        execute_and_fetch_all(m2c, "CREATE INDEX ON :L")
+    except Exception as e:
+        assert (
+            str(e)
+            == "Cannot get unique access to the storage. Try stopping other queries that are running in parallel."
+        )
+        m2c_timeout = True
+
+    first_connection.commit()
+    assert m2c_timeout is True
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

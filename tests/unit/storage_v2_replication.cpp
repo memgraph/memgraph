@@ -1121,7 +1121,7 @@ TEST_F(ReplicationTest, RecoverySteps) {
 
   // Nothing
   {
-    const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem);
+    const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem).value();
     ASSERT_EQ(recovery_steps.size(), 0);
   }
 
@@ -1130,7 +1130,7 @@ TEST_F(ReplicationTest, RecoverySteps) {
     auto acc = in_mem->Access();
     acc->CreateVertex();
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem);
+    const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem).value();
     ASSERT_EQ(recovery_steps.size(), 1);
     ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoveryCurrentWal>(recovery_steps[0]));
   }
@@ -1140,7 +1140,7 @@ TEST_F(ReplicationTest, RecoverySteps) {
     // Create a vertex with a property large enough to trigger WAL finalization and closing
     // Current is generated on the next transaction
     large_write_to_finalize_wal();
-    const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem);
+    const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem).value();
     ASSERT_EQ(recovery_steps.size(), 1);
     ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoveryWals>(recovery_steps[0]));
   }
@@ -1153,7 +1153,7 @@ TEST_F(ReplicationTest, RecoverySteps) {
     large_write_to_finalize_wal();
     large_write_to_finalize_wal();
     large_write_to_finalize_wal();
-    const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem);
+    const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem).value();
     ASSERT_EQ(recovery_steps.size(), 1);
     ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoveryWals>(recovery_steps[0]));
   }
@@ -1164,7 +1164,7 @@ TEST_F(ReplicationTest, RecoverySteps) {
     auto acc = in_mem->Access();
     acc->CreateVertex();
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem);
+    const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem).value();
     ASSERT_EQ(recovery_steps.size(), 2);
     ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoveryWals>(recovery_steps[0]));
     ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoveryCurrentWal>(recovery_steps[1]));
@@ -1174,7 +1174,7 @@ TEST_F(ReplicationTest, RecoverySteps) {
   {
     large_write_to_finalize_wal();
     ASSERT_FALSE(in_mem->CreateSnapshot(memgraph::replication_coordination_glue::ReplicationRole::MAIN).HasError());
-    const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem);
+    const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem).value();
     ASSERT_EQ(recovery_steps.size(), 1);
     // TODO Currently we prefer WALs over Snapshots when creating the recovery plan
     // This is an inefficiency when the snapshot is smaller than the WALs we would send
@@ -1188,7 +1188,7 @@ TEST_F(ReplicationTest, RecoverySteps) {
     ASSERT_FALSE(in_mem->CreateSnapshot(memgraph::replication_coordination_glue::ReplicationRole::MAIN).HasError());
     ASSERT_FALSE(in_mem->CreateSnapshot(memgraph::replication_coordination_glue::ReplicationRole::MAIN).HasError());
     ASSERT_FALSE(in_mem->CreateSnapshot(memgraph::replication_coordination_glue::ReplicationRole::MAIN).HasError());
-    const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem);
+    const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem).value();
     ASSERT_EQ(recovery_steps.size(), 1);
     ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoverySnapshot>(recovery_steps[0]));
   }
@@ -1198,7 +1198,7 @@ TEST_F(ReplicationTest, RecoverySteps) {
     auto acc = in_mem->Access();
     acc->CreateVertex();
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem);
+    const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem).value();
     ASSERT_EQ(recovery_steps.size(), 2);
     ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoverySnapshot>(recovery_steps[0]));
     ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoveryCurrentWal>(recovery_steps[1]));
@@ -1207,7 +1207,7 @@ TEST_F(ReplicationTest, RecoverySteps) {
   // Snapshot + WALs (chain starts before snapshot)
   {
     large_write_to_finalize_wal();
-    const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem);
+    const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem).value();
     ASSERT_EQ(recovery_steps.size(), 2);
     ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoverySnapshot>(recovery_steps[0]));
     ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoveryWals>(recovery_steps[1]));
@@ -1218,7 +1218,7 @@ TEST_F(ReplicationTest, RecoverySteps) {
     auto acc = in_mem->Access();
     acc->CreateVertex();
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem);
+    const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem).value();
     ASSERT_EQ(recovery_steps.size(), 3);
     ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoverySnapshot>(recovery_steps[0]));
     ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoveryWals>(recovery_steps[1]));
@@ -1263,7 +1263,7 @@ TEST_F(ReplicationTest, RecoverySteps) {
   in_mem = static_cast<InMemoryStorage *>(main->db.storage());
   {
     // On start we only have the snapshot to send
-    const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem);
+    const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem).value();
     ASSERT_EQ(recovery_steps.size(), 1);
     ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoverySnapshot>(recovery_steps[0]));
   }
@@ -1272,7 +1272,7 @@ TEST_F(ReplicationTest, RecoverySteps) {
     auto acc = in_mem->Access();
     acc->CreateVertex();
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem);
+    const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem).value();
     ASSERT_EQ(recovery_steps.size(), 2);
     ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoverySnapshot>(recovery_steps[0]));
     ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoveryCurrentWal>(recovery_steps[1]));
@@ -1280,7 +1280,7 @@ TEST_F(ReplicationTest, RecoverySteps) {
   {
     // Add finalized wal
     large_write_to_finalize_wal();
-    const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem);
+    const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem).value();
     ASSERT_EQ(recovery_steps.size(), 2);
     ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoverySnapshot>(recovery_steps[0]));
     ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoveryWals>(recovery_steps[1]));
@@ -1290,7 +1290,7 @@ TEST_F(ReplicationTest, RecoverySteps) {
     auto acc = in_mem->Access();
     acc->CreateVertex();
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem);
+    const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem).value();
     ASSERT_EQ(recovery_steps.size(), 3);
     ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoverySnapshot>(recovery_steps[0]));
     ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoveryWals>(recovery_steps[1]));
@@ -1325,7 +1325,7 @@ TEST_F(ReplicationTest, RecoverySteps) {
     std::error_code ec;
     std::filesystem::remove(wal_file, ec);
     ASSERT_FALSE(ec);
-    const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem);
+    const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem).value();
     ASSERT_EQ(recovery_steps.size(), 2);
     ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoverySnapshot>(recovery_steps[0]));
     ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoveryWals>(recovery_steps[1]));
@@ -1335,7 +1335,7 @@ TEST_F(ReplicationTest, RecoverySteps) {
     auto acc = in_mem->Access();
     acc->CreateVertex();
     ASSERT_FALSE(acc->Commit().HasError());
-    const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem);
+    const auto recovery_steps = GetRecoverySteps(0, &file_locker, in_mem).value();
     ASSERT_EQ(recovery_steps.size(), 3);
     ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoverySnapshot>(recovery_steps[0]));
     ASSERT_TRUE(std::holds_alternative<memgraph::storage::RecoveryWals>(recovery_steps[1]));
@@ -1492,6 +1492,18 @@ TEST_F(ReplicationTest, SchemaReplication) {
     EXPECT_TRUE(ConfrontJSON(get_schema(*main), get_schema(*replica)));
   }
 
+  auto stop_replica = [&]() {
+    replica.reset();
+    {
+      int tries = 0;
+      while (main->repl_handler.ShowReplicas().GetValue().entries_[0].data_info_.at("memgraph").state_ !=
+             ReplicaState::MAYBE_BEHIND) {
+        std::this_thread::sleep_for(std::chrono::seconds{1});
+        ASSERT_LE(++tries, 20) << "Waited too long for shutdown";
+      }
+    }
+  };
+
   auto start_replica = [&]() {
     replica.emplace(repl_conf);
     replica->repl_handler.TrySetReplicationRoleReplica(
@@ -1507,9 +1519,11 @@ TEST_F(ReplicationTest, SchemaReplication) {
   };
 
   // Check current wal recovery
-  replica.reset();
+  stop_replica();
   start_replica();
-  EXPECT_TRUE(ConfrontJSON(get_schema(*main), get_schema(*replica)));
+  EXPECT_TRUE(ConfrontJSON(get_schema(*main), get_schema(*replica))) << "MAIN:\n"
+                                                                     << get_schema(*main) << "\nREPLICA:\n"
+                                                                     << get_schema(*replica);
 
   // Check wal recovery
   // Exiting will finalize the current wal

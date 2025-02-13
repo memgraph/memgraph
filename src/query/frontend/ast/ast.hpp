@@ -4006,7 +4006,7 @@ class MultiDatabaseQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  enum class Action { CREATE, USE, DROP, SHOW };
+  enum class Action { CREATE, DROP };
 
   memgraph::query::MultiDatabaseQuery::Action action_;
   std::string db_name_;
@@ -4015,6 +4015,35 @@ class MultiDatabaseQuery : public memgraph::query::Query {
     auto *object = storage->Create<MultiDatabaseQuery>();
     object->action_ = action_;
     object->db_name_ = db_name_;
+    return object;
+  }
+};
+
+class UseDatabaseQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  std::string db_name_;
+
+  UseDatabaseQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<UseDatabaseQuery>();
+    object->db_name_ = db_name_;
+    return object;
+  }
+};
+
+class ShowDatabaseQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  ShowDatabaseQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<ShowDatabaseQuery>();
     return object;
   }
 };

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -38,7 +38,7 @@ void Alloc_256_MiB(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result
   try {
     void *ptr{nullptr};
 
-    memgraph::utils::OnScopeExit<std::function<void(void)>> cleanup{[&memory, &ptr]() {
+    memgraph::utils::OnScopeExit cleanup{[&memory, &ptr]() {
       if (nullptr == ptr) {
         return;
       }
@@ -67,7 +67,7 @@ void Alloc_32_MiB(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result,
   try {
     void *ptr{nullptr};
 
-    memgraph::utils::OnScopeExit<std::function<void(void)>> cleanup{[&ptr]() {
+    memgraph::utils::OnScopeExit cleanup{[&ptr]() {
       if (nullptr == ptr) {
         return;
       }

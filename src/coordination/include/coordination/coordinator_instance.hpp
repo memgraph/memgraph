@@ -72,8 +72,8 @@ class CoordinatorInstance {
   [[nodiscard]] auto UnregisterReplicationInstance(std::string_view instance_name)
       -> UnregisterInstanceCoordinatorStatus;
 
-  // The logic here is that as long as we didn't set uuid for the whole cluster, actions will be reverted on instances
-  // on the next state check.
+  // The logic here is that as long as we didn't set uuid for the whole cluster, actions will be reverted on
+  // instances on the next state check.
   [[nodiscard]] auto SetReplicationInstanceToMain(std::string_view new_main_name) -> SetInstanceToMainCoordinatorStatus;
 
   // If user demotes main to replica, cluster will be without main instance. User should then call

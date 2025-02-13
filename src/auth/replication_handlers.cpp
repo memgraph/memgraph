@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,6 +14,7 @@
 #include "auth/auth.hpp"
 #include "auth/rpc.hpp"
 #include "license/license.hpp"
+#include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
 
 namespace memgraph::auth {
 
@@ -35,7 +36,7 @@ void UpdateAuthDataHandler(memgraph::system::ReplicaHandlerAccessToState &system
 
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, replication::UpdateAuthDataReq::kType.name);
-    memgraph::slk::Save(res, res_builder);
+    rpc::SendFinalResponse(res, res_builder);
     return;
   }
 
@@ -47,7 +48,7 @@ void UpdateAuthDataHandler(memgraph::system::ReplicaHandlerAccessToState &system
   if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
     spdlog::debug("UpdateAuthDataHandler: bad expected timestamp {},{}", req.expected_group_timestamp,
                   system_state_access.LastCommitedTS());
-    memgraph::slk::Save(res, res_builder);
+    rpc::SendFinalResponse(res, res_builder);
     return;
   }
 
@@ -63,7 +64,7 @@ void UpdateAuthDataHandler(memgraph::system::ReplicaHandlerAccessToState &system
     // Failure
   }
 
-  memgraph::slk::Save(res, res_builder);
+  rpc::SendFinalResponse(res, res_builder);
 }
 
 void DropAuthDataHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
@@ -77,7 +78,7 @@ void DropAuthDataHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
 
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, replication::DropAuthDataRes::kType.name);
-    memgraph::slk::Save(res, res_builder);
+    rpc::SendFinalResponse(res, res_builder);
     return;
   }
 
@@ -89,7 +90,7 @@ void DropAuthDataHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
   if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
     spdlog::debug("DropAuthDataHandler: bad expected timestamp {},{}", req.expected_group_timestamp,
                   system_state_access.LastCommitedTS());
-    memgraph::slk::Save(res, res_builder);
+    rpc::SendFinalResponse(res, res_builder);
     return;
   }
 
@@ -111,7 +112,7 @@ void DropAuthDataHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
     // Failure
   }
 
-  memgraph::slk::Save(res, res_builder);
+  rpc::SendFinalResponse(res, res_builder);
 }
 
 bool SystemRecoveryHandler(auth::SynchedAuth &auth, auth::Auth::Config auth_config,

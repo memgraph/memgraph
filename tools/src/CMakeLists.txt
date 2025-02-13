@@ -9,7 +9,6 @@ find_package(Threads REQUIRED)
 
 # Memgraph Dump Target
 add_executable(mg_dump mg_dump/main.cpp)
-target_include_directories(mg_dump PRIVATE ${MGCLIENT_INCLUDE_DIR})
 target_link_libraries(mg_dump gflags spdlog fmt::fmt mgclient Threads::Threads)
 install(TARGETS mg_dump RUNTIME DESTINATION bin)
 

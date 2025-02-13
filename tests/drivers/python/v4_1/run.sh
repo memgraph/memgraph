@@ -17,6 +17,7 @@ if [ ! -d "ve3" ]; then
     mv neo4j-driver-4.1.1 neo4j-driver || exit 1
     virtualenv -p python3 ve3 || exit 1
     source ve3/bin/activate
+    python3 -m pip install setuptools==75.8.0 || exit 1
     cd neo4j-driver
     python3 setup.py install || exit 1
     cd ..

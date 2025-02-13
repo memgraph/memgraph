@@ -1163,6 +1163,11 @@ TypedValue ToStringOrNull(const TypedValue *args, int64_t nargs, const FunctionC
 
 TypedValue Timestamp(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
   FType<Optional<Or<Date, LocalTime, LocalDateTime, ZonedDateTime, Duration>>>("timestamp", args, nargs);
+
+  if (nargs == 0) {
+    return TypedValue(ctx.timestamp, ctx.memory);
+  }
+
   const auto &arg = *args;
   if (arg.IsDate()) {
     return TypedValue(arg.ValueDate().MicrosecondsSinceEpoch(), ctx.memory);
@@ -1347,13 +1352,24 @@ void MapNumericParameters(auto &parameter_mappings, const auto &input_parameters
 }
 
 TypedValue Date(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Optional<Or<String, Map, LocalDateTime>>>("date", args, nargs);
+  FType<Optional<Or<String, Map, struct Date, LocalDateTime, ZonedDateTime>>>("date", args, nargs);
   if (nargs == 0) {
     return TypedValue(utils::LocalDateTime(ctx.timestamp).date(), ctx.memory);
   }
 
+  if (args[0].IsDate()) {
+    return args[0];
+  }
+
   if (args[0].IsLocalDateTime()) {
     return TypedValue(utils::Date{args[0].ValueLocalDateTime().date()}, ctx.memory);
+  }
+
+  if (args[0].IsZonedDateTime()) {
+    auto const &zdt{args[0].ValueZonedDateTime()};
+    return TypedValue(
+        utils::Date{{zdt.LocalYear(), static_cast<int64_t>(zdt.LocalMonth()), static_cast<int64_t>(zdt.LocalDay())}},
+        ctx.memory);
   }
 
   if (args[0].IsString()) {
@@ -1373,14 +1389,25 @@ TypedValue Date(const TypedValue *args, int64_t nargs, const FunctionContext &ct
 }
 
 TypedValue LocalTime(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Optional<Or<String, Map, LocalDateTime>>>("localtime", args, nargs);
+  FType<Optional<Or<String, Map, struct LocalTime, LocalDateTime, ZonedDateTime>>>("localtime", args, nargs);
 
   if (nargs == 0) {
     return TypedValue(utils::LocalDateTime(ctx.timestamp).local_time(), ctx.memory);
   }
 
+  if (args[0].IsLocalTime()) {
+    return args[0];
+  }
+
   if (args[0].IsLocalDateTime()) {
     return TypedValue(utils::LocalTime{args[0].ValueLocalDateTime().local_time()}, ctx.memory);
+  }
+
+  if (args[0].IsZonedDateTime()) {
+    auto const &zdt{args[0].ValueZonedDateTime()};
+    return TypedValue(utils::LocalTime{{zdt.LocalHour(), zdt.LocalMinute(), zdt.LocalSecond(), zdt.LocalMillisecond(),
+                                        zdt.LocalMicrosecond()}},
+                      ctx.memory);
   }
 
   if (args[0].IsString()) {
@@ -1404,10 +1431,23 @@ TypedValue LocalTime(const TypedValue *args, int64_t nargs, const FunctionContex
 }
 
 TypedValue LocalDateTime(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Optional<Or<String, Map>>>("localdatetime", args, nargs);
+  FType<Optional<Or<String, Map, struct LocalDateTime, ZonedDateTime>>>("localdatetime", args, nargs);
 
   if (nargs == 0) {
     return TypedValue(utils::LocalDateTime(ctx.timestamp), ctx.memory);
+  }
+
+  if (args[0].IsLocalDateTime()) {
+    return args[0];
+  }
+
+  if (args[0].IsZonedDateTime()) {
+    auto const &zdt{args[0].ValueZonedDateTime()};
+    return TypedValue(
+        utils::LocalDateTime{
+            {zdt.LocalYear(), static_cast<int64_t>(zdt.LocalMonth()), static_cast<int64_t>(zdt.LocalDay())},
+            {zdt.LocalHour(), zdt.LocalMinute(), zdt.LocalSecond(), zdt.LocalMillisecond(), zdt.LocalMicrosecond()}},
+        ctx.memory);
   }
 
   if (args[0].IsString()) {
@@ -1469,10 +1509,14 @@ utils::Timezone GetTimezone(const memgraph::query::TypedValue::TMap &input_param
 
 // Refers to ZonedDateTime; called DateTime for compatibility with Cypher
 TypedValue DateTime(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
-  FType<Optional<Or<String, Map>>>("datetime", args, nargs);
+  FType<Optional<Or<String, Map, ZonedDateTime>>>("datetime", args, nargs);
 
   if (nargs == 0) {
     return TypedValue(utils::ZonedDateTime(utils::AsSysTime(ctx.timestamp), utils::DefaultTimezone()), ctx.memory);
+  }
+
+  if (args[0].IsZonedDateTime()) {
+    return args[0];
   }
 
   if (args[0].IsString()) {
@@ -1719,6 +1763,7 @@ auto const builtin_functions = absl::flat_hash_map<std::string, func_impl>{
     {"PROPERTIES", Properties},
     {"RANDOMUUID", RandomUuid},
     {"SIZE", Size},
+    {"LENGTH", Size},
     {"PROPERTYSIZE", PropertySize},
     {"STARTNODE", StartNode},
     {"TIMESTAMP", Timestamp},

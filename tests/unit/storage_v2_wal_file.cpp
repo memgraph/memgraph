@@ -95,7 +95,7 @@ class DeltaGenerator final {
         // generates multiple `SetProperty` deltas using only the final values
         // of the property. The intermediate values aren't encoded. The value is
         // later determined in the `Finalize` function.
-        data_.emplace_back(memgraph::storage::durability::WalVertexSetProperty{vertex->gid, property});
+        data_.emplace_back(memgraph::storage::durability::WalVertexSetProperty{vertex->gid, property, {}});
       }
     }
 

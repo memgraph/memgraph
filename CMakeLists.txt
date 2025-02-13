@@ -423,14 +423,33 @@ if(QUERY_MODULES)
 endif()
 
 # All targets which generate code, useful as a single target to build for clang-tidy analysis to work
-add_custom_target(generated_code DEPENDS
-    generate_opencypher_parser
-    mgcxx-proj
-    librdkafka-proj
-    antlr4-proj
-    librdtsc-proj
-    pulsar-proj
-)
+# NOTE: It's big because https://stackoverflow.com/questions/74870212/how-to-add-dependencies-to-a-custom-target-after-the-fact
+if(DEFINED ENV{MG_TOOLCHAIN_VERSION})
+  if($ENV{MG_TOOLCHAIN_VERSION} GREATER_EQUAL 6)
+    # NOTE: The rest of the generated code should already under toolchain.
+    add_custom_target(generated_code DEPENDS
+        generate_opencypher_parser
+    )
+  else()
+    add_custom_target(generated_code DEPENDS
+        generate_opencypher_parser
+        mgcxx-proj
+        librdkafka-proj
+        antlr4-proj
+        librdtsc-proj
+        pulsar-proj
+    )
+  endif()
+else()
+  add_custom_target(generated_code DEPENDS
+      generate_opencypher_parser
+      mgcxx-proj
+      librdkafka-proj
+      antlr4-proj
+      librdtsc-proj
+      pulsar-proj
+  )
+endif()
 
 if(DEFINED ENV{MG_TOOLCHAIN_VERSION})
   if($ENV{MG_TOOLCHAIN_VERSION} GREATER_EQUAL 6)

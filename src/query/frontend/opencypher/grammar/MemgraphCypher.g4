@@ -226,6 +226,8 @@ query : cypherQuery
       | showConfigQuery
       | transactionQueueQuery
       | multiDatabaseQuery
+      | useDatabase
+      | showDatabase
       | showDatabases
       | edgeImportModeQuery
       | coordinatorQuery
@@ -624,16 +626,14 @@ transactionIdList : transactionId ( ',' transactionId )* ;
 transactionId : literal ;
 
 multiDatabaseQuery : createDatabase
-                   | useDatabase
                    | dropDatabase
-                   | showDatabase
                    ;
 
 createDatabase : CREATE DATABASE databaseName ;
 
-useDatabase : USE DATABASE databaseName ;
-
 dropDatabase : DROP DATABASE databaseName ;
+
+useDatabase : USE DATABASE databaseName ;
 
 showDatabase : SHOW DATABASE ;
 

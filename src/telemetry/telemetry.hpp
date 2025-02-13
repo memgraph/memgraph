@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,7 +15,6 @@
 #include <string>
 
 #include <json/json.hpp>
-
 #include "dbms/dbms_handler.hpp"
 #include "kvstore/kvstore.hpp"
 #include "utils/scheduler.hpp"
@@ -65,9 +64,12 @@ class Telemetry final {
   Telemetry &operator=(const Telemetry &) = delete;
   Telemetry &operator=(Telemetry &&) = delete;
 
+  void Start();
+
  private:
   void StoreData(const nlohmann::json &event, const nlohmann::json &data);
   void SendData();
+  /// Iterates over all collectors and calls associated functions synchronously.
   void CollectData(const std::string &event = "");
 
   const nlohmann::json GetUptime();

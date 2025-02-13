@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -23,8 +23,10 @@ class [[nodiscard]] BasicResult final {
  public:
   using ErrorType = TError;
   using ValueType = TValue;
-  BasicResult(const TValue &value) : value_(value) {}
-  BasicResult(TValue &&value) noexcept : value_(std::move(value)) {}
+  template <typename... Args>
+  explicit BasicResult(std::in_place_t, Args &&...args) : value_{std::in_place, std::forward<Args>(args)...} {}
+  BasicResult(const TValue &value) : value_{std::in_place, value} {}
+  BasicResult(TValue &&value) noexcept : value_{std::in_place, std::move(value)} {}
   BasicResult(const TError &error) : error_(error) {}
   BasicResult(TError &&error) noexcept : error_(std::move(error)) {}
 

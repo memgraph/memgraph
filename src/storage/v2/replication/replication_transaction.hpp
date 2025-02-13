@@ -60,7 +60,7 @@ class TransactionReplication {
               "handle ASYNC tasks");
     for (auto &&[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {
       client->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionEnd(timestamp); }, replica_stream);
-      const auto finalized = client->FinalizeTransactionReplication(storage, db_acc, std::move(replica_stream));
+      const auto finalized = client->FinalizeTransactionReplication(db_acc, std::move(replica_stream), timestamp);
       if (client->Mode() == replication_coordination_glue::ReplicationMode::SYNC) {
         finalized_on_all_replicas = finalized && finalized_on_all_replicas;
       }

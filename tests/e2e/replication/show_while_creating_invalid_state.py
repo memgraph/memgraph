@@ -193,21 +193,21 @@ def test_show_replicas(connection, test_name):
             "replica_1",
             "127.0.0.1:10001",
             "sync",
-            {"ts": 0, "behind": None, "status": "ready"},
+            {"ts": 0, "behind": None, "status": "invalid"},
             {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}},
         ),
         (
             "replica_3",
             "127.0.0.1:10003",
             "async",
-            {"ts": 0, "behind": None, "status": "ready"},
+            {"ts": 0, "behind": None, "status": "invalid"},
             {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}},
         ),
         (
             "replica_4",
             "127.0.0.1:10004",
             "async",
-            {"ts": 0, "behind": None, "status": "ready"},
+            {"ts": 0, "behind": None, "status": "invalid"},
             {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}},
         ),
     ]
@@ -324,7 +324,7 @@ def test_drop_replicas(connection, test_name):
             "replica_3",
             "127.0.0.1:10003",
             "async",
-            {"ts": 0, "behind": None, "status": "ready"},
+            {"ts": 0, "behind": None, "status": "invalid"},
             {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}},
         ),
         (
@@ -385,7 +385,7 @@ def test_drop_replicas(connection, test_name):
             "replica_4",
             "127.0.0.1:10004",
             "async",
-            {"ts": 0, "behind": None, "status": "ready"},
+            {"ts": 0, "behind": None, "status": "invalid"},
             {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}},
         ),
     ]
@@ -418,7 +418,7 @@ def test_drop_replicas(connection, test_name):
             "replica_1",
             "127.0.0.1:10001",
             "sync",
-            {"ts": 0, "behind": None, "status": "ready"},
+            {"ts": 0, "behind": None, "status": "invalid"},
             {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}},
         ),
         (
@@ -451,7 +451,7 @@ def test_drop_replicas(connection, test_name):
             "replica_2",
             "127.0.0.1:10002",
             "sync",
-            {"ts": 0, "behind": None, "status": "ready"},
+            {"ts": 0, "behind": None, "status": "invalid"},
             {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}},
         ),
     ]
@@ -793,8 +793,8 @@ def test_basic_recovery(recover_data_on_startup, connection, test_name):
             "replica_1",
             "127.0.0.1:10001",
             "sync",
-            {"ts": 0, "behind": None, "status": "ready"},
-            {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}},
+            {"ts": 0, "behind": None, "status": "invalid"},
+            {"memgraph": {"ts": 6, "behind": 0, "status": "invalid"}},
         ),
         (
             "replica_2",
@@ -832,8 +832,8 @@ def test_basic_recovery(recover_data_on_startup, connection, test_name):
             "replica_1",
             "127.0.0.1:10001",
             "sync",
-            {"ts": 0, "behind": None, "status": "ready"},
-            {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}},
+            {"ts": 0, "behind": None, "status": "invalid"},
+            {"memgraph": {"ts": 6, "behind": -3, "status": "invalid"}},
         ),
         (
             "replica_2",
@@ -1046,7 +1046,7 @@ def test_replication_role_recovery(connection, test_name):
             "replica",
             "127.0.0.1:10001",
             "sync",
-            {"ts": 0, "behind": None, "status": "ready"},
+            {"ts": 0, "behind": None, "status": "invalid"},
             {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}},
         ),
     ]
@@ -1424,7 +1424,7 @@ def test_attempt_to_write_data_on_main_when_async_replica_is_down():
 
     # 5/
     expected_data = [
-        ("async_replica1", "async", 0, "invalid"),
+        ("async_replica1", "async", -3, "invalid"),
         ("async_replica2", "async", 0, "ready"),
     ]
 
@@ -1559,8 +1559,8 @@ def test_attempt_to_write_data_on_main_when_sync_replica_is_down(connection, tes
             "sync_replica1",
             "127.0.0.1:10001",
             "sync",
-            {"ts": 0, "behind": None, "status": "ready"},
-            {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}},
+            {"ts": 0, "behind": None, "status": "invalid"},
+            {"memgraph": {"ts": 2, "behind": -3, "status": "invalid"}},
         ),
         (
             "sync_replica2",
@@ -1572,7 +1572,9 @@ def test_attempt_to_write_data_on_main_when_sync_replica_is_down(connection, tes
     ]
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
     actual_data = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
-    assert all([x in actual_data for x in expected_data])
+    assert all(
+        [x in actual_data for x in expected_data]
+    ), f"The expected data\n{expected_data}\nactual data\n{actual_data}"
 
     # 6/
     interactive_mg_runner.start(CONFIGURATION, "sync_replica1")
@@ -1669,7 +1671,7 @@ def test_attempt_to_create_indexes_on_main_when_async_replica_is_down(connection
 
     # 5/
     expected_data = [
-        ("async_replica1", "async", 0, "invalid"),
+        ("async_replica1", "async", -4, "invalid"),
         ("async_replica2", "async", 0, "ready"),
     ]
 
@@ -1681,7 +1683,9 @@ def test_attempt_to_create_indexes_on_main_when_async_replica_is_down(connection
         ]
 
     actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
-    assert all([x in actual_data for x in expected_data])
+    assert all(
+        [x in actual_data for x in expected_data]
+    ), f"The expected data\n{expected_data}\nactual data\n{actual_data}"
 
     # 6/
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
@@ -1802,8 +1806,8 @@ def test_attempt_to_create_indexes_on_main_when_sync_replica_is_down(connection,
             "sync_replica1",
             "127.0.0.1:10001",
             "sync",
-            {"ts": 0, "behind": None, "status": "ready"},
-            {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}},
+            {"ts": 0, "behind": None, "status": "invalid"},
+            {"memgraph": {"ts": 2, "behind": -4, "status": "invalid"}},
         ),
         (
             "sync_replica2",
@@ -1816,7 +1820,9 @@ def test_attempt_to_create_indexes_on_main_when_sync_replica_is_down(connection,
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
     actual_data = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
-    assert all([x in actual_data for x in expected_data])
+    assert all(
+        [x in actual_data for x in expected_data]
+    ), f"The expected data\n{expected_data}\nactual data\n{actual_data}"
 
     # 6/
     interactive_mg_runner.start(CONFIGURATION, "sync_replica1")

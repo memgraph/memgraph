@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,6 +12,7 @@
 #include <array>
 #include <bit>
 #include <memory>
+#include <span>
 
 #include "bolt_common.hpp"
 #include "bolt_testdata.hpp"
@@ -36,22 +37,22 @@ namespace {
 inline constexpr const int SIZE = 131072;
 uint8_t data[SIZE];
 
-uint64_t GetBigEndianInt(std::vector<uint8_t> &v, uint8_t len, uint8_t offset = 1) {
+uint64_t GetBigEndianInt(std::span<uint8_t const> &v, uint8_t len, uint8_t offset = 1) {
   uint64_t ret = 0;
-  v.erase(v.begin(), v.begin() + offset);
+  v = v.subspan(offset);
   for (int i = 0; i < len; ++i) {
     ret <<= 8;
     ret += v[i];
   }
-  v.erase(v.begin(), v.begin() + len);
+  v = v.subspan(len);
   return ret;
 }
 
-void CheckTypeSize(std::vector<uint8_t> &v, int typ, uint64_t size) {
+void CheckTypeSize(std::span<uint8_t const> &v, int typ, uint64_t size) {
   uint64_t len;
   if ((v[0] & 0xF0) == type_tiny_magic[typ]) {
     len = v[0] & 0x0F;
-    v.erase(v.begin(), v.begin() + 1);
+    v = v.subspan(1);
   } else if (v[0] == type_8_magic[typ]) {
     len = GetBigEndianInt(v, 1);
   } else if (v[0] == type_16_magic[typ]) {
@@ -64,7 +65,7 @@ void CheckTypeSize(std::vector<uint8_t> &v, int typ, uint64_t size) {
   ASSERT_EQ(len, size);
 }
 
-void CheckInt(std::vector<uint8_t> &output, int64_t value) {
+void CheckInt(std::span<uint8_t const> &output, int64_t value) {
   TestOutputStream output_stream;
   TestBuffer encoder_buffer(output_stream);
   memgraph::communication::bolt::BaseEncoder<TestBuffer> bolt_encoder(encoder_buffer);
@@ -73,7 +74,7 @@ void CheckInt(std::vector<uint8_t> &output, int64_t value) {
   CheckOutput(output, encoded.data(), encoded.size(), false);
 }
 
-void CheckRecordHeader(std::vector<uint8_t> &v, uint64_t size) {
+void CheckRecordHeader(std::span<uint8_t const> &v, uint64_t size) {
   CheckOutput(v, (const uint8_t *)"\xB1\x71", 2, false);
   CheckTypeSize(v, LIST, size);
 }
@@ -97,8 +98,9 @@ TEST_F(BoltEncoder, NullAndBool) {
   vals.push_back(Value(true));
   vals.push_back(Value(false));
   bolt_encoder.MessageRecord(vals);
-  CheckRecordHeader(output, 3);
-  CheckOutput(output, (const uint8_t *)"\xC0\xC3\xC2", 3);
+  auto to_validate = std::span<uint8_t const>{output};
+  CheckRecordHeader(to_validate, 3);
+  CheckOutput(to_validate, (const uint8_t *)"\xC0\xC3\xC2", 3);
 }
 
 TEST_F(BoltEncoder, Int) {
@@ -106,9 +108,10 @@ TEST_F(BoltEncoder, Int) {
   std::vector<Value> vals;
   for (int i = 0; i < N; ++i) vals.push_back(Value(int_decoded[i]));
   bolt_encoder.MessageRecord(vals);
-  CheckRecordHeader(output, N);
-  for (int i = 0; i < N; ++i) CheckOutput(output, int_encoded[i], int_encoded_len[i], false);
-  CheckOutput(output, nullptr, 0);
+  auto to_validate = std::span<uint8_t const>{output};
+  CheckRecordHeader(to_validate, N);
+  for (int i = 0; i < N; ++i) CheckOutput(to_validate, int_encoded[i], int_encoded_len[i], false);
+  CheckOutput(to_validate, nullptr, 0);
 }
 
 TEST_F(BoltEncoder, Double) {
@@ -116,40 +119,43 @@ TEST_F(BoltEncoder, Double) {
   std::vector<Value> vals;
   for (int i = 0; i < N; ++i) vals.push_back(Value(double_decoded[i]));
   bolt_encoder.MessageRecord(vals);
-  CheckRecordHeader(output, N);
-  for (int i = 0; i < N; ++i) CheckOutput(output, double_encoded[i], 9, false);
-  CheckOutput(output, nullptr, 0);
+  auto to_validate = std::span<uint8_t const>{output};
+  CheckRecordHeader(to_validate, N);
+  for (int i = 0; i < N; ++i) CheckOutput(to_validate, double_encoded[i], 9, false);
+  CheckOutput(to_validate, nullptr, 0);
 }
 
 TEST_F(BoltEncoder, String) {
   std::vector<Value> vals;
   for (uint64_t i = 0; i < sizes_num; ++i) vals.push_back(Value(std::string((const char *)data, sizes[i])));
   bolt_encoder.MessageRecord(vals);
-  CheckRecordHeader(output, vals.size());
+  auto to_validate = std::span<uint8_t const>{output};
+  CheckRecordHeader(to_validate, vals.size());
   for (uint64_t i = 0; i < sizes_num; ++i) {
-    CheckTypeSize(output, STRING, sizes[i]);
-    CheckOutput(output, data, sizes[i], false);
+    CheckTypeSize(to_validate, STRING, sizes[i]);
+    CheckOutput(to_validate, data, sizes[i], false);
   }
-  CheckOutput(output, nullptr, 0);
+  CheckOutput(to_validate, nullptr, 0);
 }
 
 TEST_F(BoltEncoder, List) {
   std::vector<Value> vals;
   for (uint64_t i = 0; i < sizes_num; ++i) {
     std::vector<Value> val;
-    for (uint64_t j = 0; j < sizes[i]; ++j) val.push_back(Value(std::string((const char *)&data[j], 1)));
-    vals.push_back(Value(val));
+    for (uint64_t j = 0; j < sizes[i]; ++j) val.emplace_back(std::string((const char *)&data[j], 1));
+    vals.emplace_back(std::move(val));
   }
   bolt_encoder.MessageRecord(vals);
-  CheckRecordHeader(output, vals.size());
+  auto to_validate = std::span<uint8_t const>{output};
+  CheckRecordHeader(to_validate, vals.size());
   for (uint64_t i = 0; i < sizes_num; ++i) {
-    CheckTypeSize(output, LIST, sizes[i]);
+    CheckTypeSize(to_validate, LIST, sizes[i]);
     for (uint64_t j = 0; j < sizes[i]; ++j) {
-      CheckTypeSize(output, STRING, 1);
-      CheckOutput(output, &data[j], 1, false);
+      CheckTypeSize(to_validate, STRING, 1);
+      CheckOutput(to_validate, &data[j], 1, false);
     }
   }
-  CheckOutput(output, nullptr, 0);
+  CheckOutput(to_validate, nullptr, 0);
 }
 
 TEST_F(BoltEncoder, Map) {
@@ -159,24 +165,25 @@ TEST_F(BoltEncoder, Map) {
     bolt_map_t val;
     for (int j = 0; j < sizes[i]; ++j) {
       sprintf((char *)buff, "%05X", j);
-      std::string tmp((char *)buff, 5);
-      val.insert(std::make_pair(tmp, Value(tmp)));
+      std::string_view tmp((char *)buff, 5);
+      val.emplace(tmp, tmp);
     }
-    vals.push_back(Value(val));
+    vals.emplace_back(std::move(val));
   }
   bolt_encoder.MessageRecord(vals);
-  CheckRecordHeader(output, vals.size());
+  auto to_validate = std::span<uint8_t const>{output};
+  CheckRecordHeader(to_validate, vals.size());
   for (int i = 0; i < sizes_num; ++i) {
-    CheckTypeSize(output, MAP, sizes[i]);
+    CheckTypeSize(to_validate, MAP, sizes[i]);
     for (int j = 0; j < sizes[i]; ++j) {
       sprintf((char *)buff, "%05X", j);
-      CheckTypeSize(output, STRING, 5);
-      CheckOutput(output, buff, 5, false);
-      CheckTypeSize(output, STRING, 5);
-      CheckOutput(output, buff, 5, false);
+      CheckTypeSize(to_validate, STRING, 5);
+      CheckOutput(to_validate, buff, 5, false);
+      CheckTypeSize(to_validate, STRING, 5);
+      CheckOutput(to_validate, buff, 5, false);
     }
   }
-  CheckOutput(output, nullptr, 0);
+  CheckOutput(to_validate, nullptr, 0);
 }
 
 void TestVertexAndEdgeWithDifferentStorages(std::unique_ptr<memgraph::storage::Storage> &&db) {
@@ -216,15 +223,16 @@ void TestVertexAndEdgeWithDifferentStorages(std::unique_ptr<memgraph::storage::S
   // The vertexedge_encoded testdata has hardcoded zeros for IDs,
   // and Memgraph now encodes IDs so we need to check the output
   // part by part.
-  CheckOutput(output, vertexedge_encoded, 5, false);
-  CheckInt(output, va1.Gid().AsInt());
-  CheckOutput(output, vertexedge_encoded + 6, 34, false);
-  CheckInt(output, va2.Gid().AsInt());
-  CheckOutput(output, vertexedge_encoded + 41, 4, false);
-  CheckInt(output, ea.Gid().AsInt());
-  CheckInt(output, va1.Gid().AsInt());
-  CheckInt(output, va2.Gid().AsInt());
-  CheckOutput(output, vertexedge_encoded + 48, 26);
+  auto to_validate = std::span<uint8_t const>{output};
+  CheckOutput(to_validate, vertexedge_encoded, 5, false);
+  CheckInt(to_validate, va1.Gid().AsInt());
+  CheckOutput(to_validate, vertexedge_encoded + 6, 34, false);
+  CheckInt(to_validate, va2.Gid().AsInt());
+  CheckOutput(to_validate, vertexedge_encoded + 41, 4, false);
+  CheckInt(to_validate, ea.Gid().AsInt());
+  CheckInt(to_validate, va1.Gid().AsInt());
+  CheckInt(to_validate, va2.Gid().AsInt());
+  CheckOutput(to_validate, vertexedge_encoded + 48, 26);
 }
 
 TEST_F(BoltEncoder, VertexAndEdgeInMemoryStorage) {
@@ -249,7 +257,9 @@ TEST_F(BoltEncoder, BoltV1ExampleMessages) {
   std::vector<Value> rvals;
   for (int i = 1; i < 4; ++i) rvals.push_back(Value(i));
   bolt_encoder.MessageRecord(rvals);
-  CheckOutput(output, (const uint8_t *)"\xB1\x71\x93\x01\x02\x03", 6);
+  auto to_validate = std::span<uint8_t const>{output};
+  CheckOutput(to_validate, (const uint8_t *)"\xB1\x71\x93\x01\x02\x03", 6);
+  output.clear();
 
   // success message
   std::string sv1("name"), sv2("age"), sk("fields");
@@ -260,8 +270,10 @@ TEST_F(BoltEncoder, BoltV1ExampleMessages) {
   bolt_map_t svals;
   svals.insert(std::make_pair(sk, slist));
   bolt_encoder.MessageSuccess(svals);
-  CheckOutput(output,
+  to_validate = std::span<uint8_t const>{output};
+  CheckOutput(to_validate,
               (const uint8_t *)"\xB1\x70\xA1\x86\x66\x69\x65\x6C\x64\x73\x92\x84\x6E\x61\x6D\x65\x83\x61\x67\x65", 20);
+  output.clear();
 
   // failure message
   std::string fv1("Neo.ClientError.Statement.SyntaxError"), fv2("Invalid syntax.");
@@ -271,14 +283,18 @@ TEST_F(BoltEncoder, BoltV1ExampleMessages) {
   fvals.insert(std::make_pair(fk1, ftv1));
   fvals.insert(std::make_pair(fk2, ftv2));
   bolt_encoder.MessageFailure(fvals);
-  CheckOutput(output,
+  to_validate = std::span<uint8_t const>{output};
+  CheckOutput(to_validate,
                 (const uint8_t *)
 "\xB1\x7F\xA2\x84\x63\x6F\x64\x65\xD0\x25\x4E\x65\x6F\x2E\x43\x6C\x69\x65\x6E\x74\x45\x72\x72\x6F\x72\x2E\x53\x74\x61\x74\x65\x6D\x65\x6E\x74\x2E\x53\x79\x6E\x74\x61\x78\x45\x72\x72\x6F\x72\x87\x6D\x65\x73\x73\x61\x67\x65\x8F\x49\x6E\x76\x61\x6C\x69\x64\x20\x73\x79\x6E\x74\x61\x78\x2E",
                 71);
+  output.clear();
 
   // ignored message
   bolt_encoder.MessageIgnored();
-  CheckOutput(output, (const uint8_t *)"\xB0\x7E", 2);
+  to_validate = std::span<uint8_t const>{output};
+  CheckOutput(to_validate, (const uint8_t *)"\xB0\x7E", 2);
+  output.clear();
 }
 
 // Temporal types testing starts here
@@ -311,7 +327,8 @@ TEST_F(BoltEncoder, DateOld) {
                               Cast(Sig::Date),
                               d_bytes[0] };
   // clang-format on
-  CheckOutput(output, expected.data(), expected.size());
+  auto to_validate = std::span<uint8_t const>{output};
+  CheckOutput(to_validate, expected.data(), expected.size());
 }
 
 TEST_F(BoltEncoder, DateRecent) {
@@ -340,7 +357,9 @@ TEST_F(BoltEncoder, DateRecent) {
                               d_bytes[1],
                               d_bytes[0] };
   // clang-format on
-  CheckOutput(output, expected.data(), expected.size());
+  auto to_validate = std::span<uint8_t const>{output};
+  CheckOutput(to_validate, expected.data(), expected.size());
+  output.clear();
 }
 
 TEST_F(BoltEncoder, DurationOneSec) {
@@ -372,7 +391,9 @@ TEST_F(BoltEncoder, DurationOneSec) {
                               d_bytes[1],
                               d_bytes[0] };
   // clang-format on
-  CheckOutput(output, expected.data(), expected.size());
+  auto to_validate = std::span<uint8_t const>{output};
+  CheckOutput(to_validate, expected.data(), expected.size());
+  output.clear();
 }
 
 TEST_F(BoltEncoder, DurationMinusOneSec) {
@@ -404,7 +425,9 @@ TEST_F(BoltEncoder, DurationMinusOneSec) {
                               d_bytes[1],
                               d_bytes[0] };
   // clang-format on
-  CheckOutput(output, expected.data(), expected.size());
+  auto to_validate = std::span<uint8_t const>{output};
+  CheckOutput(to_validate, expected.data(), expected.size());
+  output.clear();
 }
 
 TEST_F(BoltEncoder, ArbitraryDuration) {
@@ -443,7 +466,9 @@ TEST_F(BoltEncoder, ArbitraryDuration) {
                               nano_bytes[1],
                               nano_bytes[0] };
   // clang-format on
-  CheckOutput(output, expected.data(), expected.size());
+  auto to_validate = std::span<uint8_t const>{output};
+  CheckOutput(to_validate, expected.data(), expected.size());
+  output.clear();
 }
 
 TEST_F(BoltEncoder, LocalTimeOneMicro) {
@@ -467,7 +492,9 @@ TEST_F(BoltEncoder, LocalTimeOneMicro) {
                               Cast(Marker::Int16),
                               n_bytes[1], n_bytes[0] };
   // clang-format on
-  CheckOutput(output, expected.data(), expected.size());
+  auto to_validate = std::span<uint8_t const>{output};
+  CheckOutput(to_validate, expected.data(), expected.size());
+  output.clear();
 }
 
 TEST_F(BoltEncoder, LocalTimeOneThousandMicro) {
@@ -492,7 +519,9 @@ TEST_F(BoltEncoder, LocalTimeOneThousandMicro) {
                               n_bytes[3], n_bytes[2],
                               n_bytes[1], n_bytes[0] };
   // clang-format on
-  CheckOutput(output, expected.data(), expected.size());
+  auto to_validate = std::span<uint8_t const>{output};
+  CheckOutput(to_validate, expected.data(), expected.size());
+  output.clear();
 }
 
 void test_LocalDateTime() {
@@ -527,7 +556,9 @@ void test_LocalDateTime() {
                               nano_bytes[3], nano_bytes[2],
                               nano_bytes[1], nano_bytes[0] };
   // clang-format on
-  CheckOutput(output, expected.data(), expected.size());
+  auto to_validate = std::span<uint8_t const>{output};
+  CheckOutput(to_validate, expected.data(), expected.size());
+  output.clear();
 }
 
 TEST_F(BoltEncoder, LocalDateTime) { test_LocalDateTime(); }
@@ -566,7 +597,9 @@ TEST_F(BoltEncoder, ZonedDateTime) {
     encoding.insert(encoding.end(), expected.nanoseconds.begin(), expected.nanoseconds.end());
     encoding.insert(encoding.end(), expected.tz.begin(), expected.tz.end());
 
-    CheckOutput(output, encoding.data(), encoding.size());
+    auto to_validate = std::span<uint8_t const>{output};
+    CheckOutput(to_validate, encoding.data(), encoding.size());
+    output.clear();
   };
 
   const std::array test_cases{
@@ -617,7 +650,9 @@ TEST_F(BoltEncoder, Point2d) {
                               y_bytes[7], y_bytes[6], y_bytes[5], y_bytes[4],
                               y_bytes[3], y_bytes[2], y_bytes[1], y_bytes[0]};
     // clang-format on
-    CheckOutput(output, expected.data(), expected.size());
+    auto to_validate = std::span<uint8_t const>{output};
+    CheckOutput(to_validate, expected.data(), expected.size());
+    output.clear();
   };
 
   auto const value_wgs = Value(memgraph::storage::Point2d(CRS::WGS84_2d, 1.0, 2.0));
@@ -671,7 +706,9 @@ TEST_F(BoltEncoder, Point3d) {
                               z_bytes[7], z_bytes[6], z_bytes[5], z_bytes[4],
                               z_bytes[3], z_bytes[2], z_bytes[1], z_bytes[0]};
     // clang-format on
-    CheckOutput(output, expected.data(), expected.size());
+    auto to_validate = std::span<uint8_t const>{output};
+    CheckOutput(to_validate, expected.data(), expected.size());
+    output.clear();
   };
 
   std::invoke(run_test, value_wgs);

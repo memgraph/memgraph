@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,11 +13,11 @@
 
 #include <atomic>
 #include <memory>
-#include <unordered_map>
 
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/schema_info.hpp"
 #include "utils/memory.hpp"
+#include "utils/query_memory_tracker.hpp"
 #include "utils/skip_list.hpp"
 
 #include "delta_container.hpp"
@@ -151,6 +151,9 @@ struct Transaction {
   /// Tracking schema changes done during the transaction
   LocalSchemaTracking schema_diff_;
   std::unordered_set<SchemaInfoPostProcess> post_process_;
+
+  /// Query memory tracker
+  std::unique_ptr<utils::QueryMemoryTracker> query_memory_tracker_{};
 };
 
 inline bool operator==(const Transaction &first, const Transaction &second) {

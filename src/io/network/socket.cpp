@@ -48,7 +48,9 @@ void Socket::Close() {
   socket_ = -1;
 }
 
-void Socket::Shutdown() const {
+// Not const because of C-API
+// NOLINTNEXTLINE
+void Socket::Shutdown() {
   if (socket_ == -1) return;
   shutdown(socket_, SHUT_RDWR);
 }
@@ -147,14 +149,18 @@ bool Socket::Bind(const Endpoint &endpoint) {
   return true;
 }
 
-void Socket::SetNonBlocking() const {
+// Not const because of C-API
+// NOLINTNEXTLINE
+void Socket::SetNonBlocking() {
   const unsigned flags = fcntl(socket_, F_GETFL);
   constexpr unsigned o_nonblock = O_NONBLOCK;
   MG_ASSERT(flags != -1, "Can't get socket mode");
   MG_ASSERT(fcntl(socket_, F_SETFL, flags | o_nonblock) != -1, "Can't set socket nonblocking");
 }
 
-void Socket::SetKeepAlive() const {
+// Not const because of C-API
+// NOLINTNEXTLINE
+void Socket::SetKeepAlive() {
   int optval = 1;
   MG_ASSERT(!setsockopt(socket_, SOL_SOCKET, SO_KEEPALIVE, &optval, sizeof(optval)), "Can't set socket keep alive");
 
@@ -170,7 +176,9 @@ void Socket::SetKeepAlive() const {
             "Can't set socket keep alive");
 }
 
-void Socket::SetNoDelay() const {
+// Not const because of C-API
+// NOLINTNEXTLINE
+void Socket::SetNoDelay() {
   int optval = 1;
   MG_ASSERT(!setsockopt(socket_, SOL_TCP, TCP_NODELAY, (void *)&optval, sizeof(optval)), "Can't set socket no delay");
 }
@@ -194,9 +202,13 @@ int Socket::ErrorStatus() const {
   return optval;
 }
 
-bool Socket::Listen(int backlog) const { return listen(socket_, backlog) == 0; }
+// Not const because of C-API
+// NOLINTNEXTLINE
+bool Socket::Listen(int backlog) { return listen(socket_, backlog) == 0; }
 
-std::optional<Socket> Socket::Accept() const {
+// Not const because of C-API
+// NOLINTNEXTLINE
+std::optional<Socket> Socket::Accept() {
   sockaddr_storage addr;
   socklen_t addr_size = sizeof addr;
   char addr_decoded[INET6_ADDRSTRLEN];
@@ -217,12 +229,14 @@ std::optional<Socket> Socket::Accept() const {
 
   inet_ntop(addr.ss_family, addr_src, addr_decoded, sizeof(addr_decoded));
 
-  Endpoint endpoint(addr_decoded, port);
+  Endpoint const endpoint(addr_decoded, port);
 
   return Socket(sfd, endpoint);
 }
 
-bool Socket::Write(const uint8_t *data, size_t len, bool have_more, std::optional<int> timeout_ms) const {
+// Not const because of C-API
+// NOLINTNEXTLINE
+bool Socket::Write(const uint8_t *data, size_t len, bool have_more, std::optional<int> timeout_ms) {
   // MSG_NOSIGNAL is here to disable raising a SIGPIPE signal when a
   // connection dies mid-write, the socket will only return an EPIPE error.
   constexpr unsigned msg_nosignal = MSG_NOSIGNAL;
@@ -250,11 +264,13 @@ bool Socket::Write(const uint8_t *data, size_t len, bool have_more, std::optiona
   return true;
 }
 
-bool Socket::Write(std::string_view s, bool have_more, std::optional<int> timeout_ms) const {
+bool Socket::Write(std::string_view s, bool have_more, std::optional<int> timeout_ms) {
   return Write(reinterpret_cast<const uint8_t *>(s.data()), s.size(), have_more, timeout_ms);
 }
 
-ssize_t Socket::Read(void *buffer, size_t len, bool nonblock) const {
+// Not const because of C-API
+// NOLINTNEXTLINE
+ssize_t Socket::Read(void *buffer, size_t len, bool nonblock) {
   return recv(socket_, buffer, len, nonblock ? MSG_DONTWAIT : 0);
 }
 

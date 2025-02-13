@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -52,7 +52,7 @@ class Encoder : private BaseEncoder<Buffer> {
     WriteList(values);
     // Try to flush all remaining data in the buffer, but tell it that we will
     // send more data (the end of message chunk).
-    if (!buffer_.Flush(true)) return false;
+    if (buffer_.HasData() && !buffer_.Flush(true)) return false;
     // Flush an empty chunk to indicate that the message is done. Here we tell
     // the buffer that there will be more data because this is a Record message
     // and it will surely be followed by either a Record, Success or Failure
@@ -78,7 +78,7 @@ class Encoder : private BaseEncoder<Buffer> {
     WriteMap(metadata);
     // Try to flush all remaining data in the buffer, but tell it that we will
     // send more data (the end of message chunk).
-    if (!buffer_.Flush(true)) return false;
+    if (buffer_.HasData() && !buffer_.Flush(true)) return false;
     // Flush an empty chunk to indicate that the message is done.
     return buffer_.Flush();
   }
@@ -114,7 +114,7 @@ class Encoder : private BaseEncoder<Buffer> {
     WriteMap(metadata);
     // Try to flush all remaining data in the buffer, but tell it that we will
     // send more data (the end of message chunk).
-    if (!buffer_.Flush(true)) return false;
+    if (buffer_.HasData() && !buffer_.Flush(true)) return false;
     // Flush an empty chunk to indicate that the message is done.
     return buffer_.Flush();
   }
@@ -132,7 +132,7 @@ class Encoder : private BaseEncoder<Buffer> {
     WriteRAW(utils::UnderlyingCast(Signature::Ignored));
     // Try to flush all remaining data in the buffer, but tell it that we will
     // send more data (the end of message chunk).
-    if (!buffer_.Flush(true)) return false;
+    if (buffer_.HasData() && !buffer_.Flush(true)) return false;
     // Flush an empty chunk to indicate that the message is done.
     return buffer_.Flush();
   }

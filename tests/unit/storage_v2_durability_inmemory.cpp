@@ -3211,12 +3211,14 @@ TEST_P(DurabilityTest, SnapshotAndWalMixedUUID) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST_P(DurabilityTest, ParallelConstraintsRecovery) {
+TEST_P(DurabilityTest, ParallelSnapshotRecovery) {
   // Create snapshot.
   {
     memgraph::storage::Config config{
-
-        .durability = {.storage_directory = storage_directory, .snapshot_on_exit = true, .items_per_batch = 13},
+        .durability = {.storage_directory = storage_directory,
+                       .snapshot_on_exit = true,
+                       .items_per_batch = 13,
+                       .allow_parallel_schema_creation = true},
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
     };
     memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
@@ -3237,20 +3239,100 @@ TEST_P(DurabilityTest, ParallelConstraintsRecovery) {
       .durability = {.storage_directory = storage_directory,
                      .recover_on_startup = true,
                      .snapshot_on_exit = false,
-                     .items_per_batch = 13},
+                     .items_per_batch = 13,
+                     .allow_parallel_schema_creation = true},
       .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
   };
   memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::dbms::Database db{config, repl_state};
   VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam(), config.salient.items.enable_schema_info);
-  // TODO Fix parallel recovery schema
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_P(DurabilityTest, ParallelWalRecovery) {
+  using enum memgraph::storage::Config::Durability::SnapshotWalMode;
+  // Create wals.
   {
-    auto acc = db.Access();
-    auto vertex = acc->CreateVertex();
-    auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
-    ASSERT_TRUE(edge.HasValue());
-    ASSERT_FALSE(acc->Commit().HasError());
+    memgraph::storage::Config config{
+        .durability = {.storage_directory = storage_directory,
+                       .snapshot_wal_mode = PERIODIC_SNAPSHOT_WITH_WAL,
+                       .snapshot_interval = memgraph::utils::SchedulerInterval("10000"),
+                       .snapshot_on_exit = false,
+                       .items_per_batch = 13,
+                       .allow_parallel_schema_creation = true},
+        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+    };
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::dbms::Database db{config, repl_state};
+    CreateBaseDataset(db.storage(), GetParam());
+    VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
+    CreateExtendedDataset(db.storage());
+    VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam(), config.salient.items.enable_schema_info);
   }
+
+  ASSERT_EQ(GetSnapshotsList().size(), 0);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
+  ASSERT_GT(GetWalsList().size(), 0);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
+
+  // Recover wals.
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory,
+                     .recover_on_startup = true,
+                     .snapshot_wal_mode = PERIODIC_SNAPSHOT_WITH_WAL,
+                     .snapshot_interval = memgraph::utils::SchedulerInterval("10000"),
+                     .snapshot_on_exit = false,
+                     .items_per_batch = 13,
+                     .allow_parallel_schema_creation = true},
+      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+  };
+  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::dbms::Database db{config, repl_state};
+  VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam(), config.salient.items.enable_schema_info);
+}
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_P(DurabilityTest, ParallelSnapshotWalRecovery) {
+  using enum memgraph::storage::Config::Durability::SnapshotWalMode;
+  // Create wals.
+  {
+    memgraph::storage::Config config{
+        .durability = {.storage_directory = storage_directory,
+                       .snapshot_wal_mode = PERIODIC_SNAPSHOT_WITH_WAL,
+                       .snapshot_interval = memgraph::utils::SchedulerInterval("10000"),
+                       .snapshot_on_exit = false,
+                       .items_per_batch = 13,
+                       .allow_parallel_schema_creation = true},
+        .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+    };
+    memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::dbms::Database db{config, repl_state};
+    CreateBaseDataset(db.storage(), GetParam());
+    VerifyDataset(db.storage(), DatasetType::ONLY_BASE, GetParam(), config.salient.items.enable_schema_info);
+    // Manually create database in the middle
+    ASSERT_FALSE(static_cast<memgraph::storage::InMemoryStorage *>(db.storage())->CreateSnapshot({}).HasError());
+    CreateExtendedDataset(db.storage());
+    VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam(), config.salient.items.enable_schema_info);
+  }
+
+  ASSERT_GT(GetSnapshotsList().size(), 0);
+  ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
+  ASSERT_GT(GetWalsList().size(), 0);
+  ASSERT_EQ(GetBackupWalsList().size(), 0);
+
+  // Recover wals.
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory,
+                     .recover_on_startup = true,
+                     .snapshot_wal_mode = PERIODIC_SNAPSHOT_WITH_WAL,
+                     .snapshot_interval = memgraph::utils::SchedulerInterval("10000"),
+                     .snapshot_on_exit = false,
+                     .items_per_batch = 13,
+                     .allow_parallel_schema_creation = true},
+      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+  };
+  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::dbms::Database db{config, repl_state};
+  VerifyDataset(db.storage(), DatasetType::BASE_WITH_EXTENDED, GetParam(), config.salient.items.enable_schema_info);
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)

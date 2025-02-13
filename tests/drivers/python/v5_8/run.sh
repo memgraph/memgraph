@@ -13,7 +13,7 @@ fi
 if [ ! -d "ve3" ]; then
     virtualenv -p python3 ve3 || exit 1
     source ve3/bin/activate
-    python3 -m pip install neo4j==5.8.0 || exit 1
+    python3 -m pip install neo4j==5.14.0 || exit 1
     deactivate
 fi
 

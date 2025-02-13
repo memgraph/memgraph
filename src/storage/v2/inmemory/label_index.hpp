@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -23,16 +23,15 @@
 
 namespace memgraph::storage {
 
-class InMemoryLabelIndex : public storage::LabelIndex {
- private:
+class InMemoryLabelIndex : public LabelIndex {
   struct Entry {
     Vertex *vertex;
     uint64_t timestamp;
 
-    bool operator<(const Entry &rhs) {
-      return std::make_tuple(vertex, timestamp) < std::make_tuple(rhs.vertex, rhs.timestamp);
+    bool operator<(const Entry &rhs) { return std::tie(vertex, timestamp) < std::tie(rhs.vertex, rhs.timestamp); }
+    bool operator==(const Entry &rhs) const {
+      return std::tie(vertex, timestamp) == std::tie(rhs.vertex, rhs.timestamp);
     }
-    bool operator==(const Entry &rhs) const { return vertex == rhs.vertex && timestamp == rhs.timestamp; }
   };
 
  public:

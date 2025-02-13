@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -43,32 +43,14 @@ class Server {
   void Register(std::function<void(slk::Reader *, slk::Builder *)> callback) {
     auto guard = std::lock_guard{lock_};
     MG_ASSERT(!server_.IsRunning(), "You can't register RPCs when the server is running!");
-    RpcCallback rpc;
-    rpc.req_type = TRequestResponse::Request::kType;
-    rpc.res_type = TRequestResponse::Response::kType;
-    rpc.callback = callback;
+    RpcCallback rpc{.req_type = TRequestResponse::Request::kType,
+                    .callback = std::move(callback),
+                    .res_type = TRequestResponse::Response::kType};
 
-    if (extended_callbacks_.find(TRequestResponse::Request::kType.id) != extended_callbacks_.end()) {
-      LOG_FATAL("Callback for that message type already registered!");
-    }
-
-    auto got = callbacks_.insert({TRequestResponse::Request::kType.id, rpc});
+    auto got = callbacks_.insert({TRequestResponse::Request::kType.id, std::move(rpc)});
     MG_ASSERT(got.second, "Callback for that message type already registered");
-    SPDLOG_TRACE("[RpcServer] register {} -> {}", rpc.req_type.name, rpc.res_type.name);
-  }
-
-  template <class TRequestResponse>
-  void Register(std::function<void(const io::network::Endpoint &, slk::Reader *, slk::Builder *)> callback) {
-    auto guard = std::lock_guard{lock_};
-    MG_ASSERT(!server_.IsRunning(), "You can't register RPCs when the server is running!");
-    RpcExtendedCallback rpc;
-    rpc.req_type = TRequestResponse::Request::kType;
-    rpc.res_type = TRequestResponse::Response::kType;
-    rpc.callback = callback;
-
-    auto got = extended_callbacks_.insert({TRequestResponse::Request::kType.id, rpc});
-    MG_ASSERT(got.second, "Callback for that message type already registered");
-    SPDLOG_TRACE("[RpcServer] register {} -> {}", rpc.req_type.name, rpc.res_type.name);
+    spdlog::trace("[RpcServer] register {} -> {}", TRequestResponse::Request::kType.name,
+                  TRequestResponse::Response::kType.name);
   }
 
  private:
@@ -80,16 +62,8 @@ class Server {
     utils::TypeInfo res_type;
   };
 
-  struct RpcExtendedCallback {
-    utils::TypeInfo req_type;
-    std::function<void(const io::network::Endpoint &, slk::Reader *, slk::Builder *)> callback;
-    utils::TypeInfo res_type;
-  };
-
   std::mutex lock_;
   std::map<utils::TypeId, RpcCallback> callbacks_;
-  std::map<utils::TypeId, RpcExtendedCallback> extended_callbacks_;
-
   communication::Server<Session, Server> server_;
 };
 

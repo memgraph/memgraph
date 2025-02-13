@@ -53,19 +53,18 @@ class RaftStateTest : public ::testing::Test {
 };
 
 TEST_F(RaftStateTest, RaftStateEmptyMetadata) {
-  GTEST_SKIP() << "skip flaky issue #https://github.com/memgraph/memgraph/issues/2212";
   auto become_leader_cb = []() {};
   auto become_follower_cb = []() {};
 
-  auto const instance_config = CoordinatorInstanceInitConfig{
-      .coordinator_id = coordinator_id,
-      .coordinator_port = coordinator_port,
-      .bolt_port = bolt_port,
-      .management_port = management_port,
-      .durability_dir = test_folder_ / "high_availability" / "coordinator" / "state_manager",
-      .coordinator_hostname = "localhost"};
+  auto const instance_config =
+      CoordinatorInstanceInitConfig{.coordinator_id = coordinator_id,
+                                    .coordinator_port = coordinator_port,
+                                    .bolt_port = bolt_port,
+                                    .management_port = management_port,
+                                    .durability_dir = test_folder_ / "high_availability" / "raft_state_empty_metadata",
+                                    .coordinator_hostname = "localhost"};
 
-  auto raft_state =
+  auto const raft_state =
       std::make_unique<RaftState>(instance_config, std::move(become_leader_cb), std::move(become_follower_cb));
   raft_state->InitRaftServer();
 
@@ -73,37 +72,16 @@ TEST_F(RaftStateTest, RaftStateEmptyMetadata) {
   ASSERT_TRUE(raft_state->IsLeader());
   ASSERT_TRUE(raft_state->GetDataInstancesContext().empty());
 
-  auto const coords = raft_state->GetCoordinatorInstancesContext();
-  ASSERT_EQ(coords.size(), 1);
-}
+  // Context for coordinators get changed only after you added coordinator
+  auto const coords_ctx = raft_state->GetCoordinatorInstancesContext();
+  ASSERT_EQ(coords_ctx.size(), 0);
 
-TEST_F(RaftStateTest, GetSingleRouterRoutingTable) {
-  GTEST_SKIP() << "skip flaky issue #https://github.com/memgraph/memgraph/issues/2212";
-  auto become_leader_cb = []() {};
-  auto become_follower_cb = []() {};
-
-  auto const config =
-      CoordinatorInstanceInitConfig{.coordinator_id = coordinator_id,
-                                    .coordinator_port = coordinator_port,
-                                    .bolt_port = bolt_port,
-                                    .management_port = management_port,
-                                    .durability_dir = test_folder_ / "high_availability" / "coordinator",
-                                    .coordinator_hostname = "localhost"};
-
-  auto raft_state = std::make_unique<RaftState>(config, std::move(become_leader_cb), std::move(become_follower_cb));
-  raft_state->InitRaftServer();
-  auto routing_table = raft_state->GetRoutingTable();
-
-  ASSERT_EQ(routing_table.size(), 1);
-
-  auto const routers = routing_table[0];
-  auto const expected_routers = std::vector<std::string>{fmt::format("localhost:{}", bolt_port)};
-  ASSERT_EQ(routers.first, expected_routers);
-  ASSERT_EQ(routers.second, "ROUTE");
+  // Aux is updated as soon as raft server is initialized
+  auto const coords_aux = raft_state->GetCoordinatorInstancesAux();
+  ASSERT_EQ(coords_aux.size(), 1);
 }
 
 TEST_F(RaftStateTest, GetMixedRoutingTable) {
-  GTEST_SKIP() << "skip flaky issue #https://github.com/memgraph/memgraph/issues/2212";
   auto become_leader_cb = []() {};
   auto become_follower_cb = []() {};
   auto const init_config =
@@ -111,7 +89,7 @@ TEST_F(RaftStateTest, GetMixedRoutingTable) {
                                     .coordinator_port = coordinator_port,
                                     .bolt_port = bolt_port,
                                     .management_port = management_port,
-                                    .durability_dir = test_folder_ / "high_availability" / "coordinator",
+                                    .durability_dir = test_folder_ / "high_availability" / "mixed_routing",
                                     .coordinator_hostname = "localhost"};
 
   auto raft_state_leader =
@@ -154,24 +132,25 @@ TEST_F(RaftStateTest, GetMixedRoutingTable) {
       ReplicationRole::REPLICA, curr_uuid);
 
   auto coord_instances = std::vector<CoordinatorInstanceContext>{};
+  coord_instances.emplace_back(1, fmt::format("localhost:{}", bolt_port));
 
-  raft_state_leader->AppendClusterUpdate(data_instances, coord_instances, curr_uuid);
+  ASSERT_TRUE(raft_state_leader->AppendClusterUpdate(data_instances, coord_instances, curr_uuid));
 
   auto const routing_table = raft_state_leader->GetRoutingTable();
 
   ASSERT_EQ(routing_table.size(), 3);
 
-  auto const &mains = routing_table[0];
-  ASSERT_EQ(mains.second, "WRITE");
-  ASSERT_EQ(mains.first, std::vector<std::string>{"0.0.0.0:7687"});
+  auto const &[main_instances, main_role] = routing_table[0];
+  ASSERT_EQ(main_role, "WRITE");
+  ASSERT_EQ(main_instances, std::vector<std::string>{"0.0.0.0:7687"});
 
-  auto const &replicas = routing_table[1];
-  ASSERT_EQ(replicas.second, "READ");
+  auto const &[replica_instances, replica_role] = routing_table[1];
+  ASSERT_EQ(replica_role, "READ");
   auto const expected_replicas = std::vector<std::string>{"0.0.0.0:7688", "0.0.0.0:7689"};
-  ASSERT_EQ(replicas.first, expected_replicas);
+  ASSERT_EQ(replica_instances, expected_replicas);
 
-  auto const &routers = routing_table[2];
-  ASSERT_EQ(routers.second, "ROUTE");
+  auto const &[routing_instances, routing_role] = routing_table[2];
+  ASSERT_EQ(routing_role, "ROUTE");
   auto const expected_routers = std::vector<std::string>{fmt::format("localhost:{}", bolt_port)};
-  ASSERT_EQ(routers.first, expected_routers);
+  ASSERT_EQ(routing_instances, expected_routers);
 }

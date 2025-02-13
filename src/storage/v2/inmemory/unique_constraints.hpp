@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -83,9 +83,6 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   /// against unique constraints.
   /// @throw std::bad_alloc
   void UpdateBeforeCommit(const Vertex *vertex, const Transaction &tx);
-
-  void UpdateBeforeCommit(const Vertex *vertex, std::unordered_set<LabelId> &added_labels,
-                          std::unordered_set<PropertyId> &added_properties, const Transaction &tx);
 
   void AbortEntries(std::span<Vertex const *const> vertices, uint64_t exact_start_timestamp);
 

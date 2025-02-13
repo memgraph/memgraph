@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,7 +16,6 @@
 #include <chrono>
 #include <memory>
 #include <mutex>
-#include <thread>
 #include <utility>
 
 #include <openssl/bio.h>
@@ -220,7 +219,7 @@ class Session final {
       // Check for read errors.
       if (len == -1) {
         // This means read would block or read was interrupted by signal, we
-        // return `true` to indicate that all data is processad and to stop
+        // return `true` to indicate that all data is processed and to stop
         // reading of data.
         if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
           return true;

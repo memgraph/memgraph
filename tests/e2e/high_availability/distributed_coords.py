@@ -395,7 +395,7 @@ def test_even_number_coords(test_name):
 
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(instance_3_cursor, "SHOW REPLICAS;")
-    assert str(e.value) == "Replica can't show registered replicas (it shouldn't have any)!"
+    assert str(e.value) == "Show replicas query should only be run on the main instance."
 
     # 4
     interactive_mg_runner.kill(inner_instances_description, "coordinator_1")
@@ -2404,7 +2404,7 @@ def test_coordinator_user_action_demote_instance_to_replica(test_name):
 
     with pytest.raises(Exception) as e:
         execute_and_fetch_all(instance_3_cursor, "SHOW REPLICAS;")
-    assert str(e.value) == "Replica can't show registered replicas (it shouldn't have any)!"
+    assert str(e.value) == "Show replicas query should only be run on the main instance."
 
     mg_assert_until(data, partial(show_instances, coord_cursor_3), FAILOVER_PERIOD + 1)
     mg_sleep_and_assert(data, partial(show_instances, coord_cursor_1))

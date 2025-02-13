@@ -1154,15 +1154,15 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   /**
    * @return MultiDatabaseQuery*
    */
-  antlrcpp::Any visitUseDatabase(MemgraphCypher::UseDatabaseContext *ctx) override;
-
-  /**
-   * @return MultiDatabaseQuery*
-   */
   antlrcpp::Any visitDropDatabase(MemgraphCypher::DropDatabaseContext *ctx) override;
 
   /**
-   * @return MultiDatabaseQuery*
+   * @return UseDatabaseQuery*
+   */
+  antlrcpp::Any visitUseDatabase(MemgraphCypher::UseDatabaseContext *ctx) override;
+
+  /**
+   * @return ShowDatabaseQuery*
    */
   antlrcpp::Any visitShowDatabase(MemgraphCypher::ShowDatabaseContext *ctx) override;
 

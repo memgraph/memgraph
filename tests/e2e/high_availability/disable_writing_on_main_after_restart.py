@@ -192,10 +192,7 @@ def test_writing_disabled_on_main_restart():
         instance3_cursor = connect(host="localhost", port=7689).cursor()
         execute_and_fetch_all(instance3_cursor, "CREATE (n:Node {name: 'node'})")
     except Exception as e:
-        assert (
-            str(e)
-            == "Write query forbidden on the main! Coordinator needs to enable writing on main by sending RPC message."
-        )
+        assert str(e).startswith("Write queries currently forbidden on the main instance.")
 
     expected_cluster_coord3 = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),

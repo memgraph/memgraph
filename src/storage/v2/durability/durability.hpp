@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -112,11 +112,14 @@ void RecoverConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadat
                         Constraints *constraints, utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
                         const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info = std::nullopt);
 
+void RecoverIndicesStatsAndConstraints(utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
+                                       Indices *indices, Constraints *constraints, Config const &config,
+                                       RecoveryInfo const &recovery_info,
+                                       RecoveredIndicesAndConstraints const &indices_constraints,
+                                       bool properties_on_edges);
+
 std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfo(const RecoveryInfo &recovery_info,
                                                                   const Config &config);
-
-std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfoIndices(const RecoveryInfo &recovery_info,
-                                                                         const Config &config);
 
 void RecoverExistenceConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &, Constraints *,
                                  utils::SkipList<Vertex> *, NameIdMapper *,

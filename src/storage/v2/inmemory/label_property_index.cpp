@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -23,17 +23,11 @@
 namespace memgraph::storage {
 
 bool InMemoryLabelPropertyIndex::Entry::operator<(const Entry &rhs) const {
-  if (value < rhs.value) {
-    return true;
-  }
-  if (rhs.value < value) {
-    return false;
-  }
-  return std::make_tuple(vertex, timestamp) < std::make_tuple(rhs.vertex, rhs.timestamp);
+  return std::tie(value, vertex, timestamp) < std::tie(rhs.value, rhs.vertex, rhs.timestamp);
 }
 
 bool InMemoryLabelPropertyIndex::Entry::operator==(const Entry &rhs) const {
-  return value == rhs.value && vertex == rhs.vertex && timestamp == rhs.timestamp;
+  return std::tie(value, vertex, timestamp) == std::tie(rhs.value, rhs.vertex, rhs.timestamp);
 }
 
 bool InMemoryLabelPropertyIndex::Entry::operator<(const PropertyValue &rhs) const { return value < rhs; }
@@ -121,7 +115,7 @@ void InMemoryLabelPropertyIndex::UpdateOnSetProperty(PropertyId property, const 
 }
 
 bool InMemoryLabelPropertyIndex::DropIndex(LabelId label, PropertyId property) {
-  if (indices_by_property_.find(property) != indices_by_property_.end()) {
+  if (indices_by_property_.contains(property)) {
     indices_by_property_.at(property).erase(label);
 
     if (indices_by_property_.at(property).empty()) {
@@ -133,14 +127,14 @@ bool InMemoryLabelPropertyIndex::DropIndex(LabelId label, PropertyId property) {
 }
 
 bool InMemoryLabelPropertyIndex::IndexExists(LabelId label, PropertyId property) const {
-  return index_.find({label, property}) != index_.end();
+  return index_.contains({label, property});
 }
 
 std::vector<std::pair<LabelId, PropertyId>> InMemoryLabelPropertyIndex::ListIndices() const {
   std::vector<std::pair<LabelId, PropertyId>> ret;
   ret.reserve(index_.size());
-  for (const auto &item : index_) {
-    ret.push_back(item.first);
+  for (auto const &key : index_ | std::views::keys) {
+    ret.push_back(key);
   }
   return ret;
 }
@@ -274,7 +268,6 @@ InMemoryLabelPropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor 
       case PropertyValue::Type::Null:
         // This shouldn't happen because of the nullopt-ing above.
         LOG_FATAL("Invalid database state!");
-        break;
       case PropertyValue::Type::Bool:
         upper_bound_ = utils::MakeBoundExclusive(kSmallestNumber);
         break;
@@ -317,7 +310,6 @@ InMemoryLabelPropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor 
       case PropertyValue::Type::Null:
         // This shouldn't happen because of the nullopt-ing above.
         LOG_FATAL("Invalid database state!");
-        break;
       case PropertyValue::Type::Bool:
         lower_bound_ = utils::MakeBoundInclusive(kSmallestBool);
         break;
@@ -447,8 +439,8 @@ std::optional<LabelPropertyIndexStats> InMemoryLabelPropertyIndex::GetIndexStats
 }
 
 void InMemoryLabelPropertyIndex::RunGC() {
-  for (auto &index_entry : index_) {
-    index_entry.second.run_gc();
+  for (auto &coll : index_ | std::views::values) {
+    coll.run_gc();
   }
 }
 
@@ -485,7 +477,7 @@ void InMemoryLabelPropertyIndex::AbortEntries(PropertyId property,
   if (it == indices_by_property_.end()) return;
 
   auto &indices = it->second;
-  for (const auto &[_, index] : indices) {
+  for (auto const &index : indices | std::views::values) {
     auto index_acc = index->access();
     for (auto const &[value, vertex] : vertices) {
       index_acc.remove(Entry{value, vertex, exact_start_timestamp});
