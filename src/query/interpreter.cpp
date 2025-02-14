@@ -4574,7 +4574,8 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
       return false;
     };
 
-    if (transaction_id.has_value()) {
+    if (transaction_id.has_value() && (same_user(interpreter->user_or_role_, user_or_role) ||
+                                       privilege_checker(user_or_role, get_interpreter_db_name()))) {
       const auto &typed_queries = interpreter->GetQueries();
       results.push_back(
           {TypedValue(interpreter->user_or_role_
