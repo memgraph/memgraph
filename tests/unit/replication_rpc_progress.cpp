@@ -38,6 +38,7 @@ using memgraph::storage::Storage;
 using memgraph::storage::replication::AppendDeltasReq;
 using memgraph::storage::replication::AppendDeltasRes;
 using memgraph::storage::replication::AppendDeltasRpc;
+using memgraph::storage::replication::Decoder;
 using memgraph::utils::UUID;
 
 using namespace std::string_view_literals;
@@ -89,6 +90,9 @@ TEST_F(ReplicationRpcProgressTest, AppendDeltasNoTimeout) {
   rpc_server.Register<memgraph::storage::replication::AppendDeltasRpc>([](auto *req_reader, auto *res_builder) {
     AppendDeltasReq req;
     Load(&req, req_reader);
+    // Epoch id needs to be read
+    Decoder decoder(req_reader);
+    auto maybe_epoch_id = decoder.ReadString();
 
     // Simulate done
     AppendDeltasRes res{true};
@@ -120,6 +124,8 @@ TEST_F(ReplicationRpcProgressTest, AppendDeltasTimeout) {
   rpc_server.Register<memgraph::storage::replication::AppendDeltasRpc>([](auto *req_reader, auto *res_builder) {
     AppendDeltasReq req;
     Load(&req, req_reader);
+    Decoder decoder(req_reader);
+    auto maybe_epoch_id = decoder.ReadString();
 
     // Simulate done
     std::this_thread::sleep_for(150ms);
@@ -152,6 +158,8 @@ TEST_F(ReplicationRpcProgressTest, AppendDeltasProgressTimeout) {
   rpc_server.Register<AppendDeltasRpc>([](auto *req_reader, auto *res_builder) {
     AppendDeltasReq req;
     Load(&req, req_reader);
+    Decoder decoder(req_reader);
+    auto maybe_epoch_id = decoder.ReadString();
 
     std::this_thread::sleep_for(100ms);
     memgraph::rpc::SendInProgressMsg(res_builder);
@@ -304,4 +312,50 @@ TEST_F(ReplicationRpcProgressTest, WalFilesProgressTimeout) {
 
   auto stream = client.Stream<memgraph::storage::replication::WalFilesRpc>(UUID{}, UUID{}, 1);
   EXPECT_THROW(stream.AwaitResponseWhileInProgress(), GenericRpcFailedException);
+}
+
+// Timeout immediately
+TEST_F(ReplicationRpcProgressTest, TestTTT) {
+  Endpoint endpoint{"localhost", port};
+
+  ServerContext server_context;
+  Server rpc_server{endpoint, &server_context, /* workers */ 1};
+  auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
+    rpc_server.Shutdown();
+    rpc_server.AwaitShutdown();
+  }};
+
+  rpc_server.Register<memgraph::storage::replication::CurrentWalRpc>([](auto *req_reader, auto *res_builder) {
+    memgraph::storage::replication::CurrentWalReq req;
+    Load(&req, req_reader);
+    std::this_thread::sleep_for(150ms);
+    memgraph::storage::replication::CurrentWalRes res{true};
+    std::this_thread::sleep_for(500ms);
+    memgraph::rpc::SendFinalResponse(res, res_builder);
+  });
+
+  rpc_server.Register<memgraph::storage::replication::WalFilesRpc>([](auto *req_reader, auto *res_builder) {
+    memgraph::storage::replication::WalFilesReq req;
+    Load(&req, req_reader);
+    std::this_thread::sleep_for(1s);
+    memgraph::storage::replication::WalFilesRes res{true};
+    memgraph::rpc::SendFinalResponse(res, res_builder);
+  });
+
+  ASSERT_TRUE(rpc_server.Start());
+  std::this_thread::sleep_for(100ms);
+
+  auto const rpc_timeouts = std::unordered_map{std::make_pair("CurrentWalReq"sv, 100)};
+  ClientContext client_context;
+  Client client{endpoint, &client_context, rpc_timeouts};
+
+  {
+    auto stream = memgraph::storage::InMemoryCurrentWalHandler{UUID{}, &main_storage, client};
+    EXPECT_THROW(stream.Finalize(), GenericRpcFailedException);
+  }
+
+  {
+    auto wal_files_stream = client.Stream<memgraph::storage::replication::WalFilesRpc>(UUID{}, UUID{}, 1);
+    EXPECT_NO_THROW(wal_files_stream.AwaitResponseWhileInProgress());
+  }
 }
