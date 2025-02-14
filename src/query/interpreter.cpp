@@ -4662,13 +4662,13 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
       switch (status) {
         case TransactionStatus::IDLE:
           return "idle";
-        case TransactionStatus::ACTIVE:
+        case TransactionStatus::RUNNING:
           return "running";
-        case TransactionStatus::TERMINATED:
+        case TransactionStatus::TERMINATING:
           return "terminating";
-        case TransactionStatus::STARTED_COMMITTING:
+        case TransactionStatus::COMMITTING:
           return "committing";
-        case TransactionStatus::STARTED_ROLLBACK:
+        case TransactionStatus::ABORTING:
           return "aborting";
       }
     };
@@ -6605,7 +6605,7 @@ void Interpreter::SetupInterpreterTransaction(const QueryExtras &extras) {
     std::lock_guard const lg{transaction_info_lock_};
     current_transaction_ = interpreter_context_->id_handler.next();
     metadata_ = std::move(metadata);
-    transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
+    transaction_status_.store(TransactionStatus::RUNNING, std::memory_order_release);
   }
 
   if (query_logger_) {
@@ -6638,7 +6638,7 @@ void Interpreter::Abort() {
 
   // Data tx
   TransactionStatus const prior_status{transaction_status_.load(std::memory_order_acquire)};
-  MG_ASSERT(prior_status != TransactionStatus::STARTED_COMMITTING);
+  MG_ASSERT(prior_status != TransactionStatus::COMMITTING);
 
   utils::OnScopeExit const clean_status([this]() {
     std::lock_guard const lg{transaction_info_lock_};
@@ -6647,12 +6647,12 @@ void Interpreter::Abort() {
     transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release);
   });
 
-  transaction_status_.store(TransactionStatus::STARTED_ROLLBACK);
+  transaction_status_.store(TransactionStatus::ABORTING);
   expect_rollback_ = false;
   in_explicit_transaction_ = false;
   current_timeout_timer_.reset();
 
-  if (prior_status == TransactionStatus::ACTIVE) {
+  if (prior_status == TransactionStatus::RUNNING) {
     memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTransactions);
   }
 
@@ -6810,8 +6810,8 @@ void Interpreter::Commit() {
   At this point we must check that the transaction is alive to start committing. The only other possible state is
   terminating, and if in that state, abort committing.
   */
-  TransactionStatus const prior_status{transaction_status_.exchange(TransactionStatus::STARTED_COMMITTING)};
-  if (prior_status == TransactionStatus::TERMINATED) {
+  TransactionStatus const prior_status{transaction_status_.exchange(TransactionStatus::COMMITTING)};
+  if (prior_status == TransactionStatus::TERMINATING) {
     throw memgraph::utils::BasicException(
         "Aborting transaction commit because the transaction was requested to stop from other session. ");
   }

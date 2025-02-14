@@ -35,7 +35,7 @@ struct InterpreterFaker {
   }
 
   void HandlePendingTermination() {
-    if (interpreter.transaction_status_.load() == memgraph::query::TransactionStatus::TERMINATED) {
+    if (interpreter.transaction_status_.load() == memgraph::query::TransactionStatus::TERMINATING) {
       interpreter.Abort();
     }
   }

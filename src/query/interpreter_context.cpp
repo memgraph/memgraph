@@ -53,7 +53,7 @@ std::vector<std::vector<TypedValue>> InterpreterContext::TerminateTransactions(
     for (Interpreter *interpreter : interpreters) {
       // Quick check to skip any transactions which are already flagged for
       // termination, or which have began to commit or rollback.
-      if (interpreter->transaction_status_.load(std::memory_order_acquire) != TransactionStatus::ACTIVE) {
+      if (interpreter->transaction_status_.load(std::memory_order_acquire) != TransactionStatus::RUNNING) {
         continue;
       }
 
@@ -77,8 +77,8 @@ std::vector<std::vector<TypedValue>> InterpreterContext::TerminateTransactions(
 
         if (same_user(interpreter->user_or_role_, user_or_role) ||
             privilege_checker(user_or_role, get_interpreter_db_name())) {
-          if (interpreter->transaction_status_.exchange(TransactionStatus::TERMINATED, std::memory_order_release) ==
-              TransactionStatus::ACTIVE) {
+          if (interpreter->transaction_status_.exchange(TransactionStatus::TERMINATING, std::memory_order_release) ==
+              TransactionStatus::RUNNING) {
             spdlog::warn("Transaction {} successfully killed", transaction_id);
           }
         } else {
