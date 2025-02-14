@@ -52,12 +52,12 @@ def show_replicas_func(cursor):
 def test_switch_main_after_local_snapshot(connection, test_name):
     # Goal: Proof that vector types are replicated to REPLICAs
     # 0/ Setup replication
-    # 1/ Create vector index on MAIN
-    # 2/ Validate vector index has arrived at REPLICA
-    # 3/ Create vector entries on MAIN
-    # 4/ Validate index count on REPLICA is correct
-    # 5/ Drop vector index on MAIN
-    # 6/ Validate index has been droped on REPLICA
+    # 1/ Write some data to MAIN and wait for it to replicate
+    # 2/ Create a bunch of snapshots on MAIN (bumping up the ts)
+    # 3/ Switch roles
+    # 4/ Write data to new MAIN and wait for it to replicate
+    # 5/ Switch roles and restart REPLICA
+    # 6/ Validate the data
 
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "instance2": {
@@ -98,41 +98,41 @@ def test_switch_main_after_local_snapshot(connection, test_name):
 
     # 0/
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL)
-    curosr1 = connection(BOLT_PORTS["instance1"], "main").cursor()
+    cursor1 = connection(BOLT_PORTS["instance1"], "main").cursor()
 
     # 1/
-    execute_and_fetch_all(curosr1, "UNWIND range(0,9) AS i CREATE({id:i});")
-    wait_for_replication_change(curosr1, REPLICATION_PORTS["instance2"], 2)
+    execute_and_fetch_all(cursor1, "UNWIND range(0,9) AS i CREATE({id:i});")
+    wait_for_replication_change(cursor1, REPLICATION_PORTS["instance2"], 2)
 
     # 2/
-    execute_and_fetch_all(curosr1, "CREATE SNAPSHOT;")
-    execute_and_fetch_all(curosr1, "CREATE SNAPSHOT;")
-    execute_and_fetch_all(curosr1, "CREATE SNAPSHOT;")
+    execute_and_fetch_all(cursor1, "CREATE SNAPSHOT;")
+    execute_and_fetch_all(cursor1, "CREATE SNAPSHOT;")
+    execute_and_fetch_all(cursor1, "CREATE SNAPSHOT;")
 
     # 3/
-    execute_and_fetch_all(curosr1, f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['instance1']};")
-    curosr1 = connection(BOLT_PORTS["instance1"], "replica").cursor()
-    curosr2 = connection(BOLT_PORTS["instance2"], "replica").cursor()
-    execute_and_fetch_all(curosr2, f"SET REPLICATION ROLE TO MAIN;")
-    curosr2 = connection(BOLT_PORTS["instance2"], "main").cursor()
-    execute_and_fetch_all(curosr2, f"REGISTER REPLICA replica SYNC TO '127.0.0.1:{REPLICATION_PORTS['instance1']}';")
+    execute_and_fetch_all(cursor1, f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['instance1']};")
+    cursor1 = connection(BOLT_PORTS["instance1"], "replica").cursor()
+    cursor2 = connection(BOLT_PORTS["instance2"], "replica").cursor()
+    execute_and_fetch_all(cursor2, f"SET REPLICATION ROLE TO MAIN;")
+    cursor2 = connection(BOLT_PORTS["instance2"], "main").cursor()
+    execute_and_fetch_all(cursor2, f"REGISTER REPLICA replica SYNC TO '127.0.0.1:{REPLICATION_PORTS['instance1']}';")
 
     # 4/
-    execute_and_fetch_all(curosr2, "UNWIND range(10,19) AS i CREATE({id:i});")
-    wait_for_replication_change(curosr2, REPLICATION_PORTS["instance1"], 4)
+    execute_and_fetch_all(cursor2, "UNWIND range(10,19) AS i CREATE({id:i});")
+    wait_for_replication_change(cursor2, REPLICATION_PORTS["instance1"], 4)
 
     # 5/
     interactive_mg_runner.stop(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL, "instance2", keep_directories=False)
-    execute_and_fetch_all(curosr1, f"SET REPLICATION ROLE TO MAIN;")
-    curosr1 = connection(BOLT_PORTS["instance1"], "main").cursor()
+    execute_and_fetch_all(cursor1, f"SET REPLICATION ROLE TO MAIN;")
+    cursor1 = connection(BOLT_PORTS["instance1"], "main").cursor()
     interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL, "instance2")
-    execute_and_fetch_all(curosr1, f"REGISTER REPLICA replica SYNC TO '127.0.0.1:{REPLICATION_PORTS['instance2']}';")
-    curosr2 = connection(BOLT_PORTS["instance2"], "replica").cursor()
-    wait_for_replication_change(curosr1, REPLICATION_PORTS["instance2"], 4)
+    execute_and_fetch_all(cursor1, f"REGISTER REPLICA replica SYNC TO '127.0.0.1:{REPLICATION_PORTS['instance2']}';")
+    cursor2 = connection(BOLT_PORTS["instance2"], "replica").cursor()
+    wait_for_replication_change(cursor1, REPLICATION_PORTS["instance2"], 4)
 
     # 6/
-    assert execute_and_fetch_all(curosr1, f"MATCH(n) RETURN count(*);")[0][0] == 20, "Missing data on instance1"
-    assert execute_and_fetch_all(curosr2, f"MATCH(n) RETURN count(*);")[0][0] == 20, "Missing data on instance2"
+    assert execute_and_fetch_all(cursor1, f"MATCH(n) RETURN count(*);")[0][0] == 20, "Missing data on instance1"
+    assert execute_and_fetch_all(cursor2, f"MATCH(n) RETURN count(*);")[0][0] == 20, "Missing data on instance2"
 
 
 if __name__ == "__main__":
