@@ -3850,7 +3850,8 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
   utils::EnsureDirOrDie(snapshot_directory);
 
   // Create snapshot file.
-  auto path = snapshot_directory / MakeSnapshotName(transaction->start_timestamp);
+  auto path = snapshot_directory / MakeSnapshotName(transaction->last_durable_ts_ ? *transaction->last_durable_ts_
+                                                                                  : transaction->start_timestamp);
   spdlog::info("Starting snapshot creation to {}", path);
   Encoder snapshot;
   snapshot.Initialize(path, kSnapshotMagic, kVersion);
