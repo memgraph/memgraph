@@ -4658,7 +4658,27 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
       return false;
     };
 
+    auto const status_text = [](TransactionStatus const status) -> char const * {
+      switch (status) {
+        case TransactionStatus::IDLE:
+          return "idle";
+        case TransactionStatus::ACTIVE:
+          return "running";
+        case TransactionStatus::TERMINATED:
+          return "terminating";
+        case TransactionStatus::STARTED_COMMITTING:
+          return "committing";
+        case TransactionStatus::STARTED_ROLLBACK:
+          return "aborting";
+      }
+    };
+
     std::unique_lock tx_lock{interpreter->transaction_info_lock_};
+    TransactionStatus const status{interpreter->transaction_status_.load(std::memory_order_acquire)};
+    if (status == TransactionStatus::IDLE) {
+      continue;
+    }
+
     std::optional<uint64_t> const transaction_id = interpreter->GetTransactionId();
     if (transaction_id.has_value() && (same_user(interpreter->user_or_role_, user_or_role) ||
                                        privilege_checker(user_or_role, get_interpreter_db_name()))) {
@@ -4667,7 +4687,8 @@ auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, Que
           {TypedValue(interpreter->user_or_role_
                           ? (interpreter->user_or_role_->username() ? *interpreter->user_or_role_->username() : "")
                           : ""),
-           TypedValue(std::to_string(transaction_id.value())), TypedValue(typed_queries)});
+           TypedValue(std::to_string(transaction_id.value())), TypedValue(typed_queries),
+           TypedValue(status_text(status))});
       // Handle user-defined metadata
       std::map<std::string, TypedValue> metadata_tv;
       if (interpreter->metadata_) {
@@ -4696,7 +4717,7 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
                                 privilege_checker = std::move(privilege_checker)](const auto &interpreters) {
         return ShowTransactions(interpreters, user_or_role.get(), privilege_checker);
       };
-      callback.header = {"username", "transaction_id", "query", "metadata"};
+      callback.header = {"username", "transaction_id", "query", "status", "metadata"};
       callback.fn = [interpreter_context, show_transactions = std::move(show_transactions)] {
         // Multiple simultaneous SHOW TRANSACTIONS aren't allowed
         return interpreter_context->interpreters.WithLock(show_transactions);
