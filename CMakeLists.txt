@@ -28,14 +28,17 @@ else ()
   message(STATUS "CCache: Not used")
 endif(CCACHE_FOUND AND USE_CCACHE)
 
+
+# -----------------------------------------------------------------------------
+
+project(memgraph LANGUAGES C CXX)
+
+message(STATUS "MG_TOOLCHAIN_ROOT = ${MG_TOOLCHAIN_ROOT}")
 if (NOT MG_TOOLCHAIN_ROOT)
     # This is used to so that 3rd party libs can find the
     # correct libraries from our toolchain
     message(FATAL "Need toolchain")
 endif ()
-# -----------------------------------------------------------------------------
-
-project(memgraph LANGUAGES C CXX)
 
 # this reduces issues in build folders from inside containers
 # which are different locations than the host
