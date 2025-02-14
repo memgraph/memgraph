@@ -28,7 +28,11 @@ else ()
   message(STATUS "CCache: Not used")
 endif(CCACHE_FOUND AND USE_CCACHE)
 
-
+if (NOT MG_TOOLCHAIN_ROOT)
+    # This is used to so that 3rd party libs can find the
+    # correct libraries from our toolchain
+    message(FATAL "Need toolchain")
+endif ()
 # -----------------------------------------------------------------------------
 
 project(memgraph LANGUAGES C CXX)
