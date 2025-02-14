@@ -1,6 +1,6 @@
 #!/bin/bash -ex
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
-PREFIX=/opt/toolchain-v6
+PREFIX=/opt/toolchain-v7
 
 # NOTE: Often times when versions in the build script are changes, something
 # doesn't work. To avoid rebuild of the whole toolchain but rebuild specific
