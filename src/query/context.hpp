@@ -33,9 +33,6 @@ enum class TransactionStatus {
   STARTED_COMMITTING,
   STARTED_ROLLBACK,
 
-  READING_TRANSACTION_INFO,   ///< When SHOW/TERMINATE TRANSACTIONS is considering an interpreter.
-  UPDATING_TRANSACTION_INFO,  ///< When data read by SHOW/TERMINATE TRANSACTIONS is being updated.
-
   TERMINATED,  ///< Mark the interpreter as having been killed by TERMINATE TRANSACTIONS. The actual termination occurs
                ///< during Abort(), when the state will change to STARTED_ROLLBACK.
 };
