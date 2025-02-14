@@ -45,46 +45,18 @@ std::vector<std::vector<TypedValue>> InterpreterContext::TerminateTransactions(
     std::function<bool(QueryUserOrRole *, std::string const &)> privilege_checker) {
   auto not_found_midpoint = maybe_kill_transaction_ids.end();
 
-  // Only active transactions can be terminated, and we must set the state to READING_TRANSACTION_INFO to read the
-  // transaction id. In summary:
-  // 1. If the state is UPDATING_TRANSACTION_INFO, wait until the state enum reflects the "real" underlying state.
-  // 2. If the state is ACTIVE, set the state to READING_TRANSACTION_INFO.
-  // 3. If the state is anything else, we can't terminate the transaction (as the transaction is already being
-  // commmited, rolled-back, or has been flagged for termination). Skip it and move on.
-  auto const update_transaction_status{[](std::atomic<TransactionStatus> &state) -> TransactionStatus {
-    TransactionStatus expected = state.load();
-
-    while (true) {
-      if (expected != TransactionStatus::ACTIVE && expected != TransactionStatus::UPDATING_TRANSACTION_INFO) {
-        return expected;
-      }
-
-      if (expected == TransactionStatus::UPDATING_TRANSACTION_INFO) {
-        while (state.load() == TransactionStatus::UPDATING_TRANSACTION_INFO) {
-          std::this_thread::yield();
-        }
-        expected = state.load();
-      } else if (state.compare_exchange_weak(expected, TransactionStatus::READING_TRANSACTION_INFO)) {
-        return expected;
-      }
-    }
-  }};
-
   // Multiple simultaneous TERMINATE TRANSACTIONS aren't allowed
   // TERMINATE and SHOW TRANSACTIONS are mutually exclusive
-  interpreters.WithLock([&not_found_midpoint, &maybe_kill_transaction_ids, user_or_role, update_transaction_status,
+  interpreters.WithLock([&not_found_midpoint, &maybe_kill_transaction_ids, user_or_role,
                          privilege_checker = std::move(privilege_checker)](const auto &interpreters) {
     for (Interpreter *interpreter : interpreters) {
-      TransactionStatus const prior_status{update_transaction_status(interpreter->transaction_status_)};
-      if (prior_status != TransactionStatus::ACTIVE) {
+      // Quick check to skip any transactions which are already flagged for
+      // termination, or which have began to commit or rollback.
+      if (interpreter->transaction_status_.load(std::memory_order_acquire) != TransactionStatus::ACTIVE) {
         continue;
       }
 
-      bool killed = false;
-      utils::OnScopeExit clean_status([interpreter, &killed]() {
-        interpreter->transaction_status_.store(killed ? TransactionStatus::TERMINATED : TransactionStatus::ACTIVE,
-                                               std::memory_order_release);
-      });
+      std::lock_guard const lg{interpreter->transaction_info_lock_};
       std::optional<uint64_t> intr_trans = interpreter->GetTransactionId();
       if (!intr_trans.has_value()) continue;
 
@@ -104,8 +76,10 @@ std::vector<std::vector<TypedValue>> InterpreterContext::TerminateTransactions(
 
         if (same_user(interpreter->user_or_role_, user_or_role) ||
             privilege_checker(user_or_role, get_interpreter_db_name())) {
-          killed = true;  // Note: this is used by the above `clean_status` (OnScopeExit)
-          spdlog::warn("Transaction {} successfully killed", transaction_id);
+          if (interpreter->transaction_status_.exchange(TransactionStatus::TERMINATED, std::memory_order_release) ==
+              TransactionStatus::ACTIVE) {
+            spdlog::warn("Transaction {} successfully killed", transaction_id);
+          }
         } else {
           spdlog::warn("Not enough rights to kill the transaction");
         }
