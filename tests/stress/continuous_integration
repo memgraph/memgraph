@@ -38,11 +38,6 @@ class Config:
         self._script = memgraph.get("deployment", {}).get("script", None)
         self._memgraph_args = memgraph.get("args", [])
 
-        # Querying configuration
-        querying = memgraph.get("querying", {})
-        self._query_host = querying.get("host", "127.0.0.1")
-        self._query_port = querying.get("port", 7687)
-
         # Dataset tests
         dataset = config.get("dataset", {})
         self._tests = dataset.get("tests", [])
@@ -72,15 +67,6 @@ class Config:
     @property
     def memgraph_args(self):
         return self._memgraph_args
-
-    @property
-    def query_host(self):
-        return self._query_host
-
-    @property
-    def query_port(self):
-        return self._query_port
-
 
 
 def start_deployment(script_path: str, args: List[str]) -> None:
@@ -152,18 +138,16 @@ def run_custom_workloads(script_path: str, config: Config) -> Optional[Dict[str,
         start = time.time()
 
         try:
-            # Use workload-specific querying settings if available
-            query_host = workload.get("querying", {}).get("host", config.query_host)
-            query_port = workload.get("querying", {}).get("port", config.query_port)
-
-            print(f"Connecting to Memgraph at {query_host}:{query_port}")
-            memgraph = Memgraph(host=query_host, port=query_port)
-
             # Start Memgraph deployment
             start_deployment(script_path, config.memgraph_args + workload.get("memgraph_args", []))
 
             # Run import queries
             print(f"Started import for workload '{workload_name}'")
+            
+            query_host = workload.get("querying", {}).get("host", "127.0.0.1")
+            query_port = workload.get("querying", {}).get("port", 7687)
+            
+            memgraph = Memgraph(host=query_host, port=query_port)
             for query in workload.get("import", {}).get("queries", []):
                 print(f"Executing query: {query}")
                 try:
@@ -180,11 +164,14 @@ def run_custom_workloads(script_path: str, config: Config) -> Optional[Dict[str,
             for step in steps:
                 print(f"Running step {step}.")
 
-                for worker in [x for x in workers if x.get("step", 1) == step]:
+                for worker in [x for x in workers if x.get("step", 1) == step]:              
+                    # Override with workload global querying if not set on the worker
+                    if "querying" not in worker.keys():
+                        worker["querying"] = {"host": query_host, "port": query_port}
                     worker_object = get_worker_object(worker)
 
                     for i in range(worker.get("replicas", 1)):
-                        process = multiprocessing.Process(target=worker_object.run, args=(memgraph,))
+                        process = multiprocessing.Process(target=worker_object.run)
                         processes.append((process, workload.get("timeout_min", 10) * 60))
                         process.start()
 

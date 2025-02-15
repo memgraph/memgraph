@@ -5,25 +5,29 @@ from gqlalchemy import Memgraph
 
 
 class Worker(ABC):
-    def run(self, memgraph: Memgraph):
-        """Abstract method to execute a worker task."""
-        pass
+    def __init__(self, worker):
+        """Initialize worker with basic parameters."""
+        self._name = worker["name"]
+        self._query_host = worker.get("querying", {}).get("host", None)
+        self._query_port = worker.get("querying", {}).get("port", None)
 
+    def run(self):
+        pass
 
 class BasicWorker(Worker):
     """Executes a fixed query multiple times."""
 
     def __init__(self, worker):
-        super().__init__()
-        self._name = worker["name"]
+        super().__init__(worker)
         self._query = worker["query"]
         self._repetitions = worker["num_repetitions"]
         self._sleep_millis = worker.get("sleep_millis", 0)
 
-    def run(self, memgraph: Memgraph):
+    def run(self):
         """Executes the assigned query in a loop."""
         print(f"Starting worker '{self._name}'...")
-
+        
+        memgraph = Memgraph(self._query_host, self._query_port)
         for i in range(self._repetitions):
             try:
                 print(f"Worker '{self._name}' executing query: {self._query}")
@@ -41,12 +45,11 @@ class LabSimulator(Worker):
     """Executes a set of system queries randomly."""
 
     def __init__(self, worker):
-        super().__init__()
-        self._name = worker["name"]
+        super().__init__(worker)
         self._repetitions = worker["num_repetitions"]
         self._sleep_millis = worker.get("sleep_millis", 0)
 
-    def run(self, memgraph: Memgraph):
+    def run(self):
         print(f"Starting worker '{self._name}'...")
 
         queries = [
@@ -61,6 +64,7 @@ class LabSimulator(Worker):
             "SHOW TRANSACTIONS;",
         ]
 
+        memgraph = Memgraph(self._query_host, self._query_port)
         for i in range(self._repetitions):
             query = random.choice(queries)
             try:
@@ -75,33 +79,6 @@ class LabSimulator(Worker):
         print(f"Worker '{self._name}' finished.")
 
 
-class QueryWorker(Worker):
-    """Executes a set of predefined queries from the configuration."""
-
-    def __init__(self, worker):
-        super().__init__()
-        self._name = worker["name"]
-        self._queries = worker["queries"]  # List of queries
-        self._repetitions = worker["num_repetitions"]
-        self._sleep_millis = worker.get("sleep_millis", 0)
-
-    def run(self, memgraph: Memgraph):
-        print(f"Starting worker '{self._name}'...")
-
-        for i in range(self._repetitions):
-            for query in self._queries:
-                try:
-                    print(f"Worker '{self._name}' executing query: {query}")
-                    memgraph.execute(query)
-                except Exception as e:
-                    print(f"Error in worker '{self._name}': {e}")
-
-                if self._sleep_millis > 0:
-                    time.sleep(self._sleep_millis / 1000.0)
-
-        print(f"Worker '{self._name}' finished.")
-
-
 def get_worker_object(worker) -> Worker:
     """Factory function to create the appropriate worker object."""
     worker_type = worker["type"]
@@ -110,8 +87,6 @@ def get_worker_object(worker) -> Worker:
         return BasicWorker(worker)
     if worker_type == "lab-simulator":
         return LabSimulator(worker)
-    if worker_type == "query":
-        return QueryWorker(worker)
 
     raise Exception(f"Unknown worker type: '{worker_type}'!")
 

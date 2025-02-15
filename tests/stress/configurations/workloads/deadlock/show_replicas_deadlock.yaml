@@ -1,19 +1,8 @@
 memgraph:
   deployment:
-    type: ha
-  installation:
-    type: binary
-  args:
-    - "--telemetry-enabled=false"
-    - "--bolt-server-name-for-init=Neo4j/"
-    - "--storage-properties-on-edges=true"
-    - "--storage-snapshot-on-exit=true"
-    - "--storage-snapshot-interval-sec=600"
-    - "--storage-snapshot-retention-count=1"
-    - "--storage-wal-enabled=true"
-    - "--query-execution-timeout-sec=1200"
-    - "--log-level=DEBUG"
-    - "--also-log-to-stderr=true"
+    # Script needs to be located in stress/configurations/deployments
+    script: "binary_ha.sh"
+  args: [] # Any additional flags you need
 
 general:
   verbose: false
@@ -22,10 +11,15 @@ general:
 dataset:
   tests: []
 
+
 customWorkloads:
   tests:
+    # Copied from configurations/workloads/deadlock/show_replicas_deadlock.yaml
     - name: show-replicas-deadlock
       memgraph_args: []
+      querying:
+        host: "localhost"
+        port: 7687
       import:
         queries: ["CREATE INDEX ON :Node;", "CREATE INDEX ON :Node(id);"]
       workers:
