@@ -1,27 +1,36 @@
 import random
 import time
 from abc import ABC
+from gqlalchemy import Memgraph
 
 
 class Worker(ABC):
-    def run(self, deployment):
+    def run(self, memgraph: Memgraph):
+        """Abstract method to execute a worker task."""
         pass
 
 
 class BasicWorker(Worker):
+    """Executes a fixed query multiple times."""
+
     def __init__(self, worker):
         super().__init__()
         self._name = worker["name"]
         self._query = worker["query"]
         self._repetitions = worker["num_repetitions"]
-        self._sleep_millis = worker["sleep_millis"]
+        self._sleep_millis = worker.get("sleep_millis", 0)
 
-    def run(self, deployment):
-        """Function to be executed in a separate process for each worker."""
+    def run(self, memgraph: Memgraph):
+        """Executes the assigned query in a loop."""
         print(f"Starting worker '{self._name}'...")
 
         for i in range(self._repetitions):
-            deployment.execute(self._query)
+            try:
+                print(f"Worker '{self._name}' executing query: {self._query}")
+                memgraph.execute(self._query)
+            except Exception as e:
+                print(f"Error in worker '{self._name}': {e}")
+
             if self._sleep_millis > 0:
                 time.sleep(self._sleep_millis / 1000.0)
 
@@ -29,14 +38,17 @@ class BasicWorker(Worker):
 
 
 class LabSimulator(Worker):
+    """Executes a set of system queries randomly."""
+
     def __init__(self, worker):
         super().__init__()
         self._name = worker["name"]
         self._repetitions = worker["num_repetitions"]
-        self._sleep_millis = worker["sleep_millis"]
+        self._sleep_millis = worker.get("sleep_millis", 0)
 
-    def run(self, deployment):
+    def run(self, memgraph: Memgraph):
         print(f"Starting worker '{self._name}'...")
+
         queries = [
             "SHOW INDEX INFO;",
             "SHOW CONSTRAINT INFO;",
@@ -48,31 +60,68 @@ class LabSimulator(Worker):
             "SHOW STORAGE INFO;",
             "SHOW TRANSACTIONS;",
         ]
+
         for i in range(self._repetitions):
             query = random.choice(queries)
-            deployment.execute(query)
+            try:
+                print(f"Worker '{self._name}' executing query: {query}")
+                memgraph.execute(query)
+            except Exception as e:
+                print(f"Error in worker '{self._name}': {e}")
+
             if self._sleep_millis > 0:
                 time.sleep(self._sleep_millis / 1000.0)
 
         print(f"Worker '{self._name}' finished.")
 
 
+class QueryWorker(Worker):
+    """Executes a set of predefined queries from the configuration."""
+
+    def __init__(self, worker):
+        super().__init__()
+        self._name = worker["name"]
+        self._queries = worker["queries"]  # List of queries
+        self._repetitions = worker["num_repetitions"]
+        self._sleep_millis = worker.get("sleep_millis", 0)
+
+    def run(self, memgraph: Memgraph):
+        print(f"Starting worker '{self._name}'...")
+
+        for i in range(self._repetitions):
+            for query in self._queries:
+                try:
+                    print(f"Worker '{self._name}' executing query: {query}")
+                    memgraph.execute(query)
+                except Exception as e:
+                    print(f"Error in worker '{self._name}': {e}")
+
+                if self._sleep_millis > 0:
+                    time.sleep(self._sleep_millis / 1000.0)
+
+        print(f"Worker '{self._name}' finished.")
+
+
 def get_worker_object(worker) -> Worker:
-    type = worker["type"]
-    if type == "reader":
+    """Factory function to create the appropriate worker object."""
+    worker_type = worker["type"]
+
+    if worker_type == "reader" or worker_type == "writer":
         return BasicWorker(worker)
-    if type == "writer":
-        return BasicWorker(worker)
-    if type == "lab-simulator":
+    if worker_type == "lab-simulator":
         return LabSimulator(worker)
-    raise Exception(f"Unknown worker type: '{type}'!")
+    if worker_type == "query":
+        return QueryWorker(worker)
+
+    raise Exception(f"Unknown worker type: '{worker_type}'!")
 
 
 def get_worker_steps(workers):
+    """Extracts unique steps from worker configurations."""
     steps = [worker.get("step", 1) for worker in workers]
 
     for step in steps:
         if step <= 0:
-            raise Exception(f"Step can not be {step}!")
+            raise Exception(f"Step cannot be {step}!")
 
     return sorted(set(steps))
