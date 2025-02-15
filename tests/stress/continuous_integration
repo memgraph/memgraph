@@ -150,10 +150,7 @@ def run_custom_workloads(script_path: str, config: Config) -> Optional[Dict[str,
             memgraph = Memgraph(host=query_host, port=query_port)
             for query in workload.get("import", {}).get("queries", []):
                 print(f"Executing query: {query}")
-                try:
-                    memgraph.execute(query)
-                except Exception as e:
-                    print(f"Error executing import query: {e}")
+                memgraph.execute(query)
             print(f"Finished import for workload '{workload_name}'")
 
             # Execute workers in steps

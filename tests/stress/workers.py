@@ -29,11 +29,8 @@ class BasicWorker(Worker):
         
         memgraph = Memgraph(self._query_host, self._query_port)
         for i in range(self._repetitions):
-            try:
-                print(f"Worker '{self._name}' executing query: {self._query}")
-                memgraph.execute(self._query)
-            except Exception as e:
-                print(f"Error in worker '{self._name}': {e}")
+            print(f"Worker '{self._name}' executing query: {self._query}")
+            memgraph.execute(self._query)
 
             if self._sleep_millis > 0:
                 time.sleep(self._sleep_millis / 1000.0)
@@ -67,11 +64,8 @@ class LabSimulator(Worker):
         memgraph = Memgraph(self._query_host, self._query_port)
         for i in range(self._repetitions):
             query = random.choice(queries)
-            try:
-                print(f"Worker '{self._name}' executing query: {query}")
-                memgraph.execute(query)
-            except Exception as e:
-                print(f"Error in worker '{self._name}': {e}")
+            print(f"Worker '{self._name}' executing query: {query}")
+            memgraph.execute(query)
 
             if self._sleep_millis > 0:
                 time.sleep(self._sleep_millis / 1000.0)

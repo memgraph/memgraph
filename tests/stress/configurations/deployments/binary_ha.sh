@@ -13,14 +13,14 @@ DEFAULT_DATA_FLAGS=(
     "--storage-wal-enabled=true"
     "--query-execution-timeout-sec=1200"
     "--log-file="
-    "--log-level=TRACE"
+    "--log-level=ERROR"
     "--also-log-to-stderr=true"
 )
 
 # Default flags for Memgraph Coordinator Nodes
 DEFAULT_COORD_FLAGS=(
     "--log-file="
-    "--log-level=TRACE"
+    "--log-level=ERROR"
     "--also-log-to-stderr=true"
 )
 
@@ -33,9 +33,9 @@ DATA_NODES=(
 
 # Configuration for Coordinator Nodes
 COORD_NODES=(
-    "--bolt-port=7691 --management-port=12121 --coordinator-port=10111 --monitoring-port=7447 --metrics-port=9094 --data-directory=${COORD_DIR_PREFIX}_1"
-    "--bolt-port=7692 --management-port=12122 --coordinator-port=10112 --monitoring-port=7448 --metrics-port=9095 --data-directory=${COORD_DIR_PREFIX}_2"
-    "--bolt-port=7693 --management-port=12123 --coordinator-port=10113 --monitoring-port=7449 --metrics-port=9096 --data-directory=${COORD_DIR_PREFIX}_3"
+    "--coordinator-id=1 --coordinator-hostname=127.0.0.1 --bolt-port=7691 --management-port=12121 --coordinator-port=10111 --monitoring-port=7447 --metrics-port=9094 --data-directory=${COORD_DIR_PREFIX}_1"
+    "--coordinator-id=2 --coordinator-hostname=127.0.0.1 --bolt-port=7692 --management-port=12122 --coordinator-port=10112 --monitoring-port=7448 --metrics-port=9095 --data-directory=${COORD_DIR_PREFIX}_2"
+    "--coordinator-id=3 --coordinator-hostname=127.0.0.1 --bolt-port=7693 --management-port=12123 --coordinator-port=10113 --monitoring-port=7449 --metrics-port=9096 --data-directory=${COORD_DIR_PREFIX}_3"
 )
 
 clean_data_directories() {
@@ -103,6 +103,36 @@ start_memgraph() {
     done
 
     wait_for_server 7687
+    wait_for_server 7688
+    wait_for_server 7689
+    wait_for_server 7691
+    wait_for_server 7692
+    wait_for_server 7693
+
+    setup_ha
+}
+
+
+setup_ha() {
+    echo "Setting up HA configuration using mgconsole..."
+    sleep 2  # Ensure coordinators are fully started
+
+    echo "Adding coordinators..."
+    echo "
+    ADD COORDINATOR 1 WITH CONFIG {\"bolt_server\": \"127.0.0.1:7691\", \"coordinator_server\": \"127.0.0.1:10111\", \"management_server\": \"127.0.0.1:12121\"};
+    ADD COORDINATOR 2 WITH CONFIG {\"bolt_server\": \"127.0.0.1:7692\", \"coordinator_server\": \"127.0.0.1:10112\", \"management_server\": \"127.0.0.1:12122\"};
+    ADD COORDINATOR 3 WITH CONFIG {\"bolt_server\": \"127.0.0.1:7693\", \"coordinator_server\": \"127.0.0.1:10113\", \"management_server\": \"127.0.0.1:12123\"};
+    " | mgconsole --host 127.0.0.1 --port 7691
+
+    echo "Registering instances..."
+    echo "
+    REGISTER INSTANCE instance_1 WITH CONFIG {\"bolt_server\": \"127.0.0.1:7687\", \"management_server\": \"127.0.0.1:13011\", \"replication_server\": \"127.0.0.1:10001\"};
+    REGISTER INSTANCE instance_2 WITH CONFIG {\"bolt_server\": \"127.0.0.1:7688\", \"management_server\": \"127.0.0.1:13012\", \"replication_server\": \"127.0.0.1:10002\"};
+    REGISTER INSTANCE instance_3 WITH CONFIG {\"bolt_server\": \"127.0.0.1:7689\", \"management_server\": \"127.0.0.1:13013\", \"replication_server\": \"127.0.0.1:10003\"};
+    SET INSTANCE instance_1 TO MAIN;
+    " | mgconsole --host 127.0.0.1 --port 7691
+
+    echo "HA setup completed!"
 }
 
 stop_memgraph() {
