@@ -14,11 +14,14 @@
 #include <condition_variable>
 #include <functional>
 #include <iostream>
+#include <limits>
 #include <mutex>
 #include <optional>
 #include <queue>
 #include <stack>
 #include <thread>
+#include "utils/priorities.hpp"
+#include "utils/scheduler.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/thread.hpp"
 
@@ -26,7 +29,6 @@ namespace memgraph::utils {
 
 class PriorityThreadPool {
  public:
-  enum class Priority : uint8_t { LOW, HIGH };
   using TaskSignature = std::function<void()>;
 
   struct Task {
@@ -86,36 +88,23 @@ class PriorityThreadPool {
   class Worker {
    public:
     thread_local static Priority priority;
-    void push(TaskSignature new_task);
+    struct Work {
+      uint64_t id;
+      mutable TaskSignature work;
+      bool operator<(const Work &other) const { return id < other.id; }
+    };
+    std::priority_queue<Work> work_;
+
+    void push(TaskSignature new_task, uint64_t id);
 
     void stop();
 
     template <Priority ThreadPriority>
-    void operator()() {
-      utils::ThreadSetName(ThreadPriority == Priority::HIGH ? "high prior." : "low prior.");
-      priority = ThreadPriority;  // Update the visible thread's priority
-      while (run_) {
-        // Check if there is a scheduled task
-        std::optional<TaskSignature> task = scheduler_.GetTask<ThreadPriority>(this);
-        if (!task) {
-          // Wait for a new task
-          auto l = std::unique_lock{mtx_};
-          cv_.wait(l, [this] { return task_ || !run_; });
+    void operator()();
 
-          // Stop requested
-          if (!run_) [[unlikely]] {
-            return;
-          }
-
-          task = *std::move(task_);
-          task_.reset();
-        }
-        // Execute the task
-        task.value()();
-      }
+    explicit Worker(PriorityThreadPool &scheduler, int pin_core = -1) : scheduler_{scheduler}, pinned_core_(pin_core) {
+      (void)scheduler_;
     }
-
-    explicit Worker(PriorityThreadPool &scheduler) : scheduler_{scheduler} {}
 
    private:
     mutable std::mutex mtx_;
@@ -123,9 +112,22 @@ class PriorityThreadPool {
     std::condition_variable cv_;
     std::optional<TaskSignature> task_{};
     PriorityThreadPool &scheduler_;
+
+    std::atomic<uint64_t> last_task_{0};
+    std::atomic_bool working_{false};
+    std::atomic_bool has_pending_work_{false};
+
+    int pinned_core_;
+
+    friend class PriorityThreadPool;
   };
 
  private:
+  std::vector<Worker *> work_buckets_;
+  std::atomic<uint64_t> id_{std::numeric_limits<uint32_t>::max()};
+  utils::Scheduler monitoring_;
+  std::atomic<uint64_t> tid_{0};
+
   mutable std::mutex pool_lock_;
   std::stop_source pool_stop_source_;
 

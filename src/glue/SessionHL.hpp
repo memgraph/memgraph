@@ -86,15 +86,15 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
       return std::visit(utils::Overloaded{
                             [](const query::Interpreter::TransactionQuery &) {
                               // BEGIN; COMMIT; ROLLBACK
-                              return utils::PriorityThreadPool::Priority::LOW;
+                              return utils::Priority::LOW;
                             },
                             [](const query::Interpreter::ParseInfo &parse_info) {
                               // Many variants of queries
                               // Cypher -> low
                               // all others -> high
                               return utils::Downcast<query::CypherQuery>(parse_info.parsed_query.query)
-                                         ? utils::PriorityThreadPool::Priority::LOW
-                                         : utils::PriorityThreadPool::Priority::HIGH;
+                                         ? utils::Priority::LOW
+                                         : utils::Priority::HIGH;
                             },
                             [](const auto &) { MG_ASSERT(false, "Unexpected ParseRes variant!"); },
                         },
@@ -103,7 +103,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 
     // Result means query has been prepared and we are pulling
     return state_ == memgraph::communication::bolt::State::Result ? interpreter_.ApproximateNextQueryPriority()
-                                                                  : utils::PriorityThreadPool::Priority::HIGH;
+                                                                  : utils::Priority::HIGH;
   }
 
   std::string GetCurrentDB() const;
