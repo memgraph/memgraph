@@ -1224,6 +1224,10 @@ TypedValue operator+(const TypedValue &a, const TypedValue &b) {
 
   if (a.IsList() || b.IsList()) {
     TypedValue::TVector list(a.GetMemoryResource());
+
+    size_t const new_list_size{(a.IsList() ? a.ValueList().size() : 1) + (b.IsList() ? b.ValueList().size() : 1)};
+    list.reserve(new_list_size);
+
     auto append_list = [&list](const TypedValue &v) {
       if (v.IsList()) {
         auto list2 = v.ValueList();

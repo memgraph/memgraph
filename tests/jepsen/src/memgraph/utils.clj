@@ -70,6 +70,16 @@
   [e]
   (string/includes? (str e) "At least one SYNC replica has not confirmed committing last transaction."))
 
+(defn main-became-replica?
+  "Accepts exception e as argument."
+  [e]
+  (string/includes? (str e) "Cannot commit because instance is not main anymore."))
+
+(defn main-unwriteable?
+  "Accepts exception e as argument."
+  [e]
+  (string/includes? (str e) "Write queries currently forbidden on the main instance."))
+
 (defn conflicting-txns?
   "Conflicting transactions error message is allowed."
   [e]
