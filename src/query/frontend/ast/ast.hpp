@@ -2013,9 +2013,9 @@ class EdgeAtom : public memgraph::query::PatternAtom {
     object->direction_ = direction_;
     object->edge_types_.resize(edge_types_.size());
     for (auto i = 0; i < object->edge_types_.size(); ++i) {
-      auto const clone_edge_type = Overloaded{
-          [&](EdgeTypeIx const &) { object->edge_types_[i] = storage->GetEdgeTypeIx(edge_type->name); },
-          [&](Expression const *) { object->edge_types_[i] = std::get<Expression *>(edge_types_[i])->Clone(storage); },
+      auto const clone_edge_type = utils::Overloaded{
+          [&](EdgeTypeIx const &edge_type) { object->edge_types_[i] = storage->GetEdgeTypeIx(edge_type.name); },
+          [&](Expression const *edge_type) { object->edge_types_[i] = edge_type->Clone(storage); },
       };
       std::visit(clone_edge_type, edge_types_[i]);
     }
