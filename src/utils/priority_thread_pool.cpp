@@ -10,25 +10,73 @@
 // licenses/APL.txt.
 
 #include "utils/priority_thread_pool.hpp"
+#include <barrier>
+#include <chrono>
+#include <mutex>
+#include <shared_mutex>
+#include <thread>
 
 #include "utils/logging.hpp"
+#include "utils/on_scope_exit.hpp"
 
 namespace memgraph::utils {
 
 PriorityThreadPool::PriorityThreadPool(size_t mixed_work_threads_count, size_t high_priority_threads_count) {
   pool_.reserve(mixed_work_threads_count + high_priority_threads_count);
+  work_buckets_.resize(mixed_work_threads_count);
+
+  std::barrier barrier{std::ssize(work_buckets_) + 1};
+
   for (size_t i = 0; i < mixed_work_threads_count; ++i) {
-    pool_.emplace_back([this]() {
-      Worker worker(*this);
+    pool_.emplace_back([this, i, &barrier]() {
+      // Test to see if pinning will help
+      Worker worker(*this, i);
+      // Divide work by each thread
+      work_buckets_[i] = &worker;
+      barrier.arrive_and_wait();
       worker.operator()<Priority::LOW>();
     });
   }
-  for (size_t i = 0; i < high_priority_threads_count; ++i) {
-    pool_.emplace_back([this]() {
-      Worker worker(*this);
-      worker.operator()<Priority::HIGH>();
-    });
-  }
+  // TODO Re-enable hp threads and implement work stealing
+  // for (size_t i = 0; i < high_priority_threads_count; ++i) {
+  //   pool_.emplace_back([this]() {
+  //     Worker worker(*this);
+  //     worker.operator()<Priority::HIGH>();
+  //   });
+  // }
+
+  barrier.arrive_and_wait();
+
+  // Under heavy load a task can get stuck, monitor and move to different thread
+  // TODO only if has more than one thread
+  monitoring_.SetInterval(std::chrono::seconds(1));
+  monitoring_.Run("sched_mon", [this, last_task = std::invoke([&] {
+                                        auto vec = std::vector<uint64_t>{};
+                                        vec.resize(work_buckets_.size());
+                                        return vec;
+                                      })]() mutable {
+    // TODO range
+    size_t i = 0;
+    for (auto *worker : work_buckets_) {
+      const auto worker_id = i++;
+      auto update = utils::OnScopeExit{[&]() mutable { last_task[worker_id] = worker->last_task_; }};
+      if (/*worker->working_ && */ worker->has_pending_work_ && last_task[worker_id] == worker->last_task_) {
+        // worker stuck on a task; move task to a different queue
+        // how to find the correct worker?
+
+        auto l = std::unique_lock{worker->mtx_};
+        // Recheck under lock
+        if (worker->work_.empty() || last_task[worker_id] != worker->work_.top().id) continue;
+        Worker::Work work{worker->work_.top().id, std::move(worker->work_.top().work)};
+        worker->work_.pop();
+        l.unlock();
+
+        // Just move to the next queue for now
+        const auto next_worker_id = (worker_id + 1) % work_buckets_.size();
+        work_buckets_[next_worker_id]->push(std::move(work.work), work.id);
+      }
+    }
+  });
 }
 
 PriorityThreadPool::~PriorityThreadPool() {
@@ -38,6 +86,7 @@ PriorityThreadPool::~PriorityThreadPool() {
 }
 
 void PriorityThreadPool::ShutDown() {
+  monitoring_.Stop();
   {
     auto guard = std::unique_lock{pool_lock_};
     pool_stop_source_.request_stop();
@@ -56,53 +105,45 @@ void PriorityThreadPool::ShutDown() {
       mixed_threads_.pop();
     }
     // Other threads are working and will stop when they check for next scheduled work
+
+    // WIP
+    for (auto *worker : work_buckets_) {
+      worker->stop();
+    }
   }
   pool_.clear();
 }
 
 void PriorityThreadPool::ScheduledAddTask(TaskSignature new_task, const Priority priority) {
-  auto l = std::unique_lock{pool_lock_};
-
+  // auto l = std::unique_lock{pool_lock_};
   if (pool_stop_source_.stop_requested()) [[unlikely]] {
     return;
-  }
+  }  // Not sure about this
 
-  // Mixed work threads can service both high and low priority tasks
-  if (!mixed_threads_.empty()) {
-    auto *thread = mixed_threads_.top();
-    mixed_threads_.pop();
-    l.unlock();
-    thread->push(std::move(new_task));
-    return;
-  }
+  // const auto this_cpu = sched_getcpu();
+  auto tid = tid_++ % work_buckets_.size();
 
-  // High priority threads can only service high priority tasks
-  if (priority == Priority::HIGH) {
-    if (!high_priority_threads_.empty()) {
-      auto *thread = high_priority_threads_.top();
-      high_priority_threads_.pop();
-      l.unlock();
-      thread->push(std::move(new_task));
-      return;
-    }
-  }
+  const auto id =
+      (uint64_t(priority == Priority::HIGH) << 63U) + id_--;  // Way to priorities hp tasks (overflow concerns)
 
-  // No threads available, enqueue the task
-  if (priority == Priority::HIGH) {
-    high_priority_queue_.emplace(std::move(new_task));
-  } else {
-    low_priority_queue_.emplace(std::move(new_task));
-  }
+  // Add task to current CPU's thread (cheap)
+  auto *this_bucket = work_buckets_[tid];
+  this_bucket->push(std::move(new_task), id);
 }
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-thread_local PriorityThreadPool::Priority PriorityThreadPool::Worker::priority = Priority::HIGH;
+thread_local Priority PriorityThreadPool::Worker::priority = Priority::HIGH;
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+// thread_local std::priority_queue<PriorityThreadPool::Worker::Work> PriorityThreadPool::Worker::work_{};
 
-void PriorityThreadPool::Worker::push(TaskSignature new_task) {
+void PriorityThreadPool::Worker::push(TaskSignature new_task, uint64_t id) {
   {
     auto l = std::unique_lock{mtx_};
-    DMG_ASSERT(!task_, "Thread already has a task");
-    task_.emplace(std::move(new_task));
+    // std::cout << "Worker " << (void *)this << " got a task " << id << " in " << (void *)&work_ << std::endl;
+    // DMG_ASSERT(!task_, "Thread already has a task");
+    // task_.emplace(std::move(new_task));
+    work_.emplace(id, std::move(new_task));
+    has_pending_work_ = true;
   }
   cv_.notify_one();
 }
@@ -115,4 +156,91 @@ void PriorityThreadPool::Worker::stop() {
   cv_.notify_one();
 }
 
+template <Priority ThreadPriority>
+void PriorityThreadPool::Worker::operator()() {
+  utils::ThreadSetName(ThreadPriority == Priority::HIGH ? "high prior." : "low prior.");
+  priority = ThreadPriority;  // Update the visible thread's priority
+
+  if (pinned_core_ >= 0 && pinned_core_ < std::thread::hardware_concurrency()) {
+    pthread_t self = pthread_self();
+
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);
+    CPU_SET(pinned_core_, &cpuset);
+    MG_ASSERT(pthread_setaffinity_np(self, sizeof(cpu_set_t), &cpuset) == 0, "Failed to pin worker core");
+
+    // sched_param param;
+    // param.sched_pri::arrive_and_waitority = 75;
+    // int rc = pthread_setschedparam(self, SCHED_RR, &param);
+    // MG_ASSERT(rc == 0, "Failed to set scheduler priority {}", rc);
+  }
+
+  std::optional<TaskSignature> task;
+  while (run_) {
+    // std::cout << "Worker " << (void *)this << " loop run..." << std::endl;
+    {
+      auto l = std::unique_lock{mtx_};
+      if (work_.empty()) {
+        // Try to steal work before going to wait
+        {
+          l.unlock();
+          for (auto *worker : scheduler_.work_buckets_) {
+            if (has_pending_work_) break;  // This worker received work
+            if (/*worker->working_ && */ worker->has_pending_work_) {
+              auto l2 = std::unique_lock{worker->mtx_, std::defer_lock};
+              if (!l2.try_lock()) continue;  // Busy, skip
+              // Re-check under lock
+              if (worker->work_.empty()) continue;
+              worker->has_pending_work_ = worker->work_.size() > 1;
+              Work work{worker->work_.top().id, std::move(worker->work_.top().work)};
+              worker->work_.pop();
+              l2.unlock();
+              // TODO High perf thread steals only hp work
+              l.lock();
+              work_.emplace(work.id, std::move(work.work));
+              has_pending_work_ = true;
+              break;
+            }
+          }
+          if (!l.owns_lock()) l.lock();
+        }
+
+        // Couldn't steal
+        if (work_.empty()) {
+          // std::cout << "Worker " << (void *)this << " no work in " << (void *)&work_ << ", wait..." << std::endl;
+          // Wait for a new task
+          cv_.wait_for(l, std::chrono::milliseconds(100), [this] { return !work_.empty() || !run_; });
+
+          // std::cout << "Worker " << (void *)this << " loop check... " << work_.empty() << std::endl;
+
+          // Just looping
+          if (work_.empty()) {
+            continue;
+          }
+        }
+      }
+
+      // Stop requested
+      if (!run_) [[unlikely]] {
+        return;
+      }
+
+      // std::cout << "Worker " << (void *)this << " taking task " << work_.top().id << std::endl;
+      working_ = true;
+      last_task_ = work_.top().id;
+      has_pending_work_ = work_.size() > 1;
+      task = std::move(work_.top().work);
+      work_.pop();
+    }
+    // std::cout << "Worker " << (void *)this << " executing task..." << std::endl;
+    // Execute the task
+    task.value()();
+    task.reset();
+    working_ = false;
+  }
+}
+
 }  // namespace memgraph::utils
+
+template void memgraph::utils::PriorityThreadPool::Worker::operator()<memgraph::utils::Priority::LOW>();
+template void memgraph::utils::PriorityThreadPool::Worker::operator()<memgraph::utils::Priority::HIGH>();
