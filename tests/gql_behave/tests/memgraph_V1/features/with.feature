@@ -374,3 +374,77 @@ Feature: With
         Then the result should be:
             | n             |
             | (:labelvalue) |
+
+    Scenario: With test 23:
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({name: "node1"})
+            """
+        When executing query:
+            """
+            MATCH (n) WITH n AS node
+            CREATE ()-[:node.name]->()
+            """
+        When executing query:
+            """
+            MATCH ()-[r]->() RETURN r;
+            """
+        Then the result should be:
+            | r        |
+            | [:node1] |
+
+    Scenario: With test 24 (dynamic not ):
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({name: "node1"})
+            """
+        When executing query:
+            """
+            MATCH (n) WITH n AS node
+            CREATE ()-[:node.name]->()
+            """
+        When executing query:
+            """
+            MATCH ()-[r]->() RETURN r;
+            """
+        Then the result should be:
+            | r        |
+            | [:node1] |
+
+    Scenario: With test 25 (dynamic node labels not being able to pass match):
+        Given an empty graph
+        When executing query:
+            """
+            WITH {value: {labelz: "labelz"}} as labelz
+            MATCH (n:labelz.value.labelz) RETURN n;
+            """
+        Then an error should be raised
+
+    Scenario: With test 26 (dynamic node labels not being able to pass merge):
+        Given an empty graph
+        When executing query:
+            """
+            WITH {value: {labelz: "labelz"}} as labelz
+            MERGE (n:labelz.value.labelz);
+            """
+        Then an error should be raised
+
+    Scenario: With test 27 (dynamic edge type not able to pass match):
+        Given an empty graph
+        When executing query:
+            """
+            WITH {value: {edge_type: "edgetypevalue"}} as edge_type
+            MATCH ()-[r:edge_type.value.edge_type]->();
+            """
+        Then an error should be raised
+
+    Scenario: With test 28 (dynamic edge type not able to pass merge):
+        Given an empty graph
+        When executing query:
+            """
+            WITH {value: {edge_type: "edgetypevalue"}} as edge_type
+            MERGE ()-[r:edge_type.value.edge_type]->();
+            """
+        Then an error should be raised

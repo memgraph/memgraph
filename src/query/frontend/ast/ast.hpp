@@ -1912,6 +1912,8 @@ class NodeAtom : public memgraph::query::PatternAtom {
   friend class AstStorage;
 };
 
+using QueryEdgeType = std::variant<EdgeTypeIx, Expression *>;
+
 class EdgeAtom : public memgraph::query::PatternAtom {
  public:
   static const utils::TypeInfo kType;
@@ -1987,7 +1989,7 @@ class EdgeAtom : public memgraph::query::PatternAtom {
 
   memgraph::query::EdgeAtom::Type type_{Type::SINGLE};
   memgraph::query::EdgeAtom::Direction direction_{Direction::BOTH};
-  std::vector<memgraph::query::EdgeTypeIx> edge_types_;
+  std::vector<QueryEdgeType> edge_types_;
   std::variant<std::unordered_map<memgraph::query::PropertyIx, memgraph::query::Expression *>,
                memgraph::query::ParameterLookup *>
       properties_;
@@ -2011,7 +2013,11 @@ class EdgeAtom : public memgraph::query::PatternAtom {
     object->direction_ = direction_;
     object->edge_types_.resize(edge_types_.size());
     for (auto i = 0; i < object->edge_types_.size(); ++i) {
-      object->edge_types_[i] = storage->GetEdgeTypeIx(edge_types_[i].name);
+      auto const clone_edge_type = utils::Overloaded{
+          [&](EdgeTypeIx const &edge_type) { object->edge_types_[i] = storage->GetEdgeTypeIx(edge_type.name); },
+          [&](Expression const *edge_type) { object->edge_types_[i] = edge_type->Clone(storage); },
+      };
+      std::visit(clone_edge_type, edge_types_[i]);
     }
     if (const auto *properties = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&properties_)) {
       auto &new_obj_properties = std::get<std::unordered_map<PropertyIx, Expression *>>(object->properties_);
@@ -2036,7 +2042,7 @@ class EdgeAtom : public memgraph::query::PatternAtom {
       : PatternAtom(identifier), type_(type), direction_(direction) {}
 
   // Creates an edge atom for a SINGLE expansion with the given .
-  EdgeAtom(Identifier *identifier, Type type, Direction direction, const std::vector<EdgeTypeIx> &edge_types)
+  EdgeAtom(Identifier *identifier, Type type, Direction direction, const std::vector<QueryEdgeType> &edge_types)
       : PatternAtom(identifier), type_(type), direction_(direction), edge_types_(edge_types) {}
 
  private:

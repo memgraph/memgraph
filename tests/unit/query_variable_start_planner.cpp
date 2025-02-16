@@ -326,7 +326,7 @@ TYPED_TEST(TestVariableStartPlanner, MatchBfs) {
   dba.AdvanceCommand();
   // Test MATCH (n) -[r *bfs..10](r, n | n.id <> 3)]-> (m) RETURN r
   auto *bfs = this->storage.template Create<memgraph::query::EdgeAtom>(
-      IDENT("r"), EdgeAtom::Type::BREADTH_FIRST, Direction::OUT, std::vector<memgraph::query::EdgeTypeIx>{});
+      IDENT("r"), EdgeAtom::Type::BREADTH_FIRST, Direction::OUT, std::vector<memgraph::query::QueryEdgeType>{});
   bfs->filter_lambda_.inner_edge = IDENT("r");
   bfs->filter_lambda_.inner_node = IDENT("n");
   bfs->filter_lambda_.expression = NEQ(PROPERTY_LOOKUP(dba, "n", id), LITERAL(3));
