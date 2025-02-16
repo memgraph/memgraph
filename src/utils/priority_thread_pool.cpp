@@ -12,20 +12,23 @@
 #include "utils/priority_thread_pool.hpp"
 #include <barrier>
 #include <chrono>
+#include <limits>
 #include <mutex>
 #include <shared_mutex>
 #include <thread>
 
 #include "utils/logging.hpp"
 #include "utils/on_scope_exit.hpp"
+#include "utils/priorities.hpp"
 
 namespace memgraph::utils {
 
 PriorityThreadPool::PriorityThreadPool(size_t mixed_work_threads_count, size_t high_priority_threads_count) {
   pool_.reserve(mixed_work_threads_count + high_priority_threads_count);
   work_buckets_.resize(mixed_work_threads_count);
+  hp_work_buckets_.resize(high_priority_threads_count);
 
-  std::barrier barrier{std::ssize(work_buckets_) + 1};
+  std::barrier barrier{static_cast<ptrdiff_t>(mixed_work_threads_count + high_priority_threads_count + 1)};
 
   for (size_t i = 0; i < mixed_work_threads_count; ++i) {
     pool_.emplace_back([this, i, &barrier]() {
@@ -37,13 +40,15 @@ PriorityThreadPool::PriorityThreadPool(size_t mixed_work_threads_count, size_t h
       worker.operator()<Priority::LOW>();
     });
   }
-  // TODO Re-enable hp threads and implement work stealing
-  // for (size_t i = 0; i < high_priority_threads_count; ++i) {
-  //   pool_.emplace_back([this]() {
-  //     Worker worker(*this);
-  //     worker.operator()<Priority::HIGH>();
-  //   });
-  // }
+
+  for (size_t i = 0; i < high_priority_threads_count; ++i) {
+    pool_.emplace_back([this, i, &barrier]() {
+      Worker worker(*this);
+      hp_work_buckets_[i] = &worker;
+      barrier.arrive_and_wait();
+      worker.operator()<Priority::HIGH>();
+    });
+  }
 
   barrier.arrive_and_wait();
 
@@ -110,6 +115,9 @@ void PriorityThreadPool::ShutDown() {
     for (auto *worker : work_buckets_) {
       worker->stop();
     }
+    for (auto *worker : hp_work_buckets_) {
+      worker->stop();
+    }
   }
   pool_.clear();
 }
@@ -129,6 +137,9 @@ void PriorityThreadPool::ScheduledAddTask(TaskSignature new_task, const Priority
   // Add task to current CPU's thread (cheap)
   auto *this_bucket = work_buckets_[tid];
   this_bucket->push(std::move(new_task), id);
+
+  // High priority tasks are marked and given to mixed priority threads (at front of the queue)
+  // HP threads are going to steal this work if not executed in time
 }
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
@@ -191,11 +202,16 @@ void PriorityThreadPool::Worker::operator()() {
               if (!l2.try_lock()) continue;  // Busy, skip
               // Re-check under lock
               if (worker->work_.empty()) continue;
+              // HP threads can only steal HP work
+              if constexpr (ThreadPriority == Priority::HIGH) {
+                // If LP work, skip
+                if (worker->work_.top().id < std::numeric_limits<int64_t>::max()) continue;
+              }
               worker->has_pending_work_ = worker->work_.size() > 1;
               Work work{worker->work_.top().id, std::move(worker->work_.top().work)};
               worker->work_.pop();
               l2.unlock();
-              // TODO High perf thread steals only hp work
+              // Move work to current thread
               l.lock();
               work_.emplace(work.id, std::move(work.work));
               has_pending_work_ = true;

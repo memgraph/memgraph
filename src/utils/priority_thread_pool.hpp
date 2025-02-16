@@ -124,7 +124,8 @@ class PriorityThreadPool {
 
  private:
   std::vector<Worker *> work_buckets_;
-  std::atomic<uint64_t> id_{std::numeric_limits<uint32_t>::max()};
+  std::vector<Worker *> hp_work_buckets_;                          // TODO Unify
+  std::atomic<uint64_t> id_{std::numeric_limits<int64_t>::max()};  // MSB signals high prior
   utils::Scheduler monitoring_;
   std::atomic<uint64_t> tid_{0};
 
