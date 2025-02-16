@@ -2013,11 +2013,11 @@ class EdgeAtom : public memgraph::query::PatternAtom {
     object->direction_ = direction_;
     object->edge_types_.resize(edge_types_.size());
     for (auto i = 0; i < object->edge_types_.size(); ++i) {
-      if (const auto *edge_type = std::get_if<EdgeTypeIx>(&edge_types_[i])) {
-        object->edge_types_[i] = storage->GetEdgeTypeIx(edge_type->name);
-      } else {
-        object->edge_types_[i] = std::get<Expression *>(edge_types_[i])->Clone(storage);
-      }
+      auto const clone_edge_type = Overloaded{
+          [&](EdgeTypeIx const &) { object->edge_types_[i] = storage->GetEdgeTypeIx(edge_type->name); },
+          [&](Expression const *) { object->edge_types_[i] = std::get<Expression *>(edge_types_[i])->Clone(storage); },
+      };
+      std::visit(clone_edge_type, edge_types_[i]);
     }
     if (const auto *properties = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&properties_)) {
       auto &new_obj_properties = std::get<std::unordered_map<PropertyIx, Expression *>>(object->properties_);

@@ -321,7 +321,7 @@ class RuleBasedPlanner {
 
   storage::EdgeTypeId GetEdgeType(EdgeTypeIx edge_type) { return context_->db->NameToEdgeType(edge_type.name); }
 
-  std::vector<storage::EdgeTypeId> GetEdgeTypes(std::vector<QueryEdgeType> edge_types) {
+  std::vector<storage::EdgeTypeId> GetEdgeTypes(const std::vector<QueryEdgeType> &edge_types) {
     std::vector<storage::EdgeTypeId> transformed_edge_types;
     transformed_edge_types.reserve(edge_types.size());
 
@@ -333,7 +333,7 @@ class RuleBasedPlanner {
             "Failed to work with dynamic edge types! Avoid using parameters or variables when creating a new edge. "
             "Also, please contact Memgraph support or submit a GitHub issue, as this scenario should not happen. This "
             "is an unexpected code "
-            "path, but we didn't want to just crash Memgraph, help us improve the query planner)!");
+            "path, but we didn't want to just crash Memgraph, help us improve the query planner!");
       }
     }
 
