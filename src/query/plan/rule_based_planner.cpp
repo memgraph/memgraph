@@ -404,10 +404,10 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     const auto &symbol = symbol_table_.at(aggr);
     aggregations_.emplace_back(
         Aggregate::Element{aggr.expression1_, aggr.expression2_, aggr.op_, symbol, aggr.distinct_});
-    // Aggregation expression1_ is optional in COUNT(*), and COLLECT_MAP uses
-    // two expressions, so we can have 0, 1 or 2 elements on the
-    // has_aggregation_stack for this Aggregation expression.
-    if (aggr.op_ == Aggregation::Op::COLLECT_MAP) has_aggregation_.pop_back();
+    // Aggregation expression1_ is optional in COUNT(*), and COLLECT_MAP and PROJECT_LISTS use two expressions, so we
+    // can have 0, 1 or 2 elements on the has_aggregation_stack for this Aggregation expression.
+    if (aggr.op_ == Aggregation::Op::COLLECT_MAP || aggr.op_ == Aggregation::Op::PROJECT_LISTS)
+      has_aggregation_.pop_back();
     if (aggr.expression1_)
       has_aggregation_.back() = true;
     else

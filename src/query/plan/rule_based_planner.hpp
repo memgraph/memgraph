@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -749,7 +749,7 @@ class RuleBasedPlanner {
       last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table);
       last_op = impl::GenNamedPaths(std::move(last_op), bound_symbols, named_paths);
       last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table);
-    } else if (named_paths.size() == 1U) {
+    } else if (!named_paths.empty()) {
       last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table);
       last_op = impl::GenNamedPaths(std::move(last_op), bound_symbols, named_paths);
       last_op = GenFilters(std::move(last_op), bound_symbols, filters, storage, symbol_table);

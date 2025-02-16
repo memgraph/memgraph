@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,9 +10,14 @@
 // licenses/APL.txt.
 
 #include "query/graph.hpp"
+#include <ranges>
+#include "query/exceptions.hpp"
 #include "query/path.hpp"
 
 namespace memgraph::query {
+
+namespace r = std::ranges;
+namespace rv = r::views;
 
 Graph::Graph(utils::MemoryResource *memory) : vertices_(memory), edges_(memory) {}
 
@@ -34,6 +39,25 @@ void Graph::Expand(const Path &path) {
   const auto &path_edges_ = path.edges();
   std::for_each(path_vertices_.begin(), path_vertices_.end(), [this](const VertexAccessor v) { vertices_.insert(v); });
   std::for_each(path_edges_.begin(), path_edges_.end(), [this](const EdgeAccessor e) { edges_.insert(e); });
+}
+
+void Graph::Expand(std::span<TypedValue const> const nodes, std::span<TypedValue const> const edges) {
+  auto actual_nodes = nodes | rv::filter([](auto const &each) { return each.type() == TypedValue::Type::Vertex; }) |
+                      rv::transform([](auto const &each) { return each.ValueVertex(); });
+
+  auto actual_edges = edges | rv::filter([](auto const &each) { return each.type() == TypedValue::Type::Edge; }) |
+                      rv::transform([](auto const &each) { return each.ValueEdge(); });
+
+  if (r::any_of(actual_edges, [&](auto const &edge) {
+        return r::find(actual_nodes, edge.From()) == actual_nodes.end() ||
+               r::find(actual_nodes, edge.To()) == actual_nodes.end();
+      })) {
+    throw memgraph::query::QueryRuntimeException(
+        "Cannot project graph with any projected relationships whose start or end nodes are not also projected.");
+  }
+
+  vertices_.insert(actual_nodes.begin(), actual_nodes.end());
+  edges_.insert(actual_edges.begin(), actual_edges.end());
 }
 
 void Graph::InsertVertex(const VertexAccessor &vertex) { vertices_.insert(vertex); }
