@@ -1,0 +1,8 @@
+function(copy_dynamic_variable_creation_e2e_python_files FILE_NAME)
+    copy_e2e_python_files(dynamic_variable_creation ${FILE_NAME})
+endfunction()
+
+copy_dynamic_variable_creation_e2e_python_files(common.py)
+copy_dynamic_variable_creation_e2e_python_files(dynamic_variable_creation.py)
+
+copy_e2e_files(dynamic_variable_creation workloads.yaml)

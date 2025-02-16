@@ -227,6 +227,15 @@ std::vector<storage::LabelId> EvaluateLabels(const std::vector<StorageLabelType>
   return result;
 }
 
+storage::EdgeTypeId EvaluateEdgeType(const StorageEdgeType &edge_type, ExpressionEvaluator &evaluator,
+                                     DbAccessor *dba) {
+  if (const auto *edge_type_id = std::get_if<storage::EdgeTypeId>(&edge_type)) {
+    return *edge_type_id;
+  }
+
+  return dba->NameToEdgeType(std::get<Expression *>(edge_type)->Accept(evaluator).ValueString());
+}
+
 }  // namespace
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
@@ -392,9 +401,11 @@ std::vector<Symbol> CreateExpand::ModifiedSymbols(const SymbolTable &table) cons
 }
 
 std::string CreateExpand::ToString() const {
-  return fmt::format("CreateExpand ({}){}[{}:{}]{}({})", input_symbol_.name(),
+  const auto *maybe_edge_type_id = std::get_if<storage::EdgeTypeId>(&edge_info_.edge_type);
+  const bool is_expansion_static = maybe_edge_type_id != nullptr;
+  return fmt::format("{} ({}){}[{}:{}]{}({})", "CreateExpand", input_symbol_.name(),
                      edge_info_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-", edge_info_.symbol.name(),
-                     dba_->EdgeTypeToName(edge_info_.edge_type),
+                     is_expansion_static ? dba_->EdgeTypeToName(*maybe_edge_type_id) : "<DYNAMIC>",
                      edge_info_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-", node_info_.symbol.name());
 }
 
@@ -403,9 +414,10 @@ CreateExpand::CreateExpandCursor::CreateExpandCursor(const CreateExpand &self, u
 
 namespace {
 
-EdgeAccessor CreateEdge(const EdgeCreationInfo &edge_info, DbAccessor *dba, VertexAccessor *from, VertexAccessor *to,
-                        Frame *frame, ExecutionContext &context, ExpressionEvaluator *evaluator) {
-  auto maybe_edge = dba->InsertEdge(from, to, edge_info.edge_type);
+EdgeAccessor CreateEdge(const EdgeCreationInfo &edge_info, const storage::EdgeTypeId edge_type_id, DbAccessor *dba,
+                        VertexAccessor *from, VertexAccessor *to, Frame *frame, ExecutionContext &context,
+                        ExpressionEvaluator *evaluator) {
+  auto maybe_edge = dba->InsertEdge(from, to, edge_type_id);
   if (maybe_edge.HasValue()) {
     auto &edge = *maybe_edge;
     std::map<storage::PropertyId, storage::PropertyValue> properties;
@@ -458,6 +470,7 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                 storage::View::NEW);
   auto labels = EvaluateLabels(self_.node_info_.labels, evaluator, context.db_accessor);
+  auto edge_type = EvaluateEdgeType(self_.edge_info_.edge_type, evaluator, context.db_accessor);
 
 #ifdef MG_ENTERPRISE
   if (license::global_license_checker.IsEnterpriseValidFast()) {
@@ -467,8 +480,7 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
                                              : memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE;
 
     if (context.auth_checker &&
-        !(context.auth_checker->Has(self_.edge_info_.edge_type,
-                                    memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE) &&
+        !(context.auth_checker->Has(edge_type, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE) &&
           context.auth_checker->Has(labels, fine_grained_permission))) {
       throw QueryRuntimeException("Edge not created due to not having enough permission!");
     }
@@ -488,14 +500,14 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
   auto created_edge = [&] {
     switch (self_.edge_info_.direction) {
       case EdgeAtom::Direction::IN:
-        return CreateEdge(self_.edge_info_, dba, &v2, &v1, &frame, context, &evaluator);
+        return CreateEdge(self_.edge_info_, edge_type, dba, &v2, &v1, &frame, context, &evaluator);
       case EdgeAtom::Direction::OUT:
       // in the case of an undirected CreateExpand we choose an arbitrary
       // direction. this is used in the MERGE clause
       // it is not allowed in the CREATE clause, and the semantic
       // checker needs to ensure it doesn't reach this point
       case EdgeAtom::Direction::BOTH:
-        return CreateEdge(self_.edge_info_, dba, &v1, &v2, &frame, context, &evaluator);
+        return CreateEdge(self_.edge_info_, edge_type, dba, &v1, &v2, &frame, context, &evaluator);
     }
   }();
 

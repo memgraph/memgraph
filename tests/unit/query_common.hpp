@@ -185,7 +185,7 @@ auto GetAllPropertiesLookup(AstStorage &storage, Expression *expr) { return stor
 /// Name is used to create the Identifier which is assigned to the edge.
 auto GetEdge(AstStorage &storage, const std::string &name, EdgeAtom::Direction dir = EdgeAtom::Direction::BOTH,
              const std::vector<std::string> &edge_types = {}, const bool user_declared = true) {
-  std::vector<EdgeTypeIx> types;
+  std::vector<QueryEdgeType> types;
   types.reserve(edge_types.size());
   for (const auto &type : edge_types) {
     types.push_back(storage.GetEdgeTypeIx(type));
@@ -203,7 +203,7 @@ auto GetEdgeVariable(AstStorage &storage, const std::string &name, EdgeAtom::Typ
                      Identifier *flambda_inner_node = nullptr, Identifier *wlambda_inner_edge = nullptr,
                      Identifier *wlambda_inner_node = nullptr, Expression *wlambda_expression = nullptr,
                      Identifier *total_weight = nullptr) {
-  std::vector<EdgeTypeIx> types;
+  std::vector<QueryEdgeType> types;
   types.reserve(edge_types.size());
   for (const auto &type : edge_types) {
     types.push_back(storage.GetEdgeTypeIx(type));
