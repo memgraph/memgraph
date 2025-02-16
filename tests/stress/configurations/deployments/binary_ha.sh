@@ -1,6 +1,7 @@
 #!/bin/bash
 
 MEMGRAPH_BINARY="../../build/memgraph"
+MGCONSOLE_BINARY="../../build/mgconsole"
 DATA_DIR_PREFIX="mg_data"
 COORD_DIR_PREFIX="mg_coord"
 
@@ -122,7 +123,7 @@ setup_ha() {
     ADD COORDINATOR 1 WITH CONFIG {\"bolt_server\": \"127.0.0.1:7691\", \"coordinator_server\": \"127.0.0.1:10111\", \"management_server\": \"127.0.0.1:12121\"};
     ADD COORDINATOR 2 WITH CONFIG {\"bolt_server\": \"127.0.0.1:7692\", \"coordinator_server\": \"127.0.0.1:10112\", \"management_server\": \"127.0.0.1:12122\"};
     ADD COORDINATOR 3 WITH CONFIG {\"bolt_server\": \"127.0.0.1:7693\", \"coordinator_server\": \"127.0.0.1:10113\", \"management_server\": \"127.0.0.1:12123\"};
-    " | mgconsole --host 127.0.0.1 --port 7691
+    " | $MGCONSOLE_BINARY --host 127.0.0.1 --port 7691
 
     echo "Registering instances..."
     echo "
@@ -130,7 +131,7 @@ setup_ha() {
     REGISTER INSTANCE instance_2 WITH CONFIG {\"bolt_server\": \"127.0.0.1:7688\", \"management_server\": \"127.0.0.1:13012\", \"replication_server\": \"127.0.0.1:10002\"};
     REGISTER INSTANCE instance_3 WITH CONFIG {\"bolt_server\": \"127.0.0.1:7689\", \"management_server\": \"127.0.0.1:13013\", \"replication_server\": \"127.0.0.1:10003\"};
     SET INSTANCE instance_1 TO MAIN;
-    " | mgconsole --host 127.0.0.1 --port 7691
+    " | $MGCONSOLE_BINARY --host 127.0.0.1 --port 7691
 
     echo "HA setup completed!"
 }
