@@ -1,5 +1,4 @@
 import random
-import subprocess
 import time
 from abc import ABC
 from gqlalchemy import Memgraph
