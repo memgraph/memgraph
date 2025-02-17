@@ -289,8 +289,6 @@ void Save(const memgraph::storage::replication::HeartbeatReq &self, memgraph::sl
 
 void Load(memgraph::storage::replication::HeartbeatReq *self, memgraph::slk::Reader *reader);
 
-void SendInProgressMsg(Builder *builder);
-
 void Save(const memgraph::storage::replication::AppendDeltasRes &self, memgraph::slk::Builder *builder);
 
 void Load(memgraph::storage::replication::AppendDeltasRes *self, memgraph::slk::Reader *reader);

@@ -227,6 +227,15 @@ std::vector<storage::LabelId> EvaluateLabels(const std::vector<StorageLabelType>
   return result;
 }
 
+storage::EdgeTypeId EvaluateEdgeType(const StorageEdgeType &edge_type, ExpressionEvaluator &evaluator,
+                                     DbAccessor *dba) {
+  if (const auto *edge_type_id = std::get_if<storage::EdgeTypeId>(&edge_type)) {
+    return *edge_type_id;
+  }
+
+  return dba->NameToEdgeType(std::get<Expression *>(edge_type)->Accept(evaluator).ValueString());
+}
+
 }  // namespace
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
@@ -392,9 +401,11 @@ std::vector<Symbol> CreateExpand::ModifiedSymbols(const SymbolTable &table) cons
 }
 
 std::string CreateExpand::ToString() const {
-  return fmt::format("CreateExpand ({}){}[{}:{}]{}({})", input_symbol_.name(),
+  const auto *maybe_edge_type_id = std::get_if<storage::EdgeTypeId>(&edge_info_.edge_type);
+  const bool is_expansion_static = maybe_edge_type_id != nullptr;
+  return fmt::format("{} ({}){}[{}:{}]{}({})", "CreateExpand", input_symbol_.name(),
                      edge_info_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-", edge_info_.symbol.name(),
-                     dba_->EdgeTypeToName(edge_info_.edge_type),
+                     is_expansion_static ? dba_->EdgeTypeToName(*maybe_edge_type_id) : "<DYNAMIC>",
                      edge_info_.direction == query::EdgeAtom::Direction::OUT ? "->" : "-", node_info_.symbol.name());
 }
 
@@ -403,9 +414,10 @@ CreateExpand::CreateExpandCursor::CreateExpandCursor(const CreateExpand &self, u
 
 namespace {
 
-EdgeAccessor CreateEdge(const EdgeCreationInfo &edge_info, DbAccessor *dba, VertexAccessor *from, VertexAccessor *to,
-                        Frame *frame, ExecutionContext &context, ExpressionEvaluator *evaluator) {
-  auto maybe_edge = dba->InsertEdge(from, to, edge_info.edge_type);
+EdgeAccessor CreateEdge(const EdgeCreationInfo &edge_info, const storage::EdgeTypeId edge_type_id, DbAccessor *dba,
+                        VertexAccessor *from, VertexAccessor *to, Frame *frame, ExecutionContext &context,
+                        ExpressionEvaluator *evaluator) {
+  auto maybe_edge = dba->InsertEdge(from, to, edge_type_id);
   if (maybe_edge.HasValue()) {
     auto &edge = *maybe_edge;
     std::map<storage::PropertyId, storage::PropertyValue> properties;
@@ -458,6 +470,7 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                 storage::View::NEW);
   auto labels = EvaluateLabels(self_.node_info_.labels, evaluator, context.db_accessor);
+  auto edge_type = EvaluateEdgeType(self_.edge_info_.edge_type, evaluator, context.db_accessor);
 
 #ifdef MG_ENTERPRISE
   if (license::global_license_checker.IsEnterpriseValidFast()) {
@@ -467,8 +480,7 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
                                              : memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE;
 
     if (context.auth_checker &&
-        !(context.auth_checker->Has(self_.edge_info_.edge_type,
-                                    memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE) &&
+        !(context.auth_checker->Has(edge_type, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE) &&
           context.auth_checker->Has(labels, fine_grained_permission))) {
       throw QueryRuntimeException("Edge not created due to not having enough permission!");
     }
@@ -488,14 +500,14 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
   auto created_edge = [&] {
     switch (self_.edge_info_.direction) {
       case EdgeAtom::Direction::IN:
-        return CreateEdge(self_.edge_info_, dba, &v2, &v1, &frame, context, &evaluator);
+        return CreateEdge(self_.edge_info_, edge_type, dba, &v2, &v1, &frame, context, &evaluator);
       case EdgeAtom::Direction::OUT:
       // in the case of an undirected CreateExpand we choose an arbitrary
       // direction. this is used in the MERGE clause
       // it is not allowed in the CREATE clause, and the semantic
       // checker needs to ensure it doesn't reach this point
       case EdgeAtom::Direction::BOTH:
-        return CreateEdge(self_.edge_info_, dba, &v1, &v2, &frame, context, &evaluator);
+        return CreateEdge(self_.edge_info_, edge_type, dba, &v1, &v2, &frame, context, &evaluator);
     }
   }();
 
@@ -4077,7 +4089,8 @@ TypedValue DefaultAggregationOpValue(const Aggregate::Element &element, utils::M
       return TypedValue(TypedValue::TVector(memory));
     case Aggregation::Op::COLLECT_MAP:
       return TypedValue(TypedValue::TMap(memory));
-    case Aggregation::Op::PROJECT:
+    case Aggregation::Op::PROJECT_PATH:
+    case Aggregation::Op::PROJECT_LISTS:
       return TypedValue(query::Graph(memory));
   }
 }
@@ -4240,7 +4253,8 @@ class AggregateCursor : public Cursor {
         case Aggregation::Op::SUM:
         case Aggregation::Op::COLLECT_LIST:
         case Aggregation::Op::COLLECT_MAP:
-        case Aggregation::Op::PROJECT:
+        case Aggregation::Op::PROJECT_PATH:
+        case Aggregation::Op::PROJECT_LISTS:
           break;
       }
     }
@@ -4307,7 +4321,7 @@ class AggregateCursor : public Cursor {
     for (; count_it != counts_end; ++count_it, ++value_it, ++unique_values_it, ++agg_elem_it) {
       // COUNT(*) is the only case where input expression is optional
       // handle it here
-      auto input_expr_ptr = agg_elem_it->value;
+      auto *input_expr_ptr = agg_elem_it->arg1;
       if (!input_expr_ptr) {
         *count_it += 1;
         // value is deferred to post-processing
@@ -4345,13 +4359,17 @@ class AggregateCursor : public Cursor {
           case Aggregation::Op::COLLECT_LIST:
             value_it->ValueList().push_back(std::move(input_value));
             break;
-          case Aggregation::Op::PROJECT: {
-            EnsureOkForProject(input_value);
+          case Aggregation::Op::PROJECT_PATH: {
+            EnsureOkForProjectPath(input_value);
             value_it->ValueGraph().Expand(input_value.ValuePath());
             break;
           }
+          case Aggregation::Op::PROJECT_LISTS: {
+            ProjectList(input_value, agg_elem_it->arg2->Accept(*evaluator), value_it->ValueGraph());
+            break;
+          }
           case Aggregation::Op::COLLECT_MAP:
-            auto key = agg_elem_it->key->Accept(*evaluator);
+            auto key = agg_elem_it->arg2->Accept(*evaluator);
             if (key.type() != TypedValue::Type::String) throw QueryRuntimeException("Map key must be a string.");
             value_it->ValueMap().emplace(key.ValueString(), std::move(input_value));
             break;
@@ -4398,18 +4416,41 @@ class AggregateCursor : public Cursor {
         case Aggregation::Op::COLLECT_LIST:
           value_it->ValueList().push_back(std::move(input_value));
           break;
-        case Aggregation::Op::PROJECT: {
-          EnsureOkForProject(input_value);
+        case Aggregation::Op::PROJECT_PATH: {
+          EnsureOkForProjectPath(input_value);
           value_it->ValueGraph().Expand(input_value.ValuePath());
           break;
         }
+
+        case Aggregation::Op::PROJECT_LISTS: {
+          ProjectList(input_value, agg_elem_it->arg2->Accept(*evaluator), value_it->ValueGraph());
+          break;
+        }
         case Aggregation::Op::COLLECT_MAP:
-          auto key = agg_elem_it->key->Accept(*evaluator);
+          auto key = agg_elem_it->arg2->Accept(*evaluator);
           if (key.type() != TypedValue::Type::String) throw QueryRuntimeException("Map key must be a string.");
           value_it->ValueMap().emplace(key.ValueString(), std::move(input_value));
           break;
       }  // end switch over Aggregation::Op enum
     }    // end loop over all aggregations
+  }
+
+  /** Project a subgraph from lists of nodes and lists of edges. Any nulls in these lists are ignored.
+   */
+  static void ProjectList(TypedValue const &arg1, TypedValue const &arg2, Graph &projectedGraph) {
+    if (arg1.type() != TypedValue::Type::List || !std::ranges::all_of(arg1.ValueList(), [](TypedValue const &each) {
+          return each.type() == TypedValue::Type::Vertex || each.type() == TypedValue::Type::Null;
+        })) {
+      throw QueryRuntimeException("project() argument 1 must be a list of nodes or nulls.");
+    }
+
+    if (arg2.type() != TypedValue::Type::List || !std::ranges::all_of(arg2.ValueList(), [](TypedValue const &each) {
+          return each.type() == TypedValue::Type::Edge || each.type() == TypedValue::Type::Null;
+        })) {
+      throw QueryRuntimeException("project() argument 2 must be a list of relationships or nulls.");
+    }
+
+    projectedGraph.Expand(arg1.ValueList(), arg2.ValueList());
   }
 
   /** Checks if the given TypedValue is legal in MIN and MAX. If not
@@ -4443,10 +4484,9 @@ class AggregateCursor : public Cursor {
     }
   }
 
-  /** Checks if the given TypedValue is legal in PROJECT and PROJECT_TRANSITIVE. If not
-   * an appropriate exception is thrown. */
+  /** Checks if the given TypedValue is legal in PROJECT_PATH. If not an appropriate exception is thrown. */
   // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
-  void EnsureOkForProject(const TypedValue &value) const {
+  void EnsureOkForProjectPath(const TypedValue &value) const {
     switch (value.type()) {
       case TypedValue::Type::Path:
         return;

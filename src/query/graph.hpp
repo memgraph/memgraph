@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,6 +14,7 @@
 #include <functional>
 #include <utility>
 #include "query/edge_accessor.hpp"
+#include "query/typed_value.hpp"
 #include "query/vertex_accessor.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
@@ -68,6 +69,10 @@ class Graph final {
 
   /** Expands the graph with the given path. */
   void Expand(const Path &path);
+
+  /** Expand the graph from lists of nodes and edges. Any nulls or duplicate nodes/edges in these lists are ignored.
+   */
+  void Expand(std::span<TypedValue const> nodes, std::span<TypedValue const> edges);
 
   /** Inserts the vertex in the graph. */
   void InsertVertex(const VertexAccessor &vertex);

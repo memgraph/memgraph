@@ -2208,7 +2208,10 @@ antlrcpp::Any CypherMainVisitor::visitNodeLabels(MemgraphCypher::NodeLabelsConte
       const auto *param_lookup = std::any_cast<ParameterLookup *>(node_label->accept(this));
       const auto label_name = parameters_->AtTokenPosition(param_lookup->token_position_).ValueString();
       labels.emplace_back(storage_->GetLabelIx(label_name));
-      query_info_.is_cacheable = false;  // We can't cache queries with label parameters.
+
+      // We can't cache queries with label parameters because these parameters are resolved during the parsing stage.
+      // The same parameter could be resolved to different values if the user changes its value.
+      query_info_.is_cacheable = false;
     } else {
       auto variable = std::any_cast<std::string>(label_name->variable()->accept(this));
       users_identifiers.insert(variable);
@@ -2419,7 +2422,7 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
 
   if (relationshipDetail->relationshipTypes()) {
     edge->edge_types_ =
-        std::any_cast<std::vector<EdgeTypeIx>>(ctx->relationshipDetail()->relationshipTypes()->accept(this));
+        std::any_cast<std::vector<QueryEdgeType>>(ctx->relationshipDetail()->relationshipTypes()->accept(this));
   }
 
   auto relationshipLambdas = relationshipDetail->relationshipLambda();
@@ -2550,9 +2553,30 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipLambda(MemgraphCypher::Relatio
 }
 
 antlrcpp::Any CypherMainVisitor::visitRelationshipTypes(MemgraphCypher::RelationshipTypesContext *ctx) {
-  std::vector<EdgeTypeIx> types;
+  std::vector<QueryEdgeType> types;
   for (auto *edge_type : ctx->relTypeName()) {
-    types.push_back(AddEdgeType(std::any_cast<std::string>(edge_type->accept(this))));
+    if (edge_type->symbolicName()) {
+      types.emplace_back(AddEdgeType(std::any_cast<std::string>(edge_type->accept(this))));
+    } else if (edge_type->parameter()) {
+      // If we have a parameter, we have to resolve it.
+      const auto *param_lookup = std::any_cast<ParameterLookup *>(edge_type->accept(this));
+      const auto edge_type_name = parameters_->AtTokenPosition(param_lookup->token_position_).ValueString();
+      types.emplace_back(storage_->GetEdgeTypeIx(edge_type_name));
+
+      // We can't cache queries with edge type parameters because these parameters are resolved during the parsing
+      // stage. The same parameter could be resolved to different values if the user changes its value.
+      query_info_.is_cacheable = false;
+    } else {
+      auto variable = std::any_cast<std::string>(edge_type->variable()->accept(this));
+      users_identifiers.insert(variable);
+      auto *expression = static_cast<Expression *>(storage_->Create<Identifier>(variable));
+      for (auto *lookup : edge_type->propertyLookup()) {
+        auto key = std::any_cast<PropertyIx>(lookup->accept(this));
+        auto *property_lookup = storage_->Create<PropertyLookup>(expression, key);
+        expression = property_lookup;
+      }
+      types.emplace_back(expression);
+    }
   }
   return types;
 }
@@ -3013,7 +3037,7 @@ antlrcpp::Any CypherMainVisitor::visitFunctionInvocation(MemgraphCypher::Functio
     }
     if (upper_function_name == Aggregation::kProject) {
       return static_cast<Expression *>(
-          storage_->Create<Aggregation>(expressions[0], nullptr, Aggregation::Op::PROJECT, is_distinct));
+          storage_->Create<Aggregation>(expressions[0], nullptr, Aggregation::Op::PROJECT_PATH, is_distinct));
     }
   }
 
@@ -3021,6 +3045,10 @@ antlrcpp::Any CypherMainVisitor::visitFunctionInvocation(MemgraphCypher::Functio
     if (upper_function_name == Aggregation::kCollect) {
       return static_cast<Expression *>(
           storage_->Create<Aggregation>(expressions[1], expressions[0], Aggregation::Op::COLLECT_MAP, is_distinct));
+    }
+    if (upper_function_name == Aggregation::kProject) {
+      return static_cast<Expression *>(
+          storage_->Create<Aggregation>(expressions[0], expressions[1], Aggregation::Op::PROJECT_LISTS, is_distinct));
     }
   }
 

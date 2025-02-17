@@ -260,14 +260,20 @@
                          (catch Exception e
                            ; Even if sync replica is down, nodes will get created on the main.
                            (cond (utils/sync-replica-down? e)
-                                 (assoc op :type :ok :value {:str "Nodes created. SYNC replica is down." :max-idx @max-idx}))
+                                 (assoc op :type :ok :value {:str "Nodes created. SYNC replica is down." :max-idx @max-idx})
 
-                           (or (utils/query-forbidden-on-replica? e)
-                               (utils/query-forbidden-on-main? e))
-                           (assoc op :type :info :value (str e))
+                                 (utils/main-became-replica? e)
+                                 (assoc op :type :ok :value {:str "Cannot commit because instance is not main anymore."})
 
-                           :else
-                           (assoc op :type :fail :value (str e)))))
+                                 (utils/main-unwriteable? e)
+                                 (assoc op :type :ok :value {:str "Cannot commit because main is currently non-writeable."})
+
+                                 (or (utils/query-forbidden-on-replica? e)
+                                     (utils/query-forbidden-on-main? e))
+                                 (assoc op :type :info :value (str e))
+
+                                 :else
+                                 (assoc op :type :fail :value (str e))))))
 
                      (assoc op :type :info :value "Not main data instance."))
 
@@ -425,10 +431,22 @@
                                       (filter #(= :fail (:type %)))
                                       (filter #(= :setup-cluster (:f %)))
                                       (map :value))
+
             failed-show-instances (->> history
                                        (filter #(= :fail (:type %)))
                                        (filter #(= :show-instances-read (:f %)))
                                        (map :value))
+
+            failed-add-nodes (->> history
+                                       (filter #(= :fail (:type %)))
+                                       (filter #(= :add-nodes (:f %)))
+                                       (map :value))
+
+            failed-get-nodes (->> history
+                                       (filter #(= :fail (:type %)))
+                                       (filter #(= :get-nodes (:f %)))
+                                       (map :value))
+
             si-reads  (->> history
                            (filter #(= :ok (:type %)))
                            (filter #(= :show-instances-read (:f %)))
@@ -489,6 +507,8 @@
                             :empty-n3-missing-intervals? (empty? n3-missing-intervals)
                             :empty-failed-setup-cluster? (empty? failed-setup-cluster) ; There shouldn't be any failed setup cluster operations.
                             :empty-failed-show-instances? (empty? failed-show-instances) ; There shouldn't be any failed show instances operations.
+                            :empty-failed-add-nodes? (empty? failed-add-nodes) ; There shouldn't be any failed add-nodes operations.
+                            :empty-failed-get-nodes? (empty? failed-get-nodes) ; There shouldn't be any failed get-nodes operations.
                             :empty-partial-instances? (empty? partial-instances)}
 
             updates [{:key :coordinators :condition (not (:correct-coordinators? initial-result)) :value coordinators}
@@ -500,6 +520,8 @@
                      {:key :n3-duplicates-intervals :condition (false? (:empty-n3-duplicates? initial-result)) :value n3-duplicates-intervals}
                      {:key :n3-missing-intervals :condition (false? (:empty-n3-missing-intervals? initial-result)) :value n3-missing-intervals}
                      {:key :failed-setup-cluster :condition (not (:empty-failed-setup-cluster? initial-result)) :value failed-setup-cluster}
+                     {:key :failed-add-nodes :condition (not (:empty-failed-add-nodes? initial-result)) :value failed-add-nodes}
+                     {:key :failed-get-nodes :condition (not (:empty-failed-get-nodes? initial-result)) :value failed-get-nodes}
                      {:key :failed-show-instances :condition (not (:empty-failed-show-instances? initial-result)) :value failed-show-instances}]]
 
         (reduce (fn [result update]
@@ -553,5 +575,5 @@
                  {:hacreate     (checker)
                   :timeline (timeline/html)})
      :generator (client-generator)
-     :final-generator {:clients (gen/each-thread (gen/once get-nodes)) :recovery-time 900}
+     :final-generator {:clients (gen/each-thread (gen/once get-nodes)) :recovery-time 9}
      :nemesis-config (nemesis/create db nodes-config)}))

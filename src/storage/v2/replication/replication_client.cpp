@@ -521,5 +521,5 @@ void ReplicaStream::AppendTransactionEnd(uint64_t final_commit_timestamp) {
   EncodeTransactionEnd(&encoder, final_commit_timestamp);
 }
 
-replication::AppendDeltasRes ReplicaStream::Finalize() { return stream_.AwaitResponse(); }
+replication::AppendDeltasRes ReplicaStream::Finalize() { return stream_.AwaitResponseWhileInProgress(); }
 }  // namespace memgraph::storage
