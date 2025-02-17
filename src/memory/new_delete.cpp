@@ -231,22 +231,22 @@ void operator delete[](void *ptr, const std::align_val_t align) noexcept {
   deleteImpl(ptr, align);
 }
 
-void operator delete(void *ptr, const std::size_t size) noexcept {
+void operator delete(void *ptr, std::size_t size) noexcept {
   UntrackMemory(ptr, size);
   deleteSized(ptr, size);
 }
 
-void operator delete[](void *ptr, const std::size_t size) noexcept {
+void operator delete[](void *ptr, std::size_t size) noexcept {
   UntrackMemory(ptr, size);
   deleteSized(ptr, size);
 }
 
-void operator delete(void *ptr, const std::size_t size, const std::align_val_t align) noexcept {
+void operator delete(void *ptr, std::size_t size, const std::align_val_t align) noexcept {
   UntrackMemory(ptr, align, size);
   deleteSized(ptr, size, align);
 }
 
-void operator delete[](void *ptr, const std::size_t size, const std::align_val_t align) noexcept {
+void operator delete[](void *ptr, std::size_t size, const std::align_val_t align) noexcept {
   UntrackMemory(ptr, align, size);
   deleteSized(ptr, size, align);
 }
