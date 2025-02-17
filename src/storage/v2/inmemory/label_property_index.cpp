@@ -36,31 +36,37 @@ bool InMemoryLabelPropertyIndex::Entry::operator==(const PropertyValue &rhs) con
 
 bool InMemoryLabelPropertyIndex::CreateIndex(
     LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
-    const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info) {
+    const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
+    std::shared_ptr<utils::Observer<void>> const snapshot_observer) {
   spdlog::trace("Vertices size when creating index: {}", vertices.size());
-  auto create_index_seq = [this](LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor &vertices,
-                                 std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>>::iterator it) {
+  auto create_index_seq = [this, snapshot_observer](
+                              LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor &vertices,
+                              std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>>::iterator it) {
     using IndexAccessor = decltype(it->second.access());
 
-    CreateIndexOnSingleThread(vertices, it, index_, std::make_pair(label, property),
-                              [](Vertex &vertex, std::pair<LabelId, PropertyId> key, IndexAccessor &index_accessor) {
-                                TryInsertLabelPropertyIndex(vertex, key, index_accessor);
-                              });
+    CreateIndexOnSingleThread(
+        vertices, it, index_, std::make_pair(label, property),
+        [](Vertex &vertex, std::pair<LabelId, PropertyId> key, IndexAccessor &index_accessor) {
+          TryInsertLabelPropertyIndex(vertex, key, index_accessor);
+        },
+        snapshot_observer);
 
     return true;
   };
 
   auto create_index_par =
-      [this](LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor &vertices,
-             std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>>::iterator label_property_it,
-             const durability::ParallelizedSchemaCreationInfo &parallel_exec_info) {
+      [this, snapshot_observer](
+          LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor &vertices,
+          std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>>::iterator label_property_it,
+          const durability::ParallelizedSchemaCreationInfo &parallel_exec_info) {
         using IndexAccessor = decltype(label_property_it->second.access());
 
         CreateIndexOnMultipleThreads(
             vertices, label_property_it, index_, std::make_pair(label, property), parallel_exec_info,
             [](Vertex &vertex, std::pair<LabelId, PropertyId> key, IndexAccessor &index_accessor) {
               TryInsertLabelPropertyIndex(vertex, key, index_accessor);
-            });
+            },
+            snapshot_observer);
 
         return true;
       };
