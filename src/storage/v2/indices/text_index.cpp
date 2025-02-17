@@ -17,9 +17,15 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
+#include "utils/counter.hpp"
 
 #include <span>
 #include <vector>
+
+namespace {
+// Creating vertices for text index takes more time, that's why the value is 100k not 1'000'000
+inline constexpr uint32_t kIndexVerticesSnapshotProgressSize = 100'000;
+}  // namespace
 
 namespace memgraph::storage {
 
@@ -249,7 +255,8 @@ void TextIndex::CreateIndex(std::string const &index_name, LabelId label, storag
 }
 
 void TextIndex::RecoverIndex(const std::string &index_name, LabelId label,
-                             memgraph::utils::SkipList<Vertex>::Accessor vertices, NameIdMapper *name_id_mapper) {
+                             memgraph::utils::SkipList<Vertex>::Accessor vertices, NameIdMapper *name_id_mapper,
+                             std::shared_ptr<utils::Observer<void>> const snapshot_observer) {
   if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     throw query::TextSearchDisabledException();
   }
@@ -259,6 +266,8 @@ void TextIndex::RecoverIndex(const std::string &index_name, LabelId label,
 
   CreateEmptyIndex(index_name, label);
 
+  auto batch_counter = utils::ResettableCounter<kIndexVerticesSnapshotProgressSize>();
+
   for (const auto &v : vertices) {
     if (std::find(v.labels.begin(), v.labels.end(), label) == v.labels.end()) {
       continue;
@@ -267,6 +276,10 @@ void TextIndex::RecoverIndex(const std::string &index_name, LabelId label,
     auto vertex_properties = v.properties.Properties();
     LoadNodeToTextIndices(v.gid.AsInt(), SerializeProperties(vertex_properties, name_id_mapper),
                           StringifyProperties(vertex_properties), {&index_.at(index_name).context_});
+
+    if (snapshot_observer != nullptr && batch_counter()) {
+      snapshot_observer->Update();
+    }
   }
 
   CommitLoadedNodes(index_.at(index_name).context_);

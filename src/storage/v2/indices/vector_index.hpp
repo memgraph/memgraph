@@ -13,13 +13,14 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <nlohmann/json.hpp>
+#include <json/json.hpp>
 #include <string>
 
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
 #include "usearch/index_plugins.hpp"
+#include "utils/observer.hpp"
 #include "utils/skip_list.hpp"
 
 namespace memgraph::storage {
@@ -106,8 +107,11 @@ class VectorIndex {
 
   /// @brief Creates a new index based on the provided specification.
   /// @param spec The specification for the index to be created.
+  /// @param snapshot_observer
+  /// @param vertices vertices from which to create vector index
   /// @return true if the index was created successfully, false otherwise.
-  bool CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices);
+  bool CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
+                   std::shared_ptr<utils::Observer<void>> const snapshot_observer = nullptr);
 
   /// @brief Drops an existing index.
   /// @param index_name The name of the index to be dropped.
@@ -149,7 +153,6 @@ class VectorIndex {
 
   /// @brief Searches for nodes in the specified index using a query vector.
   /// @param index_name The name of the index to search.
-  /// @param start_timestamp The timestamp of transaction in which the search is performed.
   /// @param result_set_size The number of results to return.
   /// @param query_vector The vector to be used for the search query.
   /// @return A vector of tuples containing the vertex, distance, and similarity of the search results.
@@ -163,7 +166,7 @@ class VectorIndex {
 
   /// @brief Restores the entries that were removed in the specified transaction.
   /// @param label_prop The label and property of the vertices to be restored.
-  /// @param vertices The vertices to be restored.
+  /// @param prop_vertices The vertices to be restored.
   void RestoreEntries(const LabelPropKey &label_prop,
                       std::span<std::pair<PropertyValue, Vertex *> const> prop_vertices);
 

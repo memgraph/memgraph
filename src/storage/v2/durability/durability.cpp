@@ -227,7 +227,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
   auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(indices->edge_type_index_.get());
   for (const auto &item : indices_metadata.edge) {
     // TODO: parallel execution
-    if (!mem_edge_type_index->CreateIndex(item, vertices->access())) {
+    if (!mem_edge_type_index->CreateIndex(item, vertices->access(), snapshot_observer)) {
       throw RecoveryFailure("The edge-type index must be created here!");
     }
     spdlog::info("Index on :{} is recreated from metadata", name_id_mapper->IdToName(item.AsUint()));
@@ -242,7 +242,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
       static_cast<InMemoryEdgeTypePropertyIndex *>(indices->edge_type_property_index_.get());
   for (const auto &item : indices_metadata.edge_property) {
     // TODO: parallel execution
-    if (!mem_edge_type_property_index->CreateIndex(item.first, item.second, vertices->access())) {
+    if (!mem_edge_type_property_index->CreateIndex(item.first, item.second, vertices->access(), snapshot_observer)) {
       throw RecoveryFailure("The edge-type property index must be created here!");
     }
     spdlog::info("Index on :{} + {} is recreated from metadata", name_id_mapper->IdToName(item.first.AsUint()),
@@ -260,7 +260,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
           throw RecoveryFailure("There must exist a storage directory in order to recover text indices!");
         }
         // TODO: parallel execution
-        mem_text_index.RecoverIndex(index_name, label, vertices->access(), name_id_mapper);
+        mem_text_index.RecoverIndex(index_name, label, vertices->access(), name_id_mapper, snapshot_observer);
       } catch (...) {
         throw RecoveryFailure("The text index must be created here!");
       }
@@ -273,7 +273,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
   spdlog::info("Recreating {} point indices statistics from metadata.", indices_metadata.point_label_property.size());
   for (const auto &[label, property] : indices_metadata.point_label_property) {
     // TODO: parallel execution
-    if (!indices->point_index_.CreatePointIndex(label, property, vertices->access()))
+    if (!indices->point_index_.CreatePointIndex(label, property, vertices->access(), snapshot_observer))
       throw RecoveryFailure("The point index must be created here!");
     spdlog::info("Point index on :{}({}) is recreated from metadata", name_id_mapper->IdToName(label.AsUint()),
                  name_id_mapper->IdToName(property.AsUint()));
@@ -283,7 +283,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
   spdlog::info("Recreating {} vector indices from metadata.", indices_metadata.vector_indices.size());
   auto vertices_acc = vertices->access();
   for (const auto &spec : indices_metadata.vector_indices) {
-    if (!indices->vector_index_.CreateIndex(spec, vertices_acc)) {
+    if (!indices->vector_index_.CreateIndex(spec, vertices_acc, snapshot_observer)) {
       throw RecoveryFailure("The vector index must be created here!");
     }
     spdlog::info("Vector index on :{}({}) is recreated from metadata", name_id_mapper->IdToName(spec.label.AsUint()),
