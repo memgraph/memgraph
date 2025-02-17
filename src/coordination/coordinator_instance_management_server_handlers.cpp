@@ -9,6 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#ifdef MG_ENTERPRISE
+
 #include "coordination/coordinator_instance_management_server_handlers.hpp"
 #include "coordination/coordinator_rpc.hpp"
 
@@ -16,7 +18,6 @@
 
 namespace memgraph::coordination {
 
-#ifdef MG_ENTERPRISE
 void CoordinatorInstanceManagementServerHandlers::Register(CoordinatorInstanceManagementServer &server,
                                                            CoordinatorInstance &coordinator_instance) {
   server.Register<coordination::ShowInstancesRpc>([&](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
@@ -34,5 +35,6 @@ void CoordinatorInstanceManagementServerHandlers::ShowInstancesHandler(Coordinat
   rpc::SendFinalResponse(rpc_res, res_builder);
   spdlog::trace("Replying to ShowInstancesRpc.");
 }
-#endif
+
 }  // namespace memgraph::coordination
+#endif

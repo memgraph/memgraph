@@ -27,4 +27,14 @@ void SendFinalResponse(TResponse const &res, slk::Builder *builder) {
   spdlog::trace("[RpcServer] sent {}", TResponse::kType.name);
 }
 
+inline void SendInProgressMsg(slk::Builder *builder) {
+  if (!builder->IsEmpty()) {
+    throw slk::SlkBuilderException("InProgress RPC message can only be sent when the builder's buffer is empty.");
+  }
+  Save(storage::replication::InProgressRes::kType.id, builder);
+  Save(rpc::current_version, builder);
+  builder->Finalize();
+  spdlog::trace("[RpcServer] sent {}", storage::replication::InProgressRes::kType.name);
+}
+
 }  // namespace memgraph::rpc
