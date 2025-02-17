@@ -6,9 +6,9 @@ PROJECT_ROOT="$SCRIPT_DIR/../.."
 MGBUILD_HOME_DIR="/home/mg"
 MGBUILD_ROOT_DIR="$MGBUILD_HOME_DIR/memgraph"
 
-DEFAULT_TOOLCHAIN="v6"
+DEFAULT_TOOLCHAIN="v7"
 SUPPORTED_TOOLCHAINS=(
-    v4 v5 v6
+    v4 v5 v6 v7
 )
 DEFAULT_OS="all"
 
@@ -40,6 +40,14 @@ SUPPORTED_OS_V6=(
     fedora-41
     ubuntu-22.04 ubuntu-24.04 ubuntu-24.04-arm
 )
+
+SUPPORTED_OS_V7=(
+    centos-9 centos-10
+    debian-11 debian-11-arm debian-12 debian-12-arm
+    fedora-41
+    ubuntu-22.04 ubuntu-24.04 ubuntu-24.04-arm
+)
+
 DEFAULT_BUILD_TYPE="Release"
 SUPPORTED_BUILD_TYPES=(
     Debug
@@ -146,6 +154,9 @@ print_help () {
   echo -e "\nToolchain v6 supported OSs:"
   echo -e "  \"${SUPPORTED_OS_V6[*]}\""
 
+    echo -e "\nToolchain v7 supported OSs:"
+  echo -e "  \"${SUPPORTED_OS_V7[*]}\""
+
   echo -e "\nExample usage:"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd build --git-ref my-special-branch"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd run"
@@ -214,6 +225,8 @@ check_support() {
         local SUPPORTED_OS_TOOLCHAIN=("${SUPPORTED_OS_V5[@]}")
       elif [[ "$3" == "v6" ]]; then
         local SUPPORTED_OS_TOOLCHAIN=("${SUPPORTED_OS_V6[@]}")
+      elif [[ "$3" == "v7" ]]; then
+        local SUPPORTED_OS_TOOLCHAIN=("${SUPPORTED_OS_V7[@]}")
       else
         echo -e "Error: $3 isn't a supported toolchain_version!\nChoose from ${SUPPORTED_TOOLCHAINS[*]}"
         exit 1
