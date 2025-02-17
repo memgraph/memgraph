@@ -10,16 +10,39 @@
 // licenses/APL.txt.
 
 #include "utils/priority_thread_pool.hpp"
-#include <barrier>
 #include <chrono>
 #include <limits>
 #include <mutex>
-#include <shared_mutex>
 #include <thread>
 
 #include "utils/logging.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/priorities.hpp"
+
+namespace {
+// std::barrier seems to have a bug which leads to missed notifications, so some threads block forever
+class SimpleBarrier {
+ public:
+  explicit SimpleBarrier(size_t n) : phase1_{n}, phase2_{0}, final_{n} {}
+
+  ~SimpleBarrier() { wait(); }
+
+  void arrive_and_wait() {
+    --phase1_;
+    while (phase1_ > 0) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    ++phase2_;
+  }
+
+  void wait() {
+    while (phase2_ < final_) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+
+ private:
+  std::atomic<size_t> phase1_;
+  std::atomic<size_t> phase2_;
+  size_t final_;
+};
+}  // namespace
 
 namespace memgraph::utils {
 
@@ -28,7 +51,8 @@ PriorityThreadPool::PriorityThreadPool(size_t mixed_work_threads_count, size_t h
   work_buckets_.resize(mixed_work_threads_count);
   hp_work_buckets_.resize(high_priority_threads_count);
 
-  std::barrier barrier{static_cast<ptrdiff_t>(mixed_work_threads_count + high_priority_threads_count + 1)};
+  const size_t nthreads = mixed_work_threads_count + high_priority_threads_count;
+  SimpleBarrier barrier{nthreads};
 
   for (size_t i = 0; i < mixed_work_threads_count; ++i) {
     pool_.emplace_back([this, i, &barrier]() {
@@ -50,7 +74,7 @@ PriorityThreadPool::PriorityThreadPool(size_t mixed_work_threads_count, size_t h
     });
   }
 
-  barrier.arrive_and_wait();
+  barrier.wait();
 
   // Under heavy load a task can get stuck, monitor and move to different thread
   // TODO only if has more than one thread
