@@ -22,6 +22,7 @@
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/schema_info.hpp"
+#include "utils/observer.hpp"
 
 #include <spdlog/spdlog.h>
 #include <cstdint>
@@ -41,6 +42,16 @@ using memgraph::storage::View;
 using memgraph::storage::durability::WalDeltaData;
 
 namespace memgraph::dbms {
+
+class SnapshotObserver final : utils::Observer<void> {
+ public:
+  explicit SnapshotObserver(slk::Builder *res_builder) : res_builder_(res_builder) {}
+  void Update() override { rpc::SendInProgressMsg(res_builder_); }
+
+ private:
+  slk::Builder *res_builder_;
+};
+
 namespace {
 
 constexpr uint32_t kDeltasBatchProgressSize = 100000;
@@ -300,6 +311,9 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
     return;
   }
   spdlog::info("Received snapshot saved to {}", *maybe_snapshot_path);
+
+  auto snapshot_observer = std::make_unique<SnapshotObserver>(res_builder);
+
   {
     auto storage_guard = std::lock_guard{storage->main_lock_};
     spdlog::trace("Clearing database before recovering from snapshot.");

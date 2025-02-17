@@ -3192,7 +3192,8 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                                utils::SkipList<Edge> *edges, utils::SkipList<EdgeMetadata> *edges_metadata,
                                std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count, const Config &config,
-                               memgraph::storage::EnumStore *enum_store, SharedSchemaTracking *schema_info) {
+                               memgraph::storage::EnumStore *enum_store, SharedSchemaTracking *schema_info,
+                               std::unique_ptr<utils::Observer<void>> snapshot_observer) {
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
 
@@ -3349,7 +3350,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
     spdlog::info("Edges are recovered.");
 
     // Recover vertices (labels and properties).
-    spdlog::info("Recovering vertices.", info.vertices_count);
+    spdlog::info("Recovering vertices.");
     uint64_t last_vertex_gid{0};
 
     if (!snapshot.SetPosition(info.offset_vertex_batches)) {
