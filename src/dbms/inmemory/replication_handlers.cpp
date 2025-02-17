@@ -43,13 +43,18 @@ using memgraph::storage::durability::WalDeltaData;
 
 namespace memgraph::dbms {
 
-class SnapshotObserver final : utils::Observer<void> {
+class SnapshotObserver final : public utils::Observer<void> {
  public:
   explicit SnapshotObserver(slk::Builder *res_builder) : res_builder_(res_builder) {}
-  void Update() override { rpc::SendInProgressMsg(res_builder_); }
+  void Update() override {
+    auto guard = std::lock_guard{mtx_};
+    rpc::SendInProgressMsg(res_builder_);
+  }
 
  private:
   slk::Builder *res_builder_;
+  // Mutex is needed because multiple RPC calls could be executed in parallel
+  mutable std::mutex mtx_;
 };
 
 namespace {
@@ -312,7 +317,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
   }
   spdlog::info("Received snapshot saved to {}", *maybe_snapshot_path);
 
-  auto snapshot_observer = std::make_unique<SnapshotObserver>(res_builder);
+  auto snapshot_observer = std::make_shared<SnapshotObserver>(res_builder);
 
   {
     auto storage_guard = std::lock_guard{storage->main_lock_};
@@ -327,7 +332,8 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
           *maybe_snapshot_path, &storage->vertices_, &storage->edges_, &storage->edges_metadata_,
           &storage->repl_storage_state_.history, storage->name_id_mapper_.get(), &storage->edge_count_,
           storage->config_, &storage->enum_store_,
-          storage->config_.salient.items.enable_schema_info ? &storage->schema_info_.Get() : nullptr);
+          storage->config_.salient.items.enable_schema_info ? &storage->schema_info_.Get() : nullptr,
+          snapshot_observer);
       // If this step is present it should always be the first step of
       // the recovery so we use the UUID we read from snapshot
       storage->uuid().set(snapshot_info.uuid);
@@ -340,7 +346,8 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
       spdlog::trace("Recovering indices and constraints from snapshot.");
       storage::durability::RecoverIndicesStatsAndConstraints(
           &storage->vertices_, storage->name_id_mapper_.get(), &storage->indices_, &storage->constraints_,
-          storage->config_, recovery_info, indices_constraints, storage->config_.salient.items.properties_on_edges);
+          storage->config_, recovery_info, indices_constraints, storage->config_.salient.items.properties_on_edges,
+          snapshot_observer);
     } catch (const storage::durability::RecoveryFailure &e) {
       spdlog::error("Couldn't load the snapshot from {} because of: {}. Storage will be cleared.", *maybe_snapshot_path,
                     e.what());

@@ -159,7 +159,8 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
 
 void RecoverConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &constraints_metadata,
                         Constraints *constraints, utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
-                        const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info) {
+                        const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info,
+                        std::shared_ptr<utils::Observer<void>> const snapshot_observer) {
   RecoverExistenceConstraints(constraints_metadata, constraints, vertices, name_id_mapper, parallel_exec_info);
   RecoverUniqueConstraints(constraints_metadata, constraints, vertices, name_id_mapper, parallel_exec_info);
   RecoverTypeConstraints(constraints_metadata, constraints, vertices, parallel_exec_info);
@@ -168,14 +169,15 @@ void RecoverConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadat
 void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadata &indices_metadata, Indices *indices,
                             utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper, bool properties_on_edges,
                             const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info,
-                            const std::optional<std::filesystem::path> &storage_dir) {
+                            const std::optional<std::filesystem::path> &storage_dir,
+                            std::shared_ptr<utils::Observer<void>> const snapshot_observer) {
   spdlog::info("Recreating indices from metadata.");
 
   // Recover label indices.
   spdlog::info("Recreating {} label indices from metadata.", indices_metadata.label.size());
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(indices->label_index_.get());
   for (const auto &item : indices_metadata.label) {
-    if (!mem_label_index->CreateIndex(item, vertices->access(), parallel_exec_info)) {
+    if (!mem_label_index->CreateIndex(item, vertices->access(), parallel_exec_info, snapshot_observer)) {
       throw RecoveryFailure("The label index must be created here!");
     }
     spdlog::info("Index on :{} is recreated from metadata", name_id_mapper->IdToName(item.AsUint()));
@@ -197,7 +199,8 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
   spdlog::info("Recreating {} label+property indices from metadata.", indices_metadata.label_property.size());
   auto *mem_label_property_index = static_cast<InMemoryLabelPropertyIndex *>(indices->label_property_index_.get());
   for (const auto &item : indices_metadata.label_property) {
-    if (!mem_label_property_index->CreateIndex(item.first, item.second, vertices->access(), parallel_exec_info))
+    if (!mem_label_property_index->CreateIndex(item.first, item.second, vertices->access(), parallel_exec_info,
+                                               snapshot_observer))
       throw RecoveryFailure("The label+property index must be created here!");
     spdlog::info("Index on :{}({}) is recreated from metadata", name_id_mapper->IdToName(item.first.AsUint()),
                  name_id_mapper->IdToName(item.second.AsUint()));
@@ -362,16 +365,17 @@ void RecoverIndicesStatsAndConstraints(utils::SkipList<Vertex> *vertices, NameId
                                        Indices *indices, Constraints *constraints, Config const &config,
                                        RecoveryInfo const &recovery_info,
                                        RecoveredIndicesAndConstraints const &indices_constraints,
-                                       bool properties_on_edges) {
+                                       bool properties_on_edges,
+                                       std::shared_ptr<utils::Observer<void>> const snapshot_observer) {
   auto storage_dir = std::optional<std::filesystem::path>{};
   if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     storage_dir = config.durability.storage_directory;
   }
 
   RecoverIndicesAndStats(indices_constraints.indices, indices, vertices, name_id_mapper, properties_on_edges,
-                         GetParallelExecInfo(recovery_info, config), storage_dir);
+                         GetParallelExecInfo(recovery_info, config), storage_dir, snapshot_observer);
   RecoverConstraints(indices_constraints.constraints, constraints, vertices, name_id_mapper,
-                     GetParallelExecInfo(recovery_info, config));
+                     GetParallelExecInfo(recovery_info, config), snapshot_observer);
 }
 
 std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfo(const RecoveryInfo &recovery_info,

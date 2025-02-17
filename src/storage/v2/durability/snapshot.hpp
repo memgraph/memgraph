@@ -73,7 +73,7 @@ RecoveredSnapshot LoadSnapshot(std::filesystem::path const &path, utils::SkipLis
                                NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count, Config const &config,
                                memgraph::storage::EnumStore *enum_store,
                                memgraph::storage::SharedSchemaTracking *schema_info,
-                               std::unique_ptr<utils::Observer<void>> snapshot_observer = nullptr);
+                               std::shared_ptr<utils::Observer<void>> snapshot_observer = nullptr);
 
 void CreateSnapshot(Storage *storage, Transaction *transaction, const std::filesystem::path &snapshot_directory,
                     const std::filesystem::path &wal_directory, utils::SkipList<Vertex> *vertices,
