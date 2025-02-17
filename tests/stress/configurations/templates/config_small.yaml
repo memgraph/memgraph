@@ -68,7 +68,7 @@ customWorkloads:
       querying:
         host: "localhost"
         port: 7687
-      import:
+      setup:
         queries: ["UNWIND range(1, 1000000) as x CREATE (:Node {id: x})"]
       workers:
         - name: fully-connect

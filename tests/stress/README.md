@@ -59,9 +59,8 @@ customWorkloads:
     - name: <string>  # Unique workload name.
       memgraph_args: []
       # Additional Memgraph arguments specific to the workload.
-      # Doesn't apply for K8s as they use values file.
-      import:
-        queries: ["<Cypher Query>"]  # Queries to execute for data import. Used to setup your dataset or workload.
+      setup:
+        queries: ["<Cypher Query>"]  # Queries used to setup your dataset or workload.
       # Type of querying needed for workers to connect to the instance
       querying:
         # Connection host, default: "localhost"

@@ -20,7 +20,7 @@ customWorkloads:
       querying:
         host: "localhost"
         port: 7687
-      import:
+      setup:
         queries: ["CREATE INDEX ON :Node;", "CREATE INDEX ON :Node(id);"]
       workers:
         - name: periodic-import

@@ -15,7 +15,7 @@ customWorkloads:
   tests:
     - name: multitenant-ingestion
       memgraph_args: []
-      import:
+      setup:
         queries:
           # Create 5 databases for multi-tenancy
           - "CREATE DATABASE tenant_1"

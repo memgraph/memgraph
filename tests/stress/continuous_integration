@@ -141,17 +141,17 @@ def run_custom_workloads(script_path: str, config: Config) -> Optional[Dict[str,
             # Start Memgraph deployment
             start_deployment(script_path, config.memgraph_args + workload.get("memgraph_args", []))
 
-            # Run import queries
-            print(f"Started import for workload '{workload_name}'")
+            # Run setup queries
+            print(f"Started setup for workload '{workload_name}'")
             
             query_host = workload.get("querying", {}).get("host", "127.0.0.1")
             query_port = workload.get("querying", {}).get("port", 7687)
             
             memgraph = Memgraph(host=query_host, port=query_port)
-            for query in workload.get("import", {}).get("queries", []):
+            for query in workload.get("setup", {}).get("queries", []):
                 print(f"Executing query: {query}")
                 memgraph.execute(query)
-            print(f"Finished import for workload '{workload_name}'")
+            print(f"Finished setup for workload '{workload_name}'")
 
             # Execute workers in steps
             processes = []
