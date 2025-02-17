@@ -17,7 +17,6 @@
 
 #include "replication/epoch.hpp"
 #include "storage/v2/config.hpp"
-#include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/enum_store.hpp"
@@ -27,6 +26,7 @@
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/file_locker.hpp"
+#include "utils/observer.hpp"
 #include "utils/skip_list.hpp"
 
 namespace memgraph::storage::durability {
@@ -72,7 +72,8 @@ RecoveredSnapshot LoadSnapshot(std::filesystem::path const &path, utils::SkipLis
                                std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count, Config const &config,
                                memgraph::storage::EnumStore *enum_store,
-                               memgraph::storage::SharedSchemaTracking *schema_info);
+                               memgraph::storage::SharedSchemaTracking *schema_info,
+                               std::unique_ptr<utils::Observer<void>> snapshot_observer = nullptr);
 
 void CreateSnapshot(Storage *storage, Transaction *transaction, const std::filesystem::path &snapshot_directory,
                     const std::filesystem::path &wal_directory, utils::SkipList<Vertex> *vertices,
