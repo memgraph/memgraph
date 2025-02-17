@@ -11,11 +11,12 @@
 
 #pragma once
 
+#ifdef MG_ENTERPRISE
+
 #include "coordination/coordinator_instance.hpp"
 #include "coordination/coordinator_instance_management_server.hpp"
 
 namespace memgraph::coordination {
-#ifdef MG_ENTERPRISE
 class CoordinatorInstanceManagementServerHandlers {
  public:
   static void Register(memgraph::coordination::CoordinatorInstanceManagementServer &server,
@@ -26,5 +27,5 @@ class CoordinatorInstanceManagementServerHandlers {
                                    slk::Builder *res_builder);
 };
 
-#endif
 }  // namespace memgraph::coordination
+#endif
