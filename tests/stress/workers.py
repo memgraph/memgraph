@@ -1,7 +1,9 @@
 import random
+import subprocess
 import time
 from abc import ABC
 from gqlalchemy import Memgraph
+import os
 
 
 class Worker(ABC):
@@ -71,6 +73,32 @@ class LabSimulator(Worker):
                 time.sleep(self._sleep_millis / 1000.0)
 
         print(f"Worker '{self._name}' finished.")
+        
+        
+class CypherlIngest(Worker):
+    """Executes a set of system queries randomly."""
+
+    def __init__(self, worker):
+        super().__init__(worker)
+        self._path = worker["path"]
+        self._database = worker["database"]
+        
+        if not os.path.exists(self._path):
+            raise Exception(f"File not found: {self._path}, skipping...")
+
+
+    def run(self):
+        memgraph = Memgraph(self._query_host, self._query_port)
+        memgraph.execute(f"USE DATABASE {self._database}")
+        
+        # Read and execute Cypher queries line by line
+        with open(self._path, "r", encoding="utf-8") as file:
+            for line in file:
+                line = line.strip()
+                if line and not line.startswith("//"):  # Ignore empty lines and comments
+                    memgraph.execute(line)
+
+        print(f"Worker '{self._name}' finished.")    
 
 
 def get_worker_object(worker) -> Worker:
@@ -81,6 +109,8 @@ def get_worker_object(worker) -> Worker:
         return BasicWorker(worker)
     if worker_type == "lab-simulator":
         return LabSimulator(worker)
+    if worker_type == "cypherl-ingest":
+        return CypherlIngest(worker)
 
     raise Exception(f"Unknown worker type: '{worker_type}'!")
 

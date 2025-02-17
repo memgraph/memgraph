@@ -1,0 +1,48 @@
+memgraph:
+  deployment:
+    # Script needs to be located in stress/configurations/deployments
+    script: "binary_standalone.sh"
+  args: [] # Any additional flags you need
+
+general:
+  verbose: false
+  use_ssl: false
+
+dataset:
+  tests: []
+
+customWorkloads:
+  tests:
+    - name: multitenant-ingestion
+      memgraph_args: []
+      import:
+        queries:
+          # Create 5 databases for multi-tenancy
+          - "CREATE DATABASE tenant_1"
+          - "CREATE DATABASE tenant_2"
+          - "CREATE DATABASE tenant_3"
+          - "CREATE DATABASE tenant_4"
+          - "CREATE DATABASE tenant_5"
+      workers:
+        - name: importer-tenant-1
+          type: cypherl-ingest
+          path: "/home/josipmrden/Documents/memgraph/datasets/pokec/pokec_medium.cypherl"
+          database: "tenant_1"
+        - name: importer-tenant-2
+          type: cypherl-ingest
+          path: "/home/josipmrden/Documents/memgraph/datasets/pokec/pokec_medium.cypherl"
+          database: "tenant_2"
+        - name: importer-tenant-3
+          type: cypherl-ingest
+          path: "/home/josipmrden/Documents/memgraph/datasets/pokec/pokec_medium.cypherl"
+          database: "tenant_3"
+        - name: importer-tenant-4
+          type: cypherl-ingest
+          path: "/home/josipmrden/Documents/memgraph/datasets/pokec/pokec_medium.cypherl"
+          database: "tenant_4"
+        - name: importer-tenant-5
+          type: cypherl-ingest
+          path: "/home/josipmrden/Documents/memgraph/datasets/pokec/pokec_medium.cypherl"
+          database: "tenant_5"
+
+      timeout_min: 5  # Increased timeout for multiple imports
