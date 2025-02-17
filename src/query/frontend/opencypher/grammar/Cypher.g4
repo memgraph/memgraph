@@ -241,11 +241,11 @@ expression2a : expression2b ( nodeLabels )? ;
 
 expression2b : atom ( propertyLookup )* ;
 
-atom : literal
+atom : listComprehension
+     | literal
      | parameter
      | caseExpression
      | ( COUNT '(' '*' ')' )
-     | listComprehension
      | patternComprehension
      | ( FILTER '(' filterExpression ')' )
      | ( EXTRACT '(' extractExpression ')' )
