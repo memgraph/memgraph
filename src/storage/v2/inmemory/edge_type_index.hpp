@@ -20,8 +20,7 @@
 #include "storage/v2/indices/edge_type_index.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/vertex_accessor.hpp"
-#include "utils/rw_lock.hpp"
-#include "utils/synchronized.hpp"
+#include "utils/observer.hpp"
 
 namespace memgraph::storage {
 
@@ -50,7 +49,8 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
   InMemoryEdgeTypeIndex() = default;
 
   /// @throw std::bad_alloc
-  bool CreateIndex(EdgeTypeId edge_type, utils::SkipList<Vertex>::Accessor vertices);
+  bool CreateIndex(EdgeTypeId edge_type, utils::SkipList<Vertex>::Accessor vertices,
+                   std::shared_ptr<utils::Observer<void>> snapshot_observer = nullptr);
 
   /// Returns false if there was no index to drop
   bool DropIndex(EdgeTypeId edge_type) override;

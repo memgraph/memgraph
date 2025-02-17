@@ -83,11 +83,11 @@ class TextIndex {
       Vertex *vertex,
       const std::optional<std::vector<mgcxx::text_search::Context *>> &maybe_applicable_text_indices = std::nullopt);
 
-  void CreateIndex(std::string const &index_name, LabelId label, memgraph::storage::VerticesIterable vertices,
-                   NameIdMapper *nameIdMapper);
+  void CreateIndex(std::string const &index_name, LabelId label, VerticesIterable vertices, NameIdMapper *nameIdMapper);
 
-  void RecoverIndex(const std::string &index_name, LabelId label, memgraph::utils::SkipList<Vertex>::Accessor vertices,
-                    NameIdMapper *name_id_mapper);
+  void RecoverIndex(const std::string &index_name, LabelId label, utils::SkipList<Vertex>::Accessor vertices,
+                    NameIdMapper *name_id_mapper,
+                    std::shared_ptr<utils::Observer<void>> const snapshot_observer = nullptr);
 
   LabelId DropIndex(const std::string &index_name);
 

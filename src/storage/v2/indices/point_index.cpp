@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,11 +19,15 @@
 #include "storage/v2/indices/point_index_change_collector.hpp"
 #include "storage/v2/indices/point_index_expensive_header.hpp"
 #include "storage/v2/indices/point_iterator.hpp"
-#include "storage/v2/point_functions.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
-#include "utils/exceptions.hpp"
+#include "utils/counter.hpp"
 #include "utils/logging.hpp"
+
+namespace {
+// Creating vertices for text index takes more time, that's why the value is 100k not 1'000'000
+inline constexpr uint32_t kIndexVerticesSnapshotProgressSize = 100'000;
+}  // namespace
 
 namespace memgraph::storage {
 
@@ -98,7 +102,8 @@ auto update_internal(index_container_t const &src, TrackedChanges const &tracked
 }  // namespace
 
 bool PointIndexStorage::CreatePointIndex(LabelId label, PropertyId property,
-                                         memgraph::utils::SkipList<Vertex>::Accessor vertices) {
+                                         memgraph::utils::SkipList<Vertex>::Accessor vertices,
+                                         std::shared_ptr<utils::Observer<void>> const snapshot_observer) {
   // indexes_ protected by unique storage access
   auto &indexes = *indexes_;
   auto key = LabelPropKey{label, property};
@@ -108,6 +113,8 @@ bool PointIndexStorage::CreatePointIndex(LabelId label, PropertyId property,
   auto points_2d_Crt = std::vector<Entry<IndexPointCartesian2d>>{};
   auto points_3d_WGS = std::vector<Entry<IndexPointWGS3d>>{};
   auto points_3d_Crt = std::vector<Entry<IndexPointCartesian3d>>{};
+
+  auto batch_counter = utils::ResettableCounter<kIndexVerticesSnapshotProgressSize>();
 
   for (auto const &v : vertices) {
     if (v.deleted) continue;
@@ -139,6 +146,9 @@ bool PointIndexStorage::CreatePointIndex(LabelId label, PropertyId property,
       }
       default:
         continue;
+    }
+    if (snapshot_observer != nullptr && batch_counter()) {
+      snapshot_observer->Update();
     }
   }
   auto new_index = std::make_shared<PointIndex>(points_2d_WGS, points_2d_Crt, points_3d_WGS, points_3d_Crt);

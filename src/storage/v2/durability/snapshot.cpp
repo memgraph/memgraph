@@ -673,6 +673,9 @@ LoadPartialConnectivityResult LoadPartialConnectivity(
           }
         }
         vertex.in_edges.emplace_back(get_edge_type_from_id(*edge_type), &*from_vertex, edge_ref);
+        if (snapshot_observer != nullptr && batch_counter()) {
+          snapshot_observer->Update();
+        }
       }
     }
 
@@ -695,7 +698,7 @@ LoadPartialConnectivityResult LoadPartialConnectivity(
 
         EdgeRef edge_ref(Gid::FromUint(*edge_gid));
         if (items.properties_on_edges) {
-          // The snapshot contains the individiual edges only if it was created with a config where properties are
+          // The snapshot contains the individual edges only if it was created with a config where properties are
           // allowed on edges. That means the snapshots that were created without edge properties will only contain the
           // edges in the in/out edges list of vertices, therefore the edges has to be created here.
           if (snapshot_has_edges) {
@@ -716,15 +719,16 @@ LoadPartialConnectivityResult LoadPartialConnectivity(
         edge_count++;
 
         // Update schema info
-        if (schema_info)
+        if (schema_info) {
           schema_info->RecoverEdge(get_edge_type_from_id(*edge_type), edge_ref, &vertex, &*to_vertex,
                                    items.properties_on_edges);
+        }
+        if (snapshot_observer != nullptr && batch_counter()) {
+          snapshot_observer->Update();
+        }
       }
     }
     ++vertex_it;
-    if (snapshot_observer != nullptr && batch_counter()) {
-      snapshot_observer->Update();
-    }
   }
   spdlog::info("Process of recovering connectivity for {} vertices is finished.", vertices_count);
 

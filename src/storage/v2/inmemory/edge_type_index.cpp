@@ -19,64 +19,20 @@
 
 namespace {
 
-using Delta = memgraph::storage::Delta;
-using Vertex = memgraph::storage::Vertex;
-using Edge = memgraph::storage::Edge;
-using EdgeRef = memgraph::storage::EdgeRef;
-using EdgeTypeId = memgraph::storage::EdgeTypeId;
-using Transaction = memgraph::storage::Transaction;
-using View = memgraph::storage::View;
-
-using ReturnType = std::optional<std::tuple<EdgeTypeId, Vertex *, EdgeRef>>;
-ReturnType VertexDeletedConnectedEdges(Vertex *vertex, Edge *edge, const Transaction *transaction, View view) {
-  ReturnType link;
-  Delta *delta = nullptr;
-  {
-    auto guard = std::shared_lock{vertex->lock};
-    delta = vertex->delta;
-  }
-  ApplyDeltasForRead(transaction, delta, view, [&](const Delta &delta) {
-    switch (delta.action) {
-      case Delta::Action::ADD_LABEL:
-      case Delta::Action::REMOVE_LABEL:
-      case Delta::Action::SET_PROPERTY:
-        break;
-      case Delta::Action::ADD_IN_EDGE: {
-        if (edge == delta.vertex_edge.edge.ptr) {
-          link = {delta.vertex_edge.edge_type, delta.vertex_edge.vertex, delta.vertex_edge.edge};
-          auto it = std::find(vertex->in_edges.begin(), vertex->in_edges.end(), link);
-          MG_ASSERT(it == vertex->in_edges.end(), "Invalid database state!");
-        }
-        break;
-      }
-      case Delta::Action::ADD_OUT_EDGE: {
-        if (edge == delta.vertex_edge.edge.ptr) {
-          link = {delta.vertex_edge.edge_type, delta.vertex_edge.vertex, delta.vertex_edge.edge};
-          auto it = std::find(vertex->out_edges.begin(), vertex->out_edges.end(), link);
-          MG_ASSERT(it == vertex->out_edges.end(), "Invalid database state!");
-        }
-        break;
-      }
-      case Delta::Action::REMOVE_IN_EDGE:
-      case Delta::Action::REMOVE_OUT_EDGE:
-      case Delta::Action::RECREATE_OBJECT:
-      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-      case Delta::Action::DELETE_OBJECT:
-        break;
-    }
-  });
-  return link;
-}
-
+constexpr uint32_t kEdgesSnapshotProgressSize = 1'000'000;
 }  // namespace
 
 namespace memgraph::storage {
 
-bool InMemoryEdgeTypeIndex::CreateIndex(EdgeTypeId edge_type, utils::SkipList<Vertex>::Accessor vertices) {
+bool InMemoryEdgeTypeIndex::CreateIndex(EdgeTypeId edge_type, utils::SkipList<Vertex>::Accessor vertices,
+                                        std::shared_ptr<utils::Observer<void>> const snapshot_observer) {
   auto [it, emplaced] = index_.try_emplace(edge_type);
   if (!emplaced) {
     return false;
   }
+
+  // Count edges in general, not specific vertices cause vertex could be a supernode
+  auto batch_counter = utils::ResettableCounter<kEdgesSnapshotProgressSize>();
 
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   try {
@@ -94,6 +50,9 @@ bool InMemoryEdgeTypeIndex::CreateIndex(EdgeTypeId edge_type, utils::SkipList<Ve
             continue;
           }
           edge_acc.insert({&from_vertex, to_vertex, std::get<kEdgeRefPos>(edge).ptr, 0});
+          if (snapshot_observer != nullptr && batch_counter()) {
+            snapshot_observer->Update();
+          }
         }
       }
     }
