@@ -12,6 +12,7 @@ class Worker(ABC):
         self._name = worker["name"]
         self._query_host = worker.get("querying", {}).get("host", None)
         self._query_port = worker.get("querying", {}).get("port", None)
+        self._database = worker.get("database", None)
 
     def run(self):
         pass
@@ -30,6 +31,9 @@ class BasicWorker(Worker):
         print(f"Starting worker '{self._name}'...")
         
         memgraph = Memgraph(self._query_host, self._query_port)
+        if self._database:
+            memgraph.execute(f"USE DATABASE {self._database}")
+
         for i in range(self._repetitions):
             print(f"Worker '{self._name}' executing query: {self._query}")
             memgraph.execute(self._query)
@@ -64,6 +68,9 @@ class LabSimulator(Worker):
         ]
 
         memgraph = Memgraph(self._query_host, self._query_port)
+        if self._database:
+            memgraph.execute(f"USE DATABASE {self._database}")
+
         for i in range(self._repetitions):
             query = random.choice(queries)
             print(f"Worker '{self._name}' executing query: {query}")
@@ -81,7 +88,6 @@ class CypherlIngest(Worker):
     def __init__(self, worker):
         super().__init__(worker)
         self._path = worker["path"]
-        self._database = worker["database"]
         
         if not os.path.exists(self._path):
             raise Exception(f"File not found: {self._path}, skipping...")
@@ -89,7 +95,8 @@ class CypherlIngest(Worker):
 
     def run(self):
         memgraph = Memgraph(self._query_host, self._query_port)
-        memgraph.execute(f"USE DATABASE {self._database}")
+        if self._database:
+            memgraph.execute(f"USE DATABASE {self._database}")
         
         # Read and execute Cypher queries line by line
         with open(self._path, "r", encoding="utf-8") as file:
