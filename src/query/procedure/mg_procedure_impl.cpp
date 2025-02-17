@@ -1698,7 +1698,11 @@ mgp_error mgp_result_record_insert(mgp_result_record *record, const char *field_
 }
 
 mgp_error mgp_func_result_set_error_msg(mgp_func_result *res, const char *msg, mgp_memory *memory) {
-  return WrapExceptions([=] { res->error_msg.emplace(msg, memory->impl); });
+  return WrapExceptions([=] {
+    // We are copying error message string here, that includes the out of memory message
+    memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
+    res->error_msg.emplace(msg, memory->impl);
+  });
 }
 
 mgp_error mgp_func_result_set_value(mgp_func_result *res, mgp_value *value, mgp_memory *memory) {
