@@ -1,28 +1,26 @@
 # Memgraph Stress Test Suite
 
 ## Overview
-This stress test suite is designed to evaluate the performance, stability, and reliability of Memgraph deployments under various workloads. The configuration allows testing different deployment types, installations, and query workloads to ensure Memgraph can handle real-world production scenarios.
+This stress test suite is designed to evaluate the performance, stability, and reliability of Memgraph deployments under various workloads. The configuration allows testing different deployments, and query workloads to ensure Memgraph can handle real-world production scenarios.
 
 ## Configuration
-The test suite is configured using YAML files, which define Memgraph deployment settings, general options, dataset specifications, and custom workloads. Below is a breakdown of the configuration parameters:
+The test suite is configured using YAML files, which define Memgraph deployment script, general options, dataset specifications, and custom workloads. Below is a breakdown of the configuration parameters:
 
 ### 1. Memgraph Configuration
 ```yaml
 memgraph:
   deployment:
-    type: <ha|standalone>  # Specifies the deployment type: High Availability (ha) or Standalone (run from a binary).
-  installation:
-    type: <binary|docker|k8s>  # Specifies the installation type: binary, Docker, or Kubernetes (k8s).
-    options:
-      release_name: <string>  # Kubernetes release name (if applicable).
-      chart_name: <string>  # Helm chart name (if applicable).
-      values_file: <string>
-      # YAML file for Helm values (if applicable).
-      # Values file path needs to be stored in stress/configurations/chart_values/
-      querying_type: <bolt+routing|data>  # Querying type (for HA setup, either uses bolt+routing or queries directly the main instance)
+    # Specifies the path to the deployment script
+    # Deployment script needs to setup and cleanup the Memgraph ecosystem it is run on.
+    # Script needs to have methods for start, stop and status, since continuous integration
+    # calls the script with these arguments. Optionally, the script can have an additional 
+    # argument to pass memgraph flags to the cluster, which will override the existing cluster
+    # flags. Stopping of the cluster needs to guarantee the cleanup of the resources so that 
+    # no files or directories are left behind. Check binary_standalone.sh for more info.
+    script: <path to script>
   args:
-  # The args is needed for <binary|docker> installation types. K8s installation type is in the values file
-  # Below are examples of memgraph flags passed
+    # Additional memgraph arguments that are passed. Overrides the arguments from the 
+    # deployment script.
     - "--telemetry-enabled=false"  # Disables telemetry.
     - "--bolt-server-name-for-init=Neo4j/"  # Specifies the Bolt server name.
     - "--log-file=stress_test.log"  # Log file location.
@@ -64,6 +62,12 @@ customWorkloads:
       # Doesn't apply for K8s as they use values file.
       import:
         queries: ["<Cypher Query>"]  # Queries to execute for data import. Used to setup your dataset or workload.
+      # Type of querying needed for workers to connect to the instance
+      querying:
+        # Connection host, default: "localhost"
+        host: "localhost"
+        # Connection port, default: 7687
+        port: 7687
       workers:
         - name: <string>  # Unique worker name.
           type: <string>
@@ -75,6 +79,11 @@ customWorkloads:
           # 3. lab-simulator -> executes a set of queries performed usually by Memgraph Lab to monitor the instance. Used for
           # users which frequently use Memgraph Lab to see if Lab is doing any instability in the database workload
           query: "<Cypher Query>"  # Cypher query executed by the worker.
+          # Optional: if the worker is connecting in a different way from the custom workload querying.
+          # If nothing is specified, the querying type will be injected from the workload.
+          querying:
+            host: "localhost"
+            port: 7687
           num_repetitions: <int>  # Number of times the query should be executed.
           sleep_millis: <int>  # Sleep duration in milliseconds between executions.
           step: <int>

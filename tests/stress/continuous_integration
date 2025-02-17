@@ -3,34 +3,28 @@
 import argparse
 import multiprocessing
 import os
-import random
 import subprocess
 import time
 from argparse import Namespace as Args
 from typing import Dict, List, Optional
-
+from gqlalchemy import Memgraph
 import yaml
-from deployments import (
-    BinaryHADeployment,
-    BinaryStandaloneDeployment,
-    DockerStandaloneDeployment,
-    MinikubeHelmHADeployment,
-    MinikubeHelmStandaloneDeployment,
-)
 from workers import get_worker_object, get_worker_steps
 
-# paths
+
+# Paths
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 BASE_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", ".."))
 BUILD_DIR = os.path.join(BASE_DIR, "build")
 MEASUREMENTS_FILE = os.path.join(SCRIPT_DIR, ".apollo_measurements")
 KEY_FILE = os.path.join(SCRIPT_DIR, ".key.pem")
 CERT_FILE = os.path.join(SCRIPT_DIR, ".cert.pem")
+DEPLOYMENTS_DIR = os.path.join(SCRIPT_DIR, "configurations/deployments")
 
-# long running stats file
+# Long running stats file
 STATS_FILE = os.path.join(SCRIPT_DIR, ".long_running_stats")
 
-# get number of threads
+# Get number of threads
 THREADS = os.environ["THREADS"] if "THREADS" in os.environ else multiprocessing.cpu_count()
 
 
@@ -41,10 +35,7 @@ class Config:
 
         # Memgraph configuration
         memgraph = config.get("memgraph", {})
-        deployment = memgraph.get("deployment", {})
-        self._deployment_type = deployment.get("type", "standalone")
-        installation = memgraph.get("installation", {})
-        self._installation_type = installation.get("type", "binary")
+        self._script = memgraph.get("deployment", {}).get("script", None)
         self._memgraph_args = memgraph.get("args", [])
 
         # Dataset tests
@@ -52,16 +43,6 @@ class Config:
         self._tests = dataset.get("tests", [])
 
         self._custom_workloads = config.get("customWorkloads", {}).get("tests", [])
-
-        if self._installation_type == "docker":
-            self._image = installation.get("options", {}).get("image", None)
-            self._tag = installation.get("options", {}).get("tag", None)
-
-        if self._installation_type == "k8s":
-            self._release_name = installation.get("options", {}).get("release_name", None)
-            self._chart_name = installation.get("options", {}).get("chart_name", None)
-            self._values_file = installation.get("options", {}).get("values_file", None)
-            self._querying_type = installation.get("options", {}).get("querying_type", "data")
 
     @property
     def uses_ssl(self):
@@ -72,20 +53,8 @@ class Config:
         return self._verbose
 
     @property
-    def deployment_type(self):
-        return self._deployment_type
-
-    @property
-    def installation_type(self):
-        return self._installation_type
-
-    @property
-    def docker_image(self):
-        return self._image
-
-    @property
-    def docker_tag(self):
-        return self._tag
+    def script(self):
+        return self._script
 
     @property
     def tests(self):
@@ -99,113 +68,49 @@ class Config:
     def memgraph_args(self):
         return self._memgraph_args
 
-    @property
-    def release_name(self):
-        return self._release_name
 
-    @property
-    def chart_name(self):
-        return self._chart_name
-
-    @property
-    def values_file(self):
-        return self._values_file
-
-    @property
-    def querying_type(self):
-        return self._querying_type
-
-    @property
-    def values_path(self):
-        return os.path.join(SCRIPT_DIR, f"configurations/chart_values/{self.values_file}")
+def start_deployment(script_path: str, args: List[str]) -> None:
+    cmd = [script_path, "start"] + args
+    print(f"Starting Memgraph with: {' '.join(cmd)}")
+    subprocess.run(cmd, check=True)
+    time.sleep(2)  # Ensure the server has time to start
 
 
-def deployment_factory(args: Args, config: Config):
-    if config.installation_type == "binary":
-        if config.deployment_type == "standalone":
-            return BinaryStandaloneDeployment(args.memgraph, config.memgraph_args)
-        elif config.deployment_type == "ha":
-            return BinaryHADeployment(args.memgraph, config.memgraph_args)
-        else:
-            raise Exception("Unknown Memgraph deployment type!")
-
-    if config.installation_type == "docker":
-        return DockerStandaloneDeployment(config.docker_image, config.docker_tag, config.memgraph_args)
-
-    if config.installation_type == "k8s":
-        if config.deployment_type == "standalone":
-            return MinikubeHelmStandaloneDeployment(config.release_name, config.chart_name, config.values_path)
-        elif config.deployment_type == "ha":
-            return MinikubeHelmHADeployment(
-                config.release_name, config.chart_name, config.values_path, config.querying_type
-            )
-        else:
-            raise Exception("Unknown Memgraph deployment type!")
+def stop_deployment(script_path: str) -> None:
+    cmd = [script_path, "stop"]
+    print(f"Stopping Memgraph with: {' '.join(cmd)}")
+    subprocess.run(cmd, check=True)
 
 
-def generate_temporary_ssl_certs():
-    # https://unix.stackexchange.com/questions/104171/create-ssl-certificate-non-interactively
-    subj = "/C=HR/ST=Zagreb/L=Zagreb/O=Memgraph/CN=db.memgraph.com"
-    subprocess.run(
-        [
-            "openssl",
-            "req",
-            "-new",
-            "-newkey",
-            "rsa:4096",
-            "-days",
-            "365",
-            "-nodes",
-            "-x509",
-            "-subj",
-            subj,
-            "-keyout",
-            KEY_FILE,
-            "-out",
-            CERT_FILE,
-        ],
-        check=True,
-    )
-
-
-def remove_certificates() -> None:
-    os.remove(KEY_FILE)
-    os.remove(CERT_FILE)
+def check_deployment_status(script_path: str) -> bool:
+    cmd = [script_path, "status"]
+    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    return result.returncode == 0
 
 
 def parse_arguments() -> Args:
-    # parse arguments
+    """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description="Run stress tests on Memgraph.")
-    parser.add_argument("--memgraph", default=os.path.join(BUILD_DIR, "memgraph"))
     parser.add_argument("--config-file", default=os.path.join(SCRIPT_DIR, "configurations/templates/config_small.yaml"))
     parser.add_argument("--python", default=os.path.join(SCRIPT_DIR, "ve3", "bin", "python3"), type=str)
     return parser.parse_args()
 
 
 def run_test(args: Args, config: Config, test: str, options: List[str], timeout: int) -> float:
-    """Runs tests for a set of specific database configuration.
-
-    Args:
-        args: Arguments passed to the test
-        test: Test name
-        options: List of options specific for each test
-        timeout: Timeout in minutes
-    """
-    print("Running test '{}'".format(test))
+    """Runs a test for Memgraph."""
+    print(f"Running test '{test}'")
 
     binary = _find_test_binary(args, config, test)
 
-    # start test
     cmd = binary + ["--worker-count", str(THREADS)] + options
     start = time.time()
     ret_test = subprocess.run(cmd, cwd=SCRIPT_DIR, timeout=timeout * 60)
 
     if ret_test.returncode != 0:
-        raise Exception("Test '{}' binary returned non-zero ({})!".format(test, ret_test.returncode))
+        raise Exception(f"Test '{test}' binary returned non-zero ({ret_test.returncode})!")
 
     runtime = time.time() - start
-    print("    Done after {:.3f} seconds".format(runtime))
-
+    print(f"    Done after {runtime:.3f} seconds")
     return runtime
 
 
@@ -218,37 +123,53 @@ def _find_test_binary(args: Args, config: Config, test: str) -> List[str]:
         exe = os.path.join(BUILD_DIR, "tests", "stress", test[:-4])
         return [exe]
 
-    raise Exception("Test '{}' binary not supported!".format(test))
+    raise Exception(f"Test '{test}' binary not supported!")
 
 
-def run_custom_workloads(deployment, config: Config) -> bool:
+def run_custom_workloads(script_path: str, config: Config) -> Optional[Dict[str, float]]:
+    """Runs custom workloads on Memgraph using GQLAlchemy."""
     print("Running custom workloads...")
     runtimes = {}
     err = False
+
     for workload in config.custom_workloads:
         workload_name = workload["name"]
         print(f"Running workload '{workload_name}'")
         start = time.time()
-        try:
-            deployment.start_memgraph(workload["memgraph_args"])
 
+        try:
+            # Start Memgraph deployment
+            start_deployment(script_path, config.memgraph_args + workload.get("memgraph_args", []))
+
+            # Run import queries
             print(f"Started import for workload '{workload_name}'")
+            
+            query_host = workload.get("querying", {}).get("host", "127.0.0.1")
+            query_port = workload.get("querying", {}).get("port", 7687)
+            
+            memgraph = Memgraph(host=query_host, port=query_port)
             for query in workload.get("import", {}).get("queries", []):
-                deployment.execute(query)
+                print(f"Executing query: {query}")
+                memgraph.execute(query)
             print(f"Finished import for workload '{workload_name}'")
-            execution_start = time.time()
+
+            # Execute workers in steps
             processes = []
             workers = workload.get("workers", [])
             steps = get_worker_steps(workers)
+
             for step in steps:
                 print(f"Running step {step}.")
-                for worker in [x for x in workers if x.get("step", 1) == step]:
+
+                for worker in [x for x in workers if x.get("step", 1) == step]:              
+                    # Override with workload global querying if not set on the worker
+                    if "querying" not in worker.keys():
+                        worker["querying"] = {"host": query_host, "port": query_port}
                     worker_object = get_worker_object(worker)
+
                     for i in range(worker.get("replicas", 1)):
-                        process = multiprocessing.Process(target=worker_object.run, args=(deployment,))
-                        processes.append(
-                            (process, workload.get("timeout_min", 10) * 60)
-                        )  # Default to 10 minutes timeout
+                        process = multiprocessing.Process(target=worker_object.run)
+                        processes.append((process, workload.get("timeout_min", 10) * 60))
                         process.start()
 
                 # Monitor processes and enforce timeouts
@@ -261,16 +182,14 @@ def run_custom_workloads(deployment, config: Config) -> bool:
 
             print(f"Finished workload '{workload_name}'")
             end = time.time()
-            whole_duration = end - start
-            execution_duration = end - execution_start
-            print(f"Workload execution duration: {execution_duration} seconds")
-            runtimes[workload_name] = whole_duration
+            runtimes[workload_name] = end - start
+
         except Exception as ex:
-            print(f"Failed to execute workload {workload_name} with following exception:", ex)
+            print(f"Failed to execute workload {workload_name} with exception:", ex)
             err = True
         finally:
-            deployment.stop_memgraph()
-            deployment.cleanup()
+            stop_deployment(script_path)
+
         if err:
             return None
 
@@ -278,38 +197,42 @@ def run_custom_workloads(deployment, config: Config) -> bool:
 
 
 def run_stress_test_suite(args: Args, config: Config) -> Optional[Dict[str, float]]:
+    """Runs the stress test suite on Memgraph."""
     runtimes = {}
 
-    deployment = deployment_factory(args, config)
+    script_path = config.script
+    if not script_path:
+        raise Exception("Memgraph deployment script not found!")
+    script_path = os.path.join(DEPLOYMENTS_DIR, script_path)
+    if not os.path.exists(script_path):
+        raise Exception(f"Memgraph deployment script not found: {script_path}!")
 
     for test in config.tests:
         test_name = test["name"]
         test_flags = test["test_args"]
         timeout = test["timeout_min"]
-        memgraph_flags = test["memgraph_args"] if "memgraph_args" in test else []
-        if config.uses_ssl:
-            test_flags += ["--use-ssl"]
-            memgraph_flags += [f"--bolt-cert-file={CERT_FILE}", f"--bolt-key-file={KEY_FILE}"]
+        memgraph_flags = config.memgraph_args + test.get("memgraph_args", [])
 
         try:
-            deployment.start_memgraph(memgraph_flags)
+            start_deployment(script_path, memgraph_flags)
         except Exception as ex:
-            print("Exception occured while starting memgraph", ex)
+            print("Exception occurred while starting Memgraph:", ex)
             return None
+
         err = False
         try:
             runtime = run_test(args, config, test_name, test_flags, timeout)
             runtimes[os.path.splitext(test_name)[0]] = runtime
         except Exception as ex:
-            print(f"Failed to execute {test_name} with following exception:", ex)
+            print(f"Failed to execute {test_name} with exception:", ex)
             err = True
         finally:
-            deployment.stop_memgraph()
-            deployment.cleanup()
+            stop_deployment(script_path)
+
         if err:
             return None
 
-    workload_runtimes = run_custom_workloads(deployment, config)
+    workload_runtimes = run_custom_workloads(script_path, config)
     if workload_runtimes is None:
         return None
 
@@ -317,34 +240,20 @@ def run_stress_test_suite(args: Args, config: Config) -> Optional[Dict[str, floa
 
 
 def write_stats(runtimes: Dict[str, float]) -> None:
-    measurements = ""
-    for key, value in runtimes.items():
-        measurements += "{}.runtime {}\n".format(key, value)
-    if "long_running" in runtimes:
-        with open(STATS_FILE) as f:
-            stats = f.read().split("\n")
-        measurements += "long_running.queries.executed {}\n".format(stats[0])
-        measurements += "long_running.queries.failed {}\n".format(stats[1])
+    """Writes stress test results to a file."""
     with open(MEASUREMENTS_FILE, "w") as f:
-        f.write(measurements)
+        f.write("\n".join(f"{key}.runtime {value}" for key, value in runtimes.items()))
 
 
 if __name__ == "__main__":
     args = parse_arguments()
     config = Config(yaml.safe_load(open(args.config_file)))
 
-    if config.uses_ssl:
-        generate_temporary_ssl_certs()
-
     runtimes = run_stress_test_suite(args, config)
 
     if runtimes is None:
         print("Some stress tests have failed")
         exit(1)
-    assert runtimes is not None
 
-    if config.uses_ssl:
-        remove_certificates()
     write_stats(runtimes)
-
     print("Successfully ran stress tests!")
