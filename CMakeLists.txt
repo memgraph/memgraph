@@ -221,7 +221,7 @@ set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libgcc -static-lib
 # Use lld linker to speedup build and use less memory.
 add_link_options(-fuse-ld=lld)
 add_link_options(LINKER:--build-id)
-link_directories("${MG_TOOLCHAIN_ROOT}")
+link_directories("${MG_TOOLCHAIN_ROOT}/lib")
 
 # After linker is set, check we can use link-time optimization
 cmake_policy(SET CMP0138 NEW)
