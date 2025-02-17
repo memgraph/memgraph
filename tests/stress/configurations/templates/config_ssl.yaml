@@ -1,8 +1,7 @@
 memgraph:
   deployment:
-    type: standalone
-  installation:
-    type: binary
+    # Script needs to be located in stress/configurations/deployments
+    script: "binary_standalone.sh"
   args:
     - "--telemetry-enabled=false"
     - "--bolt-server-name-for-init=Neo4j/"
