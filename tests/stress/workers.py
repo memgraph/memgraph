@@ -99,12 +99,40 @@ class CypherlIngest(Worker):
         
         # Read and execute Cypher queries line by line
         with open(self._path, "r", encoding="utf-8") as file:
+            i = 0
             for line in file:
                 line = line.strip()
                 if line and not line.startswith("//"):  # Ignore empty lines and comments
                     memgraph.execute(line)
+                    i+=1
 
-        print(f"Worker '{self._name}' finished.")    
+        print(f"Worker '{self._name}' finished.")
+        
+class LoadCsvIngest(Worker):
+    """Executes a set of system queries randomly."""
+
+    def __init__(self, worker):
+        super().__init__(worker)
+        self._node_csv_path = worker["nodeCsvPath"]
+        self._edge_csv_path = worker["edgeCsvPath"]
+        self._node_csv_query = worker["nodeCsvQuery"]
+        self._edge_csv_query = worker["edgeCsvQuery"]
+        
+        if not os.path.exists(self._node_csv_path):
+            raise Exception(f"File not found: {self._node_csv_path}, skipping...")
+        if not os.path.exists(self._edge_csv_path):
+            raise Exception(f"File not found: {self._edge_csv_path}, skipping...")
+
+
+    def run(self):
+        memgraph = Memgraph(self._query_host, self._query_port)
+        if self._database:
+            memgraph.execute(f"USE DATABASE {self._database}")
+        
+        memgraph.execute(self._node_csv_query, {"nodeCsvPath": self._node_csv_path})
+        memgraph.execute(self._edge_csv_query, {"edgeCsvPath": self._edge_csv_path})
+
+        print(f"Worker '{self._name}' finished.")
 
 
 def get_worker_object(worker) -> Worker:
@@ -117,6 +145,8 @@ def get_worker_object(worker) -> Worker:
         return LabSimulator(worker)
     if worker_type == "cypherl-ingest":
         return CypherlIngest(worker)
+    if worker_type == "loadcsv-ingest":
+        return LoadCsvIngest(worker)
 
     raise Exception(f"Unknown worker type: '{worker_type}'!")
 

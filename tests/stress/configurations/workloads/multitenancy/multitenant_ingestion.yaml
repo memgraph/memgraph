@@ -23,26 +23,38 @@ customWorkloads:
           - "CREATE DATABASE tenant_3"
           - "CREATE DATABASE tenant_4"
           - "CREATE DATABASE tenant_5"
+          - "USE DATABASE tenant_5"
+          - "CREATE INDEX ON :User"
+          - "CREATE INDEX ON :User(id)"
       workers:
-        - name: importer-tenant-1
-          type: cypherl-ingest
-          path: "/home/josipmrden/Documents/memgraph/datasets/pokec/pokec_medium.cypherl"
-          database: "tenant_1"
-        - name: importer-tenant-2
-          type: cypherl-ingest
-          path: "/home/josipmrden/Documents/memgraph/datasets/pokec/pokec_medium.cypherl"
-          database: "tenant_2"
-        - name: importer-tenant-3
-          type: cypherl-ingest
-          path: "/home/josipmrden/Documents/memgraph/datasets/pokec/pokec_medium.cypherl"
-          database: "tenant_3"
-        - name: importer-tenant-4
-          type: cypherl-ingest
-          path: "/home/josipmrden/Documents/memgraph/datasets/pokec/pokec_medium.cypherl"
-          database: "tenant_4"
+        # - name: importer-tenant-1
+        #   type: cypherl-ingest
+        #   path: "/home/josipmrden/Documents/memgraph/datasets/pokec/pokec_medium.cypherl"
+        #   database: "tenant_1"
+        # - name: importer-tenant-2
+        #   type: cypherl-ingest
+        #   path: "/home/josipmrden/Documents/memgraph/datasets/pokec/pokec_medium.cypherl"
+        #   database: "tenant_2"
+        # - name: importer-tenant-3
+        #   type: cypherl-ingest
+        #   path: "/home/josipmrden/Documents/memgraph/datasets/pokec/pokec_medium.cypherl"
+        #   database: "tenant_3"
+        # - name: importer-tenant-4
+        #   type: cypherl-ingest
+        #   path: "/home/josipmrden/Documents/memgraph/datasets/pokec/pokec_medium.cypherl"
+        #   database: "tenant_4"
         - name: importer-tenant-5
-          type: cypherl-ingest
-          path: "/home/josipmrden/Documents/memgraph/datasets/pokec/pokec_medium.cypherl"
+          type: loadcsv-ingest
           database: "tenant_5"
-
+          nodeCsvPath: "/home/josipmrden/Documents/memgraph/datasets/pokec/pokec_medium_nodes.csv"
+          nodeCsvQuery: >
+            LOAD CSV FROM $nodeCsvPath WITH HEADER AS row
+            CREATE (n:User)
+            SET n += row;
+          edgeCsvPath: "/home/josipmrden/Documents/memgraph/datasets/pokec/pokec_medium_relationships.csv"
+          edgeCsvQuery: >
+            LOAD CSV FROM $edgeCsvPath WITH HEADER AS row
+            MATCH (n:User {id: row.from_id})
+            MATCH (m:User {id: row.to_id})
+            CREATE (n)-[:Friend]->(m);
       timeout_min: 5  # Increased timeout for multiple imports
