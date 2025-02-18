@@ -45,12 +45,57 @@ class SimpleBarrier {
   size_t final_;
 };
 
+// struct yielder {
+//   void wait() noexcept {
+// #if defined(__i386__) || defined(__x86_64__)
+//     __builtin_ia32_pause();
+// #elif defined(__aarch64__)
+//     asm volatile("YIELD");
+// #else
+// #error("no PAUSE/YIELD instructions for unknown architecture");
+// #endif
+//     ++count;
+//   }
+
+//   void operator()() noexcept {
+//     while (count < 1024UL * 8U) wait();
+//   }
+
+//  private:
+//   uint_fast32_t count{0};
+// };
+
+struct yielder {
+  void operator()() noexcept {
+#if defined(__i386__) || defined(__x86_64__)
+    __builtin_ia32_pause();
+#elif defined(__aarch64__)
+    asm volatile("YIELD");
+#else
+#error("no PAUSE/YIELD instructions for unknown architecture");
+#endif
+    ++count;
+    // if (count > 8) [[unlikely]] {
+    //   // count = 0;
+    //   nanosleep(&shortpause, nullptr);
+    //   // Increase the backoff
+    //   shortpause.tv_nsec = std::min<decltype(shortpause.tv_nsec)>(shortpause.tv_nsec << 1, 512);
+    // }
+  }
+
+  //  private:
+  uint_fast32_t count{0};
+  timespec shortpause = {.tv_sec = 0, .tv_nsec = 1};
+};
+
 auto get_rand_delay() {
   static thread_local std::random_device r;
   static thread_local std::default_random_engine e1(r());
   static thread_local std::uniform_int_distribution<int> uniform_dist(50, 200);
   return std::chrono::milliseconds(uniform_dist(e1));
 }
+
+std::atomic<memgraph::utils::PriorityThreadPool::Worker *> hot_thread_{};
 }  // namespace
 
 namespace memgraph::utils {
@@ -161,11 +206,16 @@ void PriorityThreadPool::ScheduledAddTask(TaskSignature new_task, const Priority
     return;
   }  // Not sure about this
 
-  // const auto this_cpu = sched_getcpu();
-  auto tid = tid_++ % work_buckets_.size();
-
   const auto id =
       (uint64_t(priority == Priority::HIGH) << 63U) + id_--;  // Way to priorities hp tasks (overflow concerns)
+
+  if (auto *const hot_thread = hot_thread_.load(std::memory_order_acquire)) {
+    hot_thread->push(std::move(new_task), id);
+    return;
+  }
+
+  // const auto this_cpu = sched_getcpu();
+  auto tid = tid_++ % work_buckets_.size();
 
   // Add task to current CPU's thread (cheap)
   auto *this_bucket = work_buckets_[tid];
@@ -262,21 +312,28 @@ void PriorityThreadPool::Worker::operator()() {
         // Couldn't steal
         if (work_.empty()) {
           // std::cout << "Worker " << (void *)this << " no work in " << (void *)&work_ << ", wait..." << std::endl;
-          // Wait for a new task
-          cv_.wait_for(l, delay, [this] { return !work_.empty() || !run_; });
+          // Spin for some time and then go to sleep
+          // This works, but pins the CPUs to 50% while idle...
+          {
+            l.unlock();
+            yielder y;
+            while (!has_pending_work_ && y.count < 1024) {
+              y();
+            }
+            l.lock();
+          }
+
+          if (work_.empty()) {
+            // Wait for a new task
+            cv_.wait_for(l, delay);
+            // Just looping
+            if (work_.empty()) {
+              continue;
+            }
+          }
 
           // std::cout << "Worker " << (void *)this << " loop check... " << work_.empty() << std::endl;
-
-          // Just looping
-          if (work_.empty()) {
-            continue;
-          }
         }
-      }
-
-      // Stop requested
-      if (!run_) [[unlikely]] {
-        return;
       }
 
       // std::cout << "Worker " << (void *)this << " taking task " << work_.top().id << std::endl;
@@ -285,12 +342,20 @@ void PriorityThreadPool::Worker::operator()() {
       task = std::move(work_.top().work);
       work_.pop();
     }
+    // Stop requested
+    if (!run_) [[unlikely]] {
+      return;
+    }
     // std::cout << "Worker " << (void *)this << " executing task..." << std::endl;
     // Execute the task
-    working_.store(true, std::memory_order::release);
+    // working_.store(true, std::memory_order::release);
     task.value()();
     task.reset();
-    working_.store(false, std::memory_order::release);
+    // working_.store(false, std::memory_order::release);
+
+    if constexpr (ThreadPriority != Priority::HIGH) {
+      if (!has_pending_work_) hot_thread_.store(this, std::memory_order::release);
+    }
   }
 }
 

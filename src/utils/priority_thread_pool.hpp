@@ -11,6 +11,7 @@
 
 #pragma once
 #include <atomic>
+#include <boost/asio/detail/event.hpp>
 #include <condition_variable>
 #include <functional>
 #include <iostream>
@@ -112,6 +113,7 @@ class PriorityThreadPool {
     std::condition_variable cv_;
     std::optional<TaskSignature> task_{};
     PriorityThreadPool &scheduler_;
+    boost::asio::detail::event cv_boost;
 
     std::atomic<uint64_t> last_task_{0};
     std::atomic_bool working_{false};
