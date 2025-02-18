@@ -5293,16 +5293,12 @@ TEST_P(CypherMainVisitorTest, ListComprehension) {
 
     const auto *ret = dynamic_cast<Return *>(query->single_query_->clauses_[0]);
 
-    // TODO: This should also be list comprehension but we don't parse it well
-    // We parse it as an IN LIST operator
-    // It's okay because it doesn't do anything (no where and no expression), but ideally it would be
-    // parsed like the assertions below.
-    // const auto *lc = dynamic_cast<ListComprehension *>(ret->body_.named_expressions[0]->expression_);
-    // ASSERT_NE(lc, nullptr);
+    const auto *lc = dynamic_cast<ListComprehension *>(ret->body_.named_expressions[0]->expression_);
+    ASSERT_NE(lc, nullptr);
 
-    // ASSERT_NE(lc->identifier_, nullptr);
-    // ASSERT_NE(lc->list_, nullptr);
-    // ASSERT_EQ(lc->where_, nullptr);
-    // ASSERT_EQ(lc->expression_, nullptr);
+    ASSERT_NE(lc->identifier_, nullptr);
+    ASSERT_NE(lc->list_, nullptr);
+    ASSERT_EQ(lc->where_, nullptr);
+    ASSERT_EQ(lc->expression_, nullptr);
   }
 }
