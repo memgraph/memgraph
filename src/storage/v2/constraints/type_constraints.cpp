@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,7 +22,10 @@
 namespace memgraph::storage {
 
 namespace {
-inline TypeConstraintKind PropertyValueToTypeConstraintKind(const PropertyValue &property) {
+
+constexpr uint32_t kTypeConstraintsVerticesSnapshotProgressSize = 1'000'000;
+
+TypeConstraintKind PropertyValueToTypeConstraintKind(const PropertyValue &property) {
   switch (property.type()) {
     case PropertyValueType::String:
       return TypeConstraintKind::STRING;
@@ -119,10 +122,14 @@ inline TypeConstraintKind PropertyValueToTypeConstraintKind(const PropertyValue 
 }
 
 [[nodiscard]] std::optional<ConstraintViolation> TypeConstraints::ValidateVertices(
-    utils::SkipList<Vertex>::Accessor vertices) const {
+    utils::SkipList<Vertex>::Accessor vertices, std::shared_ptr<utils::Observer<void>> const snapshot_observer) const {
+  auto batch_counter = utils::ResettableCounter<kTypeConstraintsVerticesSnapshotProgressSize>();
   for (auto const &vertex : vertices) {
     if (auto violation = Validate(vertex); violation.has_value()) {
       return violation;
+    }
+    if (snapshot_observer != nullptr && batch_counter()) {
+      snapshot_observer->Update();
     }
   }
   return std::nullopt;

@@ -22,6 +22,7 @@
 namespace memgraph::storage {
 
 namespace {
+constexpr uint32_t kUniqueConstraintsVerticesSnapshotProgressSize = 1'000'000;
 
 /// Helper function that determines position of the given `property` in the
 /// sorted `property_array` using binary search. In the case that `property`
@@ -292,7 +293,8 @@ InMemoryUniqueConstraints::GetCreationFunction(
 
 bool InMemoryUniqueConstraints::MultipleThreadsConstraintValidation::operator()(
     const utils::SkipList<Vertex>::Accessor &vertex_accessor, utils::SkipList<Entry>::Accessor &constraint_accessor,
-    const LabelId &label, const std::set<PropertyId> &properties) {
+    const LabelId &label, const std::set<PropertyId> &properties,
+    std::shared_ptr<utils::Observer<void>> const snapshot_observer) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   const auto &vertex_batches = parallel_exec_info.vertex_recovery_info;
   MG_ASSERT(!vertex_batches.empty(),
@@ -301,16 +303,16 @@ bool InMemoryUniqueConstraints::MultipleThreadsConstraintValidation::operator()(
   const auto thread_count = std::min(parallel_exec_info.thread_count, vertex_batches.size());
 
   std::atomic<uint64_t> batch_counter = 0;
-  memgraph::utils::Synchronized<std::optional<ConstraintViolation>, utils::RWSpinLock> has_error;
+  utils::Synchronized<std::optional<ConstraintViolation>, utils::RWSpinLock> has_error;
   {
     std::vector<std::jthread> threads;
     threads.reserve(thread_count);
     for (auto i{0U}; i < thread_count; ++i) {
-      threads.emplace_back(
-          [&has_error, &vertex_batches, &batch_counter, &vertex_accessor, &constraint_accessor, &label, &properties]() {
-            do_per_thread_validation(has_error, DoValidate, vertex_batches, batch_counter, vertex_accessor,
-                                     constraint_accessor, label, properties);
-          });
+      threads.emplace_back([&has_error, &vertex_batches, &batch_counter, &vertex_accessor, &constraint_accessor, &label,
+                            &properties, snapshot_observer]() {
+        do_per_thread_validation(has_error, DoValidate, vertex_batches, batch_counter, vertex_accessor,
+                                 snapshot_observer, constraint_accessor, label, properties);
+      });
     }
   }
   return has_error.Lock()->has_value();
@@ -318,10 +320,15 @@ bool InMemoryUniqueConstraints::MultipleThreadsConstraintValidation::operator()(
 
 bool InMemoryUniqueConstraints::SingleThreadConstraintValidation::operator()(
     const utils::SkipList<Vertex>::Accessor &vertex_accessor, utils::SkipList<Entry>::Accessor &constraint_accessor,
-    const LabelId &label, const std::set<PropertyId> &properties) {
+    const LabelId &label, const std::set<PropertyId> &properties,
+    std::shared_ptr<utils::Observer<void>> const snapshot_observer) {
+  auto batch_counter = utils::ResettableCounter<kUniqueConstraintsVerticesSnapshotProgressSize>();
   for (const Vertex &vertex : vertex_accessor) {
     if (const auto violation = DoValidate(vertex, constraint_accessor, label, properties); violation.has_value()) {
       return true;
+    }
+    if (snapshot_observer != nullptr && batch_counter()) {
+      snapshot_observer->Update();
     }
   }
   return false;
@@ -374,7 +381,8 @@ void InMemoryUniqueConstraints::AbortEntries(std::span<Vertex const *const> vert
 utils::BasicResult<ConstraintViolation, InMemoryUniqueConstraints::CreationStatus>
 InMemoryUniqueConstraints::CreateConstraint(
     LabelId label, const std::set<PropertyId> &properties, const utils::SkipList<Vertex>::Accessor &vertex_accessor,
-    const std::optional<durability::ParallelizedSchemaCreationInfo> &par_exec_info) {
+    const std::optional<durability::ParallelizedSchemaCreationInfo> &par_exec_info,
+    std::shared_ptr<utils::Observer<void>> const snapshot_observer) {
   if (properties.empty()) {
     return CreationStatus::EMPTY_PROPERTIES;
   }
@@ -385,14 +393,16 @@ InMemoryUniqueConstraints::CreateConstraint(
   if (constraints_.contains({label, properties})) {
     return CreationStatus::ALREADY_EXISTS;
   }
-  memgraph::utils::SkipList<Entry> constraints_skip_list;
+  utils::SkipList<Entry> constraints_skip_list;
   utils::SkipList<Entry>::Accessor constraint_accessor{constraints_skip_list.access()};
 
   auto multi_single_thread_processing = GetCreationFunction(par_exec_info);
 
-  bool violation_found = std::visit(
-      [&vertex_accessor, &constraint_accessor, &label, &properties](auto &multi_single_thread_processing) {
-        return multi_single_thread_processing(vertex_accessor, constraint_accessor, label, properties);
+  bool const violation_found = std::visit(
+      [&vertex_accessor, &constraint_accessor, &label, &properties,
+       snapshot_observer](auto &multi_single_thread_processing) {
+        return multi_single_thread_processing(vertex_accessor, constraint_accessor, label, properties,
+                                              snapshot_observer);
       },
       multi_single_thread_processing);
 

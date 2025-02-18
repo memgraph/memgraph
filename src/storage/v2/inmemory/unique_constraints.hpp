@@ -20,6 +20,7 @@
 #include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/id_types.hpp"
 #include "utils/logging.hpp"
+#include "utils/observer.hpp"
 #include "utils/rw_spin_lock.hpp"
 #include "utils/skip_list.hpp"
 #include "utils/synchronized.hpp"
@@ -68,14 +69,16 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   struct MultipleThreadsConstraintValidation {
     bool operator()(const utils::SkipList<Vertex>::Accessor &vertex_accessor,
                     utils::SkipList<Entry>::Accessor &constraint_accessor, const LabelId &label,
-                    const std::set<PropertyId> &properties);
+                    const std::set<PropertyId> &properties,
+                    std::shared_ptr<utils::Observer<void>> const snapshot_observer = nullptr);
 
     const durability::ParallelizedSchemaCreationInfo &parallel_exec_info;
   };
   struct SingleThreadConstraintValidation {
     bool operator()(const utils::SkipList<Vertex>::Accessor &vertex_accessor,
                     utils::SkipList<Entry>::Accessor &constraint_accessor, const LabelId &label,
-                    const std::set<PropertyId> &properties);
+                    const std::set<PropertyId> &properties,
+                    std::shared_ptr<utils::Observer<void>> const snapshot_observer = nullptr);
   };
 
   /// Indexes the given vertex for relevant labels and properties.
@@ -97,7 +100,8 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   /// @throw std::bad_alloc
   utils::BasicResult<ConstraintViolation, CreationStatus> CreateConstraint(
       LabelId label, const std::set<PropertyId> &properties, const utils::SkipList<Vertex>::Accessor &vertex_accessor,
-      const std::optional<durability::ParallelizedSchemaCreationInfo> &par_exec_info);
+      const std::optional<durability::ParallelizedSchemaCreationInfo> &par_exec_info,
+      std::shared_ptr<utils::Observer<void>> const snapshot_observer = nullptr);
 
   /// Deletes the specified constraint. Returns `DeletionStatus::NOT_FOUND` if
   /// there is not such constraint in the storage,

@@ -12,6 +12,8 @@
 
 #include <vector>
 #include "storage/v2/vertex.hpp"
+#include "utils/counter.hpp"
+#include "utils/observer.hpp"
 #include "utils/skip_list.hpp"
 
 namespace memgraph::storage {
@@ -20,7 +22,7 @@ void do_per_thread_validation(ErrorType &maybe_error, Func &&func,
                               const std::vector<std::pair<Gid, uint64_t>> &vertex_batches,
                               std::atomic<uint64_t> &batch_counter,
                               const memgraph::utils::SkipList<memgraph::storage::Vertex>::Accessor &vertices,
-                              Args &&...args) {
+                              std::shared_ptr<utils::Observer<void>> const snapshot_observer, Args &&...args) {
   while (!maybe_error.ReadLock()->has_value()) {
     const auto batch_index = batch_counter.fetch_add(1, std::memory_order_acquire);
     if (batch_index >= vertex_batches.size()) {
@@ -30,9 +32,15 @@ void do_per_thread_validation(ErrorType &maybe_error, Func &&func,
 
     auto vertex_curr = vertices.find(gid_start);
     DMG_ASSERT(vertex_curr != vertices.end(), "No vertex was found with given gid");
+
+    constexpr uint32_t kConstraintsVerticesSnapshotProgressSize = 1'000'000;
+    auto local_batch_counter = utils::ResettableCounter<kConstraintsVerticesSnapshotProgressSize>();
     for (auto i{0U}; i < batch_size; ++i, ++vertex_curr) {
       const auto violation = func(*vertex_curr, std::forward<Args>(args)...);
       if (!violation.has_value()) [[likely]] {
+        if (snapshot_observer != nullptr && local_batch_counter()) {
+          snapshot_observer->Update();
+        }
         continue;
       }
       maybe_error.WithLock([&violation](auto &maybe_error) { maybe_error = *violation; });
