@@ -100,9 +100,15 @@ std::atomic<uint64_t> hot_threads_{0};  // TODO Make it actually work for more t
 inline void set_hot_thread(const uint64_t id) { hot_threads_.fetch_or(1U << id, std::memory_order::acq_rel); }
 inline void reset_hot_thread(const uint64_t id) { hot_threads_.fetch_and(~(1U << id), std::memory_order::acq_rel); }
 inline int get_hot_thread() {
-  const auto hot_threads = hot_threads_.load(std::memory_order::acquire);
-  if (hot_threads == 0) return -1;
-  const auto id = __builtin_ctz(hot_threads);
+  auto hot_threads = hot_threads_.load(std::memory_order::acquire);
+  if (hot_threads == 0) return 64;  // Max
+  auto id = std::countr_zero(hot_threads);
+  auto next_ht = hot_threads & ~(1U << id);
+  while (!hot_threads_.compare_exchange_weak(hot_threads, next_ht, std::memory_order::acq_rel)) {
+    if (hot_threads == 0) return 64;
+    id = std::countr_zero(hot_threads);
+    next_ht = hot_threads & ~(1U << id);
+  }
   reset_hot_thread(id);
   return id;  // TODO This needs to be atomic get/reset
 }
@@ -219,10 +225,10 @@ void PriorityThreadPool::ScheduledAddTask(TaskSignature new_task, const Priority
   const auto id =
       (uint64_t(priority == Priority::HIGH) << 63U) + id_--;  // Way to priorities hp tasks (overflow concerns)
 
-  uint64_t tid = 0;
-
-  if (const auto hot_thread = get_hot_thread(); hot_thread >= 0) {
-    tid = hot_thread;
+  uint64_t tid = get_hot_thread();
+  // std::cout << tid << std::endl;
+  if (tid < work_buckets_.size()) {
+    tid_ = tid;
   } else {
     // const auto this_cpu = sched_getcpu();
     tid = tid_++ % work_buckets_.size();
@@ -267,12 +273,12 @@ void PriorityThreadPool::Worker::operator()() {
   priority = ThreadPriority;  // Update the visible thread's priority
 
   if (std::thread::hardware_concurrency() > 1 && pinned_core_ >= 0) {
-    pthread_t self = pthread_self();
+    // pthread_t self = pthread_self();
 
-    cpu_set_t cpuset;
-    CPU_ZERO(&cpuset);
-    CPU_SET(pinned_core_ % std::thread::hardware_concurrency(), &cpuset);
-    MG_ASSERT(pthread_setaffinity_np(self, sizeof(cpu_set_t), &cpuset) == 0, "Failed to pin worker core");
+    // cpu_set_t cpuset;
+    // CPU_ZERO(&cpuset);
+    // CPU_SET(pinned_core_ % std::thread::hardware_concurrency(), &cpuset);
+    // MG_ASSERT(pthread_setaffinity_np(self, sizeof(cpu_set_t), &cpuset) == 0, "Failed to pin worker core");
 
     // sched_param param;
     // param.sched_pri::arrive_and_waitority = 75;
@@ -289,6 +295,9 @@ void PriorityThreadPool::Worker::operator()() {
     {
       auto l = std::unique_lock{mtx_};
       if (work_.empty()) {
+        if constexpr (ThreadPriority != Priority::HIGH) {
+          set_hot_thread(id_);
+        }
         // Try to steal work before going to wait
         {
           l.unlock();
@@ -328,7 +337,7 @@ void PriorityThreadPool::Worker::operator()() {
           {
             l.unlock();
             yielder y;
-            while (!has_pending_work_ && y.count < 1024) {
+            while (!has_pending_work_.load(std::memory_order::acquire) && y.count < 1024UL) {
               y();
             }
             l.lock();
@@ -336,10 +345,11 @@ void PriorityThreadPool::Worker::operator()() {
 
           if (work_.empty()) {
             if constexpr (ThreadPriority != Priority::HIGH) {
-              reset_hot_thread(pinned_core_);
+              reset_hot_thread(id_);
             }
             // Wait for a new task
             cv_.wait_for(l, delay);
+
             // Just looping
             if (work_.empty()) {
               continue;
@@ -363,13 +373,16 @@ void PriorityThreadPool::Worker::operator()() {
     // std::cout << "Worker " << (void *)this << " executing task..." << std::endl;
     // Execute the task
     // working_.store(true, std::memory_order::release);
+    // if constexpr (ThreadPriority != Priority::HIGH) {
+    //   reset_hot_thread(id_);
+    // }
     task.value()();
     task.reset();
     // working_.store(false, std::memory_order::release);
 
-    if constexpr (ThreadPriority != Priority::HIGH) {
-      set_hot_thread(pinned_core_);  // TODO This is not correct; need id
-    }
+    // if constexpr (ThreadPriority != Priority::HIGH) {
+    //   if (!has_pending_work_) set_hot_thread(id_);
+    // }
   }
 }
 
