@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,6 +18,8 @@
 #include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/vertex.hpp"
+#include "utils/counter.hpp"
+#include "utils/observer.hpp"
 #include "utils/skip_list.hpp"
 
 namespace memgraph::storage {
@@ -42,7 +44,9 @@ class TypeConstraints {
   [[nodiscard]] std::optional<ConstraintViolation> Validate(const Vertex &vertex, LabelId label) const;
   [[nodiscard]] std::optional<ConstraintViolation> Validate(const Vertex &vertex, PropertyId property_id,
                                                             const PropertyValue &property_value) const;
-  [[nodiscard]] std::optional<ConstraintViolation> ValidateVertices(utils::SkipList<Vertex>::Accessor vertices) const;
+  [[nodiscard]] std::optional<ConstraintViolation> ValidateVertices(
+      utils::SkipList<Vertex>::Accessor vertices,
+      std::shared_ptr<utils::Observer<void>> snapshot_observer = nullptr) const;
 
   bool empty() const;
   bool ConstraintExists(LabelId label, PropertyId property) const;

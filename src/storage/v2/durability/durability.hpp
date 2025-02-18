@@ -112,7 +112,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
 void RecoverConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &constraints_metadata,
                         Constraints *constraints, utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
                         const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info = std::nullopt,
-                        std::shared_ptr<utils::Observer<void>> snapshot_observer = nullptr);
+                        std::shared_ptr<utils::Observer<void>> const snapshot_observer = nullptr);
 
 void RecoverIndicesStatsAndConstraints(utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
                                        Indices *indices, Constraints *constraints, Config const &config,
@@ -126,13 +126,16 @@ std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfo(const Recovery
 
 void RecoverExistenceConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &, Constraints *,
                                  utils::SkipList<Vertex> *, NameIdMapper *,
-                                 const std::optional<ParallelizedSchemaCreationInfo> &);
+                                 const std::optional<ParallelizedSchemaCreationInfo> &,
+                                 std::shared_ptr<utils::Observer<void>> snapshot_observer = nullptr);
 
 void RecoverUniqueConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &, Constraints *,
                               utils::SkipList<Vertex> *, NameIdMapper *,
-                              const std::optional<ParallelizedSchemaCreationInfo> &);
+                              const std::optional<ParallelizedSchemaCreationInfo> &,
+                              std::shared_ptr<utils::Observer<void>> snapshot_observer = nullptr);
 void RecoverTypeConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &, Constraints *,
-                            utils::SkipList<Vertex> *, const std::optional<ParallelizedSchemaCreationInfo> &);
+                            utils::SkipList<Vertex> *, const std::optional<ParallelizedSchemaCreationInfo> &,
+                            std::shared_ptr<utils::Observer<void>> snapshot_observer = nullptr);
 struct Recovery {
  public:
   /// Recovers data either from a snapshot and/or WAL files.
