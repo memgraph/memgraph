@@ -12,6 +12,7 @@
 #include "utils/priority_thread_pool.hpp"
 #include <atomic>
 #include <chrono>
+#include <functional>
 #include <limits>
 #include <mutex>
 #include <random>
@@ -95,7 +96,16 @@ auto get_rand_delay() {
   return std::chrono::milliseconds(uniform_dist(e1));
 }
 
-std::atomic<memgraph::utils::PriorityThreadPool::Worker *> hot_thread_{};
+std::atomic<uint64_t> hot_threads_{0};  // TODO Make it actually work for more than 64 t
+inline void set_hot_thread(const uint64_t id) { hot_threads_.fetch_or(1U << id, std::memory_order::acq_rel); }
+inline void reset_hot_thread(const uint64_t id) { hot_threads_.fetch_and(~(1U << id), std::memory_order::acq_rel); }
+inline int get_hot_thread() {
+  const auto hot_threads = hot_threads_.load(std::memory_order::acquire);
+  if (hot_threads == 0) return -1;
+  const auto id = __builtin_ctz(hot_threads);
+  reset_hot_thread(id);
+  return id;  // TODO This needs to be atomic get/reset
+}
 }  // namespace
 
 namespace memgraph::utils {
@@ -110,7 +120,7 @@ PriorityThreadPool::PriorityThreadPool(size_t mixed_work_threads_count, size_t h
 
   for (size_t i = 0; i < mixed_work_threads_count; ++i) {
     pool_.emplace_back([this, i, &barrier]() {
-      Worker worker(*this);
+      Worker worker(*this, i);
       // Divide work by each thread
       work_buckets_[i] = &worker;
       barrier.arrive_and_wait();
@@ -209,13 +219,14 @@ void PriorityThreadPool::ScheduledAddTask(TaskSignature new_task, const Priority
   const auto id =
       (uint64_t(priority == Priority::HIGH) << 63U) + id_--;  // Way to priorities hp tasks (overflow concerns)
 
-  if (auto *const hot_thread = hot_thread_.load(std::memory_order_acquire)) {
-    hot_thread->push(std::move(new_task), id);
-    return;
-  }
+  uint64_t tid = 0;
 
-  // const auto this_cpu = sched_getcpu();
-  auto tid = tid_++ % work_buckets_.size();
+  if (const auto hot_thread = get_hot_thread(); hot_thread >= 0) {
+    tid = hot_thread;
+  } else {
+    // const auto this_cpu = sched_getcpu();
+    tid = tid_++ % work_buckets_.size();
+  }
 
   // Add task to current CPU's thread (cheap)
   auto *this_bucket = work_buckets_[tid];
@@ -324,6 +335,9 @@ void PriorityThreadPool::Worker::operator()() {
           }
 
           if (work_.empty()) {
+            if constexpr (ThreadPriority != Priority::HIGH) {
+              reset_hot_thread(pinned_core_);
+            }
             // Wait for a new task
             cv_.wait_for(l, delay);
             // Just looping
@@ -354,7 +368,7 @@ void PriorityThreadPool::Worker::operator()() {
     // working_.store(false, std::memory_order::release);
 
     if constexpr (ThreadPriority != Priority::HIGH) {
-      if (!has_pending_work_) hot_thread_.store(this, std::memory_order::release);
+      set_hot_thread(pinned_core_);  // TODO This is not correct; need id
     }
   }
 }
