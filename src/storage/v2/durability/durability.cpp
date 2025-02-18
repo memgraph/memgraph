@@ -179,7 +179,9 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
   spdlog::info("Recreating {} label indices from metadata.", indices_metadata.label.size());
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(indices->label_index_.get());
   for (const auto &item : indices_metadata.label) {
-    if (!mem_label_index->CreateIndex(item, vertices->access(), parallel_exec_info, snapshot_observer)) {
+    if (!mem_label_index->CreateIndex(
+            item, vertices->access(), parallel_exec_info,
+            SnapshotObserverInfo{.observer = snapshot_observer, .vertices_snapshot_progress_size = 1'000'000})) {
       throw RecoveryFailure("The label index must be created here!");
     }
     spdlog::info("Index on :{} is recreated from metadata", name_id_mapper->IdToName(item.AsUint()));
@@ -201,8 +203,9 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
   spdlog::info("Recreating {} label+property indices from metadata.", indices_metadata.label_property.size());
   auto *mem_label_property_index = static_cast<InMemoryLabelPropertyIndex *>(indices->label_property_index_.get());
   for (const auto &item : indices_metadata.label_property) {
-    if (!mem_label_property_index->CreateIndex(item.first, item.second, vertices->access(), parallel_exec_info,
-                                               snapshot_observer))
+    if (!mem_label_property_index->CreateIndex(
+            item.first, item.second, vertices->access(), parallel_exec_info,
+            SnapshotObserverInfo{.observer = snapshot_observer, .vertices_snapshot_progress_size = 1'000'000}))
       throw RecoveryFailure("The label+property index must be created here!");
     spdlog::info("Index on :{}({}) is recreated from metadata", name_id_mapper->IdToName(item.first.AsUint()),
                  name_id_mapper->IdToName(item.second.AsUint()));

@@ -15,6 +15,7 @@
 
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
+#include "storage/v2/indices/indices_utils.hpp"
 #include "storage/v2/indices/label_index.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/vertex.hpp"
@@ -46,7 +47,7 @@ class InMemoryLabelIndex : public LabelIndex {
   /// @throw std::bad_alloc
   bool CreateIndex(LabelId label, utils::SkipList<Vertex>::Accessor vertices,
                    const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
-                   std::shared_ptr<utils::Observer<void>> const snapshot_observer = nullptr);
+                   std::optional<SnapshotObserverInfo> snapshot_info = std::nullopt);
 
   /// Returns false if there was no index to drop
   bool DropIndex(LabelId label) override;

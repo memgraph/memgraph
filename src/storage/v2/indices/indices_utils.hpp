@@ -27,8 +27,6 @@ namespace memgraph::storage {
 
 namespace {
 
-inline constexpr uint32_t kIndexVerticesSnapshotProgressSize = 1'000'000;
-
 template <Delta::Action... actions>
 struct ActionSet {
   constexpr bool contains(Delta::Action action) const { return ((action == actions) || ...); }
@@ -308,7 +306,7 @@ inline bool CurrentEdgeVersionHasProperty(const Edge &edge, PropertyId key, cons
   // Checking cache has a cost, only do it if we have any deltas
   // if we have no deltas then what we already have from the vertex is correct.
   if (delta && transaction->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
-    auto const n_processed = ApplyDeltasForRead(transaction, delta, view, [&, key](const Delta &delta) {
+    ApplyDeltasForRead(transaction, delta, view, [&, key](const Delta &delta) {
       // clang-format off
       DeltaDispatch(delta, utils::ChainedOverloaded{
         Deleted_ActionMethod(deleted),
@@ -344,18 +342,27 @@ inline void TryInsertLabelPropertyIndex(Vertex &vertex, std::pair<LabelId, Prope
   index_accessor.insert({std::move(value), &vertex, 0});
 }
 
+struct SnapshotObserverInfo {
+  std::shared_ptr<utils::Observer<void>> observer{nullptr};
+  uint32_t vertices_snapshot_progress_size{1'000'000};
+};
+
 template <typename TSkiplistIter, typename TIndex, typename TIndexKey, typename TFunc>
 inline void CreateIndexOnSingleThread(utils::SkipList<Vertex>::Accessor &vertices, TSkiplistIter it, TIndex &index,
                                       TIndexKey key, const TFunc &func,
-                                      std::shared_ptr<utils::Observer<void>> snapshot_observer) {
+                                      std::optional<SnapshotObserverInfo> snapshot_info = std::nullopt) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+
   try {
     auto acc = it->second.access();
-    auto batch_counter = utils::ResettableCounter<kIndexVerticesSnapshotProgressSize>();
+    std::optional<utils::ResettableRuntimeCounter> maybe_batch_counter;
+    if (snapshot_info) {
+      maybe_batch_counter.emplace(utils::ResettableRuntimeCounter{snapshot_info->vertices_snapshot_progress_size});
+    }
     for (Vertex &vertex : vertices) {
       func(vertex, key, acc);
-      if (snapshot_observer != nullptr && batch_counter()) {
-        snapshot_observer->Update();
+      if (maybe_batch_counter && (*maybe_batch_counter)()) {
+        snapshot_info->observer->Update();
       }
     }
   } catch (const utils::OutOfMemoryException &) {
@@ -369,7 +376,8 @@ template <typename TIndex, typename TIndexKey, typename TSKiplistIter, typename 
 inline void CreateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vertices, TSKiplistIter skiplist_iter,
                                          TIndex &index, TIndexKey key,
                                          const durability::ParallelizedSchemaCreationInfo &parallel_exec_info,
-                                         const TFunc &func, std::shared_ptr<utils::Observer<void>> snapshot_observer) {
+                                         const TFunc &func,
+                                         std::optional<SnapshotObserverInfo> snapshot_info = std::nullopt) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
 
   const auto &vertex_batches = parallel_exec_info.vertex_recovery_info;
@@ -388,7 +396,7 @@ inline void CreateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vert
 
     for (auto i{0U}; i < thread_count; ++i) {
       threads.emplace_back([&skiplist_iter, &func, &index, &vertex_batches, &maybe_error, &batch_counter, &key,
-                            &vertices, snapshot_observer]() {
+                            &vertices, snapshot_info]() {
         while (!maybe_error.Lock()->has_value()) {
           const auto batch_index = batch_counter++;
           if (batch_index >= vertex_batches.size()) {
@@ -399,11 +407,15 @@ inline void CreateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vert
           auto it = vertices.find(batch.first);
 
           try {
-            auto local_batch_counter = utils::ResettableCounter<kIndexVerticesSnapshotProgressSize>();
+            std::optional<utils::ResettableRuntimeCounter> maybe_batch_counter;
+            if (snapshot_info) {
+              maybe_batch_counter.emplace(
+                  utils::ResettableRuntimeCounter{snapshot_info->vertices_snapshot_progress_size});
+            }
             for (auto i{0U}; i < batch.second; ++i, ++it) {
               func(*it, key, index_accessor);
-              if (snapshot_observer != nullptr && local_batch_counter()) {
-                snapshot_observer->Update();
+              if (maybe_batch_counter && (*maybe_batch_counter)()) {
+                snapshot_info->observer->Update();
               }
             }
 
