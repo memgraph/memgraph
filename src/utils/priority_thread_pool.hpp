@@ -103,7 +103,8 @@ class PriorityThreadPool {
     template <Priority ThreadPriority>
     void operator()();
 
-    explicit Worker(PriorityThreadPool &scheduler, int pin_core = -1) : scheduler_{scheduler}, pinned_core_(pin_core) {
+    explicit Worker(PriorityThreadPool &scheduler, int pin_core = -1)
+        : scheduler_{scheduler}, id_{pin_core}, pinned_core_(pin_core) {
       (void)scheduler_;
     }
 
@@ -113,7 +114,7 @@ class PriorityThreadPool {
     std::condition_variable cv_;
     std::optional<TaskSignature> task_{};
     PriorityThreadPool &scheduler_;
-    boost::asio::detail::event cv_boost;
+    int id_;
 
     std::atomic<uint64_t> last_task_{0};
     std::atomic_bool working_{false};
