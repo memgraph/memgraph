@@ -1,3 +1,4 @@
+import json
 import random
 import time
 from abc import ABC
@@ -133,6 +134,56 @@ class LoadCsvIngest(Worker):
         memgraph.execute(self._edge_csv_query, {"edgeCsvPath": self._edge_csv_path})
 
         print(f"Worker '{self._name}' finished.")
+        
+        
+class SnapshotIngest(Worker):
+    """Executes a set of system queries randomly."""
+
+    def __init__(self, worker):
+        super().__init__(worker)
+        self._path = worker["path"]
+        
+        if not os.path.exists(self._path):
+            raise Exception(f"File not found: {self._path}, skipping...")
+
+
+    def run(self):
+        memgraph = Memgraph(self._query_host, self._query_port)
+        if self._database:
+            memgraph.execute(f"USE DATABASE {self._database}")
+            
+        memgraph.execute(f"RECOVER SNAPSHOT '{self._path}'")
+
+        print(f"Worker '{self._name}' finished.")
+        
+        
+class BenchmarkQueryWorker(Worker):
+    """Executes a fixed query multiple times."""
+
+    def __init__(self, worker):
+        super().__init__(worker)
+        self._queries = worker.get("queries", {})
+        self._output_file = worker["output_file"]
+
+    def run(self):
+        """Executes the assigned query in a loop."""
+        print(f"Starting worker '{self._name}'...")
+        
+        memgraph = Memgraph(self._query_host, self._query_port)
+        if self._database:
+            memgraph.execute(f"USE DATABASE {self._database}")
+
+        results = []
+        for case in self._queries:            
+            start = time.time()
+            memgraph.execute(case["query"])
+            end = time.time()
+            results.append({"name": case["name"], "query": case["query"], "duration": end - start})
+            
+        with open(self._output_file, "w", encoding="utf-8") as f:
+            json.dump(results, f, indent=4)
+        
+        print(f"Worker '{self._name}' finished.")
 
 
 def get_worker_object(worker) -> Worker:
@@ -147,6 +198,10 @@ def get_worker_object(worker) -> Worker:
         return CypherlIngest(worker)
     if worker_type == "loadcsv-ingest":
         return LoadCsvIngest(worker)
+    if worker_type == "snapshot-ingest":
+        return SnapshotIngest(worker)
+    if worker_type == "benchmark":
+        return BenchmarkQueryWorker(worker)
 
     raise Exception(f"Unknown worker type: '{worker_type}'!")
 
