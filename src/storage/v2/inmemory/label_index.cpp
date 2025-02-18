@@ -14,7 +14,6 @@
 #include <span>
 
 #include "storage/v2/constraints/constraints.hpp"
-#include "storage/v2/indices/indices_utils.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "utils/counter.hpp"
 
@@ -30,9 +29,9 @@ void InMemoryLabelIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_af
 bool InMemoryLabelIndex::CreateIndex(
     LabelId label, utils::SkipList<Vertex>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
-    std::shared_ptr<utils::Observer<void>> const snapshot_observer) {
-  const auto create_index_seq = [this, snapshot_observer](LabelId label, utils::SkipList<Vertex>::Accessor &vertices,
-                                                          std::map<LabelId, utils::SkipList<Entry>>::iterator it) {
+    std::optional<SnapshotObserverInfo> snapshot_info) {
+  const auto create_index_seq = [this, &snapshot_info](LabelId label, utils::SkipList<Vertex>::Accessor &vertices,
+                                                       std::map<LabelId, utils::SkipList<Entry>>::iterator it) {
     using IndexAccessor = decltype(it->second.access());
 
     CreateIndexOnSingleThread(
@@ -40,12 +39,12 @@ bool InMemoryLabelIndex::CreateIndex(
         [](Vertex &vertex, LabelId label, IndexAccessor &index_accessor) {
           TryInsertLabelIndex(vertex, label, index_accessor);
         },
-        snapshot_observer);
+        snapshot_info);
 
     return true;
   };
 
-  const auto create_index_par = [this, snapshot_observer](
+  const auto create_index_par = [this, &snapshot_info](
                                     LabelId label, utils::SkipList<Vertex>::Accessor &vertices,
                                     std::map<LabelId, utils::SkipList<Entry>>::iterator label_it,
                                     const durability::ParallelizedSchemaCreationInfo &parallel_exec_info) {
@@ -56,7 +55,7 @@ bool InMemoryLabelIndex::CreateIndex(
         [](Vertex &vertex, LabelId label, IndexAccessor &index_accessor) {
           TryInsertLabelIndex(vertex, label, index_accessor);
         },
-        snapshot_observer);
+        snapshot_info);
 
     return true;
   };

@@ -11,7 +11,6 @@
 
 #include <cstdint>
 
-#include "storage/v2/indices/indices_utils.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/inmemory/property_constants.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -37,9 +36,9 @@ bool InMemoryLabelPropertyIndex::Entry::operator==(const PropertyValue &rhs) con
 bool InMemoryLabelPropertyIndex::CreateIndex(
     LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
-    std::shared_ptr<utils::Observer<void>> const snapshot_observer) {
+    std::optional<SnapshotObserverInfo> snapshot_info) {
   spdlog::trace("Vertices size when creating index: {}", vertices.size());
-  auto create_index_seq = [this, snapshot_observer](
+  auto create_index_seq = [this, &snapshot_info](
                               LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor &vertices,
                               std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>>::iterator it) {
     using IndexAccessor = decltype(it->second.access());
@@ -49,13 +48,13 @@ bool InMemoryLabelPropertyIndex::CreateIndex(
         [](Vertex &vertex, std::pair<LabelId, PropertyId> key, IndexAccessor &index_accessor) {
           TryInsertLabelPropertyIndex(vertex, key, index_accessor);
         },
-        snapshot_observer);
+        snapshot_info);
 
     return true;
   };
 
   auto create_index_par =
-      [this, snapshot_observer](
+      [this, &snapshot_info](
           LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor &vertices,
           std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>>::iterator label_property_it,
           const durability::ParallelizedSchemaCreationInfo &parallel_exec_info) {
@@ -66,7 +65,7 @@ bool InMemoryLabelPropertyIndex::CreateIndex(
             [](Vertex &vertex, std::pair<LabelId, PropertyId> key, IndexAccessor &index_accessor) {
               TryInsertLabelPropertyIndex(vertex, key, index_accessor);
             },
-            snapshot_observer);
+            snapshot_info);
 
         return true;
       };

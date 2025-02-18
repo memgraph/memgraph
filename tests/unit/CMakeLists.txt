@@ -447,6 +447,10 @@ target_link_libraries(${test_prefix}rpc_in_progress mg-rpc)
 add_unit_test(replication_rpc_progress.cpp)
 target_link_libraries(${test_prefix}replication_rpc_progress mg-rpc)
 
+# Test snapshot-rpc-progress
+add_unit_test(snapshot_rpc_progress.cpp)
+target_link_libraries(${test_prefix}snapshot_rpc_progress mg-rpc)
+
 # Test websocket
 find_package(Boost REQUIRED CONFIG)
 
@@ -476,6 +480,9 @@ target_include_directories(${test_prefix}distributed_lamport_clock PRIVATE ${CMA
 add_unit_test(query_hint_provider.cpp)
 target_link_libraries(${test_prefix}query_hint_provider mg-query mg-glue)
 
+
+add_unit_test(counter.cpp)
+target_link_libraries(${test_prefix}counter mg-utils)
 
 # Test coordination
 if(MG_ENTERPRISE)

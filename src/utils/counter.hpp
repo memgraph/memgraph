@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 namespace memgraph::utils {
 
 /// A resettable counter, every Nth call returns true
@@ -23,5 +25,21 @@ auto ResettableCounter() {
     return true;
   };
 }
+
+struct ResettableRuntimeCounter {
+ public:
+  explicit ResettableRuntimeCounter(uint64_t original_size) : original_size_(original_size), current_(original_size) {}
+
+  bool operator()() {
+    --current_;
+    if (current_ != 0) return false;
+    current_ = original_size_;
+    return true;
+  }
+
+ private:
+  uint64_t original_size_;
+  uint64_t current_;
+};
 
 }  // namespace memgraph::utils
