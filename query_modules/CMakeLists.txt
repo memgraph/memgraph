@@ -89,7 +89,7 @@ install(FILES vector_search_module.cpp DESTINATION lib/memgraph/query_modules/sr
 add_library(convert SHARED convert.cpp)
 target_include_directories(convert PRIVATE ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/libs)
 target_compile_options(convert PRIVATE -Wall)
-target_link_libraries(convert PRIVATE -static-libgcc -static-libstdc++ fmt::fmt json)
+target_link_libraries(convert PRIVATE -static-libgcc -static-libstdc++ fmt::fmt nlohmann_json::nlohmann_json)
 
 add_post_build_strip_in_release(convert CMAKE_BUILD_TYPE)
 

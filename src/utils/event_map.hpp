@@ -15,7 +15,7 @@
 #include <cstdlib>
 #include <memory>
 
-#include "json/json.hpp"
+#include <nlohmann/json.hpp>
 
 namespace memgraph::metrics {
 using Count = uint64_t;

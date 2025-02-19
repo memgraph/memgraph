@@ -14,7 +14,7 @@
 
 #include <gflags/gflags.h>
 #include <gtest/gtest.h>
-#include "json/json.hpp"
+#include <nlohmann/json.hpp>
 
 #include "libnuraft/nuraft.hxx"
 
