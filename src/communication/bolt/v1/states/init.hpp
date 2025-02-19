@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -37,6 +37,7 @@ void HandleAuthFailure(TSession &session) {
           {{"code", "Memgraph.ClientError.Security.Unauthenticated"}, {"message", "Authentication failure"}})) {
     spdlog::trace("Couldn't send failure message to the client!");
   }
+  spdlog::trace("Not authed client, error message, throwing exception");
   // Throw an exception to indicate to the network stack that the session
   // should be closed and cleaned up.
   throw SessionClosedException("The client is not authenticated!");
@@ -54,6 +55,8 @@ std::optional<State> BasicAuthentication(TSession &session, memgraph::communicat
   }
   auto username = data["principal"].ValueString();
   auto password = data["credentials"].ValueString();
+  spdlog::trace("Username: {}", username);
+  spdlog::trace("Password: {}", password);
 
   if (!session.Authenticate(username, password)) {
     HandleAuthFailure(session);
@@ -245,6 +248,7 @@ State StateInitRunV1(TSession &session, const Marker marker, const Signature sig
   if (!maybeMetadata) {
     return State::Close;
   }
+  spdlog::trace("Trying to authenticate user from state init run v1");
   if (auto result = AuthenticateUser(session, *maybeMetadata)) {
     return result.value();
   }
@@ -274,6 +278,7 @@ State StateInitRunV4(TSession &session, Marker marker, Signature signature) {
   if (!maybeMetadata) {
     return State::Close;
   }
+  spdlog::trace("Trying to authenticate user from state init run v4");
   if (auto result = AuthenticateUser(session, *maybeMetadata)) {
     return result.value();
   }
@@ -287,29 +292,35 @@ State StateInitRunV4(TSession &session, Marker marker, Signature signature) {
 template <typename TSession>
 State StateInitRunV5(TSession &session, Marker marker, Signature signature) {
   if (signature == Signature::Noop) [[unlikely]] {
-    SPDLOG_DEBUG("Received NOOP message");
+    spdlog::trace("Received NOOP message");
     return State::Init;
   }
 
   if (signature == Signature::Init) {
+    spdlog::trace("Received Init message in StateInitRunV5");
     auto maybeMetadata = GetInitDataV5(session, marker);
 
     if (!maybeMetadata) {
+      spdlog::trace("Couldn't read metadata in Init message");
       return State::Close;
     }
 
     if (SendSuccessMessage(session) == State::Close) {
+      spdlog::trace("Coudn't send success message in Init message");
       return State::Close;
     }
 
     // Register session to metrics
     TouchNewSession(session, *maybeMetadata);
 
+    spdlog::trace("Handling Init message finished successfully");
+
     // Stay in Init
     return State::Init;
   }
 
   if (signature == Signature::LogOn) {
+    spdlog::trace("Received LogOn message in StateInitRunV5");
     if (marker != Marker::TinyStruct1) [[unlikely]] {
       spdlog::trace("Expected TinyStruct1 marker, but received 0x{:02X}!", utils::UnderlyingCast(marker));
       spdlog::trace(
@@ -321,8 +332,10 @@ State StateInitRunV5(TSession &session, Marker marker, Signature signature) {
 
     auto maybeMetadata = GetAuthDataV5(session, marker);
     if (!maybeMetadata) {
+      spdlog::trace("Couldn't get metadata for LogOn message");
       return State::Close;
     }
+    spdlog::trace("Trying to authenticate user from state init run v5");
     auto result = AuthenticateUser(session, *maybeMetadata);
     if (result) {
       spdlog::trace("Failed to authenticate, closing connection...");
@@ -330,8 +343,10 @@ State StateInitRunV5(TSession &session, Marker marker, Signature signature) {
     }
 
     if (SendSuccessMessage(session) == State::Close) {
+      spdlog::trace("Failed to send success message for LogOn message");
       return State::Close;
     }
+    spdlog::trace("Handling LogOn message finished successfully");
 
     // Register session to metrics
     UpdateNewSession(session, *maybeMetadata);
