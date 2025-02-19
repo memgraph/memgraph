@@ -274,7 +274,9 @@ class PatternVisitor : public ExpressionVisitor<void> {
   // Other
   void Visit(ListSlicingOperator &op) override{};
   void Visit(IfOperator &op) override{};
-  void Visit(ListLiteral &op) override{};
+  void Visit(ListLiteral &op) override {
+    for (auto element_expr : op.elements_) element_expr->Accept(*this);
+  }
   void Visit(MapLiteral &op) override{};
   void Visit(MapProjectionLiteral &op) override{};
   void Visit(LabelsTest &op) override{};
