@@ -5,7 +5,7 @@ import pytest
 from oidc import process_tokens
 
 
-@pytest.mark.parametrize("scheme", ["oidc-entra-id", "oidc-okta"])
+@pytest.mark.parametrize("scheme", ["oidc-entra-id", "oidc-okta", "oidc-custom"])
 def test_invalid_tokens(scheme):
     config = {}
 
