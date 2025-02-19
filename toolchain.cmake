@@ -10,7 +10,9 @@ set(tools "/opt/toolchain-v7")
 
 
 #set(CMAKE_SYSROOT "${tools}")
+set(CMAKE_PREFIX_PATH "${tools}")
 set(MG_TOOLCHAIN_ROOT "${tools}")
+message(STATUS "Using toolchain file at: ${CMAKE_TOOLCHAIN_FILE}" )
 
 set(CMAKE_C_COMPILER "${tools}/bin/clang")
 set(CMAKE_CXX_COMPILER "${tools}/bin/clang++")
