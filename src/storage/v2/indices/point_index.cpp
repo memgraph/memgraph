@@ -21,7 +21,6 @@
 #include "storage/v2/indices/point_iterator.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
-#include "utils/counter.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::storage {
@@ -141,7 +140,7 @@ bool PointIndexStorage::CreatePointIndex(LabelId label, PropertyId property,
         continue;
     }
 
-    if (snapshot_info && snapshot_info->IncrementCounter()) {
+    if (snapshot_info) {
       snapshot_info->Update();
     }
   }

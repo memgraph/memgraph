@@ -16,7 +16,6 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/algorithm.hpp"
-#include "utils/counter.hpp"
 
 #include <optional>
 #include <set>
@@ -127,7 +126,7 @@ TypeConstraintKind PropertyValueToTypeConstraintKind(const PropertyValue &proper
     if (auto violation = Validate(vertex); violation.has_value()) {
       return violation;
     }
-    if (snapshot_info && snapshot_info->IncrementCounter()) {
+    if (snapshot_info) {
       snapshot_info->Update();
     }
   }

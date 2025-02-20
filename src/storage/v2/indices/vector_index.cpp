@@ -23,8 +23,6 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 
-#include <utils/observer.hpp>
-
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
 #include "usearch/index_dense.hpp"
@@ -174,7 +172,7 @@ bool VectorIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Verte
     // Update the index with the vertices
     for (auto &vertex : vertices) {
       UpdateVectorIndex(&vertex, LabelPropKey{spec.label, spec.property});
-      if (snapshot_info && snapshot_info->IncrementCounter()) {
+      if (snapshot_info) {
         snapshot_info->Update();
       }
     }

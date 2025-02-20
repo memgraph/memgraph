@@ -22,9 +22,11 @@ struct SnapshotObserverInfo {
   explicit SnapshotObserverInfo(std::shared_ptr<utils::Observer<void>> observer, uint32_t const item_batch_size)
       : observer_(std::move(observer)), cnt_(item_batch_size) {}
 
-  auto IncrementCounter() -> bool { return cnt_(); }
-
-  void Update() { observer_->Update(); }
+  void Update() {
+    if (cnt_()) {
+      observer_->Update();
+    }
+  }
 
  private:
   std::shared_ptr<utils::Observer<void>> observer_{nullptr};

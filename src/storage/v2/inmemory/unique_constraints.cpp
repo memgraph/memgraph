@@ -322,7 +322,7 @@ bool InMemoryUniqueConstraints::SingleThreadConstraintValidation::operator()(
     if (const auto violation = DoValidate(vertex, constraint_accessor, label, properties); violation.has_value()) {
       return true;
     }
-    if (snapshot_info && snapshot_info->IncrementCounter()) {
+    if (snapshot_info) {
       snapshot_info->Update();
     }
   }

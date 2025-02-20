@@ -42,7 +42,7 @@ bool InMemoryEdgeTypeIndex::CreateIndex(EdgeTypeId edge_type, utils::SkipList<Ve
             continue;
           }
           edge_acc.insert({&from_vertex, to_vertex, std::get<kEdgeRefPos>(edge).ptr, 0});
-          if (snapshot_info && snapshot_info->IncrementCounter()) {
+          if (snapshot_info) {
             snapshot_info->Update();
           }
         }

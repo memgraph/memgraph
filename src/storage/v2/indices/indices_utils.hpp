@@ -351,7 +351,7 @@ inline void CreateIndexOnSingleThread(utils::SkipList<Vertex>::Accessor &vertice
     auto acc = it->second.access();
     for (Vertex &vertex : vertices) {
       func(vertex, key, acc);
-      if (snapshot_info && snapshot_info->IncrementCounter()) {
+      if (snapshot_info) {
         snapshot_info->Update();
       }
     }
@@ -399,7 +399,7 @@ inline void CreateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vert
           try {
             for (auto i{0U}; i < batch.second; ++i, ++it) {
               func(*it, key, index_accessor);
-              if (snapshot_info && snapshot_info->IncrementCounter()) {
+              if (snapshot_info) {
                 snapshot_info->Update();
               }
             }

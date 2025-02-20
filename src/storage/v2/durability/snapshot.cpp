@@ -38,8 +38,6 @@
 #include "storage/v2/storage.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
-#include "utils/concepts.hpp"
-#include "utils/counter.hpp"
 #include "utils/file.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/logging.hpp"
@@ -340,7 +338,7 @@ std::vector<BatchInfo> ReadBatchInfos(Decoder &snapshot) {
 template <typename TFunc>
 void LoadPartialEdges(const std::filesystem::path &path, utils::SkipList<Edge> &edges, const uint64_t from_offset,
                       const uint64_t edges_count, const SalientConfig::Items items, TFunc get_property_from_id,
-                      std::shared_ptr<utils::Observer<void>> const snapshot_progress_observer = nullptr) {
+                      std::optional<SnapshotObserverInfo> snapshot_info = std::nullopt) {
   Decoder snapshot;
   snapshot.Initialize(path, kSnapshotMagic);
 
@@ -359,7 +357,6 @@ void LoadPartialEdges(const std::filesystem::path &path, utils::SkipList<Edge> &
   }
 
   uint64_t percentage_delta = 0;
-  auto batch_counter = utils::ResettableCounter<kEdgesSnapshotProgressSize>();
   for (uint64_t i = 0; i < edges_count; ++i) {
     if (five_percent_chunk != 0) {
       if (i > 0 && i % five_percent_chunk == 0 && percentage_delta != 100) {
@@ -414,8 +411,8 @@ void LoadPartialEdges(const std::filesystem::path &path, utils::SkipList<Edge> &
               "configured without properties on edges!");
       }
     }
-    if (snapshot_progress_observer != nullptr && batch_counter()) {
-      snapshot_progress_observer->Update();
+    if (snapshot_info) {
+      snapshot_info->Update();
     }
   }
   spdlog::info("Process of recovering {} edges is finished.", edges_count);
@@ -427,7 +424,7 @@ uint64_t LoadPartialVertices(const std::filesystem::path &path, utils::SkipList<
                              SharedSchemaTracking *schema_info, const uint64_t from_offset,
                              const uint64_t vertices_count, TLabelFromIdFunc get_label_from_id,
                              TPropertyFromIdFunc get_property_from_id,
-                             std::shared_ptr<utils::Observer<void>> const snapshot_progress_observer = nullptr) {
+                             std::optional<SnapshotObserverInfo> snapshot_info = std::nullopt) {
   Decoder snapshot;
   snapshot.Initialize(path, kSnapshotMagic);
   if (!snapshot.SetPosition(from_offset))
@@ -445,7 +442,6 @@ uint64_t LoadPartialVertices(const std::filesystem::path &path, utils::SkipList<
   }
 
   uint64_t percentage_delta = 0;
-  auto batch_counter = utils::ResettableCounter<kVerticesSnapshotProgressSize>();
   for (uint64_t i = 0; i < vertices_count; ++i) {
     if (five_percent_chunk != 0) {
       if (i > 0 && i % five_percent_chunk == 0 && percentage_delta != 100) {
@@ -530,8 +526,8 @@ uint64_t LoadPartialVertices(const std::filesystem::path &path, utils::SkipList<
       auto edge_type = snapshot.ReadUint();
       if (!edge_type) throw RecoveryFailure("Couldn't read out edge type!");
     }
-    if (snapshot_progress_observer != nullptr && batch_counter()) {
-      snapshot_progress_observer->Update();
+    if (snapshot_info) {
+      snapshot_info->Update();
     }
   }
   spdlog::info("Process of recovering {} vertices is finished.", vertices_count);
@@ -552,8 +548,7 @@ LoadPartialConnectivityResult LoadPartialConnectivity(
     const std::filesystem::path &path, utils::SkipList<Vertex> &vertices, utils::SkipList<Edge> &edges,
     utils::SkipList<EdgeMetadata> &edges_metadata, SharedSchemaTracking *schema_info, const uint64_t from_offset,
     const uint64_t vertices_count, const SalientConfig::Items items, const bool snapshot_has_edges,
-    TEdgeTypeFromIdFunc get_edge_type_from_id,
-    std::shared_ptr<utils::Observer<void>> const snapshot_progress_observer = nullptr) {
+    TEdgeTypeFromIdFunc get_edge_type_from_id, std::optional<SnapshotObserverInfo> snapshot_info = std::nullopt) {
   Decoder snapshot;
   snapshot.Initialize(path, kSnapshotMagic);
   if (!snapshot.SetPosition(from_offset))
@@ -595,7 +590,6 @@ LoadPartialConnectivityResult LoadPartialConnectivity(
   }
 
   uint64_t percentage_delta = 0;
-  auto batch_counter = utils::ResettableCounter<kVerticesSnapshotProgressSize>();
   for (uint64_t i = 0; i < vertices_count; ++i) {
     if (five_percent_chunk != 0) {
       if (i > 0 && i % five_percent_chunk == 0 && percentage_delta != 100) {
@@ -673,8 +667,8 @@ LoadPartialConnectivityResult LoadPartialConnectivity(
           }
         }
         vertex.in_edges.emplace_back(get_edge_type_from_id(*edge_type), &*from_vertex, edge_ref);
-        if (snapshot_progress_observer != nullptr && batch_counter()) {
-          snapshot_progress_observer->Update();
+        if (snapshot_info) {
+          snapshot_info->Update();
         }
       }
     }
@@ -723,8 +717,8 @@ LoadPartialConnectivityResult LoadPartialConnectivity(
           schema_info->RecoverEdge(get_edge_type_from_id(*edge_type), edge_ref, &vertex, &*to_vertex,
                                    items.properties_on_edges);
         }
-        if (snapshot_progress_observer != nullptr && batch_counter()) {
-          snapshot_progress_observer->Update();
+        if (snapshot_info) {
+          snapshot_info->Update();
         }
       }
     }
@@ -3364,10 +3358,10 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
 
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
-          [path, edges, items = config.salient.items, &get_property_from_id, snapshot_progress_observer](
+          [path, edges, items = config.salient.items, &get_property_from_id,
+           snapshot_info = SnapshotObserverInfo(snapshot_progress_observer, kEdgesSnapshotProgressSize)](
               const size_t /*batch_index*/, const BatchInfo &batch) {
-            LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id,
-                             snapshot_progress_observer);
+            LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id, snapshot_info);
           },
           edge_batches);
     }
@@ -3382,13 +3376,15 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
     }
 
     const auto vertex_batches = ReadBatchInfos(snapshot);
+
     RecoverOnMultipleThreads(
         config.durability.recovery_thread_count,
         [path, vertices, schema_info, &vertex_batches, &get_label_from_id, &get_property_from_id, &last_vertex_gid,
-         snapshot_progress_observer](const size_t batch_index, const BatchInfo &batch) {
+         snapshot_info = SnapshotObserverInfo(snapshot_progress_observer, kVerticesSnapshotProgressSize)](
+            const size_t batch_index, const BatchInfo &batch) {
           const auto last_vertex_gid_in_batch =
               LoadPartialVertices(path, *vertices, schema_info, batch.offset, batch.count, get_label_from_id,
-                                  get_property_from_id, snapshot_progress_observer);
+                                  get_property_from_id, snapshot_info);
           if (batch_index == vertex_batches.size() - 1) {
             last_vertex_gid = last_vertex_gid_in_batch;
           }
@@ -3409,10 +3405,11 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
         config.durability.recovery_thread_count,
         [path, vertices, edges, edges_metadata, schema_info, edge_count, items = config.salient.items,
          snapshot_has_edges, &get_edge_type_from_id, &highest_edge_gid, &recovery_info,
-         snapshot_progress_observer](const size_t batch_index, const BatchInfo &batch) {
+         snapshot_info = SnapshotObserverInfo(snapshot_progress_observer, kEdgesSnapshotProgressSize)](
+            const size_t batch_index, const BatchInfo &batch) {
           const auto result =
               LoadPartialConnectivity(path, *vertices, *edges, *edges_metadata, schema_info, batch.offset, batch.count,
-                                      items, snapshot_has_edges, get_edge_type_from_id, snapshot_progress_observer);
+                                      items, snapshot_has_edges, get_edge_type_from_id, snapshot_info);
           edge_count->fetch_add(result.edge_count);
           auto known_highest_edge_gid = highest_edge_gid.load();
           while (known_highest_edge_gid < result.highest_edge_id) {
