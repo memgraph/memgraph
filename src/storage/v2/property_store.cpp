@@ -1996,21 +1996,6 @@ bool PropertyStore::HasAllPropertyValues(const std::vector<PropertyValue> &prope
       });
 }
 
-std::optional<std::vector<PropertyValue>> PropertyStore::ExtractPropertyValues(
-    const std::set<PropertyId> &properties) const {
-  auto get_property = [&](Reader &reader) -> std::optional<std::vector<PropertyValue>> {
-    PropertyValue value;
-    auto values = std::vector<PropertyValue>{};
-    values.reserve(properties.size());
-    for (auto property : properties) {
-      if (FindSpecificProperty(&reader, property, value) != ExpectedPropertyStatus::EQUAL) return std::nullopt;
-      values.emplace_back(std::move(value));
-    }
-    return values;
-  };
-  return WithReader(get_property);
-}
-
 bool PropertyStore::IsPropertyEqual(PropertyId property, const PropertyValue &value) const {
   auto property_equal = [&](Reader &reader) -> uint32_t {
     auto const orig_reader = reader;
