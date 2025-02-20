@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -46,7 +46,8 @@ std::filesystem::path db_dir{storage_directory / "databases"};
 static memgraph::storage::Config storage_conf;
 std::unique_ptr<memgraph::auth::SynchedAuth> auth;
 std::unique_ptr<memgraph::system::System> system_state;
-std::unique_ptr<memgraph::replication::ReplicationState> repl_state;
+std::unique_ptr<memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock>>
+    repl_state;
 
 // Let this be global so we can test it different states throughout
 
@@ -70,7 +71,9 @@ class TestEnvironment : public ::testing::Environment {
     auth = std::make_unique<memgraph::auth::SynchedAuth>(storage_directory / "auth",
                                                          memgraph::auth::Auth::Config{/* default */});
     system_state = std::make_unique<memgraph::system::System>();
-    repl_state = std::make_unique<memgraph::replication::ReplicationState>(ReplicationStateRootPath(storage_conf));
+    repl_state = std::make_unique<
+        memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock>>(
+        ReplicationStateRootPath(storage_conf));
     ptr_ = std::make_unique<memgraph::dbms::DbmsHandler>(storage_conf, *repl_state.get(), *auth.get(), false);
   }
 

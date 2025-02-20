@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <memory>
+#include <utility>
 
 #include "query/interpreter_context.hpp"
 
@@ -21,14 +22,14 @@ namespace memgraph::query {
 std::optional<InterpreterContext> InterpreterContextHolder::instance{};
 
 InterpreterContext::InterpreterContext(
-    InterpreterConfig interpreter_config, dbms::DbmsHandler *dbms_handler, replication::ReplicationState *rs,
-    memgraph::system::System &system,
+    InterpreterConfig interpreter_config, dbms::DbmsHandler *dbms_handler,
+    utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &rs, memgraph::system::System &system,
 #ifdef MG_ENTERPRISE
     std::optional<std::reference_wrapper<memgraph::coordination::CoordinatorState>> const &coordinator_state,
 #endif
     AuthQueryHandler *ah, AuthChecker *ac, ReplicationQueryHandler *replication_handler)
     : dbms_handler(dbms_handler),
-      config(interpreter_config),
+      config(std::move(interpreter_config)),
       repl_state(rs),
 #ifdef MG_ENTERPRISE
       coordinator_state_(coordinator_state),
