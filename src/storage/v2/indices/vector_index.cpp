@@ -32,11 +32,6 @@
 #include "utils/counter.hpp"
 #include "utils/synchronized.hpp"
 
-namespace {
-// Creating vertices for text index takes more time, that's why the value is 1000
-inline constexpr uint32_t kIndexVerticesSnapshotProgressSize = 1000;
-}  // namespace
-
 namespace memgraph::storage {
 
 // unum::usearch::index_dense_gt is the index type used for vector indices. It is thread-safe and supports concurrent
@@ -147,7 +142,7 @@ unum::usearch::metric_kind_t VectorIndex::MetricFromName(std::string_view name) 
 }
 
 bool VectorIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
-                              std::shared_ptr<utils::Observer<void>> const snapshot_observer) {
+                              std::optional<SnapshotObserverInfo> snapshot_info) {
   try {
     // Create the index
     const unum::usearch::metric_punned_t metric(spec.dimension, spec.metric_kind, unum::usearch::scalar_kind_t::f32_k);
@@ -176,12 +171,15 @@ bool VectorIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Verte
                                             std::move(mg_vector_index.index)),
                                         spec});
 
-    auto batch_counter = utils::ResettableCounter<kIndexVerticesSnapshotProgressSize>();
+    std::optional<utils::ResettableRuntimeCounter> maybe_batch_counter;
+    if (snapshot_info) {
+      maybe_batch_counter.emplace(utils::ResettableRuntimeCounter{snapshot_info->item_batch_size});
+    }
     // Update the index with the vertices
     for (auto &vertex : vertices) {
       UpdateVectorIndex(&vertex, LabelPropKey{spec.label, spec.property});
-      if (snapshot_observer != nullptr && batch_counter()) {
-        snapshot_observer->Update();
+      if (maybe_batch_counter && (*maybe_batch_counter)()) {
+        snapshot_info->observer->Update();
       }
     }
   } catch (const std::exception &e) {

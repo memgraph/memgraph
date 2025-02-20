@@ -22,11 +22,6 @@
 #include <span>
 #include <vector>
 
-namespace {
-// Creating vertices for text index takes more time, that's why the value is 100k not 1'000'000
-inline constexpr uint32_t kIndexVerticesSnapshotProgressSize = 100'000;
-}  // namespace
-
 namespace memgraph::storage {
 
 std::string GetPropertyName(PropertyId prop_id, NameIdMapper *name_id_mapper) {
@@ -256,7 +251,7 @@ void TextIndex::CreateIndex(std::string const &index_name, LabelId label, storag
 
 void TextIndex::RecoverIndex(const std::string &index_name, LabelId label,
                              memgraph::utils::SkipList<Vertex>::Accessor vertices, NameIdMapper *name_id_mapper,
-                             std::shared_ptr<utils::Observer<void>> const snapshot_observer) {
+                             std::optional<SnapshotObserverInfo> snapshot_info) {
   if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     throw query::TextSearchDisabledException();
   }
@@ -266,7 +261,10 @@ void TextIndex::RecoverIndex(const std::string &index_name, LabelId label,
 
   CreateEmptyIndex(index_name, label);
 
-  auto batch_counter = utils::ResettableCounter<kIndexVerticesSnapshotProgressSize>();
+  std::optional<utils::ResettableRuntimeCounter> maybe_batch_counter;
+  if (snapshot_info) {
+    maybe_batch_counter.emplace(utils::ResettableRuntimeCounter{snapshot_info->item_batch_size});
+  }
 
   for (const auto &v : vertices) {
     if (std::find(v.labels.begin(), v.labels.end(), label) == v.labels.end()) {
@@ -277,8 +275,8 @@ void TextIndex::RecoverIndex(const std::string &index_name, LabelId label,
     LoadNodeToTextIndices(v.gid.AsInt(), SerializeProperties(vertex_properties, name_id_mapper),
                           StringifyProperties(vertex_properties), {&index_.at(index_name).context_});
 
-    if (snapshot_observer != nullptr && batch_counter()) {
-      snapshot_observer->Update();
+    if (maybe_batch_counter && (*maybe_batch_counter)()) {
+      snapshot_info->observer->Update();
     }
   }
 
