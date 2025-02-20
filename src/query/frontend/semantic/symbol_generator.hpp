@@ -97,6 +97,8 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   bool PreVisit(Exists & /*exists*/) override;
   bool PostVisit(Exists & /*exists*/) override;
   bool PreVisit(NamedExpression & /*unused*/) override;
+  bool PreVisit(ListComprehension &) override;
+  bool PostVisit(ListComprehension &) override;
   ReturnType Visit(EnumValueAccess &) override { return true; }
 
   // Pattern and its subparts.
@@ -142,6 +144,7 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     bool in_set_labels{false};
     bool in_remove_labels{false};
     bool in_pattern_comprehension{false};
+    bool in_list_comprehension{false};
     // True when visiting a pattern atom (node or edge) identifier, which can be
     // reused or created in the pattern itself.
     bool in_pattern_atom_identifier{false};
@@ -185,7 +188,7 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
 
   void VisitReturnBody(ReturnBody &body, Where *where = nullptr);
 
-  void VisitWithIdentifiers(Expression *, const std::vector<Identifier *> &);
+  void VisitWithIdentifiers(std::vector<Expression *>, const std::vector<Identifier *> &);
 
   SymbolTable *symbol_table_;
 
@@ -262,6 +265,7 @@ class PropertyLookupEvaluationModeVisitor : public ExpressionVisitor<void> {
   void Visit(Single &op) override{};
   void Visit(Any &op) override{};
   void Visit(None &op) override{};
+  void Visit(ListComprehension &op) override{};
   void Visit(Identifier &op) override{};
   void Visit(PrimitiveLiteral &op) override{};
   void Visit(AllPropertiesLookup &op) override{};
