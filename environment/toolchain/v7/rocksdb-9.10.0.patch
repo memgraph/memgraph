@@ -1,5 +1,5 @@
-diff -Naur rocksdb-9.10.0/CMakeLists.txt rocksdb-9.10.0-modified/CMakeLists.txt
---- a/CMakeLists.txt	2024-12-16 20:45:14.000000000 +0000
+diff -Naur a/CMakeLists.txt b/CMakeLists.txt
+--- a/CMakeLists.txt	2025-02-20 12:51:00.844553628 +0000
 +++ b/CMakeLists.txt	2025-02-20 12:14:58.968745198 +0000
 @@ -1250,7 +1250,7 @@
  
@@ -10,8 +10,8 @@ diff -Naur rocksdb-9.10.0/CMakeLists.txt rocksdb-9.10.0-modified/CMakeLists.txt
        EXPORT RocksDBTargets
        COMPONENT runtime
        ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
-diff -Naur rocksdb-9.10.0/db/version_builder.cc rocksdb-9.10.0-modified/db/version_builder.cc
---- a/db/version_builder.cc	2024-12-16 20:45:14.000000000 +0000
+diff -Naur a/db/version_builder.cc b/db/version_builder.cc
+--- a/db/version_builder.cc	2025-02-20 12:51:00.844553628 +0000
 +++ b/db/version_builder.cc	2025-02-20 12:23:31.483529276 +0000
 @@ -36,6 +36,35 @@
  #include "table/table_reader.h"
@@ -81,3 +81,15 @@ diff -Naur rocksdb-9.10.0/db/version_builder.cc rocksdb-9.10.0-modified/db/versi
      }
      Status ret;
      for (const auto& s : statuses) {
+diff -Naur a/memtable/wbwi_memtable.h b/memtable/wbwi_memtable.h
+--- a/memtable/wbwi_memtable.h	2024-12-16 20:45:14.000000000 +0000
++++ b/memtable/wbwi_memtable.h	2025-02-20 12:53:03.498482836 +0000
+@@ -367,7 +367,7 @@
+       key_.clear();
+       valid_ = false;
+       s_ = Status::Corruption("Unexpected write_batch_with_index entry type " +
+-                              std::to_string(t->second));
++                              std::to_string(it_->Entry().type));
+       return;
+     }
+     key_buf_.SetInternalKey(it_->Entry().key, assigned_seqno_.upper_bound,
