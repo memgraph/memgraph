@@ -742,6 +742,8 @@ LZ4_SHA256=537512904744b35e232912055ccf8ec66d768639ff3abe5788d90d792ec5f48b
 LZ4_VERSION=1.10.0
 # SNAPPY_SHA256=75c1fbb3d618dd3a0483bff0e26d0a92b495bbe5059c8b4f1c962b478b6e06e7
 # SNAPPY_VERSION=1.1.9
+PYTHON_VERSION=3.13.2
+PYTHON_MD5=6192ce4725d9c9fc0e8a1cd38410b417
 SNAPPY_SHA256=736aeb64d86566d2236ddffa2865ee5d7a82d26c9016b36218fcc27ea4f09f86
 SNAPPY_VERSION=1.2.1
 XZ_VERSION=5.6.3 # for LZMA
@@ -793,6 +795,9 @@ if [ ! -f lz4-$LZ4_VERSION.tar.gz ]; then
 fi
 if [ ! -f proxygen-$FBLIBS_VERSION.tar.gz ]; then
     wget https://github.com/facebook/proxygen/releases/download/v$FBLIBS_VERSION/proxygen-v$FBLIBS_VERSION.tar.gz -O proxygen-$FBLIBS_VERSION.tar.gz
+fi
+if [ ! -f python-$PYTHON_VERSION.tar.gz ]; then
+    wget https://www.python.org/ftp/python/$PYTHON_VERSION/Python-$PYTHON_VERSION.tgz -O python-$PYTHON_VERSION.tar.g
 fi
 if [ ! -f snappy-$SNAPPY_VERSION.tar.gz ]; then
     wget https://github.com/google/snappy/archive/refs/tags/$SNAPPY_VERSION.tar.gz -O snappy-$SNAPPY_VERSION.tar.gz
@@ -859,6 +864,8 @@ fi
 echo "$LZ4_SHA256  lz4-$LZ4_VERSION.tar.gz" | sha256sum -c
 # verify proxygen
 echo "$PROXYGEN_SHA256 proxygen-$FBLIBS_VERSION.tar.gz" | sha256sum -c
+# verify python
+echo "$PYTHON_MD5 Python-$PYHTON_VERSION.tgz" | md5sum -c
 # verify snappy
 echo "$SNAPPY_SHA256  snappy-$SNAPPY_VERSION.tar.gz" | sha256sum -c
 # verify xz
@@ -957,6 +964,19 @@ if [ ! -f $PREFIX/include/lz4.h ]; then
     tar -xzf ../archives/lz4-$LZ4_VERSION.tar.gz
     pushd lz4-$LZ4_VERSION
     make $COMMON_MAKE_INSTALL_FLAGS
+    popd
+fi
+
+log_tool_name "python $PYTHON_VERSION"
+if [ ! -f $PREFIX/include/python3.13/Python.h ]; then
+    if [ -d python3-$PYTHON_VERSION ]; then
+        rm -rf Python-$PYTHON_VERSION
+    fi
+    tar -xzf ../archives/Python-$PYTHON_VERSION.tar.gz
+    pushd Python-$PYTHON_VERSION
+    ./configure $COMMON_CONFIGURE_FLAGS --enable-optimizations --with-ensurepip=install # this probably isn't necessary for what we're doing
+    make -j$CPUS
+    make install
     popd
 fi
 
