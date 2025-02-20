@@ -17,6 +17,8 @@
 #include "rpc/client.hpp"
 #include "rpc/server.hpp"
 #include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
+#include "storage/v2/constraints/existence_constraints.hpp"
+#include "storage/v2/constraints/type_constraints.hpp"
 #include "storage/v2/indices/indices_utils.hpp"
 #include "storage/v2/indices/point_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
@@ -25,6 +27,7 @@
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/inmemory/unique_constraints.hpp"
 #include "storage/v2/point.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/observer.hpp"
@@ -42,12 +45,14 @@ using memgraph::storage::CoordinateReferenceSystem;
 using memgraph::storage::Edge;
 using memgraph::storage::EdgeRef;
 using memgraph::storage::EdgeTypeId;
+using memgraph::storage::ExistenceConstraints;
 using memgraph::storage::Gid;
 using memgraph::storage::InMemoryEdgeTypeIndex;
 using memgraph::storage::InMemoryEdgeTypePropertyIndex;
 using memgraph::storage::InMemoryLabelIndex;
 using memgraph::storage::InMemoryLabelPropertyIndex;
 using memgraph::storage::InMemoryStorage;
+using memgraph::storage::InMemoryUniqueConstraints;
 using memgraph::storage::LabelId;
 using memgraph::storage::Point2d;
 using memgraph::storage::PointIndexStorage;
@@ -55,6 +60,8 @@ using memgraph::storage::PropertyId;
 using memgraph::storage::PropertyStore;
 using memgraph::storage::PropertyValue;
 using memgraph::storage::SnapshotObserverInfo;
+using memgraph::storage::TypeConstraintKind;
+using memgraph::storage::TypeConstraints;
 using memgraph::storage::VectorIndex;
 using memgraph::storage::VectorIndexSpec;
 using memgraph::storage::Vertex;
@@ -473,4 +480,206 @@ TEST_F(SnapshotRpcProgressTest, TestVectorIndexSingleThreadedVertices) {
   SnapshotObserverInfo snapshot_info{.observer = mocked_observer, .item_batch_size = 4};
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
   ASSERT_TRUE(vector_idx.CreateIndex(spec, vertices_acc, snapshot_info));
+}
+
+TEST_F(SnapshotRpcProgressTest, TestExistenceConstraintsSingleThreadedNoVertices) {
+  auto label = LabelId::FromUint(1);
+  auto prop = PropertyId::FromUint(1);
+  auto vertices = SkipList<Vertex>();
+  auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
+  SnapshotObserverInfo snapshot_info{.observer = mocked_observer, .item_batch_size = 3};
+
+  EXPECT_CALL(*mocked_observer, Update()).Times(0);
+
+  auto maybe_violation =
+      ExistenceConstraints::ValidateVerticesOnConstraint(vertices.access(), label, prop, std::nullopt, snapshot_info);
+  ASSERT_FALSE(maybe_violation.has_value());
+}
+
+TEST_F(SnapshotRpcProgressTest, TestExistenceConstraintsSingleThreadedVertices) {
+  auto label = LabelId::FromUint(1);
+  auto prop = PropertyId::FromUint(1);
+  auto vertices = SkipList<Vertex>();
+  const std::vector<std::pair<PropertyId, PropertyValue>> prop_data{
+      {prop, PropertyValue{2}},
+  };
+
+  {
+    auto acc = vertices.access();
+    for (uint32_t i = 1; i <= 9; i++) {
+      auto vertex = Vertex{Gid::FromUint(i), nullptr};
+      vertex.labels.emplace_back(label);
+      vertex.properties.InitProperties(prop_data);
+      auto [_, inserted] = acc.insert(std::move(vertex));
+      ASSERT_TRUE(inserted);
+    }
+  }
+
+  auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
+  SnapshotObserverInfo snapshot_info{.observer = mocked_observer, .item_batch_size = 4};
+  EXPECT_CALL(*mocked_observer, Update()).Times(2);
+
+  auto maybe_violation =
+      ExistenceConstraints::ValidateVerticesOnConstraint(vertices.access(), label, prop, std::nullopt, snapshot_info);
+  ASSERT_FALSE(maybe_violation.has_value());
+}
+
+TEST_F(SnapshotRpcProgressTest, TestExistenceConstraintsMultiThreadedVertices) {
+  auto label = LabelId::FromUint(1);
+  auto prop = PropertyId::FromUint(1);
+  auto vertices = SkipList<Vertex>();
+  const std::vector<std::pair<PropertyId, PropertyValue>> prop_data{
+      {prop, PropertyValue{2}},
+  };
+
+  {
+    auto acc = vertices.access();
+    for (uint32_t i = 1; i <= 6; i++) {
+      auto vertex = Vertex{Gid::FromUint(i), nullptr};
+      vertex.labels.emplace_back(label);
+      vertex.properties.InitProperties(prop_data);
+      auto [_, inserted] = acc.insert(std::move(vertex));
+      ASSERT_TRUE(inserted);
+    }
+  }
+
+  auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
+  SnapshotObserverInfo snapshot_info{.observer = mocked_observer, .item_batch_size = 3};
+  EXPECT_CALL(*mocked_observer, Update()).Times(2);
+
+  auto par_schema_info = ParallelizedSchemaCreationInfo{
+      .vertex_recovery_info = std::vector<std::pair<Gid, uint64_t>>{{Gid::FromUint(1), 3}, {Gid::FromUint(4), 3}},
+      .thread_count = 2};
+
+  auto maybe_violation = ExistenceConstraints::ValidateVerticesOnConstraint(vertices.access(), label, prop,
+                                                                            par_schema_info, snapshot_info);
+  ASSERT_FALSE(maybe_violation.has_value());
+}
+
+TEST_F(SnapshotRpcProgressTest, TestUniqueConstraintsSingleThreadedNoVertices) {
+  auto label = LabelId::FromUint(1);
+  auto prop = PropertyId::FromUint(1);
+  auto vertices = SkipList<Vertex>();
+  auto vertices_acc = vertices.access();
+  auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
+  SnapshotObserverInfo snapshot_info{.observer = mocked_observer, .item_batch_size = 3};
+
+  EXPECT_CALL(*mocked_observer, Update()).Times(0);
+
+  InMemoryUniqueConstraints unique_constraints;
+  ASSERT_EQ(
+      unique_constraints.CreateConstraint(label, std::set<PropertyId>{prop}, vertices_acc, std::nullopt, snapshot_info)
+          .GetValue(),
+      InMemoryUniqueConstraints::CreationStatus::SUCCESS);
+}
+
+TEST_F(SnapshotRpcProgressTest, TestUniqueConstraintsSingleThreadedVertices) {
+  auto label = LabelId::FromUint(1);
+  auto prop = PropertyId::FromUint(1);
+  auto vertices = SkipList<Vertex>();
+  auto vertices_acc = vertices.access();
+
+  {
+    auto acc = vertices.access();
+    for (uint32_t i = 1; i <= 9; i++) {
+      auto vertex = Vertex{Gid::FromUint(i), nullptr};
+      vertex.labels.emplace_back(label);
+      const std::vector<std::pair<PropertyId, PropertyValue>> prop_data{
+          {prop, PropertyValue{static_cast<int>(i)}},
+      };
+      vertex.properties.InitProperties(prop_data);
+      auto [_, inserted] = acc.insert(std::move(vertex));
+      ASSERT_TRUE(inserted);
+    }
+  }
+
+  auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
+  SnapshotObserverInfo snapshot_info{.observer = mocked_observer, .item_batch_size = 4};
+  EXPECT_CALL(*mocked_observer, Update()).Times(2);
+
+  InMemoryUniqueConstraints unique_constraints;
+  ASSERT_EQ(
+      unique_constraints.CreateConstraint(label, std::set<PropertyId>{prop}, vertices_acc, std::nullopt, snapshot_info)
+          .GetValue(),
+      InMemoryUniqueConstraints::CreationStatus::SUCCESS);
+}
+
+TEST_F(SnapshotRpcProgressTest, TestUniqueConstraintsMultiThreadedVertices) {
+  auto label = LabelId::FromUint(1);
+  auto prop = PropertyId::FromUint(1);
+  auto vertices = SkipList<Vertex>();
+  auto vertices_acc = vertices.access();
+
+  {
+    auto acc = vertices.access();
+    for (uint32_t i = 1; i <= 6; i++) {
+      auto vertex = Vertex{Gid::FromUint(i), nullptr};
+      vertex.labels.emplace_back(label);
+      const std::vector<std::pair<PropertyId, PropertyValue>> prop_data{
+          {prop, PropertyValue{static_cast<int>(i)}},
+      };
+      vertex.properties.InitProperties(prop_data);
+      auto [_, inserted] = acc.insert(std::move(vertex));
+      ASSERT_TRUE(inserted);
+    }
+  }
+
+  auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
+  SnapshotObserverInfo snapshot_info{.observer = mocked_observer, .item_batch_size = 3};
+  EXPECT_CALL(*mocked_observer, Update()).Times(2);
+
+  auto par_schema_info = ParallelizedSchemaCreationInfo{
+      .vertex_recovery_info = std::vector<std::pair<Gid, uint64_t>>{{Gid::FromUint(1), 3}, {Gid::FromUint(4), 3}},
+      .thread_count = 2};
+
+  InMemoryUniqueConstraints unique_constraints;
+  ASSERT_EQ(unique_constraints
+                .CreateConstraint(label, std::set<PropertyId>{prop}, vertices_acc, par_schema_info, snapshot_info)
+                .GetValue(),
+            InMemoryUniqueConstraints::CreationStatus::SUCCESS);
+}
+
+TEST_F(SnapshotRpcProgressTest, TestTypeConstraintsSingleThreadedNoVertices) {
+  auto label = LabelId::FromUint(1);
+  auto prop = PropertyId::FromUint(1);
+  auto vertices = SkipList<Vertex>();
+  auto vertices_acc = vertices.access();
+  auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
+  SnapshotObserverInfo snapshot_info{.observer = mocked_observer, .item_batch_size = 3};
+
+  EXPECT_CALL(*mocked_observer, Update()).Times(0);
+
+  TypeConstraints type_constraints;
+  ASSERT_TRUE(type_constraints.InsertConstraint(label, prop, TypeConstraintKind::INTEGER));
+
+  ASSERT_FALSE(type_constraints.ValidateVertices(vertices.access(), snapshot_info).has_value());
+}
+
+TEST_F(SnapshotRpcProgressTest, TestTypeConstraintsSingleThreadedVertices) {
+  auto label = LabelId::FromUint(1);
+  auto prop = PropertyId::FromUint(1);
+  auto vertices = SkipList<Vertex>();
+  auto vertices_acc = vertices.access();
+
+  {
+    auto acc = vertices.access();
+    for (uint32_t i = 1; i <= 9; i++) {
+      auto vertex = Vertex{Gid::FromUint(i), nullptr};
+      vertex.labels.emplace_back(label);
+      const std::vector<std::pair<PropertyId, PropertyValue>> prop_data{
+          {prop, PropertyValue{static_cast<int>(i)}},
+      };
+      vertex.properties.InitProperties(prop_data);
+      auto [_, inserted] = acc.insert(std::move(vertex));
+      ASSERT_TRUE(inserted);
+    }
+  }
+
+  auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
+  SnapshotObserverInfo snapshot_info{.observer = mocked_observer, .item_batch_size = 4};
+  EXPECT_CALL(*mocked_observer, Update()).Times(2);
+
+  TypeConstraints type_constraints;
+  ASSERT_TRUE(type_constraints.InsertConstraint(label, prop, TypeConstraintKind::INTEGER));
+  ASSERT_FALSE(type_constraints.ValidateVertices(vertices.access(), snapshot_info).has_value());
 }

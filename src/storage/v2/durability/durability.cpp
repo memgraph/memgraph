@@ -170,11 +170,15 @@ void RecoverConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadat
                         Constraints *constraints, utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
                         const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info,
                         std::shared_ptr<utils::Observer<void>> const snapshot_observer) {
-  RecoverExistenceConstraints(constraints_metadata, constraints, vertices, name_id_mapper, parallel_exec_info,
-                              snapshot_observer);
-  RecoverUniqueConstraints(constraints_metadata, constraints, vertices, name_id_mapper, parallel_exec_info,
-                           snapshot_observer);
-  RecoverTypeConstraints(constraints_metadata, constraints, vertices, parallel_exec_info, snapshot_observer);
+  RecoverExistenceConstraints(
+      constraints_metadata, constraints, vertices, name_id_mapper, parallel_exec_info,
+      SnapshotObserverInfo{.observer = snapshot_observer, .item_batch_size = kVerticesSnapshotProgressSize});
+  RecoverUniqueConstraints(
+      constraints_metadata, constraints, vertices, name_id_mapper, parallel_exec_info,
+      SnapshotObserverInfo{.observer = snapshot_observer, .item_batch_size = kVerticesSnapshotProgressSize});
+  RecoverTypeConstraints(
+      constraints_metadata, constraints, vertices, parallel_exec_info,
+      SnapshotObserverInfo{.observer = snapshot_observer, .item_batch_size = kVerticesSnapshotProgressSize});
 }
 
 void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadata &indices_metadata, Indices *indices,
@@ -324,7 +328,7 @@ void RecoverExistenceConstraints(const RecoveredIndicesAndConstraints::Constrain
                                  Constraints *constraints, utils::SkipList<Vertex> *vertices,
                                  NameIdMapper *name_id_mapper,
                                  const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info,
-                                 std::shared_ptr<utils::Observer<void>> const snapshot_observer) {
+                                 std::optional<SnapshotObserverInfo> snapshot_info) {
   spdlog::info("Recreating {} existence constraints from metadata.", constraints_metadata.existence.size());
   for (const auto &[label, property] : constraints_metadata.existence) {
     if (constraints->existence_constraints_->ConstraintExists(label, property)) {
@@ -332,7 +336,7 @@ void RecoverExistenceConstraints(const RecoveredIndicesAndConstraints::Constrain
     }
 
     if (auto violation = ExistenceConstraints::ValidateVerticesOnConstraint(vertices->access(), label, property,
-                                                                            parallel_exec_info, snapshot_observer);
+                                                                            parallel_exec_info, snapshot_info);
         violation.has_value()) {
       throw RecoveryFailure("The existence constraint failed because it couldn't be validated!");
     }
@@ -347,13 +351,13 @@ void RecoverExistenceConstraints(const RecoveredIndicesAndConstraints::Constrain
 void RecoverUniqueConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &constraints_metadata,
                               Constraints *constraints, utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
                               const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info,
-                              std::shared_ptr<utils::Observer<void>> const snapshot_observer) {
+                              std::optional<SnapshotObserverInfo> snapshot_info) {
   spdlog::info("Recreating {} unique constraints from metadata.", constraints_metadata.unique.size());
 
   for (const auto &[label, properties] : constraints_metadata.unique) {
     auto *mem_unique_constraints = static_cast<InMemoryUniqueConstraints *>(constraints->unique_constraints_.get());
     auto ret = mem_unique_constraints->CreateConstraint(label, properties, vertices->access(), parallel_exec_info,
-                                                        snapshot_observer);
+                                                        snapshot_info);
     if (ret.HasError() || ret.GetValue() != UniqueConstraints::CreationStatus::SUCCESS)
       throw RecoveryFailure("The unique constraint must be created here!");
 
@@ -373,7 +377,7 @@ void RecoverUniqueConstraints(const RecoveredIndicesAndConstraints::ConstraintsM
 void RecoverTypeConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &constraints_metadata,
                             Constraints *constraints, utils::SkipList<Vertex> *vertices,
                             const std::optional<ParallelizedSchemaCreationInfo> & /**/,
-                            std::shared_ptr<utils::Observer<void>> const snapshot_observer) {
+                            std::optional<SnapshotObserverInfo> snapshot_info) {
   // TODO: parallel recovery
   spdlog::info("Recreating {} type constraints from metadata.", constraints_metadata.type.size());
   for (const auto &[label, property, type] : constraints_metadata.type) {
@@ -383,7 +387,7 @@ void RecoverTypeConstraints(const RecoveredIndicesAndConstraints::ConstraintsMet
   }
 
   if (constraints->HasTypeConstraints()) {
-    if (auto violation = constraints->type_constraints_->ValidateVertices(vertices->access(), snapshot_observer);
+    if (auto violation = constraints->type_constraints_->ValidateVertices(vertices->access(), snapshot_info);
         violation.has_value()) {
       throw RecoveryFailure("Type constraint recovery failed because they couldn't be validated!");
     }

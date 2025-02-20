@@ -12,7 +12,6 @@
 #pragma once
 
 #include <map>
-#include <storage/v2/indices/indices_utils.hpp>
 #include <utility>
 
 #include "storage/v2/constraints/constraints.hpp"

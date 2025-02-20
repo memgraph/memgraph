@@ -127,15 +127,15 @@ std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfo(const Recovery
 void RecoverExistenceConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &, Constraints *,
                                  utils::SkipList<Vertex> *, NameIdMapper *,
                                  const std::optional<ParallelizedSchemaCreationInfo> &,
-                                 std::shared_ptr<utils::Observer<void>> snapshot_observer = nullptr);
+                                 std::optional<SnapshotObserverInfo> snapshot_info = std::nullopt);
 
 void RecoverUniqueConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &, Constraints *,
                               utils::SkipList<Vertex> *, NameIdMapper *,
                               const std::optional<ParallelizedSchemaCreationInfo> &,
-                              std::shared_ptr<utils::Observer<void>> snapshot_observer = nullptr);
+                              std::optional<SnapshotObserverInfo> snapshot_info = std::nullopt);
 void RecoverTypeConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &, Constraints *,
                             utils::SkipList<Vertex> *, const std::optional<ParallelizedSchemaCreationInfo> &,
-                            std::shared_ptr<utils::Observer<void>> snapshot_observer = nullptr);
+                            std::optional<SnapshotObserverInfo> snapshot_info = std::nullopt);
 struct Recovery {
  public:
   /// Recovers data either from a snapshot and/or WAL files.
