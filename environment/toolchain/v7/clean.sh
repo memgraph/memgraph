@@ -46,7 +46,7 @@ PREFIX=/opt/toolchain-v7
 # rm -rf "$PREFIX/lib/libmgclient.a"
 # rm -rf "$PREFIX/bin/mgconsole"
 # rm -rf "$PREFIX/lib/libmgcxx_text_search.a"
-
+# rm -rf "$PREFIX/include/python3.13/Python.h"
 # rm -rf "$PREFIX/include/sodium.h"
 # rm -rf "$PREFIX/include/libunwind.h"
 # rm -rf "$PREFIX/include/lz4.h"
