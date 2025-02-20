@@ -1635,8 +1635,7 @@ auto ParseVectorIndexConfigMap(std::unordered_map<query::Expression *, query::Ex
         "Vector index config map is empty. Please provide mandatory fields: dimension and capacity.");
   }
 
-  auto transformed_map = std::ranges::views::all(config_map) |
-                         std::ranges::views::transform([&evaluator](const auto &pair) {
+  auto transformed_map = ranges::views::all(config_map) | ranges::views::transform([&evaluator](const auto &pair) {
                            auto key_expr = pair.first->Accept(evaluator);
                            auto value_expr = pair.second->Accept(evaluator);
                            return std::pair{key_expr.ValueString(), value_expr};
@@ -3293,7 +3292,7 @@ PreparedQuery PrepareVectorIndexQuery(ParsedQuery parsed_query, bool in_explicit
       handler = [dba, invalidate_plan_cache = std::move(invalidate_plan_cache), index_name = std::move(index_name)]() {
         Notification index_notification(SeverityLevel::INFO);
         index_notification.code = NotificationCode::DROP_INDEX;
-        index_notification.title = fmt::format("Dropped point index {}.", index_name);
+        index_notification.title = fmt::format("Dropped vector index {}.", index_name);
 
         auto maybe_index_error = dba->DropVectorIndex(index_name);
         utils::OnScopeExit const invalidator(invalidate_plan_cache);
