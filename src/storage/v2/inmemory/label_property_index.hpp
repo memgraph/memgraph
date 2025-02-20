@@ -20,7 +20,6 @@
 #include "storage/v2/indices/label_property_index.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
 #include "storage/v2/property_value.hpp"
-#include "utils/observer.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/synchronized.hpp"
 

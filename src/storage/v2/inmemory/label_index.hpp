@@ -19,7 +19,6 @@
 #include "storage/v2/indices/label_index.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/vertex.hpp"
-#include "utils/observer.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/synchronized.hpp"
 
