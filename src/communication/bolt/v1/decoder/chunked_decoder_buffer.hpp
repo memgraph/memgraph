@@ -125,12 +125,41 @@ class ChunkedDecoderBuffer {
     return ChunkState::Whole;
   }
 
+  ChunkState NextChunkState() {
+    uint8_t *data = buffer_.data();
+    size_t size = buffer_.size();
+
+    if (size < 2) {
+      return ChunkState::Partial;
+    }
+
+    size_t chunk_size = data[0];
+    chunk_size <<= 8;
+    chunk_size += data[1];
+
+    if (chunk_size == 0) {
+      // The message is done.
+      return ChunkState::Done;
+    }
+
+    if (size < chunk_size + 2) {
+      return ChunkState::Partial;
+    }
+
+    return ChunkState::Whole;
+  }
+
   /**
    * Gets the size of currently available data in the loaded chunk.
    *
    * @returns size of available data
    */
   size_t Size() { return data_.size() - pos_; }
+
+  void Clear() {
+    buffer_.Clear();
+    data_.clear();
+  }
 
  private:
   TBuffer &buffer_;
