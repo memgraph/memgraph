@@ -14,7 +14,6 @@
 #include "storage/v2/constraints/utils.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/mvcc.hpp"
-#include "utils/counter.hpp"
 #include "utils/logging.hpp"
 #include "utils/rw_spin_lock.hpp"
 
@@ -124,7 +123,7 @@ std::optional<ConstraintViolation> ExistenceConstraints::SingleThreadConstraintV
     if (auto violation = ValidateVertexOnConstraint(vertex, label, property); violation.has_value()) {
       return violation;
     }
-    if (snapshot_info && snapshot_info->IncrementCounter()) {
+    if (snapshot_info) {
       snapshot_info->Update();
     }
   }

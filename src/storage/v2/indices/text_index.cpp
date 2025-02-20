@@ -17,7 +17,6 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
-#include "utils/counter.hpp"
 
 #include <span>
 #include <vector>
@@ -270,7 +269,7 @@ void TextIndex::RecoverIndex(const std::string &index_name, LabelId label,
     LoadNodeToTextIndices(v.gid.AsInt(), SerializeProperties(vertex_properties, name_id_mapper),
                           StringifyProperties(vertex_properties), {&index_.at(index_name).context_});
 
-    if (snapshot_info && snapshot_info->IncrementCounter()) {
+    if (snapshot_info) {
       snapshot_info->Update();
     }
   }

@@ -12,7 +12,6 @@
 
 #include <vector>
 #include "storage/v2/vertex.hpp"
-#include "utils/counter.hpp"
 #include "utils/skip_list.hpp"
 
 namespace memgraph::storage {
@@ -33,7 +32,7 @@ void do_per_thread_validation(ErrorType &maybe_error, Func &&func,
     for (auto i{0U}; i < batch_size; ++i, ++vertex_curr) {
       const auto violation = func(*vertex_curr, std::forward<Args>(args)...);
       if (!violation.has_value()) [[likely]] {
-        if (snapshot_info && snapshot_info->IncrementCounter()) {
+        if (snapshot_info) {
           snapshot_info->Update();
         }
         continue;

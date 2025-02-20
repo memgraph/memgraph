@@ -53,7 +53,7 @@ bool InMemoryEdgeTypePropertyIndex::CreateIndex(EdgeTypeId edge_type, PropertyId
         }
         auto *edge_ptr = std::get<kEdgeRefPos>(edge).ptr;
         edge_acc.insert({edge_ptr->properties.GetProperty(property), &from_vertex, to_vertex, edge_ptr, 0});
-        if (snapshot_info && snapshot_info->IncrementCounter()) {
+        if (snapshot_info) {
           snapshot_info->Update();
         }
       }
