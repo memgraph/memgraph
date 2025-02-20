@@ -17,7 +17,7 @@
 #include <optional>
 #include <string>
 
-#include <json/json.hpp>
+#include <nlohmann/json.hpp>
 
 namespace memgraph::query::stream {
 

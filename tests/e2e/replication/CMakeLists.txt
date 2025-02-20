@@ -7,7 +7,7 @@ add_executable(memgraph__e2e__replication__indices indices.cpp)
 target_link_libraries(memgraph__e2e__replication__indices gflags mgclient mg-utils mg-io Threads::Threads)
 
 add_executable(memgraph__e2e__replication__read_write_benchmark read_write_benchmark.cpp)
-target_link_libraries(memgraph__e2e__replication__read_write_benchmark gflags json mgclient mg-utils mg-io Threads::Threads)
+target_link_libraries(memgraph__e2e__replication__read_write_benchmark gflags nlohmann_json::nlohmann_json mgclient mg-utils mg-io Threads::Threads)
 
 copy_e2e_python_files(replication common.py)
 copy_e2e_python_files(replication conftest.py)

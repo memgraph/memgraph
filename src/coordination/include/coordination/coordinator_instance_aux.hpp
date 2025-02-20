@@ -14,7 +14,7 @@
 #include <cstdint>
 #include <string>
 
-#include "json/json.hpp"
+#include <nlohmann/json.hpp>
 
 #ifdef MG_ENTERPRISE
 

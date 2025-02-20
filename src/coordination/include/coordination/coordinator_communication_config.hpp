@@ -25,7 +25,7 @@
 #include <string>
 #include <utility>
 
-#include "json/json.hpp"
+#include <nlohmann/json.hpp>
 
 namespace memgraph::coordination {
 
