@@ -102,7 +102,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
                             utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper, bool properties_on_edges,
                             const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info = std::nullopt,
                             const std::optional<std::filesystem::path> &storage_dir = std::nullopt,
-                            std::shared_ptr<utils::Observer<void>> const snapshot_observer = nullptr);
+                            std::shared_ptr<utils::Observer<void>> const snapshot_progress_observer = nullptr);
 
 // Helper function used to recover all discovered constraints. The
 // constraints must be recovered after the data recovery is done
@@ -112,14 +112,12 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
 void RecoverConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &constraints_metadata,
                         Constraints *constraints, utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
                         const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info = std::nullopt,
-                        std::shared_ptr<utils::Observer<void>> const snapshot_observer = nullptr);
+                        std::shared_ptr<utils::Observer<void>> const snapshot_progress_observer = nullptr);
 
-void RecoverIndicesStatsAndConstraints(utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
-                                       Indices *indices, Constraints *constraints, Config const &config,
-                                       RecoveryInfo const &recovery_info,
-                                       RecoveredIndicesAndConstraints const &indices_constraints,
-                                       bool properties_on_edges,
-                                       std::shared_ptr<utils::Observer<void>> const snapshot_observer = nullptr);
+void RecoverIndicesStatsAndConstraints(
+    utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper, Indices *indices, Constraints *constraints,
+    Config const &config, RecoveryInfo const &recovery_info, RecoveredIndicesAndConstraints const &indices_constraints,
+    bool properties_on_edges, std::shared_ptr<utils::Observer<void>> const snapshot_progress_observer = nullptr);
 
 std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfo(const RecoveryInfo &recovery_info,
                                                                   const Config &config);
