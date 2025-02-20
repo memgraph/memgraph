@@ -9,6 +9,9 @@ from oidc import process_tokens
 def test_invalid_tokens(scheme):
     config = {}
 
+    if scheme == "oidc-custom":
+        config["role_field"] = "roles"
+
     access_token = {
         "token": {"username": "username"},
         "errors": "error_access",
@@ -32,16 +35,14 @@ def test_invalid_tokens(scheme):
     }
 
     del id_token["errors"]
-    roles_field = "roles" if scheme == "oidc-entra-id" else "groups"
+
+    roles_field = "roles" if scheme != "oidc-okta" else "groups"
     assert process_tokens((access_token, id_token), config, scheme) == {
         "authenticated": False,
         "errors": f"Missing roles field named {roles_field}, roles are probably not correctly configured on the token issuer",
     }
 
-    if scheme == "oidc-entra-id":
-        access_token["token"]["roles"] = ["test-role"]
-    elif scheme == "oidc-okta":
-        access_token["token"]["groups"] = ["test-role"]
+    access_token["token"][roles_field] = "test-role"
     config["role_mapping"] = {}
     assert process_tokens((access_token, id_token), config, scheme) == {
         "authenticated": False,
