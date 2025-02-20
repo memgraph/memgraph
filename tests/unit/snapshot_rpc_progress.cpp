@@ -348,9 +348,9 @@ TEST_F(SnapshotRpcProgressTest, TestEdgeTypeIndexSingleThreadedVerticesEdges) {
     for (uint32_t i = 1; i <= 11; i++) {
       auto vertex = Vertex{Gid::FromUint(i), nullptr};
       EdgeRef edge_ref(Gid::FromUint(1));
-      vertex.out_edges.emplace_back(etype, &vertex, edge_ref);
-      auto [_, inserted] = acc.insert(std::move(vertex));
+      auto [it, inserted] = acc.insert(std::move(vertex));
       ASSERT_TRUE(inserted);
+      it->out_edges.emplace_back(etype, &*it, edge_ref);
     }
   }
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
@@ -388,9 +388,9 @@ TEST_F(SnapshotRpcProgressTest, TestEdgeTypePropertyIndexSingleThreadedVerticesE
       auto [edge, inserted] = edge_acc.insert(Edge{Gid::FromUint(i), nullptr});
       ASSERT_TRUE(inserted);
       auto edge_ref = EdgeRef{&*edge};
-      vertex.out_edges.emplace_back(etype, &vertex, edge_ref);
-      auto [_, ver_inserted] = acc.insert(std::move(vertex));
+      auto [it, ver_inserted] = acc.insert(std::move(vertex));
       ASSERT_TRUE(ver_inserted);
+      it->out_edges.emplace_back(etype, &*it, edge_ref);
     }
   }
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
