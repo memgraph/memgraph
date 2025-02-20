@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -125,6 +125,15 @@ inline auto PropertyValueMatch_ActionMethod(bool &match, PropertyId property, Pr
   using enum Delta::Action;
   return ActionMethod<SET_PROPERTY>([&, property](Delta const &delta) {
     if (delta.property.key == property) match = (value == *delta.property.value);
+  });
+}
+
+inline auto PropertyValuesMatch_ActionMethod(std::unordered_map<PropertyId, bool> &match,
+                                             std::unordered_map<PropertyId, PropertyValue> &values) {
+  using enum Delta::Action;
+  return ActionMethod<SET_PROPERTY>([&](Delta const &delta) {
+    if (match.find(delta.property.key) != match.end())
+      match[delta.property.key] = (values[delta.property.key] == *delta.property.value);
   });
 }
 

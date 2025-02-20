@@ -19,6 +19,7 @@
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/version.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
+#include "storage/v2/indices/label_property_composite_index_stats.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/schema_info.hpp"
@@ -34,6 +35,7 @@ using memgraph::storage::EdgeAccessor;
 using memgraph::storage::EdgeRef;
 using memgraph::storage::EdgeTypeId;
 using memgraph::storage::LabelIndexStats;
+using memgraph::storage::LabelPropertyCompositeIndexStats;
 using memgraph::storage::LabelPropertyIndexStats;
 using memgraph::storage::PropertyId;
 using memgraph::storage::UniqueConstraints;
@@ -1136,6 +1138,57 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
           if (res.HasError()) {
             throw utils::BasicException("Failed to drop vector index {}", data.index_name);
           }
+        },
+        [&](WalLabelPropertyCompositeIndexCreate const &data) {
+          std::stringstream ss;
+          utils::PrintIterable(ss, data.properties);
+          spdlog::trace("       Create label+property composite index on :{} ({})", data.label, ss.str());
+          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          std::vector<PropertyId> properties;
+          properties.reserve(data.properties.size());
+          for (const auto &prop : data.properties) {
+            properties.emplace_back(storage->NameToProperty(prop));
+          }
+          if (transaction->CreateIndex(storage->NameToLabel(data.label), properties).HasError())
+            throw utils::BasicException("Failed to create label+property composite index on :{} ({}).", data.label,
+                                        ss.str());
+        },
+        [&](WalLabelPropertyCompositeIndexDrop const &data) {
+          std::stringstream ss;
+          utils::PrintIterable(ss, data.properties);
+          spdlog::trace("       Drop label+property composite index on :{} ({})", data.label, ss.str());
+          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          std::vector<PropertyId> properties;
+          properties.reserve(data.properties.size());
+          for (const auto &prop : data.properties) {
+            properties.emplace_back(storage->NameToProperty(prop));
+          }
+          if (transaction->DropIndex(storage->NameToLabel(data.label), properties).HasError()) {
+            throw utils::BasicException("Failed to drop label+property composite index on :{} ({}).", data.label,
+                                        ss.str());
+          }
+        },
+        [&](WalLabelPropertyCompositeIndexStatsSet const &data) {
+          spdlog::trace("       Set label-property composite index statistics on :{}", data.label);
+          // Need to send the timestamp
+          auto *transaction = get_replication_accessor(delta_timestamp);
+          const auto label = storage->NameToLabel(data.label);
+          std::vector<PropertyId> properties;
+          properties.reserve(data.properties.size());
+          for (const auto &prop : data.properties) {
+            properties.emplace_back(storage->NameToProperty(prop));
+          }
+          LabelPropertyCompositeIndexStats stats{};
+          if (!FromJson(data.json_stats, stats)) {
+            throw utils::BasicException("Failed to read statistics!");
+          }
+          transaction->SetIndexStats(label, properties, stats);
+        },
+        [&](WalLabelPropertyCompositeIndexStatsClear const &data) {
+          spdlog::trace("       Clear label-property composite index statistics on :{}", data.label);
+          // Need to send the timestamp
+          auto *transaction = get_replication_accessor(delta_timestamp);
+          transaction->DeleteLabelPropertyCompositeIndexStats(storage->NameToLabel(data.label));
         },
     };
 

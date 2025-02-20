@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -40,6 +40,7 @@ class QueryCostEstimator : public ::testing::Test {
   std::optional<memgraph::query::DbAccessor> dba;
   memgraph::storage::LabelId label = db->NameToLabel("label");
   memgraph::storage::PropertyId property = db->NameToProperty("property");
+  memgraph::storage::PropertyId property2 = db->NameToProperty("property2");
 
   // we incrementally build the logical operator plan
   // start it off with Once
@@ -61,6 +62,11 @@ class QueryCostEstimator : public ::testing::Test {
       ASSERT_FALSE(unique_acc->CreateIndex(label, property).HasError());
       ASSERT_FALSE(unique_acc->Commit().HasError());
     }
+    {
+      auto unique_acc = db->UniqueAccess();
+      ASSERT_FALSE(unique_acc->CreateIndex(label, {property, property2}).HasError());
+      ASSERT_FALSE(unique_acc->Commit().HasError());
+    }
     storage_dba.emplace(db->Access());
     dba.emplace(storage_dba->get());
   }
@@ -77,6 +83,7 @@ class QueryCostEstimator : public ::testing::Test {
       }
       if (i < property_count) {
         ASSERT_TRUE(vertex.SetProperty(property, memgraph::storage::PropertyValue(i)).HasValue());
+        ASSERT_TRUE(vertex.SetProperty(property2, memgraph::storage::PropertyValue(i)).HasValue());
       }
     }
 
@@ -136,6 +143,19 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertyValueConstant) {
   for (auto *const_val : {Literal(12), Parameter(12)}) {
     MakeOp<ScanAllByLabelPropertyValue>(nullptr, NextSymbol(), label, property, const_val);
     EXPECT_COST(1 * CostParam::MakeScanAllByLabelPropertyValue);
+  }
+}
+
+TEST_F(QueryCostEstimator, ScanAllByLabelPropertyCompositeValueConstant) {
+  AddVertices(100, 30, 20);
+  for (auto *const_val : {Literal(12), Parameter(12)}) {
+    MakeOp<ScanAllByLabelPropertyCompositeValue>(
+        nullptr, NextSymbol(), label, std::vector<memgraph::storage::PropertyId>{property, property2},
+        std::vector<std::optional<memgraph::utils::Bound<Expression *>>>{
+            memgraph::utils::MakeBoundInclusive(const_val), memgraph::utils::MakeBoundInclusive(const_val)},
+        std::vector<std::optional<memgraph::utils::Bound<Expression *>>>{
+            memgraph::utils::MakeBoundInclusive(const_val), memgraph::utils::MakeBoundInclusive(const_val)});
+    EXPECT_COST(1 * CostParam::MakeScanAllByLabelPropertyCompositeValue);
   }
 }
 

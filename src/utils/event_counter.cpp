@@ -24,6 +24,8 @@
   M(ScanAllByLabelOperator, Operator, "Number of times ScanAllByLabel operator was used.")                             \
   M(ScanAllByLabelPropertyRangeOperator, Operator, "Number of times ScanAllByLabelPropertyRange operator was used.")   \
   M(ScanAllByLabelPropertyValueOperator, Operator, "Number of times ScanAllByLabelPropertyValue operator was used.")   \
+  M(ScanAllByLabelPropertyCompositeValueOperator, Operator,                                                            \
+    "Number of times ScanAllByLabelPropertyCompositeValue operator was used.")                                         \
   M(ScanAllByLabelPropertyOperator, Operator, "Number of times ScanAllByLabelProperty operator was used.")             \
   M(ScanAllByIdOperator, Operator, "Number of times ScanAllById operator was used.")                                   \
   M(ScanAllByEdgeOperator, Operator, "Number of times ScanAllByEdgeOperator operator was used.")                       \
@@ -73,6 +75,7 @@
                                                                                                                        \
   M(ActiveLabelIndices, Index, "Number of active label indices in the system.")                                        \
   M(ActiveLabelPropertyIndices, Index, "Number of active label property indices in the system.")                       \
+  M(ActiveLabelPropertyCompositeIndices, Index, "Number of active label property composite indices in the system.")    \
   M(ActivePointIndices, Index, "Number of active point indices in the system.")                                        \
   M(ActiveTextIndices, Index, "Number of active text indices in the system.")                                          \
   M(ActiveVectorIndices, Index, "Number of active vector indices in the system.")                                      \

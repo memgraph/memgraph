@@ -104,6 +104,7 @@ extern const Event ScanAllByLabelOperator;
 extern const Event ScanAllByLabelPropertyRangeOperator;
 extern const Event ScanAllByLabelPropertyValueOperator;
 extern const Event ScanAllByLabelPropertyOperator;
+extern const Event ScanAllByLabelPropertyCompositeValueOperator;
 extern const Event ScanAllByIdOperator;
 extern const Event ScanAllByEdgeOperator;
 extern const Event ScanAllByEdgeTypeOperator;
@@ -1022,6 +1023,67 @@ UniqueCursorPtr ScanAllByLabelPropertyValue::MakeCursor(utils::MemoryResource *m
 std::string ScanAllByLabelPropertyValue::ToString() const {
   return fmt::format("ScanAllByLabelPropertyValue ({0} :{1} {{{2}}})", output_symbol_.name(), dba_->LabelToName(label_),
                      dba_->PropertyToName(property_));
+}
+
+ScanAllByLabelPropertyCompositeValue::ScanAllByLabelPropertyCompositeValue(
+    const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol, storage::LabelId label,
+    std::vector<storage::PropertyId> properties, std::vector<std::optional<Bound>> lower_bounds,
+    std::vector<std::optional<Bound>> upper_bounds, storage::View view)
+    : ScanAll(input, output_symbol, view),
+      label_(label),
+      properties_(std::move(properties)),
+      lower_bounds_(std::move(lower_bounds)),
+      upper_bounds_(std::move(upper_bounds)) {}
+
+ACCEPT_WITH_INPUT(ScanAllByLabelPropertyCompositeValue)
+
+UniqueCursorPtr ScanAllByLabelPropertyCompositeValue::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByLabelPropertyCompositeValueOperator);
+
+  auto vertices = [this](Frame &frame, ExecutionContext &context)
+      -> std::optional<decltype(context.db_accessor->Vertices(
+          view_, label_, properties_, std::vector<std::optional<utils::Bound<storage::PropertyValue>>>{},
+          std::vector<std::optional<utils::Bound<storage::PropertyValue>>>{}))> {
+    auto *db = context.db_accessor;
+    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor, view_);
+
+    std::vector<std::optional<utils::Bound<storage::PropertyValue>>> lower_bounds;
+    std::vector<std::optional<utils::Bound<storage::PropertyValue>>> upper_bounds;
+    lower_bounds.reserve(lower_bounds_.size());
+    upper_bounds.reserve(upper_bounds_.size());
+
+    for (uint64_t i = 0; i < lower_bounds_.size(); i++) {
+      const std::optional<Bound> lower_bound = lower_bounds_[i];
+      const std::optional<Bound> upper_bound = upper_bounds_[i];
+
+      auto maybe_lower = TryConvertToBound(lower_bound, evaluator);
+      auto maybe_upper = TryConvertToBound(upper_bound, evaluator);
+
+      // If any bound is null, then the comparison would result in nulls. This
+      // is treated as not satisfying the filter, so return no vertices.
+      if (maybe_lower && maybe_lower->value().IsNull()) return std::nullopt;
+      if (maybe_upper && maybe_upper->value().IsNull()) return std::nullopt;
+
+      lower_bounds.push_back(maybe_lower);
+      upper_bounds.push_back(maybe_upper);
+    }
+
+    return std::make_optional(db->Vertices(view_, label_, properties_, lower_bounds, upper_bounds));
+  };
+  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
+                                                                view_, std::move(vertices),
+                                                                "ScanAllByLabelPropertyCompositeValue");
+}
+
+std::string ScanAllByLabelPropertyCompositeValue::ToString() const {
+  std::vector<std::string> properties_string;
+  properties_string.reserve(properties_.size());
+  for (const auto &prop : properties_) {
+    properties_string.emplace_back(dba_->PropertyToName(prop));
+  }
+
+  return fmt::format("ScanAllByLabelPropertyCompositeValue ({0} :{1} {{{2}}})", output_symbol_.name(),
+                     dba_->LabelToName(label_), utils::Join(properties_string, ", "));
 }
 
 ScanAllByLabelProperty::ScanAllByLabelProperty(const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,

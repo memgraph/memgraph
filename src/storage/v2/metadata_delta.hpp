@@ -17,6 +17,7 @@
 #include "storage/v2/constraints/type_constraints.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
+#include "storage/v2/indices/label_property_composite_index_stats.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 
@@ -52,6 +53,10 @@ struct MetadataDelta {
     POINT_INDEX_DROP,
     VECTOR_INDEX_CREATE,
     VECTOR_INDEX_DROP,
+    LABEL_PROPERTY_COMPOSITE_INDEX_CREATE,
+    LABEL_PROPERTY_COMPOSITE_INDEX_DROP,
+    LABEL_PROPERTY_COMPOSITE_INDEX_STATS_SET,
+    LABEL_PROPERTY_COMPOSITE_INDEX_STATS_CLEAR,
   };
 
   static constexpr struct LabelIndexCreate {
@@ -64,16 +69,24 @@ struct MetadataDelta {
   } label_index_stats_clear;
   static constexpr struct LabelPropertyIndexCreate {
   } label_property_index_create;
+  static constexpr struct LabelPropertyCompositeIndexCreate {
+  } label_property_composite_index_create;
   static constexpr struct PointIndexCreate {
   } point_index_create;
   static constexpr struct PointIndexDrop {
   } point_index_drop;
   static constexpr struct LabelPropertyIndexDrop {
   } label_property_index_drop;
+  static constexpr struct LabelPropertyCompositeIndexDrop {
+  } label_property_composite_index_drop;
   static constexpr struct LabelPropertyIndexStatsSet {
   } label_property_index_stats_set;
   static constexpr struct LabelPropertyIndexStatsClear {
   } label_property_index_stats_clear;
+  static constexpr struct LabelPropertyCompositeIndexStatsSet {
+  } label_property_composite_index_stats_set;
+  static constexpr struct LabelPropertyCompositeIndexStatsClear {
+  } label_property_composite_index_stats_clear;
   static constexpr struct EdgeIndexCreate {
   } edge_index_create;
   static constexpr struct EdgeIndexDrop {
@@ -121,8 +134,14 @@ struct MetadataDelta {
   MetadataDelta(LabelPropertyIndexCreate /*tag*/, LabelId label, PropertyId property)
       : action(Action::LABEL_PROPERTY_INDEX_CREATE), label_property{label, property} {}
 
+  MetadataDelta(LabelPropertyCompositeIndexCreate /*tag*/, LabelId label, const std::vector<PropertyId> &properties)
+      : action(Action::LABEL_PROPERTY_COMPOSITE_INDEX_CREATE), label_property_composite{label, properties} {}
+
   MetadataDelta(LabelPropertyIndexDrop /*tag*/, LabelId label, PropertyId property)
       : action(Action::LABEL_PROPERTY_INDEX_DROP), label_property{label, property} {}
+
+  MetadataDelta(LabelPropertyCompositeIndexDrop /*tag*/, LabelId label, const std::vector<PropertyId> &properties)
+      : action(Action::LABEL_PROPERTY_COMPOSITE_INDEX_DROP), label_property_composite{label, properties} {}
 
   MetadataDelta(LabelPropertyIndexStatsSet /*tag*/, LabelId label, PropertyId property,
                 LabelPropertyIndexStats const &stats)
@@ -130,6 +149,14 @@ struct MetadataDelta {
 
   MetadataDelta(LabelPropertyIndexStatsClear /*tag*/, LabelId label)
       : action(Action::LABEL_PROPERTY_INDEX_STATS_CLEAR), label{label} {}
+
+  MetadataDelta(LabelPropertyCompositeIndexStatsSet /*tag*/, LabelId label, std::vector<PropertyId> properties,
+                LabelPropertyCompositeIndexStats const &stats)
+      : action(Action::LABEL_PROPERTY_COMPOSITE_INDEX_STATS_SET),
+        label_property_composite_stats{label, properties, stats} {}
+
+  MetadataDelta(LabelPropertyCompositeIndexStatsClear /*tag*/, LabelId label)
+      : action(Action::LABEL_PROPERTY_COMPOSITE_INDEX_STATS_CLEAR), label{label} {}
 
   MetadataDelta(EdgeIndexCreate /*tag*/, EdgeTypeId edge_type)
       : action(Action::EDGE_INDEX_CREATE), edge_type(edge_type) {}
@@ -202,6 +229,8 @@ struct MetadataDelta {
       case LABEL_PROPERTY_INDEX_DROP:
       case LABEL_PROPERTY_INDEX_STATS_SET:
       case LABEL_PROPERTY_INDEX_STATS_CLEAR:
+      case LABEL_PROPERTY_COMPOSITE_INDEX_STATS_SET:
+      case LABEL_PROPERTY_COMPOSITE_INDEX_STATS_CLEAR:
       case Action::EDGE_INDEX_CREATE:
       case Action::EDGE_INDEX_DROP:
       case Action::EDGE_PROPERTY_INDEX_CREATE:
@@ -221,6 +250,11 @@ struct MetadataDelta {
         break;
       case VECTOR_INDEX_DROP: {
         std::destroy_at(&vector_index_name);
+        break;
+      }
+      case LABEL_PROPERTY_COMPOSITE_INDEX_CREATE:
+      case LABEL_PROPERTY_COMPOSITE_INDEX_DROP: {
+        std::destroy_at(&label_property_composite);
         break;
       }
       case UNIQUE_CONSTRAINT_CREATE:
@@ -250,6 +284,11 @@ struct MetadataDelta {
 
     struct {
       LabelId label;
+      std::vector<PropertyId> properties;
+    } label_property_composite;
+
+    struct {
+      LabelId label;
       std::set<PropertyId> properties;
     } label_properties;
 
@@ -263,6 +302,12 @@ struct MetadataDelta {
       PropertyId property;
       LabelPropertyIndexStats stats;
     } label_property_stats;
+
+    struct {
+      LabelId label;
+      std::vector<PropertyId> properties;
+      LabelPropertyCompositeIndexStats stats;
+    } label_property_composite_stats;
 
     struct {
       LabelId label;

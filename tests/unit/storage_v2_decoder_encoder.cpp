@@ -439,6 +439,10 @@ TEST_F(DecoderEncoderTest, PropertyValueInvalidMarker) {
         case memgraph::storage::durability::Marker::DELTA_ENUM_CREATE:
         case memgraph::storage::durability::Marker::DELTA_ENUM_ALTER_ADD:
         case memgraph::storage::durability::Marker::DELTA_ENUM_ALTER_UPDATE:
+        case memgraph::storage::durability::Marker::DELTA_LABEL_PROPERTY_COMPOSITE_INDEX_CREATE:
+        case memgraph::storage::durability::Marker::DELTA_LABEL_PROPERTY_COMPOSITE_INDEX_DROP:
+        case memgraph::storage::durability::Marker::DELTA_LABEL_PROPERTY_COMPOSITE_INDEX_STATS_SET:
+        case memgraph::storage::durability::Marker::DELTA_LABEL_PROPERTY_COMPOSITE_INDEX_STATS_CLEAR:
         case memgraph::storage::durability::Marker::VALUE_FALSE:
         case memgraph::storage::durability::Marker::VALUE_TRUE:
           valid_marker = false;

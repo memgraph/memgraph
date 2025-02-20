@@ -57,8 +57,8 @@ class ReplicaStream {
 
   /// @throw rpc::RpcFailedException
   void AppendOperation(durability::StorageMetadataOperation operation, LabelId label,
-                       const std::set<PropertyId> &properties, const LabelIndexStats &stats,
-                       const LabelPropertyIndexStats &property_stats, uint64_t timestamp);
+                       const std::set<PropertyId> &properties_set, const std::set<PropertyId> &properties_vector,
+                       const LabelIndexStats &stats, const LabelPropertyIndexStats &property_stats, uint64_t timestamp);
 
   /// @throw rpc::RpcFailedException
   void AppendOperation(durability::StorageMetadataOperation operation, EdgeTypeId edge_type,

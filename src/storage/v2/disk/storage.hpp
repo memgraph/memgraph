@@ -76,6 +76,11 @@ class DiskStorage final : public Storage {
                               const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                               const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) override;
 
+    VerticesIterable Vertices(LabelId label, const std::vector<PropertyId> &properties,
+                              const std::vector<std::optional<utils::Bound<PropertyValue>>> &lower_bound,
+                              const std::vector<std::optional<utils::Bound<PropertyValue>>> &upper_bound,
+                              View view) override;
+
     std::optional<EdgeAccessor> FindEdge(Gid gid, View view) override;
 
     EdgesIterable Edges(EdgeTypeId edge_type, View view) override;
@@ -94,8 +99,19 @@ class DiskStorage final : public Storage {
 
     uint64_t ApproximateVertexCount(LabelId /*label*/, PropertyId /*property*/) const override { return 10; }
 
+    uint64_t ApproximateVertexCount(LabelId /*label*/, const std::vector<PropertyId> & /*property*/) const override {
+      return 10;
+    }
+
     uint64_t ApproximateVertexCount(LabelId /*label*/, PropertyId /*property*/,
                                     const PropertyValue & /*value*/) const override {
+      return 10;
+    }
+
+    uint64_t ApproximateVertexCount(
+        LabelId /*label*/, const std::vector<PropertyId> & /*properties*/,
+        const std::vector<std::optional<utils::Bound<PropertyValue>>> & /*lower*/,
+        const std::vector<std::optional<utils::Bound<PropertyValue>>> & /*upper*/) const override {
       return 10;
     }
 
@@ -139,11 +155,21 @@ class DiskStorage final : public Storage {
       return {};
     }
 
+    std::optional<storage::LabelPropertyCompositeIndexStats> GetIndexStats(
+        const storage::LabelId & /*label*/, const std::vector<storage::PropertyId> & /*properties*/) const override {
+      return {};
+    }
+
     bool DeleteLabelIndexStats(const storage::LabelId & /*labels*/) override {
       throw utils::NotYetImplemented("DeleteIndexStatsForLabels(labels) is not implemented for DiskStorage.");
     }
 
     std::vector<std::pair<LabelId, PropertyId>> DeleteLabelPropertyIndexStats(
+        const storage::LabelId & /*labels*/) override {
+      throw utils::NotYetImplemented("DeleteIndexStatsForLabels(labels) is not implemented for DiskStorage.");
+    }
+
+    std::vector<std::pair<LabelId, std::vector<PropertyId>>> DeleteLabelPropertyCompositeIndexStats(
         const storage::LabelId & /*labels*/) override {
       throw utils::NotYetImplemented("DeleteIndexStatsForLabels(labels) is not implemented for DiskStorage.");
     }
@@ -154,6 +180,11 @@ class DiskStorage final : public Storage {
 
     void SetIndexStats(const storage::LabelId & /*label*/, const storage::PropertyId & /*property*/,
                        const LabelPropertyIndexStats & /*stats*/) override {
+      throw utils::NotYetImplemented("SetIndexStats(stats) is not implemented for DiskStorage.");
+    }
+
+    void SetIndexStats(const storage::LabelId & /*label*/, const std::vector<storage::PropertyId> & /*properties*/,
+                       const LabelPropertyCompositeIndexStats & /*stats*/) override {
       throw utils::NotYetImplemented("SetIndexStats(stats) is not implemented for DiskStorage.");
     }
 
@@ -183,6 +214,8 @@ class DiskStorage final : public Storage {
 
     IndicesInfo ListAllIndices() const override;
 
+    std::vector<std::pair<LabelId, std::vector<PropertyId>>> ListAllCompositeIndices() const override;
+
     ConstraintsInfo ListAllConstraints() const override;
 
     // NOLINTNEXTLINE(google-default-arguments)
@@ -204,6 +237,9 @@ class DiskStorage final : public Storage {
 
     utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label, PropertyId property) override;
 
+    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
+        LabelId label, const std::vector<PropertyId> &properties) override;
+
     utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(EdgeTypeId edge_type,
                                                                       bool unique_access_needed = true) override;
 
@@ -213,6 +249,9 @@ class DiskStorage final : public Storage {
     utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label) override;
 
     utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label, PropertyId property) override;
+
+    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label,
+                                                                    const std::vector<PropertyId> &properties) override;
 
     utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type) override;
 

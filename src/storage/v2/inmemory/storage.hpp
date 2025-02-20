@@ -18,6 +18,7 @@
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
+#include "storage/v2/inmemory/label_property_composite_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/inmemory/replication/recovery.hpp"
 #include "storage/v2/inmemory/snapshot_info.hpp"
@@ -94,6 +95,7 @@ class InMemoryStorage final : public Storage {
                                                                    const InMemoryStorage *main_storage);
   friend class InMemoryLabelIndex;
   friend class InMemoryLabelPropertyIndex;
+  friend class InMemoryLabelPropertyCompositeIndex;
   friend class InMemoryEdgeTypeIndex;
   friend class InMemoryEdgeTypePropertyIndex;
 
@@ -158,6 +160,11 @@ class InMemoryStorage final : public Storage {
                               const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                               const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) override;
 
+    VerticesIterable Vertices(LabelId label, const std::vector<PropertyId> &properties,
+                              const std::vector<std::optional<utils::Bound<PropertyValue>>> &lower_bound,
+                              const std::vector<std::optional<utils::Bound<PropertyValue>>> &upper_bound,
+                              View view) override;
+
     std::optional<EdgeAccessor> FindEdge(Gid gid, View view) override;
 
     EdgesIterable Edges(EdgeTypeId edge_type, View view) override;
@@ -190,12 +197,30 @@ class InMemoryStorage final : public Storage {
                                                                                                               property);
     }
 
+    /// Return approximate number of vertices with the given label and properties.
+    /// Note that this is always an over-estimate and never an under-estimate.
+    uint64_t ApproximateVertexCount(LabelId label, const std::vector<PropertyId> &properties) const override {
+      return static_cast<InMemoryStorage *>(storage_)->indices_.label_property_composite_index_->ApproximateVertexCount(
+          label, properties);
+    }
+
     /// Return approximate number of vertices with the given label and the given
     /// value for the given property. Note that this is always an over-estimate
     /// and never an under-estimate.
     uint64_t ApproximateVertexCount(LabelId label, PropertyId property, const PropertyValue &value) const override {
       return static_cast<InMemoryStorage *>(storage_)->indices_.label_property_index_->ApproximateVertexCount(
           label, property, value);
+    }
+
+    /// Return approximate number of vertices with the given label and the given
+    /// values for the given properties. Note that this is always an over-estimate
+    /// and never an under-estimate.
+    uint64_t ApproximateVertexCount(
+        LabelId label, const std::vector<PropertyId> &properties,
+        const std::vector<std::optional<utils::Bound<PropertyValue>>> &lower,
+        const std::vector<std::optional<utils::Bound<PropertyValue>>> &upper) const override {
+      return static_cast<InMemoryStorage *>(storage_)->indices_.label_property_composite_index_->ApproximateVertexCount(
+          label, properties, lower, upper);
     }
 
     /// Return approximate number of vertices with the given label and value for
@@ -255,6 +280,13 @@ class InMemoryStorage final : public Storage {
           std::make_pair(label, property));
     }
 
+    std::optional<storage::LabelPropertyCompositeIndexStats> GetIndexStats(
+        const storage::LabelId &label, const std::vector<storage::PropertyId> &properties) const override {
+      return GetIndexStatsForIndex<storage::LabelPropertyCompositeIndexStats>(
+          static_cast<InMemoryLabelPropertyCompositeIndex *>(storage_->indices_.label_property_composite_index_.get()),
+          std::make_pair(label, properties));
+    }
+
     template <typename TIndex, typename TIndexKey, typename TIndexStats>
     void SetIndexStatsForIndex(TIndex *index, TIndexKey &&key, TIndexStats &stats) const {
       index->SetIndexStats(key, stats);
@@ -265,14 +297,20 @@ class InMemoryStorage final : public Storage {
     void SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property,
                        const LabelPropertyIndexStats &stats) override;
 
+    void SetIndexStats(const storage::LabelId &label, const std::vector<storage::PropertyId> &properties,
+                       const LabelPropertyCompositeIndexStats &stats) override;
+
     template <typename TResult, typename TIndex>
     TResult DeleteIndexStatsForIndex(TIndex *index, const storage::LabelId &label) {
       return index->DeleteIndexStats(label);
     }
 
+    bool DeleteLabelIndexStats(const storage::LabelId &label) override;
+
     std::vector<std::pair<LabelId, PropertyId>> DeleteLabelPropertyIndexStats(const storage::LabelId &label) override;
 
-    bool DeleteLabelIndexStats(const storage::LabelId &label) override;
+    std::vector<std::pair<LabelId, std::vector<PropertyId>>> DeleteLabelPropertyCompositeIndexStats(
+        const storage::LabelId &label) override;
 
     Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>> DetachDelete(
         std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges, bool detach) override;
@@ -303,6 +341,8 @@ class InMemoryStorage final : public Storage {
     bool PointIndexExists(LabelId label, PropertyId property) const override;
 
     IndicesInfo ListAllIndices() const override;
+
+    std::vector<std::pair<LabelId, std::vector<PropertyId>>> ListAllCompositeIndices() const override;
 
     ConstraintsInfo ListAllConstraints() const override;
 
@@ -341,6 +381,9 @@ class InMemoryStorage final : public Storage {
     /// @throw std::bad_alloc
     utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label, PropertyId property) override;
 
+    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
+        LabelId label, const std::vector<PropertyId> &properties) override;
+
     /// Create an index.
     /// Returns void if the index has been created.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
@@ -372,6 +415,9 @@ class InMemoryStorage final : public Storage {
     /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index does not exist.
     utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label, PropertyId property) override;
+
+    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label,
+                                                                    const std::vector<PropertyId> &properties) override;
 
     /// Drop an existing index.
     /// Returns void if the index has been dropped.

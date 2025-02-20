@@ -64,6 +64,7 @@ class PlanPrinter : public virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(ScanAll &) override;
   bool PreVisit(ScanAllByLabel &) override;
   bool PreVisit(ScanAllByLabelPropertyValue &) override;
+  bool PreVisit(ScanAllByLabelPropertyCompositeValue &) override;
   bool PreVisit(ScanAllByLabelPropertyRange &) override;
   bool PreVisit(ScanAllByLabelProperty &) override;
   bool PreVisit(ScanAllById &) override;
@@ -145,6 +146,8 @@ nlohmann::json ToJson(Expression *expression, const DbAccessor &dba);
 
 nlohmann::json ToJson(const utils::Bound<Expression *> &bound, const DbAccessor &dba);
 
+nlohmann::json ToJson(const std::optional<utils::Bound<Expression *>> &bound, const DbAccessor &dba);
+
 nlohmann::json ToJson(const Symbol &symbol);
 
 nlohmann::json ToJson(storage::EdgeTypeId edge_type, const DbAccessor &dba);
@@ -212,6 +215,7 @@ class PlanToJsonVisitor : public virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(ScanAllByLabel &) override;
   bool PreVisit(ScanAllByLabelProperty &) override;
   bool PreVisit(ScanAllByLabelPropertyValue &) override;
+  bool PreVisit(ScanAllByLabelPropertyCompositeValue &) override;
   bool PreVisit(ScanAllByLabelPropertyRange &) override;
   bool PreVisit(ScanAllById &) override;
 

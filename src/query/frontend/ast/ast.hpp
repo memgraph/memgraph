@@ -2195,19 +2195,17 @@ struct IndexHint {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const { return kType; }
 
-  enum class IndexType { LABEL, LABEL_PROPERTY, POINT };
+  enum class IndexType { LABEL, LABEL_PROPERTY, POINT, LABEL_PROPERTY_COMPOSITE };
 
   memgraph::query::IndexHint::IndexType index_type_;
   memgraph::query::LabelIx label_;
-  std::optional<memgraph::query::PropertyIx> property_{std::nullopt};
+  std::vector<memgraph::query::PropertyIx> properties_;
 
   IndexHint Clone(AstStorage *storage) const {
     IndexHint object;
     object.index_type_ = index_type_;
     object.label_ = storage->GetLabelIx(label_.name);
-    if (property_) {
-      object.property_ = storage->GetPropertyIx(property_->name);
-    }
+    object.properties_ = properties_;
     return object;
   }
 };

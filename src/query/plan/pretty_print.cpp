@@ -58,6 +58,13 @@ bool PlanPrinter::PreVisit(query::plan::ScanAllByLabelPropertyValue &op) {
   return true;
 }
 
+bool PlanPrinter::PreVisit(query::plan::ScanAllByLabelPropertyCompositeValue &op) {
+  op.dba_ = dba_;
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
+  op.dba_ = nullptr;
+  return true;
+}
+
 bool PlanPrinter::PreVisit(query::plan::ScanAllByLabelPropertyRange &op) {
   op.dba_ = dba_;
   WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
@@ -385,6 +392,16 @@ json ToJson(const utils::Bound<Expression *> &bound, const DbAccessor &dba) {
   return json;
 }
 
+json ToJson(const std::optional<utils::Bound<Expression *>> &bound, const DbAccessor &dba) {
+  json json;
+
+  if (bound.has_value()) {
+    return ToJson(bound.value(), dba);
+  }
+
+  return json;
+}
+
 json ToJson(const Symbol &symbol) { return symbol.name(); }
 
 json ToJson(storage::EdgeTypeId edge_type, const DbAccessor &dba) { return dba.EdgeTypeToName(edge_type); }
@@ -532,6 +549,22 @@ bool PlanToJsonVisitor::PreVisit(ScanAllByLabelPropertyValue &op) {
   self["label"] = ToJson(op.label_, *dba_);
   self["property"] = ToJson(op.property_, *dba_);
   self["expression"] = ToJson(op.expression_, *dba_);
+  self["output_symbol"] = ToJson(op.output_symbol_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(ScanAllByLabelPropertyCompositeValue &op) {
+  json self;
+  self["name"] = "ScanAllByLabelPropertyCompositeValue";
+  self["label"] = ToJson(op.label_, *dba_);
+  self["properties"] = ToJson(op.properties_, *dba_);
+  self["lower_bounds"] = ToJson(op.lower_bounds_, *dba_);
+  self["upper_bounds"] = ToJson(op.upper_bounds_, *dba_);
   self["output_symbol"] = ToJson(op.output_symbol_);
 
   op.input_->Accept(*this);
