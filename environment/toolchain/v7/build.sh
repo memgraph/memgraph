@@ -1178,7 +1178,7 @@ if [ ! -f $PREFIX/include/libaio.h ]; then
     popd
 fi
 
-ROCKSDB_TAG="v9.7.3"
+ROCKSDB_TAG="v9.10.0"
 log_tool_name "rocksdb $ROCKSDB_TAG"
 if [ ! -f $PREFIX/lib/librocksdb.a ]; then
     if [ -d rocksdb ]; then
@@ -1188,7 +1188,7 @@ if [ ! -f $PREFIX/lib/librocksdb.a ]; then
     pushd rocksdb
     git checkout $ROCKSDB_TAG
     # NOTE: Disables building shared lib but then the find_package fails.
-    # git apply "$DIR/rocksdb-$ROCKSDB_TAG.patch"
+    git apply "$DIR/rocksdb-$ROCKSDB_TAG.patch"
     mkdir -p _build && pushd _build
     cmake -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_INSTALL_PREFIX=$PREFIX \
