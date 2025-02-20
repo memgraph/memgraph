@@ -30,16 +30,11 @@ void do_per_thread_validation(ErrorType &maybe_error, Func &&func,
 
     auto vertex_curr = vertices.find(gid_start);
     DMG_ASSERT(vertex_curr != vertices.end(), "No vertex was found with given gid");
-
-    std::optional<utils::ResettableRuntimeCounter> maybe_batch_counter;
-    if (snapshot_info) {
-      maybe_batch_counter.emplace(utils::ResettableRuntimeCounter{snapshot_info->item_batch_size});
-    }
     for (auto i{0U}; i < batch_size; ++i, ++vertex_curr) {
       const auto violation = func(*vertex_curr, std::forward<Args>(args)...);
       if (!violation.has_value()) [[likely]] {
-        if (maybe_batch_counter && (*maybe_batch_counter)()) {
-          snapshot_info->observer->Update();
+        if (snapshot_info && snapshot_info->IncrementCounter()) {
+          snapshot_info->Update();
         }
         continue;
       }

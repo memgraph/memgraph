@@ -19,7 +19,6 @@
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_info_helpers.hpp"
-#include "utils/counter.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 
@@ -350,14 +349,10 @@ inline void CreateIndexOnSingleThread(utils::SkipList<Vertex>::Accessor &vertice
 
   try {
     auto acc = it->second.access();
-    std::optional<utils::ResettableRuntimeCounter> maybe_batch_counter;
-    if (snapshot_info) {
-      maybe_batch_counter.emplace(utils::ResettableRuntimeCounter{snapshot_info->item_batch_size});
-    }
     for (Vertex &vertex : vertices) {
       func(vertex, key, acc);
-      if (maybe_batch_counter && (*maybe_batch_counter)()) {
-        snapshot_info->observer->Update();
+      if (snapshot_info && snapshot_info->IncrementCounter()) {
+        snapshot_info->Update();
       }
     }
   } catch (const utils::OutOfMemoryException &) {
@@ -391,7 +386,7 @@ inline void CreateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vert
 
     for (auto i{0U}; i < thread_count; ++i) {
       threads.emplace_back([&skiplist_iter, &func, &index, &vertex_batches, &maybe_error, &batch_counter, &key,
-                            &vertices, snapshot_info]() {
+                            &vertices, snapshot_info]() mutable {
         while (!maybe_error.Lock()->has_value()) {
           const auto batch_index = batch_counter++;
           if (batch_index >= vertex_batches.size()) {
@@ -402,14 +397,10 @@ inline void CreateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vert
           auto it = vertices.find(batch.first);
 
           try {
-            std::optional<utils::ResettableRuntimeCounter> maybe_batch_counter;
-            if (snapshot_info) {
-              maybe_batch_counter.emplace(utils::ResettableRuntimeCounter{snapshot_info->item_batch_size});
-            }
             for (auto i{0U}; i < batch.second; ++i, ++it) {
               func(*it, key, index_accessor);
-              if (maybe_batch_counter && (*maybe_batch_counter)()) {
-                snapshot_info->observer->Update();
+              if (snapshot_info && snapshot_info->IncrementCounter()) {
+                snapshot_info->Update();
               }
             }
 

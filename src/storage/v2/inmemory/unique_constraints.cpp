@@ -318,17 +318,12 @@ bool InMemoryUniqueConstraints::MultipleThreadsConstraintValidation::operator()(
 bool InMemoryUniqueConstraints::SingleThreadConstraintValidation::operator()(
     const utils::SkipList<Vertex>::Accessor &vertex_accessor, utils::SkipList<Entry>::Accessor &constraint_accessor,
     const LabelId &label, const std::set<PropertyId> &properties, std::optional<SnapshotObserverInfo> snapshot_info) {
-  std::optional<utils::ResettableRuntimeCounter> maybe_batch_counter;
-  if (snapshot_info) {
-    maybe_batch_counter.emplace(utils::ResettableRuntimeCounter{snapshot_info->item_batch_size});
-  }
-
   for (const Vertex &vertex : vertex_accessor) {
     if (const auto violation = DoValidate(vertex, constraint_accessor, label, properties); violation.has_value()) {
       return true;
     }
-    if (maybe_batch_counter && (*maybe_batch_counter)()) {
-      snapshot_info->observer->Update();
+    if (snapshot_info && snapshot_info->IncrementCounter()) {
+      snapshot_info->Update();
     }
   }
   return false;

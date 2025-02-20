@@ -14,14 +14,20 @@
 #include <cstdint>
 #include <memory>
 
+#include "utils/counter.hpp"
 #include "utils/observer.hpp"
 
 namespace memgraph::storage {
-
 struct SnapshotObserverInfo {
-  std::shared_ptr<utils::Observer<void>> observer{nullptr};
-  // Used both for edges and vertices
-  uint32_t item_batch_size{1'000'000};
-};
+  explicit SnapshotObserverInfo(std::shared_ptr<utils::Observer<void>> observer, uint32_t const item_batch_size)
+      : observer_(std::move(observer)), cnt_(item_batch_size) {}
 
+  auto IncrementCounter() -> bool { return cnt_(); }
+
+  void Update() { observer_->Update(); }
+
+ private:
+  std::shared_ptr<utils::Observer<void>> observer_{nullptr};
+  utils::ResettableRuntimeCounter cnt_;
+};
 }  // namespace memgraph::storage

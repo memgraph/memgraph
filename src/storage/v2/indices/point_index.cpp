@@ -109,11 +109,6 @@ bool PointIndexStorage::CreatePointIndex(LabelId label, PropertyId property,
   auto points_3d_WGS = std::vector<Entry<IndexPointWGS3d>>{};
   auto points_3d_Crt = std::vector<Entry<IndexPointCartesian3d>>{};
 
-  std::optional<utils::ResettableRuntimeCounter> maybe_batch_counter;
-  if (snapshot_info) {
-    maybe_batch_counter.emplace(utils::ResettableRuntimeCounter{snapshot_info->item_batch_size});
-  }
-
   for (auto const &v : vertices) {
     if (v.deleted) continue;
     if (!utils::Contains(v.labels, label)) continue;
@@ -146,8 +141,8 @@ bool PointIndexStorage::CreatePointIndex(LabelId label, PropertyId property,
         continue;
     }
 
-    if (maybe_batch_counter && (*maybe_batch_counter)()) {
-      snapshot_info->observer->Update();
+    if (snapshot_info && snapshot_info->IncrementCounter()) {
+      snapshot_info->Update();
     }
   }
   auto new_index = std::make_shared<PointIndex>(points_2d_WGS, points_2d_Crt, points_3d_WGS, points_3d_Crt);

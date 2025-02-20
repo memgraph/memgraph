@@ -123,17 +123,12 @@ TypeConstraintKind PropertyValueToTypeConstraintKind(const PropertyValue &proper
 
 [[nodiscard]] std::optional<ConstraintViolation> TypeConstraints::ValidateVertices(
     utils::SkipList<Vertex>::Accessor vertices, std::optional<SnapshotObserverInfo> snapshot_info) const {
-  std::optional<utils::ResettableRuntimeCounter> maybe_batch_counter;
-  if (snapshot_info) {
-    maybe_batch_counter.emplace(utils::ResettableRuntimeCounter{snapshot_info->item_batch_size});
-  }
-
   for (auto const &vertex : vertices) {
     if (auto violation = Validate(vertex); violation.has_value()) {
       return violation;
     }
-    if (maybe_batch_counter && (*maybe_batch_counter)()) {
-      snapshot_info->observer->Update();
+    if (snapshot_info && snapshot_info->IncrementCounter()) {
+      snapshot_info->Update();
     }
   }
   return std::nullopt;

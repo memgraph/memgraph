@@ -13,7 +13,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <nlohmann/json.hpp>
 #include <string>
 
 #include "storage/v2/id_types.hpp"

@@ -171,15 +171,11 @@ bool VectorIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Verte
                                             std::move(mg_vector_index.index)),
                                         spec});
 
-    std::optional<utils::ResettableRuntimeCounter> maybe_batch_counter;
-    if (snapshot_info) {
-      maybe_batch_counter.emplace(utils::ResettableRuntimeCounter{snapshot_info->item_batch_size});
-    }
     // Update the index with the vertices
     for (auto &vertex : vertices) {
       UpdateVectorIndex(&vertex, LabelPropKey{spec.label, spec.property});
-      if (maybe_batch_counter && (*maybe_batch_counter)()) {
-        snapshot_info->observer->Update();
+      if (snapshot_info && snapshot_info->IncrementCounter()) {
+        snapshot_info->Update();
       }
     }
   } catch (const std::exception &e) {

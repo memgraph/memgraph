@@ -120,17 +120,12 @@ std::optional<ConstraintViolation> ExistenceConstraints::MultipleThreadsConstrai
 std::optional<ConstraintViolation> ExistenceConstraints::SingleThreadConstraintValidation::operator()(
     const utils::SkipList<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property,
     std::optional<SnapshotObserverInfo> snapshot_info) {
-  std::optional<utils::ResettableRuntimeCounter> maybe_batch_counter;
-  if (snapshot_info) {
-    maybe_batch_counter.emplace(utils::ResettableRuntimeCounter{snapshot_info->item_batch_size});
-  }
-
   for (const Vertex &vertex : vertices) {
     if (auto violation = ValidateVertexOnConstraint(vertex, label, property); violation.has_value()) {
       return violation;
     }
-    if (maybe_batch_counter && (*maybe_batch_counter)()) {
-      snapshot_info->observer->Update();
+    if (snapshot_info && snapshot_info->IncrementCounter()) {
+      snapshot_info->Update();
     }
   }
   return std::nullopt;
