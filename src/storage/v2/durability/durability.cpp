@@ -170,15 +170,17 @@ void RecoverConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadat
                         Constraints *constraints, utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
                         const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info,
                         std::shared_ptr<utils::Observer<void>> const snapshot_observer) {
-  RecoverExistenceConstraints(
-      constraints_metadata, constraints, vertices, name_id_mapper, parallel_exec_info,
-      SnapshotObserverInfo{.observer = snapshot_observer, .item_batch_size = kVerticesSnapshotProgressSize});
-  RecoverUniqueConstraints(
-      constraints_metadata, constraints, vertices, name_id_mapper, parallel_exec_info,
-      SnapshotObserverInfo{.observer = snapshot_observer, .item_batch_size = kVerticesSnapshotProgressSize});
-  RecoverTypeConstraints(
-      constraints_metadata, constraints, vertices, parallel_exec_info,
-      SnapshotObserverInfo{.observer = snapshot_observer, .item_batch_size = kVerticesSnapshotProgressSize});
+  std::optional<SnapshotObserverInfo> snapshot_info;
+  if (snapshot_observer != nullptr) {
+    snapshot_info.emplace(
+        SnapshotObserverInfo{.observer = snapshot_observer, .item_batch_size = kVerticesSnapshotProgressSize});
+  }
+
+  RecoverExistenceConstraints(constraints_metadata, constraints, vertices, name_id_mapper, parallel_exec_info,
+                              snapshot_info);
+  RecoverUniqueConstraints(constraints_metadata, constraints, vertices, name_id_mapper, parallel_exec_info,
+                           snapshot_info);
+  RecoverTypeConstraints(constraints_metadata, constraints, vertices, parallel_exec_info, snapshot_info);
 }
 
 void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadata &indices_metadata, Indices *indices,
@@ -186,105 +188,130 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
                             const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info,
                             const std::optional<std::filesystem::path> &storage_dir,
                             std::shared_ptr<utils::Observer<void>> const snapshot_observer) {
-  spdlog::info("Recreating indices from metadata.");
-
-  // Recover label indices.
-  spdlog::info("Recreating {} label indices from metadata.", indices_metadata.label.size());
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(indices->label_index_.get());
-  for (const auto &item : indices_metadata.label) {
-    if (!mem_label_index->CreateIndex(
-            item, vertices->access(), parallel_exec_info,
-            SnapshotObserverInfo{.observer = snapshot_observer, .item_batch_size = kVerticesSnapshotProgressSize})) {
-      throw RecoveryFailure("The label index must be created here!");
+  // Recover label indices.
+  {
+    spdlog::info("Recreating {} label indices from metadata.", indices_metadata.label.size());
+    std::optional<SnapshotObserverInfo> snapshot_info;
+    if (snapshot_observer != nullptr) {
+      snapshot_info.emplace(
+          SnapshotObserverInfo{.observer = snapshot_observer, .item_batch_size = kVerticesSnapshotProgressSize});
     }
-    spdlog::info("Index on :{} is recreated from metadata", name_id_mapper->IdToName(item.AsUint()));
+
+    for (const auto &item : indices_metadata.label) {
+      if (!mem_label_index->CreateIndex(item, vertices->access(), parallel_exec_info, snapshot_info)) {
+        throw RecoveryFailure("The label index must be created here!");
+      }
+      spdlog::info("Index on :{} is recreated from metadata", name_id_mapper->IdToName(item.AsUint()));
+    }
+    spdlog::info("Label indices are recreated.");
   }
-  spdlog::info("Label indices are recreated.");
-
-  spdlog::info("Recreating index statistics from metadata.");
-
   // Recover label indices statistics.
-  spdlog::info("Recreating {} label index statistics from metadata.", indices_metadata.label_stats.size());
-  for (const auto &item : indices_metadata.label_stats) {
-    mem_label_index->SetIndexStats(item.first, item.second);
-    spdlog::info("Statistics for index on :{} are recreated from metadata",
-                 name_id_mapper->IdToName(item.first.AsUint()));
+  {
+    spdlog::info("Recreating {} label index statistics from metadata.", indices_metadata.label_stats.size());
+    for (const auto &item : indices_metadata.label_stats) {
+      mem_label_index->SetIndexStats(item.first, item.second);
+      spdlog::info("Statistics for index on :{} are recreated from metadata",
+                   name_id_mapper->IdToName(item.first.AsUint()));
+    }
+    spdlog::info("Label indices statistics are recreated.");
   }
-  spdlog::info("Label indices statistics are recreated.");
 
   // Recover label+property indices.
-  spdlog::info("Recreating {} label+property indices from metadata.", indices_metadata.label_property.size());
   auto *mem_label_property_index = static_cast<InMemoryLabelPropertyIndex *>(indices->label_property_index_.get());
-  for (const auto &item : indices_metadata.label_property) {
-    if (!mem_label_property_index->CreateIndex(
-            item.first, item.second, vertices->access(), parallel_exec_info,
-            SnapshotObserverInfo{.observer = snapshot_observer, .item_batch_size = kVerticesSnapshotProgressSize}))
-      throw RecoveryFailure("The label+property index must be created here!");
-    spdlog::info("Index on :{}({}) is recreated from metadata", name_id_mapper->IdToName(item.first.AsUint()),
-                 name_id_mapper->IdToName(item.second.AsUint()));
+  {
+    spdlog::info("Recreating {} label+property indices from metadata.", indices_metadata.label_property.size());
+    std::optional<SnapshotObserverInfo> snapshot_info;
+    if (snapshot_observer != nullptr) {
+      snapshot_info.emplace(
+          SnapshotObserverInfo{.observer = snapshot_observer, .item_batch_size = kVerticesSnapshotProgressSize});
+    }
+    for (const auto &item : indices_metadata.label_property) {
+      if (!mem_label_property_index->CreateIndex(item.first, item.second, vertices->access(), parallel_exec_info,
+                                                 snapshot_info))
+        throw RecoveryFailure("The label+property index must be created here!");
+      spdlog::info("Index on :{}({}) is recreated from metadata", name_id_mapper->IdToName(item.first.AsUint()),
+                   name_id_mapper->IdToName(item.second.AsUint()));
+    }
+    spdlog::info("Label+property indices are recreated.");
   }
-  spdlog::info("Label+property indices are recreated.");
 
   // Recover label+property indices statistics.
-  spdlog::info("Recreating {} label+property indices statistics from metadata.",
-               indices_metadata.label_property_stats.size());
-  for (const auto &item : indices_metadata.label_property_stats) {
-    const auto label_id = item.first;
-    const auto property_id = item.second.first;
-    const auto &stats = item.second.second;
-    mem_label_property_index->SetIndexStats({label_id, property_id}, stats);
-    spdlog::info("Statistics for index on :{}({}) are recreated from metadata",
-                 name_id_mapper->IdToName(label_id.AsUint()), name_id_mapper->IdToName(property_id.AsUint()));
+  {
+    spdlog::info("Recreating {} label+property indices statistics from metadata.",
+                 indices_metadata.label_property_stats.size());
+    for (const auto &item : indices_metadata.label_property_stats) {
+      const auto label_id = item.first;
+      const auto property_id = item.second.first;
+      const auto &stats = item.second.second;
+      mem_label_property_index->SetIndexStats({label_id, property_id}, stats);
+      spdlog::info("Statistics for index on :{}({}) are recreated from metadata",
+                   name_id_mapper->IdToName(label_id.AsUint()), name_id_mapper->IdToName(property_id.AsUint()));
+    }
+    spdlog::info("Label+property indices statistics are recreated.");
   }
-  spdlog::info("Label+property indices statistics are recreated.");
 
   // Recover edge-type indices.
-  spdlog::info("Recreating {} edge-type indices from metadata.", indices_metadata.edge.size());
-  MG_ASSERT(indices_metadata.edge.empty() || properties_on_edges,
-            "Trying to recover edge type indices while properties on edges are disabled.");
-  auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(indices->edge_type_index_.get());
-  for (const auto &item : indices_metadata.edge) {
-    // TODO: parallel execution
-    if (!mem_edge_type_index->CreateIndex(
-            item, vertices->access(),
-            SnapshotObserverInfo{.observer = snapshot_observer, .item_batch_size = kEdgesSnapshotProgressSize})) {
-      throw RecoveryFailure("The edge-type index must be created here!");
+  {
+    spdlog::info("Recreating {} edge-type indices from metadata.", indices_metadata.edge.size());
+    auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(indices->edge_type_index_.get());
+    MG_ASSERT(indices_metadata.edge.empty() || properties_on_edges,
+              "Trying to recover edge type indices while properties on edges are disabled.");
+    std::optional<SnapshotObserverInfo> snapshot_info;
+    if (snapshot_observer != nullptr) {
+      snapshot_info.emplace(
+          SnapshotObserverInfo{.observer = snapshot_observer, .item_batch_size = kEdgesSnapshotProgressSize});
     }
-    spdlog::info("Index on :{} is recreated from metadata", name_id_mapper->IdToName(item.AsUint()));
+    for (const auto &item : indices_metadata.edge) {
+      // TODO: parallel execution
+      if (!mem_edge_type_index->CreateIndex(item, vertices->access(), snapshot_info)) {
+        throw RecoveryFailure("The edge-type index must be created here!");
+      }
+      spdlog::info("Index on :{} is recreated from metadata", name_id_mapper->IdToName(item.AsUint()));
+    }
+    spdlog::info("Edge-type indices are recreated.");
   }
-  spdlog::info("Edge-type indices are recreated.");
 
   // Recover edge-type + property indices.
-  spdlog::info("Recreating {} edge-type indices from metadata.", indices_metadata.edge_property.size());
-  MG_ASSERT(indices_metadata.edge_property.empty() || properties_on_edges,
-            "Trying to recover edge type+property indices while properties on edges are disabled.");
-  auto *mem_edge_type_property_index =
-      static_cast<InMemoryEdgeTypePropertyIndex *>(indices->edge_type_property_index_.get());
-  for (const auto &item : indices_metadata.edge_property) {
-    // TODO: parallel execution
-    if (!mem_edge_type_property_index->CreateIndex(
-            item.first, item.second, vertices->access(),
-            SnapshotObserverInfo{.observer = snapshot_observer, .item_batch_size = kEdgesSnapshotProgressSize})) {
-      throw RecoveryFailure("The edge-type property index must be created here!");
+  {
+    spdlog::info("Recreating {} edge-type indices from metadata.", indices_metadata.edge_property.size());
+    MG_ASSERT(indices_metadata.edge_property.empty() || properties_on_edges,
+              "Trying to recover edge type+property indices while properties on edges are disabled.");
+    auto *mem_edge_type_property_index =
+        static_cast<InMemoryEdgeTypePropertyIndex *>(indices->edge_type_property_index_.get());
+    std::optional<SnapshotObserverInfo> snapshot_info;
+    if (snapshot_observer != nullptr) {
+      snapshot_info.emplace(
+          SnapshotObserverInfo{.observer = snapshot_observer, .item_batch_size = kEdgesSnapshotProgressSize});
     }
-    spdlog::info("Index on :{} + {} is recreated from metadata", name_id_mapper->IdToName(item.first.AsUint()),
-                 name_id_mapper->IdToName(item.second.AsUint()));
+    for (const auto &item : indices_metadata.edge_property) {
+      // TODO: parallel execution
+      if (!mem_edge_type_property_index->CreateIndex(item.first, item.second, vertices->access(), snapshot_info)) {
+        throw RecoveryFailure("The edge-type property index must be created here!");
+      }
+      spdlog::info("Index on :{} + {} is recreated from metadata", name_id_mapper->IdToName(item.first.AsUint()),
+                   name_id_mapper->IdToName(item.second.AsUint()));
+    }
+    spdlog::info("Edge-type + property indices are recreated.");
   }
-  spdlog::info("Edge-type + property indices are recreated.");
 
+  // Text idx
   if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     // Recover text indices.
     spdlog::info("Recreating {} text indices from metadata.", indices_metadata.text_indices.size());
     auto &mem_text_index = indices->text_index_;
+    std::optional<SnapshotObserverInfo> snapshot_info;
+    if (snapshot_observer != nullptr) {
+      snapshot_info.emplace(
+          SnapshotObserverInfo{.observer = snapshot_observer, .item_batch_size = kVerticesTextIdxSnapshotProgressSize});
+    }
     for (const auto &[index_name, label] : indices_metadata.text_indices) {
       try {
         if (!storage_dir.has_value()) {
           throw RecoveryFailure("There must exist a storage directory in order to recover text indices!");
         }
         // TODO: parallel execution
-        mem_text_index.RecoverIndex(index_name, label, vertices->access(), name_id_mapper,
-                                    SnapshotObserverInfo{.observer = snapshot_observer,
-                                                         .item_batch_size = kVerticesTextIdxSnapshotProgressSize});
+        mem_text_index.RecoverIndex(index_name, label, vertices->access(), name_id_mapper, snapshot_info);
       } catch (...) {
         throw RecoveryFailure("The text index must be created here!");
       }
@@ -294,32 +321,42 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
     spdlog::info("Text indices are recreated.");
   }
 
-  spdlog::info("Recreating {} point indices statistics from metadata.", indices_metadata.point_label_property.size());
-  for (const auto &[label, property] : indices_metadata.point_label_property) {
-    // TODO: parallel execution
-    if (!indices->point_index_.CreatePointIndex(
-            label, property, vertices->access(),
-            SnapshotObserverInfo{.observer = snapshot_observer,
-                                 .item_batch_size = kVerticesPointIdxSnapshotProgressSize}))
-      throw RecoveryFailure("The point index must be created here!");
-    spdlog::info("Point index on :{}({}) is recreated from metadata", name_id_mapper->IdToName(label.AsUint()),
-                 name_id_mapper->IdToName(property.AsUint()));
-  }
-  spdlog::info("Point indices are recreated.");
-
-  spdlog::info("Recreating {} vector indices from metadata.", indices_metadata.vector_indices.size());
-  auto vertices_acc = vertices->access();
-  for (const auto &spec : indices_metadata.vector_indices) {
-    if (!indices->vector_index_.CreateIndex(
-            spec, vertices_acc,
-            SnapshotObserverInfo{.observer = snapshot_observer,
-                                 .item_batch_size = kVerticesVectorIdxSnapshotProgressSize})) {
-      throw RecoveryFailure("The vector index must be created here!");
+  // Point idx
+  {
+    spdlog::info("Recreating {} point indices statistics from metadata.", indices_metadata.point_label_property.size());
+    std::optional<SnapshotObserverInfo> snapshot_info;
+    if (snapshot_observer != nullptr) {
+      snapshot_info.emplace(SnapshotObserverInfo{.observer = snapshot_observer,
+                                                 .item_batch_size = kVerticesPointIdxSnapshotProgressSize});
     }
-    spdlog::info("Vector index on :{}({}) is recreated from metadata", name_id_mapper->IdToName(spec.label.AsUint()),
-                 name_id_mapper->IdToName(spec.property.AsUint()));
+    for (const auto &[label, property] : indices_metadata.point_label_property) {
+      // TODO: parallel execution
+      if (!indices->point_index_.CreatePointIndex(label, property, vertices->access(), snapshot_info)) {
+        throw RecoveryFailure("The point index must be created here!");
+      }
+      spdlog::info("Point index on :{}({}) is recreated from metadata", name_id_mapper->IdToName(label.AsUint()),
+                   name_id_mapper->IdToName(property.AsUint()));
+    }
+    spdlog::info("Point indices are recreated.");
   }
-  spdlog::info("Vector indices are recreated.");
+  // Vector idx
+  {
+    spdlog::info("Recreating {} vector indices from metadata.", indices_metadata.vector_indices.size());
+    std::optional<SnapshotObserverInfo> snapshot_info;
+    if (snapshot_observer != nullptr) {
+      snapshot_info.emplace(SnapshotObserverInfo{.observer = snapshot_observer,
+                                                 .item_batch_size = kVerticesVectorIdxSnapshotProgressSize});
+    }
+    auto vertices_acc = vertices->access();
+    for (const auto &spec : indices_metadata.vector_indices) {
+      if (!indices->vector_index_.CreateIndex(spec, vertices_acc, snapshot_info)) {
+        throw RecoveryFailure("The vector index must be created here!");
+      }
+      spdlog::info("Vector index on :{}({}) is recreated from metadata", name_id_mapper->IdToName(spec.label.AsUint()),
+                   name_id_mapper->IdToName(spec.property.AsUint()));
+    }
+    spdlog::info("Vector indices are recreated.");
+  }
 
   spdlog::info("Indices are recreated.");
 }
