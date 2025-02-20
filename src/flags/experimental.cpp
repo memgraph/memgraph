@@ -14,7 +14,7 @@
 #include <string_view>
 #include <type_traits>
 
-#include <json/json.hpp>
+#include <nlohmann/json.hpp>
 #include "flags/experimental.hpp"
 #include "range/v3/all.hpp"
 #include "utils/flag_validation.hpp"

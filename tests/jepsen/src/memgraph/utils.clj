@@ -58,17 +58,27 @@
 (defn query-forbidden-on-main?
   "Accepts exception e as argument."
   [e]
-  (string/includes? (str e) "query forbidden on the main"))
+  (string/includes? (str e) "Write queries are forbidden on the main"))
 
 (defn query-forbidden-on-replica?
   "Accepts exception e as argument."
   [e]
-  (string/includes? (str e) "query forbidden on the replica"))
+  (string/includes? (str e) "Write queries are forbidden on the replica"))
 
 (defn sync-replica-down?
   "Accepts exception e as argument."
   [e]
   (string/includes? (str e) "At least one SYNC replica has not confirmed committing last transaction."))
+
+(defn main-became-replica?
+  "Accepts exception e as argument."
+  [e]
+  (string/includes? (str e) "Cannot commit because instance is not main anymore."))
+
+(defn main-unwriteable?
+  "Accepts exception e as argument."
+  [e]
+  (string/includes? (str e) "Write queries currently forbidden on the main instance."))
 
 (defn conflicting-txns?
   "Conflicting transactions error message is allowed."

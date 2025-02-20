@@ -108,6 +108,9 @@ class ReplicationStorageClient {
   auto Name() const -> std::string const & { return client_.name_; }
   auto Endpoint() const -> io::network::Endpoint const & { return client_.rpc_client_.Endpoint(); }
 
+  void SetMaybeBehind() {
+    replica_state_.WithLock([](auto &val) { val = replication::ReplicaState::MAYBE_BEHIND; });
+  }
   auto State() const -> replication::ReplicaState { return *replica_state_.Lock(); }
 
   auto GetTimestampInfo(Storage const *storage) const -> TimestampInfo;
@@ -172,7 +175,8 @@ class ReplicationStorageClient {
    * @return false
    */
   [[nodiscard]] bool FinalizeTransactionReplication(DatabaseAccessProtector db_acc,
-                                                    std::optional<ReplicaStream> &&replica_stream) const;
+                                                    std::optional<ReplicaStream> &&replica_stream,
+                                                    uint64_t timestamp) const;
 
   /**
    * @brief Asynchronously try to check the replica state and start a recovery thread if necessary
@@ -217,6 +221,7 @@ class ReplicationStorageClient {
   void TryCheckReplicaStateSync(Storage *storage, DatabaseAccessProtector db_acc);
 
   ::memgraph::replication::ReplicationClient &client_;
+  mutable std::atomic<uint64_t> last_known_ts_{0};
   mutable utils::Synchronized<replication::ReplicaState, utils::SpinLock> replica_state_{
       replication::ReplicaState::MAYBE_BEHIND};
 

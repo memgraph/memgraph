@@ -149,7 +149,6 @@ declare -A primary_urls=(
   ["mgclient"]="http://$local_cache_host/git/mgclient.git"
   ["mgconsole"]="http://$local_cache_host/git/mgconsole.git"
   ["spdlog"]="http://$local_cache_host/git/spdlog"
-  ["nlohmann"]="http://$local_cache_host/file/nlohmann/json/4f8fba14066156b73f1189a2b8bd568bde5284c5/single_include/nlohmann/json.hpp"
   ["neo4j"]="http://$local_cache_host/file/neo4j-community-5.6.0-unix.tar.gz"
   ["librdkafka"]="http://$local_cache_host/git/librdkafka.git"
   ["protobuf"]="http://$local_cache_host/git/protobuf.git"
@@ -183,7 +182,6 @@ declare -A secondary_urls=(
   ["mgclient"]="https://github.com/memgraph/mgclient.git"
   ["mgconsole"]="https://github.com/memgraph/mgconsole.git"
   ["spdlog"]="https://github.com/gabime/spdlog"
-  ["nlohmann"]="https://raw.githubusercontent.com/nlohmann/json/4f8fba14066156b73f1189a2b8bd568bde5284c5/single_include/nlohmann/json.hpp"
   ["neo4j"]="https://dist.neo4j.org/neo4j-community-5.6.0-unix.tar.gz"
   ["librdkafka"]="https://github.com/edenhill/librdkafka.git"
   ["protobuf"]="https://github.com/protocolbuffers/protobuf.git"
@@ -239,14 +237,6 @@ file_get_try_double "${primary_urls[neo4j]}" "${secondary_urls[neo4j]}"
 tar -xzf neo4j-community-5.6.0-unix.tar.gz
 mv neo4j-community-5.6.0 neo4j
 rm neo4j-community-5.6.0-unix.tar.gz
-
-# nlohmann json
-# We wget header instead of cloning repo since repo is huge (lots of test data).
-# We use head on Sep 1, 2017 instead of last release since it was long time ago.
-mkdir -p json
-cd json
-file_get_try_double "${primary_urls[nlohmann]}" "${secondary_urls[nlohmann]}"
-cd ..
 
 rocksdb_tag="v8.1.1" # (2023-04-21)
 repo_clone_try_double "${primary_urls[rocksdb]}" "${secondary_urls[rocksdb]}" "rocksdb" "$rocksdb_tag" true

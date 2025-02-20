@@ -701,9 +701,11 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
   }
 
   auto cluster_state = raft_state_->GetDataInstancesContext();
-  std::ranges::remove_if(cluster_state, [instance_name](auto &&data_instance) {
+  auto const [first, last] = std::ranges::remove_if(cluster_state, [instance_name](auto &&data_instance) {
     return data_instance.config.instance_name == instance_name;
   });
+  cluster_state.erase(first, last);
+
   auto const curr_main_uuid = raft_state_->GetCurrentMainUUID();
 
   auto coordinator_instances = raft_state_->GetCoordinatorInstancesContext();

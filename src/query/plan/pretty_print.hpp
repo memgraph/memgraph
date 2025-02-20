@@ -14,7 +14,7 @@
 
 #include <iosfwd>
 
-#include <json/json.hpp>
+#include <nlohmann/json.hpp>
 
 #include "query/plan/operator.hpp"
 

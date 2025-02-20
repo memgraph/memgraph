@@ -295,6 +295,7 @@ class Once : public memgraph::query::plan::LogicalOperator {
 
 using PropertiesMapList = std::vector<std::pair<storage::PropertyId, Expression *>>;
 using StorageLabelType = std::variant<storage::LabelId, Expression *>;
+using StorageEdgeType = std::variant<storage::EdgeTypeId, Expression *>;
 
 struct NodeCreationInfo {
   static const utils::TypeInfo kType;
@@ -399,20 +400,19 @@ struct EdgeCreationInfo {
   EdgeCreationInfo() = default;
 
   EdgeCreationInfo(Symbol symbol, std::variant<PropertiesMapList, ParameterLookup *> properties,
-                   storage::EdgeTypeId edge_type, EdgeAtom::Direction direction)
+                   StorageEdgeType edge_type, EdgeAtom::Direction direction)
       : symbol{std::move(symbol)}, properties{std::move(properties)}, edge_type{edge_type}, direction{direction} {};
 
-  EdgeCreationInfo(Symbol symbol, PropertiesMapList properties, storage::EdgeTypeId edge_type,
+  EdgeCreationInfo(Symbol symbol, PropertiesMapList properties, StorageEdgeType edge_type,
                    EdgeAtom::Direction direction)
       : symbol{std::move(symbol)}, properties{std::move(properties)}, edge_type{edge_type}, direction{direction} {};
 
-  EdgeCreationInfo(Symbol symbol, ParameterLookup *properties, storage::EdgeTypeId edge_type,
-                   EdgeAtom::Direction direction)
+  EdgeCreationInfo(Symbol symbol, ParameterLookup *properties, StorageEdgeType edge_type, EdgeAtom::Direction direction)
       : symbol{std::move(symbol)}, properties{properties}, edge_type{edge_type}, direction{direction} {};
 
   Symbol symbol;
   std::variant<PropertiesMapList, ParameterLookup *> properties;
-  storage::EdgeTypeId edge_type;
+  StorageEdgeType edge_type;
   EdgeAtom::Direction direction{EdgeAtom::Direction::BOTH};
 
   EdgeCreationInfo Clone(AstStorage *storage) const {
@@ -2042,22 +2042,22 @@ class Aggregate : public memgraph::query::plan::LogicalOperator {
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   /// An aggregation element, contains:
-  ///        (input data expression, key expression - only used in COLLECT_MAP, type of
-  ///        aggregation, output symbol).
+  ///        (input data expression, secondary data expression - only used in COLLECT_MAP and PROJECT_LISTS,
+  ///        type of aggregation, output symbol, distinct)
   struct Element {
     static const utils::TypeInfo kType;
     const utils::TypeInfo &GetTypeInfo() const { return kType; }
 
-    Expression *value;
-    Expression *key;
+    Expression *arg1;
+    Expression *arg2;
     Aggregation::Op op;
     Symbol output_sym;
     bool distinct{false};
 
     Element Clone(AstStorage *storage) const {
       Element object;
-      object.value = value ? value->Clone(storage) : nullptr;
-      object.key = key ? key->Clone(storage) : nullptr;
+      object.arg1 = arg1 ? arg1->Clone(storage) : nullptr;
+      object.arg2 = arg2 ? arg2->Clone(storage) : nullptr;
       object.op = op;
       object.output_sym = output_sym;
       object.distinct = distinct;

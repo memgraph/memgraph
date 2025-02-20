@@ -12,6 +12,7 @@
 #pragma once
 
 #include <cstdint>
+#include <rpc/version.hpp>
 #include <string>
 #include <utility>
 
@@ -51,6 +52,13 @@ struct AppendDeltasRes {
   explicit AppendDeltasRes(bool const success) : success(success) {}
 
   bool success;
+};
+
+struct InProgressRes {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  InProgressRes() = default;
 };
 
 using AppendDeltasRpc = rpc::RequestResponse<AppendDeltasReq, AppendDeltasRes>;

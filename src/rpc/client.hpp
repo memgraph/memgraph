@@ -13,6 +13,7 @@
 
 #include <mutex>
 #include <optional>
+#include <storage/v2/replication/rpc.hpp>
 #include <utility>
 
 #include "communication/client.hpp"
@@ -51,8 +52,11 @@ class Client {
       {"TimestampReq"sv, 10000},              // main to replica
       {"SystemHeartbeatReq"sv, 10000},        // main to replica
       {"ForceResetStorageReq"sv,
-       60000},                        // main to replica. Longer timeout because we need to wait for all storage locks.
-      {"SystemRecoveryReq"sv, 30000}  // main to replica when MT is used. Recovering 1000DBs should take around 25''.
+       60000},                         // main to replica. Longer timeout because we need to wait for all storage locks.
+      {"SystemRecoveryReq"sv, 30000},  // main to replica when MT is used. Recovering 1000DBs should take around 25''
+      {"AppendDeltasReq"sv, 30000},    // Waiting 30'' on a progress/final response
+      {"CurrentWalReq"sv, 30000},      // Waiting 30'' on a progress/final response
+      {"WalFilesReq"sv, 30000}         // Waiting 30'' on a progress/final response
   };
   // Dependency injection of rpc_timeouts
   Client(io::network::Endpoint endpoint, communication::ClientContext *context,
@@ -99,6 +103,92 @@ class Client {
     ~StreamHandler() = default;
 
     slk::Builder *GetBuilder() { return &req_builder_; }
+
+    typename TRequestResponse::Response AwaitResponseWhileInProgress() {
+      auto final_res_type = TRequestResponse::Response::kType;
+      auto req_type = TRequestResponse::Request::kType;
+
+      auto req_type_name = std::string_view{req_type.name};
+      auto final_res_type_name = std::string_view{final_res_type.name};
+
+      // Finalize the request.
+      req_builder_.Finalize();
+      spdlog::trace("[RpcClient] sent {} to {}", req_type_name, self_->client_->endpoint().SocketAddress());
+
+      while (true) {
+        // Receive the response.
+        uint64_t response_data_size = 0;
+        while (true) {
+          // Even if in progress RPC message was sent, the stream will be complete
+          auto const ret = slk::CheckStreamComplete(self_->client_->GetData(), self_->client_->GetDataSize());
+          if (ret.status == slk::StreamStatus::INVALID) {
+            // Logically invalid state, connection is still up, defunct stream and release
+            defunct_ = true;
+            guard_.unlock();
+            throw GenericRpcFailedException();
+          }
+          if (ret.status == slk::StreamStatus::PARTIAL) {
+            if (!self_->client_->Read(ret.stream_size - self_->client_->GetDataSize(),
+                                      /* exactly_len = */ false, /* timeout_ms = */ timeout_ms_)) {
+              // Failed connection, abort and let somebody retry in the future.
+              defunct_ = true;
+              self_->Abort();
+              guard_.unlock();
+              throw GenericRpcFailedException();
+            }
+          } else {
+            response_data_size = ret.stream_size;
+            break;
+          }
+        }
+
+        // Load the response.
+        slk::Reader res_reader(self_->client_->GetData(), response_data_size);
+
+        auto res_id{utils::TypeId::UNKNOWN};
+        // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
+        rpc::Version version;
+
+        try {
+          slk::Load(&res_id, &res_reader);
+          slk::Load(&version, &res_reader);
+        } catch (const slk::SlkReaderException &) {
+          self_->client_->ShiftData(response_data_size);
+          throw SlkRpcFailedException();
+        }
+
+        if (version != rpc::current_version) {
+          // V1 we introduced versioning with, absolutely no backwards compatibility,
+          // because it's impossible to provide backwards compatibility with pre versioning.
+          // Future versions this may require mechanism for graceful version handling.
+          self_->client_->ShiftData(response_data_size);
+          throw VersionMismatchRpcFailedException();
+        }
+
+        if (res_id == utils::TypeId::REP_IN_PROGRESS_RES) {
+          // Continue holding the lock
+          spdlog::info("[RpcClient] Received InProgressRes RPC message from {}:{}. Waiting for {}.",
+                       self_->endpoint_.GetAddress(), self_->endpoint_.GetPort(), final_res_type_name);
+          self_->client_->ShiftData(response_data_size);
+          continue;
+        }
+
+        if (res_id != final_res_type.id) {
+          spdlog::error("[RpcClient] Message response was of unexpected type, received TypeId {}",
+                        static_cast<uint64_t>(res_id));
+          // Logically invalid state, connection is still up, defunct stream and release
+          defunct_ = true;
+          guard_.unlock();
+          self_->client_->ShiftData(response_data_size);
+          throw GenericRpcFailedException();
+        }
+
+        spdlog::trace("[RpcClient] received {} from endpoint {}:{}.", final_res_type_name,
+                      self_->endpoint_.GetAddress(), self_->endpoint_.GetPort());
+        self_->client_->ShiftData(response_data_size);
+        return res_load_(&res_reader);
+      }
+    }
 
     typename TRequestResponse::Response AwaitResponse() {
       auto res_type = TRequestResponse::Response::kType;
@@ -200,7 +290,7 @@ class Client {
   /// Stream a previously defined and registered RPC call. This function can
   /// initiate only one request at a time. The call returns a `StreamHandler`
   /// object that can be used to send additional data to the request (with the
-  /// automatically sent `TRequestResponse::Request` object) and await until the
+  /// automatically sent `TRequestResponse::Request` object) and wait until the
   /// response is received from the server.
   ///
   /// @returns StreamHandler<TRequestResponse> object that is used to handle
@@ -223,8 +313,8 @@ class Client {
 
   /// Same as `Stream` but the first argument is a response loading function.
   template <class TRequestResponse, class... Args>
-  StreamHandler<TRequestResponse> StreamWithLoad(std::function<typename TRequestResponse::Response(slk::Reader *)> load,
-                                                 Args &&...args) {
+  StreamHandler<TRequestResponse> StreamWithLoad(
+      std::function<typename TRequestResponse::Response(slk::Reader *)> res_load, Args &&...args) {
     typename TRequestResponse::Request request(std::forward<Args>(args)...);
     auto req_type = TRequestResponse::Request::kType;
 
@@ -256,7 +346,7 @@ class Client {
     }
 
     // Create the stream handler.
-    StreamHandler<TRequestResponse> handler(this, std::move(guard), load, timeout_ms);
+    StreamHandler<TRequestResponse> handler(this, std::move(guard), res_load, timeout_ms);
 
     // Build and send the request.
     slk::Save(req_type.id, handler.GetBuilder());

@@ -11,6 +11,8 @@
 
 #include "storage/v2/replication/rpc.hpp"
 #include <cstdint>
+#include <rpc/version.hpp>
+
 #include "slk/streams.hpp"
 #include "utils/enum.hpp"
 #include "utils/typeinfo.hpp"
@@ -27,9 +29,11 @@ void AppendDeltasRes::Save(const AppendDeltasRes &self, memgraph::slk::Builder *
   memgraph::slk::Save(self, builder);
 }
 void AppendDeltasRes::Load(AppendDeltasRes *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
+
 void HeartbeatReq::Save(const HeartbeatReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
 }
+
 void HeartbeatReq::Load(HeartbeatReq *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
 void HeartbeatRes::Save(const HeartbeatRes &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
@@ -80,6 +84,9 @@ constexpr utils::TypeInfo storage::replication::AppendDeltasReq::kType{utils::Ty
 
 constexpr utils::TypeInfo storage::replication::AppendDeltasRes::kType{utils::TypeId::REP_APPEND_DELTAS_RES,
                                                                        "AppendDeltasRes", nullptr};
+
+constexpr utils::TypeInfo storage::replication::InProgressRes::kType{utils::TypeId::REP_IN_PROGRESS_RES,
+                                                                     "InProgressRes", nullptr};
 
 constexpr utils::TypeInfo storage::replication::HeartbeatReq::kType{utils::TypeId::REP_HEARTBEAT_REQ, "HeartbeatReq",
                                                                     nullptr};
@@ -244,7 +251,7 @@ void Load(memgraph::storage::replication::HeartbeatReq *self, memgraph::slk::Rea
 // Serialize code for AppendDeltasRes
 
 void Save(const memgraph::storage::replication::AppendDeltasRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self.success, builder);
+  slk::Save(self.success, builder);
 }
 
 void Load(memgraph::storage::replication::AppendDeltasRes *self, memgraph::slk::Reader *reader) {

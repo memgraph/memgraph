@@ -31,6 +31,38 @@ concept CompatibleIterators = std::forward_iterator<It> && std::forward_iterator
 using sut_t = memgraph::utils::SkipList<int64_t>::Accessor;
 static_assert(CompatibleIterators<sut_t::iterator, sut_t::const_iterator>);
 
+struct CompositeKey {
+  CompositeKey(uint32_t a, uint32_t b) : a(a), b(b) {}
+  CompositeKey(CompositeKey const &) = default;
+  CompositeKey(CompositeKey &&) = default;
+  CompositeKey &operator=(CompositeKey const &) = default;
+  CompositeKey &operator=(CompositeKey &&) = default;
+
+  friend bool operator==(CompositeKey const &, CompositeKey const &) = default;
+  friend bool operator<(CompositeKey const &lhs, CompositeKey const &rhs) {
+    return std::tie(lhs.a, lhs.b) < std::tie(rhs.a, rhs.b);
+  }
+  friend bool operator==(CompositeKey const &lhs, uint32_t prefix) { return lhs.a == prefix; };
+  friend bool operator<(CompositeKey const &lhs, uint32_t prefix) { return lhs.a < prefix; };
+
+  uint32_t a, b;
+};
+
+TEST(SkipList, FindEqualOrGreaterPrefix) {
+  memgraph::utils::SkipList<CompositeKey> list;
+  {
+    auto acc = list.access();
+    for (uint32_t i : {100, 10, 5, 9, 15, 80}) {
+      auto res = acc.insert(CompositeKey{42, i});
+      ASSERT_EQ(*res.first, CompositeKey(42, i));
+      ASSERT_TRUE(res.second);
+    }
+    auto it = acc.find_equal_or_greater(uint32_t{42});
+    ASSERT_EQ(it->a, 42);
+    ASSERT_EQ(it->b, 5);
+  }
+}
+
 TEST(SkipList, Int) {
   memgraph::utils::SkipList<int64_t> list;
   {

@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 #include <optional>
 #include <span>
@@ -42,6 +43,7 @@
 #include "utils/event_counter.hpp"
 #include "utils/event_gauge.hpp"
 #include "utils/event_histogram.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/resource_lock.hpp"
 #include "utils/synchronized_metadata_store.hpp"
 #include "utils/timer.hpp"
@@ -59,6 +61,24 @@ extern const Event ActiveVectorIndices;
 }  // namespace memgraph::metrics
 
 namespace memgraph::storage {
+
+class SharedAccessTimeout : public utils::BasicException {
+ public:
+  SharedAccessTimeout()
+      : utils::BasicException("Cannot access storage, unique access query is running. Try again later.") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(SharedAccessTimeout)
+};
+
+class UniqueAccessTimeout : public utils::BasicException {
+ public:
+  UniqueAccessTimeout()
+      : utils::BasicException(
+            "Cannot get unique access to the storage. Try stopping other queries that are running in parallel.") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(UniqueAccessTimeout)
+};
+
+constexpr std::chrono::milliseconds kAccessTimeout{1000};
+
 struct Transaction;
 class EdgeAccessor;
 
@@ -346,6 +366,8 @@ class Storage {
     virtual void FinalizeTransaction() = 0;
 
     std::optional<uint64_t> GetTransactionId() const;
+
+    std::unique_ptr<utils::QueryMemoryTracker> &GetQueryMemoryTracker();
 
     void AdvanceCommand();
 

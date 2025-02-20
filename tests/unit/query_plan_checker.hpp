@@ -342,8 +342,8 @@ class ExpectAggregate : public OpChecker<Aggregate> {
       ASSERT_NE(aggr_it, aggregations_.end());
       auto *aggr = *aggr_it++;
       // TODO: Proper expression equality
-      EXPECT_EQ(typeid(aggr_elem.value).hash_code(), typeid(aggr->expression1_).hash_code());
-      EXPECT_EQ(typeid(aggr_elem.key).hash_code(), typeid(aggr->expression2_).hash_code());
+      EXPECT_EQ(typeid(aggr_elem.arg1).hash_code(), typeid(aggr->expression1_).hash_code());
+      EXPECT_EQ(typeid(aggr_elem.arg2).hash_code(), typeid(aggr->expression2_).hash_code());
       EXPECT_EQ(aggr_elem.op, aggr->op_);
       EXPECT_EQ(aggr_elem.distinct, aggr->distinct_);
       EXPECT_EQ(aggr_elem.output_sym, symbol_table.at(*aggr));

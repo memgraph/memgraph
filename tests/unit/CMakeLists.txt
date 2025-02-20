@@ -328,6 +328,9 @@ target_link_libraries(${test_prefix}property_value_v2 mg-storage-v2 mg-utils)
 add_unit_test(storage_v2.cpp)
 target_link_libraries(${test_prefix}storage_v2 mg-storage-v2 storage_test_utils)
 
+add_unit_test(storage_v2_acc.cpp)
+target_link_libraries(${test_prefix}storage_v2_acc mg-storage-v2)
+
 add_unit_test(storage_v2_delta_container.cpp)
 target_link_libraries(${test_prefix}storage_v2_delta_container mg-storage-v2)
 
@@ -435,6 +438,14 @@ target_link_libraries(${test_prefix}rpc mg-rpc)
 # Test rpc-timeouts
 add_unit_test(rpc_timeouts.cpp)
 target_link_libraries(${test_prefix}rpc_timeouts mg-rpc)
+
+# Test rpc-in-progress
+add_unit_test(rpc_in_progress.cpp)
+target_link_libraries(${test_prefix}rpc_in_progress mg-rpc)
+
+# Test replication-rpc-progress
+add_unit_test(replication_rpc_progress.cpp)
+target_link_libraries(${test_prefix}replication_rpc_progress mg-rpc)
 
 # Test websocket
 find_package(Boost REQUIRED CONFIG)
