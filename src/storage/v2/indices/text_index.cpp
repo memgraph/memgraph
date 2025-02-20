@@ -261,11 +261,6 @@ void TextIndex::RecoverIndex(const std::string &index_name, LabelId label,
 
   CreateEmptyIndex(index_name, label);
 
-  std::optional<utils::ResettableRuntimeCounter> maybe_batch_counter;
-  if (snapshot_info) {
-    maybe_batch_counter.emplace(utils::ResettableRuntimeCounter{snapshot_info->item_batch_size});
-  }
-
   for (const auto &v : vertices) {
     if (std::find(v.labels.begin(), v.labels.end(), label) == v.labels.end()) {
       continue;
@@ -275,8 +270,8 @@ void TextIndex::RecoverIndex(const std::string &index_name, LabelId label,
     LoadNodeToTextIndices(v.gid.AsInt(), SerializeProperties(vertex_properties, name_id_mapper),
                           StringifyProperties(vertex_properties), {&index_.at(index_name).context_});
 
-    if (maybe_batch_counter && (*maybe_batch_counter)()) {
-      snapshot_info->observer->Update();
+    if (snapshot_info && snapshot_info->IncrementCounter()) {
+      snapshot_info->Update();
     }
   }
 

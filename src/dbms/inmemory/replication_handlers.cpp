@@ -53,7 +53,7 @@ class SnapshotObserver final : public utils::Observer<void> {
 
  private:
   slk::Builder *res_builder_;
-  // Mutex is needed because multiple RPC calls could be executed in parallel
+  // Mutex is needed because RPC execution could be concurrent
   mutable std::mutex mtx_;
 };
 

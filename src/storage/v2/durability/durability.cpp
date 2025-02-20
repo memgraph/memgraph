@@ -172,8 +172,7 @@ void RecoverConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadat
                         std::shared_ptr<utils::Observer<void>> const snapshot_progress_observer) {
   std::optional<SnapshotObserverInfo> snapshot_info;
   if (snapshot_progress_observer != nullptr) {
-    snapshot_info.emplace(
-        SnapshotObserverInfo{.observer = snapshot_progress_observer, .item_batch_size = kVerticesSnapshotProgressSize});
+    snapshot_info.emplace(SnapshotObserverInfo(snapshot_progress_observer, kVerticesSnapshotProgressSize));
   }
 
   RecoverExistenceConstraints(constraints_metadata, constraints, vertices, name_id_mapper, parallel_exec_info,
@@ -194,8 +193,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
     spdlog::info("Recreating {} label indices from metadata.", indices_metadata.label.size());
     std::optional<SnapshotObserverInfo> snapshot_info;
     if (snapshot_progress_observer != nullptr) {
-      snapshot_info.emplace(SnapshotObserverInfo{.observer = snapshot_progress_observer,
-                                                 .item_batch_size = kVerticesSnapshotProgressSize});
+      snapshot_info.emplace(SnapshotObserverInfo(snapshot_progress_observer, kVerticesSnapshotProgressSize));
     }
 
     for (const auto &item : indices_metadata.label) {
@@ -223,8 +221,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
     spdlog::info("Recreating {} label+property indices from metadata.", indices_metadata.label_property.size());
     std::optional<SnapshotObserverInfo> snapshot_info;
     if (snapshot_progress_observer != nullptr) {
-      snapshot_info.emplace(SnapshotObserverInfo{.observer = snapshot_progress_observer,
-                                                 .item_batch_size = kVerticesSnapshotProgressSize});
+      snapshot_info.emplace(SnapshotObserverInfo(snapshot_progress_observer, kVerticesSnapshotProgressSize));
     }
     for (const auto &item : indices_metadata.label_property) {
       if (!mem_label_property_index->CreateIndex(item.first, item.second, vertices->access(), parallel_exec_info,
@@ -259,8 +256,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
               "Trying to recover edge type indices while properties on edges are disabled.");
     std::optional<SnapshotObserverInfo> snapshot_info;
     if (snapshot_progress_observer != nullptr) {
-      snapshot_info.emplace(
-          SnapshotObserverInfo{.observer = snapshot_progress_observer, .item_batch_size = kEdgesSnapshotProgressSize});
+      snapshot_info.emplace(SnapshotObserverInfo(snapshot_progress_observer, kEdgesSnapshotProgressSize));
     }
     for (const auto &item : indices_metadata.edge) {
       // TODO: parallel execution
@@ -281,8 +277,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
         static_cast<InMemoryEdgeTypePropertyIndex *>(indices->edge_type_property_index_.get());
     std::optional<SnapshotObserverInfo> snapshot_info;
     if (snapshot_progress_observer != nullptr) {
-      snapshot_info.emplace(
-          SnapshotObserverInfo{.observer = snapshot_progress_observer, .item_batch_size = kEdgesSnapshotProgressSize});
+      snapshot_info.emplace(SnapshotObserverInfo(snapshot_progress_observer, kEdgesSnapshotProgressSize));
     }
     for (const auto &item : indices_metadata.edge_property) {
       // TODO: parallel execution
@@ -302,8 +297,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
     auto &mem_text_index = indices->text_index_;
     std::optional<SnapshotObserverInfo> snapshot_info;
     if (snapshot_progress_observer != nullptr) {
-      snapshot_info.emplace(SnapshotObserverInfo{.observer = snapshot_progress_observer,
-                                                 .item_batch_size = kVerticesTextIdxSnapshotProgressSize});
+      snapshot_info.emplace(SnapshotObserverInfo(snapshot_progress_observer, kVerticesTextIdxSnapshotProgressSize));
     }
     for (const auto &[index_name, label] : indices_metadata.text_indices) {
       try {
@@ -326,8 +320,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
     spdlog::info("Recreating {} point indices statistics from metadata.", indices_metadata.point_label_property.size());
     std::optional<SnapshotObserverInfo> snapshot_info;
     if (snapshot_progress_observer != nullptr) {
-      snapshot_info.emplace(SnapshotObserverInfo{.observer = snapshot_progress_observer,
-                                                 .item_batch_size = kVerticesPointIdxSnapshotProgressSize});
+      snapshot_info.emplace(SnapshotObserverInfo(snapshot_progress_observer, kVerticesPointIdxSnapshotProgressSize));
     }
     for (const auto &[label, property] : indices_metadata.point_label_property) {
       // TODO: parallel execution
@@ -344,8 +337,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
     spdlog::info("Recreating {} vector indices from metadata.", indices_metadata.vector_indices.size());
     std::optional<SnapshotObserverInfo> snapshot_info;
     if (snapshot_progress_observer != nullptr) {
-      snapshot_info.emplace(SnapshotObserverInfo{.observer = snapshot_progress_observer,
-                                                 .item_batch_size = kVerticesVectorIdxSnapshotProgressSize});
+      snapshot_info.emplace(SnapshotObserverInfo(snapshot_progress_observer, kVerticesVectorIdxSnapshotProgressSize));
     }
     auto vertices_acc = vertices->access();
     for (const auto &spec : indices_metadata.vector_indices) {

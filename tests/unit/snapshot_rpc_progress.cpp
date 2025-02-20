@@ -124,7 +124,7 @@ TEST_F(SnapshotRpcProgressTest, TestLabelIndexSingleThreadedNoVertices) {
   auto vertices = SkipList<Vertex>();
   std::optional<ParallelizedSchemaCreationInfo> par_schema_info = std::nullopt;
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
-  SnapshotObserverInfo snapshot_info{.observer = mocked_observer, .item_batch_size = 3};
+  SnapshotObserverInfo snapshot_info{mocked_observer, 3};
 
   EXPECT_CALL(*mocked_observer, Update()).Times(0);
   ASSERT_TRUE(label_idx.CreateIndex(label, vertices.access(), par_schema_info, snapshot_info));
@@ -146,7 +146,7 @@ TEST_F(SnapshotRpcProgressTest, TestLabelIndexSingleThreadedVertices) {
   std::optional<ParallelizedSchemaCreationInfo> par_schema_info = std::nullopt;
 
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
-  SnapshotObserverInfo snapshot_info{.observer = mocked_observer, .item_batch_size = 2};
+  SnapshotObserverInfo snapshot_info{mocked_observer, 2};
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
   ASSERT_TRUE(label_idx.CreateIndex(label, vertices.access(), par_schema_info, snapshot_info));
 }
@@ -169,7 +169,7 @@ TEST_F(SnapshotRpcProgressTest, TestLabelIndexMultiThreadedVertices) {
       .thread_count = 2};
 
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
-  SnapshotObserverInfo snapshot_info{.observer = mocked_observer, .item_batch_size = 2};
+  SnapshotObserverInfo snapshot_info{mocked_observer, 2};
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
   ASSERT_TRUE(label_idx.CreateIndex(label, vertices.access(), par_schema_info, snapshot_info));
 }
@@ -182,7 +182,7 @@ TEST_F(SnapshotRpcProgressTest, TestLabelPropertyIndexSingleThreadedNoVertices) 
   auto vertices = SkipList<Vertex>();
   std::optional<ParallelizedSchemaCreationInfo> par_schema_info = std::nullopt;
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
-  SnapshotObserverInfo snapshot_info{.observer = mocked_observer, .item_batch_size = 3};
+  SnapshotObserverInfo snapshot_info{mocked_observer, 3};
 
   EXPECT_CALL(*mocked_observer, Update()).Times(0);
   ASSERT_TRUE(label_prop_idx.CreateIndex(label, prop, vertices.access(), par_schema_info, snapshot_info));
@@ -205,7 +205,7 @@ TEST_F(SnapshotRpcProgressTest, TestLabelPropertyIndexSingleThreadedVertices) {
   std::optional<ParallelizedSchemaCreationInfo> par_schema_info = std::nullopt;
 
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
-  SnapshotObserverInfo snapshot_info{.observer = mocked_observer, .item_batch_size = 2};
+  SnapshotObserverInfo snapshot_info{mocked_observer, 2};
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
   ASSERT_TRUE(label_prop_idx.CreateIndex(label, prop, vertices.access(), par_schema_info, snapshot_info));
 }
@@ -229,7 +229,7 @@ TEST_F(SnapshotRpcProgressTest, TestLabelPropertyIndexMultiThreadedVertices) {
       .thread_count = 2};
 
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
-  SnapshotObserverInfo snapshot_info{.observer = mocked_observer, .item_batch_size = 2};
+  SnapshotObserverInfo snapshot_info{mocked_observer, 2};
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
   ASSERT_TRUE(label_prop_idx.CreateIndex(label, prop, vertices.access(), par_schema_info, snapshot_info));
 }
@@ -332,7 +332,7 @@ TEST_F(SnapshotRpcProgressTest, TestEdgeTypeIndexSingleThreadedNoVertices) {
   auto etype = EdgeTypeId::FromUint(1);
   auto vertices = SkipList<Vertex>();
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
-  SnapshotObserverInfo snapshot_info{.observer = mocked_observer, .item_batch_size = 3};
+  SnapshotObserverInfo snapshot_info{mocked_observer, 3};
 
   EXPECT_CALL(*mocked_observer, Update()).Times(0);
   ASSERT_TRUE(etype_idx.CreateIndex(etype, vertices.access(), snapshot_info));
@@ -354,7 +354,7 @@ TEST_F(SnapshotRpcProgressTest, TestEdgeTypeIndexSingleThreadedVerticesEdges) {
     }
   }
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
-  SnapshotObserverInfo snapshot_info{.observer = mocked_observer, .item_batch_size = 3};
+  SnapshotObserverInfo snapshot_info{mocked_observer, 3};
 
   EXPECT_CALL(*mocked_observer, Update()).Times(3);
   ASSERT_TRUE(etype_idx.CreateIndex(etype, vertices.access(), snapshot_info));
@@ -367,7 +367,7 @@ TEST_F(SnapshotRpcProgressTest, TestEdgeTypePropertyIndexSingleThreadedNoVertice
   auto prop = PropertyId::FromUint(1);
   auto vertices = SkipList<Vertex>();
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
-  SnapshotObserverInfo snapshot_info{.observer = mocked_observer, .item_batch_size = 3};
+  SnapshotObserverInfo snapshot_info{mocked_observer, 3};
 
   EXPECT_CALL(*mocked_observer, Update()).Times(0);
   ASSERT_TRUE(etype_idx.CreateIndex(etype, prop, vertices.access(), snapshot_info));
@@ -394,7 +394,7 @@ TEST_F(SnapshotRpcProgressTest, TestEdgeTypePropertyIndexSingleThreadedVerticesE
     }
   }
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
-  SnapshotObserverInfo snapshot_info{.observer = mocked_observer, .item_batch_size = 3};
+  SnapshotObserverInfo snapshot_info{mocked_observer, 3};
 
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
   ASSERT_TRUE(etype_idx.CreateIndex(etype, prop, vertices.access(), snapshot_info));
@@ -407,7 +407,7 @@ TEST_F(SnapshotRpcProgressTest, TestPointIndexSingleThreadedNoVertices) {
   auto prop = PropertyId::FromUint(1);
   auto vertices = SkipList<Vertex>();
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
-  SnapshotObserverInfo snapshot_info{.observer = mocked_observer, .item_batch_size = 3};
+  SnapshotObserverInfo snapshot_info{mocked_observer, 3};
 
   EXPECT_CALL(*mocked_observer, Update()).Times(0);
   ASSERT_TRUE(point_idx.CreatePointIndex(label, prop, vertices.access(), snapshot_info));
@@ -434,7 +434,7 @@ TEST_F(SnapshotRpcProgressTest, TestPointIndexSingleThreadedVertices) {
   }
 
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
-  SnapshotObserverInfo snapshot_info{.observer = mocked_observer, .item_batch_size = 4};
+  SnapshotObserverInfo snapshot_info{mocked_observer, 4};
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
   ASSERT_TRUE(point_idx.CreatePointIndex(label, prop, vertices.access(), snapshot_info));
 }
@@ -450,7 +450,7 @@ TEST_F(SnapshotRpcProgressTest, TestVectorIndexSingleThreadedNoVertices) {
   auto vertices = SkipList<Vertex>();
   auto vertices_acc = vertices.access();
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
-  SnapshotObserverInfo snapshot_info{.observer = mocked_observer, .item_batch_size = 3};
+  SnapshotObserverInfo snapshot_info{mocked_observer, 3};
 
   EXPECT_CALL(*mocked_observer, Update()).Times(0);
   ASSERT_TRUE(vector_idx.CreateIndex(spec, vertices_acc, snapshot_info));
@@ -477,7 +477,7 @@ TEST_F(SnapshotRpcProgressTest, TestVectorIndexSingleThreadedVertices) {
   }
 
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
-  SnapshotObserverInfo snapshot_info{.observer = mocked_observer, .item_batch_size = 4};
+  SnapshotObserverInfo snapshot_info{mocked_observer, 4};
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
   ASSERT_TRUE(vector_idx.CreateIndex(spec, vertices_acc, snapshot_info));
 }
@@ -487,7 +487,7 @@ TEST_F(SnapshotRpcProgressTest, TestExistenceConstraintsSingleThreadedNoVertices
   auto prop = PropertyId::FromUint(1);
   auto vertices = SkipList<Vertex>();
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
-  SnapshotObserverInfo snapshot_info{.observer = mocked_observer, .item_batch_size = 3};
+  SnapshotObserverInfo snapshot_info{mocked_observer, 3};
 
   EXPECT_CALL(*mocked_observer, Update()).Times(0);
 
@@ -516,7 +516,7 @@ TEST_F(SnapshotRpcProgressTest, TestExistenceConstraintsSingleThreadedVertices) 
   }
 
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
-  SnapshotObserverInfo snapshot_info{.observer = mocked_observer, .item_batch_size = 4};
+  SnapshotObserverInfo snapshot_info{mocked_observer, 4};
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
 
   auto maybe_violation =
@@ -544,7 +544,7 @@ TEST_F(SnapshotRpcProgressTest, TestExistenceConstraintsMultiThreadedVertices) {
   }
 
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
-  SnapshotObserverInfo snapshot_info{.observer = mocked_observer, .item_batch_size = 3};
+  SnapshotObserverInfo snapshot_info{mocked_observer, 3};
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
 
   auto par_schema_info = ParallelizedSchemaCreationInfo{
@@ -562,7 +562,7 @@ TEST_F(SnapshotRpcProgressTest, TestUniqueConstraintsSingleThreadedNoVertices) {
   auto vertices = SkipList<Vertex>();
   auto vertices_acc = vertices.access();
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
-  SnapshotObserverInfo snapshot_info{.observer = mocked_observer, .item_batch_size = 3};
+  SnapshotObserverInfo snapshot_info{mocked_observer, 3};
 
   EXPECT_CALL(*mocked_observer, Update()).Times(0);
 
@@ -594,7 +594,7 @@ TEST_F(SnapshotRpcProgressTest, TestUniqueConstraintsSingleThreadedVertices) {
   }
 
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
-  SnapshotObserverInfo snapshot_info{.observer = mocked_observer, .item_batch_size = 4};
+  SnapshotObserverInfo snapshot_info{mocked_observer, 4};
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
 
   InMemoryUniqueConstraints unique_constraints;
@@ -625,7 +625,7 @@ TEST_F(SnapshotRpcProgressTest, TestUniqueConstraintsMultiThreadedVertices) {
   }
 
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
-  SnapshotObserverInfo snapshot_info{.observer = mocked_observer, .item_batch_size = 3};
+  SnapshotObserverInfo snapshot_info{mocked_observer, 3};
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
 
   auto par_schema_info = ParallelizedSchemaCreationInfo{
@@ -645,7 +645,7 @@ TEST_F(SnapshotRpcProgressTest, TestTypeConstraintsSingleThreadedNoVertices) {
   auto vertices = SkipList<Vertex>();
   auto vertices_acc = vertices.access();
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
-  SnapshotObserverInfo snapshot_info{.observer = mocked_observer, .item_batch_size = 3};
+  SnapshotObserverInfo snapshot_info{mocked_observer, 3};
 
   EXPECT_CALL(*mocked_observer, Update()).Times(0);
 
@@ -676,7 +676,7 @@ TEST_F(SnapshotRpcProgressTest, TestTypeConstraintsSingleThreadedVertices) {
   }
 
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
-  SnapshotObserverInfo snapshot_info{.observer = mocked_observer, .item_batch_size = 4};
+  SnapshotObserverInfo snapshot_info{mocked_observer, 4};
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
 
   TypeConstraints type_constraints;
