@@ -18,10 +18,6 @@
 #include "utils/logging.hpp"
 #include "utils/rw_spin_lock.hpp"
 
-namespace {
-constexpr uint32_t kExistenceConstraintsVerticesSnapshotProgressSize = 1'000'000;
-}  // namespace
-
 namespace memgraph::storage {
 
 bool ExistenceConstraints::ConstraintExists(LabelId label, PropertyId property) const {
@@ -83,16 +79,16 @@ ExistenceConstraints::GetCreationFunction(
 [[nodiscard]] std::optional<ConstraintViolation> ExistenceConstraints::ValidateVerticesOnConstraint(
     utils::SkipList<Vertex>::Accessor vertices, LabelId label, PropertyId property,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
-    std::shared_ptr<utils::Observer<void>> const snapshot_observer) {
+    std::optional<SnapshotObserverInfo> snapshot_info) {
   auto calling_existence_validation_function = GetCreationFunction(parallel_exec_info);
-  return std::visit([&vertices, &label, &property, snapshot_observer](
-                        auto &calling_object) { return calling_object(vertices, label, property, snapshot_observer); },
+  return std::visit([&vertices, &label, &property, snapshot_info](
+                        auto &calling_object) { return calling_object(vertices, label, property, snapshot_info); },
                     calling_existence_validation_function);
 }
 
 std::optional<ConstraintViolation> ExistenceConstraints::MultipleThreadsConstraintValidation::operator()(
     const utils::SkipList<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property,
-    std::shared_ptr<utils::Observer<void>> const snapshot_observer) {
+    std::optional<SnapshotObserverInfo> snapshot_info) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
 
   const auto &vertex_batches = parallel_exec_info.vertex_recovery_info;
@@ -109,9 +105,9 @@ std::optional<ConstraintViolation> ExistenceConstraints::MultipleThreadsConstrai
 
     for (auto i{0U}; i < thread_count; ++i) {
       threads.emplace_back(
-          [&maybe_error, &vertex_batches, &batch_counter, &vertices, &label, &property, snapshot_observer]() {
+          [&maybe_error, &vertex_batches, &batch_counter, &vertices, &label, &property, snapshot_info]() {
             do_per_thread_validation(maybe_error, ValidateVertexOnConstraint, vertex_batches, batch_counter, vertices,
-                                     snapshot_observer, label, property);
+                                     snapshot_info, label, property);
           });
     }
   }
@@ -123,14 +119,18 @@ std::optional<ConstraintViolation> ExistenceConstraints::MultipleThreadsConstrai
 
 std::optional<ConstraintViolation> ExistenceConstraints::SingleThreadConstraintValidation::operator()(
     const utils::SkipList<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property,
-    std::shared_ptr<utils::Observer<void>> const snapshot_observer) {
-  auto batch_counter = utils::ResettableCounter<kExistenceConstraintsVerticesSnapshotProgressSize>();
+    std::optional<SnapshotObserverInfo> snapshot_info) {
+  std::optional<utils::ResettableRuntimeCounter> maybe_batch_counter;
+  if (snapshot_info) {
+    maybe_batch_counter.emplace(utils::ResettableRuntimeCounter{snapshot_info->item_batch_size});
+  }
+
   for (const Vertex &vertex : vertices) {
     if (auto violation = ValidateVertexOnConstraint(vertex, label, property); violation.has_value()) {
       return violation;
     }
-    if (snapshot_observer != nullptr && batch_counter()) {
-      snapshot_observer->Update();
+    if (maybe_batch_counter && (*maybe_batch_counter)()) {
+      snapshot_info->observer->Update();
     }
   }
   return std::nullopt;

@@ -22,8 +22,6 @@
 namespace memgraph::storage {
 
 namespace {
-constexpr uint32_t kUniqueConstraintsVerticesSnapshotProgressSize = 1'000'000;
-
 /// Helper function that determines position of the given `property` in the
 /// sorted `property_array` using binary search. In the case that `property`
 /// cannot be found, `std::nullopt` is returned.
@@ -293,8 +291,7 @@ InMemoryUniqueConstraints::GetCreationFunction(
 
 bool InMemoryUniqueConstraints::MultipleThreadsConstraintValidation::operator()(
     const utils::SkipList<Vertex>::Accessor &vertex_accessor, utils::SkipList<Entry>::Accessor &constraint_accessor,
-    const LabelId &label, const std::set<PropertyId> &properties,
-    std::shared_ptr<utils::Observer<void>> const snapshot_observer) {
+    const LabelId &label, const std::set<PropertyId> &properties, std::optional<SnapshotObserverInfo> snapshot_info) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   const auto &vertex_batches = parallel_exec_info.vertex_recovery_info;
   MG_ASSERT(!vertex_batches.empty(),
@@ -309,9 +306,9 @@ bool InMemoryUniqueConstraints::MultipleThreadsConstraintValidation::operator()(
     threads.reserve(thread_count);
     for (auto i{0U}; i < thread_count; ++i) {
       threads.emplace_back([&has_error, &vertex_batches, &batch_counter, &vertex_accessor, &constraint_accessor, &label,
-                            &properties, snapshot_observer]() {
-        do_per_thread_validation(has_error, DoValidate, vertex_batches, batch_counter, vertex_accessor,
-                                 snapshot_observer, constraint_accessor, label, properties);
+                            &properties, snapshot_info]() {
+        do_per_thread_validation(has_error, DoValidate, vertex_batches, batch_counter, vertex_accessor, snapshot_info,
+                                 constraint_accessor, label, properties);
       });
     }
   }
@@ -320,15 +317,18 @@ bool InMemoryUniqueConstraints::MultipleThreadsConstraintValidation::operator()(
 
 bool InMemoryUniqueConstraints::SingleThreadConstraintValidation::operator()(
     const utils::SkipList<Vertex>::Accessor &vertex_accessor, utils::SkipList<Entry>::Accessor &constraint_accessor,
-    const LabelId &label, const std::set<PropertyId> &properties,
-    std::shared_ptr<utils::Observer<void>> const snapshot_observer) {
-  auto batch_counter = utils::ResettableCounter<kUniqueConstraintsVerticesSnapshotProgressSize>();
+    const LabelId &label, const std::set<PropertyId> &properties, std::optional<SnapshotObserverInfo> snapshot_info) {
+  std::optional<utils::ResettableRuntimeCounter> maybe_batch_counter;
+  if (snapshot_info) {
+    maybe_batch_counter.emplace(utils::ResettableRuntimeCounter{snapshot_info->item_batch_size});
+  }
+
   for (const Vertex &vertex : vertex_accessor) {
     if (const auto violation = DoValidate(vertex, constraint_accessor, label, properties); violation.has_value()) {
       return true;
     }
-    if (snapshot_observer != nullptr && batch_counter()) {
-      snapshot_observer->Update();
+    if (maybe_batch_counter && (*maybe_batch_counter)()) {
+      snapshot_info->observer->Update();
     }
   }
   return false;
@@ -382,7 +382,7 @@ utils::BasicResult<ConstraintViolation, InMemoryUniqueConstraints::CreationStatu
 InMemoryUniqueConstraints::CreateConstraint(
     LabelId label, const std::set<PropertyId> &properties, const utils::SkipList<Vertex>::Accessor &vertex_accessor,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &par_exec_info,
-    std::shared_ptr<utils::Observer<void>> const snapshot_observer) {
+    std::optional<SnapshotObserverInfo> snapshot_info) {
   if (properties.empty()) {
     return CreationStatus::EMPTY_PROPERTIES;
   }
@@ -400,9 +400,8 @@ InMemoryUniqueConstraints::CreateConstraint(
 
   bool const violation_found = std::visit(
       [&vertex_accessor, &constraint_accessor, &label, &properties,
-       snapshot_observer](auto &multi_single_thread_processing) {
-        return multi_single_thread_processing(vertex_accessor, constraint_accessor, label, properties,
-                                              snapshot_observer);
+       snapshot_info](auto &multi_single_thread_processing) {
+        return multi_single_thread_processing(vertex_accessor, constraint_accessor, label, properties, snapshot_info);
       },
       multi_single_thread_processing);
 

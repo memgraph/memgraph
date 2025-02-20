@@ -16,8 +16,8 @@
 
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
+#include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/vertex.hpp"
-#include "utils/observer.hpp"
 #include "utils/skip_list.hpp"
 
 namespace memgraph::storage {
@@ -30,14 +30,14 @@ class ExistenceConstraints {
   struct MultipleThreadsConstraintValidation {
     std::optional<ConstraintViolation> operator()(const utils::SkipList<Vertex>::Accessor &vertices,
                                                   const LabelId &label, const PropertyId &property,
-                                                  std::shared_ptr<utils::Observer<void>> const snapshot_observer);
+                                                  std::optional<SnapshotObserverInfo> snapshot_info = std::nullopt);
 
     const durability::ParallelizedSchemaCreationInfo &parallel_exec_info;
   };
   struct SingleThreadConstraintValidation {
     std::optional<ConstraintViolation> operator()(const utils::SkipList<Vertex>::Accessor &vertices,
                                                   const LabelId &label, const PropertyId &property,
-                                                  std::shared_ptr<utils::Observer<void>> const snapshot_observer);
+                                                  std::optional<SnapshotObserverInfo> snapshot_info = std::nullopt);
   };
 
   bool empty() const { return constraints_.empty(); }
@@ -49,7 +49,7 @@ class ExistenceConstraints {
   [[nodiscard]] static std::optional<ConstraintViolation> ValidateVerticesOnConstraint(
       utils::SkipList<Vertex>::Accessor vertices, LabelId label, PropertyId property,
       const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info = std::nullopt,
-      std::shared_ptr<utils::Observer<void>> const snapshot_observer = nullptr);
+      std::optional<SnapshotObserverInfo> snapshot_info = std::nullopt);
 
   static std::variant<MultipleThreadsConstraintValidation, SingleThreadConstraintValidation> GetCreationFunction(
       const std::optional<durability::ParallelizedSchemaCreationInfo> &);

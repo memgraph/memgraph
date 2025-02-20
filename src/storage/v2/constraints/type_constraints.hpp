@@ -17,8 +17,8 @@
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/vertex.hpp"
-#include "utils/counter.hpp"
 #include "utils/observer.hpp"
 #include "utils/skip_list.hpp"
 
@@ -46,7 +46,7 @@ class TypeConstraints {
                                                             const PropertyValue &property_value) const;
   [[nodiscard]] std::optional<ConstraintViolation> ValidateVertices(
       utils::SkipList<Vertex>::Accessor vertices,
-      std::shared_ptr<utils::Observer<void>> snapshot_observer = nullptr) const;
+      std::optional<SnapshotObserverInfo> snapshot_info = std::nullopt) const;
 
   bool empty() const;
   bool ConstraintExists(LabelId label, PropertyId property) const;

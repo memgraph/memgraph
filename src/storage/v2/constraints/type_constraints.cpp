@@ -11,10 +11,12 @@
 
 #include "storage/v2/constraints/type_constraints.hpp"
 
+#include <storage/v2/snapshot_observer_info.hpp>
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/algorithm.hpp"
+#include "utils/counter.hpp"
 
 #include <optional>
 #include <set>
@@ -22,8 +24,6 @@
 namespace memgraph::storage {
 
 namespace {
-
-constexpr uint32_t kTypeConstraintsVerticesSnapshotProgressSize = 1'000'000;
 
 TypeConstraintKind PropertyValueToTypeConstraintKind(const PropertyValue &property) {
   switch (property.type()) {
@@ -122,14 +122,18 @@ TypeConstraintKind PropertyValueToTypeConstraintKind(const PropertyValue &proper
 }
 
 [[nodiscard]] std::optional<ConstraintViolation> TypeConstraints::ValidateVertices(
-    utils::SkipList<Vertex>::Accessor vertices, std::shared_ptr<utils::Observer<void>> const snapshot_observer) const {
-  auto batch_counter = utils::ResettableCounter<kTypeConstraintsVerticesSnapshotProgressSize>();
+    utils::SkipList<Vertex>::Accessor vertices, std::optional<SnapshotObserverInfo> snapshot_info) const {
+  std::optional<utils::ResettableRuntimeCounter> maybe_batch_counter;
+  if (snapshot_info) {
+    maybe_batch_counter.emplace(utils::ResettableRuntimeCounter{snapshot_info->item_batch_size});
+  }
+
   for (auto const &vertex : vertices) {
     if (auto violation = Validate(vertex); violation.has_value()) {
       return violation;
     }
-    if (snapshot_observer != nullptr && batch_counter()) {
-      snapshot_observer->Update();
+    if (maybe_batch_counter && (*maybe_batch_counter)()) {
+      snapshot_info->observer->Update();
     }
   }
   return std::nullopt;
