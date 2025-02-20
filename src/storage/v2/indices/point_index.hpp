@@ -14,8 +14,8 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/point_index_change_collector.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/vertex_accessor.hpp"
-#include "utils/observer.hpp"
 #include "utils/skip_list.hpp"
 
 namespace memgraph::storage {
@@ -89,10 +89,10 @@ struct PointIndexStorage {
 
   // Query (modify index set)
   bool CreatePointIndex(LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
-                        std::shared_ptr<utils::Observer<void>> const snapshot_observer = nullptr);
+                        std::optional<SnapshotObserverInfo> snapshot_info = std::nullopt);
   bool DropPointIndex(LabelId label, PropertyId property);
 
-  // Transaction (estabilish what to collect + able to build next index)
+  // Transaction (establish what to collect + able to build next index)
   auto CreatePointIndexContext() const -> PointIndexContext { return PointIndexContext{indexes_}; }
 
   // Commit

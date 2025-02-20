@@ -18,11 +18,15 @@
 #include "rpc/server.hpp"
 #include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
 #include "storage/v2/indices/indices_utils.hpp"
+#include "storage/v2/indices/point_index.hpp"
+#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/point.hpp"
+#include "storage/v2/property_value.hpp"
 #include "utils/observer.hpp"
 
 using memgraph::communication::ClientContext;
@@ -34,6 +38,7 @@ using memgraph::rpc::Server;
 using memgraph::slk::Load;
 using memgraph::slk::Save;
 using memgraph::storage::Config;
+using memgraph::storage::CoordinateReferenceSystem;
 using memgraph::storage::Edge;
 using memgraph::storage::EdgeRef;
 using memgraph::storage::EdgeTypeId;
@@ -44,8 +49,14 @@ using memgraph::storage::InMemoryLabelIndex;
 using memgraph::storage::InMemoryLabelPropertyIndex;
 using memgraph::storage::InMemoryStorage;
 using memgraph::storage::LabelId;
+using memgraph::storage::Point2d;
+using memgraph::storage::PointIndexStorage;
 using memgraph::storage::PropertyId;
+using memgraph::storage::PropertyStore;
+using memgraph::storage::PropertyValue;
 using memgraph::storage::SnapshotObserverInfo;
+using memgraph::storage::VectorIndex;
+using memgraph::storage::VectorIndexSpec;
 using memgraph::storage::Vertex;
 using memgraph::storage::durability::ParallelizedSchemaCreationInfo;
 using memgraph::storage::replication::SnapshotReq;
@@ -57,6 +68,11 @@ using memgraph::utils::UUID;
 
 using namespace std::string_view_literals;
 using namespace std::literals::chrono_literals;
+
+static constexpr unum::usearch::metric_kind_t metric = unum::usearch::metric_kind_t::l2sq_k;
+static constexpr std::size_t resize_coefficient = 2;
+static constexpr uint16_t kDimension = 16;
+static constexpr uint16_t kCapacity = 16;
 
 class SnapshotRpcProgressTest : public ::testing::Test {
  public:
@@ -375,4 +391,86 @@ TEST_F(SnapshotRpcProgressTest, TestEdgeTypePropertyIndexSingleThreadedVerticesE
 
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
   ASSERT_TRUE(etype_idx.CreateIndex(etype, prop, vertices.access(), snapshot_info));
+}
+
+TEST_F(SnapshotRpcProgressTest, TestPointIndexSingleThreadedNoVertices) {
+  PointIndexStorage point_idx;
+
+  auto label = LabelId::FromUint(1);
+  auto prop = PropertyId::FromUint(1);
+  auto vertices = SkipList<Vertex>();
+  auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
+  SnapshotObserverInfo snapshot_info{.observer = mocked_observer, .item_batch_size = 3};
+
+  EXPECT_CALL(*mocked_observer, Update()).Times(0);
+  ASSERT_TRUE(point_idx.CreatePointIndex(label, prop, vertices.access(), snapshot_info));
+}
+
+TEST_F(SnapshotRpcProgressTest, TestPointIndexSingleThreadedVertices) {
+  PointIndexStorage point_idx;
+
+  auto label = LabelId::FromUint(1);
+  auto prop = PropertyId::FromUint(1);
+  auto vertices = SkipList<Vertex>();
+  const std::vector<std::pair<PropertyId, PropertyValue>> prop_data{
+      {prop, PropertyValue{Point2d{CoordinateReferenceSystem::Cartesian_2d, 1.0, 2.0}}},
+  };
+  {
+    auto acc = vertices.access();
+    for (uint32_t i = 1; i <= 8; i++) {
+      auto vertex = Vertex{Gid::FromUint(i), nullptr};
+      vertex.properties.InitProperties(prop_data);
+      vertex.labels.emplace_back(label);
+      auto [_, inserted] = acc.insert(std::move(vertex));
+      ASSERT_TRUE(inserted);
+    }
+  }
+
+  auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
+  SnapshotObserverInfo snapshot_info{.observer = mocked_observer, .item_batch_size = 4};
+  EXPECT_CALL(*mocked_observer, Update()).Times(2);
+  ASSERT_TRUE(point_idx.CreatePointIndex(label, prop, vertices.access(), snapshot_info));
+}
+
+TEST_F(SnapshotRpcProgressTest, TestVectorIndexSingleThreadedNoVertices) {
+  VectorIndex vector_idx;
+
+  auto label = LabelId::FromUint(1);
+  auto prop = PropertyId::FromUint(1);
+
+  auto const spec = VectorIndexSpec{"vector_idx", label, prop, metric, kDimension, resize_coefficient, kCapacity};
+
+  auto vertices = SkipList<Vertex>();
+  auto vertices_acc = vertices.access();
+  auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
+  SnapshotObserverInfo snapshot_info{.observer = mocked_observer, .item_batch_size = 3};
+
+  EXPECT_CALL(*mocked_observer, Update()).Times(0);
+  ASSERT_TRUE(vector_idx.CreateIndex(spec, vertices_acc, snapshot_info));
+}
+
+TEST_F(SnapshotRpcProgressTest, TestVectorIndexSingleThreadedVertices) {
+  VectorIndex vector_idx;
+
+  auto label = LabelId::FromUint(1);
+  auto prop = PropertyId::FromUint(1);
+
+  auto const spec = VectorIndexSpec{"vector_idx", label, prop, metric, kDimension, resize_coefficient, kCapacity};
+
+  auto vertices = SkipList<Vertex>();
+  auto vertices_acc = vertices.access();
+
+  {
+    auto acc = vertices.access();
+    for (uint32_t i = 1; i <= 8; i++) {
+      auto vertex = Vertex{Gid::FromUint(i), nullptr};
+      auto [_, inserted] = acc.insert(std::move(vertex));
+      ASSERT_TRUE(inserted);
+    }
+  }
+
+  auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
+  SnapshotObserverInfo snapshot_info{.observer = mocked_observer, .item_batch_size = 4};
+  EXPECT_CALL(*mocked_observer, Update()).Times(2);
+  ASSERT_TRUE(vector_idx.CreateIndex(spec, vertices_acc, snapshot_info));
 }

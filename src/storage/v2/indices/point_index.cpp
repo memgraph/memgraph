@@ -24,11 +24,6 @@
 #include "utils/counter.hpp"
 #include "utils/logging.hpp"
 
-namespace {
-// Creating vertices for text index takes more time, that's why the value is 100k not 1'000'000
-inline constexpr uint32_t kIndexVerticesSnapshotProgressSize = 100'000;
-}  // namespace
-
 namespace memgraph::storage {
 
 struct PointIndex {
@@ -103,7 +98,7 @@ auto update_internal(index_container_t const &src, TrackedChanges const &tracked
 
 bool PointIndexStorage::CreatePointIndex(LabelId label, PropertyId property,
                                          memgraph::utils::SkipList<Vertex>::Accessor vertices,
-                                         std::shared_ptr<utils::Observer<void>> const snapshot_observer) {
+                                         std::optional<SnapshotObserverInfo> snapshot_info) {
   // indexes_ protected by unique storage access
   auto &indexes = *indexes_;
   auto key = LabelPropKey{label, property};
@@ -114,7 +109,10 @@ bool PointIndexStorage::CreatePointIndex(LabelId label, PropertyId property,
   auto points_3d_WGS = std::vector<Entry<IndexPointWGS3d>>{};
   auto points_3d_Crt = std::vector<Entry<IndexPointCartesian3d>>{};
 
-  auto batch_counter = utils::ResettableCounter<kIndexVerticesSnapshotProgressSize>();
+  std::optional<utils::ResettableRuntimeCounter> maybe_batch_counter;
+  if (snapshot_info) {
+    maybe_batch_counter.emplace(utils::ResettableRuntimeCounter{snapshot_info->item_batch_size});
+  }
 
   for (auto const &v : vertices) {
     if (v.deleted) continue;
@@ -147,8 +145,9 @@ bool PointIndexStorage::CreatePointIndex(LabelId label, PropertyId property,
       default:
         continue;
     }
-    if (snapshot_observer != nullptr && batch_counter()) {
-      snapshot_observer->Update();
+
+    if (maybe_batch_counter && (*maybe_batch_counter)()) {
+      snapshot_info->observer->Update();
     }
   }
   auto new_index = std::make_shared<PointIndex>(points_2d_WGS, points_2d_Crt, points_3d_WGS, points_3d_Crt);

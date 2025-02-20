@@ -18,9 +18,9 @@
 
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/vertex.hpp"
 #include "usearch/index_plugins.hpp"
-#include "utils/observer.hpp"
 #include "utils/skip_list.hpp"
 
 namespace memgraph::storage {
@@ -107,11 +107,11 @@ class VectorIndex {
 
   /// @brief Creates a new index based on the provided specification.
   /// @param spec The specification for the index to be created.
-  /// @param snapshot_observer
+  /// @param snapshot_info
   /// @param vertices vertices from which to create vector index
   /// @return true if the index was created successfully, false otherwise.
   bool CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
-                   std::shared_ptr<utils::Observer<void>> const snapshot_observer = nullptr);
+                   std::optional<SnapshotObserverInfo> snapshot_info = std::nullopt);
 
   /// @brief Drops an existing index.
   /// @param index_name The name of the index to be dropped.

@@ -50,6 +50,7 @@ class VectorSearchTest : public testing::Test {
     // Create a specification for the index
     const auto spec =
         VectorIndexSpec{test_index.data(), label, property, metric, dimension, resize_coefficient, capacity};
+
     EXPECT_FALSE(unique_acc->CreateVectorIndex(spec).HasError());
     ASSERT_NO_ERROR(unique_acc->Commit());
   }
