@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -251,8 +251,7 @@ void ExecuteTimeDependentWorkload(const std::vector<std::pair<std::string, bolt_
       client.Connect(endpoint, FLAGS_username, FLAGS_password);
 
       ready.fetch_add(1, std::memory_order_acq_rel);
-      while (!run.load(std::memory_order_acq_rel))
-        ;
+      while (!run.load(std::memory_order_acquire)) std::this_thread::yield();
       auto &retries = worker_retries[worker];
       auto &metadata = worker_metadata[worker];
       auto &duration = worker_duration[worker];
@@ -270,7 +269,7 @@ void ExecuteTimeDependentWorkload(const std::vector<std::pair<std::string, bolt_
         auto pos = position.fetch_add(1, std::memory_order_acq_rel);
         if (pos >= size) {
           /// Get back to inital position
-          position.store(0, std::memory_order_acq_rel);
+          position.store(0, std::memory_order_release);
           pos = position.fetch_add(1, std::memory_order_acq_rel);
         }
         const auto &query = queries[pos];
@@ -286,8 +285,7 @@ void ExecuteTimeDependentWorkload(const std::vector<std::pair<std::string, bolt_
   }
 
   // Synchronize workers and collect runtime.
-  while (ready.load(std::memory_order_acq_rel) < FLAGS_num_workers)
-    ;
+  while (ready.load(std::memory_order_acquire) < FLAGS_num_workers) std::this_thread::yield();
 
   run.store(true);
   for (int i = 0; i < FLAGS_num_workers; ++i) {
@@ -354,8 +352,7 @@ void ExecuteWorkload(const std::vector<std::pair<std::string, bolt_map_t>> &quer
       client.Connect(endpoint, FLAGS_username, FLAGS_password);
 
       ready.fetch_add(1, std::memory_order_acq_rel);
-      while (!run.load(std::memory_order_acq_rel))
-        ;
+      while (!run.load(std::memory_order_acquire)) std::this_thread::yield();
 
       auto &retries = worker_retries[worker];
       auto &metadata = worker_metadata[worker];
@@ -379,9 +376,8 @@ void ExecuteWorkload(const std::vector<std::pair<std::string, bolt_map_t>> &quer
   }
 
   // Synchronize workers and collect runtime.
-  while (ready.load(std::memory_order_acq_rel) < FLAGS_num_workers)
-    ;
-  run.store(true, std::memory_order_acq_rel);
+  while (ready.load(std::memory_order_acquire) < FLAGS_num_workers) std::this_thread::yield();
+  run.store(true, std::memory_order_release);
 
   for (int i = 0; i < FLAGS_num_workers; ++i) {
     threads[i].join();
