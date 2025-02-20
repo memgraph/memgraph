@@ -1628,14 +1628,14 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
 #endif
 
 auto ParseVectorIndexConfigMap(std::unordered_map<query::Expression *, query::Expression *> const &config_map,
-                               query::ExpressionVisitor<query::TypedValue> &evaluator)
-    -> storage::VectorIndexConfigMap {
+                               ExpressionVisitor<TypedValue> &evaluator) -> storage::VectorIndexConfigMap {
   if (config_map.empty()) {
     throw std::invalid_argument(
         "Vector index config map is empty. Please provide mandatory fields: dimension and capacity.");
   }
 
-  auto transformed_map = ranges::views::all(config_map) | ranges::views::transform([&evaluator](const auto &pair) {
+  auto transformed_map = ranges::views::all(config_map) |
+                         ranges::views::transform([evaluator = std::ref(evaluator)](const auto &pair) {
                            auto key_expr = pair.first->Accept(evaluator);
                            auto value_expr = pair.second->Accept(evaluator);
                            return std::pair{key_expr.ValueString(), value_expr};
