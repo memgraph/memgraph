@@ -21,8 +21,8 @@
 #include "storage/v2/indices/edge_type_property_index.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/vertex_accessor.hpp"
-#include "utils/observer.hpp"
 
 namespace memgraph::storage {
 
@@ -55,7 +55,7 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
 
   /// @throw std::bad_alloc
   bool CreateIndex(EdgeTypeId edge_type, PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
-                   std::shared_ptr<utils::Observer<void>> const snapshot_observer = nullptr);
+                   std::optional<SnapshotObserverInfo> snapshot_info = std::nullopt);
 
   /// Returns false if there was no index to drop
   bool DropIndex(EdgeTypeId edge_type, PropertyId property) override;
