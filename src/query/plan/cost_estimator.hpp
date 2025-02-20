@@ -85,6 +85,7 @@ template <class TDbAccessor>
 class CostEstimator : public HierarchicalLogicalOperatorVisitor {
  public:
   struct CostParam {
+    static constexpr double kMinimumCost{0.001};  // everything has some runtime cost
     static constexpr double kScanAll{1.0};
     static constexpr double kScanAllByLabel{1.1};
     static constexpr double MakeScanAllByLabelPropertyValue{1.1};
@@ -522,7 +523,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   IndexHints index_hints_;
   bool use_index_hints_{false};
 
-  void IncrementCost(double param) { cost_ += param * cardinality_; }
+  void IncrementCost(double param) { cost_ += std::max(CostParam::kMinimumCost, param * cardinality_); }
 
   CostEstimation EstimateCostOnBranch(std::shared_ptr<LogicalOperator> *branch) {
     CostEstimator<TDbAccessor> cost_estimator(db_accessor_, table_, parameters, index_hints_);
