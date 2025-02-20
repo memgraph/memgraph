@@ -169,11 +169,11 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
 void RecoverConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &constraints_metadata,
                         Constraints *constraints, utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
                         const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info,
-                        std::shared_ptr<utils::Observer<void>> const snapshot_observer) {
+                        std::shared_ptr<utils::Observer<void>> const snapshot_progress_observer) {
   std::optional<SnapshotObserverInfo> snapshot_info;
-  if (snapshot_observer != nullptr) {
+  if (snapshot_progress_observer != nullptr) {
     snapshot_info.emplace(
-        SnapshotObserverInfo{.observer = snapshot_observer, .item_batch_size = kVerticesSnapshotProgressSize});
+        SnapshotObserverInfo{.observer = snapshot_progress_observer, .item_batch_size = kVerticesSnapshotProgressSize});
   }
 
   RecoverExistenceConstraints(constraints_metadata, constraints, vertices, name_id_mapper, parallel_exec_info,
@@ -187,15 +187,15 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
                             utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper, bool properties_on_edges,
                             const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info,
                             const std::optional<std::filesystem::path> &storage_dir,
-                            std::shared_ptr<utils::Observer<void>> const snapshot_observer) {
+                            std::shared_ptr<utils::Observer<void>> const snapshot_progress_observer) {
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(indices->label_index_.get());
   // Recover label indices.
   {
     spdlog::info("Recreating {} label indices from metadata.", indices_metadata.label.size());
     std::optional<SnapshotObserverInfo> snapshot_info;
-    if (snapshot_observer != nullptr) {
-      snapshot_info.emplace(
-          SnapshotObserverInfo{.observer = snapshot_observer, .item_batch_size = kVerticesSnapshotProgressSize});
+    if (snapshot_progress_observer != nullptr) {
+      snapshot_info.emplace(SnapshotObserverInfo{.observer = snapshot_progress_observer,
+                                                 .item_batch_size = kVerticesSnapshotProgressSize});
     }
 
     for (const auto &item : indices_metadata.label) {
@@ -222,9 +222,9 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
   {
     spdlog::info("Recreating {} label+property indices from metadata.", indices_metadata.label_property.size());
     std::optional<SnapshotObserverInfo> snapshot_info;
-    if (snapshot_observer != nullptr) {
-      snapshot_info.emplace(
-          SnapshotObserverInfo{.observer = snapshot_observer, .item_batch_size = kVerticesSnapshotProgressSize});
+    if (snapshot_progress_observer != nullptr) {
+      snapshot_info.emplace(SnapshotObserverInfo{.observer = snapshot_progress_observer,
+                                                 .item_batch_size = kVerticesSnapshotProgressSize});
     }
     for (const auto &item : indices_metadata.label_property) {
       if (!mem_label_property_index->CreateIndex(item.first, item.second, vertices->access(), parallel_exec_info,
@@ -258,9 +258,9 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
     MG_ASSERT(indices_metadata.edge.empty() || properties_on_edges,
               "Trying to recover edge type indices while properties on edges are disabled.");
     std::optional<SnapshotObserverInfo> snapshot_info;
-    if (snapshot_observer != nullptr) {
+    if (snapshot_progress_observer != nullptr) {
       snapshot_info.emplace(
-          SnapshotObserverInfo{.observer = snapshot_observer, .item_batch_size = kEdgesSnapshotProgressSize});
+          SnapshotObserverInfo{.observer = snapshot_progress_observer, .item_batch_size = kEdgesSnapshotProgressSize});
     }
     for (const auto &item : indices_metadata.edge) {
       // TODO: parallel execution
@@ -280,9 +280,9 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
     auto *mem_edge_type_property_index =
         static_cast<InMemoryEdgeTypePropertyIndex *>(indices->edge_type_property_index_.get());
     std::optional<SnapshotObserverInfo> snapshot_info;
-    if (snapshot_observer != nullptr) {
+    if (snapshot_progress_observer != nullptr) {
       snapshot_info.emplace(
-          SnapshotObserverInfo{.observer = snapshot_observer, .item_batch_size = kEdgesSnapshotProgressSize});
+          SnapshotObserverInfo{.observer = snapshot_progress_observer, .item_batch_size = kEdgesSnapshotProgressSize});
     }
     for (const auto &item : indices_metadata.edge_property) {
       // TODO: parallel execution
@@ -301,9 +301,9 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
     spdlog::info("Recreating {} text indices from metadata.", indices_metadata.text_indices.size());
     auto &mem_text_index = indices->text_index_;
     std::optional<SnapshotObserverInfo> snapshot_info;
-    if (snapshot_observer != nullptr) {
-      snapshot_info.emplace(
-          SnapshotObserverInfo{.observer = snapshot_observer, .item_batch_size = kVerticesTextIdxSnapshotProgressSize});
+    if (snapshot_progress_observer != nullptr) {
+      snapshot_info.emplace(SnapshotObserverInfo{.observer = snapshot_progress_observer,
+                                                 .item_batch_size = kVerticesTextIdxSnapshotProgressSize});
     }
     for (const auto &[index_name, label] : indices_metadata.text_indices) {
       try {
@@ -325,8 +325,8 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
   {
     spdlog::info("Recreating {} point indices statistics from metadata.", indices_metadata.point_label_property.size());
     std::optional<SnapshotObserverInfo> snapshot_info;
-    if (snapshot_observer != nullptr) {
-      snapshot_info.emplace(SnapshotObserverInfo{.observer = snapshot_observer,
+    if (snapshot_progress_observer != nullptr) {
+      snapshot_info.emplace(SnapshotObserverInfo{.observer = snapshot_progress_observer,
                                                  .item_batch_size = kVerticesPointIdxSnapshotProgressSize});
     }
     for (const auto &[label, property] : indices_metadata.point_label_property) {
@@ -343,8 +343,8 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
   {
     spdlog::info("Recreating {} vector indices from metadata.", indices_metadata.vector_indices.size());
     std::optional<SnapshotObserverInfo> snapshot_info;
-    if (snapshot_observer != nullptr) {
-      snapshot_info.emplace(SnapshotObserverInfo{.observer = snapshot_observer,
+    if (snapshot_progress_observer != nullptr) {
+      snapshot_info.emplace(SnapshotObserverInfo{.observer = snapshot_progress_observer,
                                                  .item_batch_size = kVerticesVectorIdxSnapshotProgressSize});
     }
     auto vertices_acc = vertices->access();
@@ -438,16 +438,16 @@ void RecoverIndicesStatsAndConstraints(utils::SkipList<Vertex> *vertices, NameId
                                        RecoveryInfo const &recovery_info,
                                        RecoveredIndicesAndConstraints const &indices_constraints,
                                        bool properties_on_edges,
-                                       std::shared_ptr<utils::Observer<void>> const snapshot_observer) {
+                                       std::shared_ptr<utils::Observer<void>> const snapshot_progress_observer) {
   auto storage_dir = std::optional<std::filesystem::path>{};
   if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     storage_dir = config.durability.storage_directory;
   }
 
   RecoverIndicesAndStats(indices_constraints.indices, indices, vertices, name_id_mapper, properties_on_edges,
-                         GetParallelExecInfo(recovery_info, config), storage_dir, snapshot_observer);
+                         GetParallelExecInfo(recovery_info, config), storage_dir, snapshot_progress_observer);
   RecoverConstraints(indices_constraints.constraints, constraints, vertices, name_id_mapper,
-                     GetParallelExecInfo(recovery_info, config), snapshot_observer);
+                     GetParallelExecInfo(recovery_info, config), snapshot_progress_observer);
 }
 
 std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfo(const RecoveryInfo &recovery_info,
