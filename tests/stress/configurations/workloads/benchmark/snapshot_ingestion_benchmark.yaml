@@ -1,0 +1,32 @@
+memgraph:
+  deployment:
+    # Script needs to be located in stress/configurations/deployments
+    script: "binary_standalone.sh"
+  args: [] # Any additional flags you need
+
+general:
+  verbose: false
+  use_ssl: false
+
+dataset:
+  tests: []
+
+customWorkloads:
+  tests:
+    - name: snapshot-ingestion-benchmark
+      memgraph_args: []
+      workers:
+        - name: import-via-snapshot
+          type: snapshot-ingest
+          step: 1
+          path: "/home/josipmrden/Documents/memgraph/datasets/pokec/pokec_small_snapshot"
+        - name: benchmark_queries
+          type: benchmark
+          step: 2
+          output_file: "benchmark.txt"
+          queries:
+            - name: all_nodes
+              query: MATCH (n) RETURN count(n)
+            - name: all_nodes2
+              query: MATCH (n) RETURN count(n)
+      timeout_min: 5  # Increased timeout for multiple imports
