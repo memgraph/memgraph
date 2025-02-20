@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -353,7 +353,6 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     return true;                                      \
   }
 
-  POST_VISIT_COST_FIRST(Filter, kFilter)
   POST_VISIT_COST_FIRST(EdgeUniquenessFilter, kEdgeUniquenessFilter);
 
 #undef POST_VISIT_COST_FIRST
@@ -419,6 +418,19 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 
     scopes_.push_back(std::move(scope));
     return true;
+  }
+
+  bool PreVisit(Filter &op) override {
+    op.input_->Accept(*this);
+    auto total_branch_cost = 0.0;
+    for (auto const &pattern_filter : op.pattern_filters_) {
+      auto &last_scope = scopes_.back();
+      CostEstimation pattern_estimation = EstimateCostOnBranch(&pattern_filter, last_scope);
+      total_branch_cost += pattern_estimation.cost;
+    }
+    IncrementCost(std::max(total_branch_cost, CostParam::kFilter));
+    cardinality_ *= CardParam::kFilter;
+    return false;
   }
 
   bool PreVisit(Apply &op) override {
@@ -518,7 +530,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     return CostEstimation{.cost = cost_estimator.cost(), .cardinality = cost_estimator.cardinality()};
   }
 
-  CostEstimation EstimateCostOnBranch(std::shared_ptr<LogicalOperator> *branch, Scope scope) {
+  CostEstimation EstimateCostOnBranch(std::shared_ptr<LogicalOperator> const *branch, Scope scope) {
     CostEstimator<TDbAccessor> cost_estimator(db_accessor_, table_, parameters, scope, index_hints_);
     (*branch)->Accept(cost_estimator);
     return CostEstimation{.cost = cost_estimator.cost(), .cardinality = cost_estimator.cardinality()};
