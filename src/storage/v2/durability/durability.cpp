@@ -42,6 +42,13 @@
 #include "utils/memory_tracker.hpp"
 #include "utils/message.hpp"
 #include "utils/timer.hpp"
+
+namespace {
+constexpr uint32_t kEdgesSnapshotProgressSize = 1'000'000;
+constexpr uint32_t kVerticesSnapshotProgressSize = 1'000'000;
+
+}  // namespace
+
 namespace memgraph::metrics {
 extern const Event SnapshotRecoveryLatency_us;
 }  // namespace memgraph::metrics
@@ -181,7 +188,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
   for (const auto &item : indices_metadata.label) {
     if (!mem_label_index->CreateIndex(
             item, vertices->access(), parallel_exec_info,
-            SnapshotObserverInfo{.observer = snapshot_observer, .vertices_snapshot_progress_size = 1'000'000})) {
+            SnapshotObserverInfo{.observer = snapshot_observer, .item_batch_size = kVerticesSnapshotProgressSize})) {
       throw RecoveryFailure("The label index must be created here!");
     }
     spdlog::info("Index on :{} is recreated from metadata", name_id_mapper->IdToName(item.AsUint()));
@@ -205,7 +212,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
   for (const auto &item : indices_metadata.label_property) {
     if (!mem_label_property_index->CreateIndex(
             item.first, item.second, vertices->access(), parallel_exec_info,
-            SnapshotObserverInfo{.observer = snapshot_observer, .vertices_snapshot_progress_size = 1'000'000}))
+            SnapshotObserverInfo{.observer = snapshot_observer, .item_batch_size = kVerticesSnapshotProgressSize}))
       throw RecoveryFailure("The label+property index must be created here!");
     spdlog::info("Index on :{}({}) is recreated from metadata", name_id_mapper->IdToName(item.first.AsUint()),
                  name_id_mapper->IdToName(item.second.AsUint()));
@@ -232,7 +239,9 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
   auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(indices->edge_type_index_.get());
   for (const auto &item : indices_metadata.edge) {
     // TODO: parallel execution
-    if (!mem_edge_type_index->CreateIndex(item, vertices->access(), snapshot_observer)) {
+    if (!mem_edge_type_index->CreateIndex(
+            item, vertices->access(),
+            SnapshotObserverInfo{.observer = snapshot_observer, .item_batch_size = kEdgesSnapshotProgressSize})) {
       throw RecoveryFailure("The edge-type index must be created here!");
     }
     spdlog::info("Index on :{} is recreated from metadata", name_id_mapper->IdToName(item.AsUint()));
@@ -247,7 +256,9 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
       static_cast<InMemoryEdgeTypePropertyIndex *>(indices->edge_type_property_index_.get());
   for (const auto &item : indices_metadata.edge_property) {
     // TODO: parallel execution
-    if (!mem_edge_type_property_index->CreateIndex(item.first, item.second, vertices->access(), snapshot_observer)) {
+    if (!mem_edge_type_property_index->CreateIndex(
+            item.first, item.second, vertices->access(),
+            SnapshotObserverInfo{.observer = snapshot_observer, .item_batch_size = kEdgesSnapshotProgressSize})) {
       throw RecoveryFailure("The edge-type property index must be created here!");
     }
     spdlog::info("Index on :{} + {} is recreated from metadata", name_id_mapper->IdToName(item.first.AsUint()),

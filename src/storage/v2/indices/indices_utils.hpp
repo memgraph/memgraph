@@ -15,11 +15,11 @@
 #include "storage/v2/delta.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/mvcc.hpp"
+#include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_info_helpers.hpp"
 #include "utils/counter.hpp"
-#include "utils/observer.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 
@@ -342,11 +342,6 @@ inline void TryInsertLabelPropertyIndex(Vertex &vertex, std::pair<LabelId, Prope
   index_accessor.insert({std::move(value), &vertex, 0});
 }
 
-struct SnapshotObserverInfo {
-  std::shared_ptr<utils::Observer<void>> observer{nullptr};
-  uint32_t vertices_snapshot_progress_size{1'000'000};
-};
-
 template <typename TSkiplistIter, typename TIndex, typename TIndexKey, typename TFunc>
 inline void CreateIndexOnSingleThread(utils::SkipList<Vertex>::Accessor &vertices, TSkiplistIter it, TIndex &index,
                                       TIndexKey key, const TFunc &func,
@@ -357,7 +352,7 @@ inline void CreateIndexOnSingleThread(utils::SkipList<Vertex>::Accessor &vertice
     auto acc = it->second.access();
     std::optional<utils::ResettableRuntimeCounter> maybe_batch_counter;
     if (snapshot_info) {
-      maybe_batch_counter.emplace(utils::ResettableRuntimeCounter{snapshot_info->vertices_snapshot_progress_size});
+      maybe_batch_counter.emplace(utils::ResettableRuntimeCounter{snapshot_info->item_batch_size});
     }
     for (Vertex &vertex : vertices) {
       func(vertex, key, acc);
@@ -409,8 +404,7 @@ inline void CreateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vert
           try {
             std::optional<utils::ResettableRuntimeCounter> maybe_batch_counter;
             if (snapshot_info) {
-              maybe_batch_counter.emplace(
-                  utils::ResettableRuntimeCounter{snapshot_info->vertices_snapshot_progress_size});
+              maybe_batch_counter.emplace(utils::ResettableRuntimeCounter{snapshot_info->item_batch_size});
             }
             for (auto i{0U}; i < batch.second; ++i, ++it) {
               func(*it, key, index_accessor);

@@ -20,12 +20,6 @@
 #include "storage/v2/property_value.hpp"
 #include "utils/counter.hpp"
 
-namespace {
-
-constexpr uint32_t kEdgesSnapshotProgressSize = 1'000'000;
-
-}  // namespace
-
 namespace memgraph::storage {
 
 bool InMemoryEdgeTypePropertyIndex::Entry::operator<(const PropertyValue &rhs) const { return value < rhs; }
@@ -34,14 +28,17 @@ bool InMemoryEdgeTypePropertyIndex::Entry::operator==(const PropertyValue &rhs) 
 
 bool InMemoryEdgeTypePropertyIndex::CreateIndex(EdgeTypeId edge_type, PropertyId property,
                                                 utils::SkipList<Vertex>::Accessor vertices,
-                                                std::shared_ptr<utils::Observer<void>> const snapshot_observer) {
+                                                std::optional<SnapshotObserverInfo> snapshot_info) {
   auto [it, emplaced] = index_.try_emplace({edge_type, property});
   if (!emplaced) {
     return false;
   }
 
   // Count edges in general, not specific vertices cause vertex could be a supernode
-  auto batch_counter = utils::ResettableCounter<kEdgesSnapshotProgressSize>();
+  std::optional<utils::ResettableRuntimeCounter> maybe_batch_counter;
+  if (snapshot_info) {
+    maybe_batch_counter.emplace(utils::ResettableRuntimeCounter{snapshot_info->item_batch_size});
+  }
 
   const utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   try {
@@ -62,8 +59,8 @@ bool InMemoryEdgeTypePropertyIndex::CreateIndex(EdgeTypeId edge_type, PropertyId
         }
         auto *edge_ptr = std::get<kEdgeRefPos>(edge).ptr;
         edge_acc.insert({edge_ptr->properties.GetProperty(property), &from_vertex, to_vertex, edge_ptr, 0});
-        if (snapshot_observer != nullptr && batch_counter()) {
-          snapshot_observer->Update();
+        if (snapshot_info && (*maybe_batch_counter)()) {
+          snapshot_info->observer->Update();
         }
       }
     }

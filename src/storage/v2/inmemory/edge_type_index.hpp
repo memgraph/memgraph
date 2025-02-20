@@ -12,15 +12,15 @@
 #pragma once
 
 #include <map>
+#include <storage/v2/indices/indices_utils.hpp>
 #include <utility>
 
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/edge_type_index.hpp"
-#include "storage/v2/indices/label_index_stats.hpp"
+#include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/vertex_accessor.hpp"
-#include "utils/observer.hpp"
 
 namespace memgraph::storage {
 
@@ -50,7 +50,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
 
   /// @throw std::bad_alloc
   bool CreateIndex(EdgeTypeId edge_type, utils::SkipList<Vertex>::Accessor vertices,
-                   std::shared_ptr<utils::Observer<void>> snapshot_observer = nullptr);
+                   std::optional<SnapshotObserverInfo> snapshot_info = std::nullopt);
 
   /// Returns false if there was no index to drop
   bool DropIndex(EdgeTypeId edge_type) override;
