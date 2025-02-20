@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -65,7 +65,7 @@ struct InterpreterContext {
   memgraph::utils::SkipList<QueryCacheEntry> ast_cache;
 
   // GLOBAL
-  memgraph::replication::ReplicationState *repl_state;
+  utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &repl_state;
 #ifdef MG_ENTERPRISE
   std::optional<std::reference_wrapper<coordination::CoordinatorState>> coordinator_state_;
 #endif
@@ -96,7 +96,8 @@ struct InterpreterContext {
 
   // TODO: Make this constructor private
   InterpreterContext(InterpreterConfig interpreter_config, dbms::DbmsHandler *dbms_handler,
-                     replication::ReplicationState *rs, memgraph::system::System &system,
+                     utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &rs,
+                     memgraph::system::System &system,
 #ifdef MG_ENTERPRISE
                      std::optional<std::reference_wrapper<coordination::CoordinatorState>> const &coordinator_state,
 #endif
@@ -114,7 +115,8 @@ class InterpreterContextHolder {
 
  private:
   static void Initialize(InterpreterConfig interpreter_config, dbms::DbmsHandler *dbms_handler,
-                         replication::ReplicationState *rs, memgraph::system::System &system,
+                         utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &rs,
+                         memgraph::system::System &system,
 #ifdef MG_ENTERPRISE
                          std::optional<std::reference_wrapper<coordination::CoordinatorState>> const &coordinator_state,
 #endif
@@ -140,8 +142,8 @@ class InterpreterContextHolder {
 
 struct InterpreterContextLifetimeControl {
   InterpreterContextLifetimeControl(
-      InterpreterConfig interpreter_config, dbms::DbmsHandler *dbms_handler, replication::ReplicationState *rs,
-      memgraph::system::System &system,
+      InterpreterConfig interpreter_config, dbms::DbmsHandler *dbms_handler,
+      utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &rs, memgraph::system::System &system,
 #ifdef MG_ENTERPRISE
       std::optional<std::reference_wrapper<coordination::CoordinatorState>> const &coordinator_state,
 #endif

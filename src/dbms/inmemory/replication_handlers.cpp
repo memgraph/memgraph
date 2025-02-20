@@ -139,7 +139,8 @@ void InMemoryReplicationHandlers::Register(dbms::DbmsHandler *dbms_handler, repl
 void InMemoryReplicationHandlers::SwapMainUUIDHandler(dbms::DbmsHandler *dbms_handler,
                                                       replication::RoleReplicaData &role_replica_data,
                                                       slk::Reader *req_reader, slk::Builder *res_builder) {
-  if (!dbms_handler->IsReplica()) {
+  auto replica_state = dbms_handler->ReplicationState();
+  if (!replica_state->IsReplica()) {
     spdlog::error("Setting main uuid must be performed on replica.");
     rpc::SendFinalResponse(replication_coordination_glue::SwapMainUUIDRes{false}, res_builder);
     return;
@@ -148,7 +149,7 @@ void InMemoryReplicationHandlers::SwapMainUUIDHandler(dbms::DbmsHandler *dbms_ha
   replication_coordination_glue::SwapMainUUIDReq req;
   slk::Load(&req, req_reader);
   spdlog::info("Set replica data UUID to main uuid {}", std::string(req.uuid));
-  dbms_handler->ReplicationState().TryPersistRoleReplica(role_replica_data.config, req.uuid);
+  replica_state->TryPersistRoleReplica(role_replica_data.config, req.uuid);
   role_replica_data.uuid_ = req.uuid;
 
   rpc::SendFinalResponse(replication_coordination_glue::SwapMainUUIDRes{true}, res_builder);

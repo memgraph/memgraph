@@ -369,7 +369,8 @@ class DumpTest : public ::testing::Test {
       }()  // iile
   };
 
-  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+      memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config, repl_state};
   memgraph::dbms::DatabaseAccess db{
       [&]() {
@@ -384,7 +385,7 @@ class DumpTest : public ::testing::Test {
       }()  // iile
   };
   memgraph::system::System system_state;
-  memgraph::query::InterpreterContext context{memgraph::query::InterpreterConfig{}, nullptr, &repl_state, system_state
+  memgraph::query::InterpreterContext context{memgraph::query::InterpreterConfig{}, nullptr, repl_state, system_state
 #ifdef MG_ENTERPRISE
                                               ,
                                               std::nullopt
@@ -958,7 +959,8 @@ TYPED_TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
     std::filesystem::remove_all(config.durability.storage_directory);
   }};
 
-  memgraph::replication::ReplicationState repl_state(ReplicationStateRootPath(config));
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state(
+      ReplicationStateRootPath(config));
 
   memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk(config, repl_state);
   auto db_acc_opt = db_gk.access();
@@ -970,7 +972,7 @@ TYPED_TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
       << "Wrong storage mode!";
 
   memgraph::system::System system_state;
-  memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{}, nullptr, &repl_state,
+  memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{}, nullptr, repl_state,
                                                           system_state
 #ifdef MG_ENTERPRISE
                                                           ,
@@ -1094,7 +1096,8 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
     std::filesystem::remove_all(config.durability.storage_directory);
   }};
 
-  memgraph::replication::ReplicationState repl_state{ReplicationStateRootPath(config)};
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+      ReplicationStateRootPath(config)};
   memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config, repl_state};
   auto db_acc_opt = db_gk.access();
   ASSERT_TRUE(db_acc_opt) << "Failed to access db";
@@ -1105,7 +1108,7 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
       << "Wrong storage mode!";
 
   memgraph::system::System system_state;
-  memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{}, nullptr, &repl_state,
+  memgraph::query::InterpreterContext interpreter_context(memgraph::query::InterpreterConfig{}, nullptr, repl_state,
                                                           system_state
 #ifdef MG_ENTERPRISE
                                                           ,
