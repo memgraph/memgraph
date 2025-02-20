@@ -22,7 +22,7 @@
 // "json.hpp" uses libc's EOF macro while
 // "antlr4-runtime.h" contains a static variable of the
 // same name, EOF.
-#include <json/json.hpp>
+#include <nlohmann/json.hpp>
 // Same is true for <boost/geometry.hpp> that is included by ast.hpp
 #include "query/frontend/ast/ast.hpp"
 //////////////////////////////////////////////////////
