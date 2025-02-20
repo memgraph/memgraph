@@ -27,8 +27,8 @@ TOOLCHAIN_BUILD_DEPS=(
     libtool # for protobuf
     libssl-dev pkg-config # for pulsar
     libsasl2-dev # for librdkafka
-    xz-devel sqlite sqlite-devel sqlite-libs  # for building python
-    libuuid-devel gdbm-libs perf expat expat-devel mpdecimal python3-pip # for building python
+    gdb lcov libbz2-dev libgdbm-dev libgdbm-compat-dev libncurses-dev # for building python
+    libreadline-dev libsqlite3-dev lzma lzma-dev tk-dev uuid-dev # for building python
 )
 
 TOOLCHAIN_RUN_DEPS=(
