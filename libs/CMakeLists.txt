@@ -17,7 +17,7 @@ set(GFLAGS_NOTHREADS OFF)
 # NOTE: config/generate.py depends on the gflags help XML format.
 find_package(gflags REQUIRED)
 find_package(fmt 8.0.1 REQUIRED)
-find_package(ZLIB 1.2.11 REQUIRED)
+find_package(ZLIB REQUIRED)
 
 set(LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 
@@ -277,16 +277,17 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(nlohmann_json)
 
-import_external_library(rocksdb STATIC
-  ${CMAKE_CURRENT_SOURCE_DIR}/rocksdb/lib/librocksdb.a
-  ${CMAKE_CURRENT_SOURCE_DIR}/rocksdb/include
-  CMAKE_ARGS -DUSE_RTTI=ON
-    -DWITH_TESTS=OFF
-    -DGFLAGS_NOTHREADS=OFF
-    -DCMAKE_INSTALL_LIBDIR=lib
-    -DCMAKE_SKIP_INSTALL_ALL_DEPENDENCY=true
-    -DPORTABLE=ON
-  BUILD_COMMAND $(MAKE) rocksdb)
+find_package(rocksdb REQUIRED)
+# import_external_library(rocksdb STATIC
+#   ${CMAKE_CURRENT_SOURCE_DIR}/rocksdb/lib/librocksdb.a
+#   ${CMAKE_CURRENT_SOURCE_DIR}/rocksdb/include
+#   CMAKE_ARGS -DUSE_RTTI=ON
+#     -DWITH_TESTS=OFF
+#     -DGFLAGS_NOTHREADS=OFF
+#     -DCMAKE_INSTALL_LIBDIR=lib
+#     -DCMAKE_SKIP_INSTALL_ALL_DEPENDENCY=true
+#     -DPORTABLE=ON
+#   BUILD_COMMAND $(MAKE) rocksdb)
 
 macro(build_bcrypt)
   import_external_library(libbcrypt STATIC
