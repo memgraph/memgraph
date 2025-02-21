@@ -88,7 +88,7 @@ replication::SnapshotRes TransferSnapshot(const utils::UUID &main_uuid, const ut
   auto stream = client.Stream<replication::SnapshotRpc>(main_uuid, storage_uuid);
   replication::Encoder encoder(stream.GetBuilder());
   encoder.WriteFile(path);
-  return stream.AwaitResponse();
+  return stream.AwaitResponseWhileInProgress();
 }
 
 replication::CurrentWalRes ReplicateCurrentWal(const utils::UUID &main_uuid, const InMemoryStorage *storage,

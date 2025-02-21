@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,7 +15,7 @@
 
 namespace memgraph::utils {
 
-/// A resetable counter, every Nth call returns true
+/// A resettable counter, every Nth call returns true
 template <std::size_t N>
 auto ResettableCounter() {
   return [counter = N]() mutable {
@@ -25,5 +25,21 @@ auto ResettableCounter() {
     return true;
   };
 }
+
+struct ResettableRuntimeCounter {
+ public:
+  explicit ResettableRuntimeCounter(uint64_t original_size) : original_size_(original_size), current_(original_size) {}
+
+  bool operator()() {
+    --current_;
+    if (current_ != 0) return false;
+    current_ = original_size_;
+    return true;
+  }
+
+ private:
+  uint64_t original_size_;
+  uint64_t current_;
+};
 
 }  // namespace memgraph::utils

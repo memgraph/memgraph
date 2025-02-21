@@ -22,6 +22,7 @@
 #include "spdlog/spdlog.h"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/vector_index.hpp"
+
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
 #include "usearch/index_dense.hpp"
@@ -138,7 +139,8 @@ unum::usearch::metric_kind_t VectorIndex::MetricFromName(std::string_view name) 
                   name));
 }
 
-bool VectorIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices) {
+bool VectorIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
+                              std::optional<SnapshotObserverInfo> snapshot_info) {
   try {
     // Create the index
     const unum::usearch::metric_punned_t metric(spec.dimension, spec.metric_kind, unum::usearch::scalar_kind_t::f32_k);
@@ -170,6 +172,9 @@ bool VectorIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Verte
     // Update the index with the vertices
     for (auto &vertex : vertices) {
       UpdateVectorIndex(&vertex, LabelPropKey{spec.label, spec.property});
+      if (snapshot_info) {
+        snapshot_info->Update();
+      }
     }
   } catch (const std::exception &e) {
     spdlog::error("Failed to create vector index {}: {}", spec.index_name, e.what());
