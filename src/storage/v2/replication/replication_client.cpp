@@ -143,9 +143,10 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
                   client_.name_);
     replica_state_.WithLock([&](auto &state) {
       state = ReplicaState::RECOVERY;
-      client_.thread_pool_.AddTask([main_storage, replica_last_commit_ts = heartbeat_res.current_commit_timestamp,
-                                    gk = std::move(db_acc),
-                                    this] { this->RecoverReplica(replica_last_commit_ts, main_storage, true); });
+      client_.thread_pool_.AddTask([main_storage, gk = std::move(db_acc), this] {
+        this->RecoverReplica(/*replica_last_commit_ts*/ 0, main_storage,
+                             true);  // needs force reset so we need to recover from 0.
+      });
     });
 #else
     // when using community replication print error when branching point is encountered and set the state to DIVERGED
