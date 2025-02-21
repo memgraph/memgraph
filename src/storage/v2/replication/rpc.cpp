@@ -165,11 +165,13 @@ void Load(memgraph::storage::replication::CurrentWalRes *self, memgraph::slk::Re
 void Save(const memgraph::storage::replication::CurrentWalReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.main_uuid, builder);
   memgraph::slk::Save(self.uuid, builder);
+  memgraph::slk::Save(self.reset_needed, builder);
 }
 
 void Load(memgraph::storage::replication::CurrentWalReq *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->main_uuid, reader);
   memgraph::slk::Load(&self->uuid, reader);
+  memgraph::slk::Load(&self->reset_needed, reader);
 }
 
 // Serialize code for WalFilesRes
@@ -188,12 +190,14 @@ void Save(const memgraph::storage::replication::WalFilesReq &self, memgraph::slk
   memgraph::slk::Save(self.main_uuid, builder);
   memgraph::slk::Save(self.uuid, builder);
   memgraph::slk::Save(self.file_number, builder);
+  memgraph::slk::Save(self.reset_needed, builder);
 }
 
 void Load(memgraph::storage::replication::WalFilesReq *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->main_uuid, reader);
   memgraph::slk::Load(&self->uuid, reader);
   memgraph::slk::Load(&self->file_number, reader);
+  memgraph::slk::Load(&self->reset_needed, reader);
 }
 
 // Serialize code for SnapshotRes

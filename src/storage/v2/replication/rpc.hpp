@@ -12,11 +12,11 @@
 #pragma once
 
 #include <cstdint>
-#include <rpc/version.hpp>
 #include <string>
 #include <utility>
 
 #include "rpc/messages.hpp"
+#include "rpc/version.hpp"
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"
 #include "storage/v2/config.hpp"
@@ -134,12 +134,14 @@ struct WalFilesReq {
   static void Load(WalFilesReq *self, slk::Reader *reader);
   static void Save(const WalFilesReq &self, slk::Builder *builder);
   WalFilesReq() = default;
-  explicit WalFilesReq(const utils::UUID &main_uuid, const utils::UUID &storage_uuid, uint64_t file_number)
-      : main_uuid{main_uuid}, uuid{storage_uuid}, file_number(file_number) {}
+  explicit WalFilesReq(const utils::UUID &main_uuid, const utils::UUID &storage_uuid, uint64_t file_number,
+                       bool const reset_needed)
+      : main_uuid{main_uuid}, uuid{storage_uuid}, file_number(file_number), reset_needed{reset_needed} {}
 
   utils::UUID main_uuid;
   utils::UUID uuid;
   uint64_t file_number;
+  bool reset_needed;
 };
 
 struct WalFilesRes {
@@ -164,10 +166,12 @@ struct CurrentWalReq {
   static void Load(CurrentWalReq *self, memgraph::slk::Reader *reader);
   static void Save(const CurrentWalReq &self, memgraph::slk::Builder *builder);
   CurrentWalReq() = default;
-  explicit CurrentWalReq(const utils::UUID &main_uuid, const utils::UUID &uuid) : main_uuid(main_uuid), uuid{uuid} {}
+  explicit CurrentWalReq(const utils::UUID &main_uuid, const utils::UUID &uuid, bool const reset_needed)
+      : main_uuid(main_uuid), uuid{uuid}, reset_needed{reset_needed} {}
 
   utils::UUID main_uuid;
   utils::UUID uuid;
+  bool reset_needed;
 };
 
 struct CurrentWalRes {
