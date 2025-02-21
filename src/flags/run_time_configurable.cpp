@@ -74,6 +74,9 @@ DEFINE_bool(hops_limit_partial_results, true,
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(cartesian_product_enabled, true, "Enable cartesian product expansion.");
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(debug_query_plans, false, "Enable DEBUG logging of potential query plans.");
+
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, misc-unused-parameters)
 DEFINE_VALIDATED_string(timezone, "UTC", "Define instance's timezone (IANA format).", { return ValidTimezone(value); });
 
@@ -114,6 +117,9 @@ constexpr auto kLogToStderrGFlagsKey = "also_log_to_stderr";
 constexpr auto kCartesianProductEnabledSettingKey = "cartesian-product-enabled";
 constexpr auto kCartesianProductEnabledGFlagsKey = "cartesian-product-enabled";
 
+constexpr auto kDebugQueryPlansSettingKey = "debug-query-plans";
+constexpr auto kDebugQueryPlansGFlagsKey = "debug-query-plans";
+
 constexpr auto kQueryLogDirectorySettingKey = "query-log-directory";
 constexpr auto kQueryLogDirectoryGFlagsKey = "query-log-directory";
 
@@ -128,6 +134,7 @@ constexpr auto kSnapshotPeriodicGFlagsKey = "storage-snapshot-interval";
 std::atomic<double> execution_timeout_sec_;
 std::atomic<bool> hops_limit_partial_results{true};
 std::atomic<bool> cartesian_product_enabled_{true};
+std::atomic<bool> debug_query_plans_{false};
 std::atomic<const std::chrono::time_zone *> timezone_{nullptr};
 
 class PeriodicObservable : public memgraph::utils::Observable<memgraph::utils::SchedulerInterval> {
@@ -344,6 +351,13 @@ void Initialize() {
       [](const std::string &val) { cartesian_product_enabled_ = val == "true"; }, ValidBoolStr);
 
   /*
+   * Register debug query plans
+   */
+  register_flag(
+      kDebugQueryPlansGFlagsKey, kDebugQueryPlansSettingKey, !kRestore,
+      [](const std::string &val) { debug_query_plans_ = val == "true"; }, ValidBoolStr);
+
+  /*
    * Register timezone setting
    */
   register_flag(
@@ -412,6 +426,8 @@ double GetExecutionTimeout() { return execution_timeout_sec_; }
 bool GetHopsLimitPartialResults() { return hops_limit_partial_results; }
 
 bool GetCartesianProductEnabled() { return cartesian_product_enabled_; }
+
+bool GetDebugQueryPlans() { return debug_query_plans_; }
 
 const std::chrono::time_zone *GetTimezone() { return timezone_; }
 

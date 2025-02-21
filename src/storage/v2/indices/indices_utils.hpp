@@ -412,12 +412,14 @@ inline void CreateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vert
 // Returns true if we are allowed to see the entity in the index data structures
 // If the method returns true, the reverts of the deltas will finally decide what's the version
 // of the graph entity
-inline bool CanSeeEntityWithTimestamp(uint64_t insertion_timestamp, Transaction *transaction) {
-  if (!transaction->original_start_timestamp.has_value()) {
-    return true;
+inline bool CanSeeEntityWithTimestamp(uint64_t insertion_timestamp, Transaction *transaction, View view) {
+  // Not enough information, need to rely on MVCC to fully check entry
+  if (transaction->command_id != 0) return true;
+  auto const original_start_timestamp = transaction->original_start_timestamp.value_or(transaction->start_timestamp);
+  if (view == View::OLD) {
+    return insertion_timestamp < original_start_timestamp;
   }
-
-  return insertion_timestamp < transaction->original_start_timestamp.value();
+  return insertion_timestamp <= original_start_timestamp;
 }
 
 }  // namespace memgraph::storage

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -146,6 +146,8 @@ class VertexCountCache {
                                                                 const storage::PropertyId &property) const {
     return db_->GetIndexStats(label, property);
   }
+
+  operator DbAccessor const &() const { return *db_; }
 
  private:
   using LabelPropertyKey = std::pair<storage::LabelId, storage::PropertyId>;

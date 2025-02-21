@@ -283,4 +283,5 @@ startup_config_dict = {
     ),
     "query_log_directory": ("", "", "Path to directory where the query logs should be stored."),
     "schema_info_enabled": ("false", "false", "Set to true to enable run-time schema info tracking."),
+    "debug_query_plans": ("false", "false", "Enable DEBUG logging of potential query plans."),
 }
