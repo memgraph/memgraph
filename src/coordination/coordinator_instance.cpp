@@ -679,7 +679,7 @@ auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instanc
     -> UnregisterInstanceCoordinatorStatus {
   spdlog::trace("Acquiring lock to unregister instance thread {}", std::this_thread::get_id());
   auto lock = std::lock_guard{coord_instance_lock_};
-  spdlog::trace("Acquired lock to demote instance to replica");
+  spdlog::trace("Acquired lock to unregister replication instance");
 
   if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
     return UnregisterInstanceCoordinatorStatus::NOT_LEADER;
