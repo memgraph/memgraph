@@ -796,8 +796,8 @@ fi
 if [ ! -f proxygen-$FBLIBS_VERSION.tar.gz ]; then
     wget https://github.com/facebook/proxygen/releases/download/v$FBLIBS_VERSION/proxygen-v$FBLIBS_VERSION.tar.gz -O proxygen-$FBLIBS_VERSION.tar.gz
 fi
-if [ ! -f python-$PYTHON_VERSION.tar.gz ]; then
-    wget https://www.python.org/ftp/python/$PYTHON_VERSION/Python-$PYTHON_VERSION.tgz -O python-$PYTHON_VERSION.tar.g
+if [ ! -f Python-$PYTHON_VERSION.tgz ]; then
+    wget https://www.python.org/ftp/python/$PYTHON_VERSION/Python-$PYTHON_VERSION.tgz -O Python-$PYTHON_VERSION.tgz
 fi
 if [ ! -f snappy-$SNAPPY_VERSION.tar.gz ]; then
     wget https://github.com/google/snappy/archive/refs/tags/$SNAPPY_VERSION.tar.gz -O snappy-$SNAPPY_VERSION.tar.gz
@@ -865,7 +865,7 @@ echo "$LZ4_SHA256  lz4-$LZ4_VERSION.tar.gz" | sha256sum -c
 # verify proxygen
 echo "$PROXYGEN_SHA256 proxygen-$FBLIBS_VERSION.tar.gz" | sha256sum -c
 # verify python
-echo "$PYTHON_MD5 Python-$PYHTON_VERSION.tgz" | md5sum -c
+echo "$PYTHON_MD5 Python-$PYTHON_VERSION.tgz" | md5sum -c
 # verify snappy
 echo "$SNAPPY_SHA256  snappy-$SNAPPY_VERSION.tar.gz" | sha256sum -c
 # verify xz
@@ -972,7 +972,7 @@ if [ ! -f $PREFIX/include/python3.13/Python.h ]; then
     if [ -d python3-$PYTHON_VERSION ]; then
         rm -rf Python-$PYTHON_VERSION
     fi
-    tar -xzf ../archives/Python-$PYTHON_VERSION.tar.gz
+    tar -xzf ../archives/Python-$PYTHON_VERSION.tgz
     pushd Python-$PYTHON_VERSION
     ./configure $COMMON_CONFIGURE_FLAGS --enable-optimizations --with-ensurepip=install # this probably isn't necessary for what we're doing
     make -j$CPUS
