@@ -30,7 +30,7 @@
 #include "utils/logging.hpp"
 
 #include <spdlog/spdlog.h>
-#include "json/json.hpp"
+#include <nlohmann/json.hpp>
 
 namespace {
 constexpr std::string_view kStateMgrDurabilityPath = "network";

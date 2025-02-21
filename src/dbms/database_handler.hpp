@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -57,7 +57,8 @@ class DatabaseHandler : public Handler<Database> {
    * @param config Storage configuration
    * @return HandlerT::NewResult
    */
-  HandlerT::NewResult New(storage::Config config, replication::ReplicationState &repl_state) {
+  HandlerT::NewResult New(storage::Config config,
+                          utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &repl_state) {
     // Control that no one is using the same data directory
     if (std::any_of(begin(), end(), [&](auto &elem) {
           auto db_acc = elem.second.access();

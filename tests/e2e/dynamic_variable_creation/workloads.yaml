@@ -1,0 +1,14 @@
+dynamic_variable_creation_cluster: &dynamic_variable_creation_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      log_file: "dynamic_variable_creation.log"
+      setup_queries: []
+      validation_queries: []
+
+
+workloads:
+  - name: "Dynamic variable creation"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["dynamic_variable_creation/dynamic_variable_creation.py"]
+    <<: *dynamic_variable_creation_cluster

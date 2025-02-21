@@ -18,7 +18,7 @@
 #include <type_traits>
 #include <unordered_map>
 
-#include <json/json.hpp>
+#include <nlohmann/json.hpp>
 
 #include "integrations/kafka/consumer.hpp"
 #include "kvstore/kvstore.hpp"

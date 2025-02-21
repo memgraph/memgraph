@@ -2,6 +2,7 @@
 
 cmake_minimum_required(VERSION 3.12)
 cmake_policy(SET CMP0076 NEW)
+cmake_policy(SET CMP0135 NEW)
 
 # !! IMPORTANT !! run ./project_root/init.sh before cmake command
 # to download dependencies

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -12,7 +12,7 @@
 #include <optional>
 #include <string>
 
-#include <json/json.hpp>
+#include <nlohmann/json.hpp>
 
 namespace memgraph::auth {
 /// Need to be stable, auth durability depends on this

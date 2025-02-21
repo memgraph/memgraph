@@ -420,6 +420,14 @@ json ToJson(const std::vector<StorageLabelType> &labels, const DbAccessor &dba) 
   return json;
 }
 
+json ToJson(const StorageEdgeType &edge_type, const DbAccessor &dba) {
+  if (const auto *edge_type_expression = std::get_if<Expression *>(&edge_type)) {
+    return ToJson(*edge_type_expression, dba);
+  }
+
+  return ToJson(std::get<storage::EdgeTypeId>(edge_type), dba);
+}
+
 json ToJson(const NodeCreationInfo &node_info, const DbAccessor &dba) {
   json self;
   self["symbol"] = ToJson(node_info.symbol);

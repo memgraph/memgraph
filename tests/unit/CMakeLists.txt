@@ -443,6 +443,10 @@ target_link_libraries(${test_prefix}rpc_timeouts mg-rpc)
 add_unit_test(rpc_in_progress.cpp)
 target_link_libraries(${test_prefix}rpc_in_progress mg-rpc)
 
+# Test replication-rpc-progress
+add_unit_test(replication_rpc_progress.cpp)
+target_link_libraries(${test_prefix}replication_rpc_progress mg-rpc)
+
 # Test websocket
 find_package(Boost REQUIRED CONFIG)
 

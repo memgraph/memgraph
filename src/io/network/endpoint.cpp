@@ -31,7 +31,7 @@
 #include <netinet/in.h>
 #include <spdlog/spdlog.h>
 #include <sys/socket.h>
-#include <json/json.hpp>
+#include <nlohmann/json.hpp>
 
 namespace {
 constexpr std::string_view delimiter = ":";
