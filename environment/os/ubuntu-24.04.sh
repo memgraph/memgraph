@@ -66,6 +66,7 @@ MEMGRAPH_BUILD_DEPS=(
     libtool  # for protobuf code generation
     libsasl2-dev
     ninja-build
+    libopenblas-dev # required for building scipy
 )
 
 MEMGRAPH_TEST_DEPS="${MEMGRAPH_BUILD_DEPS[*]}"
