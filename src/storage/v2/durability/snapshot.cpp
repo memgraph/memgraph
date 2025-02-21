@@ -3356,16 +3356,21 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
       }
       const auto edge_batches = ReadBatchInfos(snapshot);
 
-      RecoverOnMultipleThreads(
-          config.durability.recovery_thread_count,
-          [path, edges, items = config.salient.items, &get_property_from_id,
-           snapshot_info = SnapshotObserverInfo(snapshot_progress_observer, kEdgesSnapshotProgressSize)](
-              const size_t /*batch_index*/, const BatchInfo &batch) {
-            LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id, snapshot_info);
-          },
-          edge_batches);
+      {
+        std::optional<SnapshotObserverInfo> snapshot_info;
+        if (snapshot_progress_observer != nullptr) {
+          snapshot_info.emplace(SnapshotObserverInfo(snapshot_progress_observer, kEdgesSnapshotProgressSize));
+        }
+        RecoverOnMultipleThreads(
+            config.durability.recovery_thread_count,
+            [path, edges, items = config.salient.items, &get_property_from_id, snapshot_info](
+                const size_t /*batch_index*/, const BatchInfo &batch) {
+              LoadPartialEdges(path, *edges, batch.offset, batch.count, items, get_property_from_id, snapshot_info);
+            },
+            edge_batches);
+      }
+      spdlog::info("Edges are recovered.");
     }
-    spdlog::info("Edges are recovered.");
 
     // Recover vertices (labels and properties).
     spdlog::info("Recovering vertices.");
@@ -3376,20 +3381,24 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
     }
 
     const auto vertex_batches = ReadBatchInfos(snapshot);
-
-    RecoverOnMultipleThreads(
-        config.durability.recovery_thread_count,
-        [path, vertices, schema_info, &vertex_batches, &get_label_from_id, &get_property_from_id, &last_vertex_gid,
-         snapshot_info = SnapshotObserverInfo(snapshot_progress_observer, kVerticesSnapshotProgressSize)](
-            const size_t batch_index, const BatchInfo &batch) {
-          const auto last_vertex_gid_in_batch =
-              LoadPartialVertices(path, *vertices, schema_info, batch.offset, batch.count, get_label_from_id,
-                                  get_property_from_id, snapshot_info);
-          if (batch_index == vertex_batches.size() - 1) {
-            last_vertex_gid = last_vertex_gid_in_batch;
-          }
-        },
-        vertex_batches);
+    {
+      std::optional<SnapshotObserverInfo> snapshot_info;
+      if (snapshot_progress_observer != nullptr) {
+        snapshot_info.emplace(SnapshotObserverInfo(snapshot_progress_observer, kVerticesSnapshotProgressSize));
+      }
+      RecoverOnMultipleThreads(
+          config.durability.recovery_thread_count,
+          [path, vertices, schema_info, &vertex_batches, &get_label_from_id, &get_property_from_id, &last_vertex_gid,
+           snapshot_info](const size_t batch_index, const BatchInfo &batch) {
+            const auto last_vertex_gid_in_batch =
+                LoadPartialVertices(path, *vertices, schema_info, batch.offset, batch.count, get_label_from_id,
+                                    get_property_from_id, snapshot_info);
+            if (batch_index == vertex_batches.size() - 1) {
+              last_vertex_gid = last_vertex_gid_in_batch;
+            }
+          },
+          vertex_batches);
+    }
 
     spdlog::info("Vertices are recovered.");
 
@@ -3401,25 +3410,30 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
     }
     std::atomic<uint64_t> highest_edge_gid{0};
 
-    RecoverOnMultipleThreads(
-        config.durability.recovery_thread_count,
-        [path, vertices, edges, edges_metadata, schema_info, edge_count, items = config.salient.items,
-         snapshot_has_edges, &get_edge_type_from_id, &highest_edge_gid, &recovery_info,
-         snapshot_info = SnapshotObserverInfo(snapshot_progress_observer, kEdgesSnapshotProgressSize)](
-            const size_t batch_index, const BatchInfo &batch) {
-          const auto result =
-              LoadPartialConnectivity(path, *vertices, *edges, *edges_metadata, schema_info, batch.offset, batch.count,
-                                      items, snapshot_has_edges, get_edge_type_from_id, snapshot_info);
-          edge_count->fetch_add(result.edge_count);
-          auto known_highest_edge_gid = highest_edge_gid.load();
-          while (known_highest_edge_gid < result.highest_edge_id) {
-            highest_edge_gid.compare_exchange_weak(known_highest_edge_gid, result.highest_edge_id);
-          }
-          recovery_info.vertex_batches[batch_index].first = result.first_vertex_gid;
-        },
-        vertex_batches);
+    {
+      std::optional<SnapshotObserverInfo> snapshot_info;
+      if (snapshot_progress_observer != nullptr) {
+        snapshot_info.emplace(SnapshotObserverInfo(snapshot_progress_observer, kEdgesSnapshotProgressSize));
+      }
+      RecoverOnMultipleThreads(
+          config.durability.recovery_thread_count,
+          [path, vertices, edges, edges_metadata, schema_info, edge_count, items = config.salient.items,
+           snapshot_has_edges, &get_edge_type_from_id, &highest_edge_gid, &recovery_info,
+           snapshot_info](const size_t batch_index, const BatchInfo &batch) {
+            const auto result =
+                LoadPartialConnectivity(path, *vertices, *edges, *edges_metadata, schema_info, batch.offset,
+                                        batch.count, items, snapshot_has_edges, get_edge_type_from_id, snapshot_info);
+            edge_count->fetch_add(result.edge_count);
+            auto known_highest_edge_gid = highest_edge_gid.load();
+            while (known_highest_edge_gid < result.highest_edge_id) {
+              highest_edge_gid.compare_exchange_weak(known_highest_edge_gid, result.highest_edge_id);
+            }
+            recovery_info.vertex_batches[batch_index].first = result.first_vertex_gid;
+          },
+          vertex_batches);
 
-    spdlog::info("Connectivity is recovered.");
+      spdlog::info("Connectivity is recovered.");
+    }
 
     // Set initial values for edge/vertex ID generators.
     recovery_info.next_edge_id = highest_edge_gid + 1;
