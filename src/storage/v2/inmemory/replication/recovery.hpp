@@ -20,13 +20,14 @@ class InMemoryStorage;
 ////// ReplicationClient Helpers //////
 
 replication::WalFilesRes TransferWalFiles(const utils::UUID &main_uuid, const utils::UUID &uuid, rpc::Client &client,
-                                          const std::vector<std::filesystem::path> &wal_files);
+                                          const std::vector<std::filesystem::path> &wal_files, bool reset_needed);
 
 replication::SnapshotRes TransferSnapshot(const utils::UUID &main_uuid, const utils::UUID &storage_uuid,
                                           rpc::Client &client, const std::filesystem::path &path);
 
-replication::CurrentWalRes ReplicateCurrentWal(const utils::UUID &main_uuid, const InMemoryStorage *storage,
-                                               rpc::Client &client, durability::WalFile const &wal_file);
+replication::CurrentWalRes TransferCurrentWal(const utils::UUID &main_uuid, const InMemoryStorage *storage,
+                                              rpc::Client &client, durability::WalFile const &wal_file,
+                                              bool reset_needed);
 
 auto GetRecoverySteps(uint64_t replica_commit, utils::FileRetainer::FileLocker *file_locker,
                       const InMemoryStorage *main_storage) -> std::optional<std::vector<RecoveryStep>>;

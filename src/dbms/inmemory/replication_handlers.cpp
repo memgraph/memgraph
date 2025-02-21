@@ -27,7 +27,6 @@
 #include <spdlog/spdlog.h>
 #include <cstdint>
 #include <optional>
-#include <usearch/index_plugins.hpp>
 
 using memgraph::replication_coordination_glue::ReplicationRole;
 using memgraph::storage::Delta;
