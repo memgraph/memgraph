@@ -2532,7 +2532,7 @@ bool InMemoryStorage::AppendToWal(const Transaction &transaction, uint64_t durab
   wal_file_->AppendTransactionEnd(durability_commit_timestamp);
   FinalizeWalFile();
 
-  return tx_replication.FinalizeTransaction(durability_commit_timestamp, this, std::move(db_acc));
+  return tx_replication.FinalizeTransaction(durability_commit_timestamp, std::move(db_acc));
 }
 
 utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(
