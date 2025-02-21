@@ -974,7 +974,7 @@ if [ ! -f $PREFIX/include/python3.13/Python.h ]; then
     fi
     tar -xzf ../archives/Python-$PYTHON_VERSION.tgz
     pushd Python-$PYTHON_VERSION
-    ./configure $COMMON_CONFIGURE_FLAGS --enable-optimizations --with-ensurepip=install # this probably isn't necessary for what we're doing
+    ./configure $COMMON_CONFIGURE_FLAGS --enable-optimizations --with-ensurepip=install --with-virtualenv=yes
     make -j$CPUS
     make install
     popd
