@@ -251,6 +251,12 @@ cd json
 file_get_try_double "${primary_urls[nlohmann]}" "${secondary_urls[nlohmann]}"
 cd ..
 
+# rocksdb_tag="v8.1.1" # (2023-04-21)
+# repo_clone_try_double "${primary_urls[rocksdb]}" "${secondary_urls[rocksdb]}" "rocksdb" "$rocksdb_tag" true
+# pushd rocksdb
+# git apply ../rocksdb8.1.1.patch
+# popd
+
 mgclient_tag="v1.4.0" # (2022-06-14)
 repo_clone_try_double "${primary_urls[mgclient]}" "${secondary_urls[mgclient]}" "mgclient" "$mgclient_tag"
 sed -i 's/\${CMAKE_INSTALL_LIBDIR}/lib/' mgclient/src/CMakeLists.txt
