@@ -831,6 +831,25 @@ EdgesIterable DiskStorage::DiskAccessor::Edges(EdgeTypeId /*edge_type*/, Propert
       "Edge-type index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
 }
 
+EdgesIterable DiskStorage::DiskAccessor::Edges(PropertyId /*property*/, View /*view*/) {
+  throw utils::NotYetImplemented("Edge index related operations are not yet supported using on-disk storage mode. {}",
+                                 kErrorMessage);
+}
+
+EdgesIterable DiskStorage::DiskAccessor::Edges(PropertyId /*property*/, const PropertyValue & /*value*/,
+                                               View /*view*/) {
+  throw utils::NotYetImplemented("Edge index related operations are not yet supported using on-disk storage mode. {}",
+                                 kErrorMessage);
+}
+
+EdgesIterable DiskStorage::DiskAccessor::Edges(PropertyId /*property*/,
+                                               const std::optional<utils::Bound<PropertyValue>> & /*lower_bound*/,
+                                               const std::optional<utils::Bound<PropertyValue>> & /*upper_bound*/,
+                                               View /*view*/) {
+  throw utils::NotYetImplemented("Edge index related operations are not yet supported using on-disk storage mode. {}",
+                                 kErrorMessage);
+}
+
 uint64_t DiskStorage::DiskAccessor::ApproximateVertexCount() const {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   return disk_storage->vertex_count_.load(std::memory_order_acquire);

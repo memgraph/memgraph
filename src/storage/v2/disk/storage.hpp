@@ -88,6 +88,13 @@ class DiskStorage final : public Storage {
                         const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                         const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) override;
 
+    EdgesIterable Edges(PropertyId property, View view) override;
+
+    EdgesIterable Edges(PropertyId property, const PropertyValue &value, View view) override;
+
+    EdgesIterable Edges(PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+                        const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) override;
+
     uint64_t ApproximateVertexCount() const override;
 
     uint64_t ApproximateVertexCount(LabelId /*label*/) const override { return 10; }
