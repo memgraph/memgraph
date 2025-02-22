@@ -29,12 +29,12 @@
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/edge_direction.hpp"
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/indices/edge_type_property_index.hpp"
 #include "storage/v2/indices/edge_property_index.hpp"
+#include "storage/v2/indices/edge_type_property_index.hpp"
 #include "storage/v2/indices/point_index.hpp"
+#include "storage/v2/inmemory/edge_property_index.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
-#include "storage/v2/inmemory/edge_property_index.hpp"
 #include "storage/v2/metadata_delta.hpp"
 #include "storage/v2/schema_info_glue.hpp"
 #include "utils/async_timer.hpp"
@@ -1740,6 +1740,30 @@ EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, Pro
       static_cast<InMemoryEdgeTypePropertyIndex *>(storage_->indices_.edge_type_property_index_.get());
   return EdgesIterable(mem_edge_type_property_index->Edges(edge_type, property, lower_bound, upper_bound, view,
                                                            storage_, &transaction_));
+}
+
+EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(PropertyId property, View view) {
+  auto *mem_edge_property_index =
+      static_cast<InMemoryEdgePropertyIndex *>(storage_->indices_.edge_property_index_.get());
+  return EdgesIterable(
+      mem_edge_property_index->Edges(property, std::nullopt, std::nullopt, view, storage_, &transaction_));
+}
+
+EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(PropertyId property, const PropertyValue &value, View view) {
+  auto *mem_edge_property_index =
+      static_cast<InMemoryEdgePropertyIndex *>(storage_->indices_.edge_property_index_.get());
+  return EdgesIterable(mem_edge_property_index->Edges(property, utils::MakeBoundInclusive(value),
+                                                      utils::MakeBoundInclusive(value), view, storage_, &transaction_));
+}
+
+EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(PropertyId property,
+                                                       const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+                                                       const std::optional<utils::Bound<PropertyValue>> &upper_bound,
+                                                       View view) {
+  auto *mem_edge_property_index =
+      static_cast<InMemoryEdgePropertyIndex *>(storage_->indices_.edge_property_index_.get());
+  return EdgesIterable(
+      mem_edge_property_index->Edges(property, lower_bound, upper_bound, view, storage_, &transaction_));
 }
 
 std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdge(Gid gid, View view) {
