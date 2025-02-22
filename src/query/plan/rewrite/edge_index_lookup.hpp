@@ -876,10 +876,6 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
 
     const auto filter_edge_types = filters_.FilteredLabels(common.edge_symbol);
-    if (common.edge_types.empty() && filter_edge_types.empty()) {
-      // nothing to replace with
-      return nullptr;
-    }
 
     auto found_index = FindBestEdgeTypePropertyIndex(common.edge_symbol, edge_type_from_relationship);
     if (found_index) {
@@ -941,15 +937,17 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
 
     // if there was no edge type found in the relationship, then see in the filters if any
-    auto maybe_edge_type = FindBestEdgeTypeIndex(filter_edge_types);
-    if (maybe_edge_type) {
-      const auto &edge_type = *maybe_edge_type;
+    if (!filter_edge_types.empty()) {
+      auto maybe_edge_type = FindBestEdgeTypeIndex(filter_edge_types);
+      if (maybe_edge_type) {
+        const auto &edge_type = *maybe_edge_type;
 
-      std::vector<Expression *> removed_expressions;
-      filters_.EraseLabelFilter(common.edge_symbol, edge_type, &removed_expressions);
-      filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
-      return std::make_unique<ScanAllByEdgeType>(input, common.edge_symbol, common.node1_symbol, common.node2_symbol,
-                                                 common.direction, GetEdgeType(edge_type), view);
+        std::vector<Expression *> removed_expressions;
+        filters_.EraseLabelFilter(common.edge_symbol, edge_type, &removed_expressions);
+        filter_exprs_for_removal_.insert(removed_expressions.begin(), removed_expressions.end());
+        return std::make_unique<ScanAllByEdgeType>(input, common.edge_symbol, common.node1_symbol, common.node2_symbol,
+                                                   common.direction, GetEdgeType(edge_type), view);
+      }
     }
 
     auto found_property_index = FindBestEdgePropertyIndex(common.edge_symbol);
