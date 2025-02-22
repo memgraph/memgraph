@@ -2025,6 +2025,12 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
       "Edge-type index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
 }
 
+utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateGlobalEdgeIndex(
+    PropertyId /*property*/) {
+  throw utils::NotYetImplemented(
+      "Edge-type index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
+}
+
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropIndex(LabelId label) {
   MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
@@ -2060,6 +2066,12 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropIndex(EdgeTypeId /*edge_type*/,
                                                                                            PropertyId /*property*/) {
+  throw utils::NotYetImplemented(
+      "Edge-type index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
+}
+
+utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropGlobalEdgeIndex(
+    PropertyId /*property*/) {
   throw utils::NotYetImplemented(
       "Edge-type index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
 }

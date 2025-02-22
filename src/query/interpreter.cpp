@@ -3158,12 +3158,14 @@ PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
                                                index_query->edge_type_.name, ix_properties.front().name);
       }
 
-      handler = [dba, edge_type, label_name = index_query->edge_type_.name,
+      handler = [dba, edge_type, label_name = index_query->edge_type_.name, global_index = index_query->global_,
                  properties_stringified = std::move(properties_stringified), properties = std::move(properties),
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
         MG_ASSERT(properties.size() <= 1U);
-        auto maybe_index_error =
-            properties.empty() ? dba->CreateIndex(edge_type) : dba->CreateIndex(edge_type, properties[0]);
+
+        auto maybe_index_error = global_index         ? dba->CreateGlobalEdgeIndex(properties[0])
+                                 : properties.empty() ? dba->CreateIndex(edge_type)
+                                                      : dba->CreateIndex(edge_type, properties[0]);
         utils::OnScopeExit invalidator(invalidate_plan_cache);
 
         if (maybe_index_error.HasError()) {
@@ -3177,12 +3179,13 @@ PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
     case EdgeIndexQuery::Action::DROP: {
       index_notification.code = NotificationCode::DROP_INDEX;
       index_notification.title = fmt::format("Dropped index on edge-type {}.", index_query->edge_type_.name);
-      handler = [dba, edge_type, label_name = index_query->edge_type_.name,
+      handler = [dba, edge_type, label_name = index_query->edge_type_.name, global_index = index_query->global_,
                  properties_stringified = std::move(properties_stringified), properties = std::move(properties),
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
         MG_ASSERT(properties.size() <= 1U);
-        auto maybe_index_error =
-            properties.empty() ? dba->DropIndex(edge_type) : dba->DropIndex(edge_type, properties[0]);
+        auto maybe_index_error = global_index         ? dba->DropGlobalEdgeIndex(properties[0])
+                                 : properties.empty() ? dba->DropIndex(edge_type)
+                                                      : dba->DropIndex(edge_type, properties[0]);
         utils::OnScopeExit invalidator(invalidate_plan_cache);
 
         if (maybe_index_error.HasError()) {

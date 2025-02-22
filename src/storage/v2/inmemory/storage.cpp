@@ -30,9 +30,11 @@
 #include "storage/v2/edge_direction.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/edge_type_property_index.hpp"
+#include "storage/v2/indices/edge_property_index.hpp"
 #include "storage/v2/indices/point_index.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
+#include "storage/v2/inmemory/edge_property_index.hpp"
 #include "storage/v2/metadata_delta.hpp"
 #include "storage/v2/schema_info_glue.hpp"
 #include "utils/async_timer.hpp"
@@ -1445,6 +1447,25 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   return {};
 }
 
+utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateGlobalEdgeIndex(
+    PropertyId property) {
+  MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
+  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  auto *mem_edge_property_index =
+      static_cast<InMemoryEdgePropertyIndex *>(in_memory->indices_.edge_property_index_.get());
+
+  if (!in_memory->config_.salient.items.properties_on_edges) {
+    // Not possible to create the index, no properties on edges
+    return StorageIndexDefinitionError{IndexDefinitionConfigError{}};
+  }
+
+  if (!mem_edge_property_index->CreateIndex(property, in_memory->vertices_.access())) {
+    return StorageIndexDefinitionError{IndexDefinitionError{}};
+  }
+  // transaction_.md_deltas.emplace_back(MetadataDelta::global_edge_property_index_create, property);
+  return {};
+}
+
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(LabelId label) {
   MG_ASSERT(unique_guard_.owns_lock(), "Dropping label index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
@@ -1495,6 +1516,19 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::edge_property_index_drop, edge_type, property);
+  return {};
+}
+
+utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropGlobalEdgeIndex(
+    PropertyId property) {
+  MG_ASSERT(unique_guard_.owns_lock(), "Drop index requires a unique access to the storage!");
+  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  auto *mem_edge_property_index =
+      static_cast<InMemoryEdgePropertyIndex *>(in_memory->indices_.edge_property_index_.get());
+  if (!mem_edge_property_index->DropIndex(property)) {
+    return StorageIndexDefinitionError{IndexDefinitionError{}};
+  }
+  // transaction_.md_deltas.emplace_back(MetadataDelta::global_edge_property_index_drop, property);
   return {};
 }
 
