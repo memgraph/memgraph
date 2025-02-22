@@ -270,7 +270,7 @@ import_header_library(cppitertools ${CMAKE_CURRENT_SOURCE_DIR})
 # Setup json
 import_header_library(json ${CMAKE_CURRENT_SOURCE_DIR})
 
-target_link_libraries(${mg_target_name} rocksdb)
+mg_create_linkable_if_no_cmake(rocksdb STATIC "${MG_TOOLCHAIN_ROOT}/lib/rocksdb.a" "${MG_TOOLCHAIN_ROOT}/include")
 # import_external_library(rocksdb STATIC
 #   ${CMAKE_CURRENT_SOURCE_DIR}/rocksdb/lib/librocksdb.a
 #   ${CMAKE_CURRENT_SOURCE_DIR}/rocksdb/include
