@@ -84,6 +84,7 @@ struct IndicesInfo {
   std::vector<std::pair<LabelId, PropertyId>> label_property;
   std::vector<EdgeTypeId> edge_type;
   std::vector<std::pair<EdgeTypeId, PropertyId>> edge_type_property;
+  std::vector<PropertyId> edge_property;
   std::vector<std::pair<std::string, LabelId>> text_indices;
   std::vector<std::pair<LabelId, PropertyId>> point_label_property;
   std::vector<VectorIndexSpec> vector_indices_spec;

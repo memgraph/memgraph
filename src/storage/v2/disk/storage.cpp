@@ -2293,9 +2293,13 @@ IndicesInfo DiskStorage::DiskAccessor::ListAllIndices() const {
   auto *disk_label_property_index =
       static_cast<DiskLabelPropertyIndex *>(on_disk->indices_.label_property_index_.get());
   auto &text_index = storage_->indices_.text_index_;
-  return {disk_label_index->ListIndices(), disk_label_property_index->ListIndices(),
-          {/* edge type indices */},       {/* edge_type_property */},
-          text_index.ListIndices(),        {/* point indices */},
+  return {disk_label_index->ListIndices(),
+          disk_label_property_index->ListIndices(),
+          {/* edge type indices */},
+          {/* edge_type_property */},
+          {/*edge property*/},
+          text_index.ListIndices(),
+          {/* point indices */},
           {/* vector indices */}};
 }
 ConstraintsInfo DiskStorage::DiskAccessor::ListAllConstraints() const {

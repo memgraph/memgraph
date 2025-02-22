@@ -2973,13 +2973,19 @@ IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
   auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
   auto *mem_edge_type_property_index =
       static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
+  auto *mem_edge_property_index =
+      static_cast<InMemoryEdgePropertyIndex *>(in_memory->indices_.edge_property_index_.get());
   auto &text_index = storage_->indices_.text_index_;
   auto &point_index = storage_->indices_.point_index_;
   auto &vector_index = storage_->indices_.vector_index_;
 
-  return {mem_label_index->ListIndices(),     mem_label_property_index->ListIndices(),
-          mem_edge_type_index->ListIndices(), mem_edge_type_property_index->ListIndices(),
-          text_index.ListIndices(),           point_index.ListIndices(),
+  return {mem_label_index->ListIndices(),
+          mem_label_property_index->ListIndices(),
+          mem_edge_type_index->ListIndices(),
+          mem_edge_type_property_index->ListIndices(),
+          mem_edge_property_index->ListIndices(),
+          text_index.ListIndices(),
+          point_index.ListIndices(),
           vector_index.ListIndices()};
 }
 ConstraintsInfo InMemoryStorage::InMemoryAccessor::ListAllConstraints() const {

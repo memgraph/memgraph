@@ -4549,6 +4549,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         const std::string_view label_property_index_mark{"label+property"};
         const std::string_view edge_type_index_mark{"edge-type"};
         const std::string_view edge_type_property_index_mark{"edge-type+property"};
+        const std::string_view edge_property_index_mark{"edge-property"};
         const std::string_view text_index_mark{"text"};
         const std::string_view point_label_property_index_mark{"point"};
         const std::string_view vector_label_property_index_mark{"vector"};
@@ -4574,6 +4575,11 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
           results.push_back({TypedValue(edge_type_property_index_mark), TypedValue(storage->EdgeTypeToName(item.first)),
                              TypedValue(storage->PropertyToName(item.second)),
                              TypedValue(static_cast<int>(storage_acc->ApproximateEdgeCount(item.first, item.second)))});
+        }
+        for (const auto &item : info.edge_property) {
+          results.push_back({TypedValue(edge_property_index_mark), TypedValue(),
+                             TypedValue(storage->PropertyToName(item)),
+                             TypedValue(static_cast<int>(storage_acc->ApproximateEdgeCount(item)))});
         }
         for (const auto &[index_name, label] : info.text_indices) {
           results.push_back({TypedValue(fmt::format("{} (name: {})", text_index_mark, index_name)),
