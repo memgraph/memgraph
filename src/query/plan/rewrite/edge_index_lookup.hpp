@@ -956,14 +956,14 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
 
     // Copy the property filter and then erase it from filters.
-    const auto prop_filter = *found_index->filter.property_filter;
+    const auto prop_filter = *found_property_index->filter.property_filter;
     if (prop_filter.type_ != PropertyFilter::Type::REGEX_MATCH) {
       // Remove the original expression from Filter operation only if it's not
       // a regex match. In such a case we need to perform the matching even
       // after we've scanned the index.
-      filter_exprs_for_removal_.insert(found_index->filter.expression);
+      filter_exprs_for_removal_.insert(found_property_index->filter.expression);
     }
-    filters_.EraseFilter(found_index->filter);
+    filters_.EraseFilter(found_property_index->filter);
     if (prop_filter.lower_bound_ || prop_filter.upper_bound_) {
       return std::make_unique<ScanAllByEdgePropertyRange>(
           input, common.edge_symbol, common.node1_symbol, common.node2_symbol, common.direction,
