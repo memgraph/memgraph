@@ -129,7 +129,7 @@ if(NOT "${MG_PYTHON_PATH}" STREQUAL "")
 endif()
 
 if("${MG_PYTHON_VERSION}" STREQUAL "")
-    find_package(Python3 3.13 REQUIRED COMPONENTS Development)
+    find_package(Python3 3.5 REQUIRED COMPONENTS Development)
 else()
     find_package(Python3 "${MG_PYTHON_VERSION}" EXACT REQUIRED COMPONENTS Development)
 endif()
