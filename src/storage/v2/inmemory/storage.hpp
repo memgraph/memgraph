@@ -243,6 +243,21 @@ class InMemoryStorage final : public Storage {
           edge_type, property, lower, upper);
     }
 
+    uint64_t ApproximateEdgeCount(PropertyId property) const override {
+      return static_cast<InMemoryStorage *>(storage_)->indices_.edge_property_index_->ApproximateEdgeCount(property);
+    }
+
+    uint64_t ApproximateEdgeCount(PropertyId property, const PropertyValue &value) const override {
+      return static_cast<InMemoryStorage *>(storage_)->indices_.edge_property_index_->ApproximateEdgeCount(property,
+                                                                                                           value);
+    }
+
+    uint64_t ApproximateEdgeCount(PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower,
+                                  const std::optional<utils::Bound<PropertyValue>> &upper) const override {
+      return static_cast<InMemoryStorage *>(storage_)->indices_.edge_property_index_->ApproximateEdgeCount(
+          property, lower, upper);
+    }
+
     std::optional<uint64_t> ApproximateVerticesPointCount(LabelId label, PropertyId property) const override {
       return storage_->indices_.point_index_.ApproximatePointCount(label, property);
     }
@@ -311,6 +326,10 @@ class InMemoryStorage final : public Storage {
     bool EdgeTypePropertyIndexExists(EdgeTypeId edge_type, PropertyId property) const override {
       return static_cast<InMemoryStorage *>(storage_)->indices_.edge_type_property_index_->IndexExists(edge_type,
                                                                                                        property);
+    }
+
+    bool EdgePropertyIndexExists(PropertyId property) const override {
+      return static_cast<InMemoryStorage *>(storage_)->indices_.edge_property_index_->IndexExists(property);
     }
 
     bool PointIndexExists(LabelId label, PropertyId property) const override;

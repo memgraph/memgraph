@@ -273,6 +273,13 @@ class Storage {
                                           const std::optional<utils::Bound<PropertyValue>> &lower,
                                           const std::optional<utils::Bound<PropertyValue>> &upper) const = 0;
 
+    virtual uint64_t ApproximateEdgeCount(PropertyId property) const = 0;
+
+    virtual uint64_t ApproximateEdgeCount(PropertyId property, const PropertyValue &value) const = 0;
+
+    virtual uint64_t ApproximateEdgeCount(PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower,
+                                          const std::optional<utils::Bound<PropertyValue>> &upper) const = 0;
+
     virtual std::optional<uint64_t> ApproximateVerticesPointCount(LabelId label, PropertyId property) const = 0;
 
     virtual std::optional<uint64_t> ApproximateVerticesVectorCount(LabelId label, PropertyId property) const = 0;
@@ -306,6 +313,8 @@ class Storage {
     virtual bool EdgeTypeIndexExists(EdgeTypeId edge_type) const = 0;
 
     virtual bool EdgeTypePropertyIndexExists(EdgeTypeId edge_type, PropertyId property) const = 0;
+
+    virtual bool EdgePropertyIndexExists(PropertyId property) const = 0;
 
     bool TextIndexExists(const std::string &index_name) const {
       return storage_->indices_.text_index_.IndexExists(index_name);

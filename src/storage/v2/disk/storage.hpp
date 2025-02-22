@@ -132,6 +132,17 @@ class DiskStorage final : public Storage {
       return 10;
     }
 
+    uint64_t ApproximateEdgeCount(PropertyId /*property*/) const override { return 10; }
+
+    uint64_t ApproximateEdgeCount(PropertyId /*property*/, const PropertyValue & /*value*/) const override {
+      return 10;
+    }
+
+    uint64_t ApproximateEdgeCount(PropertyId /*property*/, const std::optional<utils::Bound<PropertyValue>> & /*lower*/,
+                                  const std::optional<utils::Bound<PropertyValue>> & /*upper*/) const override {
+      return 10;
+    }
+
     std::optional<uint64_t> ApproximateVerticesPointCount(LabelId label, PropertyId property) const override {
       // Point index does not exist for on disk
       return std::nullopt;
@@ -190,6 +201,8 @@ class DiskStorage final : public Storage {
     bool EdgeTypeIndexExists(EdgeTypeId edge_type) const override;
 
     bool EdgeTypePropertyIndexExists(EdgeTypeId edge_type, PropertyId proeprty) const override;
+
+    bool EdgePropertyIndexExists(PropertyId proeprty) const override;
 
     bool PointIndexExists(LabelId label, PropertyId property) const override;
 

@@ -2277,6 +2277,11 @@ bool DiskStorage::DiskAccessor::EdgeTypePropertyIndexExists(EdgeTypeId /*edge_ty
   return false;
 }
 
+bool DiskStorage::DiskAccessor::EdgePropertyIndexExists(PropertyId /*property*/) const {
+  spdlog::info("Edge index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
+  return false;
+}
+
 bool DiskStorage::DiskAccessor::PointIndexExists(LabelId /*label*/, PropertyId /*property*/) const {
   spdlog::info("Point index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
   return false;
