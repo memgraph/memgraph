@@ -220,6 +220,9 @@ class PlanToJsonVisitor : public virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(ScanAllByEdgeTypeProperty &) override;
   bool PreVisit(ScanAllByEdgeTypePropertyValue &) override;
   bool PreVisit(ScanAllByEdgeTypePropertyRange &) override;
+  bool PreVisit(ScanAllByEdgeProperty &) override;
+  bool PreVisit(ScanAllByEdgePropertyValue &) override;
+  bool PreVisit(ScanAllByEdgePropertyRange &) override;
   bool PreVisit(ScanAllByEdgeId &) override;
 
   bool PreVisit(EmptyResult &) override;
