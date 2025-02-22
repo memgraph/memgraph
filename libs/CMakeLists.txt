@@ -277,7 +277,7 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(nlohmann_json)
 
-find_package(rocksdb REQUIRED)
+target_link_libraries(${mg_target_name} PRIVATE rocksdb)
 # import_external_library(rocksdb STATIC
 #   ${CMAKE_CURRENT_SOURCE_DIR}/rocksdb/lib/librocksdb.a
 #   ${CMAKE_CURRENT_SOURCE_DIR}/rocksdb/include
