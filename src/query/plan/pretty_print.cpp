@@ -98,11 +98,6 @@ bool PlanPrinter::PreVisit(query::plan::ScanAllByEdgeTypeProperty &op) {
   return true;
 }
 
-bool PlanPrinter::PreVisit(query::plan::ScanAllByEdgeId &op) {
-  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
-  return true;
-}
-
 bool PlanPrinter::PreVisit(query::plan::ScanAllByEdgeTypePropertyValue &op) {
   op.dba_ = dba_;
   WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
@@ -114,6 +109,32 @@ bool PlanPrinter::PreVisit(query::plan::ScanAllByEdgeTypePropertyRange &op) {
   op.dba_ = dba_;
   WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   op.dba_ = nullptr;
+  return true;
+}
+
+bool PlanPrinter::PreVisit(query::plan::ScanAllByEdgeProperty &op) {
+  op.dba_ = dba_;
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
+  op.dba_ = nullptr;
+  return true;
+}
+
+bool PlanPrinter::PreVisit(query::plan::ScanAllByEdgePropertyValue &op) {
+  op.dba_ = dba_;
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
+  op.dba_ = nullptr;
+  return true;
+}
+
+bool PlanPrinter::PreVisit(query::plan::ScanAllByEdgePropertyRange &op) {
+  op.dba_ = dba_;
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
+  op.dba_ = nullptr;
+  return true;
+}
+
+bool PlanPrinter::PreVisit(query::plan::ScanAllByEdgeId &op) {
+  WithPrintLn([&op](auto &out) { out << "* " << op.ToString(); });
   return true;
 }
 
