@@ -20,7 +20,8 @@
 #include "kvstore/kvstore.hpp"
 
 #include <ranges>
-#include "json/json.hpp"
+
+#include <nlohmann/json.hpp>
 
 namespace memgraph::coordination {
 using nuraft::buffer_serializer;

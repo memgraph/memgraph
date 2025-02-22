@@ -57,7 +57,8 @@ class TTLFixture : public ::testing::Test {
       }()  // iile
   };
 
-  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+      memgraph::storage::ReplicationStateRootPath(config)};
   memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config, repl_state};
   memgraph::dbms::DatabaseAccess db_{
       [&]() {
@@ -75,7 +76,7 @@ class TTLFixture : public ::testing::Test {
   memgraph::query::AllowEverythingAuthChecker auth_checker;
   memgraph::query::InterpreterContext interpreter_context_{memgraph::query::InterpreterConfig{},
                                                            nullptr,
-                                                           &repl_state,
+                                                           repl_state,
                                                            system_state,
 #ifdef MG_ENTERPRISE
                                                            std::nullopt,

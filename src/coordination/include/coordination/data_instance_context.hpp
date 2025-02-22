@@ -15,7 +15,7 @@
 #include "replication_coordination_glue/role.hpp"
 #include "utils/uuid.hpp"
 
-#include "json/json.hpp"
+#include <nlohmann/json.hpp>
 
 #ifdef MG_ENTERPRISE
 
