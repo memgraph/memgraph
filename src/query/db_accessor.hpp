@@ -620,6 +620,10 @@ class DbAccessor final {
     return accessor_->CreateIndex(edge_type, property);
   }
 
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateGlobalEdgeIndex(storage::PropertyId property) {
+    return accessor_->CreateGlobalEdgeIndex(property);
+  }
+
   utils::BasicResult<storage::StorageIndexDefinitionError, void> DropIndex(storage::LabelId label) {
     return accessor_->DropIndex(label);
   }
@@ -636,6 +640,10 @@ class DbAccessor final {
   utils::BasicResult<storage::StorageIndexDefinitionError, void> DropIndex(storage::EdgeTypeId edge_type,
                                                                            storage::PropertyId property) {
     return accessor_->DropIndex(edge_type, property);
+  }
+
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> DropGlobalEdgeIndex(storage::PropertyId property) {
+    return accessor_->DropGlobalEdgeIndex(property);
   }
 
   utils::BasicResult<storage::StorageIndexDefinitionError, void> CreatePointIndex(storage::LabelId label,
