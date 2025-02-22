@@ -502,6 +502,10 @@ class DbAccessor final {
     return accessor_->EdgeTypePropertyIndexExists(edge_type, property);
   }
 
+  bool EdgePropertyIndexExists(storage::PropertyId property) const {
+    return accessor_->EdgePropertyIndexExists(property);
+  }
+
   bool TextIndexExists(const std::string &index_name) const { return accessor_->TextIndexExists(index_name); }
 
   void TextIndexAddVertex(const VertexAccessor &vertex) { accessor_->TextIndexAddVertex(vertex.impl_); }
@@ -601,6 +605,21 @@ class DbAccessor final {
                      const std::optional<utils::Bound<storage::PropertyValue>> &lower,
                      const std::optional<utils::Bound<storage::PropertyValue>> &upper) const {
     return accessor_->ApproximateEdgeCount(edge_type, property, lower, upper);
+  }
+
+  int64_t EdgesCount(storage::PropertyId property) const {
+    return accessor_->ApproximateEdgeCount(property);
+  }
+
+  int64_t EdgesCount(storage::PropertyId property,
+                     const storage::PropertyValue &value) const {
+    return accessor_->ApproximateEdgeCount(property, value);
+  }
+
+  int64_t EdgesCount(storage::PropertyId property,
+                     const std::optional<utils::Bound<storage::PropertyValue>> &lower,
+                     const std::optional<utils::Bound<storage::PropertyValue>> &upper) const {
+    return accessor_->ApproximateEdgeCount(property, lower, upper);
   }
 
   std::vector<storage::LabelId> ListAllPossiblyPresentVertexLabels() const {

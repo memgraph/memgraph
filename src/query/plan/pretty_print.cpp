@@ -635,6 +635,48 @@ bool PlanToJsonVisitor::PreVisit(ScanAllByEdgeTypePropertyRange &op) {
   return false;
 }
 
+bool PlanToJsonVisitor::PreVisit(ScanAllByEdgeProperty &op) {
+  json self;
+  self["name"] = "ScanAllByEdgeProperty";
+  self["property"] = ToJson(op.property_, *dba_);
+  self["output_symbol"] = ToJson(op.common_.edge_symbol);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(ScanAllByEdgePropertyValue &op) {
+  json self;
+  self["name"] = "ScanAllByEdgePropertyValue";
+  self["property"] = ToJson(op.property_, *dba_);
+  self["expression"] = ToJson(op.expression_, *dba_);
+  self["output_symbol"] = ToJson(op.common_.edge_symbol);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(ScanAllByEdgePropertyRange &op) {
+  json self;
+  self["name"] = "ScanAllByEdgePropertyRange";
+  self["property"] = ToJson(op.property_, *dba_);
+  self["lower_bound"] = op.lower_bound_ ? ToJson(*op.lower_bound_, *dba_) : json();
+  self["upper_bound"] = op.upper_bound_ ? ToJson(*op.upper_bound_, *dba_) : json();
+  self["output_symbol"] = ToJson(op.common_.edge_symbol);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
 bool PlanToJsonVisitor::PreVisit(ScanAllByEdgeId &op) {
   json self;
   self["name"] = "ScanAllByEdgeId";
