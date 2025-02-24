@@ -278,6 +278,7 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
 // The semantic of snapshot handler is the following: Either handling snapshot request passes or it doesn't. If it
 // passes we return the current commit timestamp of the replica. If it doesn't pass, we return optional which will
 // signal to the caller that it shouldn't update the commit timestamp value.
+// TODO: (andi) What if something fails with moving files?
 void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
                                                   const std::optional<utils::UUID> &current_main_uuid,
                                                   slk::Reader *req_reader, slk::Builder *res_builder) {
@@ -380,8 +381,8 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
     return;
   }
 
-  auto snapshot_files = storage::durability::GetSnapshotFiles(current_snapshot_directory);
-  for (const auto &[snapshot_path, _1, _2] : snapshot_files) {
+  for (auto snapshot_files = storage::durability::GetSnapshotFiles(current_snapshot_directory);
+       const auto &[snapshot_path, _1, _2] : snapshot_files) {
     if (local_snapshot_path != snapshot_path) {
       spdlog::trace("Moving snapshot file {}", snapshot_path);
       storage->file_retainer_.RenameFile(snapshot_path,
@@ -389,8 +390,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
     }
   }
   std::filesystem::remove(current_snapshot_directory / old_dir, ec);  // remove dir if empty
-  auto wal_files = storage::durability::GetWalFiles(current_wal_directory);
-  if (wal_files) {
+  if (auto wal_files = storage::durability::GetWalFiles(current_wal_directory)) {
     for (const auto &wal_file : *wal_files) {
       spdlog::trace("Moving WAL file {}", wal_file.path);
       storage->file_retainer_.RenameFile(wal_file.path, current_wal_directory / old_dir / wal_file.path.filename());
@@ -436,11 +436,25 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
   // TODO: (andi) Should we crash replica if something fails regarding directories
   utils::EnsureDirOrDie(current_wal_directory);
 
+  // Optional for reset_needed
+  std::optional<std::vector<storage::durability::SnapshotDurabilityInfo>> maybe_old_snapshot_files;
+  // Outer optional for reset_needed.
+  std::optional<std::vector<storage::durability::WalDurabilityInfo>> maybe_old_wal_files;
+
   if (req.reset_needed) {
     auto storage_guard = std::lock_guard{storage->main_lock_};
     spdlog::trace("Clearing replica storage because the reset is needed while recovering from WalFiles");
     // Clear the database
     storage->Clear();
+    // Read all WAL files
+    auto maybe_wal_files = storage::durability::GetWalFiles(current_wal_directory);
+    if (!maybe_wal_files) {
+      spdlog::warn("Failed to read current WAL files, exiting early from the WalFilesHandler");
+      return;
+    }
+    maybe_old_wal_files.emplace(std::move(*maybe_wal_files));
+    // Read all snapshot files
+    maybe_old_snapshot_files.emplace(storage::durability::GetSnapshotFiles(current_snapshot_directory));
   }
 
   const auto wal_file_number = req.file_number;
@@ -482,19 +496,22 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
       return;
     }
 
-    auto snapshot_files = storage::durability::GetSnapshotFiles(current_snapshot_directory);
-    for (const auto &[snapshot_path, _1, _2] : snapshot_files) {
-      spdlog::trace("Moving snapshot file {}", snapshot_path);
-      storage->file_retainer_.RenameFile(snapshot_path,
-                                         current_snapshot_directory / old_dir / snapshot_path.filename());
+    // Move old snapshot files
+    // We are in reset needed block so it is safe to dereference snapshot files
+    for (auto const old_snapshot_files = *maybe_old_snapshot_files;
+         const auto &[snapshot_path, _1, _2] : old_snapshot_files) {
+      auto const new_snapshot_path = current_snapshot_directory / old_dir / snapshot_path.filename();
+      spdlog::trace("Moving snapshot file {} to {}", snapshot_path, new_snapshot_path);
+      storage->file_retainer_.RenameFile(snapshot_path, new_snapshot_path);
     }
     std::filesystem::remove(current_snapshot_directory / old_dir, ec);  // remove dir if empty
-    auto wal_files = storage::durability::GetWalFiles(current_wal_directory);
-    if (wal_files) {
-      for (const auto &wal_file : *wal_files) {
-        spdlog::trace("Moving WAL file {}", wal_file.path);
-        storage->file_retainer_.RenameFile(wal_file.path, current_wal_directory / old_dir / wal_file.path.filename());
-      }
+
+    // Move old wal files
+    // We are in reset needed block so it is safe to dereference wal files
+    for (auto const old_wal_files = *maybe_old_wal_files; const auto &wal_file : old_wal_files) {
+      auto const new_wal_path = current_wal_directory / old_dir / wal_file.path.filename();
+      spdlog::trace("Moving WAL file {} to ", wal_file.path, new_wal_path);
+      storage->file_retainer_.RenameFile(wal_file.path, new_wal_path);
     }
     std::filesystem::remove(current_wal_directory / old_dir, ec);  // remove dir if empty
   }
@@ -641,8 +658,8 @@ std::pair<bool, uint32_t> InMemoryReplicationHandlers::LoadWal(storage::InMemory
       spdlog::trace("WAL file {} finalized successfully", *maybe_wal_path);
     }
     spdlog::trace("Loading WAL deltas from {}", *maybe_wal_path);
-    storage::durability::Decoder wal;
-    const auto version = wal.Initialize(*maybe_wal_path, storage::durability::kWalMagic);
+    storage::durability::Decoder wal_decoder;
+    const auto version = wal_decoder.Initialize(*maybe_wal_path, storage::durability::kWalMagic);
     spdlog::debug("WAL file {} loaded successfully", *maybe_wal_path);
     if (!version) {
       spdlog::error("Couldn't read WAL magic and/or version!");
@@ -652,12 +669,12 @@ std::pair<bool, uint32_t> InMemoryReplicationHandlers::LoadWal(storage::InMemory
       spdlog::error("Invalid WAL version!");
       return {false, 0};
     }
-    wal.SetPosition(wal_info.offset_deltas);
+    wal_decoder.SetPosition(wal_info.offset_deltas);
 
     uint32_t local_batch_counter = start_batch_counter;
     for (size_t local_delta_idx = 0; local_delta_idx < wal_info.num_deltas;) {
       auto const [current_delta_idx, current_batch_counter] =
-          ReadAndApplyDeltasSingleTxn(storage, &wal, *version, res_builder, local_batch_counter);
+          ReadAndApplyDeltasSingleTxn(storage, &wal_decoder, *version, res_builder, local_batch_counter);
       local_delta_idx += current_delta_idx;
       local_batch_counter = current_batch_counter;
     }
