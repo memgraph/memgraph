@@ -26,7 +26,11 @@ from common import (
     show_replicas,
     update_tuple_value,
 )
-from mg_utils import mg_sleep_and_assert, mg_sleep_and_assert_until_role_change
+from mg_utils import (
+    mg_sleep_and_assert,
+    mg_sleep_and_assert_multiple,
+    mg_sleep_and_assert_until_role_change,
+)
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
@@ -406,11 +410,7 @@ def test_coordinators_communication_with_restarts(test_name):
     mg_sleep_and_assert(leader_data, partial(show_instances, coordinator2_cursor))
 
 
-@pytest.mark.parametrize(
-    "kill_instance",
-    [True, False],
-)
-def test_unregister_replicas(kill_instance, test_name):
+def test_unregister_replicas(test_name):
     MEMGRAPH_INSTANCES_DESCRIPTION = get_instances_description(test_name=test_name)
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
 
@@ -478,8 +478,7 @@ def test_unregister_replicas(kill_instance, test_name):
     mg_sleep_and_assert(data, partial(show_instances, coordinator3_cursor))
     mg_sleep_and_assert(expected_replicas, partial(show_replicas, main_cursor))
 
-    if kill_instance:
-        interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_1")
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_1")
     execute_and_fetch_all(coordinator3_cursor, "UNREGISTER INSTANCE instance_1")
 
     data = [
@@ -505,23 +504,32 @@ def test_unregister_replicas(kill_instance, test_name):
     mg_sleep_and_assert(data, partial(show_instances, coordinator3_cursor))
     mg_sleep_and_assert(expected_replicas, partial(show_replicas, main_cursor))
 
-    if kill_instance:
-        interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "instance_2")
-    execute_and_fetch_all(coordinator3_cursor, "UNREGISTER INSTANCE instance_2")
+    # Test that after you restart the leader, the instance is still not observed
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "coordinator_3", keep_directories=True)
 
-    data = [
-        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+    coord1_leader_data = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
-        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "down", "follower"),
+        ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
         ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
     ]
 
-    expected_replicas = []
+    coord2_leader_data = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "leader"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "down", "follower"),
+        ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
+    ]
 
-    mg_sleep_and_assert(data, partial(show_instances, coordinator1_cursor))
-    mg_sleep_and_assert(data, partial(show_instances, coordinator2_cursor))
-    mg_sleep_and_assert(data, partial(show_instances, coordinator3_cursor))
-    mg_sleep_and_assert(expected_replicas, partial(show_replicas, main_cursor))
+    mg_sleep_and_assert_multiple(
+        [coord1_leader_data, coord2_leader_data], [partial(show_instances, coordinator1_cursor)]
+    )
+
+    mg_sleep_and_assert_multiple(
+        [coord1_leader_data, coord2_leader_data], [partial(show_instances, coordinator2_cursor)]
+    )
 
 
 def test_unregister_main(test_name):

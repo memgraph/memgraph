@@ -724,8 +724,14 @@ TypedValue &TypedValue::operator=(const TypedValue &other) {
           duration_v = other.duration_v;
           break;
         case Type::Graph: {
-          auto *graph_ptr = utils::Allocator<Graph>(memory_).new_object<Graph>(*other.graph_v);
-          graph_v = std::unique_ptr<Graph>(graph_ptr);
+          auto *graph = graph_v.release();
+          if (graph) {
+            utils::Allocator<Graph>(memory_).delete_object(graph);
+          }
+          if (other.graph_v) {
+            auto *graph_ptr = utils::Allocator<Graph>(memory_).new_object<Graph>(*other.graph_v);
+            graph_v = std::unique_ptr<Graph>(graph_ptr);
+          }
           break;
         }
         case Type::Function:
@@ -803,9 +809,14 @@ TypedValue &TypedValue::operator=(TypedValue &&other) noexcept(false) {
         case Type::Duration:
           duration_v = other.duration_v;
           break;
-        case Type::Graph:
+        case Type::Graph: {
+          auto *graph = graph_v.release();
+          if (graph) {
+            utils::Allocator<Graph>(memory_).delete_object(graph);
+          }
           graph_v = std::move(other.graph_v);
           break;
+        }
         case Type::Function:
           function_v = std::move(other.function_v);
           break;
@@ -1213,6 +1224,10 @@ TypedValue operator+(const TypedValue &a, const TypedValue &b) {
 
   if (a.IsList() || b.IsList()) {
     TypedValue::TVector list(a.GetMemoryResource());
+
+    size_t const new_list_size{(a.IsList() ? a.ValueList().size() : 1) + (b.IsList() ? b.ValueList().size() : 1)};
+    list.reserve(new_list_size);
+
     auto append_list = [&list](const TypedValue &v) {
       if (v.IsList()) {
         auto list2 = v.ValueList();

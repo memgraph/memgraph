@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,15 +18,16 @@
 
 namespace memgraph::dbms {
 
-inline std::unique_ptr<storage::Storage> CreateInMemoryStorage(storage::Config config,
-                                                               ::memgraph::replication::ReplicationState &repl_state) {
+inline std::unique_ptr<storage::Storage> CreateInMemoryStorage(
+    storage::Config config,
+    const utils::Synchronized<::memgraph::replication::ReplicationState, utils::RWSpinLock> &repl_state) {
   const auto name = config.salient.name;
   auto storage = std::make_unique<storage::InMemoryStorage>(std::move(config));
 
   // Connect replication state and storage
   storage->CreateSnapshotHandler(
       [storage = storage.get(), &repl_state]() -> utils::BasicResult<storage::InMemoryStorage::CreateSnapshotError> {
-        return storage->CreateSnapshot(repl_state.GetRole());
+        return storage->CreateSnapshot(repl_state.ReadLock()->GetRole());
       });
 
   return std::move(storage);

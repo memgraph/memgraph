@@ -261,6 +261,9 @@ constexpr utils::TypeInfo query::DumpQuery::kType{utils::TypeId::AST_DUMP_QUERY,
 constexpr utils::TypeInfo query::ReplicationQuery::kType{utils::TypeId::AST_REPLICATION_QUERY, "ReplicationQuery",
                                                          &query::Query::kType};
 
+constexpr utils::TypeInfo query::ReplicationInfoQuery::kType{utils::TypeId::AST_REPLICATION_INFO_QUERY,
+                                                             "ReplicationInfoQuery", &query::Query::kType};
+
 constexpr utils::TypeInfo query::CoordinatorQuery::kType{utils::TypeId::AST_COORDINATOR_QUERY, "CoordinatorQuery",
                                                          &query::Query::kType};
 
@@ -320,6 +323,12 @@ constexpr utils::TypeInfo query::CallSubquery::kType{utils::TypeId::AST_CALL_SUB
 
 constexpr utils::TypeInfo query::MultiDatabaseQuery::kType{utils::TypeId::AST_MULTI_DATABASE_QUERY,
                                                            "MultiDatabaseQuery", &query::Query::kType};
+
+constexpr utils::TypeInfo query::UseDatabaseQuery::kType{utils::TypeId::AST_USE_DATABASE, "UseDatabaseQuery",
+                                                         &query::Query::kType};
+
+constexpr utils::TypeInfo query::ShowDatabaseQuery::kType{utils::TypeId::AST_SHOW_DATABASE, "ShowDatabaseQuery",
+                                                          &query::Query::kType};
 
 constexpr utils::TypeInfo query::ShowDatabasesQuery::kType{utils::TypeId::AST_SHOW_DATABASES, "ShowDatabasesQuery",
                                                            &query::Query::kType};

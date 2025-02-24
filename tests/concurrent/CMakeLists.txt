@@ -46,6 +46,9 @@ target_link_libraries(${test_prefix}skip_list_remove mg-utils)
 add_concurrent_test(skip_list_remove_competitive.cpp)
 target_link_libraries(${test_prefix}skip_list_remove_competitive mg-utils)
 
+add_concurrent_test(skip_list_find.cpp)
+target_link_libraries(${test_prefix}skip_list_find mg-utils)
+
 add_concurrent_test(spin_lock.cpp)
 target_link_libraries(${test_prefix}spin_lock mg-utils)
 

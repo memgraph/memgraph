@@ -491,7 +491,8 @@ int main(int argc, char **argv) {
   auto const &coordination_setup = memgraph::flags::CoordinationSetupInstance();
 #endif
   // singleton replication state
-  memgraph::replication::ReplicationState repl_state{ReplicationStateRootPath(db_config)};
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+      ReplicationStateRootPath(db_config)};
 
   int const extracted_bolt_port = [&]() {
     if (auto *maybe_env_bolt_port = std::getenv(kMgBoltPort); maybe_env_bolt_port) {
@@ -588,7 +589,7 @@ int main(int argc, char **argv) {
   auto db_acc = dbms_handler.Get();
 
   memgraph::query::InterpreterContextLifetimeControl interpreter_context_lifetime_control(
-      interp_config, &dbms_handler, &repl_state, system,
+      interp_config, &dbms_handler, repl_state, system,
 #ifdef MG_ENTERPRISE
       coordinator_state ? std::optional<std::reference_wrapper<CoordinatorState>>{std::ref(*coordinator_state)}
                         : std::nullopt,
@@ -667,7 +668,7 @@ int main(int argc, char **argv) {
   std::optional<memgraph::telemetry::Telemetry> telemetry;
   if (FLAGS_telemetry_enabled) {
     telemetry.emplace(telemetry_server, data_directory / "telemetry", memgraph::glue::run_id_, machine_id,
-                      service_name == "BoltS", FLAGS_data_directory, std::chrono::minutes(10));
+                      service_name == "BoltS", FLAGS_data_directory, std::chrono::hours(8), 1);
     telemetry->AddStorageCollector(dbms_handler, *auth_);
 #ifdef MG_ENTERPRISE
     telemetry->AddDatabaseCollector(dbms_handler);
@@ -679,6 +680,7 @@ int main(int argc, char **argv) {
     telemetry->AddQueryModuleCollector();
     telemetry->AddExceptionCollector();
     telemetry->AddReplicationCollector();
+    telemetry->Start();
   }
   memgraph::license::LicenseInfoSender license_info_sender(telemetry_server, memgraph::glue::run_id_, machine_id,
                                                            memory_limit,

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -48,6 +48,7 @@ struct SnapshotInfo {
   std::string uuid;
   std::string epoch_id;
   uint64_t start_timestamp;
+  uint64_t durable_timestamp;
   uint64_t edges_count;
   uint64_t vertices_count;
 };

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,8 +20,8 @@
 #include "replication_server.hpp"
 #include "status.hpp"
 #include "utils/result.hpp"
-#include "utils/synchronized.hpp"
 #include "utils/uuid.hpp"
+#include "utils/variant_helpers.hpp"
 
 #include <atomic>
 #include <cstdint>
@@ -38,12 +38,8 @@ enum class RegisterReplicaStatus : uint8_t { NAME_EXISTS, ENDPOINT_EXISTS, COULD
 
 struct RoleMainData {
   RoleMainData() = default;
-  explicit RoleMainData(ReplicationEpoch e, bool writing_enabled, std::optional<utils::UUID> uuid = std::nullopt)
-      : epoch_(std::move(e)), writing_enabled_(writing_enabled) {
-    if (uuid) {
-      uuid_ = *uuid;
-    }
-  }
+  explicit RoleMainData(ReplicationEpoch e, bool writing_enabled, utils::UUID uuid)
+      : epoch_(std::move(e)), uuid_(uuid), writing_enabled_(writing_enabled) {}
   ~RoleMainData() = default;
 
   RoleMainData(RoleMainData const &) = delete;
@@ -53,7 +49,8 @@ struct RoleMainData {
 
   ReplicationEpoch epoch_;
   std::list<ReplicationClient> registered_replicas_{};  // TODO: data race issues
-  utils::UUID uuid_;
+  utils::UUID uuid_;  // also used in ReplicationStorageClient but important thing is that at both places, the value is
+  // immutable.
   bool writing_enabled_{false};
 };
 
@@ -111,7 +108,17 @@ struct ReplicationState {
     return std::get<RoleMainData>(replication_data_);
   }
 
+  auto GetMainRole() const -> RoleMainData const & {
+    MG_ASSERT(IsMain(), "Instance is not MAIN");
+    return std::get<RoleMainData>(replication_data_);
+  }
+
   auto GetReplicaRole() -> RoleReplicaData & {
+    MG_ASSERT(!IsMain(), "Instance is MAIN");
+    return std::get<RoleReplicaData>(replication_data_);
+  }
+
+  auto GetReplicaRole() const -> RoleReplicaData const & {
     MG_ASSERT(!IsMain(), "Instance is MAIN");
     return std::get<RoleReplicaData>(replication_data_);
   }
@@ -131,16 +138,11 @@ struct ReplicationState {
   bool SetReplicationRoleReplica(const ReplicationServerConfig &config,
                                  const std::optional<utils::UUID> &main_uuid = std::nullopt);
 
-  auto TryLock() -> bool { return mutex_.try_lock(); }
-  auto Lock() -> void { mutex_.lock(); }
-  auto Unlock() -> void { mutex_.unlock(); }
-
  private:
   bool HandleVersionMigration(durability::ReplicationRoleEntry &data) const;
 
   std::unique_ptr<kvstore::KVStore> durability_;
   ReplicationData_t replication_data_;
-  std::mutex mutex_;
   std::atomic<RolePersisted> role_persisted = RolePersisted::UNKNOWN_OR_NO;
 };
 

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -701,6 +701,8 @@ TYPED_TEST(PrintToJsonTest, Aggregate) {
           {PROPERTY_LOOKUP(this->dba, "node", value), nullptr, Aggregation::Op::SUM, this->GetSymbol("sum")},
           {PROPERTY_LOOKUP(this->dba, "node", value), PROPERTY_LOOKUP(this->dba, "node", color),
            Aggregation::Op::COLLECT_MAP, this->GetSymbol("map")},
+          {PROPERTY_LOOKUP(this->dba, "node", value), PROPERTY_LOOKUP(this->dba, "node", color),
+           Aggregation::Op::PROJECT_LISTS, this->GetSymbol("project")},
           {nullptr, nullptr, Aggregation::Op::COUNT, this->GetSymbol("count")}},
       std::vector<Expression *>{PROPERTY_LOOKUP(this->dba, "node", type)}, std::vector<Symbol>{node_sym});
 
@@ -719,6 +721,13 @@ TYPED_TEST(PrintToJsonTest, Aggregate) {
                 "key" : "(PropertyLookup (Identifier \"node\") \"color\")",
                 "op" : "collect",
                 "output_symbol" : "map",
+                "distinct" : false
+              },
+              {
+                "nodes" : "(PropertyLookup (Identifier \"node\") \"value\")",
+                "relationships" : "(PropertyLookup (Identifier \"node\") \"color\")",
+                "op" : "project",
+                "output_symbol" : "project",
                 "distinct" : false
               },
               {
