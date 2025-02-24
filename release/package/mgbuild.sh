@@ -293,6 +293,8 @@ build_memgraph () {
   local for_docker=false
   local for_platform=false
   local copy_from_host=true
+  local init_flags="--ci"
+
   while [[ "$#" -gt 0 ]]; do
     case "$1" in
       --community)
@@ -341,6 +343,10 @@ build_memgraph () {
         copy_from_host=false
         shift 1
       ;;
+      --init-skip-prep-testing)
+        init_flags="$init_flags --skip-prep-testing"
+        shift 1
+      ;;
       *)
         echo "Error: Unknown flag '$1'"
         print_help
@@ -374,7 +380,7 @@ build_memgraph () {
   local SETUP_MGDEPS_CACHE_ENDPOINT="export MGDEPS_CACHE_HOST_PORT=$mgdeps_cache_host:$mgdeps_cache_port"
   # Fix issue with git marking directory as not safe
   docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && git config --global --add safe.directory '*'"
-  docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && $ACTIVATE_TOOLCHAIN && $SETUP_MGDEPS_CACHE_ENDPOINT && ./init --ci"
+  docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && $ACTIVATE_TOOLCHAIN && $SETUP_MGDEPS_CACHE_ENDPOINT && ./init $init_flags"
   if [[ "$init_only" == "true" ]]; then
     return
   fi

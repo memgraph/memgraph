@@ -35,6 +35,7 @@ function setup_virtualenv () {
 
 setup_libs=true
 ci=false
+prep_testing=true
 if [[ $# -eq 1 && "$1" == "-h" ]]; then
     print_help
     exit 0
@@ -48,6 +49,10 @@ else
           --ci)
               shift
               ci=true
+          ;;
+          --skip-prep-testing)
+              shift
+              prep_testing=false
           ;;
           *)
               # unknown option
@@ -96,13 +101,16 @@ else
   fi
 fi
 
-setup_virtualenv tests/gql_behave
-setup_virtualenv tests/stress
-setup_virtualenv tests/integration/ldap
-setup_virtualenv tests/query_modules
-cd tests
-./setup.sh
-cd ..
+if [[ "$prep_testing" == "true" ]]; then
+  setup_virtualenv tests/gql_behave
+  setup_virtualenv tests/stress
+  setup_virtualenv tests/integration/ldap
+  setup_virtualenv tests/query_modules
+  cd tests
+  ./setup.sh
+  cd ..
+fi
+
 echo "Done installing dependencies for Memgraph"
 
 echo "Linking git hooks OR skip if .git folder is not there"
