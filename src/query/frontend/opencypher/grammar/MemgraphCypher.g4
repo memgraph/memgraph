@@ -212,6 +212,7 @@ query : cypherQuery
       | dumpQuery
       | analyzeGraphQuery
       | replicationQuery
+      | replicationInfoQuery
       | lockPathQuery
       | freeMemoryQuery
       | triggerQuery
@@ -226,6 +227,8 @@ query : cypherQuery
       | showConfigQuery
       | transactionQueueQuery
       | multiDatabaseQuery
+      | useDatabase
+      | showDatabase
       | showDatabases
       | edgeImportModeQuery
       | coordinatorQuery
@@ -268,11 +271,13 @@ authQuery : createRole
           ;
 
 replicationQuery : setReplicationRole
-                 | showReplicationRole
                  | registerReplica
                  | dropReplica
-                 | showReplicas
                  ;
+
+replicationInfoQuery : showReplicationRole
+                     | showReplicas
+                     ;
 
 coordinatorQuery : registerInstanceOnCoordinator
                  | unregisterInstanceOnCoordinator
@@ -624,16 +629,14 @@ transactionIdList : transactionId ( ',' transactionId )* ;
 transactionId : literal ;
 
 multiDatabaseQuery : createDatabase
-                   | useDatabase
                    | dropDatabase
-                   | showDatabase
                    ;
 
 createDatabase : CREATE DATABASE databaseName ;
 
-useDatabase : USE DATABASE databaseName ;
-
 dropDatabase : DROP DATABASE databaseName ;
+
+useDatabase : USE DATABASE databaseName ;
 
 showDatabase : SHOW DATABASE ;
 

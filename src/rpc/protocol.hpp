@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,8 +12,6 @@
 #pragma once
 
 #include <chrono>
-#include <cstdint>
-#include <memory>
 
 #include "communication/session.hpp"
 #include "rpc/messages.hpp"
@@ -34,7 +32,7 @@ class Server;
 
 /**
  * This class is thrown when the Session wants to indicate that a fatal error
- * occured during execution.
+ * occurred during execution.
  */
 class SessionException : public utils::BasicException {
   using utils::BasicException::BasicException;

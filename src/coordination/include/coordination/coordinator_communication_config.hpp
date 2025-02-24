@@ -17,18 +17,15 @@
 #include "io/network/endpoint.hpp"
 #include "kvstore/kvstore.hpp"
 #include "replication_coordination_glue/mode.hpp"
-#include "utils/logging.hpp"
 #include "utils/string.hpp"
 #include "utils/uuid.hpp"
 
 #include <chrono>
 #include <cstdint>
-#include <optional>
 #include <string>
 #include <utility>
 
-#include <fmt/format.h>
-#include "json/json.hpp"
+#include <nlohmann/json.hpp>
 
 namespace memgraph::coordination {
 

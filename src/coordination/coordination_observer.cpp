@@ -14,7 +14,7 @@
 #include "coordination/coordination_observer.hpp"
 #include "coordination/coordinator_instance.hpp"
 
-#include "json/json.hpp"
+#include <nlohmann/json.hpp>
 
 namespace memgraph::coordination {
 

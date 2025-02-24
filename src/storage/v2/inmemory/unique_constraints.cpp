@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -45,8 +45,13 @@ bool LastCommittedVersionHasLabelProperty(const Vertex &vertex, LabelId label, c
   MG_ASSERT(properties.size() == value_array.size(), "Invalid database state!");
 
   PropertyIdArray property_array(properties.size());
+  size_t i = 0;
+  for (const auto &property : properties) {
+    property_array.values[i] = property;
+    ++i;
+  }
+
   bool current_value_equal_to_value[kUniqueConstraintsMaxProperties];
-  memset(current_value_equal_to_value, 0, sizeof(current_value_equal_to_value));
 
   // Since the commit lock is active, any transaction that tries to write to
   // a vertex which is part of the given `transaction` will result in a
@@ -66,8 +71,7 @@ bool LastCommittedVersionHasLabelProperty(const Vertex &vertex, LabelId label, c
     size_t i = 0;
     for (const auto &property : properties) {
       current_value_equal_to_value[i] = vertex.properties.IsPropertyEqual(property, value_array[i]);
-      property_array.values[i] = property;
-      i++;
+      ++i;
     }
   }
 
@@ -245,17 +249,11 @@ bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, const std::
 }  // namespace
 
 bool InMemoryUniqueConstraints::Entry::operator<(const Entry &rhs) const {
-  if (values < rhs.values) {
-    return true;
-  }
-  if (rhs.values < values) {
-    return false;
-  }
-  return std::make_tuple(vertex, timestamp) < std::make_tuple(rhs.vertex, rhs.timestamp);
+  return std::tie(values, vertex, timestamp) < std::tie(rhs.values, rhs.vertex, rhs.timestamp);
 }
 
 bool InMemoryUniqueConstraints::Entry::operator==(const Entry &rhs) const {
-  return values == rhs.values && vertex == rhs.vertex && timestamp == rhs.timestamp;
+  return std::tie(values, vertex, timestamp) == std::tie(rhs.values, rhs.vertex, rhs.timestamp);
 }
 
 bool InMemoryUniqueConstraints::Entry::operator<(const std::vector<PropertyValue> &rhs) const { return values < rhs; }
@@ -356,7 +354,7 @@ void InMemoryUniqueConstraints::AbortEntries(std::span<Vertex const *const> vert
     for (const auto &label : vertex->labels) {
       const auto &constraint = constraints_by_label_.find(label);
       if (constraint == constraints_by_label_.end()) {
-        return;
+        continue;
       }
 
       for (auto &[props, storage] : constraint->second) {
@@ -458,19 +456,29 @@ std::optional<ConstraintViolation> InMemoryUniqueConstraints::Validate(const Ver
         continue;
       }
 
-      auto acc = storage->access();
-      auto it = acc.find_equal_or_greater(*value_array);
-      for (; it != acc.end(); ++it) {
-        if (*value_array < it->values) {
-          break;
-        }
+      auto possible_conflicting = std::invoke([&] {
+        // NOLINTNEXTLINE(clang-analyzer-core.NullDereference)
+        auto acc = storage->access();
+        auto it = acc.find_equal_or_greater(*value_array);
+        std::unordered_set<Vertex const *> res;
+        for (; it != acc.end(); ++it) {
+          if (*value_array != it->values) {
+            break;
+          }
 
-        // The `vertex` that is going to be committed violates a unique constraint
-        // if it's different than a vertex indexed in the list of constraints and
-        // has the same label and property value as the last committed version of
-        // the vertex from the list.
-        if (&vertex != it->vertex &&
-            LastCommittedVersionHasLabelProperty(*it->vertex, label, properties, *value_array, tx, commit_timestamp)) {
+          // The `vertex` that is going to be committed violates a unique constraint
+          // if it's different than a vertex indexed in the list of constraints and
+          // has the same label and property value as the last committed version of
+          // the vertex from the list.
+          if (&vertex != it->vertex) {
+            res.insert(it->vertex);
+          }
+        }
+        return res;
+      });
+
+      for (auto const *v : possible_conflicting) {
+        if (LastCommittedVersionHasLabelProperty(*v, label, properties, *value_array, tx, commit_timestamp)) {
           return ConstraintViolation{ConstraintViolation::Type::UNIQUE, label, properties};
         }
       }

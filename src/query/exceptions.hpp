@@ -12,11 +12,18 @@
 #pragma once
 
 #include "utils/exceptions.hpp"
+#include "utils/message.hpp"
 
+#include <fmt/core.h>
 #include <fmt/format.h>
-#include <exception>
 
 namespace memgraph::query {
+
+template <class... Args>
+inline auto MessageWithDocsLink(fmt::format_string<Args...> fmt, Args &&...args) {
+  return fmt::format("{} For more details, visit https://memgraph.com/docs",
+                     fmt::format(fmt, std::forward<Args>(args)...));
+}
 
 /**
  * @brief Base class of all query language related exceptions. All exceptions
@@ -95,49 +102,71 @@ class UnprovidedParameterError : public QueryException {
   SPECIALIZE_GET_EXCEPTION_NAME(UnprovidedParameterError)
 };
 
-class ProfileInMulticommandTxException : public QueryException {
+class EnterpriseOnlyException : public QueryException {
  public:
-  using QueryException::QueryException;
-  ProfileInMulticommandTxException() : QueryException("PROFILE not allowed in multicommand transactions.") {}
+  EnterpriseOnlyException()
+      : QueryException("Query is part of the Enterprise feature. In order to run it, you need an Enterprise license.") {
+  }
+  SPECIALIZE_GET_EXCEPTION_NAME(EnterpriseOnlyException)
+};
+
+class MulticommandTxException : public QueryException {
+ public:
+  explicit MulticommandTxException(std::string_view query)
+      : QueryException(MessageWithDocsLink(
+            "{} is not allowed in multicommand transactions. A multicommand transaction, also known as an "
+            "explicit transaction, groups multiple commands into a single atomic operation. Instead, please use an "
+            "implicit transaction, also knwon as an auto committing transaction, in order to execute this particular "
+            "query.",
+            query)) {}
+  SPECIALIZE_GET_EXCEPTION_NAME(MulticommandTxException)
+};
+
+class DisabledForOnDisk : public QueryException {
+ public:
+  explicit DisabledForOnDisk(std::string_view query)
+      : QueryException(fmt::format("{} is not supported for the OnDisk storage mode. The query in question can be "
+                                   "executed only while in the InMemory storage mode.",  // Link to storage modes?
+                                   query)) {}
+  SPECIALIZE_GET_EXCEPTION_NAME(DisabledForOnDisk)
+};
+
+class ProfileInMulticommandTxException : public MulticommandTxException {
+ public:
+  ProfileInMulticommandTxException() : MulticommandTxException("Query profiling") {}
   SPECIALIZE_GET_EXCEPTION_NAME(ProfileInMulticommandTxException)
 };
 
-class IndexInMulticommandTxException : public QueryException {
+class IndexInMulticommandTxException : public MulticommandTxException {
  public:
-  using QueryException::QueryException;
-  IndexInMulticommandTxException() : QueryException("Index manipulation not allowed in multicommand transactions.") {}
+  IndexInMulticommandTxException() : MulticommandTxException("Index manipulation") {}
   SPECIALIZE_GET_EXCEPTION_NAME(IndexInMulticommandTxException)
 };
 
 class EdgeIndexDisabledPropertiesOnEdgesException : public QueryException {
  public:
-  using QueryException::QueryException;
   EdgeIndexDisabledPropertiesOnEdgesException()
-      : QueryException("Edge indices are allowed only if properties are allowed on edges.") {}
+      : QueryException(
+            MessageWithDocsLink("Edge index query forbidden. In order to use the edge indices please set the "
+                                "--storage-properties-on-edges flag to true.")) {}
   SPECIALIZE_GET_EXCEPTION_NAME(EdgeIndexDisabledPropertiesOnEdgesException)
 };
 
-class SchemaAssertInMulticommandTxException : public QueryException {
+class SchemaAssertInMulticommandTxException : public MulticommandTxException {
  public:
-  using QueryException::QueryException;
-  SchemaAssertInMulticommandTxException() : QueryException("SCHEMA.ASSERT not allowed in multicommand transactions.") {}
+  SchemaAssertInMulticommandTxException() : MulticommandTxException("Schema-related procedures call") {}
   SPECIALIZE_GET_EXCEPTION_NAME(SchemaAssertInMulticommandTxException)
 };
 
-class ConstraintInMulticommandTxException : public QueryException {
+class ConstraintInMulticommandTxException : public MulticommandTxException {
  public:
-  using QueryException::QueryException;
-  ConstraintInMulticommandTxException()
-      : QueryException(
-            "Constraint manipulation not allowed in multicommand "
-            "transactions.") {}
+  ConstraintInMulticommandTxException() : MulticommandTxException("Constraint manipulation") {}
   SPECIALIZE_GET_EXCEPTION_NAME(ConstraintInMulticommandTxException)
 };
 
-class InfoInMulticommandTxException : public QueryException {
+class InfoInMulticommandTxException : public MulticommandTxException {
  public:
-  using QueryException::QueryException;
-  InfoInMulticommandTxException() : QueryException("Info reporting not allowed in multicommand transactions.") {}
+  InfoInMulticommandTxException() : MulticommandTxException("Storage information query") {}
   SPECIALIZE_GET_EXCEPTION_NAME(InfoInMulticommandTxException)
 };
 
@@ -219,7 +248,9 @@ class ConcurrentSystemQueriesException : public QueryRuntimeException {
 class WriteVertexOperationInEdgeImportModeException : public QueryException {
  public:
   WriteVertexOperationInEdgeImportModeException()
-      : QueryException("Write operations on vertices are forbidden while the edge import mode is active.") {}
+      : QueryException(
+            "Write operations on nodes are forbidden while the edge import mode is active. To disable the edge import "
+            "mode, run the EDGE IMPORT MODE INACTIVE; query.") {}
   SPECIALIZE_GET_EXCEPTION_NAME(WriteVertexOperationInEdgeImportModeException)
 };
 
@@ -229,18 +260,15 @@ class WriteVertexOperationInEdgeImportModeException : public QueryException {
 class TransactionSerializationException : public RetryBasicException {
  public:
   TransactionSerializationException()
-      : RetryBasicException(
-            "Cannot resolve conflicting transactions. You can retry this transaction when the conflicting transaction "
-            "is finished") {}
+      : RetryBasicException(MessageWithDocsLink("Cannot resolve conflicting transactions. Retry this transaction when "
+                                                "the conflicting transaction is finished.")) {}
   SPECIALIZE_GET_EXCEPTION_NAME(TransactionSerializationException)
 };
 
 class ReconstructionException : public QueryException {
  public:
   ReconstructionException()
-      : QueryException(
-            "Record invalid after WITH clause. Most likely deleted by a "
-            "preceeding DELETE.") {}
+      : QueryException("Record invalid after WITH clause. Most likely deleted by a preceeding DELETE.") {}
   SPECIALIZE_GET_EXCEPTION_NAME(ReconstructionException)
 };
 
@@ -248,15 +276,13 @@ class RemoveAttachedVertexException : public QueryRuntimeException {
  public:
   RemoveAttachedVertexException()
       : QueryRuntimeException(
-            "Failed to remove node because of it's existing "
-            "connections. Consider using DETACH DELETE.") {}
+            "Failed to remove node because of it's existing connections. Consider using DETACH DELETE.") {}
   SPECIALIZE_GET_EXCEPTION_NAME(RemoveAttachedVertexException)
 };
 
-class UserModificationInMulticommandTxException : public QueryException {
+class UserModificationInMulticommandTxException : public MulticommandTxException {
  public:
-  UserModificationInMulticommandTxException()
-      : QueryException("Authentication clause not allowed in multicommand transactions.") {}
+  UserModificationInMulticommandTxException() : MulticommandTxException("Managing users") {}
   SPECIALIZE_GET_EXCEPTION_NAME(UserModificationInMulticommandTxException)
 };
 
@@ -267,78 +293,69 @@ class InvalidArgumentsException : public QueryException {
   SPECIALIZE_GET_EXCEPTION_NAME(InvalidArgumentsException)
 };
 
-class ReplicationModificationInMulticommandTxException : public QueryException {
+class ReplicationModificationInMulticommandTxException : public MulticommandTxException {
  public:
-  ReplicationModificationInMulticommandTxException()
-      : QueryException("Replication clause not allowed in multicommand transactions.") {}
+  ReplicationModificationInMulticommandTxException() : MulticommandTxException("Managing replication") {}
   SPECIALIZE_GET_EXCEPTION_NAME(ReplicationModificationInMulticommandTxException)
 };
 
-class CoordinatorModificationInMulticommandTxException : public QueryException {
+class CoordinatorModificationInMulticommandTxException : public MulticommandTxException {
  public:
-  CoordinatorModificationInMulticommandTxException()
-      : QueryException("Coordinator clause not allowed in multicommand transactions.") {}
+  CoordinatorModificationInMulticommandTxException() : MulticommandTxException("Managing coordinators") {}
   SPECIALIZE_GET_EXCEPTION_NAME(CoordinatorModificationInMulticommandTxException)
 };
 
-class ReplicationDisabledOnDiskStorage : public QueryException {
+class ReplicationDisabledOnDiskStorage : public DisabledForOnDisk {
  public:
-  ReplicationDisabledOnDiskStorage() : QueryException("Replication is not supported while in on-disk storage mode.") {}
+  ReplicationDisabledOnDiskStorage() : DisabledForOnDisk("Replication") {}
   SPECIALIZE_GET_EXCEPTION_NAME(ReplicationDisabledOnDiskStorage)
 };
 
-class LockPathModificationInMulticommandTxException : public QueryException {
+class LockPathModificationInMulticommandTxException : public MulticommandTxException {
  public:
-  LockPathModificationInMulticommandTxException()
-      : QueryException("Lock path query not allowed in multicommand transactions.") {}
+  LockPathModificationInMulticommandTxException() : MulticommandTxException("Locking paths") {}
   SPECIALIZE_GET_EXCEPTION_NAME(LockPathModificationInMulticommandTxException)
 };
 
-class LockPathDisabledOnDiskStorage : public QueryException {
+class LockPathDisabledOnDiskStorage : public DisabledForOnDisk {
  public:
-  LockPathDisabledOnDiskStorage()
-      : QueryException("Lock path disabled on disk storage since all data is already persisted. ") {}
+  LockPathDisabledOnDiskStorage() : DisabledForOnDisk("Locking paths") {}
   SPECIALIZE_GET_EXCEPTION_NAME(LockPathDisabledOnDiskStorage)
 };
 
-class FreeMemoryModificationInMulticommandTxException : public QueryException {
+class FreeMemoryModificationInMulticommandTxException : public MulticommandTxException {
  public:
-  FreeMemoryModificationInMulticommandTxException()
-      : QueryException("Free memory query not allowed in multicommand transactions.") {}
+  FreeMemoryModificationInMulticommandTxException() : MulticommandTxException("Free memory query") {}
   SPECIALIZE_GET_EXCEPTION_NAME(FreeMemoryModificationInMulticommandTxException)
 };
 
-class FreeMemoryDisabledOnDiskStorage : public QueryException {
+class FreeMemoryDisabledOnDiskStorage : public DisabledForOnDisk {
  public:
-  FreeMemoryDisabledOnDiskStorage() : QueryException("Free memory does nothing when using disk storage. ") {}
+  FreeMemoryDisabledOnDiskStorage() : DisabledForOnDisk("Free memory query") {}
   SPECIALIZE_GET_EXCEPTION_NAME(FreeMemoryDisabledOnDiskStorage)
 };
 
-class ShowConfigModificationInMulticommandTxException : public QueryException {
+class ShowConfigModificationInMulticommandTxException : public MulticommandTxException {
  public:
-  ShowConfigModificationInMulticommandTxException()
-      : QueryException("Show config query not allowed in multicommand transactions.") {}
+  ShowConfigModificationInMulticommandTxException() : MulticommandTxException("Configuration information query") {}
   SPECIALIZE_GET_EXCEPTION_NAME(ShowConfigModificationInMulticommandTxException)
 };
 
-class TriggerModificationInMulticommandTxException : public QueryException {
+class TriggerModificationInMulticommandTxException : public MulticommandTxException {
  public:
-  TriggerModificationInMulticommandTxException()
-      : QueryException("Trigger queries not allowed in multicommand transactions.") {}
+  TriggerModificationInMulticommandTxException() : MulticommandTxException("Managing triggers") {}
   SPECIALIZE_GET_EXCEPTION_NAME(ShowConfigModificationInMulticommandTxException)
 };
 
-class StreamQueryInMulticommandTxException : public QueryException {
+class StreamQueryInMulticommandTxException : public MulticommandTxException {
  public:
-  StreamQueryInMulticommandTxException()
-      : QueryException("Stream queries are not allowed in multicommand transactions.") {}
+  StreamQueryInMulticommandTxException() : MulticommandTxException("Managing streams") {}
   SPECIALIZE_GET_EXCEPTION_NAME(StreamQueryInMulticommandTxException)
 };
 
-class IsolationLevelModificationInMulticommandTxException : public QueryException {
+class IsolationLevelModificationInMulticommandTxException : public MulticommandTxException {
  public:
-  IsolationLevelModificationInMulticommandTxException()
-      : QueryException("Isolation level cannot be modified in multicommand transactions.") {}
+  IsolationLevelModificationInMulticommandTxException() : MulticommandTxException("Modifying isolation levels") {}
   SPECIALIZE_GET_EXCEPTION_NAME(IsolationLevelModificationInMulticommandTxException)
 };
 
@@ -352,90 +369,81 @@ class IsolationLevelModificationInAnalyticsException : public QueryException {
   SPECIALIZE_GET_EXCEPTION_NAME(IsolationLevelModificationInAnalyticsException)
 };
 
-class IsolationLevelModificationInDiskTransactionalException : public QueryException {
+class IsolationLevelModificationInDiskTransactionalException : public DisabledForOnDisk {
  public:
-  IsolationLevelModificationInDiskTransactionalException()
-      : QueryException("Snapshot isolation level is the only supported isolation level for disk storage.") {}
+  IsolationLevelModificationInDiskTransactionalException() : DisabledForOnDisk("Modifying snapshot isolation levels") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(IsolationLevelModificationInDiskTransactionalException)
 };
 
-class StorageModeModificationInMulticommandTxException : public QueryException {
+class StorageModeModificationInMulticommandTxException : public MulticommandTxException {
  public:
-  StorageModeModificationInMulticommandTxException()
-      : QueryException("Storage mode cannot be modified in multicommand transactions.") {}
+  StorageModeModificationInMulticommandTxException() : MulticommandTxException("Modifying storage modes") {}
   SPECIALIZE_GET_EXCEPTION_NAME(StorageModeModificationInMulticommandTxException)
 };
 
-class EdgeImportModeModificationInMulticommandTxException : public QueryException {
+class EdgeImportModeModificationInMulticommandTxException : public MulticommandTxException {
  public:
-  EdgeImportModeModificationInMulticommandTxException()
-      : QueryException("Edge import mode cannot be modified in multicommand transactions.") {}
+  EdgeImportModeModificationInMulticommandTxException() : MulticommandTxException("Changing the edge import mode") {}
   SPECIALIZE_GET_EXCEPTION_NAME(EdgeImportModeModificationInMulticommandTxException)
 };
 
-class CreateSnapshotInMulticommandTxException final : public QueryException {
+class CreateSnapshotInMulticommandTxException final : public MulticommandTxException {
  public:
-  CreateSnapshotInMulticommandTxException()
-      : QueryException("Snapshot cannot be created in multicommand transactions.") {}
+  CreateSnapshotInMulticommandTxException() : MulticommandTxException("Creating snapshots") {}
   SPECIALIZE_GET_EXCEPTION_NAME(CreateSnapshotInMulticommandTxException)
 };
 
-class CreateSnapshotDisabledOnDiskStorage final : public QueryException {
+class CreateSnapshotDisabledOnDiskStorage final : public DisabledForOnDisk {
  public:
-  CreateSnapshotDisabledOnDiskStorage() : QueryException("In the on-disk storage mode data is already persistent.") {}
+  CreateSnapshotDisabledOnDiskStorage() : DisabledForOnDisk("Creating snapshots") {}
   SPECIALIZE_GET_EXCEPTION_NAME(CreateSnapshotDisabledOnDiskStorage)
 };
 
-class RecoverSnapshotInMulticommandTxException final : public QueryException {
+class RecoverSnapshotInMulticommandTxException final : public MulticommandTxException {
  public:
-  RecoverSnapshotInMulticommandTxException()
-      : QueryException("Snapshot cannot be recovered in multicommand transactions.") {}
+  RecoverSnapshotInMulticommandTxException() : MulticommandTxException("Recovering from snapshot") {}
   SPECIALIZE_GET_EXCEPTION_NAME(RecoverSnapshotInMulticommandTxException)
 };
 
-class RecoverSnapshotDisabledOnDiskStorage final : public QueryException {
+class RecoverSnapshotDisabledOnDiskStorage final : public DisabledForOnDisk {
  public:
-  RecoverSnapshotDisabledOnDiskStorage() : QueryException("Snapshot recovery is not supported for on-disk") {}
+  RecoverSnapshotDisabledOnDiskStorage() : DisabledForOnDisk("Recoverying from snapshot") {}
   SPECIALIZE_GET_EXCEPTION_NAME(RecoverSnapshotDisabledOnDiskStorage)
 };
 
-class ShowSnapshotsInMulticommandTxException final : public QueryException {
+class ShowSnapshotsInMulticommandTxException final : public MulticommandTxException {
  public:
-  ShowSnapshotsInMulticommandTxException()
-      : QueryException("SHOW SNAPSHOTS not allowed in multicommand transactions.") {}
+  ShowSnapshotsInMulticommandTxException() : MulticommandTxException("Snapshots listing") {}
   SPECIALIZE_GET_EXCEPTION_NAME(ShowSnapshotsInMulticommandTxException)
 };
 
-class ShowSnapshotsDisabledOnDiskStorage final : public QueryException {
+class ShowSnapshotsDisabledOnDiskStorage final : public DisabledForOnDisk {
  public:
-  ShowSnapshotsDisabledOnDiskStorage() : QueryException("SHOW SNAPSHOTS is not supported for on-disk") {}
+  ShowSnapshotsDisabledOnDiskStorage() : DisabledForOnDisk("Snapshots listing") {}
   SPECIALIZE_GET_EXCEPTION_NAME(ShowSnapshotsDisabledOnDiskStorage)
 };
 
-class EdgeImportModeQueryDisabledOnDiskStorage final : public QueryException {
+class EdgeImportModeQueryDisabledOnDiskStorage final : public DisabledForOnDisk {
  public:
-  EdgeImportModeQueryDisabledOnDiskStorage()
-      : QueryException("Edge import mode is only allowed for on-disk storage mode.") {}
+  EdgeImportModeQueryDisabledOnDiskStorage() : DisabledForOnDisk("Edge import mode") {}
   SPECIALIZE_GET_EXCEPTION_NAME(EdgeImportModeQueryDisabledOnDiskStorage)
 };
 
-class SettingConfigInMulticommandTxException final : public QueryException {
+class SettingConfigInMulticommandTxException final : public MulticommandTxException {
  public:
-  SettingConfigInMulticommandTxException()
-      : QueryException("Settings cannot be changed or fetched in multicommand transactions.") {}
+  SettingConfigInMulticommandTxException() : MulticommandTxException("Updating or fetching settings") {}
   SPECIALIZE_GET_EXCEPTION_NAME(SettingConfigInMulticommandTxException)
 };
 
-class VersionInfoInMulticommandTxException : public QueryException {
+class VersionInfoInMulticommandTxException : public MulticommandTxException {
  public:
-  VersionInfoInMulticommandTxException()
-      : QueryException("Version info query not allowed in multicommand transactions.") {}
+  VersionInfoInMulticommandTxException() : MulticommandTxException("Version information query") {}
   SPECIALIZE_GET_EXCEPTION_NAME(VersionInfoInMulticommandTxException)
 };
 
-class AnalyzeGraphInMulticommandTxException : public QueryException {
+class AnalyzeGraphInMulticommandTxException : public MulticommandTxException {
  public:
-  AnalyzeGraphInMulticommandTxException()
-      : QueryException("Analyze graph query not allowed in multicommand transactions.") {}
+  AnalyzeGraphInMulticommandTxException() : MulticommandTxException("Analyzing graph") {}
   SPECIALIZE_GET_EXCEPTION_NAME(AnalyzeGraphInMulticommandTxException)
 };
 
@@ -450,7 +458,10 @@ class ReplicationException : public utils::BasicException {
 
 class WriteQueryOnReplicaException : public QueryException {
  public:
-  WriteQueryOnReplicaException() : QueryException("Write query forbidden on the replica!") {}
+  WriteQueryOnReplicaException()
+      : QueryException(
+            "Write queries are forbidden on the replica instance. Replica instances accept only read queries, while "
+            "the main instance accepts read and write queries. Please retry your query on the main instance.") {}
   SPECIALIZE_GET_EXCEPTION_NAME(WriteQueryOnReplicaException)
 };
 
@@ -458,40 +469,34 @@ class WriteQueryOnMainException : public QueryException {
  public:
   WriteQueryOnMainException()
       : QueryException(
-            "Write query forbidden on the main! Coordinator needs to enable writing on main by sending RPC message.") {}
+            "Write queries currently forbidden on the main instance. The cluster is in the process of setting up a new "
+            "main instance, please retry the query later on.") {}
   SPECIALIZE_GET_EXCEPTION_NAME(WriteQueryOnMainException)
 };
 
-class TransactionQueueInMulticommandTxException : public QueryException {
+class TransactionQueueInMulticommandTxException : public MulticommandTxException {
  public:
-  TransactionQueueInMulticommandTxException()
-      : QueryException("Transaction queue queries not allowed in multicommand transactions.") {}
+  TransactionQueueInMulticommandTxException() : MulticommandTxException("Querying transaction status") {}
   SPECIALIZE_GET_EXCEPTION_NAME(TransactionQueueInMulticommandTxException)
 };
 
-class IndexPersistenceException : public QueryException {
- public:
-  IndexPersistenceException() : QueryException("Persisting index on disk failed.") {}
-  SPECIALIZE_GET_EXCEPTION_NAME(IndexPersistenceException)
-};
-
-class ConstraintsPersistenceException : public QueryException {
- public:
-  ConstraintsPersistenceException() : QueryException("Persisting constraints on disk failed.") {}
-  SPECIALIZE_GET_EXCEPTION_NAME(ConstraintsPersistenceException)
-};
-
-class MultiDatabaseQueryInMulticommandTxException : public QueryException {
+class MultiDatabaseQueryInMulticommandTxException : public MulticommandTxException {
  public:
   MultiDatabaseQueryInMulticommandTxException()
-      : QueryException("Multi-database queries are not allowed in multicommand transactions.") {}
+      : MulticommandTxException("Creating/dropping databases") {}
   SPECIALIZE_GET_EXCEPTION_NAME(MultiDatabaseQueryInMulticommandTxException)
 };
-
-class DropGraphInMulticommandTxException : public QueryException {
+  
+class UseDatabaseQueryInMulticommandTxException : public MulticommandTxException {
  public:
-  DropGraphInMulticommandTxException()
-      : QueryException("Drop graph can not be executed in multicommand transactions.") {}
+  UseDatabaseQueryInMulticommandTxException()
+      : MulticommandTxException("Switching the currently active database") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(UseDatabaseQueryInMulticommandTxException)
+};
+
+class DropGraphInMulticommandTxException : public MulticommandTxException {
+ public:
+  DropGraphInMulticommandTxException() : MulticommandTxException("Dropping the graph") {}
   SPECIALIZE_GET_EXCEPTION_NAME(DropGraphInMulticommandTxException)
 };
 
@@ -503,8 +508,8 @@ class TextSearchException : public QueryException {
 class TextSearchDisabledException : public TextSearchException {
  public:
   TextSearchDisabledException()
-      : TextSearchException(
-            "To use text indices and text search, start Memgraph with the experimental text search feature enabled.") {}
+      : TextSearchException(MessageWithDocsLink(" To use text indices and text search, start Memgraph with the "
+                                                "--experimental-enabled='text-search' flag.")) {}
   SPECIALIZE_GET_EXCEPTION_NAME(TextSearchDisabledException)
 };
 
@@ -513,30 +518,27 @@ class VectorSearchException : public QueryException {
   SPECIALIZE_GET_EXCEPTION_NAME(VectorSearchException)
 };
 
-class EnumModificationInMulticommandTxException : public QueryException {
+class EnumModificationInMulticommandTxException : public MulticommandTxException {
  public:
-  EnumModificationInMulticommandTxException()
-      : QueryException("Enum creation or modifications can not be executed in multicommand transactions.") {}
+  EnumModificationInMulticommandTxException() : MulticommandTxException("Creating or modifying enums") {}
   SPECIALIZE_GET_EXCEPTION_NAME(EnumModificationInMulticommandTxException)
 };
 
-class TtlInMulticommandTxException : public QueryException {
+class TtlInMulticommandTxException : public MulticommandTxException {
  public:
-  TtlInMulticommandTxException()
-      : QueryException("TTL configuration can not be executed in multicommand transactions.") {}
+  TtlInMulticommandTxException() : MulticommandTxException("Configuring TTL") {}
   SPECIALIZE_GET_EXCEPTION_NAME(TtlInMulticommandTxException)
 };
 
-class ShowSchemaInfoOnDiskException : public QueryException {
+class ShowSchemaInfoOnDiskException : public DisabledForOnDisk {
  public:
-  ShowSchemaInfoOnDiskException() : QueryException("Show schema info is not supported for OnDisk.") {}
+  ShowSchemaInfoOnDiskException() : DisabledForOnDisk("Show schema info query") {}
   SPECIALIZE_GET_EXCEPTION_NAME(ShowSchemaInfoOnDiskException)
 };
 
-class ShowSchemaInfoInMulticommandTxException : public QueryException {
+class ShowSchemaInfoInMulticommandTxException : public MulticommandTxException {
  public:
-  ShowSchemaInfoInMulticommandTxException()
-      : QueryException("Show schema info cannot be executed in multicommand transactions.") {}
+  ShowSchemaInfoInMulticommandTxException() : MulticommandTxException("Show schema info query") {}
   SPECIALIZE_GET_EXCEPTION_NAME(ShowSchemaInfoInMulticommandTxException)
 };
 

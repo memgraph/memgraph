@@ -495,6 +495,13 @@ antlrcpp::Any CypherMainVisitor::visitReplicationQuery(MemgraphCypher::Replicati
   return replication_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitReplicationInfoQuery(MemgraphCypher::ReplicationInfoQueryContext *ctx) {
+  MG_ASSERT(ctx->children.size() == 1, "ReplicationInfoQuery should have exactly one child!");
+  auto *replication_info_query = std::any_cast<ReplicationInfoQuery *>(ctx->children[0]->accept(this));
+  query_ = replication_info_query;
+  return replication_info_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitCoordinatorQuery(MemgraphCypher::CoordinatorQueryContext *ctx) {
   MG_ASSERT(ctx->children.size() == 1, "CoordinatorQuery should have exactly one child!");
   auto *coordinator_query = std::any_cast<CoordinatorQuery *>(ctx->children[0]->accept(this));
@@ -546,12 +553,6 @@ antlrcpp::Any CypherMainVisitor::visitSetReplicationRole(MemgraphCypher::SetRepl
     }
   }
 
-  return replication_query;
-}
-
-antlrcpp::Any CypherMainVisitor::visitShowReplicationRole(MemgraphCypher::ShowReplicationRoleContext * /*ctx*/) {
-  auto *replication_query = storage_->Create<ReplicationQuery>();
-  replication_query->action_ = ReplicationQuery::Action::SHOW_REPLICATION_ROLE;
   return replication_query;
 }
 
@@ -655,9 +656,15 @@ antlrcpp::Any CypherMainVisitor::visitDropReplica(MemgraphCypher::DropReplicaCon
   return replication_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitShowReplicationRole(MemgraphCypher::ShowReplicationRoleContext * /*ctx*/) {
+  auto *replication_query = storage_->Create<ReplicationInfoQuery>();
+  replication_query->action_ = ReplicationInfoQuery::Action::SHOW_REPLICATION_ROLE;
+  return replication_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitShowReplicas(MemgraphCypher::ShowReplicasContext * /*ctx*/) {
-  auto *replication_query = storage_->Create<ReplicationQuery>();
-  replication_query->action_ = ReplicationQuery::Action::SHOW_REPLICAS;
+  auto *replication_query = storage_->Create<ReplicationInfoQuery>();
+  replication_query->action_ = ReplicationInfoQuery::Action::SHOW_REPLICAS;
   return replication_query;
 }
 
@@ -2208,7 +2215,10 @@ antlrcpp::Any CypherMainVisitor::visitNodeLabels(MemgraphCypher::NodeLabelsConte
       const auto *param_lookup = std::any_cast<ParameterLookup *>(node_label->accept(this));
       const auto label_name = parameters_->AtTokenPosition(param_lookup->token_position_).ValueString();
       labels.emplace_back(storage_->GetLabelIx(label_name));
-      query_info_.is_cacheable = false;  // We can't cache queries with label parameters.
+
+      // We can't cache queries with label parameters because these parameters are resolved during the parsing stage.
+      // The same parameter could be resolved to different values if the user changes its value.
+      query_info_.is_cacheable = false;
     } else {
       auto variable = std::any_cast<std::string>(label_name->variable()->accept(this));
       users_identifiers.insert(variable);
@@ -2419,7 +2429,7 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
 
   if (relationshipDetail->relationshipTypes()) {
     edge->edge_types_ =
-        std::any_cast<std::vector<EdgeTypeIx>>(ctx->relationshipDetail()->relationshipTypes()->accept(this));
+        std::any_cast<std::vector<QueryEdgeType>>(ctx->relationshipDetail()->relationshipTypes()->accept(this));
   }
 
   auto relationshipLambdas = relationshipDetail->relationshipLambda();
@@ -2550,9 +2560,30 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipLambda(MemgraphCypher::Relatio
 }
 
 antlrcpp::Any CypherMainVisitor::visitRelationshipTypes(MemgraphCypher::RelationshipTypesContext *ctx) {
-  std::vector<EdgeTypeIx> types;
+  std::vector<QueryEdgeType> types;
   for (auto *edge_type : ctx->relTypeName()) {
-    types.push_back(AddEdgeType(std::any_cast<std::string>(edge_type->accept(this))));
+    if (edge_type->symbolicName()) {
+      types.emplace_back(AddEdgeType(std::any_cast<std::string>(edge_type->accept(this))));
+    } else if (edge_type->parameter()) {
+      // If we have a parameter, we have to resolve it.
+      const auto *param_lookup = std::any_cast<ParameterLookup *>(edge_type->accept(this));
+      const auto edge_type_name = parameters_->AtTokenPosition(param_lookup->token_position_).ValueString();
+      types.emplace_back(storage_->GetEdgeTypeIx(edge_type_name));
+
+      // We can't cache queries with edge type parameters because these parameters are resolved during the parsing
+      // stage. The same parameter could be resolved to different values if the user changes its value.
+      query_info_.is_cacheable = false;
+    } else {
+      auto variable = std::any_cast<std::string>(edge_type->variable()->accept(this));
+      users_identifiers.insert(variable);
+      auto *expression = static_cast<Expression *>(storage_->Create<Identifier>(variable));
+      for (auto *lookup : edge_type->propertyLookup()) {
+        auto key = std::any_cast<PropertyIx>(lookup->accept(this));
+        auto *property_lookup = storage_->Create<PropertyLookup>(expression, key);
+        expression = property_lookup;
+      }
+      types.emplace_back(expression);
+    }
   }
   return types;
 }
@@ -2884,9 +2915,11 @@ antlrcpp::Any CypherMainVisitor::visitAtom(MemgraphCypher::AtomContext *ctx) {
     return static_cast<Expression *>(storage_->Create<EnumValueAccess>(std::move(enum_name), std::move(enum_value)));
   }
 
-  // TODO: Implement this. We don't support comprehensions, filtering... at
-  // the moment.
-  throw utils::NotYetImplemented("atom expression '{}'", ctx->getText());
+  // NOTE: Memgraph does NOT support patterns under filtering.
+  // To test run, e.g. MATCH (c) WHERE NOT ((c)-[:EdgeType]->(d)) RETURN c;
+  throw utils::NotYetImplemented(
+      "atom expression '{}'. Try to rewrite the query by using OPTIONAL MATCH, WITH and WHERE clauses.",
+      ctx->getText());
 }
 
 antlrcpp::Any CypherMainVisitor::visitParameter(MemgraphCypher::ParameterContext *ctx) {
@@ -3011,7 +3044,7 @@ antlrcpp::Any CypherMainVisitor::visitFunctionInvocation(MemgraphCypher::Functio
     }
     if (upper_function_name == Aggregation::kProject) {
       return static_cast<Expression *>(
-          storage_->Create<Aggregation>(expressions[0], nullptr, Aggregation::Op::PROJECT, is_distinct));
+          storage_->Create<Aggregation>(expressions[0], nullptr, Aggregation::Op::PROJECT_PATH, is_distinct));
     }
   }
 
@@ -3019,6 +3052,10 @@ antlrcpp::Any CypherMainVisitor::visitFunctionInvocation(MemgraphCypher::Functio
     if (upper_function_name == Aggregation::kCollect) {
       return static_cast<Expression *>(
           storage_->Create<Aggregation>(expressions[1], expressions[0], Aggregation::Op::COLLECT_MAP, is_distinct));
+    }
+    if (upper_function_name == Aggregation::kProject) {
+      return static_cast<Expression *>(
+          storage_->Create<Aggregation>(expressions[0], expressions[1], Aggregation::Op::PROJECT_LISTS, is_distinct));
     }
   }
 
@@ -3290,14 +3327,6 @@ antlrcpp::Any CypherMainVisitor::visitCreateDatabase(MemgraphCypher::CreateDatab
   return mdb_query;
 }
 
-antlrcpp::Any CypherMainVisitor::visitUseDatabase(MemgraphCypher::UseDatabaseContext *ctx) {
-  auto *mdb_query = storage_->Create<MultiDatabaseQuery>();
-  mdb_query->db_name_ = std::any_cast<std::string>(ctx->databaseName()->accept(this));
-  mdb_query->action_ = MultiDatabaseQuery::Action::USE;
-  query_ = mdb_query;
-  return mdb_query;
-}
-
 antlrcpp::Any CypherMainVisitor::visitDropDatabase(MemgraphCypher::DropDatabaseContext *ctx) {
   auto *mdb_query = storage_->Create<MultiDatabaseQuery>();
   mdb_query->db_name_ = std::any_cast<std::string>(ctx->databaseName()->accept(this));
@@ -3306,12 +3335,16 @@ antlrcpp::Any CypherMainVisitor::visitDropDatabase(MemgraphCypher::DropDatabaseC
   return mdb_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitUseDatabase(MemgraphCypher::UseDatabaseContext *ctx) {
+  auto *query = storage_->Create<UseDatabaseQuery>();
+  query->db_name_ = std::any_cast<std::string>(ctx->databaseName()->accept(this));
+  query_ = query;
+  return query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitShowDatabase(MemgraphCypher::ShowDatabaseContext * /*ctx*/) {
-  auto *mdb_query = storage_->Create<MultiDatabaseQuery>();
-  mdb_query->db_name_ = "";
-  mdb_query->action_ = MultiDatabaseQuery::Action::SHOW;
-  query_ = mdb_query;
-  return mdb_query;
+  query_ = storage_->Create<ShowDatabaseQuery>();
+  return query_;
 }
 
 antlrcpp::Any CypherMainVisitor::visitShowDatabases(MemgraphCypher::ShowDatabasesContext * /*ctx*/) {

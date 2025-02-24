@@ -18,7 +18,7 @@
 #include <spdlog/spdlog.h>
 #include <boost/beast/http.hpp>
 #include <boost/beast/version.hpp>
-#include <json/json.hpp>
+#include <nlohmann/json.hpp>
 
 #include <utils/event_counter.hpp>
 #include <utils/event_gauge.hpp>

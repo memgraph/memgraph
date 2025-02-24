@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -41,7 +41,8 @@ int main(int argc, char **argv) {
 
   memgraph::storage::Config db_config;
   memgraph::storage::UpdatePaths(db_config, data_directory);
-  memgraph::replication::ReplicationState repl_state(ReplicationStateRootPath(db_config));
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state(
+      ReplicationStateRootPath(db_config));
 
   memgraph::system::System system_state;
   memgraph::dbms::DbmsHandler dbms_handler(db_config, repl_state
@@ -50,7 +51,7 @@ int main(int argc, char **argv) {
                                            auth_, false
 #endif
   );
-  memgraph::query::InterpreterContext interpreter_context_({}, &dbms_handler, &repl_state, system_state
+  memgraph::query::InterpreterContext interpreter_context_({}, &dbms_handler, repl_state, system_state
 #ifdef MG_ENTERPRISE
                                                            ,
                                                            std::nullopt
@@ -82,6 +83,7 @@ int main(int argc, char **argv) {
   telemetry.AddQueryModuleCollector();
   telemetry.AddExceptionCollector();
   telemetry.AddReplicationCollector();
+  telemetry.Start();
 
   std::this_thread::sleep_for(std::chrono::seconds(FLAGS_duration));
 

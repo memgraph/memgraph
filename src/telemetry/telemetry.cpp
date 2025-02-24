@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,6 +11,7 @@
 
 #include "telemetry/telemetry.hpp"
 
+#include <chrono>
 #include <filesystem>
 #include <utility>
 
@@ -31,6 +32,10 @@
 #include "version.hpp"
 
 #include <mutex>
+
+namespace {
+constexpr auto kFirstShotAfter = std::chrono::seconds{60};
+}  // namespace
 
 namespace memgraph::telemetry {
 
@@ -56,9 +61,21 @@ Telemetry::Telemetry(std::string url, std::filesystem::path storage_directory, s
          metrics::global_one_shot_events[metrics::OneShotEvents::kFirstSuccessfulQueryTs].load()},
         {"first_failed_query", metrics::global_one_shot_events[metrics::OneShotEvents::kFirstFailedQueryTs].load()}};
   });
-  scheduler_.SetInterval(refresh_interval);
-  scheduler_.Run("Telemetry", [&] { CollectData(); });
+  scheduler_.Pause();  // Don't run until all collects have been added
+  scheduler_.SetInterval(
+      std::min(kFirstShotAfter, refresh_interval));  // use user-defined interval if shorter than first shot
+  scheduler_.Run("Telemetry", [this, final_interval = refresh_interval,
+                               update_interval = kFirstShotAfter < refresh_interval]() mutable {
+    CollectData();
+    // First run after 60s; all subsequent runs at the user-defined interval
+    if (update_interval) {
+      update_interval = false;
+      scheduler_.SetInterval(final_interval);
+    }
+  });
 }
+
+void Telemetry::Start() { scheduler_.Resume(); }
 
 void Telemetry::AddCollector(const std::string &name, const std::function<const nlohmann::json(void)> &func) {
   auto guard = std::lock_guard{lock_};
@@ -123,7 +140,7 @@ void Telemetry::CollectData(const std::string &event) {
       }
     }
   }
-  if (event == "") {
+  if (event.empty()) {
     StoreData(num_++, data);
   } else {
     StoreData(event, data);

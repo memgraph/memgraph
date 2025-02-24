@@ -12,10 +12,11 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
+#include "rpc_messages.hpp"
+
 #include "rpc/client.hpp"
 #include "rpc/server.hpp"
-
-#include "rpc_messages.hpp"
+#include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
 
 using memgraph::communication::ClientContext;
 using memgraph::communication::ServerContext;
@@ -76,7 +77,7 @@ TEST(RpcTimeout, TimeoutNoFailure) {
     Load(&req, req_reader);
 
     EchoMessage res{"Sending reply"};
-    Save(res, res_builder);
+    memgraph::rpc::SendFinalResponse(res, res_builder);
   });
 
   ASSERT_TRUE(rpc_server.Start());
@@ -108,7 +109,7 @@ TEST(RpcTimeout, TimeoutExecutionBlocks) {
 
     std::this_thread::sleep_for(1100ms);
     EchoMessage res{"Sending reply"};
-    Save(res, res_builder);
+    memgraph::rpc::SendFinalResponse(res, res_builder);
   });
 
   ASSERT_TRUE(rpc_server.Start());
@@ -139,7 +140,7 @@ TEST(RpcTimeout, TimeoutServerBusy) {
     Load(&req, req_reader);
     std::this_thread::sleep_for(2500ms);
     SumRes res(req.x + req.y);
-    Save(res, res_builder);
+    memgraph::rpc::SendFinalResponse(res, res_builder);
   });
 
   rpc_server.Register<Echo>([](auto *req_reader, auto *res_builder) {
@@ -148,7 +149,7 @@ TEST(RpcTimeout, TimeoutServerBusy) {
     Load(&req, req_reader);
 
     EchoMessage res{"Sending reply"};
-    Save(res, res_builder);
+    memgraph::rpc::SendFinalResponse(res, res_builder);
   });
 
   ASSERT_TRUE(rpc_server.Start());
@@ -188,7 +189,7 @@ TEST(RpcTimeout, SendingToWrongSocket) {
 
     std::this_thread::sleep_for(1100ms);
     EchoMessage res{"Sending reply"};
-    Save(res, res_builder);
+    memgraph::rpc::SendFinalResponse(res, res_builder);
   });
 
   ASSERT_TRUE(rpc_server.Start());

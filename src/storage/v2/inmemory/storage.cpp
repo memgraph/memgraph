@@ -12,6 +12,7 @@
 #include "storage/v2/inmemory/storage.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <filesystem>
 #include <functional>
@@ -659,7 +660,8 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
     transaction_.EnsureCommitTimestampExists();
 
     // ExistenceConstraints validation block
-    if (transaction_.constraint_verification_info &&
+    auto has_any_existence_constraints = !storage_->constraints_.existence_constraints_->empty();
+    if (has_any_existence_constraints && transaction_.constraint_verification_info &&
         transaction_.constraint_verification_info->NeedsExistenceConstraintVerification()) {
       const auto vertices_to_update =
           transaction_.constraint_verification_info->GetVerticesForExistenceConstraintChecking();
@@ -726,7 +728,8 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
 
       commit_timestamp_.emplace(mem_storage->GetCommitTimestamp());
 
-      if (transaction_.constraint_verification_info &&
+      auto has_any_unique_constraints = !storage_->constraints_.unique_constraints_->empty();
+      if (has_any_unique_constraints && transaction_.constraint_verification_info &&
           transaction_.constraint_verification_info->NeedsUniqueConstraintVerification()) {
         // Before committing and validating vertices against unique constraints,
         // we have to update unique constraints with the vertices that are going
@@ -743,6 +746,8 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
           // one else can touch it until we commit.
           unique_constraint_violation = mem_unique_constraints->Validate(*vertex, transaction_, *commit_timestamp_);
           if (unique_constraint_violation) {
+            auto vertices_to_remove = std::vector<Vertex const *>{vertices_to_update.begin(), vertices_to_update.end()};
+            storage_->constraints_.AbortEntries(vertices_to_remove, transaction_.start_timestamp);
             break;
           }
         }
@@ -969,16 +974,6 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
   // if we have no deltas then no need to do any undo work during Abort
   // note: this check also saves on unnecessary contention on `engine_lock_`
   if (!transaction_.deltas.empty()) {
-    // CONSTRAINTS
-    if (transaction_.constraint_verification_info &&
-        transaction_.constraint_verification_info->NeedsUniqueConstraintVerification()) {
-      // Need to remove elements from constraints before handling of the deltas, so the elements match the correct
-      // values
-      auto vertices_to_check = transaction_.constraint_verification_info->GetVerticesForUniqueConstraintChecking();
-      auto vertices_to_check_v = std::vector<Vertex const *>{vertices_to_check.begin(), vertices_to_check.end()};
-      storage_->constraints_.AbortEntries(vertices_to_check_v, transaction_.start_timestamp);
-    }
-
     const auto index_stats = storage_->indices_.Analysis();
 
     // We collect vertices and edges we've created here and then splice them into
@@ -1727,6 +1722,7 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
   // `timestamp`) below.
   uint64_t transaction_id = 0;
   uint64_t start_timestamp = 0;
+  uint64_t last_durable_ts = 0;
   std::optional<PointIndexContext> point_index_context;
   {
     auto guard = std::lock_guard{engine_lock_};
@@ -1734,6 +1730,8 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
     start_timestamp = timestamp_++;
     // IMPORTANT: this is retrieved while under the lock so that the index is consistant with the timestamp
     point_index_context = indices_.point_index_.CreatePointIndexContext();
+    // Needed by snapshot to sync the durable and logical ts
+    last_durable_ts = repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire);
   }
   DMG_ASSERT(point_index_context.has_value(), "Expected a value, even if got 0 point indexes");
   return {transaction_id,
@@ -1742,7 +1740,8 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
           storage_mode,
           false,
           !constraints_.empty(),
-          *std::move(point_index_context)};
+          *std::move(point_index_context),
+          last_durable_ts};
 }
 
 void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
@@ -2625,13 +2624,12 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
     vertex_id_ = recovery_info.next_vertex_id;
     edge_id_ = recovery_info.next_edge_id;
     timestamp_ = std::max(timestamp_, recovery_info.next_timestamp);
-    repl_storage_state_.last_durable_timestamp_ = recovery_info.next_timestamp - 1;
+    repl_storage_state_.last_durable_timestamp_ = recovered_snapshot.snapshot_info.durable_timestamp;
 
     spdlog::trace("Recovering indices and constraints from snapshot.");
-    durability::RecoverIndicesAndStats(recovered_snapshot.indices_constraints.indices, &indices_, &vertices_,
-                                       name_id_mapper_.get(), config_.salient.items.properties_on_edges);
-    durability::RecoverConstraints(recovered_snapshot.indices_constraints.constraints, &constraints_, &vertices_,
-                                   name_id_mapper_.get());
+    storage::durability::RecoverIndicesStatsAndConstraints(
+        &vertices_, name_id_mapper_.get(), &indices_, &constraints_, config_, recovery_info,
+        recovered_snapshot.indices_constraints, config_.salient.items.properties_on_edges);
 
     spdlog::trace("Successfully recovered from snapshot {}", local_path);
 
@@ -2687,7 +2685,7 @@ std::vector<SnapshotFileInfo> InMemoryStorage::ShowSnapshots() {
   auto dir_cleanup = utils::OnScopeExit{[&] { (void)locker_acc.RemovePath(recovery_.snapshot_directory_); }};
 
   // Add currently available snapshots
-  auto snapshot_files = durability::GetSnapshotFiles(recovery_.snapshot_directory_ /*, std::string(uuid())*/);
+  auto snapshot_files = durability::GetSnapshotFiles(recovery_.snapshot_directory_ /*, std::string(storage_uuid())*/);
   std::error_code ec;
   for (const auto &[snapshot_path, _, start_timestamp] : snapshot_files) {
     // Hacky solution to covert between different clocks

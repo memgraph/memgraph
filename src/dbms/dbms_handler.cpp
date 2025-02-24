@@ -22,6 +22,8 @@
 #include "system/include/system/system.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
+#include "utils/rw_spin_lock.hpp"
+#include "utils/synchronized.hpp"
 #include "utils/uuid.hpp"
 
 #include <mutex>
@@ -32,26 +34,6 @@ namespace {
 #ifdef MG_ENTERPRISE
 constexpr std::string_view kDBPrefix = "database:";  // Key prefix for database durability
 #endif
-
-std::string RegisterReplicaErrorToString(query::RegisterReplicaError error) {
-  switch (error) {
-    using enum query::RegisterReplicaError;
-    case NOT_MAIN:
-      return "NOT_MAIN";
-    case NAME_EXISTS:
-      return "NAME_EXISTS";
-    case ENDPOINT_EXISTS:
-      return "ENDPOINT_EXISTS";
-    case CONNECTION_FAILED:
-      return "CONNECTION_FAILED";
-    case COULD_NOT_BE_PERSISTED:
-      return "COULD_NOT_BE_PERSISTED";
-    case ERROR_ACCEPTING_MAIN:
-      return "ERROR_ACCEPTING_MAIN";
-    case NO_ACCESS:
-      return "NO_ACCESS";
-  }
-}
 
 // Per storage
 // NOTE Storage will connect to all replicas. Future work might change this
@@ -128,7 +110,7 @@ struct Durability {
 
     // Update from V0 to V1
     if (ver == DurabilityVersion::V0) {
-      for (const auto &[key, val] : *durability) {
+      for (const auto &[key, _] : *durability) {
         if (key == "version") continue;  // Reserved key
         // Generate a UUID
         auto const uuid = utils::UUID();
@@ -159,8 +141,9 @@ struct Durability {
   }
 };
 
-DbmsHandler::DbmsHandler(storage::Config config, replication::ReplicationState &repl_state, auth::SynchedAuth &auth,
-                         bool recovery_on_startup)
+DbmsHandler::DbmsHandler(storage::Config config,
+                         utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &repl_state,
+                         auth::SynchedAuth &auth, bool recovery_on_startup)
     : default_config_{std::move(config)}, auth_{auth}, repl_state_{repl_state} {
   // TODO: Decouple storage config from dbms config
   // TODO: Save individual db configs inside the kvstore and restore from there
@@ -444,8 +427,7 @@ void DbmsHandler::RestoreTriggers(query::InterpreterContext *ic) {
   {
     auto &db_gk = db_gatekeeper_;
 #endif
-    auto db_acc_opt = db_gk.access();
-    if (db_acc_opt) {
+    if (auto db_acc_opt = db_gk.access()) {
       auto &db_acc = *db_acc_opt;
       spdlog::debug("Restoring trigger for database \"{}\"", db_acc->name());
       auto storage_accessor = db_acc->Access();

@@ -12,6 +12,7 @@
 #pragma once
 
 #include <cstdint>
+#include <rpc/version.hpp>
 #include <string>
 #include <utility>
 
@@ -47,11 +48,17 @@ struct AppendDeltasRes {
   static void Load(AppendDeltasRes *self, memgraph::slk::Reader *reader);
   static void Save(const AppendDeltasRes &self, memgraph::slk::Builder *builder);
   AppendDeltasRes() = default;
-  AppendDeltasRes(bool success, uint64_t current_commit_timestamp)
-      : success(success), current_commit_timestamp(current_commit_timestamp) {}
+
+  explicit AppendDeltasRes(bool const success) : success(success) {}
 
   bool success;
-  uint64_t current_commit_timestamp;
+};
+
+struct InProgressRes {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  InProgressRes() = default;
 };
 
 using AppendDeltasRpc = rpc::RequestResponse<AppendDeltasReq, AppendDeltasRes>;
@@ -97,10 +104,11 @@ struct SnapshotReq {
   static void Load(SnapshotReq *self, memgraph::slk::Reader *reader);
   static void Save(const SnapshotReq &self, memgraph::slk::Builder *builder);
   SnapshotReq() = default;
-  explicit SnapshotReq(const utils::UUID &main_uuid, const utils::UUID &uuid) : main_uuid{main_uuid}, uuid{uuid} {}
+  explicit SnapshotReq(const utils::UUID &main_uuid, const utils::UUID &storage_uuid)
+      : main_uuid{main_uuid}, storage_uuid{storage_uuid} {}
 
   utils::UUID main_uuid;
-  utils::UUID uuid;
+  utils::UUID storage_uuid;
 };
 
 struct SnapshotRes {
@@ -126,8 +134,8 @@ struct WalFilesReq {
   static void Load(WalFilesReq *self, slk::Reader *reader);
   static void Save(const WalFilesReq &self, slk::Builder *builder);
   WalFilesReq() = default;
-  explicit WalFilesReq(const utils::UUID &main_uuid, const utils::UUID &uuid, uint64_t file_number)
-      : main_uuid{main_uuid}, uuid{uuid}, file_number(file_number) {}
+  explicit WalFilesReq(const utils::UUID &main_uuid, const utils::UUID &storage_uuid, uint64_t file_number)
+      : main_uuid{main_uuid}, uuid{storage_uuid}, file_number(file_number) {}
 
   utils::UUID main_uuid;
   utils::UUID uuid;

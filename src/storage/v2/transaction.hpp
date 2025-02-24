@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,11 +13,12 @@
 
 #include <atomic>
 #include <memory>
-#include <unordered_map>
+#include <optional>
 
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/schema_info.hpp"
 #include "utils/memory.hpp"
+#include "utils/query_memory_tracker.hpp"
 #include "utils/skip_list.hpp"
 
 #include "delta_container.hpp"
@@ -46,7 +47,7 @@ const uint64_t kTransactionInitialId = 1ULL << 63U;
 struct Transaction {
   Transaction(uint64_t transaction_id, uint64_t start_timestamp, IsolationLevel isolation_level,
               StorageMode storage_mode, bool edge_import_mode_active, bool has_constraints,
-              PointIndexContext point_index_ctx)
+              PointIndexContext point_index_ctx, std::optional<uint64_t> last_durable_ts = std::nullopt)
       : transaction_id(transaction_id),
         start_timestamp(start_timestamp),
         command_id(0),
@@ -64,7 +65,8 @@ struct Transaction {
                    ? std::optional<utils::SkipList<Edge>>{std::in_place}
                    : std::nullopt},
         point_index_ctx_{std::move(point_index_ctx)},
-        point_index_change_collector_{point_index_ctx_} {}
+        point_index_change_collector_{point_index_ctx_},
+        last_durable_ts_{last_durable_ts} {}
 
   Transaction(Transaction &&other) noexcept = default;
 
@@ -151,6 +153,12 @@ struct Transaction {
   /// Tracking schema changes done during the transaction
   LocalSchemaTracking schema_diff_;
   std::unordered_set<SchemaInfoPostProcess> post_process_;
+
+  /// Query memory tracker
+  std::unique_ptr<utils::QueryMemoryTracker> query_memory_tracker_{};
+
+  /// Last durable timestamp at the moment of transaction creation
+  std::optional<uint64_t> last_durable_ts_;
 };
 
 inline bool operator==(const Transaction &first, const Transaction &second) {

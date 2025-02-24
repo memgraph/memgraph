@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,6 +21,7 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "utils/logging.hpp"
+#include "utils/synchronized.hpp"
 
 std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "expansion-benchmark"};
 
@@ -31,7 +32,8 @@ class ExpansionBenchFixture : public benchmark::Fixture {
   std::optional<memgraph::query::InterpreterContext> interpreter_context;
   std::optional<memgraph::query::Interpreter> interpreter;
   std::optional<memgraph::utils::Gatekeeper<memgraph::dbms::Database>> db_gk;
-  std::optional<memgraph::replication::ReplicationState> repl_state;
+  std::optional<memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock>>
+      repl_state;
 
   void SetUp(const benchmark::State &state) override {
     repl_state.emplace(std::nullopt);  // No need for a storage directory, since we are not replicating or restoring
@@ -45,7 +47,7 @@ class ExpansionBenchFixture : public benchmark::Fixture {
 
     system.emplace();
     auth_checker.emplace();
-    interpreter_context.emplace(memgraph::query::InterpreterConfig{}, nullptr, &repl_state.value(), *system
+    interpreter_context.emplace(memgraph::query::InterpreterConfig{}, nullptr, repl_state.value(), *system
 #ifdef MG_ENTERPRISE
                                 ,
                                 std::nullopt
