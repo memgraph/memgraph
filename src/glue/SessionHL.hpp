@@ -92,6 +92,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
                               // Many variants of queries
                               // Cypher -> low
                               // all others -> high
+                              // TODO low also unique or system queries
                               return utils::Downcast<query::CypherQuery>(parse_info.parsed_query.query)
                                          ? utils::Priority::LOW
                                          : utils::Priority::HIGH;

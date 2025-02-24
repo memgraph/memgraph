@@ -339,13 +339,13 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
 
   void DoWork() {
     worker_pool_->ScheduledAddTask(
-        [shared_this = shared_from_this()]() {
+        [shared_this = shared_from_this()](const auto thread_priority) {
           try {
             while (true) {
               if (shared_this->session_.Execute()) {
                 // Schedule next work
                 // We can just steal this if the task and thread proproty match (loop through)
-                if (utils::PriorityThreadPool::Worker::priority > shared_this->session_.ApproximateQueryPriority()) {
+                if (thread_priority > shared_this->session_.ApproximateQueryPriority()) {
                   // TODO Think if it is better to use post or schedule it ourselves
                   boost::asio::post(shared_this->strand_, [shared_this]() { shared_this->DoWork(); });
                   return;
