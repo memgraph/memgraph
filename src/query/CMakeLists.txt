@@ -94,7 +94,7 @@ target_link_libraries(mg-query
     dl
     cppitertools
     rangev3
-    Python3::Python
+#    Python3::Python
     mg-integrations-pulsar
     mg-integrations-kafka
     mg-storage-v2
