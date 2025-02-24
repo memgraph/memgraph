@@ -59,6 +59,7 @@ constexpr std::string_view kDown{"down"};
 }  // namespace
 
 using nuraft::ptr;
+using namespace std::chrono_literals;
 
 CoordinatorInstance::CoordinatorInstance(CoordinatorInstanceInitConfig const &config)
     : instance_down_timeout_sec_(config.instance_down_timeout_sec),
@@ -677,89 +678,71 @@ auto CoordinatorInstance::RegisterReplicationInstance(DataInstanceConfig const &
 
 auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instance_name)
     -> UnregisterInstanceCoordinatorStatus {
+  if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
+    return UnregisterInstanceCoordinatorStatus::NOT_LEADER;
+  }
+
   spdlog::trace("Acquiring lock to unregister instance in thread {} 1st time", std::this_thread::get_id());
+  auto lock = std::lock_guard{coord_instance_lock_};
+  spdlog::trace("Acquired lock to unregister instance in thread {} 1st time", std::this_thread::get_id());
 
-  std::optional<std::reference_wrapper<ReplicationInstanceConnector>> maybe_instance;
-  {
-    // 1st time we acquire the lock in order to find replication instance which the user wants to unregister
-    auto lock = std::lock_guard{coord_instance_lock_};
-    spdlog::trace("Acquired lock to unregister instance in thread {} 1st time", std::this_thread::get_id());
-
-    if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
-      return UnregisterInstanceCoordinatorStatus::NOT_LEADER;
-    }
-
-    maybe_instance = FindReplicationInstance(instance_name);
-    if (!maybe_instance) {
-      return UnregisterInstanceCoordinatorStatus::NO_INSTANCE_WITH_NAME;
-    }
+  auto maybe_instance = FindReplicationInstance(instance_name);
+  if (!maybe_instance) {
+    return UnregisterInstanceCoordinatorStatus::NO_INSTANCE_WITH_NAME;
   }
+
   auto &inst_to_remove = maybe_instance->get();
-  // Stopping scheduler must not be executed under the lock.
-  inst_to_remove.StopStateCheck();
 
-  spdlog::trace("Acquiring lock to unregister instance in thread {} 2nd time", std::this_thread::get_id());
-  {
-    // 2nd time the lock is hold because the in-memory state is modified.
-    auto lock = std::lock_guard{coord_instance_lock_};
-    spdlog::trace("Acquired lock to unregister instance in thread {} 2nd time", std::this_thread::get_id());
-    auto const is_current_main = [this](auto const &instance) {
-      return raft_state_->IsCurrentMain(instance.InstanceName()) && instance.IsAlive();
-    };
+  auto const is_current_main = [this](auto const &instance) {
+    return raft_state_->IsCurrentMain(instance.InstanceName()) && instance.IsAlive();
+  };
 
-    // Cannot unregister current main
-    if (is_current_main(inst_to_remove)) {
-      inst_to_remove.StartStateCheck();
-      return UnregisterInstanceCoordinatorStatus::IS_MAIN;
-    }
-
-    auto curr_main = std::ranges::find_if(repl_instances_, is_current_main);
-    // If there is no main in the cluster, the replica cannot be unregistered. We would commit the state without replica
-    // in Raft but the in-memory state would still contain it.
-    if (curr_main == repl_instances_.end()) {
-      inst_to_remove.StartStateCheck();
-      return UnregisterInstanceCoordinatorStatus::NO_MAIN;
-    }
-
-    auto old_data_instances = raft_state_->GetDataInstancesContext();
-    // Intentional copy
-    auto new_data_instances = old_data_instances;
-    auto const [first, last] = std::ranges::remove_if(new_data_instances, [instance_name](auto const &data_instance) {
-      return data_instance.config.instance_name == instance_name;
-    });
-    new_data_instances.erase(first, last);
-
-    auto const curr_main_uuid = raft_state_->GetCurrentMainUUID();
-
-    auto coordinator_instances = raft_state_->GetCoordinatorInstancesContext();
-    // Append new cluster state. We may need to restore old state if something goes wrong.
-    if (!raft_state_->AppendClusterUpdate(std::move(new_data_instances), coordinator_instances, curr_main_uuid)) {
-      inst_to_remove.StartStateCheck();
-      return UnregisterInstanceCoordinatorStatus::RAFT_LOG_ERROR;
-    }
-
-    auto const name_matches = [instance_name](auto const &instance) {
-      return instance.InstanceName() == instance_name;
-    };
-
-    // The network could be down or the request could fail because of some strange reason. In that case, we try to bring
-    // back old raft state
-    if (curr_main->SendUnregisterReplicaRpc(instance_name)) {
-      std::erase_if(repl_instances_, name_matches);
-      return UnregisterInstanceCoordinatorStatus::SUCCESS;
-    }
-
-    if (!raft_state_->AppendClusterUpdate(std::move(old_data_instances), std::move(coordinator_instances),
-                                          curr_main_uuid)) {
-      LOG_FATAL(
-          "Coordinator instances cannot be brought into the consistent state before unregistration started. Please "
-          "restart coordinators with fresh data directory and reconnect the cluster. Data on main and replicas will be "
-          "preserved.");
-    }
-
-    inst_to_remove.StartStateCheck();
-    return UnregisterInstanceCoordinatorStatus::RPC_FAILED;
+  // Cannot unregister current main
+  if (is_current_main(inst_to_remove)) {
+    return UnregisterInstanceCoordinatorStatus::IS_MAIN;
   }
+
+  auto curr_main = std::ranges::find_if(repl_instances_, is_current_main);
+  // If there is no main in the cluster, the replica cannot be unregistered. We would commit the state without replica
+  // in Raft but the in-memory state would still contain it.
+  if (curr_main == repl_instances_.end()) {
+    return UnregisterInstanceCoordinatorStatus::NO_MAIN;
+  }
+
+  auto old_data_instances = raft_state_->GetDataInstancesContext();
+  // Intentional copy
+  auto new_data_instances = old_data_instances;
+  auto const [first, last] = std::ranges::remove_if(new_data_instances, [instance_name](auto const &data_instance) {
+    return data_instance.config.instance_name == instance_name;
+  });
+  new_data_instances.erase(first, last);
+
+  auto const curr_main_uuid = raft_state_->GetCurrentMainUUID();
+
+  auto coordinator_instances = raft_state_->GetCoordinatorInstancesContext();
+  // Append new cluster state. We may need to restore old state if something goes wrong.
+  if (!raft_state_->AppendClusterUpdate(std::move(new_data_instances), coordinator_instances, curr_main_uuid)) {
+    return UnregisterInstanceCoordinatorStatus::RAFT_LOG_ERROR;
+  }
+
+  auto const name_matches = [instance_name](auto const &instance) { return instance.InstanceName() == instance_name; };
+
+  // The network could be down or the request could fail because of some strange reason. In that case, we try to bring
+  // back old raft state
+  if (curr_main->SendUnregisterReplicaRpc(instance_name)) {
+    std::erase_if(repl_instances_, name_matches);
+    return UnregisterInstanceCoordinatorStatus::SUCCESS;
+  }
+
+  if (!raft_state_->AppendClusterUpdate(std::move(old_data_instances), std::move(coordinator_instances),
+                                        curr_main_uuid)) {
+    LOG_FATAL(
+        "Coordinator instances cannot be brought into the consistent state before unregistration started. Please "
+        "restart coordinators with fresh data directory and reconnect the cluster. Data on main and replicas will be "
+        "preserved.");
+  }
+
+  return UnregisterInstanceCoordinatorStatus::RPC_FAILED;
 }
 
 auto CoordinatorInstance::RemoveCoordinatorInstance(int coordinator_id) const -> RemoveCoordinatorInstanceStatus {
@@ -896,36 +879,96 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
     return;
   }
 
-  auto lock = std::unique_lock{coord_instance_lock_};
+  auto lock = std::unique_lock{coord_instance_lock_, std::defer_lock};
+  if (!lock.try_lock_for(500ms)) {
+    spdlog::trace("Failed to acquire lock in InstanceSuccessCallback in 500ms");
+  } else {
+    auto const maybe_instance = FindReplicationInstance(instance_name);
+    MG_ASSERT(maybe_instance.has_value(), "Couldn't find instance {} in local storage.", instance_name);
+    auto &instance = maybe_instance->get();
 
-  auto const maybe_instance = FindReplicationInstance(instance_name);
-  MG_ASSERT(maybe_instance.has_value(), "Couldn't find instance {} in local storage.", instance_name);
-  auto &instance = maybe_instance->get();
+    spdlog::trace("Instance {} performing success callback in thread {}.", instance_name, std::this_thread::get_id());
 
-  spdlog::trace("Instance {} performing success callback in thread {}.", instance_name, std::this_thread::get_id());
+    instance.OnSuccessPing();
 
-  instance.OnSuccessPing();
+    auto const curr_main_uuid = raft_state_->GetCurrentMainUUID();
 
-  auto const curr_main_uuid = raft_state_->GetCurrentMainUUID();
+    if (raft_state_->IsCurrentMain(instance_name)) {
+      // According to raft, this is the current MAIN
+      // Check if a promotion is needed:
+      //  - instance is actually a replica
+      //  - instance is main, but has stale state (missed a failover)
+      if (!instance_state->is_replica && instance_state->is_writing_enabled && instance_state->uuid &&
+          *instance_state->uuid == curr_main_uuid) {
+        // Promotion not needed
+        return;
+      }
+      auto const is_not_main = [instance_name](auto &&instance) { return instance.InstanceName() != instance_name; };
+      auto repl_clients_info = repl_instances_ | ranges::views::filter(is_not_main) |
+                               ranges::views::transform(&ReplicationInstanceConnector::GetReplicationClientInfo) |
+                               ranges::to<ReplicationClientsInfo>();
 
-  if (raft_state_->IsCurrentMain(instance_name)) {
-    // According to raft, this is the current MAIN
-    // Check if a promotion is needed:
-    //  - instance is actually a replica
-    //  - instance is main, but has stale state (missed a failover)
-    if (!instance_state->is_replica && instance_state->is_writing_enabled && instance_state->uuid &&
-        *instance_state->uuid == curr_main_uuid) {
-      // Promotion not needed
-      return;
+      if (!instance.SendPromoteToMainRpc(curr_main_uuid, std::move(repl_clients_info))) {
+        spdlog::error("Failed to promote instance to main with new uuid {}. Trying to do failover again.",
+                      std::string{curr_main_uuid});
+        switch (TryFailover()) {
+          case FailoverStatus::SUCCESS: {
+            spdlog::trace("Failover successful after failing to promote main instance.");
+            break;
+          };
+          case FailoverStatus::NO_INSTANCE_ALIVE: {
+            spdlog::trace("Failover failed because no instance is alive.");
+            break;
+          };
+          case FailoverStatus::RAFT_FAILURE: {
+            spdlog::trace("Writing to Raft failed during failover.");
+            break;
+          };
+        };
+        return;
+      }
+    } else {
+      // According to raft, the instance should be replica
+      if (!instance_state->is_replica) {
+        // If instance is not replica, demote it to become replica. If request for demotion failed, return,
+        // and you will simply retry on the next ping.
+        if (!instance.SendDemoteToReplicaRpc()) {
+          spdlog::error("Couldn't demote instance {} to replica.", instance_name);
+          return;
+        }
+      }
+
+      if (!instance_state->uuid || *instance_state->uuid != curr_main_uuid) {
+        if (!instance.SendSwapAndUpdateUUID(curr_main_uuid)) {
+          spdlog::error("Failed to set new uuid for replica instance {} to {}.", instance_name,
+                        std::string{curr_main_uuid});
+          return;
+        }
+      }
     }
-    auto const is_not_main = [instance_name](auto &&instance) { return instance.InstanceName() != instance_name; };
-    auto repl_clients_info = repl_instances_ | ranges::views::filter(is_not_main) |
-                             ranges::views::transform(&ReplicationInstanceConnector::GetReplicationClientInfo) |
-                             ranges::to<ReplicationClientsInfo>();
+  }
+}
 
-    if (!instance.SendPromoteToMainRpc(curr_main_uuid, std::move(repl_clients_info))) {
-      spdlog::error("Failed to promote instance to main with new uuid {}. Trying to do failover again.",
-                    std::string{curr_main_uuid});
+void CoordinatorInstance::InstanceFailCallback(std::string_view instance_name,
+                                               const std::optional<InstanceState> & /*instance_state*/) {
+  if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
+    spdlog::trace("Leader is not ready, not executing instance fail callback.");
+    return;
+  }
+
+  auto lock = std::unique_lock{coord_instance_lock_, std::defer_lock};
+  if (!lock.try_lock_for(500ms)) {
+    spdlog::trace("Failed to acquire lock in InstanceFailCallback in 500ms");
+  } else {
+    auto const maybe_instance = FindReplicationInstance(instance_name);
+    MG_ASSERT(maybe_instance.has_value(), "Couldn't find instance {} in local storage.", instance_name);
+    auto &instance = maybe_instance->get();
+
+    spdlog::trace("Instance {} performing fail callback in thread {}.", instance_name, std::this_thread::get_id());
+    instance.OnFailPing();
+
+    if (raft_state_->IsCurrentMain(instance_name) && !instance.IsAlive()) {
+      spdlog::trace("Cluster without main instance, trying failover.");
       switch (TryFailover()) {
         case FailoverStatus::SUCCESS: {
           spdlog::trace("Failover successful after failing to promote main instance.");
@@ -940,64 +983,10 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
           break;
         };
       };
-      return;
-    }
-  } else {
-    // According to raft, the instance should be replica
-    if (!instance_state->is_replica) {
-      // If instance is not replica, demote it to become replica. If request for demotion failed, return,
-      // and you will simply retry on the next ping.
-      if (!instance.SendDemoteToReplicaRpc()) {
-        spdlog::error("Couldn't demote instance {} to replica.", instance_name);
-        return;
-      }
     }
 
-    if (!instance_state->uuid || *instance_state->uuid != curr_main_uuid) {
-      if (!instance.SendSwapAndUpdateUUID(curr_main_uuid)) {
-        spdlog::error("Failed to set new uuid for replica instance {} to {}.", instance_name,
-                      std::string{curr_main_uuid});
-        return;
-      }
-    }
+    spdlog::trace("Instance {} finished fail callback.", instance_name);
   }
-}
-
-void CoordinatorInstance::InstanceFailCallback(std::string_view instance_name,
-                                               const std::optional<InstanceState> & /*instance_state*/) {
-  if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
-    spdlog::trace("Leader is not ready, not executing instance fail callback.");
-    return;
-  }
-
-  auto lock = std::unique_lock{coord_instance_lock_};
-
-  auto const maybe_instance = FindReplicationInstance(instance_name);
-  MG_ASSERT(maybe_instance.has_value(), "Couldn't find instance {} in local storage.", instance_name);
-  auto &instance = maybe_instance->get();
-
-  spdlog::trace("Instance {} performing fail callback in thread {}.", instance_name, std::this_thread::get_id());
-  instance.OnFailPing();
-
-  if (raft_state_->IsCurrentMain(instance_name) && !instance.IsAlive()) {
-    spdlog::trace("Cluster without main instance, trying failover.");
-    switch (TryFailover()) {
-      case FailoverStatus::SUCCESS: {
-        spdlog::trace("Failover successful after failing to promote main instance.");
-        break;
-      };
-      case FailoverStatus::NO_INSTANCE_ALIVE: {
-        spdlog::trace("Failover failed because no instance is alive.");
-        break;
-      };
-      case FailoverStatus::RAFT_FAILURE: {
-        spdlog::trace("Writing to Raft failed during failover.");
-        break;
-      };
-    };
-  }
-
-  spdlog::trace("Instance {} finished fail callback.", instance_name);
 }
 
 auto CoordinatorInstance::ChooseMostUpToDateInstance(std::span<InstanceNameDbHistories> instance_database_histories)
