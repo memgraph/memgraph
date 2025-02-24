@@ -3734,6 +3734,10 @@ mgp_error mgp_graph_iter_vertices(mgp_graph *graph, mgp_memory *memory, mgp_vert
   return WrapExceptions([graph, memory] { return NewRawMgpObject<mgp_vertices_iterator>(memory, graph); }, result);
 }
 
+mgp_error mgp_graph_count_vertices(mgp_graph *graph, size_t *result) {
+  return WrapExceptions([graph, result] { *result = graph->getImpl()->VerticesCount(); });
+}
+
 mgp_error mgp_vertices_iterator_underlying_graph_is_mutable(mgp_vertices_iterator *it, int *result) {
   return mgp_graph_is_mutable(it->graph, result);
 }

@@ -16,6 +16,8 @@
 /// their properties are implemented.
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
 #include "mg_exceptions.hpp"
 #include "mg_procedure.h"
 
@@ -333,6 +335,8 @@ inline mgp_map *graph_aggregate_over_text_index(mgp_graph *graph, const char *in
 inline mgp_vertices_iterator *graph_iter_vertices(mgp_graph *g, mgp_memory *memory) {
   return MgInvoke<mgp_vertices_iterator *>(mgp_graph_iter_vertices, g, memory);
 }
+
+inline size_t graph_count_vertices(mgp_graph *g) { return MgInvoke<size_t>(mgp_graph_count_vertices, g); }
 
 // vector index
 

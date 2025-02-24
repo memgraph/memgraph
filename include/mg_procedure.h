@@ -1069,6 +1069,9 @@ enum mgp_error mgp_vertices_iterator_underlying_graph_is_mutable(struct mgp_vert
 /// Result is NULL if the end of the iteration has been reached.
 enum mgp_error mgp_vertices_iterator_get(struct mgp_vertices_iterator *it, struct mgp_vertex **result);
 
+/// Gets number of vertices in the graph.
+enum mgp_error mgp_graph_count_vertices(struct mgp_graph *graph, size_t *result);
+
 /// @name Temporal Types
 ///
 ///@{
