@@ -134,7 +134,7 @@ struct MinMemgraph {
   }
   memgraph::auth::SynchedAuth auth;
   memgraph::system::System system_;
-  memgraph::replication::ReplicationState repl_state;
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state;
   memgraph::dbms::DbmsHandler dbms;
   memgraph::dbms::DatabaseAccess db_acc;
   memgraph::dbms::Database &db;
@@ -851,9 +851,9 @@ TEST_F(ReplicationTest, ReplicationInformation) {
                    })
                    .HasError());
 
-  ASSERT_TRUE(main.repl_state.IsMain());
-  ASSERT_TRUE(replica1.repl_state.IsReplica());
-  ASSERT_TRUE(replica2.repl_state.IsReplica());
+  ASSERT_TRUE(main.repl_state->IsMain());
+  ASSERT_TRUE(replica1.repl_state->IsReplica());
+  ASSERT_TRUE(replica2.repl_state->IsReplica());
 
   auto const maybe_replicas_info = main.repl_handler.ShowReplicas();
   ASSERT_TRUE(maybe_replicas_info.HasValue());

@@ -74,24 +74,26 @@ void DataInstanceManagementServerHandlers::Register(memgraph::coordination::Data
   });
 }
 
-void DataInstanceManagementServerHandlers::StateCheckHandler(replication::ReplicationHandler &replication_handler,
+void DataInstanceManagementServerHandlers::StateCheckHandler(const replication::ReplicationHandler &replication_handler,
                                                              slk::Reader *req_reader, slk::Builder *res_builder) {
   coordination::StateCheckReq req;
   slk::Load(&req, req_reader);
 
-  bool const is_replica = replication_handler.IsReplica();
-  auto const uuid = std::invoke([&replication_handler, is_replica]() -> std::optional<utils::UUID> {
+  const auto locked_repl_state = replication_handler.GetReplState();
+
+  bool const is_replica = locked_repl_state->IsReplica();
+  auto const uuid = std::invoke([&locked_repl_state, is_replica]() -> std::optional<utils::UUID> {
     if (is_replica) {
-      return replication_handler.GetReplicaUUID();
+      return locked_repl_state->GetReplicaRole().uuid_;
     }
-    return replication_handler.GetMainUUID();
+    return locked_repl_state->GetMainRole().uuid_;
   });
 
-  auto const writing_enabled = std::invoke([&replication_handler, is_replica]() -> bool {
+  auto const writing_enabled = std::invoke([&locked_repl_state, is_replica]() -> bool {
     if (is_replica) {
       return false;
     }
-    return replication_handler.GetReplState().IsMainWriteable();
+    return locked_repl_state->IsMainWriteable();
   });
 
   coordination::StateCheckRes const rpc_res{is_replica, uuid, writing_enabled};
@@ -113,16 +115,18 @@ void DataInstanceManagementServerHandlers::SwapMainUUIDHandler(replication::Repl
   replication_coordination_glue::SwapMainUUIDReq req;
   slk::Load(&req, req_reader);
 
-  if (!replication_handler.IsReplica()) {
+  auto locked_repl_state = replication_handler.GetReplState();
+
+  if (!locked_repl_state->IsReplica()) {
     spdlog::error("Setting uuid must be performed on replica.");
     replication_coordination_glue::SwapMainUUIDRes const rpc_res{false};
     rpc::SendFinalResponse(rpc_res, res_builder);
     return;
   }
 
-  auto &repl_data = std::get<replication::RoleReplicaData>(replication_handler.GetReplState().ReplicationData());
+  auto &repl_data = std::get<replication::RoleReplicaData>(locked_repl_state->ReplicationData());
   spdlog::info("Set replica data UUID to main uuid {}", std::string(req.uuid));
-  replication_handler.GetReplState().TryPersistRoleReplica(repl_data.config, req.uuid);
+  locked_repl_state->TryPersistRoleReplica(repl_data.config, req.uuid);
   repl_data.uuid_ = req.uuid;
 
   replication_coordination_glue::SwapMainUUIDRes const rpc_res{true};
@@ -154,7 +158,8 @@ void DataInstanceManagementServerHandlers::DemoteMainToReplicaHandler(
 void DataInstanceManagementServerHandlers::GetInstanceUUIDHandler(
     replication::ReplicationHandler const &replication_handler, slk::Reader * /*req_reader*/,
     slk::Builder *res_builder) {
-  if (!replication_handler.IsReplica()) {
+  const auto locked_repl_state = replication_handler.GetReplState();
+  if (!locked_repl_state->IsReplica()) {
     spdlog::trace(
         "Got unexpected request for fetching current main uuid as replica but the instance is not replica at "
         "the "
@@ -164,7 +169,7 @@ void DataInstanceManagementServerHandlers::GetInstanceUUIDHandler(
     return;
   }
 
-  auto const replica_uuid = replication_handler.GetReplicaUUID();
+  auto const replica_uuid = locked_repl_state->GetReplicaRole().uuid_;
   coordination::GetInstanceUUIDRes const rpc_res{replica_uuid};
   rpc::SendFinalResponse(rpc_res, res_builder);
   spdlog::info("Replica's UUID returned successfully: {}.", replica_uuid ? std::string{*replica_uuid} : "");
@@ -174,6 +179,10 @@ void DataInstanceManagementServerHandlers::PromoteToMainHandler(replication::Rep
                                                                 slk::Reader *req_reader, slk::Builder *res_builder) {
   coordination::PromoteToMainReq req;
   slk::Load(&req, req_reader);
+
+  // TODO: Fix potential datarace. Main promotion, replica registration and main write enabling should all be performed
+  // under the same lock. Since this can happen only if coordinator is present AND RPC is single threaded, this is fine
+  // for now.
 
   // This can fail because of disk. If it does, the cluster state could get inconsistent.
   // We don't handle disk issues. If I receive request to promote myself to main when I am already main
@@ -195,7 +204,7 @@ void DataInstanceManagementServerHandlers::PromoteToMainHandler(replication::Rep
     }
   }
 
-  replication_handler.GetReplState().GetMainRole().writing_enabled_ = true;
+  replication_handler.GetReplState()->GetMainRole().writing_enabled_ = true;
 
   coordination::PromoteToMainRes const res{true};
   rpc::SendFinalResponse(res, res_builder);
@@ -204,18 +213,21 @@ void DataInstanceManagementServerHandlers::PromoteToMainHandler(replication::Rep
 
 void DataInstanceManagementServerHandlers::RegisterReplicaOnMainHandler(
     replication::ReplicationHandler &replication_handler, slk::Reader *req_reader, slk::Builder *res_builder) {
+  // TODO: Fix potential datarace. Main check, uuid check and replica registration should all be performed under the
+  // same lock. Since this can happen only if coordinator is present AND RPC is single threaded, this is fine for now.
   if (!replication_handler.IsMain()) {
     spdlog::error("Registering replica on main must be performed on main!");
     coordination::RegisterReplicaOnMainRes const res{false};
     rpc::SendFinalResponse(res, res_builder);
     return;
   }
+
   coordination::RegisterReplicaOnMainReq req;
   slk::Load(&req, req_reader);
 
   // This can fail because of disk. If it does, the cluster state could get inconsistent.
   // We don't handle disk issues.
-  auto const &main_uuid = replication_handler.GetReplState().GetMainRole().uuid_;
+  auto const &main_uuid = replication_handler.GetReplState()->GetMainRole().uuid_;
   if (req.main_uuid != main_uuid) {
     spdlog::error("Registering replica to main failed because MAIN's uuid {} != from coordinator's uuid {}!",
                   std::string(req.main_uuid), std::string(main_uuid));
@@ -237,13 +249,6 @@ void DataInstanceManagementServerHandlers::RegisterReplicaOnMainHandler(
 
 void DataInstanceManagementServerHandlers::UnregisterReplicaHandler(
     replication::ReplicationHandler &replication_handler, slk::Reader *req_reader, slk::Builder *res_builder) {
-  if (!replication_handler.IsMain()) {
-    spdlog::error("Unregistering replica must be performed on main.");
-    coordination::UnregisterReplicaRes const res{false};
-    rpc::SendFinalResponse(res, res_builder);
-    return;
-  }
-
   coordination::UnregisterReplicaReq req;
   slk::Load(&req, req_reader);
 
@@ -284,14 +289,16 @@ void DataInstanceManagementServerHandlers::UnregisterReplicaHandler(
 
 void DataInstanceManagementServerHandlers::EnableWritingOnMainHandler(
     replication::ReplicationHandler &replication_handler, slk::Reader * /*req_reader*/, slk::Builder *res_builder) {
-  if (!replication_handler.IsMain()) {
+  auto locked_repl_state = replication_handler.GetReplState();
+
+  if (!locked_repl_state->IsMain()) {
     spdlog::error("Enable writing on main must be performed on main!");
     coordination::EnableWritingOnMainRes const rpc_res{false};
     rpc::SendFinalResponse(rpc_res, res_builder);
     return;
   }
 
-  if (!replication_handler.GetReplState().EnableWritingOnMain()) {
+  if (!locked_repl_state->EnableWritingOnMain()) {
     spdlog::error("Enabling writing on main failed!");
     coordination::EnableWritingOnMainRes const rpc_res{false};
     rpc::SendFinalResponse(rpc_res, res_builder);

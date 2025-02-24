@@ -5731,13 +5731,13 @@ std::vector<Symbol> LoadCsv::ModifiedSymbols(const SymbolTable &sym_table) const
 namespace {
 // copy-pasted from interpreter.cpp
 TypedValue EvaluateOptionalExpression(Expression *expression, ExpressionEvaluator *eval) {
-  return expression ? expression->Accept(*eval) : TypedValue();
+  return expression ? expression->Accept(*eval) : TypedValue(eval->GetMemoryResource());
 }
 
 auto ToOptionalString(ExpressionEvaluator *evaluator, Expression *expression) -> std::optional<utils::pmr::string> {
-  const auto evaluated_expr = EvaluateOptionalExpression(expression, evaluator);
+  auto evaluated_expr = EvaluateOptionalExpression(expression, evaluator);
   if (evaluated_expr.IsString()) {
-    return utils::pmr::string(evaluated_expr.ValueString(), utils::NewDeleteResource());
+    return utils::pmr::string(std::move(evaluated_expr).ValueString(), evaluator->GetMemoryResource());
   }
   return std::nullopt;
 };
@@ -5843,13 +5843,10 @@ class LoadCsvCursor : public Cursor {
 
     // No need to check if maybe_file is std::nullopt, as the parser makes sure
     // we can't get a nullptr for the 'file_' member in the LoadCsv clause.
-    // Note that the reader has to be given its own memory resource, as it
-    // persists between pulls, so it can't use the evalutation context memory
-    // resource.
     return csv::Reader(
         csv::CsvSource::Create(*maybe_file),
         csv::Reader::Config(self_->with_header_, self_->ignore_bad_, std::move(maybe_delim), std::move(maybe_quote)),
-        utils::NewDeleteResource());
+        eval_context->memory);
   }
 
   std::optional<utils::pmr::string> ParseNullif(EvaluationContext *eval_context) {

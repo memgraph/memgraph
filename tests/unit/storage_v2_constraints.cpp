@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -68,7 +68,8 @@ class ConstraintsTest : public testing::Test {
 
   Storage *storage;
   memgraph::storage::Config config_;
-  std::optional<memgraph::replication::ReplicationState> repl_state_;
+  std::optional<memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock>>
+      repl_state_;
   std::optional<memgraph::dbms::DatabaseAccess> db_acc_;
   std::optional<memgraph::utils::Gatekeeper<memgraph::dbms::Database>> db_gk_;
   PropertyId prop1;

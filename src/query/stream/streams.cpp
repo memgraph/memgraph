@@ -16,7 +16,7 @@
 #include <utility>
 
 #include <spdlog/spdlog.h>
-#include <json/json.hpp>
+#include <nlohmann/json.hpp>
 
 #include "dbms/database.hpp"
 #include "dbms/dbms_handler.hpp"
@@ -162,9 +162,10 @@ void from_json(const nlohmann::json &data, StreamStatus<TStream> &status) {
   if (const auto &owner = data.at(kOwner); !owner.is_null()) {
     status.owner = owner.get<typename decltype(status.owner)::value_type>();
     if (const auto &owner_role = data.at(kOwnerRole); !owner_role.is_null()) {
-      owner_role.get_to(status.owner_role);
+      status.owner_role.emplace();
+      owner_role.get_to(*status.owner_role);
     } else {
-      status.owner_role = {};
+      status.owner_role.reset();
     }
   } else {
     status.owner = {};

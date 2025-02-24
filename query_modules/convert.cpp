@@ -12,7 +12,8 @@
 #include <iostream>
 #include <mgp.hpp>
 #include <optional>
-#include "json/json.hpp"
+
+#include <nlohmann/json.hpp>
 
 std::optional<mgp::Value> ParseJsonToMgpValue(const nlohmann::json &json_obj, mgp_memory *memory);
 

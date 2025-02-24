@@ -12,6 +12,7 @@
 #include "storage/v2/inmemory/storage.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <filesystem>
 #include <functional>
@@ -1721,6 +1722,7 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
   // `timestamp`) below.
   uint64_t transaction_id = 0;
   uint64_t start_timestamp = 0;
+  uint64_t last_durable_ts = 0;
   std::optional<PointIndexContext> point_index_context;
   {
     auto guard = std::lock_guard{engine_lock_};
@@ -1728,6 +1730,8 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
     start_timestamp = timestamp_++;
     // IMPORTANT: this is retrieved while under the lock so that the index is consistant with the timestamp
     point_index_context = indices_.point_index_.CreatePointIndexContext();
+    // Needed by snapshot to sync the durable and logical ts
+    last_durable_ts = repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire);
   }
   DMG_ASSERT(point_index_context.has_value(), "Expected a value, even if got 0 point indexes");
   return {transaction_id,
@@ -1736,7 +1740,8 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
           storage_mode,
           false,
           !constraints_.empty(),
-          *std::move(point_index_context)};
+          *std::move(point_index_context),
+          last_durable_ts};
 }
 
 void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
@@ -2619,7 +2624,7 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
     vertex_id_ = recovery_info.next_vertex_id;
     edge_id_ = recovery_info.next_edge_id;
     timestamp_ = std::max(timestamp_, recovery_info.next_timestamp);
-    repl_storage_state_.last_durable_timestamp_ = recovery_info.next_timestamp - 1;
+    repl_storage_state_.last_durable_timestamp_ = recovered_snapshot.snapshot_info.durable_timestamp;
 
     spdlog::trace("Recovering indices and constraints from snapshot.");
     storage::durability::RecoverIndicesStatsAndConstraints(
