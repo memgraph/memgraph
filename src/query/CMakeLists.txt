@@ -109,7 +109,7 @@ target_link_libraries(mg-query
     dl
     cppitertools
     rangev3
-#    Python3::Python
+    Python3::Python
     mg-integrations-pulsar
     mg-integrations-kafka
     mg::storage
@@ -131,12 +131,11 @@ if(NOT "${MG_PYTHON_PATH}" STREQUAL "")
     set(Python3_ROOT_DIR "${MG_PYTHON_PATH}")
 endif()
 
-mg_create_linkable_if_no_cmake(Python3 STATIC "${MG_TOOLCHAIN_ROOT}/lib/libpython3.12.a" "${MG_TOOLCHAIN_ROOT}/include/python3.12")
-# if("${MG_PYTHON_VERSION}" STREQUAL "")
-#     find_package(Python3 3.5 REQUIRED COMPONENTS Development)
-# else()
-#     find_package(Python3 "${MG_PYTHON_VERSION}" EXACT REQUIRED COMPONENTS Development)
-# endif()
+if("${MG_PYTHON_VERSION}" STREQUAL "")
+    find_package(Python3 3.5 REQUIRED COMPONENTS Development)
+else()
+    find_package(Python3 "${MG_PYTHON_VERSION}" EXACT REQUIRED COMPONENTS Development)
+endif()
 
 # Generate Antlr openCypher parser
 set(opencypher_frontend ${CMAKE_CURRENT_SOURCE_DIR}/frontend/opencypher)
