@@ -426,8 +426,8 @@ endif()
 set(libs_dir ${CMAKE_SOURCE_DIR}/libs)
 add_subdirectory(libs EXCLUDE_FROM_ALL)
 
-set(MG_PYTHON_VERSION "" CACHE STRING "Specify the exact Python version used by the query modules")
-set(MG_PYTHON_PATH "" CACHE STRING "Specify the exact Python path used by the query modules")
+set(MG_PYTHON_VERSION "3.12.9" CACHE STRING "Specify the exact Python version used by the query modules")
+set(MG_PYTHON_PATH "${MG_TOOLCHAIN_ROOT}/bin/python3.12" CACHE STRING "Specify the exact Python path used by the query modules")
 
 # Add subprojects
 include_directories(src)
