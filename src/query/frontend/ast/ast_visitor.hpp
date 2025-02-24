@@ -95,6 +95,7 @@ class ConstraintQuery;
 class RegexMatch;
 class DumpQuery;
 class ReplicationQuery;
+class ReplicationInfoQuery;
 class LockPathQuery;
 class LoadCsv;
 class FreeMemoryQuery;
@@ -170,11 +171,11 @@ class QueryVisitor
     : public utils::Visitor<
           TResult, CypherQuery, ExplainQuery, ProfileQuery, IndexQuery, EdgeIndexQuery, PointIndexQuery, TextIndexQuery,
           VectorIndexQuery, AuthQuery, DatabaseInfoQuery, SystemInfoQuery, ConstraintQuery, DumpQuery, ReplicationQuery,
-          LockPathQuery, FreeMemoryQuery, TriggerQuery, IsolationLevelQuery, CreateSnapshotQuery, RecoverSnapshotQuery,
-          ShowSnapshotsQuery, StreamQuery, SettingQuery, VersionQuery, ShowConfigQuery, TransactionQueueQuery,
-          StorageModeQuery, AnalyzeGraphQuery, MultiDatabaseQuery, UseDatabaseQuery, ShowDatabaseQuery,
-          ShowDatabasesQuery, EdgeImportModeQuery, CoordinatorQuery, DropGraphQuery, CreateEnumQuery, ShowEnumsQuery,
-          AlterEnumAddValueQuery, AlterEnumUpdateValueQuery, AlterEnumRemoveValueQuery, DropEnumQuery,
+          ReplicationInfoQuery, LockPathQuery, FreeMemoryQuery, TriggerQuery, IsolationLevelQuery, CreateSnapshotQuery,
+          RecoverSnapshotQuery, ShowSnapshotsQuery, StreamQuery, SettingQuery, VersionQuery, ShowConfigQuery,
+          TransactionQueueQuery, StorageModeQuery, AnalyzeGraphQuery, MultiDatabaseQuery, UseDatabaseQuery,
+          ShowDatabaseQuery, ShowDatabasesQuery, EdgeImportModeQuery, CoordinatorQuery, DropGraphQuery, CreateEnumQuery,
+          ShowEnumsQuery, AlterEnumAddValueQuery, AlterEnumUpdateValueQuery, AlterEnumRemoveValueQuery, DropEnumQuery,
           ShowSchemaInfoQuery, TtlQuery, SessionTraceQuery> {};
 
 }  // namespace memgraph::query

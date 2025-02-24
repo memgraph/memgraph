@@ -68,7 +68,7 @@ void InMemoryCurrentWalHandler::AppendBufferData(const uint8_t *buffer, const si
   encoder.WriteBuffer(buffer, buffer_size);
 }
 
-replication::CurrentWalRes InMemoryCurrentWalHandler::Finalize() { return stream_.AwaitResponse(); }
+replication::CurrentWalRes InMemoryCurrentWalHandler::Finalize() { return stream_.AwaitResponseWhileInProgress(); }
 
 // ReplicationClient Helpers
 // Caller should make sure that wal files aren't empty
@@ -80,7 +80,7 @@ replication::WalFilesRes TransferWalFiles(const utils::UUID &main_uuid, const ut
     spdlog::debug("Sending wal file: {}", wal);
     encoder.WriteFile(wal);
   }
-  return stream.AwaitResponse();
+  return stream.AwaitResponseWhileInProgress();
 }
 
 replication::SnapshotRes TransferSnapshot(const utils::UUID &main_uuid, const utils::UUID &storage_uuid,

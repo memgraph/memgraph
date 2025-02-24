@@ -22,7 +22,7 @@
 // "json.hpp" uses libc's EOF macro while
 // "antlr4-runtime.h" contains a static variable of the
 // same name, EOF.
-#include <json/json.hpp>
+#include <nlohmann/json.hpp>
 // Same is true for <boost/geometry.hpp> that is included by ast.hpp
 #include "query/frontend/ast/ast.hpp"
 //////////////////////////////////////////////////////
@@ -1415,7 +1415,7 @@ TEST_P(CypherMainVisitorTest, RelationshipPatternDotsUnboundedWithEdgeTypeProper
   ast_generator.CheckLiteral(std::get<0>(edge->properties_)[ast_generator.Prop("prop")], 42);
   ASSERT_EQ(edge->edge_types_.size(), 1U);
   auto edge_type = ast_generator.EdgeType("edge_type");
-  EXPECT_EQ(edge->edge_types_[0], edge_type);
+  EXPECT_EQ(*std::get_if<EdgeTypeIx>(&edge->edge_types_[0]), edge_type);
 }
 
 TEST_P(CypherMainVisitorTest, RelationshipPatternUpperBoundedWithProperty) {
@@ -2599,15 +2599,15 @@ void check_replication_query(Base *ast_generator, const ReplicationQuery *query,
 TEST_P(CypherMainVisitorTest, TestShowReplicationMode) {
   auto &ast_generator = *GetParam();
   const std::string raw_query = "SHOW REPLICATION ROLE";
-  auto *parsed_query = dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(raw_query));
-  EXPECT_EQ(parsed_query->action_, ReplicationQuery::Action::SHOW_REPLICATION_ROLE);
+  auto *parsed_query = dynamic_cast<ReplicationInfoQuery *>(ast_generator.ParseQuery(raw_query));
+  EXPECT_EQ(parsed_query->action_, ReplicationInfoQuery::Action::SHOW_REPLICATION_ROLE);
 }
 
 TEST_P(CypherMainVisitorTest, TestShowReplicasQuery) {
   auto &ast_generator = *GetParam();
   const std::string raw_query = "SHOW REPLICAS";
-  auto *parsed_query = dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(raw_query));
-  EXPECT_EQ(parsed_query->action_, ReplicationQuery::Action::SHOW_REPLICAS);
+  auto *parsed_query = dynamic_cast<ReplicationInfoQuery *>(ast_generator.ParseQuery(raw_query));
+  EXPECT_EQ(parsed_query->action_, ReplicationInfoQuery::Action::SHOW_REPLICAS);
 }
 
 TEST_P(CypherMainVisitorTest, TestSetReplicationMode) {

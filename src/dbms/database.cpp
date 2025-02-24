@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,12 +18,12 @@ template struct memgraph::utils::Gatekeeper<memgraph::dbms::Database>;
 
 namespace memgraph::dbms {
 
-Database::Database(storage::Config config, replication::ReplicationState &repl_state)
+Database::Database(storage::Config config,
+                   utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &repl_state)
     : trigger_store_(config.durability.storage_directory / "triggers"),
       streams_{config.durability.storage_directory / "streams"},
       time_to_live_{config.durability.storage_directory / "ttl"},
-      plan_cache_{FLAGS_query_plan_cache_max_size},
-      repl_state_(&repl_state) {
+      plan_cache_{FLAGS_query_plan_cache_max_size} {
   if (config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL || config.force_on_disk ||
       utils::DirExists(config.disk.main_storage_directory)) {
     config.salient.storage_mode = memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL;

@@ -274,15 +274,6 @@ void Load(memgraph::storage::replication::AppendDeltasReq *self, memgraph::slk::
   memgraph::slk::Load(&self->seq_num, reader);
 }
 
-void SendInProgressMsg(Builder *builder) {
-  if (!builder->IsEmpty()) {
-    throw SlkBuilderException("InProgress RPC message can only be sent when the builder's buffer is empty.");
-  }
-  Save(storage::replication::InProgressRes::kType.id, builder);
-  Save(rpc::current_version, builder);
-  builder->Finalize();
-}
-
 // Serialize code for ForceResetStorageReq
 
 void Save(const memgraph::storage::replication::ForceResetStorageReq &self, memgraph::slk::Builder *builder) {

@@ -15,7 +15,7 @@
 #include <fstream>
 
 #include <spdlog/spdlog.h>
-#include <json/json.hpp>
+#include <nlohmann/json.hpp>
 
 #include "utils/logging.hpp"
 
