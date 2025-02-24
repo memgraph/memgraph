@@ -49,13 +49,6 @@ class VertexCountCache {
     return label_vertex_count_.at(label);
   }
 
-  int64_t VerticesCount(storage::LabelId label, storage::PropertyId property) {
-    auto key = std::make_pair(label, property);
-    if (label_property_vertex_count_.find(key) == label_property_vertex_count_.end())
-      label_property_vertex_count_[key] = db_->VerticesCount(label, property);
-    return label_property_vertex_count_.at(key);
-  }
-
   std::optional<int64_t> VerticesPointCount(storage::LabelId label, storage::PropertyId property) {
     auto key = std::make_pair(label, property);
     auto it = label_property_vertex_point_count_.find(key);
@@ -81,7 +74,7 @@ class VertexCountCache {
     // TODO: Why do we even need TypedValue in this whole file?
     TypedValue tv_value(value);
     if (value_vertex_count.find(tv_value) == value_vertex_count.end())
-      value_vertex_count[tv_value] = db_->VerticesCount(label, property, value);
+      value_vertex_count[tv_value] = db_->VerticesCount(label, {property}, {value});
     return value_vertex_count.at(tv_value);
   }
 
@@ -97,17 +90,6 @@ class VertexCountCache {
     // return value_composite_vertex_count.at(tv_value);
 
     return db_->VerticesCount(label, properties, lower, upper);
-  }
-
-  int64_t VerticesCount(storage::LabelId label, storage::PropertyId property,
-                        const std::optional<utils::Bound<storage::PropertyValue>> &lower,
-                        const std::optional<utils::Bound<storage::PropertyValue>> &upper) {
-    auto label_prop = std::make_pair(label, property);
-    auto &bounds_vertex_count = property_bounds_vertex_count_[label_prop];
-    BoundsKey bounds = std::make_pair(lower, upper);
-    if (bounds_vertex_count.find(bounds) == bounds_vertex_count.end())
-      bounds_vertex_count[bounds] = db_->VerticesCount(label, property, lower, upper);
-    return bounds_vertex_count.at(bounds);
   }
 
   int64_t EdgesCount(storage::EdgeTypeId edge_type) {
@@ -169,7 +151,7 @@ class VertexCountCache {
     return db_->GetIndexStats(label, property);
   }
 
-  std::optional<storage::LabelPropertyCompositeIndexStats> GetIndexStats(
+  std::optional<storage::LabelPropertyIndexStats> GetIndexStats(
       const storage::LabelId &label, const std::vector<storage::PropertyId> &properties) const {
     return db_->GetIndexStats(label, properties);
   }

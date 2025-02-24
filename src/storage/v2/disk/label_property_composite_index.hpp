@@ -12,24 +12,14 @@
 #pragma once
 
 #include "storage/v2/disk/rocksdb_storage.hpp"
-#include "storage/v2/indices/label_property_composite_index.hpp"
+#include "storage/v2/indices/label_property_index.hpp"
 #include "utils/synchronized.hpp"
 
 namespace memgraph::storage {
 
-class DiskLabelPropertyCompositeIndex : public storage::LabelPropertyCompositeIndex {
+class DiskLabelPropertyCompositeIndex : public storage::LabelPropertyIndex {
  public:
   explicit DiskLabelPropertyCompositeIndex(const Config &config);
-
-  static bool CreateIndex(LabelId label, const std::vector<PropertyId> &properties,
-                          const std::vector<std::pair<std::string, std::string>> &vertices);
-
-  void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) override;
-
-  void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) override;
-
-  void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
-                           const Transaction &tx) override{};
 
   bool DropIndex(LabelId label, const std::vector<PropertyId> &properties) override;
 

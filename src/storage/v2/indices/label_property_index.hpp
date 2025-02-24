@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,8 +21,12 @@ namespace memgraph::storage {
 class LabelPropertyIndex {
  public:
   struct IndexStats {
-    std::map<LabelId, std::vector<PropertyId>> l2p;
-    std::map<PropertyId, std::vector<LabelId>> p2l;
+    // @TODO what are the impliciations of these being sets now we
+    // have composite indices?
+    // std::map<LabelId, std::vector<PropertyId>> l2p;
+    // std::map<PropertyId, std::vector<LabelId>> p2l;
+    std::map<LabelId, std::set<PropertyId>> l2p;
+    std::map<PropertyId, std::set<LabelId>> p2l;
   };
 
   LabelPropertyIndex() = default;
@@ -41,19 +45,21 @@ class LabelPropertyIndex {
   virtual void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
                                    const Transaction &tx) = 0;
 
-  virtual bool DropIndex(LabelId label, PropertyId property) = 0;
+  virtual bool DropIndex(LabelId label, std::vector<PropertyId> const &properties) = 0;
 
-  virtual bool IndexExists(LabelId label, PropertyId property) const = 0;
+  virtual bool IndexExists(LabelId label, std::vector<PropertyId> const &properties) const = 0;
 
-  virtual std::vector<std::pair<LabelId, PropertyId>> ListIndices() const = 0;
+  virtual std::vector<std::pair<LabelId, std::vector<PropertyId>>> ListIndices() const = 0;
 
-  virtual uint64_t ApproximateVertexCount(LabelId label, PropertyId property) const = 0;
+  virtual uint64_t ApproximateVertexCount(LabelId label, std::vector<PropertyId> const &properties,
+                                          std::vector<PropertyValue> const &values) const = 0;
 
-  virtual uint64_t ApproximateVertexCount(LabelId label, PropertyId property, const PropertyValue &value) const = 0;
+  virtual uint64_t ApproximateVertexCount(LabelId label, const std::vector<PropertyId> &properties) const = 0;
 
-  virtual uint64_t ApproximateVertexCount(LabelId label, PropertyId property,
-                                          const std::optional<utils::Bound<PropertyValue>> &lower,
-                                          const std::optional<utils::Bound<PropertyValue>> &upper) const = 0;
+  virtual uint64_t ApproximateVertexCount(
+      LabelId label, const std::vector<PropertyId> &properties,
+      const std::vector<std::optional<utils::Bound<PropertyValue>>> &lower,
+      const std::vector<std::optional<utils::Bound<PropertyValue>>> &upper) const = 0;
 
   virtual void DropGraphClearIndices() = 0;
 };

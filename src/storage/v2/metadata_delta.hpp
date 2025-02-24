@@ -17,7 +17,6 @@
 #include "storage/v2/constraints/type_constraints.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
-#include "storage/v2/indices/label_property_composite_index_stats.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 
@@ -151,7 +150,7 @@ struct MetadataDelta {
       : action(Action::LABEL_PROPERTY_INDEX_STATS_CLEAR), label{label} {}
 
   MetadataDelta(LabelPropertyCompositeIndexStatsSet /*tag*/, LabelId label, std::vector<PropertyId> properties,
-                LabelPropertyCompositeIndexStats const &stats)
+                LabelPropertyIndexStats const &stats)
       : action(Action::LABEL_PROPERTY_COMPOSITE_INDEX_STATS_SET),
         label_property_composite_stats{label, properties, stats} {}
 
@@ -306,7 +305,7 @@ struct MetadataDelta {
     struct {
       LabelId label;
       std::vector<PropertyId> properties;
-      LabelPropertyCompositeIndexStats stats;
+      LabelPropertyIndexStats stats;
     } label_property_composite_stats;
 
     struct {

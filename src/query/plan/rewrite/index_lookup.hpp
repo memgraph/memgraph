@@ -1182,7 +1182,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
       // the index with less vertices is better.
       // the index with same number of vertices but more optimized filter is better.
 
-      int64_t vertex_count = db_->VerticesCount(GetLabel(label), GetProperty(property));
+      int64_t vertex_count = db_->VerticesCount(GetLabel(label), {GetProperty(property)});
       std::optional<storage::LabelPropertyIndexStats> new_stats =
           db_->GetIndexStats(GetLabel(label), GetProperty(property));
 

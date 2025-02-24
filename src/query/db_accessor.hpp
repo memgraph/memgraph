@@ -538,44 +538,36 @@ class DbAccessor final {
     return accessor_->GetIndexStats(label, property);
   }
 
-  std::optional<storage::LabelPropertyCompositeIndexStats> GetIndexStats(
+  std::optional<storage::LabelPropertyIndexStats> GetIndexStats(
       const storage::LabelId &label, const std::vector<storage::PropertyId> &properties) const {
     return accessor_->GetIndexStats(label, properties);
   }
 
   bool DeleteLabelIndexStats(const storage::LabelId &label) { return accessor_->DeleteLabelIndexStats(label); }
 
-  std::vector<std::pair<storage::LabelId, storage::PropertyId>> DeleteLabelPropertyIndexStats(
+  std::vector<std::pair<storage::LabelId, std::vector<storage::PropertyId>>> DeleteLabelPropertyIndexStats(
       const storage::LabelId &label) {
     return accessor_->DeleteLabelPropertyIndexStats(label);
-  }
-
-  std::vector<std::pair<storage::LabelId, std::vector<storage::PropertyId>>> DeleteLabelPropertyCompositeIndexStats(
-      const storage::LabelId &label) {
-    return accessor_->DeleteLabelPropertyCompositeIndexStats(label);
   }
 
   void SetIndexStats(const storage::LabelId &label, const storage::LabelIndexStats &stats) {
     accessor_->SetIndexStats(label, stats);
   }
 
+  // @TODO is this needed?
   void SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property,
                      const storage::LabelPropertyIndexStats &stats) {
-    accessor_->SetIndexStats(label, property, stats);
+    accessor_->SetIndexStats(label, {property}, stats);
   }
 
   void SetIndexStats(const storage::LabelId &label, const std::vector<storage::PropertyId> &properties,
-                     const storage::LabelPropertyCompositeIndexStats &stats) {
+                     const storage::LabelPropertyIndexStats &stats) {
     accessor_->SetIndexStats(label, properties, stats);
   }
 
   int64_t VerticesCount() const { return accessor_->ApproximateVertexCount(); }
 
   int64_t VerticesCount(storage::LabelId label) const { return accessor_->ApproximateVertexCount(label); }
-
-  int64_t VerticesCount(storage::LabelId label, storage::PropertyId property) const {
-    return accessor_->ApproximateVertexCount(label, property);
-  }
 
   std::optional<uint64_t> VerticesPointCount(storage::LabelId label, storage::PropertyId property) const {
     return accessor_->ApproximateVerticesPointCount(label, property);
@@ -585,25 +577,19 @@ class DbAccessor final {
     return accessor_->ApproximateVerticesVectorCount(label, property);
   }
 
-  int64_t VerticesCount(storage::LabelId label, storage::PropertyId property,
-                        const storage::PropertyValue &value) const {
-    return accessor_->ApproximateVertexCount(label, property, value);
-  }
-
   int64_t VerticesCount(storage::LabelId label, const std::vector<storage::PropertyId> &properties) const {
     return accessor_->ApproximateVertexCount(label, properties);
+  }
+
+  int64_t VerticesCount(storage::LabelId label, const std::vector<storage::PropertyId> &properties,
+                        std::vector<storage::PropertyValue> const &values) const {
+    return accessor_->ApproximateVertexCount(label, properties, values);
   }
 
   int64_t VerticesCount(storage::LabelId label, const std::vector<storage::PropertyId> &properties,
                         const std::vector<std::optional<utils::Bound<storage::PropertyValue>>> &lower,
                         const std::vector<std::optional<utils::Bound<storage::PropertyValue>>> &upper) const {
     return accessor_->ApproximateVertexCount(label, properties, lower, upper);
-  }
-
-  int64_t VerticesCount(storage::LabelId label, storage::PropertyId property,
-                        const std::optional<utils::Bound<storage::PropertyValue>> &lower,
-                        const std::optional<utils::Bound<storage::PropertyValue>> &upper) const {
-    return accessor_->ApproximateVertexCount(label, property, lower, upper);
   }
 
   int64_t EdgesCount(storage::EdgeTypeId edge_type) const { return accessor_->ApproximateEdgeCount(edge_type); }

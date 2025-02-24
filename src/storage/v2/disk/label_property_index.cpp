@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -50,7 +50,7 @@ bool CommitWithTimestamp(rocksdb::Transaction *disk_transaction, uint64_t commit
 
 }  // namespace
 
-DiskLabelPropertyIndex::DiskLabelPropertyIndex(const Config &config) {
+DiskLabelPropertyIndex::DiskLabelPropertyIndex(const Config &config) : DiskLabelPropertyCompositeIndex(config) {
   utils::EnsureDirOrDie(config.disk.label_property_index_directory);
   kvstore_ = std::make_unique<RocksDBStorage>();
   kvstore_->options_.create_if_missing = true;
@@ -183,7 +183,7 @@ void DiskLabelPropertyIndex::UpdateOnRemoveLabel(LabelId removed_label, Vertex *
     });
   }
 }
-
+/*
 bool DiskLabelPropertyIndex::DropIndex(LabelId label, PropertyId property) {
   return index_.erase({label, property}) > 0U;
 }
@@ -195,17 +195,18 @@ bool DiskLabelPropertyIndex::IndexExists(LabelId label, PropertyId property) con
 std::vector<std::pair<LabelId, PropertyId>> DiskLabelPropertyIndex::ListIndices() const {
   return {index_.begin(), index_.end()};
 }
+*/
 
-uint64_t DiskLabelPropertyIndex::ApproximateVertexCount(LabelId /*label*/, PropertyId /*property*/) const { return 10; }
-
-uint64_t DiskLabelPropertyIndex::ApproximateVertexCount(LabelId /*label*/, PropertyId /*property*/,
-                                                        const PropertyValue & /*value*/) const {
+uint64_t DiskLabelPropertyIndex::ApproximateVertexCount(LabelId /*label*/,
+                                                        std::vector<PropertyId> const & /*properties*/,
+                                                        std::vector<PropertyValue> const &values) const {
   return 10;
 }
 
 uint64_t DiskLabelPropertyIndex::ApproximateVertexCount(
-    LabelId /*label*/, PropertyId /*property*/, const std::optional<utils::Bound<PropertyValue>> & /*lower*/,
-    const std::optional<utils::Bound<PropertyValue>> & /*upper*/) const {
+    LabelId /*label*/, std::vector<PropertyId> const & /*property*/,
+    std::vector<std::optional<utils::Bound<PropertyValue>>> const & /*lower*/,
+    std::vector<std::optional<utils::Bound<PropertyValue>>> const & /*upper*/) const {
   return 10;
 }
 

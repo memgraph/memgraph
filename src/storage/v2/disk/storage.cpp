@@ -2068,7 +2068,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_label_property_index =
       static_cast<DiskLabelPropertyIndex *>(on_disk->indices_.label_property_index_.get());
-  if (!disk_label_property_index->DropIndex(label, property)) {
+  if (!disk_label_property_index->DropIndex(label, {property})) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop, label, property);
@@ -2284,13 +2284,9 @@ IndicesInfo DiskStorage::DiskAccessor::ListAllIndices() const {
   auto *disk_label_property_index =
       static_cast<DiskLabelPropertyIndex *>(on_disk->indices_.label_property_index_.get());
   auto &text_index = storage_->indices_.text_index_;
-  return {disk_label_index->ListIndices(),
-          disk_label_property_index->ListIndices(),
-          {/* edge type indices */},
-          {/* edge_type_property */},
-          {/* label property composite */},
-          text_index.ListIndices(),
-          {/* point indices */},
+  return {disk_label_index->ListIndices(), {/* edge type indices */},
+          {/* edge_type_property */},      {/* label property composite */},
+          text_index.ListIndices(),        {/* point indices */},
           {/* vector indices */}};
 }
 ConstraintsInfo DiskStorage::DiskAccessor::ListAllConstraints() const {

@@ -192,7 +192,7 @@ class DeltaGenerator final {
     }
     memgraph::storage::LabelIndexStats l_stats{};
     memgraph::storage::LabelPropertyIndexStats lp_stats{};
-    memgraph::storage::LabelPropertyCompositeIndexStats lpc_stats{};
+    memgraph::storage::LabelPropertyIndexStats lpc_stats{};
     if (!stats.empty()) {
       if (operation == memgraph::storage::durability::StorageMetadataOperation::LABEL_INDEX_STATS_SET) {
         ASSERT_TRUE(FromJson(stats, l_stats));

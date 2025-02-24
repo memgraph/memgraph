@@ -25,7 +25,6 @@
 #include "storage/v2/durability/version.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
-#include "storage/v2/indices/label_property_composite_index_stats.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/schema_info.hpp"
@@ -1129,7 +1128,7 @@ RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConst
         for (const auto &prop : data.properties) {
           properties.emplace_back(PropertyId::FromUint(name_id_mapper->NameToId(prop)));
         }
-        LabelPropertyCompositeIndexStats stats{};
+        LabelPropertyIndexStats stats{};
         if (!FromJson(data.json_stats, stats)) {
           throw RecoveryFailure("Failed to read statistics!");
         }
@@ -1334,7 +1333,7 @@ void EncodeLabelPropertyStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper
 
 void EncodeLabelPropertyCompositeStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label,
                                        std::vector<PropertyId> const &properties,
-                                       LabelPropertyCompositeIndexStats const &stats) {
+                                       LabelPropertyIndexStats const &stats) {
   encoder.WriteString(name_id_mapper.IdToName(label.AsUint()));
   encoder.WriteUint(properties.size());
   for (const auto &property : properties) {

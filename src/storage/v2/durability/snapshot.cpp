@@ -4006,9 +4006,8 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
           throw RecoveryFailure("Couldn't read average degree for label-property composite index statistics!");
         const auto label_id = get_label_from_id(*label);
         indices_constraints.indices.label_property_composite_stats.emplace_back(
-            label_id,
-            std::make_pair(properties, LabelPropertyCompositeIndexStats{*count, *distinct_values_count, *statistic,
-                                                                        *avg_group_size, *avg_degree}));
+            label_id, std::make_pair(properties, LabelPropertyIndexStats{*count, *distinct_values_count, *statistic,
+                                                                         *avg_group_size, *avg_degree}));
         SPDLOG_TRACE("Recovered metadata of label+property composite index statistics for :{}",
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)));
       }
@@ -4619,6 +4618,7 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
     }
 
     // Write label+property indices.
+    /* @TODO put thiis back...
     {
       auto label_property = storage->indices_.label_property_index_->ListIndices();
       snapshot.WriteUint(label_property.size());
@@ -4659,7 +4659,7 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
 
     // Write label+property composite indices.
     {
-      auto label_property_composite = storage->indices_.label_property_composite_index_->ListIndices();
+      auto label_property_composite = storage->indices_.label_property_index_->ListIndices_COMP();
       snapshot.WriteUint(label_property_composite.size());
       for (const auto &item : label_property_composite) {
         write_mapping(item.first);
@@ -4673,9 +4673,8 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
     // Write label+property indices statistics.
     {
       // NOTE: On-disk does not support snapshots
-      auto *inmem_index =
-          static_cast<InMemoryLabelPropertyCompositeIndex *>(storage->indices_.label_property_composite_index_.get());
-      auto label = inmem_index->ListIndices();
+      auto *inmem_index = static_cast<InMemoryLabelPropertyIndex *>(storage->indices_.label_property_index_.get());
+      auto label = inmem_index->ListIndices_COMP();
       const auto size_pos = snapshot.GetPosition();
       snapshot.WriteUint(0);  // Just a place holder
       unsigned i = 0;
@@ -4702,7 +4701,7 @@ void CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
         snapshot.SetPosition(last_pos);
       }
     }
-
+*/
     // Write edge-type indices.
     offset_edge_indices = snapshot.GetPosition();
     snapshot.WriteMarker(Marker::SECTION_EDGE_INDICES);

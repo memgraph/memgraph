@@ -194,6 +194,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
   spdlog::info("Label indices statistics are recreated.");
 
   // Recover label+property indices.
+  /* @TODO put back
   spdlog::info("Recreating {} label+property indices from metadata.", indices_metadata.label_property.size());
   auto *mem_label_property_index = static_cast<InMemoryLabelPropertyIndex *>(indices->label_property_index_.get());
   for (const auto &item : indices_metadata.label_property) {
@@ -221,10 +222,10 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
   spdlog::info("Recreating {} label+property composite indices from metadata.",
                indices_metadata.label_property_composite.size());
   auto *mem_label_property_composite_index =
-      static_cast<InMemoryLabelPropertyCompositeIndex *>(indices->label_property_composite_index_.get());
+      static_cast<InMemoryLabelPropertyIndex *>(indices->label_property_index_.get());
   for (const auto &item : indices_metadata.label_property_composite) {
-    if (!mem_label_property_composite_index->CreateIndex(item.first, item.second, vertices->access(),
-                                                         parallel_exec_info)) {
+    if (!mem_label_property_composite_index->CreateIndex_COMP(item.first, item.second, vertices->access(),
+                                                              parallel_exec_info)) {
       throw RecoveryFailure("The label+property composite index must be created here!");
     }
     std::vector<std::string> properties;
@@ -244,7 +245,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
     const auto label_id = item.first;
     const auto property_ids = item.second.first;
     const auto &stats = item.second.second;
-    mem_label_property_composite_index->SetIndexStats({label_id, property_ids}, stats);
+    mem_label_property_composite_index->SetIndexStats_COMP({label_id, property_ids}, stats);
     std::vector<std::string> properties;
     properties.reserve(property_ids.size());
     for (const auto &prop : property_ids) {
@@ -254,7 +255,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
                  name_id_mapper->IdToName(label_id.AsUint()), utils::Join(properties, ", "));
   }
   spdlog::info("Label+property composite indices statistics are recreated.");
-
+*/
   // Recover edge-type indices.
   spdlog::info("Recreating {} edge-type indices from metadata.", indices_metadata.edge.size());
   MG_ASSERT(indices_metadata.edge.empty() || properties_on_edges,

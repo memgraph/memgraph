@@ -544,7 +544,8 @@ PullPlanDump::PullChunk PullPlanDump::CreateLabelPropertyIndicesPullChunk() {
     while (global_index < label_property.size() && (!n || local_counter < *n)) {
       std::ostringstream os;
       const auto &label_property_index = label_property[global_index];
-      DumpLabelPropertyIndex(&os, dba_, label_property_index.first, label_property_index.second);
+      // @TODO: take the front entry from the now vector
+      DumpLabelPropertyIndex(&os, dba_, label_property_index.first, label_property_index.second.front());
       stream->Result({TypedValue(os.str())});
 
       ++global_index;

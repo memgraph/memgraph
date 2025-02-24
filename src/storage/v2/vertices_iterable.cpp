@@ -25,12 +25,6 @@ VerticesIterable::VerticesIterable(InMemoryLabelPropertyIndex::Iterable vertices
   new (&in_memory_vertices_by_label_property_) InMemoryLabelPropertyIndex::Iterable(std::move(vertices));
 }
 
-VerticesIterable::VerticesIterable(InMemoryLabelPropertyCompositeIndex::Iterable vertices)
-    : type_(Type::BY_LABEL_PROPERTY_COMPOSITE_IN_MEMORY) {
-  new (&in_memory_vertices_by_label_property_composite_)
-      InMemoryLabelPropertyCompositeIndex::Iterable(std::move(vertices));
-}
-
 VerticesIterable::VerticesIterable(VerticesIterable &&other) noexcept : type_(other.type_) {
   switch (other.type_) {
     case Type::ALL:
@@ -42,10 +36,6 @@ VerticesIterable::VerticesIterable(VerticesIterable &&other) noexcept : type_(ot
     case Type::BY_LABEL_PROPERTY_IN_MEMORY:
       new (&in_memory_vertices_by_label_property_)
           InMemoryLabelPropertyIndex::Iterable(std::move(other.in_memory_vertices_by_label_property_));
-      break;
-    case Type::BY_LABEL_PROPERTY_COMPOSITE_IN_MEMORY:
-      new (&in_memory_vertices_by_label_property_composite_) InMemoryLabelPropertyCompositeIndex::Iterable(
-          std::move(other.in_memory_vertices_by_label_property_composite_));
       break;
   }
 }
@@ -61,9 +51,6 @@ VerticesIterable &VerticesIterable::operator=(VerticesIterable &&other) noexcept
     case Type::BY_LABEL_PROPERTY_IN_MEMORY:
       in_memory_vertices_by_label_property_.InMemoryLabelPropertyIndex::Iterable::~Iterable();
       break;
-    case Type::BY_LABEL_PROPERTY_COMPOSITE_IN_MEMORY:
-      in_memory_vertices_by_label_property_composite_.InMemoryLabelPropertyCompositeIndex::Iterable::~Iterable();
-      break;
   }
   type_ = other.type_;
   switch (other.type_) {
@@ -76,10 +63,6 @@ VerticesIterable &VerticesIterable::operator=(VerticesIterable &&other) noexcept
     case Type::BY_LABEL_PROPERTY_IN_MEMORY:
       new (&in_memory_vertices_by_label_property_)
           InMemoryLabelPropertyIndex::Iterable(std::move(other.in_memory_vertices_by_label_property_));
-      break;
-    case Type::BY_LABEL_PROPERTY_COMPOSITE_IN_MEMORY:
-      new (&in_memory_vertices_by_label_property_composite_) InMemoryLabelPropertyCompositeIndex::Iterable(
-          std::move(other.in_memory_vertices_by_label_property_composite_));
       break;
   }
   return *this;
@@ -96,9 +79,6 @@ VerticesIterable::~VerticesIterable() {
     case Type::BY_LABEL_PROPERTY_IN_MEMORY:
       in_memory_vertices_by_label_property_.InMemoryLabelPropertyIndex::Iterable::~Iterable();
       break;
-    case Type::BY_LABEL_PROPERTY_COMPOSITE_IN_MEMORY:
-      in_memory_vertices_by_label_property_composite_.InMemoryLabelPropertyCompositeIndex::Iterable::~Iterable();
-      break;
   }
 }
 
@@ -110,8 +90,6 @@ VerticesIterable::Iterator VerticesIterable::begin() {
       return Iterator(in_memory_vertices_by_label_.begin());
     case Type::BY_LABEL_PROPERTY_IN_MEMORY:
       return Iterator(in_memory_vertices_by_label_property_.begin());
-    case Type::BY_LABEL_PROPERTY_COMPOSITE_IN_MEMORY:
-      return Iterator(in_memory_vertices_by_label_property_composite_.begin());
   }
 }
 
@@ -123,8 +101,6 @@ VerticesIterable::Iterator VerticesIterable::end() {
       return Iterator(in_memory_vertices_by_label_.end());
     case Type::BY_LABEL_PROPERTY_IN_MEMORY:
       return Iterator(in_memory_vertices_by_label_property_.end());
-    case Type::BY_LABEL_PROPERTY_COMPOSITE_IN_MEMORY:
-      return Iterator(in_memory_vertices_by_label_property_composite_.end());
   }
 }
 
@@ -144,13 +120,6 @@ VerticesIterable::Iterator::Iterator(InMemoryLabelPropertyIndex::Iterable::Itera
   new (&in_memory_by_label_property_it_) InMemoryLabelPropertyIndex::Iterable::Iterator(std::move(it));
 }
 
-VerticesIterable::Iterator::Iterator(InMemoryLabelPropertyCompositeIndex::Iterable::Iterator it)
-    : type_(Type::BY_LABEL_PROPERTY_COMPOSITE_IN_MEMORY) {
-  new (&in_memory_by_label_property_composite_it_)
-      // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
-      InMemoryLabelPropertyCompositeIndex::Iterable::Iterator(std::move(it));
-}
-
 VerticesIterable::Iterator::Iterator(const VerticesIterable::Iterator &other) : type_(other.type_) {
   switch (other.type_) {
     case Type::ALL:
@@ -162,10 +131,6 @@ VerticesIterable::Iterator::Iterator(const VerticesIterable::Iterator &other) : 
     case Type::BY_LABEL_PROPERTY_IN_MEMORY:
       new (&in_memory_by_label_property_it_)
           InMemoryLabelPropertyIndex::Iterable::Iterator(other.in_memory_by_label_property_it_);
-      break;
-    case Type::BY_LABEL_PROPERTY_COMPOSITE_IN_MEMORY:
-      new (&in_memory_by_label_property_composite_it_)
-          InMemoryLabelPropertyCompositeIndex::Iterable::Iterator(other.in_memory_by_label_property_composite_it_);
       break;
   }
 }
@@ -185,10 +150,6 @@ VerticesIterable::Iterator &VerticesIterable::Iterator::operator=(const Vertices
       new (&in_memory_by_label_property_it_)
           InMemoryLabelPropertyIndex::Iterable::Iterator(other.in_memory_by_label_property_it_);
       break;
-    case Type::BY_LABEL_PROPERTY_COMPOSITE_IN_MEMORY:
-      new (&in_memory_by_label_property_composite_it_)
-          InMemoryLabelPropertyCompositeIndex::Iterable::Iterator(other.in_memory_by_label_property_composite_it_);
-      break;
   }
   return *this;
 }
@@ -207,11 +168,6 @@ VerticesIterable::Iterator::Iterator(VerticesIterable::Iterator &&other) noexcep
       new (&in_memory_by_label_property_it_)
           // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
           InMemoryLabelPropertyIndex::Iterable::Iterator(std::move(other.in_memory_by_label_property_it_));
-      break;
-    case Type::BY_LABEL_PROPERTY_COMPOSITE_IN_MEMORY:
-      new (&in_memory_by_label_property_composite_it_) InMemoryLabelPropertyCompositeIndex::Iterable::Iterator(
-          // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
-          std::move(other.in_memory_by_label_property_composite_it_));
       break;
   }
 }
@@ -233,11 +189,6 @@ VerticesIterable::Iterator &VerticesIterable::Iterator::operator=(VerticesIterab
           // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
           InMemoryLabelPropertyIndex::Iterable::Iterator(std::move(other.in_memory_by_label_property_it_));
       break;
-    case Type::BY_LABEL_PROPERTY_COMPOSITE_IN_MEMORY:
-      new (&in_memory_by_label_property_it_) InMemoryLabelPropertyCompositeIndex::Iterable::Iterator(
-          // NOLINTNEXTLINE(hicpp-move-const-arg,performance-move-const-arg)
-          std::move(other.in_memory_by_label_property_composite_it_));
-      break;
   }
   return *this;
 }
@@ -255,9 +206,6 @@ void VerticesIterable::Iterator::Destroy() noexcept {
     case Type::BY_LABEL_PROPERTY_IN_MEMORY:
       in_memory_by_label_property_it_.InMemoryLabelPropertyIndex::Iterable::Iterator::~Iterator();
       break;
-    case Type::BY_LABEL_PROPERTY_COMPOSITE_IN_MEMORY:
-      in_memory_by_label_property_composite_it_.InMemoryLabelPropertyCompositeIndex::Iterable::Iterator::~Iterator();
-      break;
   }
 }
 
@@ -269,8 +217,6 @@ VertexAccessor const &VerticesIterable::Iterator::operator*() const {
       return *in_memory_by_label_it_;
     case Type::BY_LABEL_PROPERTY_IN_MEMORY:
       return *in_memory_by_label_property_it_;
-    case Type::BY_LABEL_PROPERTY_COMPOSITE_IN_MEMORY:
-      return *in_memory_by_label_property_composite_it_;
   }
 }
 
@@ -285,9 +231,6 @@ VerticesIterable::Iterator &VerticesIterable::Iterator::operator++() {
     case Type::BY_LABEL_PROPERTY_IN_MEMORY:
       ++in_memory_by_label_property_it_;
       break;
-    case Type::BY_LABEL_PROPERTY_COMPOSITE_IN_MEMORY:
-      ++in_memory_by_label_property_composite_it_;
-      break;
   }
   return *this;
 }
@@ -300,8 +243,6 @@ bool VerticesIterable::Iterator::operator==(const Iterator &other) const {
       return in_memory_by_label_it_ == other.in_memory_by_label_it_;
     case Type::BY_LABEL_PROPERTY_IN_MEMORY:
       return in_memory_by_label_property_it_ == other.in_memory_by_label_property_it_;
-    case Type::BY_LABEL_PROPERTY_COMPOSITE_IN_MEMORY:
-      return in_memory_by_label_property_composite_it_ == other.in_memory_by_label_property_composite_it_;
   }
 }
 

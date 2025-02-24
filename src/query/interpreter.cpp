@@ -2651,7 +2651,7 @@ PreparedQuery PrepareDumpQuery(ParsedQuery parsed_query, CurrentDB &current_db) 
 
 std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreateStatistics(
     const std::span<std::string> labels, DbAccessor *execution_db_accessor) {
-  using LPIndex = std::pair<storage::LabelId, storage::PropertyId>;
+  using LPIndex = std::pair<storage::LabelId, std::vector<storage::PropertyId>>;
   auto view = storage::View::OLD;
 
   auto erase_not_specified_label_indices = [&labels, execution_db_accessor](auto &index_info) {
@@ -2715,10 +2715,11 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
         [execution_db_accessor, &label_property_counter, &vertex_degree_counter, view](const LPIndex &index_element) {
           auto &lp_counter = label_property_counter[index_element];
           auto &vd_counter = vertex_degree_counter[index_element];
-          auto vertices = execution_db_accessor->Vertices(view, index_element.first, index_element.second);
+          // @TODO using first item in composite key
+          auto vertices = execution_db_accessor->Vertices(view, index_element.first, index_element.second.front());
           std::for_each(vertices.begin(), vertices.end(),
                         [&index_element, &lp_counter, &vd_counter, &view](const auto &vertex) {
-                          lp_counter[*vertex.GetProperty(view, index_element.second)]++;
+                          lp_counter[*vertex.GetProperty(view, index_element.second.front())]++;
                           vd_counter += *vertex.OutDegree(view) + *vertex.InDegree(view);
                         });
         });
@@ -2751,7 +2752,8 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
                                                .statistic = chi_squared_stat,
                                                .avg_group_size = avg_group_size,
                                                .avg_degree = average_degree};
-          execution_db_accessor->SetIndexStats(label_property.first, label_property.second, index_stats);
+          // @TODO put back
+          // execution_db_accessor->SetIndexStats(label_property.first, label_property.second, index_stats);
           label_property_stats.push_back(std::make_pair(label_property, index_stats));
         });
 
@@ -2791,7 +2793,8 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
                   result.reserve(kComputeStatisticsNumResults);
 
                   result.emplace_back(execution_db_accessor->LabelToName(stat_entry.first.first));
-                  result.emplace_back(execution_db_accessor->PropertyToName(stat_entry.first.second));
+                  // @TODO using first entry in composite index key
+                  result.emplace_back(execution_db_accessor->PropertyToName(stat_entry.first.second.front()));
                   result.emplace_back(static_cast<int64_t>(stat_entry.second.count));
                   result.emplace_back(static_cast<int64_t>(stat_entry.second.distinct_values_count));
                   result.emplace_back(stat_entry.second.avg_group_size);
@@ -2846,11 +2849,11 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphDelet
   };
 
   auto populate_label_property_results = [execution_db_accessor](auto index_info) {
-    std::vector<std::pair<storage::LabelId, storage::PropertyId>> label_property_results;
+    std::vector<std::pair<storage::LabelId, std::vector<storage::PropertyId>>> label_property_results;
     label_property_results.reserve(index_info.size());
     std::for_each(index_info.begin(), index_info.end(),
-                  [execution_db_accessor,
-                   &label_property_results](const std::pair<storage::LabelId, storage::PropertyId> &label_property) {
+                  [execution_db_accessor, &label_property_results](
+                      const std::pair<storage::LabelId, std::vector<storage::PropertyId>> &label_property) {
                     const auto &res = execution_db_accessor->DeleteLabelPropertyIndexStats(label_property.first);
                     label_property_results.insert(label_property_results.end(), res.begin(), res.end());
                   });
@@ -2864,7 +2867,8 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphDelet
   erase_not_specified_label_indices(label_indices_info);
   auto label_results = populate_label_results(label_indices_info);
 
-  std::vector<std::pair<storage::LabelId, storage::PropertyId>> label_property_indices_info = index_info.label_property;
+  std::vector<std::pair<storage::LabelId, std::vector<storage::PropertyId>>> label_property_indices_info =
+      index_info.label_property;
   erase_not_specified_label_property_indices(label_property_indices_info);
   auto label_prop_results = populate_label_property_results(label_property_indices_info);
 
@@ -2877,11 +2881,12 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphDelet
         return std::vector<TypedValue>{TypedValue(execution_db_accessor->LabelToName(label_index)), TypedValue("")};
       });
 
+  // @TODO only using first property in vec here...
   std::transform(label_prop_results.begin(), label_prop_results.end(), std::back_inserter(results),
                  [execution_db_accessor](const auto &label_property_index) {
                    return std::vector<TypedValue>{
                        TypedValue(execution_db_accessor->LabelToName(label_property_index.first)),
-                       TypedValue(execution_db_accessor->PropertyToName(label_property_index.second))};
+                       TypedValue(execution_db_accessor->PropertyToName(label_property_index.second.front()))};
                  });
 
   return results;
@@ -4477,12 +4482,6 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
                              TypedValue(static_cast<int>(storage_acc->ApproximateVertexCount(item)))});
         }
         for (const auto &item : info.label_property) {
-          results.push_back(
-              {TypedValue(label_property_index_mark), TypedValue(storage->LabelToName(item.first)),
-               TypedValue(storage->PropertyToName(item.second)),
-               TypedValue(static_cast<int>(storage_acc->ApproximateVertexCount(item.first, item.second)))});
-        }
-        for (const auto &item : info.label_property_composite) {
           std::vector<std::string> property_names;
           property_names.reserve(item.second.size());
           for (const auto &property : item.second) {
@@ -5529,8 +5528,9 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       // Vertex label property indices
       for (const auto &[label_id, property] : index_info.label_property) {
         node_indexes.push_back(
+            // @TODO do this with composite indices
             nlohmann::json::object({{"labels", {storage->LabelToName(label_id)}},
-                                    {"properties", {storage->PropertyToName(property)}},
+                                    {"properties", {""} /*{storage->PropertyToName(property)}*/},
                                     {"count", storage_acc->ApproximateVertexCount(label_id, property)}}));
       }
       // Vertex label text

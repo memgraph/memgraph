@@ -19,7 +19,6 @@
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/version.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
-#include "storage/v2/indices/label_property_composite_index_stats.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/schema_info.hpp"
@@ -35,7 +34,6 @@ using memgraph::storage::EdgeAccessor;
 using memgraph::storage::EdgeRef;
 using memgraph::storage::EdgeTypeId;
 using memgraph::storage::LabelIndexStats;
-using memgraph::storage::LabelPropertyCompositeIndexStats;
 using memgraph::storage::LabelPropertyIndexStats;
 using memgraph::storage::PropertyId;
 using memgraph::storage::UniqueConstraints;
@@ -947,7 +945,7 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
           if (!FromJson(data.json_stats, stats)) {
             throw utils::BasicException("Failed to read statistics!");
           }
-          transaction->SetIndexStats(label, property, stats);
+          transaction->SetIndexStats(label, {property}, stats);
         },
         [&](WalLabelPropertyIndexStatsClear const &data) {
           spdlog::trace("       Clear label-property index statistics on :{}", data.label);
@@ -1167,30 +1165,29 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
             throw utils::BasicException("Failed to drop label+property composite index on :{} ({}).", data.label,
                                         ss.str());
           }
+        },                                                        // @TODO fold into standard property indices
+        [&](WalLabelPropertyCompositeIndexStatsSet const &data) { /*
+           spdlog::trace("       Set label-property composite index statistics on :{}", data.label);
+           // Need to send the timestamp
+           auto *transaction = get_replication_accessor(delta_timestamp);
+           const auto label = storage->NameToLabel(data.label);
+           std::vector<PropertyId> properties;
+           properties.reserve(data.properties.size());
+           for (const auto &prop : data.properties) {
+             properties.emplace_back(storage->NameToProperty(prop));
+           }
+           LabelPropertyIndexStats stats{};
+           if (!FromJson(data.json_stats, stats)) {
+             throw utils::BasicException("Failed to read statistics!");
+           }
+           transaction->SetIndexStats(label, properties, stats);*/
         },
-        [&](WalLabelPropertyCompositeIndexStatsSet const &data) {
-          spdlog::trace("       Set label-property composite index statistics on :{}", data.label);
-          // Need to send the timestamp
-          auto *transaction = get_replication_accessor(delta_timestamp);
-          const auto label = storage->NameToLabel(data.label);
-          std::vector<PropertyId> properties;
-          properties.reserve(data.properties.size());
-          for (const auto &prop : data.properties) {
-            properties.emplace_back(storage->NameToProperty(prop));
-          }
-          LabelPropertyCompositeIndexStats stats{};
-          if (!FromJson(data.json_stats, stats)) {
-            throw utils::BasicException("Failed to read statistics!");
-          }
-          transaction->SetIndexStats(label, properties, stats);
-        },
-        [&](WalLabelPropertyCompositeIndexStatsClear const &data) {
+        [&](WalLabelPropertyCompositeIndexStatsClear const &data) { /*
           spdlog::trace("       Clear label-property composite index statistics on :{}", data.label);
           // Need to send the timestamp
           auto *transaction = get_replication_accessor(delta_timestamp);
-          transaction->DeleteLabelPropertyCompositeIndexStats(storage->NameToLabel(data.label));
-        },
-    };
+          transaction->DeleteLabelPropertyCompositeIndexStats(storage->NameToLabel(data.label)); */
+        }};
 
     spdlog::trace("  Delta {}", current_delta_idx);
     std::visit(delta_apply, delta.data_);

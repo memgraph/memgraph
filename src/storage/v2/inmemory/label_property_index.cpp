@@ -22,53 +22,60 @@
 
 namespace memgraph::storage {
 
+// @TODO replace with nested type
+using LabelPropertyCompositeIndexKey = InMemoryLabelPropertyIndex::LabelPropertyCompositeIndexKey;
+
 bool InMemoryLabelPropertyIndex::Entry::operator<(const Entry &rhs) const {
-  return std::tie(value, vertex, timestamp) < std::tie(rhs.value, rhs.vertex, rhs.timestamp);
+  return std::tie(values, vertex, timestamp) < std::tie(rhs.values, rhs.vertex, rhs.timestamp);
 }
 
 bool InMemoryLabelPropertyIndex::Entry::operator==(const Entry &rhs) const {
-  return std::tie(value, vertex, timestamp) == std::tie(rhs.value, rhs.vertex, rhs.timestamp);
+  return std::tie(values, vertex, timestamp) == std::tie(values, vertex, timestamp);
 }
 
-bool InMemoryLabelPropertyIndex::Entry::operator<(const PropertyValue &rhs) const { return value < rhs; }
+bool InMemoryLabelPropertyIndex::Entry::operator<(const std::vector<PropertyValue> &rhs) const { return values < rhs; }
 
-bool InMemoryLabelPropertyIndex::Entry::operator==(const PropertyValue &rhs) const { return value == rhs; }
+bool InMemoryLabelPropertyIndex::Entry::operator==(const std::vector<PropertyValue> &rhs) const {
+  return values == rhs;
+}
 
 bool InMemoryLabelPropertyIndex::CreateIndex(
-    LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
+    LabelId label, const std::vector<PropertyId> &properties, utils::SkipList<Vertex>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info) {
   spdlog::trace("Vertices size when creating index: {}", vertices.size());
-  auto create_index_seq = [this](LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor &vertices,
-                                 std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>>::iterator it) {
+  auto create_index_seq = [this](LabelId label, const std::vector<PropertyId> &properties,
+                                 utils::SkipList<Vertex>::Accessor &vertices,
+                                 std::map<LabelPropertyCompositeIndexKey, utils::SkipList<Entry>>::iterator it) {
     using IndexAccessor = decltype(it->second.access());
 
-    CreateIndexOnSingleThread(vertices, it, index_, std::make_pair(label, property),
-                              [](Vertex &vertex, std::pair<LabelId, PropertyId> key, IndexAccessor &index_accessor) {
-                                TryInsertLabelPropertyIndex(vertex, key, index_accessor);
+    CreateIndexOnSingleThread(vertices, it, index_, std::make_pair(label, properties),
+                              [](Vertex &vertex, LabelPropertyCompositeIndexKey key, IndexAccessor &index_accessor) {
+                                TryInsertLabelPropertyCompositeIndex(vertex, key, index_accessor);
                               });
 
     return true;
   };
 
-  auto create_index_par =
-      [this](LabelId label, PropertyId property, utils::SkipList<Vertex>::Accessor &vertices,
-             std::map<std::pair<LabelId, PropertyId>, utils::SkipList<Entry>>::iterator label_property_it,
-             const durability::ParallelizedSchemaCreationInfo &parallel_exec_info) {
-        using IndexAccessor = decltype(label_property_it->second.access());
+  auto create_index_par = [this](LabelId label, const std::vector<PropertyId> &properties,
+                                 utils::SkipList<Vertex>::Accessor &vertices,
+                                 std::map<LabelPropertyCompositeIndexKey, utils::SkipList<Entry>>::iterator it,
+                                 const durability::ParallelizedSchemaCreationInfo &parallel_exec_info) {
+    using IndexAccessor = decltype(it->second.access());
 
-        CreateIndexOnMultipleThreads(
-            vertices, label_property_it, index_, std::make_pair(label, property), parallel_exec_info,
-            [](Vertex &vertex, std::pair<LabelId, PropertyId> key, IndexAccessor &index_accessor) {
-              TryInsertLabelPropertyIndex(vertex, key, index_accessor);
-            });
+    CreateIndexOnMultipleThreads(vertices, it, index_, std::make_pair(label, properties), parallel_exec_info,
+                                 [](Vertex &vertex, LabelPropertyCompositeIndexKey key, IndexAccessor &index_accessor) {
+                                   TryInsertLabelPropertyCompositeIndex(vertex, key, index_accessor);
+                                 });
 
-        return true;
-      };
+    return true;
+  };
 
   auto [it, emplaced] =
-      index_.emplace(std::piecewise_construct, std::forward_as_tuple(label, property), std::forward_as_tuple());
+      index_.emplace(std::piecewise_construct, std::forward_as_tuple(label, properties), std::forward_as_tuple());
 
-  indices_by_property_[property].insert({label, &it->second});
+  for (const auto &property : properties) {
+    indices_by_property_[property].insert({std::make_pair(label, properties), &it->second});
+  }
 
   if (!emplaced) {
     // Index already exists.
@@ -76,23 +83,26 @@ bool InMemoryLabelPropertyIndex::CreateIndex(
   }
 
   if (parallel_exec_info) {
-    return create_index_par(label, property, vertices, it, *parallel_exec_info);
+    return create_index_par(label, properties, vertices, it, *parallel_exec_info);
   }
 
-  return create_index_seq(label, property, vertices, it);
+  return create_index_seq(label, properties, vertices, it);
 }
 
 void InMemoryLabelPropertyIndex::UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update,
                                                   const Transaction &tx) {
-  for (auto &[label_prop, storage] : index_) {
-    if (label_prop.first != added_label) {
+  for (auto &[label_props, storage] : index_) {
+    if (label_props.first != added_label) {
       continue;
     }
-    auto prop_value = vertex_after_update->properties.GetProperty(label_prop.second);
-    if (!prop_value.IsNull()) {
-      auto acc = storage.access();
-      acc.insert(Entry{std::move(prop_value), vertex_after_update, tx.start_timestamp});
+
+    auto props_values =
+        vertex_after_update->properties.GetProperties({label_props.second.begin(), label_props.second.end()});
+    if (!props_values) {
+      return;
     }
+    auto acc = storage.access();
+    acc.insert(Entry{std::move(*props_values), vertex_after_update, tx.start_timestamp});
   }
 }
 
@@ -102,39 +112,47 @@ void InMemoryLabelPropertyIndex::UpdateOnSetProperty(PropertyId property, const 
     return;
   }
 
-  auto index = indices_by_property_.find(property);
-  if (index == indices_by_property_.end()) {
+  auto it = indices_by_property_.find(property);
+  if (it == indices_by_property_.end()) {
     return;
   }
 
-  for (const auto &[label, storage] : index->second) {
-    if (!utils::Contains(vertex->labels, label)) continue;
+  for (const auto &[key, storage] : it->second) {
+    if (!utils::Contains(vertex->labels, key.first)) continue;
+    auto props_values = vertex->properties.GetProperties({key.second.begin(), key.second.end()});
+    if (!props_values) {
+      return;
+    }
+
     auto acc = storage->access();
-    acc.insert(Entry{value, vertex, tx.start_timestamp});
+    acc.insert(Entry{std::move(*props_values), vertex, tx.start_timestamp});
   }
 }
 
-bool InMemoryLabelPropertyIndex::DropIndex(LabelId label, PropertyId property) {
-  if (indices_by_property_.contains(property)) {
-    indices_by_property_.at(property).erase(label);
+bool InMemoryLabelPropertyIndex::DropIndex(LabelId label, const std::vector<PropertyId> &properties) {
+  for (const auto &property : properties) {
+    auto it = indices_by_property_.find(property);
+    if (it != indices_by_property_.end()) {
+      it->second.erase({label, properties});
 
-    if (indices_by_property_.at(property).empty()) {
-      indices_by_property_.erase(property);
+      if (it->second.empty()) {
+        indices_by_property_.erase(it);
+      }
     }
   }
 
-  return index_.erase({label, property}) > 0;
+  return index_.erase({label, properties}) > 0;
 }
 
-bool InMemoryLabelPropertyIndex::IndexExists(LabelId label, PropertyId property) const {
-  return index_.contains({label, property});
+bool InMemoryLabelPropertyIndex::IndexExists(LabelId label, const std::vector<PropertyId> &properties) const {
+  return index_.find({label, properties}) != index_.end();
 }
 
-std::vector<std::pair<LabelId, PropertyId>> InMemoryLabelPropertyIndex::ListIndices() const {
-  std::vector<std::pair<LabelId, PropertyId>> ret;
+std::vector<LabelPropertyCompositeIndexKey> InMemoryLabelPropertyIndex::ListIndices() const {
+  std::vector<LabelPropertyCompositeIndexKey> ret;
   ret.reserve(index_.size());
-  for (auto const &key : index_ | std::views::keys) {
-    ret.push_back(key);
+  for (const auto &item : index_) {
+    ret.push_back(item.first);
   }
   return ret;
 }
@@ -142,8 +160,8 @@ std::vector<std::pair<LabelId, PropertyId>> InMemoryLabelPropertyIndex::ListIndi
 void InMemoryLabelPropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) {
   auto maybe_stop = utils::ResettableCounter<2048>();
 
-  for (auto &[label_property, index] : index_) {
-    auto [label_id, prop_id] = label_property;
+  for (auto &[label_properties, index] : index_) {
+    auto [label_id, prop_ids] = label_properties;
     // before starting index, check if stop_requested
     if (token.stop_requested()) return;
 
@@ -158,11 +176,11 @@ void InMemoryLabelPropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_st
       auto next_it = it;
       ++next_it;
 
-      bool has_next = next_it != end_it;
+      const bool has_next = next_it != end_it;
       if (it->timestamp < oldest_active_start_timestamp) {
-        bool redundant_duplicate = has_next && it->vertex == next_it->vertex && it->value == next_it->value;
+        bool redundant_duplicate = has_next && it->vertex == next_it->vertex && it->values == next_it->values;
         if (redundant_duplicate ||
-            !AnyVersionHasLabelProperty(*it->vertex, label_id, prop_id, it->value, oldest_active_start_timestamp)) {
+            !AnyVersionHasLabelProperties(*it->vertex, label_id, prop_ids, it->values, oldest_active_start_timestamp)) {
           index_acc.remove(*it);
         }
       }
@@ -197,27 +215,44 @@ void InMemoryLabelPropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
       continue;
     }
 
-    if (self_->lower_bound_) {
-      if (index_iterator_->value < self_->lower_bound_->value()) {
-        continue;
-      }
-      if (!self_->lower_bound_->IsInclusive() && index_iterator_->value == self_->lower_bound_->value()) {
-        continue;
-      }
+    if (index_iterator_->values < self_->lower_bound_) {
+      continue;
     }
-    if (self_->upper_bound_) {
-      if (self_->upper_bound_->value() < index_iterator_->value) {
-        index_iterator_ = self_->index_accessor_.end();
+
+    if (index_iterator_->values > self_->upper_bound_) {
+      index_iterator_ = self_->index_accessor_.end();
+      break;
+    }
+
+    bool should_continue = false;
+    auto bound_size = self_->lower_bound_.size();
+
+    for (uint64_t i = 0; i < bound_size; i++) {
+      if (index_iterator_->values[i] < self_->lower_bound_[i]) {
+        should_continue = true;
+        continue;
+      }
+      if (index_iterator_->values[i] > self_->upper_bound_[i]) {
+        should_continue = true;
+        continue;
+      }
+
+      if (self_->lower_bounds_[i]->IsExclusive() && index_iterator_->values[i] == self_->lower_bound_[i]) {
+        should_continue = true;
         break;
       }
-      if (!self_->upper_bound_->IsInclusive() && index_iterator_->value == self_->upper_bound_->value()) {
-        index_iterator_ = self_->index_accessor_.end();
+      if (self_->upper_bounds_[i]->IsExclusive() && index_iterator_->values[i] == self_->upper_bound_[i]) {
+        should_continue = true;
         break;
       }
     }
 
-    if (CurrentVersionHasLabelProperty(*index_iterator_->vertex, self_->label_, self_->property_,
-                                       index_iterator_->value, self_->transaction_, self_->view_)) {
+    if (should_continue) {
+      continue;
+    }
+
+    if (CurrentVersionHasLabelProperties(*index_iterator_->vertex, self_->label_, self_->properties_,
+                                         index_iterator_->values, self_->transaction_, self_->view_)) {
       current_vertex_ = index_iterator_->vertex;
       current_vertex_accessor_ = VertexAccessor(current_vertex_, self_->storage_, self_->transaction_);
       break;
@@ -225,18 +260,138 @@ void InMemoryLabelPropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
   }
 }
 
-InMemoryLabelPropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor,
-                                               utils::SkipList<Vertex>::ConstAccessor vertices_accessor, LabelId label,
-                                               PropertyId property,
-                                               const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                                               const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view,
-                                               Storage *storage, Transaction *transaction)
+InMemoryLabelPropertyIndex::Iterable::Bounds InMemoryLabelPropertyIndex::Iterable::MakeBounds(
+    std::vector<std::optional<utils::Bound<PropertyValue>>> &lower_bounds,
+    std::vector<std::optional<utils::Bound<PropertyValue>>> &upper_bounds) {
+  std::vector<PropertyValue> lower_bound_values;
+  std::vector<PropertyValue> upper_bound_values;
+  lower_bound_values.reserve(lower_bounds.size());
+  upper_bound_values.reserve(upper_bounds.size());
+
+  for (uint64_t i = 0; i < lower_bounds.size(); i++) {
+    auto &lower_bound = lower_bounds[i];
+    auto &upper_bound = upper_bounds[i];
+    // Remove any bounds that are set to `Null` because that isn't a valid value.
+    if (lower_bound && lower_bound->value().IsNull()) {
+      lower_bound = std::nullopt;
+    }
+    if (upper_bound && upper_bound->value().IsNull()) {
+      upper_bound = std::nullopt;
+    }
+
+    // Check whether the bounds are of comparable types if both are supplied.
+    if (lower_bound && upper_bound && !AreComparableTypes(lower_bound->value().type(), upper_bound->value().type())) {
+      return {.bounds_valid = false};
+    }
+
+    // Set missing bounds.
+    if (lower_bound && !upper_bound) {
+      // Here we need to supply an upper bound. The upper bound is set to an
+      // exclusive lower bound of the following type.
+      switch (lower_bound->value().type()) {
+        case PropertyValue::Type::Null:
+          // This shouldn't happen because of the nullopt-ing above.
+          LOG_FATAL("Invalid database state!");
+          break;
+        case PropertyValue::Type::Bool:
+          upper_bound = utils::MakeBoundExclusive(kSmallestNumber);
+          break;
+        case PropertyValue::Type::Int:
+        case PropertyValue::Type::Double:
+          // Both integers and doubles are treated as the same type in
+          // `PropertyValue` and they are interleaved when sorted.
+          upper_bound = utils::MakeBoundExclusive(kSmallestString);
+          break;
+        case PropertyValue::Type::String:
+          upper_bound = utils::MakeBoundExclusive(kSmallestList);
+          break;
+        case PropertyValue::Type::List:
+          upper_bound = utils::MakeBoundExclusive(kSmallestMap);
+          break;
+        case PropertyValue::Type::Map:
+          upper_bound = utils::MakeBoundExclusive(kSmallestTemporalData);
+          break;
+        case PropertyValue::Type::TemporalData:
+          upper_bound = utils::MakeBoundExclusive(kSmallestZonedTemporalData);
+          break;
+        case PropertyValue::Type::ZonedTemporalData:
+          upper_bound = utils::MakeBoundExclusive(kSmallestEnum);
+          break;
+        case PropertyValue::Type::Enum:
+          upper_bound = utils::MakeBoundExclusive(kSmallestPoint2d);
+          break;
+        case PropertyValue::Type::Point2d:
+          upper_bound = utils::MakeBoundExclusive(kSmallestPoint3d);
+          break;
+        case PropertyValue::Type::Point3d:
+          // This is the last type in the order so we leave the upper bound empty.
+          break;
+      }
+    }
+    if (upper_bound && !lower_bound) {
+      // Here we need to supply a lower bound. The lower bound is set to an
+      // inclusive lower bound of the current type.
+      switch (upper_bound->value().type()) {
+        case PropertyValue::Type::Null:
+          // This shouldn't happen because of the nullopt-ing above.
+          LOG_FATAL("Invalid database state!");
+          break;
+        case PropertyValue::Type::Bool:
+          lower_bound = utils::MakeBoundInclusive(kSmallestBool);
+          break;
+        case PropertyValue::Type::Int:
+        case PropertyValue::Type::Double:
+          // Both integers and doubles are treated as the same type in
+          // `PropertyValue` and they are interleaved when sorted.
+          lower_bound = utils::MakeBoundInclusive(kSmallestNumber);
+          break;
+        case PropertyValue::Type::String:
+          lower_bound = utils::MakeBoundInclusive(kSmallestString);
+          break;
+        case PropertyValue::Type::List:
+          lower_bound = utils::MakeBoundInclusive(kSmallestList);
+          break;
+        case PropertyValue::Type::Map:
+          lower_bound = utils::MakeBoundInclusive(kSmallestMap);
+          break;
+        case PropertyValue::Type::TemporalData:
+          lower_bound = utils::MakeBoundInclusive(kSmallestTemporalData);
+          break;
+        case PropertyValue::Type::ZonedTemporalData:
+          lower_bound = utils::MakeBoundInclusive(kSmallestZonedTemporalData);
+          break;
+        case PropertyValue::Type::Enum:
+          lower_bound = utils::MakeBoundInclusive(kSmallestEnum);
+          break;
+        case PropertyValue::Type::Point2d:
+          lower_bound = utils::MakeBoundExclusive(kSmallestPoint2d);
+          break;
+        case PropertyValue::Type::Point3d:
+          lower_bound = utils::MakeBoundExclusive(kSmallestPoint3d);
+          break;
+      }
+    }
+
+    lower_bound_values.push_back(lower_bound->value());
+    upper_bound_values.push_back(upper_bound->value());
+  }
+
+  return {
+      .lower_bound = std::move(lower_bound_values), .upper_bound = std::move(upper_bound_values), .bounds_valid = true};
+}
+
+InMemoryLabelPropertyIndex::Iterable::Iterable(
+    utils::SkipList<Entry>::Accessor index_accessor, utils::SkipList<Vertex>::ConstAccessor vertices_accessor,
+    LabelId label, const std::vector<PropertyId> &properties,
+    const std::vector<std::optional<utils::Bound<PropertyValue>>> &lower_bounds,
+    const std::vector<std::optional<utils::Bound<PropertyValue>>> &upper_bounds, View view, Storage *storage,
+    Transaction *transaction)
     : pin_accessor_(std::move(vertices_accessor)),
       index_accessor_(std::move(index_accessor)),
       label_(label),
-      property_(property),
-      lower_bound_(lower_bound),
-      upper_bound_(upper_bound),
+      properties_(properties),
+      lower_bounds_(lower_bounds),
+      upper_bounds_(upper_bounds),
       view_(view),
       storage_(storage),
       transaction_(transaction) {
@@ -245,116 +400,17 @@ InMemoryLabelPropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor 
   // are returned by the iterator. We ensure this by supplying either an
   // inclusive lower bound of the same type, or an exclusive upper bound of the
   // following type. If neither bound is set we yield all items in the index.
-
-  // Remove any bounds that are set to `Null` because that isn't a valid value.
-  if (lower_bound_ && lower_bound_->value().IsNull()) {
-    lower_bound_ = std::nullopt;
-  }
-  if (upper_bound_ && upper_bound_->value().IsNull()) {
-    upper_bound_ = std::nullopt;
-  }
-
-  // Check whether the bounds are of comparable types if both are supplied.
-  if (lower_bound_ && upper_bound_ && !AreComparableTypes(lower_bound_->value().type(), upper_bound_->value().type())) {
-    bounds_valid_ = false;
-    return;
-  }
-
-  // Set missing bounds.
-  if (lower_bound_ && !upper_bound_) {
-    // Here we need to supply an upper bound. The upper bound is set to an
-    // exclusive lower bound of the following type.
-    switch (lower_bound_->value().type()) {
-      case PropertyValue::Type::Null:
-        // This shouldn't happen because of the nullopt-ing above.
-        LOG_FATAL("Invalid database state!");
-      case PropertyValue::Type::Bool:
-        upper_bound_ = utils::MakeBoundExclusive(kSmallestNumber);
-        break;
-      case PropertyValue::Type::Int:
-      case PropertyValue::Type::Double:
-        // Both integers and doubles are treated as the same type in
-        // `PropertyValue` and they are interleaved when sorted.
-        upper_bound_ = utils::MakeBoundExclusive(kSmallestString);
-        break;
-      case PropertyValue::Type::String:
-        upper_bound_ = utils::MakeBoundExclusive(kSmallestList);
-        break;
-      case PropertyValue::Type::List:
-        upper_bound_ = utils::MakeBoundExclusive(kSmallestMap);
-        break;
-      case PropertyValue::Type::Map:
-        upper_bound_ = utils::MakeBoundExclusive(kSmallestTemporalData);
-        break;
-      case PropertyValue::Type::TemporalData:
-        upper_bound_ = utils::MakeBoundExclusive(kSmallestZonedTemporalData);
-        break;
-      case PropertyValue::Type::ZonedTemporalData:
-        upper_bound_ = utils::MakeBoundExclusive(kSmallestEnum);
-        break;
-      case PropertyValue::Type::Enum:
-        upper_bound_ = utils::MakeBoundExclusive(kSmallestPoint2d);
-        break;
-      case PropertyValue::Type::Point2d:
-        upper_bound_ = utils::MakeBoundExclusive(kSmallestPoint3d);
-        break;
-      case PropertyValue::Type::Point3d:
-        // This is the last type in the order so we leave the upper bound empty.
-        break;
-    }
-  }
-  if (upper_bound_ && !lower_bound_) {
-    // Here we need to supply a lower bound. The lower bound is set to an
-    // inclusive lower bound of the current type.
-    switch (upper_bound_->value().type()) {
-      case PropertyValue::Type::Null:
-        // This shouldn't happen because of the nullopt-ing above.
-        LOG_FATAL("Invalid database state!");
-      case PropertyValue::Type::Bool:
-        lower_bound_ = utils::MakeBoundInclusive(kSmallestBool);
-        break;
-      case PropertyValue::Type::Int:
-      case PropertyValue::Type::Double:
-        // Both integers and doubles are treated as the same type in
-        // `PropertyValue` and they are interleaved when sorted.
-        lower_bound_ = utils::MakeBoundInclusive(kSmallestNumber);
-        break;
-      case PropertyValue::Type::String:
-        lower_bound_ = utils::MakeBoundInclusive(kSmallestString);
-        break;
-      case PropertyValue::Type::List:
-        lower_bound_ = utils::MakeBoundInclusive(kSmallestList);
-        break;
-      case PropertyValue::Type::Map:
-        lower_bound_ = utils::MakeBoundInclusive(kSmallestMap);
-        break;
-      case PropertyValue::Type::TemporalData:
-        lower_bound_ = utils::MakeBoundInclusive(kSmallestTemporalData);
-        break;
-      case PropertyValue::Type::ZonedTemporalData:
-        lower_bound_ = utils::MakeBoundInclusive(kSmallestZonedTemporalData);
-        break;
-      case PropertyValue::Type::Enum:
-        lower_bound_ = utils::MakeBoundInclusive(kSmallestEnum);
-        break;
-      case PropertyValue::Type::Point2d:
-        lower_bound_ = utils::MakeBoundExclusive(kSmallestPoint2d);
-        break;
-      case PropertyValue::Type::Point3d:
-        lower_bound_ = utils::MakeBoundExclusive(kSmallestPoint3d);
-        break;
-    }
-  }
+  auto bounds = MakeBounds(lower_bounds_, upper_bounds_);
+  bounds_valid_ = bounds.bounds_valid;
+  lower_bound_ = std::move(bounds.lower_bound);
+  upper_bound_ = std::move(bounds.upper_bound);
 }
 
 InMemoryLabelPropertyIndex::Iterable::Iterator InMemoryLabelPropertyIndex::Iterable::begin() {
   // If the bounds are set and don't have comparable types we don't yield any
   // items from the index.
   if (!bounds_valid_) return {this, index_accessor_.end()};
-  auto index_iterator = index_accessor_.begin();
-  if (lower_bound_) {
-    index_iterator = index_accessor_.find_equal_or_greater(lower_bound_->value());
-  }
+  auto index_iterator = index_accessor_.find_equal_or_greater(lower_bound_);
   return {this, index_iterator};
 }
 
@@ -362,43 +418,48 @@ InMemoryLabelPropertyIndex::Iterable::Iterator InMemoryLabelPropertyIndex::Itera
   return {this, index_accessor_.end()};
 }
 
-uint64_t InMemoryLabelPropertyIndex::ApproximateVertexCount(LabelId label, PropertyId property) const {
-  auto it = index_.find({label, property});
-  MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(), property.AsUint());
+uint64_t InMemoryLabelPropertyIndex::ApproximateVertexCount(LabelId label,
+                                                            const std::vector<PropertyId> &properties) const {
+  auto it = index_.find({label, properties});
+  MG_ASSERT(it != index_.end(), "Composite index for label {} does not exist!", label.AsUint());
+
   return it->second.size();
 }
 
-uint64_t InMemoryLabelPropertyIndex::ApproximateVertexCount(LabelId label, PropertyId property,
-                                                            const PropertyValue &value) const {
-  auto it = index_.find({label, property});
-  MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(), property.AsUint());
-  auto acc = it->second.access();
-  if (!value.IsNull()) {
-    // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
-    return acc.estimate_count(value, utils::SkipListLayerForCountEstimation(acc.size()));
-  }
-  // The value `Null` won't ever appear in the index because it indicates that
-  // the property shouldn't exist. Instead, this value is used as an indicator
-  // to estimate the average number of equal elements in the list (for any
-  // given value).
-  return acc.estimate_average_number_of_equals(
-      [](const auto &first, const auto &second) { return first.value == second.value; },
-      // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
-      utils::SkipListLayerForAverageEqualsEstimation(acc.size()));
-}
-
 uint64_t InMemoryLabelPropertyIndex::ApproximateVertexCount(
-    LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower,
-    const std::optional<utils::Bound<PropertyValue>> &upper) const {
-  auto it = index_.find({label, property});
-  MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(), property.AsUint());
+    LabelId label, const std::vector<PropertyId> &properties,
+    const std::vector<std::optional<utils::Bound<PropertyValue>>> &lower,
+    const std::vector<std::optional<utils::Bound<PropertyValue>>> &upper) const {
+  auto it = index_.find({label, properties});
+  MG_ASSERT(it != index_.end(), "Composite index for label {} does not exist!", label.AsUint());
+
   auto acc = it->second.access();
+
+  // Generate bounds using the new helper method
+  auto [lower_bound, upper_bound] = GenerateBounds(lower, upper);
+
   // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
-  return acc.estimate_range_count(lower, upper, utils::SkipListLayerForCountEstimation(acc.size()));
+  return acc.estimate_range_count(
+      std::optional{utils::MakeBoundInclusive(lower_bound)}, std::optional{utils::MakeBoundInclusive(upper_bound)},
+      // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
+      utils::SkipListLayerForCountEstimation(acc.size()));
+  return 0;
 }
 
-std::vector<std::pair<LabelId, PropertyId>> InMemoryLabelPropertyIndex::ClearIndexStats() {
-  std::vector<std::pair<LabelId, PropertyId>> deleted_indexes;
+std::pair<std::vector<PropertyValue>, std::vector<PropertyValue>> InMemoryLabelPropertyIndex::GenerateBounds(
+    const std::vector<std::optional<utils::Bound<PropertyValue>>> &lower_bounds,
+    const std::vector<std::optional<utils::Bound<PropertyValue>>> &upper_bounds) {
+  std::vector<std::optional<utils::Bound<PropertyValue>>> mutable_lower_bounds = lower_bounds;
+  std::vector<std::optional<utils::Bound<PropertyValue>>> mutable_upper_bounds = upper_bounds;
+
+  // Use MakeBounds logic to generate lower and upper bounds
+  auto bounds = Iterable::MakeBounds(mutable_lower_bounds, mutable_upper_bounds);
+
+  return {std::move(bounds.lower_bound), std::move(bounds.upper_bound)};
+}
+
+std::vector<LabelPropertyCompositeIndexKey> InMemoryLabelPropertyIndex::ClearIndexStats() {
+  std::vector<LabelPropertyCompositeIndexKey> deleted_indexes;
   auto locked_stats = stats_.Lock();
   deleted_indexes.reserve(locked_stats->size());
   std::transform(locked_stats->begin(), locked_stats->end(), std::back_inserter(deleted_indexes),
@@ -408,9 +469,9 @@ std::vector<std::pair<LabelId, PropertyId>> InMemoryLabelPropertyIndex::ClearInd
 }
 
 // stats_ is a map where the key is a pair of label and property, so for one label many pairs can be deleted
-std::vector<std::pair<LabelId, PropertyId>> InMemoryLabelPropertyIndex::DeleteIndexStats(
+std::vector<LabelPropertyCompositeIndexKey> InMemoryLabelPropertyIndex::DeleteIndexStats(
     const storage::LabelId &label) {
-  std::vector<std::pair<LabelId, PropertyId>> deleted_indexes;
+  std::vector<LabelPropertyCompositeIndexKey> deleted_indexes;
   auto locked_stats = stats_.Lock();
   for (auto it = locked_stats->cbegin(); it != locked_stats->cend();) {
     if (it->first.first == label) {
@@ -423,14 +484,14 @@ std::vector<std::pair<LabelId, PropertyId>> InMemoryLabelPropertyIndex::DeleteIn
   return deleted_indexes;
 }
 
-void InMemoryLabelPropertyIndex::SetIndexStats(const std::pair<storage::LabelId, storage::PropertyId> &key,
+void InMemoryLabelPropertyIndex::SetIndexStats(const LabelPropertyCompositeIndexKey &key,
                                                const LabelPropertyIndexStats &stats) {
   auto locked_stats = stats_.Lock();
   locked_stats->insert_or_assign(key, stats);
 }
 
 std::optional<LabelPropertyIndexStats> InMemoryLabelPropertyIndex::GetIndexStats(
-    const std::pair<storage::LabelId, storage::PropertyId> &key) const {
+    const LabelPropertyCompositeIndexKey &key) const {
   auto locked_stats = stats_.ReadLock();
   if (auto it = locked_stats->find(key); it != locked_stats->end()) {
     return it->second;
@@ -439,65 +500,98 @@ std::optional<LabelPropertyIndexStats> InMemoryLabelPropertyIndex::GetIndexStats
 }
 
 void InMemoryLabelPropertyIndex::RunGC() {
-  for (auto &coll : index_ | std::views::values) {
-    coll.run_gc();
+  for (auto &entry : index_ | std::views::values) {
+    entry.run_gc();
   }
 }
 
 InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::Vertices(
-    LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
+    LabelId label, const std::vector<PropertyId> &properties,
+    const std::vector<std::optional<utils::Bound<PropertyValue>>> &lower_bound,
+    const std::vector<std::optional<utils::Bound<PropertyValue>>> &upper_bound, View view, Storage *storage,
     Transaction *transaction) {
   DMG_ASSERT(storage->storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL ||
                  storage->storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL,
-             "PropertyLabel index trying to access InMemory vertices from OnDisk!");
+             "PropertyLabelComposite index trying to access InMemory vertices from OnDisk!");
   auto vertices_acc = static_cast<InMemoryStorage const *>(storage)->vertices_.access();
-  auto it = index_.find({label, property});
-  MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(), property.AsUint());
-  return {it->second.access(), std::move(vertices_acc), label, property, lower_bound, upper_bound, view, storage,
+  auto it = index_.find({label, properties});
+  MG_ASSERT(it != index_.end(), "Composite index for label {} does not exist!", label.AsUint());
+
+  return {it->second.access(), std::move(vertices_acc), label, properties, lower_bound, upper_bound, view, storage,
           transaction};
 }
 
 InMemoryLabelPropertyIndex::Iterable InMemoryLabelPropertyIndex::Vertices(
-    LabelId label, PropertyId property,
+    LabelId label, const std::vector<PropertyId> &properties,
     memgraph::utils::SkipList<memgraph::storage::Vertex>::ConstAccessor vertices_acc,
-    const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
+    const std::vector<std::optional<utils::Bound<PropertyValue>>> &lower_bound,
+    const std::vector<std::optional<utils::Bound<PropertyValue>>> &upper_bound, View view, Storage *storage,
     Transaction *transaction) {
-  auto it = index_.find({label, property});
-  MG_ASSERT(it != index_.end(), "Index for label {} and property {} doesn't exist", label.AsUint(), property.AsUint());
-  return {it->second.access(), std::move(vertices_acc), label, property, lower_bound, upper_bound, view, storage,
+  auto it = index_.find({label, properties});
+  MG_ASSERT(it != index_.end(), "Composite index for label {} does not exist!", label.AsUint());
+
+  return {it->second.access(), std::move(vertices_acc), label, properties, lower_bound, upper_bound, view, storage,
           transaction};
 }
 
 void InMemoryLabelPropertyIndex::AbortEntries(PropertyId property,
-                                              std::span<std::pair<PropertyValue, Vertex *> const> vertices,
+                                              std::span<std::pair<PropertyValue, Vertex *> const> /*vertices*/,
                                               uint64_t exact_start_timestamp) {
+  // @TODO: This is unoptimized and performs a linear scan over the composite index
   auto const it = indices_by_property_.find(property);
   if (it == indices_by_property_.end()) return;
 
   auto &indices = it->second;
-  for (auto const &index : indices | std::views::values) {
+  for (const auto &[_, index] : indices) {
     auto index_acc = index->access();
-    for (auto const &[value, vertex] : vertices) {
-      index_acc.remove(Entry{value, vertex, exact_start_timestamp});
+    auto it = index_acc.begin();
+    auto end_it = index_acc.end();
+
+    if (it == end_it) continue;
+
+    while (true) {
+      auto next_it = it;
+      ++next_it;
+      const bool has_next = next_it != end_it;
+
+      if (it->timestamp == exact_start_timestamp) {
+        index_acc.remove(*it);
+      }
+
+      if (!has_next) break;
+
+      it = next_it;
     }
   }
 }
 
 void InMemoryLabelPropertyIndex::AbortEntries(LabelId label,
-                                              std::span<std::pair<PropertyValue, Vertex *> const> vertices,
+                                              std::span<std::pair<PropertyValue, Vertex *> const> /*vertices*/,
                                               uint64_t exact_start_timestamp) {
+  // @TODO: This is unoptimized and performs a linear scan over the composite index
   for (auto &[label_prop, storage] : index_) {
     if (label_prop.first != label) {
       continue;
     }
 
     auto index_acc = storage.access();
-    for (const auto &[property, vertex] : vertices) {
-      if (!property.IsNull()) {
-        index_acc.remove(Entry{property, vertex, exact_start_timestamp});
+    auto it = index_acc.begin();
+    auto end_it = index_acc.end();
+
+    if (it == end_it) continue;
+
+    while (true) {
+      auto next_it = it;
+      ++next_it;
+      const bool has_next = next_it != end_it;
+
+      if (it->timestamp == exact_start_timestamp) {
+        index_acc.remove(*it);
       }
+
+      if (!has_next) break;
+
+      it = next_it;
     }
   }
 }
@@ -506,6 +600,26 @@ void InMemoryLabelPropertyIndex::DropGraphClearIndices() {
   index_.clear();
   indices_by_property_.clear();
   stats_->clear();
+}
+
+uint64_t InMemoryLabelPropertyIndex::ApproximateVertexCount(LabelId label, std::vector<PropertyId> const &properties,
+                                                            std::vector<PropertyValue> const &values) const {
+  auto it = index_.find({label, properties});
+  // @TODO this assert used to show the prop id as wellA
+  MG_ASSERT(it != index_.end(), "Index for label {} and properties doesn't exist", label.AsUint());
+  auto acc = it->second.access();
+  // @TODO think about: what if one value was NULL?
+  // if (!value.IsNull()) {
+  // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
+  return acc.estimate_count(values, utils::SkipListLayerForCountEstimation(acc.size()));
+  // The value `Null` won't ever appear in the index because it indicates that
+  // the property shouldn't exist. Instead, this value is used as an indicator
+  // to estimate the average number of equal elements in the list (for any
+  // given value).
+  // return acc.estimate_average_number_of_equals(
+  //     [](const auto &first, const auto &second) { return first.values == second.values; },
+  //     // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
+  //     utils::SkipListLayerForAverageEqualsEstimation(acc.size()));
 }
 
 }  // namespace memgraph::storage

@@ -84,13 +84,17 @@ class EdgeAccessor;
 
 struct IndicesInfo {
   std::vector<LabelId> label;
-  std::vector<std::pair<LabelId, PropertyId>> label_property;
-  std::vector<std::pair<LabelId, std::vector<PropertyId>>> label_property_composite;
+  std::vector<std::pair<LabelId, std::vector<PropertyId>>> label_property;
   std::vector<EdgeTypeId> edge_type;
   std::vector<std::pair<EdgeTypeId, PropertyId>> edge_type_property;
   std::vector<std::pair<std::string, LabelId>> text_indices;
   std::vector<std::pair<LabelId, PropertyId>> point_label_property;
   std::vector<VectorIndexSpec> vector_indices_spec;
+};
+
+struct PropertyEntry {
+  PropertyId id;
+  PropertyValue value;
 };
 
 struct ConstraintsInfo {
@@ -217,8 +221,10 @@ class Storage {
 
     virtual VerticesIterable Vertices(LabelId label, View view) = 0;
 
+    // @TODO likely a candidate for removal now we have vector of PropertyIds
     virtual VerticesIterable Vertices(LabelId label, PropertyId property, View view) = 0;
 
+    // @TODO likely a candidate for removal now we have vector of PropertyIds
     virtual VerticesIterable Vertices(LabelId label, PropertyId property, const PropertyValue &value, View view) = 0;
 
     virtual VerticesIterable Vertices(LabelId label, PropertyId property,
@@ -254,20 +260,15 @@ class Storage {
 
     virtual uint64_t ApproximateVertexCount(LabelId label) const = 0;
 
-    virtual uint64_t ApproximateVertexCount(LabelId label, PropertyId property) const = 0;
-
     virtual uint64_t ApproximateVertexCount(LabelId label, const std::vector<PropertyId> &properties) const = 0;
 
-    virtual uint64_t ApproximateVertexCount(LabelId label, PropertyId property, const PropertyValue &value) const = 0;
+    virtual uint64_t ApproximateVertexCount(LabelId label, std::vector<PropertyId> const &properties,
+                                            std::vector<PropertyValue> const &values) const = 0;
 
     virtual uint64_t ApproximateVertexCount(
         LabelId label, const std::vector<PropertyId> &properties,
         const std::vector<std::optional<utils::Bound<PropertyValue>>> &lower,
         const std::vector<std::optional<utils::Bound<PropertyValue>>> &upper) const = 0;
-
-    virtual uint64_t ApproximateVertexCount(LabelId label, PropertyId property,
-                                            const std::optional<utils::Bound<PropertyValue>> &lower,
-                                            const std::optional<utils::Bound<PropertyValue>> &upper) const = 0;
 
     virtual uint64_t ApproximateEdgeCount(EdgeTypeId edge_type) const = 0;
 
@@ -289,23 +290,17 @@ class Storage {
     virtual std::optional<storage::LabelPropertyIndexStats> GetIndexStats(
         const storage::LabelId &label, const storage::PropertyId &property) const = 0;
 
-    virtual std::optional<storage::LabelPropertyCompositeIndexStats> GetIndexStats(
+    virtual std::optional<storage::LabelPropertyIndexStats> GetIndexStats(
         const storage::LabelId &label, const std::vector<storage::PropertyId> &properties) const = 0;
 
     virtual void SetIndexStats(const storage::LabelId &label, const LabelIndexStats &stats) = 0;
 
-    virtual void SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property,
-                               const LabelPropertyIndexStats &stats) = 0;
-
     virtual void SetIndexStats(const storage::LabelId &label, const std::vector<storage::PropertyId> &properties,
-                               const LabelPropertyCompositeIndexStats &stats) = 0;
+                               const LabelPropertyIndexStats &stats) = 0;
 
     virtual bool DeleteLabelIndexStats(const storage::LabelId &label) = 0;
 
-    virtual std::vector<std::pair<LabelId, PropertyId>> DeleteLabelPropertyIndexStats(
-        const storage::LabelId &label) = 0;
-
-    virtual std::vector<std::pair<LabelId, std::vector<PropertyId>>> DeleteLabelPropertyCompositeIndexStats(
+    virtual std::vector<std::pair<LabelId, std::vector<storage::PropertyId>>> DeleteLabelPropertyIndexStats(
         const storage::LabelId &label) = 0;
 
     virtual Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type) = 0;

@@ -2783,6 +2783,7 @@ mgp_error create_and_append_label_property_to_mgp_list(mgp_graph *graph, mgp_mem
     const auto label_id_str = std::visit(
         [label_id = label_property_pair.first](const auto *impl) { return impl->LabelToName(label_id); }, graph->impl);
     const auto property_id_str = std::visit(
+        // @TODO just reading first prop from vector
         [property_id = label_property_pair.second](const auto *impl) { return impl->PropertyToName(property_id); },
         graph->impl);
 
@@ -2820,13 +2821,14 @@ mgp_error mgp_list_all_label_property_indices(mgp_graph *graph, mgp_memory *memo
       throw std::logic_error("Listing all label+property indices failed due to failure of creating list");
     }
 
+    /* @TODO put back
     for (const auto &label_property_pair : index_res) {
       if (const auto err = create_and_append_label_property_to_mgp_list(graph, memory, result, label_property_pair);
           err != mgp_error::MGP_ERROR_NO_ERROR) {
         throw std::logic_error(
             "Listing all label+property indices failed due to failure of appending label+property value");
       }
-    }
+    }*/
   });
 }
 
@@ -2883,13 +2885,14 @@ mgp_error mgp_list_all_existence_constraints(mgp_graph *graph, mgp_memory *memor
       throw std::logic_error("Listing all existence constraints failed due to failure of creating a list");
     }
 
+    /* @TODO put back
     for (const auto &label_property_pair : constraint_res) {
       if (const auto err = create_and_append_label_property_to_mgp_list(graph, memory, result, label_property_pair);
           err != mgp_error::MGP_ERROR_NO_ERROR) {
         throw std::logic_error(
             "Listing all existence constraints failed due to failure of appending label+property value");
       }
-    }
+    }*/
   });
 }
 

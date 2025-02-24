@@ -373,8 +373,7 @@ void EncodeLabelProperty(BaseEncoder &encoder, NameIdMapper &name_id_mapper, Lab
 void EncodeLabelPropertyStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label, PropertyId prop,
                               LabelPropertyIndexStats const &stats);
 void EncodeLabelPropertyCompositeStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label,
-                                       std::vector<PropertyId> const &properties,
-                                       LabelPropertyCompositeIndexStats const &stats);
+                                       std::vector<PropertyId> const &properties, LabelPropertyIndexStats const &stats);
 void EncodeLabelStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label, LabelIndexStats stats);
 void EncodeTextIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, std::string_view text_index_name,
                      LabelId label);

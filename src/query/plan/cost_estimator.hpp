@@ -168,7 +168,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
       factor = db_accessor_->VerticesCount(logical_op.label_, logical_op.property_, property_value.value());
     else
       // estimate the influence as ScanAll(label, property) * filtering
-      factor = db_accessor_->VerticesCount(logical_op.label_, logical_op.property_) * CardParam::kFilter;
+      factor = db_accessor_->VerticesCount(logical_op.label_, {logical_op.property_}) * CardParam::kFilter;
 
     cardinality_ *= factor;
 
@@ -233,10 +233,11 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     int64_t factor = 1;
     if (upper || lower)
       // if we have either Bound<PropertyValue>, use the value index
-      factor = db_accessor_->VerticesCount(logical_op.label_, logical_op.property_, lower, upper);
+      // @TODO note that lots of places here I have wrapped single properties in vectors: fix!
+      factor = db_accessor_->VerticesCount(logical_op.label_, {logical_op.property_}, {lower}, {upper});
     else
       // no values, but we still have the label
-      factor = db_accessor_->VerticesCount(logical_op.label_, logical_op.property_);
+      factor = db_accessor_->VerticesCount(logical_op.label_, {logical_op.property_});
 
     // if we failed to take either bound from the op into account, then apply
     // the filtering constant to the factor
@@ -259,7 +260,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
       SaveStatsFor(logical_op.output_symbol_, index_stats.value());
     }
 
-    const auto factor = db_accessor_->VerticesCount(logical_op.label_, logical_op.property_);
+    const auto factor = db_accessor_->VerticesCount(logical_op.label_, {logical_op.property_});
     cardinality_ *= factor;
     if (index_hints_.HasLabelPropertyIndex(db_accessor_, logical_op.label_, logical_op.property_)) {
       use_index_hints_ = true;
