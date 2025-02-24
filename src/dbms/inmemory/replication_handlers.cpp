@@ -27,6 +27,8 @@
 #include <spdlog/spdlog.h>
 #include <cstdint>
 #include <optional>
+#include <range/v3/view/filter.hpp>
+#include <range/v3/view/transform.hpp>
 
 using memgraph::replication_coordination_glue::ReplicationRole;
 using memgraph::storage::Delta;
@@ -57,6 +59,34 @@ class SnapshotObserver final : public utils::Observer<void> {
 };
 
 namespace {
+
+auto GenerateOldDir() -> std::string {
+  return ".old_" + std::to_string(std::chrono::system_clock::now().time_since_epoch().count());
+}
+
+void CleanDir(std::filesystem::path const &dir) {
+  std::error_code ec{};
+  std::filesystem::remove(dir, ec);
+}
+
+void MoveFiles(auto const &files, std::filesystem::path const &backup_dir, utils::FileRetainer *file_retainer) {
+  for (auto const &old_path : files) {
+    auto const new_path = backup_dir / old_path.filename();
+    spdlog::trace("Moving file {} to {}", old_path, new_path);
+    file_retainer->RenameFile(old_path, new_path);
+  }
+}
+
+auto CreateBackupDir(std::filesystem::path const &backup_dir) -> bool {
+  std::error_code ec{};
+  // Won't fail if directory already exists
+  std::filesystem::create_directory(backup_dir, ec);
+  if (ec) {
+    spdlog::error("Failed to create backup directory {}.", backup_dir);
+    return false;
+  }
+  return true;
+}
 
 constexpr uint32_t kDeltasBatchProgressSize = 100000;
 
@@ -278,7 +308,6 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
 // The semantic of snapshot handler is the following: Either handling snapshot request passes or it doesn't. If it
 // passes we return the current commit timestamp of the replica. If it doesn't pass, we return optional which will
 // signal to the caller that it shouldn't update the commit timestamp value.
-// TODO: (andi) What if something fails with moving files?
 void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
                                                   const std::optional<utils::UUID> &current_main_uuid,
                                                   slk::Reader *req_reader, slk::Builder *res_builder) {
@@ -301,23 +330,45 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
 
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
 
-  auto const current_snapshot_directory = storage->recovery_.snapshot_directory_;
-  auto const current_wal_directory = storage->recovery_.wal_directory_;
+  // Backup dir
+  auto const backup_subdir = GenerateOldDir();
+  // Try to create backup snapshot dir
+  auto const current_snapshot_dir = storage->recovery_.snapshot_directory_;
+  utils::EnsureDirOrDie(current_snapshot_dir);
+  auto const backup_snapshot_dir = current_snapshot_dir / backup_subdir;
+  if (!CreateBackupDir(backup_snapshot_dir)) {
+    spdlog::error("Failed to create the backup directory for snapshots. Replica won't be recovered.");
+    return;
+  }
+  // Read current snapshot files
+  auto const curr_snapshot_files = storage::durability::GetSnapshotFiles(current_snapshot_dir);
 
-  // TODO: (andi) Should we crash replica if something fails regarding directories
-  utils::EnsureDirOrDie(current_snapshot_directory);
+  // Try to create backup WAL dir
+  auto const current_wal_directory = storage->recovery_.wal_directory_;
+  auto const backup_wal_dir = current_wal_directory / backup_subdir;
+  if (!CreateBackupDir(backup_wal_dir)) {
+    spdlog::error("Failed to create the backup directory for WALs. Replica won't be recovered.");
+    return;
+  }
+
+  auto const maybe_curr_wal_files = storage::durability::GetWalFiles(current_wal_directory);
+  if (!maybe_curr_wal_files) {
+    spdlog::error("Cannot read current WAL files. Replica won't be recovered..");
+    return;
+  }
+  auto const &curr_wal_files = *maybe_curr_wal_files;
 
   storage::replication::Decoder decoder(req_reader);
-  const auto maybe_snapshot_path = decoder.ReadFile(current_snapshot_directory);
-  if (!maybe_snapshot_path.has_value()) {
-    spdlog::error("Failed to load snapshot from {}", current_snapshot_directory);
+  const auto maybe_recovery_snapshot_path = decoder.ReadFile(current_snapshot_dir);
+  if (!maybe_recovery_snapshot_path.has_value()) {
+    spdlog::error("Failed to load snapshot from {}", current_snapshot_dir);
     const storage::replication::SnapshotRes res{{}};
     rpc::SendFinalResponse(res, res_builder);
     return;
   }
+  auto const &recovery_snapshot_path = *maybe_recovery_snapshot_path;
 
-  auto const local_snapshot_path = *maybe_snapshot_path;
-  spdlog::info("Received snapshot saved to {}", local_snapshot_path);
+  spdlog::info("Received snapshot saved to {}", recovery_snapshot_path);
   {
     auto storage_guard = std::lock_guard{storage->main_lock_};
     spdlog::trace("Clearing database before recovering from snapshot.");
@@ -331,7 +382,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
     try {
       spdlog::debug("Loading snapshot");
       auto [snapshot_info, recovery_info, indices_constraints] = storage::durability::LoadSnapshot(
-          local_snapshot_path, &storage->vertices_, &storage->edges_, &storage->edges_metadata_,
+          recovery_snapshot_path, &storage->vertices_, &storage->edges_, &storage->edges_metadata_,
           &storage->repl_storage_state_.history, storage->name_id_mapper_.get(), &storage->edge_count_,
           storage->config_, &storage->enum_store_,
           storage->config_.salient.items.enable_schema_info ? &storage->schema_info_.Get() : nullptr,
@@ -351,52 +402,36 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
           storage->config_, recovery_info, indices_constraints, storage->config_.salient.items.properties_on_edges,
           snapshot_observer_info);
     } catch (const storage::durability::RecoveryFailure &e) {
-      spdlog::error("Couldn't load the snapshot from {} because of: {}. Storage will be cleared.", *maybe_snapshot_path,
-                    e.what());
+      spdlog::error(
+          "Couldn't load the snapshot from {} because of: {}. Storage will be cleared. Snapshot and WAL files are "
+          "preserved so you can restore your data by restarting instance.",
+          *maybe_recovery_snapshot_path, e.what());
       storage->Clear();
       const storage::replication::SnapshotRes res{{}};
       Save(res, res_builder);
       return;
     }
   }
-  spdlog::debug("Snapshot from {} loaded successfully.", *maybe_snapshot_path);
+  spdlog::debug("Snapshot from {} loaded successfully.", *maybe_recovery_snapshot_path);
 
   const storage::replication::SnapshotRes res{storage->repl_storage_state_.last_durable_timestamp_.load()};
   rpc::SendFinalResponse(res, res_builder);
 
-  // TODO: (andi) Extract this into a function
-  std::string old_dir = ".old_" + std::to_string(std::chrono::system_clock::now().time_since_epoch().count());
-  spdlog::trace("Moving old snapshots and WALs to {}", old_dir);
-  std::error_code ec{};
-  // Won't fail if directory already exists
-  std::filesystem::create_directory(current_snapshot_directory / old_dir, ec);
-  if (ec) {
-    spdlog::warn("Failed to create backup snapshot directory; snapshots directory should be cleaned manually.");
-    return;
-  }
-  // Won't fail if directory already exists
-  std::filesystem::create_directory(current_wal_directory / old_dir, ec);
-  if (ec) {
-    spdlog::warn("Failed to create backup WAL directory; WAL directory should be cleaned manually.");
-    return;
-  }
+  auto const not_recovery_snapshot = [&recovery_snapshot_path](auto const &snapshot_path) {
+    return snapshot_path != recovery_snapshot_path;
+  };
 
-  for (auto snapshot_files = storage::durability::GetSnapshotFiles(current_snapshot_directory);
-       const auto &[snapshot_path, _1, _2] : snapshot_files) {
-    if (local_snapshot_path != snapshot_path) {
-      spdlog::trace("Moving snapshot file {}", snapshot_path);
-      storage->file_retainer_.RenameFile(snapshot_path,
-                                         current_snapshot_directory / old_dir / snapshot_path.filename());
-    }
-  }
-  std::filesystem::remove(current_snapshot_directory / old_dir, ec);  // remove dir if empty
-  if (auto wal_files = storage::durability::GetWalFiles(current_wal_directory)) {
-    for (const auto &wal_file : *wal_files) {
-      spdlog::trace("Moving WAL file {}", wal_file.path);
-      storage->file_retainer_.RenameFile(wal_file.path, current_wal_directory / old_dir / wal_file.path.filename());
-    }
-  }
-  std::filesystem::remove(current_wal_directory / old_dir, ec);  // remove dir if empty
+  auto const get_path = [](auto const &durability_info) { return durability_info.path; };
+
+  auto snapshots_to_move = curr_snapshot_files | ranges::views::transform(get_path) |
+                           ranges::views::filter(not_recovery_snapshot) | ranges::to<std::vector>();
+  MoveFiles(snapshots_to_move, backup_snapshot_dir, &(storage->file_retainer_));
+
+  auto wal_files_to_move = curr_wal_files | ranges::views::transform(get_path) | ranges::to<std::vector>();
+  MoveFiles(wal_files_to_move, backup_wal_dir, &(storage->file_retainer_));
+
+  CleanDir(backup_snapshot_dir);
+  CleanDir(backup_wal_dir);
 
   spdlog::debug("Replication recovery from snapshot finished!");
 }
@@ -408,7 +443,6 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
 // If loading all WAL files succeeded then main can continue recovery if it should send more recovery steps.
 // If loading one of WAL files partially succeeded, then recovery cannot be continue but commit timestamp can be
 // obtained.
-// TODO: (andi) Don't move new WAL files
 void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handler,
                                                   const std::optional<utils::UUID> &current_main_uuid,
                                                   slk::Reader *req_reader, slk::Builder *res_builder) {
@@ -430,15 +464,26 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
   }
 
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
-  auto const current_snapshot_directory = storage->recovery_.snapshot_directory_;
+
+  // Backup dir
+  auto const backup_subdir = GenerateOldDir();
+  // Try to create backup snapshot dir
+  auto const current_snapshot_dir = storage->recovery_.snapshot_directory_;
+  auto const backup_snapshot_dir = current_snapshot_dir / backup_subdir;
+  if (!CreateBackupDir(backup_snapshot_dir)) {
+    spdlog::error("Failed to create the backup directory for snapshots. Replica won't be recovered.");
+    return;
+  }
+  // Try to create backup WAL dir
   auto const current_wal_directory = storage->recovery_.wal_directory_;
-
-  // TODO: (andi) Should we crash replica if something fails regarding directories
   utils::EnsureDirOrDie(current_wal_directory);
+  auto const backup_wal_dir = current_wal_directory / backup_subdir;
+  if (!CreateBackupDir(backup_wal_dir)) {
+    spdlog::error("Failed to create the backup directory for WALs. Replica won't be recovered.");
+    return;
+  }
 
-  // Optional for reset_needed
   std::optional<std::vector<storage::durability::SnapshotDurabilityInfo>> maybe_old_snapshot_files;
-  // Outer optional for reset_needed.
   std::optional<std::vector<storage::durability::WalDurabilityInfo>> maybe_old_wal_files;
 
   if (req.reset_needed) {
@@ -449,12 +494,12 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
     // Read all WAL files
     auto maybe_wal_files = storage::durability::GetWalFiles(current_wal_directory);
     if (!maybe_wal_files) {
-      spdlog::warn("Failed to read current WAL files, exiting early from the WalFilesHandler");
+      spdlog::warn("Failed to read current WAL files. Replica won't be recovered.");
       return;
     }
     maybe_old_wal_files.emplace(std::move(*maybe_wal_files));
     // Read all snapshot files
-    maybe_old_snapshot_files.emplace(storage::durability::GetSnapshotFiles(current_snapshot_directory));
+    maybe_old_snapshot_files.emplace(storage::durability::GetSnapshotFiles(current_snapshot_dir));
   }
 
   const auto wal_file_number = req.file_number;
@@ -479,41 +524,13 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
   rpc::SendFinalResponse(res, res_builder);
 
   if (req.reset_needed) {
-    // TODO: (andi) Extract this into a function
-    std::string old_dir = ".old_" + std::to_string(std::chrono::system_clock::now().time_since_epoch().count());
-    spdlog::trace("Moving old snapshots and WALs to {}", old_dir);
-    std::error_code ec{};
-    // Won't fail if directory already exists
-    std::filesystem::create_directory(current_snapshot_directory / old_dir, ec);
-    if (ec) {
-      spdlog::warn("Failed to create backup snapshot directory; snapshots directory should be cleaned manually.");
-      return;
-    }
-    // Won't fail if directory already exists
-    std::filesystem::create_directory(current_wal_directory / old_dir, ec);
-    if (ec) {
-      spdlog::warn("Failed to create backup WAL directory; WAL directory should be cleaned manually.");
-      return;
-    }
-
-    // Move old snapshot files
-    // We are in reset needed block so it is safe to dereference snapshot files
-    for (auto const old_snapshot_files = *maybe_old_snapshot_files;
-         const auto &[snapshot_path, _1, _2] : old_snapshot_files) {
-      auto const new_snapshot_path = current_snapshot_directory / old_dir / snapshot_path.filename();
-      spdlog::trace("Moving snapshot file {} to {}", snapshot_path, new_snapshot_path);
-      storage->file_retainer_.RenameFile(snapshot_path, new_snapshot_path);
-    }
-    std::filesystem::remove(current_snapshot_directory / old_dir, ec);  // remove dir if empty
-
-    // Move old wal files
-    // We are in reset needed block so it is safe to dereference wal files
-    for (auto const old_wal_files = *maybe_old_wal_files; const auto &wal_file : old_wal_files) {
-      auto const new_wal_path = current_wal_directory / old_dir / wal_file.path.filename();
-      spdlog::trace("Moving WAL file {} to ", wal_file.path, new_wal_path);
-      storage->file_retainer_.RenameFile(wal_file.path, new_wal_path);
-    }
-    std::filesystem::remove(current_wal_directory / old_dir, ec);  // remove dir if empty
+    auto const get_path = [](auto const &durability_info) { return durability_info.path; };
+    auto snapshots_to_move = *maybe_old_snapshot_files | ranges::views::transform(get_path) | ranges::to<std::vector>();
+    MoveFiles(snapshots_to_move, backup_snapshot_dir, &(storage->file_retainer_));
+    auto wal_files_to_move = *maybe_old_wal_files | ranges::views::transform(get_path) | ranges::to<std::vector>();
+    MoveFiles(wal_files_to_move, backup_wal_dir, &(storage->file_retainer_));
+    CleanDir(backup_snapshot_dir);
+    CleanDir(backup_wal_dir);
   }
 }
 
@@ -522,7 +539,6 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
 // 2.) UUID sent with the request is not the current MAIN's UUID which replica is listening to
 // If loading WAL file partially succeeded then we shouldn't continue recovery but commit timestamp can be updated on
 // main
-// TODO: (andi) Don't move current WAL
 void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_handler,
                                                     const std::optional<utils::UUID> &current_main_uuid,
                                                     slk::Reader *req_reader, slk::Builder *res_builder) {
@@ -545,17 +561,41 @@ void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_hand
   }
 
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
-  auto const current_snapshot_directory = storage->recovery_.snapshot_directory_;
+  // Backup dir
+  auto const backup_subdir = GenerateOldDir();
+  // Try to create backup snapshot dir
+  auto const current_snapshot_dir = storage->recovery_.snapshot_directory_;
+  auto const backup_snapshot_dir = current_snapshot_dir / backup_subdir;
+  if (!CreateBackupDir(backup_snapshot_dir)) {
+    spdlog::error("Failed to create the backup directory for snapshots. Replica won't be recovered.");
+    return;
+  }
+  // Try to create backup WAL dir
   auto const current_wal_directory = storage->recovery_.wal_directory_;
+  utils::EnsureDirOrDie(current_wal_directory);
+  auto const backup_wal_dir = current_wal_directory / backup_subdir;
+  if (!CreateBackupDir(backup_wal_dir)) {
+    spdlog::error("Failed to create the backup directory for WALs. Replica won't be recovered.");
+    return;
+  }
 
-  // TODO: (andi) Should we crash replica if something fails regarding directories?
-  utils::EnsureDirOrDie(storage->recovery_.wal_directory_);
+  std::optional<std::vector<storage::durability::SnapshotDurabilityInfo>> maybe_old_snapshot_files;
+  std::optional<std::vector<storage::durability::WalDurabilityInfo>> maybe_old_wal_files;
 
   if (req.reset_needed) {
     auto storage_guard = std::lock_guard{storage->main_lock_};
     spdlog::trace("Clearing replica storage because the reset is needed while recovering from WalFiles");
     // Clear the database
     storage->Clear();
+    // Read all WAL files
+    auto maybe_wal_files = storage::durability::GetWalFiles(current_wal_directory);
+    if (!maybe_wal_files) {
+      spdlog::warn("Failed to read current WAL files, exiting early from the WalFilesHandler");
+      return;
+    }
+    maybe_old_wal_files.emplace(std::move(*maybe_wal_files));
+    // Read all snapshot files
+    maybe_old_snapshot_files.emplace(storage::durability::GetSnapshotFiles(current_snapshot_dir));
   }
 
   storage::replication::Decoder decoder(req_reader);
@@ -573,38 +613,13 @@ void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_hand
   rpc::SendFinalResponse(res, res_builder);
 
   if (req.reset_needed) {
-    // TODO: (andi) Extract this into a function
-    std::string old_dir = ".old_" + std::to_string(std::chrono::system_clock::now().time_since_epoch().count());
-    spdlog::trace("Moving old snapshots and WALs to {}", old_dir);
-    std::error_code ec{};
-    // Won't fail if directory already exists
-    std::filesystem::create_directory(current_snapshot_directory / old_dir, ec);
-    if (ec) {
-      spdlog::warn("Failed to create backup snapshot directory; snapshots directory should be cleaned manually.");
-      return;
-    }
-    // Won't fail if directory already exists
-    std::filesystem::create_directory(current_wal_directory / old_dir, ec);
-    if (ec) {
-      spdlog::warn("Failed to create backup WAL directory; WAL directory should be cleaned manually.");
-      return;
-    }
-
-    auto snapshot_files = storage::durability::GetSnapshotFiles(current_snapshot_directory);
-    for (const auto &[snapshot_path, _1, _2] : snapshot_files) {
-      spdlog::trace("Moving snapshot file {}", snapshot_path);
-      storage->file_retainer_.RenameFile(snapshot_path,
-                                         current_snapshot_directory / old_dir / snapshot_path.filename());
-    }
-    std::filesystem::remove(current_snapshot_directory / old_dir, ec);  // remove dir if empty
-    auto wal_files = storage::durability::GetWalFiles(current_wal_directory);
-    if (wal_files) {
-      for (const auto &wal_file : *wal_files) {
-        spdlog::trace("Moving WAL file {}", wal_file.path);
-        storage->file_retainer_.RenameFile(wal_file.path, current_wal_directory / old_dir / wal_file.path.filename());
-      }
-    }
-    std::filesystem::remove(current_wal_directory / old_dir, ec);  // remove dir if empty
+    auto const get_path = [](auto const &durability_info) { return durability_info.path; };
+    auto snapshots_to_move = *maybe_old_snapshot_files | ranges::views::transform(get_path) | ranges::to<std::vector>();
+    MoveFiles(snapshots_to_move, backup_snapshot_dir, &(storage->file_retainer_));
+    auto wal_files_to_move = *maybe_old_wal_files | ranges::views::transform(get_path) | ranges::to<std::vector>();
+    MoveFiles(wal_files_to_move, backup_wal_dir, &(storage->file_retainer_));
+    CleanDir(backup_snapshot_dir);
+    CleanDir(backup_wal_dir);
   }
 }
 
