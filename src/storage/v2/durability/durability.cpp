@@ -126,7 +126,7 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
     try {
       auto info = ReadWalInfo(item.path());
       spdlog::trace(
-          "Reading wal file {} with following info: storage_uuid: {}, epoch id: {}, from timestamp {}, to_timestamp "
+          "Read wal file {} with following info: storage_uuid: {}, epoch id: {}, from timestamp {}, to_timestamp "
           "{}, "
           "sequence "
           "number {}.",
@@ -134,11 +134,10 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
       if ((uuid.empty() || info.uuid == uuid) && (!current_seq_num || info.seq_num < *current_seq_num)) {
         wal_files.emplace_back(info.seq_num, info.from_timestamp, info.to_timestamp, std::move(info.uuid),
                                std::move(info.epoch_id), item.path());
-        spdlog::trace("Wal file {} will be used for recovery.", item.path());
+        spdlog::trace("Wal file {} will be used.", item.path());
       } else {
-        spdlog::trace(
-            "Wal file {} won't be used for recovery. UUID: {}. Info UUID: {}. Current seq num: {}. Info seq num: {}.",
-            item.path(), uuid, info.uuid, current_seq_num, info.seq_num);
+        spdlog::trace("Wal file {} won't be used. UUID: {}. Info UUID: {}. Current seq num: {}. Info seq num: {}.",
+                      item.path(), uuid, info.uuid, current_seq_num, info.seq_num);
       }
     } catch (const RecoveryFailure &e) {
       spdlog::warn("Failed to read WAL file {}.", item.path());
