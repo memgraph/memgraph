@@ -849,16 +849,17 @@ TypedValue ToSet(const TypedValue *args, int64_t nargs, const FunctionContext &c
   if (value.IsNull()) {
     return TypedValue(ctx.memory);
   }
-  std::unordered_set<TypedValue, TypedValue::Hash, TypedValue::BoolEqual> unique_elements;
   const auto &elements = value.ValueList();
-  for (const auto &element : elements) {
-    unique_elements.insert(element);
-  }
 
   TypedValue::TVector result(ctx.memory);
-  result.reserve(unique_elements.size());
-  for (const auto &element : unique_elements) {
-    result.push_back(element);
+  result.reserve(elements.size());
+  std::unordered_set<TypedValue, TypedValue::Hash, TypedValue::BoolEqual> unique_elements;
+
+  for (const auto &element : elements) {
+    bool inserted = unique_elements.insert(element).second;
+    if (inserted) {
+      result.push_back(element);
+    }
   }
 
   return TypedValue(std::move(result));
