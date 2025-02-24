@@ -677,56 +677,89 @@ auto CoordinatorInstance::RegisterReplicationInstance(DataInstanceConfig const &
 
 auto CoordinatorInstance::UnregisterReplicationInstance(std::string_view instance_name)
     -> UnregisterInstanceCoordinatorStatus {
-  spdlog::trace("Acquiring lock to unregister instance thread {}", std::this_thread::get_id());
-  auto lock = std::lock_guard{coord_instance_lock_};
-  spdlog::trace("Acquired lock to demote instance to replica");
+  spdlog::trace("Acquiring lock to unregister instance in thread {} 1st time", std::this_thread::get_id());
 
-  if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
-    return UnregisterInstanceCoordinatorStatus::NOT_LEADER;
-  }
+  std::optional<std::reference_wrapper<ReplicationInstanceConnector>> maybe_instance;
+  {
+    // 1st time we acquire the lock in order to find replication instance which the user wants to unregister
+    auto lock = std::lock_guard{coord_instance_lock_};
+    spdlog::trace("Acquired lock to unregister instance in thread {} 1st time", std::this_thread::get_id());
 
-  auto const name_matches = [instance_name](auto &&instance) { return instance.InstanceName() == instance_name; };
+    if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
+      return UnregisterInstanceCoordinatorStatus::NOT_LEADER;
+    }
 
-  auto inst_to_remove = std::ranges::find_if(repl_instances_, name_matches);
-  if (inst_to_remove == repl_instances_.end()) {
-    return UnregisterInstanceCoordinatorStatus::NO_INSTANCE_WITH_NAME;
-  }
-
-  auto const is_current_main = [this](auto &&instance) {
-    return raft_state_->IsCurrentMain(instance.InstanceName()) && instance.IsAlive();
-  };
-
-  if (is_current_main(*inst_to_remove)) {
-    return UnregisterInstanceCoordinatorStatus::IS_MAIN;
-  }
-
-  auto cluster_state = raft_state_->GetDataInstancesContext();
-  auto const [first, last] = std::ranges::remove_if(cluster_state, [instance_name](auto &&data_instance) {
-    return data_instance.config.instance_name == instance_name;
-  });
-  cluster_state.erase(first, last);
-
-  auto const curr_main_uuid = raft_state_->GetCurrentMainUUID();
-
-  auto coordinator_instances = raft_state_->GetCoordinatorInstancesContext();
-  if (!raft_state_->AppendClusterUpdate(std::move(cluster_state), std::move(coordinator_instances), curr_main_uuid)) {
-    return UnregisterInstanceCoordinatorStatus::RAFT_LOG_ERROR;
-  }
-
-  inst_to_remove->StopStateCheck();
-
-  auto curr_main = std::ranges::find_if(repl_instances_, is_current_main);
-
-  if (curr_main != repl_instances_.end()) {
-    if (!curr_main->SendUnregisterReplicaRpc(instance_name)) {
-      inst_to_remove->StartStateCheck();
-      return UnregisterInstanceCoordinatorStatus::RPC_FAILED;
+    maybe_instance = FindReplicationInstance(instance_name);
+    if (!maybe_instance) {
+      return UnregisterInstanceCoordinatorStatus::NO_INSTANCE_WITH_NAME;
     }
   }
+  auto &inst_to_remove = maybe_instance->get();
+  // Stopping scheduler must not be executed under the lock.
+  inst_to_remove.StopStateCheck();
 
-  std::erase_if(repl_instances_, name_matches);
+  spdlog::trace("Acquiring lock to unregister instance in thread {} 2nd time", std::this_thread::get_id());
+  {
+    // 2nd time the lock is hold because the in-memory state is modified.
+    auto lock = std::lock_guard{coord_instance_lock_};
+    spdlog::trace("Acquired lock to unregister instance in thread {} 2nd time", std::this_thread::get_id());
+    auto const is_current_main = [this](auto const &instance) {
+      return raft_state_->IsCurrentMain(instance.InstanceName()) && instance.IsAlive();
+    };
 
-  return UnregisterInstanceCoordinatorStatus::SUCCESS;
+    // Cannot unregister current main
+    if (is_current_main(inst_to_remove)) {
+      inst_to_remove.StartStateCheck();
+      return UnregisterInstanceCoordinatorStatus::IS_MAIN;
+    }
+
+    auto curr_main = std::ranges::find_if(repl_instances_, is_current_main);
+    // If there is no main in the cluster, the replica cannot be unregistered. We would commit the state without replica
+    // in Raft but the in-memory state would still contain it.
+    if (curr_main == repl_instances_.end()) {
+      inst_to_remove.StartStateCheck();
+      return UnregisterInstanceCoordinatorStatus::NO_MAIN;
+    }
+
+    auto old_data_instances = raft_state_->GetDataInstancesContext();
+    // Intentional copy
+    auto new_data_instances = old_data_instances;
+    auto const [first, last] = std::ranges::remove_if(new_data_instances, [instance_name](auto const &data_instance) {
+      return data_instance.config.instance_name == instance_name;
+    });
+    new_data_instances.erase(first, last);
+
+    auto const curr_main_uuid = raft_state_->GetCurrentMainUUID();
+
+    auto coordinator_instances = raft_state_->GetCoordinatorInstancesContext();
+    // Append new cluster state. We may need to restore old state if something goes wrong.
+    if (!raft_state_->AppendClusterUpdate(std::move(new_data_instances), coordinator_instances, curr_main_uuid)) {
+      inst_to_remove.StartStateCheck();
+      return UnregisterInstanceCoordinatorStatus::RAFT_LOG_ERROR;
+    }
+
+    auto const name_matches = [instance_name](auto const &instance) {
+      return instance.InstanceName() == instance_name;
+    };
+
+    // The network could be down or the request could fail because of some strange reason. In that case, we try to bring
+    // back old raft state
+    if (curr_main->SendUnregisterReplicaRpc(instance_name)) {
+      std::erase_if(repl_instances_, name_matches);
+      return UnregisterInstanceCoordinatorStatus::SUCCESS;
+    }
+
+    if (!raft_state_->AppendClusterUpdate(std::move(old_data_instances), std::move(coordinator_instances),
+                                          curr_main_uuid)) {
+      LOG_FATAL(
+          "Coordinator instances cannot be brought into the consistent state before unregistration started. Please "
+          "restart coordinators with fresh data directory and reconnect the cluster. Data on main and replicas will be "
+          "preserved.");
+    }
+
+    inst_to_remove.StartStateCheck();
+    return UnregisterInstanceCoordinatorStatus::RPC_FAILED;
+  }
 }
 
 auto CoordinatorInstance::RemoveCoordinatorInstance(int coordinator_id) const -> RemoveCoordinatorInstanceStatus {
