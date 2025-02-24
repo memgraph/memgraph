@@ -131,7 +131,7 @@ if(NOT "${MG_PYTHON_PATH}" STREQUAL "")
     set(Python3_ROOT_DIR "${MG_PYTHON_PATH}")
 endif()
 
-mg_create_linkable_if_no_cmake(Python3 STATIC "${MG_TOOLCHAIN_ROOT}/lib/libpython3.12.a" "${MG_TOOLCHAIN_ROOT}/include")
+mg_create_linkable_if_no_cmake(Python3 STATIC "${MG_TOOLCHAIN_ROOT}/lib/libpython3.12.a" "${MG_TOOLCHAIN_ROOT}/include/python3.12")
 # if("${MG_PYTHON_VERSION}" STREQUAL "")
 #     find_package(Python3 3.5 REQUIRED COMPONENTS Development)
 # else()
