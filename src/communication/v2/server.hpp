@@ -136,10 +136,10 @@ Server<TSession, TSessionContext>::Server(ServerEndpoint &endpoint, TSessionCont
                                           size_t workers_count)
     : endpoint_{endpoint},
       service_name_{service_name},
-      worker_pool_{workers_count, /* high priority */ std::max(unsigned(float(workers_count) / 10.0), 1U)},
+      worker_pool_{workers_count, /* high priority */ 1U},
       session_context_(session_context),
       server_context_(server_context),
-      io_thread_pool_{std::max(unsigned(float(workers_count) / 10.0), 1U)} {
+      io_thread_pool_{1U} {
   // TODO: Better
   server_context_->worker_pool_ = &worker_pool_;
   boost::system::error_code ec;

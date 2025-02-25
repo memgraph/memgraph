@@ -71,9 +71,11 @@ class PriorityThreadPool {
     PriorityThreadPool &scheduler_;  // TODO Could be removed; check perf
 
     mutable std::mutex mtx_;
+    std::condition_variable cv_;
     std::priority_queue<Work> work_;
 
     std::atomic_bool has_pending_work_{false};
+    std::atomic_bool working_{false};
     std::atomic_bool run_{true};
 
     uint16_t id_;
@@ -83,21 +85,9 @@ class PriorityThreadPool {
     friend class PriorityThreadPool;
   };
 
-  inline void set_hot_thread(const uint64_t id) { hot_threads_.fetch_or(1U << id, std::memory_order::acq_rel); }
-  inline void reset_hot_thread(const uint64_t id) { hot_threads_.fetch_and(~(1U << id), std::memory_order::acq_rel); }
-  inline int get_hot_thread() {
-    auto hot_threads = hot_threads_.load(std::memory_order::acquire);
-    if (hot_threads == 0) return 64;  // Max
-    auto id = std::countr_zero(hot_threads);
-    auto next_ht = hot_threads & ~(1U << id);
-    while (!hot_threads_.compare_exchange_weak(hot_threads, next_ht, std::memory_order::acq_rel)) {
-      if (hot_threads == 0) return 64;
-      id = std::countr_zero(hot_threads);
-      next_ht = hot_threads & ~(1U << id);
-    }
-    reset_hot_thread(id);
-    return id;  // TODO This needs to be atomic get/reset
-  }
+  inline void set_hot_thread(uint64_t id);
+  inline void reset_hot_thread(uint64_t id);
+  inline int get_hot_thread();
 
  private:
   std::vector<Worker *> work_buckets_;

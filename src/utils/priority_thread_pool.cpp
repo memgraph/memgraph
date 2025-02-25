@@ -61,7 +61,7 @@ struct yielder {
 #error("no PAUSE/YIELD instructions for unknown architecture");
 #endif
     ++count;
-    if (count > 1024) [[unlikely]] {
+    if (count > 1024U) [[unlikely]] {
       count = 0;
       std::this_thread::yield();
     }
@@ -116,14 +116,14 @@ PriorityThreadPool::PriorityThreadPool(size_t mixed_work_threads_count, size_t h
     for (auto *worker : work_buckets_) {
       const auto worker_id = i++;
       auto update = utils::OnScopeExit{[&]() mutable { last_task[worker_id] = worker->last_task_; }};
-      if (worker->has_pending_work_ && last_task[worker_id] == worker->last_task_) {
+      if (last_task[worker_id] == worker->last_task_ && worker->working_ && worker->has_pending_work_) {
         // worker stuck on a task; move task to a different queue
         auto l = std::unique_lock{worker->mtx_, std::defer_lock};
         if (!l.try_lock()) continue;  // Thread is busy...
         // Recheck under lock
         if (worker->work_.empty() || last_task[worker_id] != worker->last_task_) continue;
         // Update flag as soon as possible
-        worker->has_pending_work_.store(worker->work_.size() > 1 || !worker->run_, std::memory_order_release);
+        worker->has_pending_work_.store(worker->work_.size() > 1, std::memory_order_release);
         Worker::Work work{worker->work_.top().id, std::move(worker->work_.top().work)};
         worker->work_.pop();
         l.unlock();
@@ -133,8 +133,12 @@ PriorityThreadPool::PriorityThreadPool(size_t mixed_work_threads_count, size_t h
           // No LP threads available; schedule HP work to HP thread
           if (work.id > std::numeric_limits<int64_t>::max()) {
             static size_t last_hp_thread = 0;
-            hp_work_buckets_[last_hp_thread++ % hp_work_buckets_.size()]->push(std::move(work.work), work.id);
-            continue;
+            auto &hp_worker =
+                hp_work_buckets_[hp_work_buckets_.size() > 1 ? last_hp_thread++ % hp_work_buckets_.size() : 0];
+            if (!hp_worker->has_pending_work_) {
+              hp_worker->push(std::move(work.work), work.id);
+              continue;
+            }
           }
           tid = (worker_id + 1) % work_buckets_.size();
         }
@@ -174,22 +178,13 @@ void PriorityThreadPool::ScheduledAddTask(TaskSignature new_task, const Priority
   if (pool_stop_source_.stop_requested()) [[unlikely]] {
     return;
   }
-
   const auto id = (uint64_t(priority == Priority::HIGH) * std::numeric_limits<int64_t>::max()) +
                   --id_;  // Way to priorities hp tasks (overflow concerns)
-
   uint64_t tid = get_hot_thread();
-  if (tid < work_buckets_.size()) {
-    tid_ = tid;
-  } else {
-    // const auto this_cpu = sched_getcpu();
+  if (tid >= work_buckets_.size()) {
     tid = tid_++ % work_buckets_.size();
   }
-
-  // Add task to current CPU's thread (cheap)
-  auto *this_bucket = work_buckets_[tid];
-  this_bucket->push(std::move(new_task), id);
-
+  work_buckets_[tid]->push(std::move(new_task), id);
   // High priority tasks are marked and given to mixed priority threads (at front of the queue)
   // HP threads are going to steal this work if not executed in time
 }
@@ -200,13 +195,15 @@ void PriorityThreadPool::Worker::push(TaskSignature new_task, uint64_t id) {
     work_.emplace(id, std::move(new_task));
   }
   has_pending_work_ = true;
-  has_pending_work_.notify_one();
+  cv_.notify_one();
 }
 
 void PriorityThreadPool::Worker::stop() {
-  run_ = false;
-  has_pending_work_ = true;  // pending work being to shutdown
-  has_pending_work_.notify_all();
+  {
+    auto l = std::unique_lock{mtx_};
+    run_ = false;
+  }
+  cv_.notify_all();
 }
 
 template <Priority ThreadPriority>
@@ -221,86 +218,111 @@ void PriorityThreadPool::Worker::operator()() {
 
   std::optional<TaskSignature> task;
 
-  while (run_) {
+  while (run_.load(std::memory_order_acquire)) {
+    // Phase 1 get scheduled work <- cold thread???
+    // Phase 2 try to steal and loop <- hot thread
+    // Phase 3 spin wait <- hot thread
+    // Phase 4 go to sleep <- cold thread
+
+    // Phase 1A - already picked a task, needs to be executed
+    if (task) {
+      working_.store(true, std::memory_order_release);
+      task.value()(ThreadPriority);
+      task.reset();
+    }
+    // Phase 1B - check if there is other scheduled work
     {
-      // Phase 1 get scheduled work <- cold thread???
-      // Phase 2 try to steal and loop <- hot thread
-      // Phase 3 spin wait <- hot thread
-      // Phase 4 go to sleep <- cold thread
-
-      // Phase 1A - already picked a task, needs to be executed
-      if (task) {
-        task.value()(ThreadPriority);
-        task.reset();
+      auto l = std::unique_lock{mtx_};
+      if (!work_.empty()) {
+        has_pending_work_.store(work_.size() > 1, std::memory_order::release);
+        last_task_.store(work_.top().id, std::memory_order_release);
+        task = std::move(work_.top().work);
+        work_.pop();
+        continue;  // Spin to phase 1A
       }
-      // Phase 1B - check if there is other scheduled work
-      {
-        auto l = std::unique_lock{mtx_};
-        if (!work_.empty()) {
-          has_pending_work_.store(work_.size() > 1, std::memory_order::release);
-          last_task_.store(work_.top().id, std::memory_order_release);
-          task = std::move(work_.top().work);
-          work_.pop();
-          continue;  // Spin to phase 1A
+    }
+
+    working_.store(false, std::memory_order_release);
+    if constexpr (ThreadPriority != Priority::HIGH) {
+      scheduler_.set_hot_thread(id_);
+    }
+
+    // Phase 2A - try to steal work
+    for (auto *worker : workers) {
+      if (has_pending_work_.load(std::memory_order_acquire)) break;  // This worker received work
+
+      if (worker->has_pending_work_.load(std::memory_order_acquire) &&
+          worker->working_.load(std::memory_order_acquire)) {
+        auto l2 = std::unique_lock{worker->mtx_, std::defer_lock};
+        if (!l2.try_lock()) continue;  // Busy, skip
+        // Re-check under lock
+        if (worker->work_.empty()) continue;
+        // HP threads can only steal HP work
+        if constexpr (ThreadPriority == Priority::HIGH) {
+          // If LP work, skip
+          if (worker->work_.top().id <= std::numeric_limits<int64_t>::max()) continue;
         }
+
+        // Update flag as soon as possible
+        worker->has_pending_work_.store(worker->work_.size() > 1, std::memory_order_release);
+
+        // Move work to current thread
+        last_task_.store(worker->work_.top().id, std::memory_order_release);
+        task = std::move(worker->work_.top().work);
+
+        worker->work_.pop();
+
+        l2.unlock();
+        break;
       }
-
-      if constexpr (ThreadPriority != Priority::HIGH) {
-        scheduler_.set_hot_thread(id_);
-      }
-
-      // Phase 2A - try to steal work
-      for (auto *worker : workers) {
-        if (has_pending_work_.load(std::memory_order_acquire)) break;  // This worker received work
-
-        if (worker->has_pending_work_.load(std::memory_order_acquire)) {
-          auto l2 = std::unique_lock{worker->mtx_, std::defer_lock};
-          if (!l2.try_lock()) continue;  // Busy, skip
-          // Re-check under lock
-          if (worker->work_.empty()) continue;
-          // HP threads can only steal HP work
-          if constexpr (ThreadPriority == Priority::HIGH) {
-            // If LP work, skip
-            if (worker->work_.top().id <= std::numeric_limits<int64_t>::max()) continue;
-          }
-
-          // Update flag as soon as possible
-          worker->has_pending_work_.store(worker->work_.size() > 1 || !worker->run_, std::memory_order_release);
-
-          // Move work to current thread
-          last_task_.store(worker->work_.top().id, std::memory_order_release);
-          task = std::move(worker->work_.top().work);
-
-          worker->work_.pop();
-
-          l2.unlock();
-          break;
-        }
-      }
-      // Phase 2B - check results and spin to execute
-      if (task) {
-        if constexpr (ThreadPriority != Priority::HIGH) {
-          scheduler_.reset_hot_thread(id_);
-        }
-        continue;
-      }
-
-      // Phase 3 - spin for a while waiting on work
-      {
-        const auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
-        yielder y;
-        while (!has_pending_work_.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < end) {
-          y();
-        }
-      }
-
-      // Phase 4 - go to sleep
+    }
+    // Phase 2B - check results and spin to execute
+    if (task) {
       if constexpr (ThreadPriority != Priority::HIGH) {
         scheduler_.reset_hot_thread(id_);
       }
-      has_pending_work_.wait(false, std::memory_order_acquire);
+      continue;
+    }
+
+    // Phase 3 - spin for a while waiting on work
+    {
+      const auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
+      yielder y;
+      while (!has_pending_work_.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < end) {
+        y();
+      }
+    }
+
+    // Phase 4 - go to sleep
+    if constexpr (ThreadPriority != Priority::HIGH) {
+      scheduler_.reset_hot_thread(id_);
+    }
+    {
+      auto l = std::unique_lock{mtx_};
+      if (!work_.empty() || !run_) continue;
+      cv_.wait(l);
     }
   }
+}
+
+void PriorityThreadPool::set_hot_thread(const uint64_t id) {
+  hot_threads_.fetch_or(1UL << id, std::memory_order::acq_rel);
+}
+void PriorityThreadPool::reset_hot_thread(const uint64_t id) {
+  hot_threads_.fetch_and(~(1UL << id), std::memory_order::acq_rel);
+}
+int PriorityThreadPool::get_hot_thread() {
+  auto hot_threads = hot_threads_.load(std::memory_order::acquire);
+  if (hot_threads == 0) return 64;  // Max
+  auto id = std::countr_zero(hot_threads);
+  auto next_ht = hot_threads & ~(1UL << id);
+  while (!hot_threads_.compare_exchange_weak(hot_threads, next_ht, std::memory_order::acq_rel)) {
+    if (hot_threads == 0) return 64;
+    id = std::countr_zero(hot_threads);
+    next_ht = hot_threads & ~(1UL << id);
+  }
+  reset_hot_thread(id);
+  return id;  // TODO This needs to be atomic get/reset
 }
 
 }  // namespace memgraph::utils
