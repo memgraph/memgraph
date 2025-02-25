@@ -16,6 +16,8 @@ def validate_jwt_token(token: str, scheme: str, config: dict, token_type: str):
         jwks_uri = f"https://login.microsoftonline.com/{config['tenant_id']}/discovery/v2.0/keys"
     elif scheme == "oidc-okta":
         jwks_uri = f"{config['id_issuer']}/v1/keys"
+    elif scheme == "oidc-custom":
+        jwks_uri = f"{config['public_key_endpoint']}"
     jwks = requests.get(jwks_uri).json()
 
     # need the header to match KID with provider
@@ -31,7 +33,15 @@ def validate_jwt_token(token: str, scheme: str, config: dict, token_type: str):
             continue
         try:
             public_key = jwt.algorithms.RSAAlgorithm.from_jwk(json.dumps(jwk))
-            if scheme == "oidc-okta" and token_type == "access":
+            if scheme == "oidc-custom" and token_type == "access":
+                decoded_token = jwt.decode(
+                    token, key=public_key, algorithms=["RS256"], audience=config["access_token_audience"]
+                )
+            elif scheme == "oidc-custom" and token_type == "id":
+                decoded_token = jwt.decode(
+                    token, key=public_key, algorithms=["RS256"], audience=config["id_token_audience"]
+                )
+            elif scheme == "oidc-okta" and token_type == "access":
                 decoded_token = jwt.decode(
                     token, key=public_key, algorithms=["RS256"], audience=config["authorization_server"]
                 )
@@ -86,6 +96,14 @@ def _load_config_from_env(scheme: str):
         config["username"] = os.environ.get("MEMGRAPH_SSO_OKTA_OIDC_USERNAME", "id:sub")
         config["role_mapping"] = _load_role_mappings(os.environ.get("MEMGRAPH_SSO_OKTA_OIDC_ROLE_MAPPING", {}))
 
+    elif scheme == "oidc-custom":
+        config["public_key_endpoint"] = os.environ.get("MEMGRAPH_SSO_CUSTOM_OIDC_PUBLIC_KEY_ENDPOINT", "")
+        config["access_token_audience"] = os.environ.get("MEMGRAPH_SSO_CUSTOM_OIDC_ACCESS_TOKEN_AUDIENCE", "")
+        config["id_token_audience"] = os.environ.get("MEMGRAPH_SSO_CUSTOM_OIDC_ID_TOKEN_AUDIENCE", "")
+        config["role_field"] = os.environ.get("MEMGRAPH_SSO_CUSTOM_OIDC_ROLE_FIELD", "")
+        config["username"] = os.environ.get("MEMGRAPH_SSO_CUSTOM_OIDC_USERNAME", "")
+        config["role_mapping"] = _load_role_mappings(os.environ.get("MEMGRAPH_SSO_CUSTOM_OIDC_ROLE_MAPPING", {}))
+
     return config
 
 
@@ -106,14 +124,22 @@ def process_tokens(tokens: tuple, config: dict, scheme: str):
 
     access_token = access_token["token"]
     id_token = id_token["token"]
-    roles_field = "roles" if scheme == "oidc-entra-id" else "groups"
+
+    roles_field = ""
+    if scheme == "oidc-entra-id":
+        roles_field = "roles"
+    elif scheme == "oidc-okta":
+        roles_field = "groups"
+    elif scheme == "oidc-custom":
+        roles_field = config["role_field"]
+
     if roles_field not in access_token:
         return {
             "authenticated": False,
             "errors": f"Missing roles field named {roles_field}, roles are probably not correctly configured on the token issuer",
         }
 
-    roles = access_token["roles"] if scheme == "oidc-entra-id" else access_token["groups"]
+    roles = access_token[roles_field]
     role = roles[0] if isinstance(roles, list) else roles
 
     if role not in config["role_mapping"]:
@@ -131,7 +157,7 @@ def process_tokens(tokens: tuple, config: dict, scheme: str):
 
 
 def authenticate(response: str, scheme: str):
-    if scheme not in ["oidc-entra-id", "oidc-okta"]:
+    if scheme not in ["oidc-entra-id", "oidc-okta", "oidc-custom"]:
         return {"authenticated": False, "errors": "Invalid SSO scheme"}
 
     try:
