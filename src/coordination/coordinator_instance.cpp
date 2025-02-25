@@ -882,68 +882,68 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
   auto lock = std::unique_lock{coord_instance_lock_, std::defer_lock};
   if (!lock.try_lock_for(500ms)) {
     spdlog::trace("Failed to acquire lock in InstanceSuccessCallback in 500ms");
-  } else {
-    auto const maybe_instance = FindReplicationInstance(instance_name);
-    MG_ASSERT(maybe_instance.has_value(), "Couldn't find instance {} in local storage.", instance_name);
-    auto &instance = maybe_instance->get();
+    return;
+  }
+  auto const maybe_instance = FindReplicationInstance(instance_name);
+  MG_ASSERT(maybe_instance.has_value(), "Couldn't find instance {} in local storage.", instance_name);
+  auto &instance = maybe_instance->get();
 
-    spdlog::trace("Instance {} performing success callback in thread {}.", instance_name, std::this_thread::get_id());
+  spdlog::trace("Instance {} performing success callback in thread {}.", instance_name, std::this_thread::get_id());
 
-    instance.OnSuccessPing();
+  instance.OnSuccessPing();
 
-    auto const curr_main_uuid = raft_state_->GetCurrentMainUUID();
+  auto const curr_main_uuid = raft_state_->GetCurrentMainUUID();
 
-    if (raft_state_->IsCurrentMain(instance_name)) {
-      // According to raft, this is the current MAIN
-      // Check if a promotion is needed:
-      //  - instance is actually a replica
-      //  - instance is main, but has stale state (missed a failover)
-      if (!instance_state->is_replica && instance_state->is_writing_enabled && instance_state->uuid &&
-          *instance_state->uuid == curr_main_uuid) {
-        // Promotion not needed
-        return;
-      }
-      auto const is_not_main = [instance_name](auto &&instance) { return instance.InstanceName() != instance_name; };
-      auto repl_clients_info = repl_instances_ | ranges::views::filter(is_not_main) |
-                               ranges::views::transform(&ReplicationInstanceConnector::GetReplicationClientInfo) |
-                               ranges::to<ReplicationClientsInfo>();
+  if (raft_state_->IsCurrentMain(instance_name)) {
+    // According to raft, this is the current MAIN
+    // Check if a promotion is needed:
+    //  - instance is actually a replica
+    //  - instance is main, but has stale state (missed a failover)
+    if (!instance_state->is_replica && instance_state->is_writing_enabled && instance_state->uuid &&
+        *instance_state->uuid == curr_main_uuid) {
+      // Promotion not needed
+      return;
+    }
+    auto const is_not_main = [instance_name](auto &&instance) { return instance.InstanceName() != instance_name; };
+    auto repl_clients_info = repl_instances_ | ranges::views::filter(is_not_main) |
+                             ranges::views::transform(&ReplicationInstanceConnector::GetReplicationClientInfo) |
+                             ranges::to<ReplicationClientsInfo>();
 
-      if (!instance.SendPromoteToMainRpc(curr_main_uuid, std::move(repl_clients_info))) {
-        spdlog::error("Failed to promote instance to main with new uuid {}. Trying to do failover again.",
-                      std::string{curr_main_uuid});
-        switch (TryFailover()) {
-          case FailoverStatus::SUCCESS: {
-            spdlog::trace("Failover successful after failing to promote main instance.");
-            break;
-          };
-          case FailoverStatus::NO_INSTANCE_ALIVE: {
-            spdlog::trace("Failover failed because no instance is alive.");
-            break;
-          };
-          case FailoverStatus::RAFT_FAILURE: {
-            spdlog::trace("Writing to Raft failed during failover.");
-            break;
-          };
+    if (!instance.SendPromoteToMainRpc(curr_main_uuid, std::move(repl_clients_info))) {
+      spdlog::error("Failed to promote instance to main with new uuid {}. Trying to do failover again.",
+                    std::string{curr_main_uuid});
+      switch (TryFailover()) {
+        case FailoverStatus::SUCCESS: {
+          spdlog::trace("Failover successful after failing to promote main instance.");
+          break;
         };
+        case FailoverStatus::NO_INSTANCE_ALIVE: {
+          spdlog::trace("Failover failed because no instance is alive.");
+          break;
+        };
+        case FailoverStatus::RAFT_FAILURE: {
+          spdlog::trace("Writing to Raft failed during failover.");
+          break;
+        };
+      };
+      return;
+    }
+  } else {
+    // According to raft, the instance should be replica
+    if (!instance_state->is_replica) {
+      // If instance is not replica, demote it to become replica. If request for demotion failed, return,
+      // and you will simply retry on the next ping.
+      if (!instance.SendDemoteToReplicaRpc()) {
+        spdlog::error("Couldn't demote instance {} to replica.", instance_name);
         return;
       }
-    } else {
-      // According to raft, the instance should be replica
-      if (!instance_state->is_replica) {
-        // If instance is not replica, demote it to become replica. If request for demotion failed, return,
-        // and you will simply retry on the next ping.
-        if (!instance.SendDemoteToReplicaRpc()) {
-          spdlog::error("Couldn't demote instance {} to replica.", instance_name);
-          return;
-        }
-      }
+    }
 
-      if (!instance_state->uuid || *instance_state->uuid != curr_main_uuid) {
-        if (!instance.SendSwapAndUpdateUUID(curr_main_uuid)) {
-          spdlog::error("Failed to set new uuid for replica instance {} to {}.", instance_name,
-                        std::string{curr_main_uuid});
-          return;
-        }
+    if (!instance_state->uuid || *instance_state->uuid != curr_main_uuid) {
+      if (!instance.SendSwapAndUpdateUUID(curr_main_uuid)) {
+        spdlog::error("Failed to set new uuid for replica instance {} to {}.", instance_name,
+                      std::string{curr_main_uuid});
+        return;
       }
     }
   }
@@ -959,34 +959,34 @@ void CoordinatorInstance::InstanceFailCallback(std::string_view instance_name,
   auto lock = std::unique_lock{coord_instance_lock_, std::defer_lock};
   if (!lock.try_lock_for(500ms)) {
     spdlog::trace("Failed to acquire lock in InstanceFailCallback in 500ms");
-  } else {
-    auto const maybe_instance = FindReplicationInstance(instance_name);
-    MG_ASSERT(maybe_instance.has_value(), "Couldn't find instance {} in local storage.", instance_name);
-    auto &instance = maybe_instance->get();
-
-    spdlog::trace("Instance {} performing fail callback in thread {}.", instance_name, std::this_thread::get_id());
-    instance.OnFailPing();
-
-    if (raft_state_->IsCurrentMain(instance_name) && !instance.IsAlive()) {
-      spdlog::trace("Cluster without main instance, trying failover.");
-      switch (TryFailover()) {
-        case FailoverStatus::SUCCESS: {
-          spdlog::trace("Failover successful after failing to promote main instance.");
-          break;
-        };
-        case FailoverStatus::NO_INSTANCE_ALIVE: {
-          spdlog::trace("Failover failed because no instance is alive.");
-          break;
-        };
-        case FailoverStatus::RAFT_FAILURE: {
-          spdlog::trace("Writing to Raft failed during failover.");
-          break;
-        };
-      };
-    }
-
-    spdlog::trace("Instance {} finished fail callback.", instance_name);
+    return;
   }
+  auto const maybe_instance = FindReplicationInstance(instance_name);
+  MG_ASSERT(maybe_instance.has_value(), "Couldn't find instance {} in local storage.", instance_name);
+  auto &instance = maybe_instance->get();
+
+  spdlog::trace("Instance {} performing fail callback in thread {}.", instance_name, std::this_thread::get_id());
+  instance.OnFailPing();
+
+  if (raft_state_->IsCurrentMain(instance_name) && !instance.IsAlive()) {
+    spdlog::trace("Cluster without main instance, trying failover.");
+    switch (TryFailover()) {
+      case FailoverStatus::SUCCESS: {
+        spdlog::trace("Failover successful after failing to promote main instance.");
+        break;
+      };
+      case FailoverStatus::NO_INSTANCE_ALIVE: {
+        spdlog::trace("Failover failed because no instance is alive.");
+        break;
+      };
+      case FailoverStatus::RAFT_FAILURE: {
+        spdlog::trace("Writing to Raft failed during failover.");
+        break;
+      };
+    };
+  }
+
+  spdlog::trace("Instance {} finished fail callback.", instance_name);
 }
 
 auto CoordinatorInstance::ChooseMostUpToDateInstance(std::span<InstanceNameDbHistories> instance_database_histories)
